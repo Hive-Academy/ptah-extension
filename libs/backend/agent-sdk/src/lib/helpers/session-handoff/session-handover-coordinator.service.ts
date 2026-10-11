@@ -93,6 +93,10 @@ type WaitingFor = NonNullable<SessionHandoverState['waitingFor']>;
 
 export type SessionHandoverListener = (state: SessionHandoverState) => void;
 
+function sameWaitingFor(a: WaitingFor | undefined, b: WaitingFor | undefined): boolean {
+  return a?.subagents === b?.subagents && a?.lanes === b?.lanes;
+}
+
 /** True while an operation still owns its source (not closed, failed or cancelled). */
 export function isInProgress(state: SessionHandoverState | undefined): boolean {
   return (
@@ -106,23 +110,31 @@ export function isInProgress(state: SessionHandoverState | undefined): boolean {
 interface Operation {
   readonly id: string;
   readonly sourceSessionId: string;
-  /** A waiting `budget-auto` op becomes `budget-limit` at the blocking limit. */
+  /** A parked agent request becomes `budget-limit` at the blocking limit. */
   reason: SessionHandoverReason;
+  /** Kept when a parked op is approved or converted. */
   readonly agentHandoff?: string;
   phase: SessionHandoverState['phase'];
   revision: number;
+  /** Held send inputs; never contains the draft. */
   readonly inputs: QueuedSessionInput[];
   error?: string;
   restored: boolean;
   lostInputCount: number;
   lostInputTexts: string[];
   successorTabId?: string;
-  /** Work an automatic handover waits for in `waiting-for-turn-end`. */
+  /** Work a user-started handover waits for in `waiting-for-turn-end`. */
   waitingFor?: WaitingFor;
-  /** When the gate first found work in flight; cleared once the wait ends. */
-  waitingSince?: number;
-  /** The user asked to go now mid-turn: the next terminal skips the work gate. */
+  /** Set only by `begin` (the user); `startConfirmed` requires it. */
   userConfirmed?: boolean;
+  /** "Continue now anyway" mid-turn: the next terminal skips the work gate. */
+  forced?: boolean;
+  /** An agent's request parked for the user's approval. */
+  requestedBy?: 'agent';
+  /** The user's captured composer text, apart from `inputs` (D24). */
+  draftText?: string;
+  /** The lane-status WARN was logged for this op. */
+  laneStatusWarned?: boolean;
 }
 
 const HELD_SOURCE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
@@ -134,14 +146,15 @@ const HELD_SOURCE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
   'closing',
 ]);
 
-/**
- * Longest an automatic handover waits for work in flight before it asks the
- * user instead. Matches `MAX_AGENT_WAIT_MS` in cli-agent-runtime
- * `agent-process-manager.service.ts`, the longest the main agent itself blocks
- * in `ptah_agent_wait`. Not imported: agent-sdk must not depend on
- * cli-agent-runtime. Checked only when a terminal arrives; no timer.
- */
-export const WORK_IN_FLIGHT_WAIT_LIMIT_MS = 900_000;
+/** Phases whose op takes a later begin's composer text as its draft. */
+const DRAFT_CAPTURE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
+  'waiting-for-turn-end',
+  'awaiting-confirmation',
+  'writing-handoff',
+  'starting-successor',
+  'successor-confirmed',
+]);
+
 export const HANDOFF_REQUEST_TIMEOUT_MS = 180_000;
 export const HANDOFF_REQUEST_PROMPT = [
   'Write a concise Markdown handoff for the next agent taking over this work.',
@@ -173,8 +186,6 @@ const LOST_INPUT_TEXT_TOTAL_LIMIT = 8_000;
 @injectable()
 export class SessionHandoverCoordinator {
   private readonly operations = new Map<string, Operation>();
-  /** A cancelled automatic handoff stays suppressed until the hard limit. */
-  private readonly cancelledAutomaticSources = new Set<string>();
   private readonly listeners = new Set<SessionHandoverListener>();
   private runtime: SessionHandoverRuntime | null = null;
   private resourceLeaseProvider: ((
@@ -230,152 +241,98 @@ export class SessionHandoverCoordinator {
     return this.successorHostResolver() !== null;
   }
 
-  /** External begin gate: an absent host must not arm or hold source input. */
+  /**
+   * The user's handover request (`session:beginHandover`), the only path that
+   * may start one: the only setter of `userConfirmed`. Waits for the turn and
+   * known work unless `continueNow`; a parked limit or agent op becomes the
+   * user's op (its `agentHandoff` kept). Composer text becomes the draft.
+   */
   begin(
     sourceSessionId: string,
     reason: SessionHandoverReason,
     turnInFlight: boolean,
     agentHandoff?: string,
+    options: { readonly continueNow?: boolean; readonly queuedInput?: string } = {},
   ): BeginSessionHandoverResult {
-    if (!this.successorHostResolver()) {
-      return { accepted: false, error: 'unavailable' };
+    const refused = this.refusal(sourceSessionId);
+    if (refused) return refused;
+    const existing = this.operations.get(sourceSessionId);
+    const live = existing && !this.isRestartable(existing) ? existing : undefined;
+    const operation = live ?? this.createOperation(sourceSessionId, reason, agentHandoff);
+    const draftCaptured = this.captureDraft(operation, options.queuedInput);
+    if (live && !this.isUserGatable(live)) {
+      // Already writing or starting: a repeat click changes nothing else.
+      return { accepted: true, state: draftCaptured ? this.bump(live) : this.snapshot(live) };
     }
-    // A source that no longer exists can never be handed over; refuse before
-    // an operation is created so the caller can fall back at once.
-    if (this.runtime && !this.runtime.sourceSnapshot(sourceSessionId)) {
-      return { accepted: false, error: 'source-unavailable' };
+    const changed =
+      !live || draftCaptured || !operation.userConfirmed || operation.requestedBy !== undefined;
+    operation.userConfirmed = true;
+    operation.requestedBy = undefined;
+    if (options.continueNow) {
+      if (!turnInFlight) return { accepted: true, state: this.startConfirmed(operation) };
+      operation.forced = true;
     }
-    const state = this.request(sourceSessionId, reason, turnInFlight, agentHandoff);
-    if (!turnInFlight && reason === 'successor') {
-      const operation = this.operations.get(sourceSessionId);
-      if (operation?.phase === 'armed') this.confirmSuccessor(operation);
-    }
-    return {
-      accepted: true,
-      state,
-    };
+    return { accepted: true, state: this.gate(operation, turnInFlight, changed) };
   }
 
-  request(
-    sourceSessionId: string,
-    reason: SessionHandoverReason,
-    turnInFlight: boolean,
-    agentHandoff?: string,
-  ): SessionHandoverState {
+  /**
+   * An agent's successor request (D23): parks it for the user's approval.
+   * Never confirms, gates or starts; a live op is returned unchanged.
+   */
+  requestFromAgent(sourceSessionId: string, agentHandoff?: string): BeginSessionHandoverResult {
+    const refused = this.refusal(sourceSessionId);
+    if (refused) return refused;
     const existing = this.operations.get(sourceSessionId);
     if (existing && !this.isRestartable(existing)) {
-      if (reason === 'successor' && existing.reason !== 'successor') {
-        this.confirmBudgetOperation(existing, turnInFlight);
-      }
-      return this.snapshot(existing);
+      return { accepted: true, state: this.snapshot(existing) };
     }
-    const operation: Operation = {
-      id: crypto.randomUUID(),
-      sourceSessionId,
-      reason,
-      ...(agentHandoff ? { agentHandoff } : {}),
-      phase: turnInFlight ? 'waiting-for-turn-end' : 'armed',
-      revision: 1,
-      inputs: [],
-      restored: false,
-      lostInputCount: 0,
-      lostInputTexts: [],
-    };
-    this.operations.set(sourceSessionId, operation);
-    return this.publish(operation);
+    const operation = this.createOperation(sourceSessionId, 'successor', agentHandoff);
+    operation.phase = 'awaiting-confirmation';
+    operation.requestedBy = 'agent';
+    this.logger?.info(`[SessionHandover] Agent requested a successor for ${sourceSessionId}`, { operationId: operation.id });
+    return { accepted: true, state: this.publish(operation) };
   }
 
+  /**
+   * Turn terminal (and the post-result blocking limit). Parks `budget-limit`
+   * at the blocking limit, converts a parked agent request there, re-gates a
+   * user-confirmed wait, and holds queued inputs only for a holding op.
+   * Creates nothing else and never starts an op the user did not confirm.
+   */
   armAtTerminal(
     sourceSessionId: string,
     atBlockingLimit: boolean,
     queuedInputs: QueuedSessionInput[],
-    atHandoffStage = false,
   ): SessionHandoverState | undefined {
-    let operation = this.operations.get(sourceSessionId);
-    if (atBlockingLimit) this.cancelledAutomaticSources.delete(sourceSessionId);
-    if (
-      !atBlockingLimit &&
-      atHandoffStage &&
-      this.cancelledAutomaticSources.has(sourceSessionId)
-    ) {
-      return operation ? this.snapshot(operation) : undefined;
+    const existing = this.operations.get(sourceSessionId);
+    let operation = existing && !this.isRestartable(existing) ? existing : undefined;
+    let changed = false;
+    if (!operation) {
+      if (!atBlockingLimit) return undefined;
+      operation = this.createOperation(sourceSessionId, 'budget-limit');
+      operation.phase = 'awaiting-confirmation';
+      changed = true;
+    } else if (atBlockingLimit && this.isAgentRequest(operation)) {
+      // Sends are refused at the blocking limit: the request becomes the
+      // holding limit park so queued inputs cannot drain past the limit.
+      operation.reason = 'budget-limit';
+      operation.requestedBy = undefined;
+      changed = true;
     }
-    if ((!operation || this.isRestartable(operation)) && !atBlockingLimit && !atHandoffStage) {
-      return undefined;
-    }
-    const live = operation && !this.isRestartable(operation) ? operation : undefined;
-    // The blocking limit is never gated (the user confirms): a waiting
-    // automatic op becomes the limit op in place, keeping its id.
-    if (
-      atBlockingLimit &&
-      live?.reason === 'budget-auto' &&
-      live.phase === 'waiting-for-turn-end'
-    ) {
-      live.reason = 'budget-limit';
-      live.waitingFor = undefined;
-      live.waitingSince = undefined;
-      live.revision += 1;
-    }
-    const reason = live?.reason ?? (atBlockingLimit ? 'budget-limit' : 'budget-auto');
-    let waitLimitReached = false;
-    // Work-in-flight gate: an automatic handover waits for running subagents
-    // and lanes. Inputs are not held in `waiting-for-turn-end`, so their
-    // completion turns run on the source and re-arm here at their terminal.
-    if (
-      reason === 'budget-auto' &&
-      !atBlockingLimit &&
-      (!live || live.phase === 'waiting-for-turn-end') &&
-      !live?.userConfirmed
-    ) {
-      const waitingFor = this.workInFlight(sourceSessionId);
-      if (waitingFor) {
-        const now = Date.now();
-        const elapsedMs = live?.waitingSince === undefined ? 0 : now - live.waitingSince;
-        if (live && elapsedMs >= WORK_IN_FLIGHT_WAIT_LIMIT_MS) {
-          // Leaked or very long work: ask the user rather than wait forever
-          // or cut running work off without a click.
-          this.logger?.warn('[SessionHandover] Work-in-flight wait limit reached; asking the user', { operationId: live.id, waitingFor, elapsedMs });
-          waitLimitReached = true;
-        } else {
-          const waiting =
-            live ?? this.createBudgetOperation(sourceSessionId, 'budget-auto', 'waiting-for-turn-end');
-          if (live) live.revision += 1;
-          waiting.waitingFor = waitingFor;
-          waiting.waitingSince ??= now;
-          return this.publish(waiting);
-        }
+    if (operation.userConfirmed && operation.phase === 'waiting-for-turn-end') {
+      const waitingFor = operation.forced ? undefined : this.workInFlight(operation);
+      if (!waitingFor) {
+        const started = this.startConfirmed(operation);
+        // The started op holds the source: queued inputs go to the successor.
+        return this.holdQueued(operation, queuedInputs) ? this.bump(operation) : started;
+      }
+      if (!sameWaitingFor(operation.waitingFor, waitingFor)) {
+        operation.waitingFor = waitingFor;
+        changed = true;
       }
     }
-    operation = live ?? this.createBudgetOperation(sourceSessionId, reason);
-    if (operation.phase === 'waiting-for-turn-end') {
-      operation.phase = 'armed';
-      operation.waitingFor = undefined;
-      operation.waitingSince = undefined;
-      operation.revision += 1;
-    }
-    if (
-      operation.phase === 'armed' &&
-      (operation.reason === 'budget-limit' || waitLimitReached) &&
-      !operation.userConfirmed
-    ) {
-      operation.phase = 'awaiting-confirmation';
-      operation.revision += 1;
-    }
-    if (HELD_SOURCE_PHASES.has(operation.phase) && queuedInputs.length > 0) {
-      operation.inputs.push(...queuedInputs.splice(0));
-      operation.revision += 1;
-    }
-    const state = this.publish(operation);
-    if (operation.reason === 'successor' && operation.phase === 'armed') {
-      this.confirmSuccessor(operation);
-    }
-    if (
-      operation.phase === 'armed' &&
-      (operation.reason === 'budget-auto' || operation.userConfirmed)
-    ) {
-      this.startAutomatic(operation);
-    }
-    return state;
+    if (this.holdQueued(operation, queuedInputs)) changed = true;
+    return changed ? this.bump(operation) : this.snapshot(operation);
   }
 
   admitOrHold(
@@ -383,39 +340,20 @@ export class SessionHandoverCoordinator {
     input: QueuedSessionInput,
   ): HandoverAdmission {
     const operation = this.operations.get(sourceSessionId);
-    if (!operation || !HELD_SOURCE_PHASES.has(operation.phase)) {
+    if (!operation || !this.holdsSource(operation)) {
       return { held: false };
     }
     operation.inputs.push(input);
-    operation.revision += 1;
-    this.publish(operation);
+    this.bump(operation);
     return { held: true, operationId: operation.id };
   }
 
+  /** Stop is held only while the op holds the source (627-L6). */
   admitInterrupt(sourceSessionId: string): HandoverAdmission {
     const operation = this.operations.get(sourceSessionId);
-    return operation && !this.isRestartable(operation)
+    return operation && this.holdsSource(operation)
       ? { held: true, operationId: operation.id }
       : { held: false };
-  }
-
-  confirm(
-    sourceSessionId: string,
-    operationId: string,
-  ): SessionHandoverState | undefined {
-    const operation = this.operations.get(sourceSessionId);
-    if (
-      !operation ||
-      operation.id !== operationId ||
-      operation.phase !== 'awaiting-confirmation'
-    ) {
-      return undefined;
-    }
-    operation.phase = 'writing-handoff';
-    operation.revision += 1;
-    const state = this.publish(operation);
-    void this.complete(operation);
-    return state;
   }
 
   cancel(
@@ -431,10 +369,8 @@ export class SessionHandoverCoordinator {
       return undefined;
     }
     operation.phase = 'cancelled';
+    operation.waitingFor = undefined;
     operation.revision += 1;
-    if (operation.reason === 'budget-auto') {
-      this.cancelledAutomaticSources.add(sourceSessionId);
-    }
     this.restore(operation);
     this.publish(operation);
     return [...operation.inputs];
@@ -449,16 +385,31 @@ export class SessionHandoverCoordinator {
     return operation ? this.snapshot(operation) : undefined;
   }
 
-  private createBudgetOperation(
+  /** The guards of `begin` and `requestFromAgent`: no host, or no source. */
+  private refusal(sourceSessionId: string): BeginSessionHandoverResult | undefined {
+    if (!this.successorHostResolver()) {
+      return { accepted: false, error: 'unavailable' };
+    }
+    // A source that no longer exists can never be handed over; refuse before
+    // an operation is created so the caller can fall back at once.
+    if (this.runtime && !this.runtime.sourceSnapshot(sourceSessionId)) {
+      return { accepted: false, error: 'source-unavailable' };
+    }
+    return undefined;
+  }
+
+  /** Registers an unpublished op; the caller sets its phase and publishes. */
+  private createOperation(
     sourceSessionId: string,
     reason: SessionHandoverReason,
-    phase: 'armed' | 'waiting-for-turn-end' = 'armed',
+    agentHandoff?: string,
   ): Operation {
     const operation: Operation = {
       id: crypto.randomUUID(),
       sourceSessionId,
       reason,
-      phase,
+      ...(agentHandoff ? { agentHandoff } : {}),
+      phase: 'waiting-for-turn-end',
       revision: 1,
       inputs: [],
       restored: false,
@@ -469,59 +420,84 @@ export class SessionHandoverCoordinator {
     return operation;
   }
 
-  /**
-   * One click on a budget banner means "go now": start from
-   * `awaiting-confirmation` or an idle `waiting-for-turn-end`, skipping the
-   * work gate. Mid-turn, remember the choice so the next terminal starts.
-   */
-  private confirmBudgetOperation(operation: Operation, turnInFlight: boolean): void {
-    if (operation.phase === 'awaiting-confirmation') {
-      this.transition(operation, 'writing-handoff');
-      void this.complete(operation);
-      return;
+  /** Stores composer text as the draft, a second capture after a blank line. */
+  private captureDraft(operation: Operation, text: string | undefined): boolean {
+    if (!text?.trim()) return false;
+    if (!DRAFT_CAPTURE_PHASES.has(operation.phase)) {
+      this.logger?.warn('[SessionHandover] Draft not captured; the handover is closing', { operationId: operation.id });
+      return false;
     }
-    if (operation.phase !== 'waiting-for-turn-end') return;
-    if (turnInFlight) {
-      operation.userConfirmed = true;
-      return;
-    }
-    operation.waitingFor = undefined;
-    operation.waitingSince = undefined;
-    this.transition(operation, 'writing-handoff');
-    void this.complete(operation);
+    operation.draftText = operation.draftText ? `${operation.draftText}\n\n${text}` : text;
+    return true;
+  }
+
+  /** Phases in which the user's begin runs the work gate. */
+  private isUserGatable(operation: Operation): boolean {
+    return (
+      operation.phase === 'waiting-for-turn-end' ||
+      operation.phase === 'awaiting-confirmation'
+    );
+  }
+
+  /** Waits in `waiting-for-turn-end` for the turn and known work, or starts. */
+  private gate(operation: Operation, turnInFlight: boolean, changed: boolean): SessionHandoverState {
+    const waitingFor = operation.forced ? undefined : this.workInFlight(operation);
+    if (!turnInFlight && !waitingFor) return this.startConfirmed(operation);
+    const moved = operation.phase !== 'waiting-for-turn-end';
+    const refreshed = !sameWaitingFor(operation.waitingFor, waitingFor);
+    operation.phase = 'waiting-for-turn-end';
+    operation.waitingFor = waitingFor;
+    return changed || moved || refreshed ? this.bump(operation) : this.snapshot(operation);
   }
 
   /** Subagents and lanes still working for the source; undefined when none. */
-  private workInFlight(sourceSessionId: string): WaitingFor | undefined {
+  private workInFlight(operation: Operation): WaitingFor | undefined {
+    const { sourceSessionId } = operation;
     const subagents = this.runtime?.subagentsInFlight(sourceSessionId) ?? 0;
-    let lanes = 0;
+    let lanes: number | null = 0;
     if (this.laneWorkProvider) {
       const tabId = this.runtime?.sourceSnapshot(sourceSessionId)?.tabId ?? sourceSessionId;
       try {
         lanes = this.laneWorkProvider({ sessionId: sourceSessionId, tabId });
       } catch (error: unknown) {
-        // Fail open toward rotating (lanes stay 0): held inputs move to the
-        // successor, so an unreadable lane count must not block the source.
-        const reason = error instanceof Error ? error.message : String(error);
-        this.logger?.warn('[SessionHandover] Lane work provider failed; counting 0 lanes', { sourceSessionId, error: reason });
+        // Unknown counts as work (D25): the wait never ends on an unreadable
+        // lane count; the user can always continue now.
+        lanes = null;
+        if (!operation.laneStatusWarned) {
+          operation.laneStatusWarned = true;
+          const reason = error instanceof Error ? error.message : String(error);
+          this.logger?.warn('[SessionHandover] Lane work provider failed; lane status unknown', { sourceSessionId, operationId: operation.id, error: reason });
+        }
       }
     }
-    return subagents > 0 || lanes > 0 ? { subagents, lanes } : undefined;
+    return subagents > 0 || lanes === null || lanes > 0 ? { subagents, lanes } : undefined;
   }
 
-  private confirmSuccessor(operation: Operation): void {
-    if (operation.phase !== 'armed') return;
-    operation.phase = 'awaiting-confirmation';
-    operation.revision += 1;
-    this.publish(operation);
-    this.transition(operation, 'writing-handoff');
-    void this.complete(operation);
+  /** Moves queued inputs into a holding op; true when any moved. */
+  private holdQueued(operation: Operation, queuedInputs: QueuedSessionInput[]): boolean {
+    if (!this.holdsSource(operation) || queuedInputs.length === 0) return false;
+    operation.inputs.push(...queuedInputs.splice(0));
+    return true;
   }
 
-  private startAutomatic(operation: Operation): void {
-    if (operation.phase !== 'armed') return;
+  /** The one hold predicate (Decision 6): an agent request holds nothing. */
+  private holdsSource(operation: Operation): boolean {
+    return HELD_SOURCE_PHASES.has(operation.phase) && !this.isAgentRequest(operation);
+  }
+
+  private isAgentRequest(operation: Operation): boolean {
+    return operation.phase === 'awaiting-confirmation' && operation.requestedBy === 'agent';
+  }
+
+  /** The only caller of `complete()`; acts only on a user-confirmed op. */
+  private startConfirmed(operation: Operation): SessionHandoverState {
+    if (!operation.userConfirmed) return this.snapshot(operation);
+    operation.waitingFor = undefined;
+    operation.forced = undefined;
     this.transition(operation, 'writing-handoff');
+    const state = this.snapshot(operation);
     void this.complete(operation);
+    return state;
   }
 
   private async complete(operation: Operation): Promise<void> {
@@ -588,11 +564,19 @@ export class SessionHandoverCoordinator {
 
       this.transition(operation, 'successor-confirmed');
       const deliveredInputs: QueuedSessionInput[] = [];
+      let deliveredDraftLength = 0;
       do {
         const transferInputs = [...operation.inputs];
+        // The draft rides last in the first batch, as one input that waits
+        // for the successor to be idle; a later capture rides the next batch.
+        const draftLength = operation.draftText?.length ?? 0;
+        const pending = operation.draftText?.slice(deliveredDraftLength);
+        const draft = deliveredDraftLength > 0 ? pending?.replace(/^\n\n/, '') : pending;
         const delivered = await successorHost.deliverTransferInputs(
           operation.id,
-          transferInputs,
+          draft
+            ? [...transferInputs, { content: draft, admission: 'require-idle' }]
+            : transferInputs,
         );
         if (!this.isActive(operation)) {
           await successorHost.stopSuccessorSession?.(operation.id);
@@ -607,9 +591,15 @@ export class SessionHandoverCoordinator {
         }
         operation.inputs.splice(0, transferInputs.length);
         deliveredInputs.push(...transferInputs);
+        deliveredDraftLength = draftLength;
         operation.revision += 1;
         this.publish(operation);
-      } while (operation.inputs.length > 0);
+      } while (
+        operation.inputs.length > 0 ||
+        (operation.draftText?.length ?? 0) > deliveredDraftLength
+      );
+      // Delivered: a failure from here on has no draft to return.
+      operation.draftText = undefined;
       this.transition(operation, 'closing');
       const closed = await runtime.closeIfTokenMatches(
         operation.sourceSessionId,
@@ -700,10 +690,8 @@ export class SessionHandoverCoordinator {
 
   private fail(operation: Operation, error: string): void {
     if (this.operations.get(operation.sourceSessionId) !== operation) return;
-    if (operation.reason === 'budget-auto') {
-      this.cancelledAutomaticSources.add(operation.sourceSessionId);
-    }
     operation.phase = 'failed';
+    operation.waitingFor = undefined;
     operation.error = error;
     operation.revision += 1;
     this.restore(operation);
@@ -724,6 +712,7 @@ export class SessionHandoverCoordinator {
       return;
     }
     operation.phase = 'failed';
+    operation.waitingFor = undefined;
     operation.error = `source session ended: ${reason}`;
     operation.revision += 1;
     operation.lostInputCount = operation.inputs.length;
@@ -806,10 +795,16 @@ export class SessionHandoverCoordinator {
     );
   }
 
+  /** Bumps the revision and publishes. */
+  private bump(operation: Operation): SessionHandoverState {
+    operation.revision += 1;
+    return this.publish(operation);
+  }
+
   private publish(operation: Operation): SessionHandoverState {
     const state = this.snapshot(operation);
-    const { operationId, reason, phase, heldInputCount, waitingFor, error } = state;
-    this.logger?.info('[SessionHandover] State published', { operationId, reason, phase, heldInputCount, waitingFor, error });
+    const { operationId, reason, phase, heldInputCount, waitingFor, requestedBy, error } = state;
+    this.logger?.info('[SessionHandover] State published', { operationId, reason, phase, heldInputCount, waitingFor, requestedBy, error });
     for (const listener of this.listeners) listener(state);
     return state;
   }
@@ -824,6 +819,11 @@ export class SessionHandoverCoordinator {
       heldInputCount: operation.inputs.length,
       ...(operation.successorTabId ? { successorTabId: operation.successorTabId } : {}),
       ...(operation.waitingFor ? { waitingFor: { ...operation.waitingFor } } : {}),
+      ...(operation.requestedBy ? { requestedBy: operation.requestedBy } : {}),
+      ...(operation.draftText &&
+      (operation.phase === 'cancelled' || operation.phase === 'failed')
+        ? { draftText: operation.draftText }
+        : {}),
       ...(operation.lostInputCount > 0
         ? {
             lostInputCount: operation.lostInputCount,

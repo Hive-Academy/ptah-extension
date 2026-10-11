@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 11/20
+Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 12/20
 
 Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
 completion below; see "Phase 4" at the end of this file.
@@ -1053,7 +1053,7 @@ approved plan folds into B1 and spec S9 asserts (`waitingFor` cleared on cancel)
 task — L7 (re-measured in Task 9.2), L18 (a skipped park after a throwing `inner` is harmless). All
 other rows stay as recorded.
 
-## Batch 9: Coordinator user-only start, lifecycle and adapter result path (S1-part, B1, B2-part) — IN_PROGRESS
+## Batch 9: Coordinator user-only start, lifecycle and adapter result path (S1-part, B1, B2-part) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -1064,7 +1064,7 @@ other rows stay as recorded.
 - Phase: 4 (User-authorized handover) | Phase review: code-logic (cross-side CLI lane) plus style on
   the new public API, on the combined Batch 9-17 diff
 
-### Task 9.1: Shared handover contract — IN_PROGRESS
+### Task 9.1: Shared handover contract — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-handover.types.ts`
 - Plan reference: implementation-plan-v2-user-authorized.md:178-191 (Decision 3), :308-313 (S1)
@@ -1080,7 +1080,7 @@ other rows stay as recorded.
   the chat project is not checked in this batch.
 - Implementation details: type-only edits.
 
-### Task 9.2: `SessionHandoverCoordinator` — one setter, one gate, the draft slot — IN_PROGRESS
+### Task 9.2: `SessionHandoverCoordinator` — one setter, one gate, the draft slot — COMPLETE
 
 - Depends on: Task 9.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
@@ -1116,7 +1116,7 @@ other rows stay as recorded.
 - Implementation details: `Operation` gains `draftText?`, `requestedBy?`, `forced?`; `agentHandoff`
   stays readonly (the parked op keeps it).
 
-### Task 9.3: Lifecycle arms nothing; adapter parks only the blocking limit after a result — IN_PROGRESS
+### Task 9.3: Lifecycle arms nothing; adapter parks only the blocking limit after a result — COMPLETE
 
 - Depends on: Task 9.2
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`

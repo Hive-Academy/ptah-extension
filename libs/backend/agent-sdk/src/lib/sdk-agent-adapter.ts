@@ -1820,14 +1820,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
         // `null` is the explicit no-state marker.
         inner(budget === undefined ? stats : { ...stats, budget });
       }
-      // R2: the result lands after the turn terminal armed the handover, so a
-      // stage it moved is armed here (a no-op mid-turn or when already armed).
-      if (budget?.stage === 'handoff' || budget?.stage === 'limit') {
+      // R2: the result lands after the turn terminal, so a blocking limit it
+      // made authoritative parks the limit handover here (the user's click
+      // starts it). Nothing else is armed after a result.
+      if (budget?.blocked === true) {
         try {
-          this.sessionLifecycle.armHandoverIfIdle(sessionId);
+          this.sessionLifecycle.parkLimitHandoverIfIdle(sessionId);
         } catch (error: unknown) {
           this.logger.warn(
-            `[SdkAgentAdapter] Could not arm the budget handover for ${sessionId}`,
+            `[SdkAgentAdapter] Could not park the budget limit handover for ${sessionId}`,
             error instanceof Error ? error : new Error(String(error)),
           );
         }

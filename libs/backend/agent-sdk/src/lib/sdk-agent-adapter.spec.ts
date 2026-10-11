@@ -209,7 +209,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'interruptCurrentTurn'
     | 'markTurnEnded'
     | 'onTurnTerminal'
-    | 'armHandoverIfIdle'
+    | 'parkLimitHandoverIfIdle'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
     | 'getSessionToken'
@@ -234,7 +234,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     markTurnEnded: jest.fn().mockReturnValue(true),
     onTurnTerminal: jest.fn(),
-    armHandoverIfIdle: jest.fn(),
+    parkLimitHandoverIfIdle: jest.fn(),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     getSessionToken: jest.fn().mockReturnValue(null),
@@ -2590,13 +2590,35 @@ describe('SdkAgentAdapter', () => {
       expect(h.sessionBudget.observe.mock.calls[0][0]).toBe(snapshot);
     });
 
-    // R2: the result arrives after the turn terminal already armed.
+    // R2: the result arrives after the turn terminal; only a blocking limit
+    // it made authoritative parks the limit handover (D22).
+    it('parks the limit handover after a blocking result, after the broadcast (S3, S16)', async () => {
+      const h = makeAdapter();
+      const onStats = jest.fn();
+      const arg = await startNewSession(h, onStats);
+      h.sessionBudget.observe.mockReturnValueOnce({
+        ...budgetFor(REAL_ID),
+        stage: 'limit',
+        blocked: true,
+      });
+
+      (arg.onResultStats as ResultStatsCallback)(
+        resultStats(snapshotFor(REAL_ID)),
+      );
+
+      expect(h.sessionLifecycle.parkLimitHandoverIfIdle).toHaveBeenCalledWith(
+        'tab_1',
+      );
+      expect(onStats.mock.invocationCallOrder[0]).toBeLessThan(
+        h.sessionLifecycle.parkLimitHandoverIfIdle.mock.invocationCallOrder[0],
+      );
+    });
+
     it.each(['handoff', 'limit'] as const)(
-      'arms an idle handover after a result at the %s stage, after the broadcast',
+      'parks nothing after a non-blocking result at the %s stage (S3)',
       async (stage) => {
         const h = makeAdapter();
-        const onStats = jest.fn();
-        const arg = await startNewSession(h, onStats);
+        const arg = await startNewSession(h);
         h.sessionBudget.observe.mockReturnValueOnce({
           ...budgetFor(REAL_ID),
           stage,
@@ -2606,16 +2628,11 @@ describe('SdkAgentAdapter', () => {
           resultStats(snapshotFor(REAL_ID)),
         );
 
-        expect(h.sessionLifecycle.armHandoverIfIdle).toHaveBeenCalledWith(
-          'tab_1',
-        );
-        expect(onStats.mock.invocationCallOrder[0]).toBeLessThan(
-          h.sessionLifecycle.armHandoverIfIdle.mock.invocationCallOrder[0],
-        );
+        expect(h.sessionLifecycle.parkLimitHandoverIfIdle).not.toHaveBeenCalled();
       },
     );
 
-    it('does not arm below the handoff stage or without a budget state', async () => {
+    it('parks nothing below the handoff stage or without a budget state', async () => {
       const h = makeAdapter();
       const arg = await startNewSession(h);
       h.sessionBudget.observe.mockReturnValueOnce(budgetFor(REAL_ID));
@@ -2625,19 +2642,20 @@ describe('SdkAgentAdapter', () => {
       );
       (arg.onResultStats as ResultStatsCallback)(resultStats());
 
-      expect(h.sessionLifecycle.armHandoverIfIdle).not.toHaveBeenCalled();
+      expect(h.sessionLifecycle.parkLimitHandoverIfIdle).not.toHaveBeenCalled();
     });
 
-    it('never lets a throwing arm escape the result callback', async () => {
+    it('never lets a throwing park escape the result callback', async () => {
       const h = makeAdapter();
       const onStats = jest.fn();
       const arg = await startNewSession(h, onStats);
       h.sessionBudget.observe.mockReturnValueOnce({
         ...budgetFor(REAL_ID),
-        stage: 'handoff',
+        stage: 'limit',
+        blocked: true,
       });
-      h.sessionLifecycle.armHandoverIfIdle.mockImplementationOnce(() => {
-        throw new Error('arm failed');
+      h.sessionLifecycle.parkLimitHandoverIfIdle.mockImplementationOnce(() => {
+        throw new Error('park failed');
       });
 
       expect(() =>
@@ -2648,7 +2666,7 @@ describe('SdkAgentAdapter', () => {
       expect(onStats).toHaveBeenCalledTimes(1);
       expect(
         h.logger.warn.mock.calls.some((call) =>
-          String(call[0]).includes('Could not arm the budget handover'),
+          String(call[0]).includes('Could not park the budget limit handover'),
         ),
       ).toBe(true);
     });

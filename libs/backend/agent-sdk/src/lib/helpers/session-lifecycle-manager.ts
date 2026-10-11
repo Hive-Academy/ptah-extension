@@ -510,7 +510,10 @@ export class SessionLifecycleManager {
     this.watchCompactionThreshold();
   }
 
-  /** Arm a handover before waking a held source queue. */
+  /**
+   * At a turn's end, before waking a held source queue: park the blocking
+   * limit, or advance a handover the user confirmed. Arms nothing on a stage.
+   */
   onTurnTerminal(
     sessionId: SessionId,
     atBlockingLimit: boolean = this.isAtBlockingLimit(sessionId),
@@ -522,42 +525,29 @@ export class SessionLifecycleManager {
         this.handoverKey(sessionId),
         atBlockingLimit,
         rec.messageQueue,
-        this.sessionBudget?.stageFor(budgetSessionId) === 'handoff',
       );
     }
-    // After arming, which read the turn's estimate: it must not outlive the
-    // turn, nor may its pending notices reach the next one.
+    // After the coordinator: the turn's estimate must not outlive the turn,
+    // nor may its pending notices reach the next one.
     this.sessionBudget?.onTurnTerminal(budgetSessionId);
     this._registry.markTurnEnded(sessionId as string);
   }
 
   /**
-   * Arm a handover for an idle source whose budget stage moved after its
-   * turn already ended. Same arguments as `onTurnTerminal`, but the turn
-   * state is left alone. A no-op mid-turn: that turn's terminal arms instead.
+   * Park the limit handover for an idle source whose blocking limit became
+   * authoritative only on the turn's result, after its terminal. Same path
+   * as the terminal, so a parked agent request converts here too. A no-op
+   * mid-turn (that turn's terminal parks) or below the blocking limit.
    */
-  armHandoverIfIdle(sessionId: SessionId): void {
+  parkLimitHandoverIfIdle(sessionId: SessionId): void {
     const rec = this._registry.find(sessionId as string);
     if (!rec || rec.turnInFlight || !this.handoverCoordinator) return;
-    const budgetSessionId = rec.realSessionId ?? (sessionId as string);
+    if (!this.isAtBlockingLimit(sessionId)) return;
     this.handoverCoordinator.armAtTerminal(
       this.handoverKey(sessionId),
-      this.isAtBlockingLimit(sessionId),
+      true,
       rec.messageQueue,
-      this.atHandoffOrLimitStage(budgetSessionId),
     );
-  }
-
-  /**
-   * At the handoff stage or past it, for the post-result path only. Here the
-   * live estimate is already cleared, so `limit` is authoritative and counts.
-   * `onTurnTerminal` checks `handoff` alone: there the stage may still be a
-   * live `limit`, which must wait for the result so a blocking limit arms
-   * `budget-limit` (the user's click) instead of an automatic rotation.
-   */
-  private atHandoffOrLimitStage(budgetSessionId: string): boolean {
-    const stage = this.sessionBudget?.stageFor(budgetSessionId);
-    return stage === 'handoff' || stage === 'limit';
   }
 
   /**

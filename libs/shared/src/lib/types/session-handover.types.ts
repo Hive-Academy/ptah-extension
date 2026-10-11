@@ -1,5 +1,9 @@
-/** Shared session handover contract. Transport never exposes queued inputs. */
-export type SessionHandoverReason = 'budget-limit' | 'budget-auto' | 'successor';
+/**
+ * Shared session handover contract. Transport never exposes queued inputs.
+ * One exception: `draftText` returns the user's own captured composer text in
+ * a terminal phase (`cancelled`/`failed`) so the composer can show it again.
+ */
+export type SessionHandoverReason = 'budget-limit' | 'successor';
 
 export type SessionHandoverPhase =
   | 'waiting-for-turn-end'
@@ -29,13 +33,21 @@ export interface SessionHandoverState {
   /** Bounded source texts that could not be restored after the source ended. */
   readonly lostInputTexts?: readonly string[];
   /**
-   * Work still running on the source while an automatic handover waits in
-   * `waiting-for-turn-end`: in-flight subagents and CLI agent lanes.
+   * Work still running on the source while a user-started handover waits in
+   * `waiting-for-turn-end`: in-flight subagents and CLI agent lanes. `lanes`
+   * is `null` when the lane status is unknown (the lane provider failed).
    */
   readonly waitingFor?: {
     readonly subagents: number;
-    readonly lanes: number;
+    readonly lanes: number | null;
   };
+  /** Present while the operation is an agent's request awaiting the user's approval. */
+  readonly requestedBy?: 'agent';
+  /**
+   * The user's own composer text captured with the handover request. Published
+   * only in `cancelled`/`failed`, so it can return to the composer as a draft.
+   */
+  readonly draftText?: string;
   readonly error?: string;
 }
 
@@ -51,8 +63,14 @@ export interface BeginSessionHandoverParams {
   readonly sourceSessionId: string;
   readonly sourceTabId: string;
   readonly handoff?: string;
-  /** Composer text captured with the explicit handover request. */
+  /**
+   * Composer text captured with the explicit handover request. It becomes the
+   * operation's draft: delivered to the successor on success, returned as
+   * `draftText` on cancel or failure, never sent to the source.
+   */
   readonly queuedInput?: string;
+  /** Skip the work-in-flight wait ("Continue now anyway"). */
+  readonly continueNow?: boolean;
 }
 
 /** Frontend acknowledgement after it bound and focused a successor tab. */

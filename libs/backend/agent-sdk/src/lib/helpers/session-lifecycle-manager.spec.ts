@@ -64,9 +64,10 @@ import type {
 } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
 import type { IModelResolver } from '../auth-env.port';
-import type {
+import {
   SessionHandoverCoordinator,
-  SessionHandoverRuntime,
+  type SessionHandoverRuntime,
+  type SessionSuccessorHost,
 } from './session-handoff/session-handover-coordinator.service';
 import type { SessionBudgetService } from './session-budget/session-budget.service';
 import type {
@@ -791,7 +792,7 @@ describe('SessionLifecycleManager', () => {
       } as unknown as SessionHandoverCoordinator;
       const budget = {
         canSend: jest.fn().mockReturnValue({ ok: false }),
-        stageFor: jest.fn().mockReturnValue('handoff'),
+        stageFor: jest.fn().mockReturnValue('limit'),
         onTurnTerminal: jest.fn(),
       } as unknown as SessionBudgetService;
       const handoverHarness = makeHarness({
@@ -810,16 +811,17 @@ describe('SessionLifecycleManager', () => {
       handoverHarness.manager.onTurnTerminal(tabId);
 
       expect(budget.canSend).toHaveBeenCalledWith(realSessionId);
-      expect(budget.stageFor).toHaveBeenCalledWith(realSessionId);
+      // The stage is no longer read at the terminal: nothing arms on it.
+      expect(budget.stageFor).not.toHaveBeenCalled();
       expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
         realSessionId,
         true,
         expect.any(Array),
-        true,
       );
+      expect((coordinator.armAtTerminal as jest.Mock).mock.calls[0]).toHaveLength(3);
     });
 
-    it('arms a real-SDK-id handover when turn completion arrives with the tab id', async () => {
+    it('addresses a real-SDK-id handover when turn completion arrives with the tab id', async () => {
       const coordinator = {
         attachRuntime: jest.fn(),
         armAtTerminal: jest.fn(),
@@ -841,12 +843,11 @@ describe('SessionLifecycleManager', () => {
         realSessionId,
         false,
         expect.any(Array),
-        false,
       );
     });
   });
 
-  describe('handover runtime: subagentsInFlight and armHandoverIfIdle', () => {
+  describe('handover runtime: subagentsInFlight and parkLimitHandoverIfIdle', () => {
     const tabId = 'tab_runtime' as SessionId;
     const realSessionId = 'sdk_runtime';
 
@@ -913,8 +914,9 @@ describe('SessionLifecycleManager', () => {
       expect(runtime.subagentsInFlight?.(realSessionId)).toBe(0);
     });
 
-    it('arms an idle source with the onTurnTerminal arguments and leaves the turn state alone', async () => {
+    it('parks the limit for an idle source at the blocking limit and leaves the turn state alone (S3)', async () => {
       const { harness, coordinator, budget } = await makeRuntimeHarness();
+      (budget.canSend as jest.Mock).mockReturnValue({ ok: false });
       const rec = harness.manager.find(tabId as string);
       expect(rec).toBeDefined();
       if (rec) rec.turnInFlight = false;
@@ -923,33 +925,47 @@ describe('SessionLifecycleManager', () => {
         'markTurnEnded',
       );
 
-      harness.manager.armHandoverIfIdle(tabId);
+      harness.manager.parkLimitHandoverIfIdle(tabId);
 
       expect(budget.canSend).toHaveBeenCalledWith(realSessionId);
-      expect(budget.stageFor).toHaveBeenCalledWith(realSessionId);
       expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
         realSessionId,
-        false,
-        rec?.messageQueue,
         true,
+        rec?.messageQueue,
       );
       expect(markTurnEnded).not.toHaveBeenCalled();
     });
 
+    it.each(['handoff', 'limit'])(
+      'parks nothing after a result at a non-blocking %s stage (S3)',
+      async (stage) => {
+        const { harness, coordinator, budget } = await makeRuntimeHarness();
+        (budget.stageFor as jest.Mock).mockReturnValue(stage);
+        const rec = harness.manager.find(tabId as string);
+        if (rec) rec.turnInFlight = false;
+
+        harness.manager.parkLimitHandoverIfIdle(tabId);
+
+        expect(coordinator.armAtTerminal).not.toHaveBeenCalled();
+      },
+    );
+
     it('does nothing while a turn is in flight', async () => {
-      const { harness, coordinator } = await makeRuntimeHarness();
+      const { harness, coordinator, budget } = await makeRuntimeHarness();
+      (budget.canSend as jest.Mock).mockReturnValue({ ok: false });
       const rec = harness.manager.find(tabId as string);
       if (rec) rec.turnInFlight = true;
 
-      harness.manager.armHandoverIfIdle(tabId);
+      harness.manager.parkLimitHandoverIfIdle(tabId);
 
       expect(coordinator.armAtTerminal).not.toHaveBeenCalled();
     });
 
     it('does nothing for an unknown session or without a coordinator', async () => {
-      const { harness, coordinator } = await makeRuntimeHarness();
+      const { harness, coordinator, budget } = await makeRuntimeHarness();
+      (budget.canSend as jest.Mock).mockReturnValue({ ok: false });
 
-      harness.manager.armHandoverIfIdle('unknown_session' as SessionId);
+      harness.manager.parkLimitHandoverIfIdle('unknown_session' as SessionId);
       expect(coordinator.armAtTerminal).not.toHaveBeenCalled();
 
       const plain = makeHarness();
@@ -957,10 +973,10 @@ describe('SessionLifecycleManager', () => {
         sessionId: tabId,
         sessionConfig: createSessionConfig(),
       });
-      expect(() => plain.manager.armHandoverIfIdle(tabId)).not.toThrow();
+      expect(() => plain.manager.parkLimitHandoverIfIdle(tabId)).not.toThrow();
     });
 
-    it('onTurnTerminal clears the budget turn state after arming and before the turn ends', async () => {
+    it('onTurnTerminal calls the coordinator, then clears the budget turn state, then ends the turn', async () => {
       const { harness, coordinator, budget } = await makeRuntimeHarness();
       const markTurnEnded = jest.spyOn(
         harness.manager['_registry'],
@@ -995,66 +1011,115 @@ describe('SessionLifecycleManager', () => {
       expect(budget.onTurnTerminal).toHaveBeenCalledWith(tabId as string);
     });
 
-    it('defers a non-blocking limit stage at the terminal to the result', async () => {
-      const { harness, coordinator, budget } = await makeRuntimeHarness();
-      (budget.stageFor as jest.Mock).mockReturnValue('limit');
+    it.each(['handoff', 'limit', 'tighten'])(
+      'passes only the blocking flag at a non-blocking %s terminal (S1, S2)',
+      async (stage) => {
+        const { harness, coordinator, budget } = await makeRuntimeHarness();
+        (budget.stageFor as jest.Mock).mockReturnValue(stage);
+
+        harness.manager.onTurnTerminal(tabId);
+
+        expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
+          realSessionId,
+          false,
+          expect.any(Array),
+        );
+        expect((coordinator.armAtTerminal as jest.Mock).mock.calls[0]).toHaveLength(3);
+      },
+    );
+  });
+
+  describe('user-authorized handover with a real coordinator (D22)', () => {
+    const tabId = 'tab_real_coord' as SessionId;
+    const realSessionId = 'sdk_real_coord';
+
+    async function makeRealCoordinatorHarness(stage: 'handoff' | 'limit') {
+      const host: SessionSuccessorHost = {
+        startSuccessorSession: jest.fn().mockResolvedValue({ started: true }),
+        deliverTransferInputs: jest.fn().mockResolvedValue({ delivered: true }),
+      };
+      const coordinator = new SessionHandoverCoordinator(null, null, null, () => host);
+      const budget = {
+        canSend: jest.fn().mockReturnValue({ ok: true }),
+        stageFor: jest.fn().mockReturnValue(stage),
+        onTurnTerminal: jest.fn(),
+      } as unknown as SessionBudgetService;
+      const harness = makeHarness({ handoverCoordinator: coordinator, sessionBudget: budget });
+      await harness.manager.executeQuery({
+        sessionId: tabId,
+        sessionConfig: createSessionConfig(),
+      });
+      harness.manager.bindRealSessionId(tabId as string, realSessionId);
+      return { harness, coordinator, budget, host };
+    }
+
+    it.each(['handoff', 'limit'] as const)(
+      'creates no op and starts nothing at an idle terminal at a non-blocking %s (S1, S2)',
+      async (stage) => {
+        const { harness, coordinator, budget, host } = await makeRealCoordinatorHarness(stage);
+        const states: unknown[] = [];
+        coordinator.onStateChange((state) => states.push(state));
+
+        harness.manager.onTurnTerminal(tabId);
+        // Fake timers: drain microtasks only; a started op would call the host.
+        await Promise.resolve();
+
+        expect(coordinator.snapshotFor(realSessionId)).toBeUndefined();
+        expect(states).toEqual([]);
+        expect(host.startSuccessorSession).not.toHaveBeenCalled();
+        expect(budget.onTurnTerminal).toHaveBeenCalledWith(realSessionId);
+      },
+    );
+
+    it('creates no op when Stop ends a turn at a live handoff (S4)', async () => {
+      const { harness, coordinator, budget, host } = await makeRealCoordinatorHarness('handoff');
+
+      expect(await harness.manager.interruptCurrentTurn(tabId)).toBe(true);
+
+      expect(budget.onTurnTerminal).toHaveBeenCalledWith(realSessionId);
+      expect(coordinator.snapshotFor(realSessionId)).toBeUndefined();
+      expect(host.startSuccessorSession).not.toHaveBeenCalled();
+    });
+
+    it('parks budget-limit in awaiting-confirmation at a blocking terminal and starts nothing (S3)', async () => {
+      const { harness, coordinator, budget, host } = await makeRealCoordinatorHarness('limit');
+      (budget.canSend as jest.Mock).mockReturnValue({ ok: false });
 
       harness.manager.onTurnTerminal(tabId);
 
-      expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
-        realSessionId,
-        false,
-        expect.any(Array),
-        false,
+      expect(coordinator.snapshotFor(realSessionId)).toEqual(
+        expect.objectContaining({ reason: 'budget-limit', phase: 'awaiting-confirmation' }),
       );
+      expect(host.startSuccessorSession).not.toHaveBeenCalled();
     });
 
-    it('treats a non-blocking limit stage after the result as the handoff stage', async () => {
-      const { harness, coordinator, budget } = await makeRuntimeHarness();
-      (budget.stageFor as jest.Mock).mockReturnValue('limit');
+    it('converts an agent request at a post-result blocking limit through the terminal path (S16)', async () => {
+      const { harness, coordinator, budget, host } = await makeRealCoordinatorHarness('limit');
+      const requested = coordinator.requestFromAgent(realSessionId, 'agent notes');
+      expect(requested.accepted).toBe(true);
+
+      // The terminal saw a non-blocking stage: the request stays parked.
+      harness.manager.onTurnTerminal(tabId);
+      expect(coordinator.snapshotFor(realSessionId)).toEqual(
+        expect.objectContaining({ reason: 'successor', requestedBy: 'agent' }),
+      );
+
+      // The result makes the blocking limit authoritative.
+      (budget.canSend as jest.Mock).mockReturnValue({ ok: false });
       const rec = harness.manager.find(tabId as string);
-      if (rec) rec.turnInFlight = false;
+      rec?.messageQueue.push({ content: 'queued after the limit' });
+      harness.manager.parkLimitHandoverIfIdle(tabId);
 
-      harness.manager.armHandoverIfIdle(tabId);
-
-      expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
-        realSessionId,
-        false,
-        expect.any(Array),
-        true,
-      );
-    });
-
-    it('arms nothing at a live limit over an authoritative handoff, then arms after the result', async () => {
-      const { harness, coordinator, budget } = await makeRuntimeHarness();
-      // Live `limit` at the terminal; the result then settles on `handoff`.
-      (budget.stageFor as jest.Mock)
-        .mockReturnValueOnce('limit')
-        .mockReturnValue('handoff');
-
-      harness.manager.onTurnTerminal(tabId);
-      expect(harness.manager.find(tabId as string)?.turnInFlight).toBe(false);
-      harness.manager.armHandoverIfIdle(tabId);
-
-      const calls = (coordinator.armAtTerminal as jest.Mock).mock.calls;
-      expect(calls).toEqual([
-        [realSessionId, false, expect.any(Array), false],
-        [realSessionId, false, expect.any(Array), true],
-      ]);
-    });
-
-    it('arms no budget handover below the handoff stage', async () => {
-      const { harness, coordinator, budget } = await makeRuntimeHarness();
-      (budget.stageFor as jest.Mock).mockReturnValue('tighten');
-
-      harness.manager.onTurnTerminal(tabId);
-
-      expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
-        realSessionId,
-        false,
-        expect.any(Array),
-        false,
-      );
+      const parked = coordinator.snapshotFor(realSessionId);
+      expect(parked).toEqual(expect.objectContaining({
+        operationId: requested.accepted ? requested.state.operationId : '',
+        reason: 'budget-limit',
+        phase: 'awaiting-confirmation',
+        heldInputCount: 1,
+      }));
+      expect(parked?.requestedBy).toBeUndefined();
+      expect(rec?.messageQueue).toEqual([]);
+      expect(host.startSuccessorSession).not.toHaveBeenCalled();
     });
   });
 
