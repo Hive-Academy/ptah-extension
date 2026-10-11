@@ -93,6 +93,7 @@ export class PeerSessionRpcHandlers {
       );
     }
 
+    // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
     const currentWorkspace = this.workspace.getWorkspaceRoot();
     return this.directory.list({
       ...(currentWorkspace ? { currentWorkspace } : {}),
@@ -116,6 +117,7 @@ export class PeerSessionRpcHandlers {
       );
     }
 
+    // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
     const currentWorkspace = this.workspace.getWorkspaceRoot();
     const result = await this.messenger.send({
       sessionId: parsed.data.sessionId,

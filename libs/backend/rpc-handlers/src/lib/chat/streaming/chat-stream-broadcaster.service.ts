@@ -193,11 +193,11 @@ export class ChatStreamBroadcaster {
     const flush = (): Promise<void> =>
       this.deliveryCoordinator
         ? this.deliveryCoordinator.flushBeforeTerminal(tabId)
-        : batch?.flush() ?? Promise.resolve();
+        : (batch?.flush() ?? Promise.resolve());
     const settle = (): Promise<void> =>
       this.deliveryCoordinator
         ? this.deliveryCoordinator.settle()
-        : batch?.settle() ?? Promise.resolve();
+        : (batch?.settle() ?? Promise.resolve());
     const publishTerminal = (type: string, payload: unknown): Promise<void> =>
       this.deliveryCoordinator
         ? this.deliveryCoordinator.publishTerminal(tabId, type, payload)
@@ -231,6 +231,7 @@ export class ChatStreamBroadcaster {
           event.sessionId !== tabId
         ) {
           childMetadataSaved = true;
+          // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
           const workspacePath = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const ptahCliAgentId = this.ptahCli.getAgentId(tabId);
           const sessionName = this.ptahCli.getSessionName(tabId);
@@ -286,29 +287,23 @@ export class ChatStreamBroadcaster {
           // timer: `chat:complete` closes the turn in the UI, so it arriving
           // ahead of the chunks it completes renders a truncated message.
           await flush();
-          await publishTerminal(
-            MESSAGE_TYPES.CHAT_COMPLETE,
-            {
-              tabId,
-              sessionId,
-              code: 0,
-              ...(surfaceMode ? { surfaceMode: true } : {}),
-            },
-          );
+          await publishTerminal(MESSAGE_TYPES.CHAT_COMPLETE, {
+            tabId,
+            sessionId,
+            code: 0,
+            ...(surfaceMode ? { surfaceMode: true } : {}),
+          });
         }
       }
 
       await flush();
       if (!turnCompleteSent) {
-        await publishTerminal(
-          MESSAGE_TYPES.CHAT_COMPLETE,
-          {
-            tabId,
-            sessionId,
-            code: 0,
-            ...(surfaceMode ? { surfaceMode: true } : {}),
-          },
-        );
+        await publishTerminal(MESSAGE_TYPES.CHAT_COMPLETE, {
+          tabId,
+          sessionId,
+          code: 0,
+          ...(surfaceMode ? { surfaceMode: true } : {}),
+        });
       }
       streamExitedNormally = true;
     } catch (error) {

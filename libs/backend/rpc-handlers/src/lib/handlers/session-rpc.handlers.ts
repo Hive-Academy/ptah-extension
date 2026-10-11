@@ -1135,6 +1135,7 @@ export class SessionRpcHandlers {
     try {
       this.agentProcessManager.restoreAgents(
         refs,
+        // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
         this.workspaceProvider.getWorkspaceRoot() ?? '',
       );
     } catch (error: unknown) {
