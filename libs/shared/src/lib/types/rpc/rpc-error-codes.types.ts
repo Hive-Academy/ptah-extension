@@ -12,6 +12,8 @@ export type RpcUserErrorCode =
   | 'AUTH_REQUIRED'
   | 'PERSISTENCE_UNAVAILABLE'
   | 'SESSION_NOT_FOUND'
+  /** The session exists but none of its saved folders is open, safe and present. */
+  | 'SESSION_FOLDER_UNAVAILABLE'
   | 'INVALID_PARAMS'
   | 'TASK_NOT_FOUND'
   | 'SESSION_ENDED'
