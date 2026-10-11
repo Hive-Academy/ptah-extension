@@ -172,3 +172,16 @@ Dropped as not a defect in this diff, with evidence:
   `:200` runs with `this` undefined.
 - Not caused by this branch and not a task of it. Recorded only; awaiting the user's choice (a
   separate task, or a batch on this branch).
+
+## D11 (Phase 1 re-review): Phase 1 closes; the fenced-block tail cut is recorded, not fixed (627-L8)
+
+- `code-logic-rereview-5F.md` on `6cb27e3e4..44eba9fc3`: APPROVED. S1, S2, M3 and M4 are FIXED, and
+  no new Blocking or Serious defect was found.
+- One Minor: when an over-cap agent handoff has neither `## Still running` nor `## Next action`, the
+  fallback tail in `capHeadAndTail` starts at a line start inside the last half of the budget, and
+  that line can be inside a fenced code block. The quoted section then shows an unbalanced fence.
+- Not fixed: the fix-round rule fixes Minor findings only by record. The reviewer rates it display
+  only: the cut is marked with `[truncated]`, and the heading-based tail (the normal case) is
+  unaffected. Scheduled as 627-L8.
+- Phase 1 (Batches 1-5 and 5F) is closed. Batch 6 (Phase 2) starts. Task 6.2 already carries the M2
+  guard (627-L2): counts only while the phase is `waiting-for-turn-end`.

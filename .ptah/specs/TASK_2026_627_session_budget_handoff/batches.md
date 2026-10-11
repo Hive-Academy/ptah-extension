@@ -662,8 +662,11 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   trailing tool-only entry would otherwise lose the handoff again); one existing coordinator spec
   now includes the anchor so it still covers the normal path; two builder specs updated to the
   head-and-tail shape; R8 (5,000 characters kept in full) unchanged.
-- Phase 1 closes only when the code-logic re-review on `6cb27e3e4..44eba9fc3` (S1, S2, M3, M4)
-  accepts.
+- Phase 1 re-review: `code-logic-rereview-5F.md` APPROVED on `6cb27e3e4..44eba9fc3`. S1, S2, M3 and
+  M4 FIXED; no new Blocking or Serious. One Minor (the fallback tail cut with no heading can start
+  inside a fenced code block; display only) is recorded as 627-L8, not fixed (decisions.md D11).
+- Phase 1 (Batches 1-5 and 5F) is CLOSED. Reviews: `code-logic-review.md`, `code-style-review.md`,
+  `code-logic-rereview-5F.md`.
 
 ## Out-of-scope findings (not tasks of this branch unless the user asks)
 
@@ -685,8 +688,9 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L5 | INFO publish on every terminal while waiting (logic) and INFO-per-publish noise (style minor) | Noisy but bounded | Follow-up: publish only when `waitingFor` changes; per-event lines at DEBUG |
 | 627-L6 | `admitInterrupt` refuses an interrupt while an op is `waiting-for-turn-end` | Existing behaviour (9fe19b56e); the message is queued, not lost; the wait is now bounded by S2 | Follow-up: allow interrupts in `waiting-for-turn-end` |
 | 627-L7 | `max-lines` warning on `session-handover-coordinator.service.ts` (726 vs 700) after Batch 5F | Lint warning, not an error; extracting now would turn the scoped S1/S2 re-review into a refactor review (decisions.md D9) | Follow-up after the Phase 1 re-review accepts: extract the work-in-flight gate (`workInFlight`, the wait bound, the S1 conversion, `setLaneWorkProvider` slot) into its own helper file in `session-handoff/`; behaviour-preserving, specs unchanged |
+| 627-L8 | Re-review 5F minor: the `capHeadAndTail` fallback tail (no `## Still running` or `## Next action` heading) can start inside a fenced code block | Display only (reviewer); the cut is marked with `[truncated]`, and the heading-based tail is unaffected (decisions.md D11) | Follow-up: move the fallback cut point past an unbalanced fence |
 
-## Batch 6: Frontend — never stuck at the limit (Component 9) — PENDING
+## Batch 6: Frontend — never stuck at the limit (Component 9) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
@@ -697,7 +701,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   Batch 6 commits. Completion needs dark and light before/after screenshots of the budget banner and
   the compaction card (no prototype; no new surface).
 
-### Task 6.1: `continueInNewSession` falls back to `rotateSession()` when the source is gone — PENDING
+### Task 6.1: `continueInNewSession` falls back to `rotateSession()` when the source is gone — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\session-budget-actions.service.ts`
   and its spec
@@ -706,7 +710,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 - Quality requirements: `{ accepted: false, error: 'source-unavailable' }` → `rotateSession()`; same
   on Retry when the handover state is `failed` with `source session unavailable`.
 
-### Task 6.2: Banner waiting copy with counts — PENDING
+### Task 6.2: Banner waiting copy with counts — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\molecules\notifications\session-budget-banner.component.ts`
   and its spec
@@ -722,7 +726,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   `awaiting-confirmation` at the handoff stage. That state must still offer "Continue now" and
   "Cancel".
 
-### Task 6.3: `MessageSender` logs budget refusals and handover holds at `console.info` (R9) — PENDING
+### Task 6.3: `MessageSender` logs budget refusals and handover holds at `console.info` (R9) — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\message-sender.service.ts`
   and `message-sender.service.spec.ts`
