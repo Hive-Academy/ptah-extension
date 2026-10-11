@@ -192,7 +192,9 @@ function isValidPanelId(value: unknown): value is string {
 /** C0 controls, DEL and C1 controls. */
 function hasControlCharacter(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
+    // Within bounds `codePointAt` is always defined; a surrogate code unit or
+    // pair yields a value above 0x9f either way, so the result is unchanged.
+    const code = value.codePointAt(i) ?? 0;
     if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
   }
   return false;

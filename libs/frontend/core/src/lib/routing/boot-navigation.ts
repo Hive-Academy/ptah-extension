@@ -55,10 +55,7 @@ export function resolveBootNavigation(input: BootInput): BootPlan {
   if (devToolsOverride !== undefined) {
     return { kind: 'surface', rawView: devToolsOverride, seed };
   }
-  if (
-    hostInitialView != null &&
-    (restored === null || hostInitialView !== restored.seed)
-  ) {
+  if (hostInitialView != null && hostInitialView !== restored?.seed) {
     return { kind: 'surface', rawView: hostInitialView, seed };
   }
   if (restored !== null) {

@@ -40,7 +40,7 @@ export class AngularWebviewProvider
   private _disposables: vscode.Disposable[] = [];
   private readonly _panels = new Map<string, vscode.WebviewPanel>();
   private readonly _panelEventQueues = new Map<string, WebviewEventQueue>();
-  private htmlGenerator: WebviewHtmlGenerator;
+  private readonly htmlGenerator: WebviewHtmlGenerator;
   private fileWatcher?: vscode.FileSystemWatcher;
 
   constructor(
@@ -137,7 +137,7 @@ export class AngularWebviewProvider
     }
   }
 
-  public async deserializeWebviewPanel(
+  public deserializeWebviewPanel(
     panel: vscode.WebviewPanel,
     state: unknown,
   ): Promise<void> {
@@ -161,6 +161,7 @@ export class AngularWebviewProvider
       );
       panel.dispose();
     }
+    return Promise.resolve();
   }
 
   private allocatePanelId(): string {

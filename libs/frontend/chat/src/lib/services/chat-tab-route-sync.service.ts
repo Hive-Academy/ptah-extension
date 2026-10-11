@@ -194,23 +194,36 @@ export class ChatTabRouteSync {
     const urlTab = this.chatTabOf(this.router.url);
     if (urlTab === undefined) return;
 
-    const held = this.held;
-    if (held !== null) {
-      if (!ready) {
-        // Still waiting for the tab set; keep the URL unless the user chose.
-        if (activeTabId === held.activeAtHold) return;
-        this.held = null;
-      } else {
-        this.held = null;
-        if (urlTab === held.tabId && this.isExistingTab(held.tabId)) {
-          this.tabManager.switchTab(held.tabId);
-          return;
-        }
-      }
-    }
+    if (this.resolveHeldUrlTab(urlTab, activeTabId, ready)) return;
 
     if (urlTab === activeTabId) return;
     void this.replaceChatUrl(activeTabId);
+  }
+
+  /**
+   * Settle a held URL tab id for reaction 2. Returns `true` when the held id
+   * decided this run (the URL is kept while waiting, or its tab is switched
+   * to), and `false` when the URL should be reconciled with the active tab.
+   */
+  private resolveHeldUrlTab(
+    urlTab: string | null,
+    activeTabId: string | null,
+    ready: boolean,
+  ): boolean {
+    const held = this.held;
+    if (held === null) return false;
+    if (!ready) {
+      // Still waiting for the tab set; keep the URL unless the user chose.
+      if (activeTabId === held.activeAtHold) return true;
+      this.held = null;
+      return false;
+    }
+    this.held = null;
+    if (urlTab === held.tabId && this.isExistingTab(held.tabId)) {
+      this.tabManager.switchTab(held.tabId);
+      return true;
+    }
+    return false;
   }
 
   /**

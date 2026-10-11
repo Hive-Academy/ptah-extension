@@ -127,8 +127,8 @@ export class PtahExtension implements vscode.Disposable {
         },
       },
     );
-    this.disposables.push(disposable);
     this.disposables.push(
+      disposable,
       vscode.window.registerWebviewPanelSerializer(
         'ptah-angular-spa',
         this.angularWebviewProvider,

@@ -153,7 +153,7 @@ describe('ChatTabRouteSync', () => {
         expect(tabManager.switchTab).not.toHaveBeenCalled();
         expect(tabManager.activeTabId()).toBe(TAB_A);
         expect(router.url).toBe(`/chat/${TAB_A}`);
-        expect(pushState.mock.calls.length).toBe(pushesBeforeCorrection);
+        expect(pushState.mock.calls).toHaveLength(pushesBeforeCorrection);
         expect(replaceState).toHaveBeenCalledWith(
           expect.anything(),
           expect.anything(),
@@ -192,7 +192,7 @@ describe('ChatTabRouteSync', () => {
 
       expect(router.url).toBe(`/chat/${TAB_A}`);
       expect(settledUrls).toEqual(['/chat', `/chat/${TAB_A}`]);
-      expect(pushState.mock.calls.length).toBe(pushesBeforeCorrection);
+      expect(pushState.mock.calls).toHaveLength(pushesBeforeCorrection);
     });
 
     it('leaves a bare /chat alone when there is no active tab', async () => {
@@ -228,7 +228,7 @@ describe('ChatTabRouteSync', () => {
       await settle();
 
       expect(router.url).toBe(`/chat/${TAB_B}`);
-      expect(pushState.mock.calls.length).toBe(pushesBefore);
+      expect(pushState.mock.calls).toHaveLength(pushesBefore);
       expect(replaceState).toHaveBeenLastCalledWith(
         expect.anything(),
         expect.anything(),
@@ -275,7 +275,7 @@ describe('ChatTabRouteSync', () => {
       await settle();
 
       expect(router.url).toBe(`/chat/${TAB_A}`);
-      expect(settledUrls.length).toBe(settlesBefore);
+      expect(settledUrls).toHaveLength(settlesBefore);
     });
 
     it('does not write while another surface is showing, and catches up on return', async () => {
