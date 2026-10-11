@@ -106,9 +106,7 @@ export function sessionPlan(
     ...(captionTail && { captionTail }),
   };
   const tiles: PlanLimitTileModel[] = [
-    ...(snapshot.localUsage
-      ? [localUsageTile(snapshot, caption, ctx)]
-      : []),
+    ...(snapshot.localUsage ? [localUsageTile(snapshot, caption, ctx)] : []),
     ...statusTiles(snapshot, result.windows.length, caption, ctx),
     ...result.windows.map((entry) => windowTile(snapshot, entry, caption, ctx)),
     ...limits.ownerEvidence.map((evidence) =>
@@ -145,7 +143,9 @@ function localUsageTile(
     resetLine: usage.range ? `Range: ${usage.range}` : 'Local CLI accounting',
     tone: 'neutral',
     sourceChips: ['Local CLI'],
-    detailLines: [`Observed ${formatLocalAbsolute(usage.observedAt, ctx.now, ctx.time)}. This is not a plan percentage or reset.`],
+    detailLines: [
+      `Observed ${formatLocalAbsolute(usage.observedAt, ctx.now, ctx.time)}. This is not a plan percentage or reset.`,
+    ],
   };
 }
 

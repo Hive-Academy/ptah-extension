@@ -30,6 +30,8 @@ interface Scenario {
   /** `account/read` answer; `null` is a signed-out home. Defaults to a ChatGPT account. */
   account?: Record<string, unknown> | null;
   rateLimitReachedType?: string;
+  codexBucketPercent?: number;
+  onActivityRead?: () => void;
 }
 
 function handle(
@@ -83,6 +85,7 @@ function harness(scenario: Scenario = {}) {
               if (scenario.silent || !('id' in message)) continue;
               const id = message['id'] as number;
               const method = message['method'] as string;
+              if (method === 'account/usage/read') scenario.onActivityRead?.();
               if (scenario.methodMissing === method) {
                 stdout.write(
                   `${JSON.stringify({ id, error: { code: -32601, message: 'private raw error' } })}\n`,
@@ -132,6 +135,17 @@ function harness(scenario: Scenario = {}) {
                                   }
                                 : {}),
                             },
+                            ...(scenario.codexBucketPercent !== undefined && {
+                              rateLimitsByLimitId: {
+                                codex: {
+                                  primary: {
+                                    usedPercent: scenario.codexBucketPercent,
+                                    windowDurationMins: 300,
+                                    resetsAt: 99,
+                                  },
+                                },
+                              },
+                            }),
                           }
                         : {
                             summary: { lifetimeTokens: 1234 },
@@ -243,9 +257,33 @@ describe('CodexAccountUsageService', () => {
     });
     const missing = harness({ methodMissing: 'account/usage/read' });
     await expect(missing.service.getAccountUsage()).resolves.toMatchObject({
-      status: 'cli-version-unsupported',
+      status: 'available',
+      quota: { primary: { usedPercent: 25 } },
     });
+    expect(missing.service.currentOwnerKey()).not.toBeNull();
     expect(JSON.stringify(missing.logger)).not.toContain('private raw error');
+  });
+
+  it('selects the Codex bucket over the default bucket', async () => {
+    const h = harness({ codexBucketPercent: 61 });
+    await expect(h.service.getAccountUsage()).resolves.toMatchObject({
+      status: 'available',
+      quota: { primary: { usedPercent: 61 } },
+    });
+  });
+
+  it('keeps quota available when activity fails and email is absent', async () => {
+    const h = harness({
+      methodMissing: 'account/usage/read',
+      account: { type: 'chatgpt', planType: 'plus' },
+    });
+    const result = await h.service.getAccountUsage();
+    expect(result).toMatchObject({
+      status: 'available',
+      quota: { primary: { usedPercent: 25 } },
+    });
+    expect(result.activity).toBeUndefined();
+    expect(h.service.currentOwnerKey()).toBeNull();
   });
 
   it('reports an unavailable packaged CLI without exposing the spawn failure', async () => {
@@ -277,9 +315,7 @@ describe('CodexAccountUsageService', () => {
     const pending = h.service.getAccountUsage({ signal: controller.signal });
     await new Promise((resolve) => setTimeout(resolve, 0));
     controller.abort();
-    await expect(pending).resolves.toMatchObject({
-      status: 'service-unavailable',
-    });
+    await expect(pending).rejects.toThrow();
     await expect(h.service.close()).resolves.toBeUndefined();
   });
 
@@ -320,6 +356,21 @@ describe('CodexAccountUsageService', () => {
       h.requests.filter((request) => request.args.includes('app-server')),
     ).toHaveLength(1);
     expect(h.handles[0].kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries for a joiner without a signal when the initiating caller aborts', async () => {
+    const h = harness({ deferInitialize: true });
+    const controller = new AbortController();
+    const initiator = h.service.getAccountUsage({ signal: controller.signal });
+    await new Promise((resolvePromise) => setImmediate(resolvePromise));
+    const joiner = h.service.getAccountUsage();
+    await new Promise((resolvePromise) => setImmediate(resolvePromise));
+    controller.abort();
+    await expect(initiator).rejects.toMatchObject({ name: 'AbortError' });
+    await new Promise((resolvePromise) => setImmediate(resolvePromise));
+    expect(h.requests).toHaveLength(2);
+    h.releaseInitialize();
+    await expect(joiner).resolves.toMatchObject({ status: 'available' });
   });
 
   it('close during a coalesced App Server read kills its owned child exactly once', async () => {
@@ -466,6 +517,37 @@ describe('CodexAccountUsageService', () => {
         quota: { primary: { usedPercent: 25 } },
       });
       expect(h.service.currentOwnerKey()).toBe(keyA);
+    });
+
+    it('does not serve account A quota under account B after a failed rate-limit read', async () => {
+      const h = harness();
+      await h.service.getAccountUsage();
+      h.scenario.account = {
+        type: 'chatgpt',
+        email: 'other@example.test',
+        planType: 'pro',
+      };
+      h.scenario.methodMissing = 'account/rateLimits/read';
+      await expect(
+        h.service.getAccountUsage({ refresh: true }),
+      ).resolves.toMatchObject({
+        status: 'cli-version-unsupported',
+        providerId: 'openai-codex',
+      });
+      expect(h.service.currentOwnerKey()).toBe(
+        ownerOf(h.syntheticHome, 'other@example.test'),
+      );
+    });
+
+    it('propagates cancellation during the optional activity read', async () => {
+      const controller = new AbortController();
+      const h = harness({ onActivityRead: () => controller.abort() });
+      await expect(
+        h.service.getAccountUsage({ signal: controller.signal }),
+      ).rejects.toThrow();
+      expect(h.service.currentOwnerKey()).toBe(
+        ownerOf(h.syntheticHome, 'private@example.test'),
+      );
     });
 
     it('a transient failure with no cache has no owner and no data', async () => {

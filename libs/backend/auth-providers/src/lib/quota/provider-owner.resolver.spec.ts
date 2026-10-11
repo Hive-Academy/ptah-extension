@@ -429,6 +429,7 @@ describe('ProviderOwnerResolver', () => {
       'session:s1',
     );
     expect(unknown.key).toBe(unknownOwnerKey('anthropic', 'session:s1'));
+    expect(unknown.label).toBe('Claude identity unavailable (no email)');
     expect(
       resolver.ownerForClaudeAccount(null, 'session:s2').identityKind,
     ).toBe('unknown');
@@ -451,6 +452,7 @@ describe('ProviderOwnerResolver', () => {
     const { resolver, codexHome } = harness();
     const unknown = resolver.ownerForCodexHome();
     expect(unknown.key).toBe(unknownOwnerKey('openai-codex', codexHome.path));
+    expect(unknown.label).toBe('Codex identity unavailable');
     expectRestorable(unknown);
   });
 
@@ -469,7 +471,9 @@ describe('ProviderOwnerResolver', () => {
 
   it('keys CLI stores by their on-disk root', () => {
     const previous = process.env['XDG_DATA_HOME'];
+    const previousGrokHome = process.env['GROK_HOME'];
     process.env['XDG_DATA_HOME'] = resolve('xdg-data');
+    process.env['GROK_HOME'] = resolve('grok-home');
     try {
       const { resolver } = harness();
       const opencode = resolver.ownerForCliStore('opencode');
@@ -480,10 +484,15 @@ describe('ProviderOwnerResolver', () => {
       const antigravity = resolver.ownerForCliStore('antigravity');
       expect(antigravity.identityKind).toBe('cli-store');
       expect(antigravity.label).toBe('Antigravity CLI login');
-      for (const ref of [opencode, antigravity]) expectRestorable(ref);
+      const grok = resolver.ownerForCliStore('grok');
+      expect(grok.key).toBe(cliStoreOwnerKey('grok', resolve('grok-home')));
+      expect(grok.identityKind).toBe('cli-store');
+      for (const ref of [opencode, antigravity, grok]) expectRestorable(ref);
     } finally {
       if (previous === undefined) delete process.env['XDG_DATA_HOME'];
       else process.env['XDG_DATA_HOME'] = previous;
+      if (previousGrokHome === undefined) delete process.env['GROK_HOME'];
+      else process.env['GROK_HOME'] = previousGrokHome;
     }
   });
 
@@ -601,6 +610,36 @@ describe('ProviderOwnerResolver', () => {
       });
       const ref = await resolver.ownerForSession('s1');
       expect(ref.key).toBe(unknownOwnerKey('anthropic', 'session:s1'));
+      expect(resolver.detailsFor(ref)).toEqual({
+        unknownReason: 'unresolved-route',
+        confirmedMissingEmail: false,
+        nativeClaudeRoute: true,
+      });
+    });
+
+    it('marks a returned account without email as confirmed', async () => {
+      const { resolver } = harness({
+        route: { providerId: 'anthropic', routeKind: 'native' },
+        account: { organization: 'Org' },
+      });
+      const owner = await resolver.ownerForSession('s1');
+      expect(resolver.detailsFor(owner)).toMatchObject({
+        unknownReason: 'missing-account-email',
+        confirmedMissingEmail: true,
+        nativeClaudeRoute: true,
+      });
+      expectRestorable(owner);
+    });
+
+    it('marks an unresolved Anthropic route without guessing account identity', async () => {
+      const { resolver } = harness({
+        route: { providerId: 'anthropic', routeKind: 'unknown' },
+      });
+      const owner = await resolver.ownerForSession('s1');
+      expect(resolver.detailsFor(owner)).toMatchObject({
+        unknownReason: 'unresolved-route',
+        nativeClaudeRoute: true,
+      });
     });
 
     it('direct-key: the stored key of the route provider', async () => {

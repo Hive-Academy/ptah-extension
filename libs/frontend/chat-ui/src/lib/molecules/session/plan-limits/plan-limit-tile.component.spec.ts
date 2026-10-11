@@ -177,7 +177,9 @@ describe('PlanLimitTileComponent', () => {
     );
     const status = root.querySelector('[data-testid="plan-limit-status"]');
 
-    expect(status?.textContent?.trim()).toBe('Unavailable · owner not resolved');
+    expect(status?.textContent?.trim()).toBe(
+      'Unavailable · owner not resolved',
+    );
     expect(status?.getAttribute('title')).toBe('Account not resolved yet.');
     expect(root.querySelector('[role="progressbar"]')).toBeNull();
     expect(button(root).disabled).toBe(true);
@@ -199,18 +201,14 @@ describe('PlanLimitTileComponent', () => {
     expect(tail?.classList.contains('shrink-0')).toBe(true);
     expect(tail?.textContent?.trim()).toBe('· cdef');
     expect(tail?.textContent).toBe('· cdef');
-    expect(caption?.getAttribute('title')).toBe(
-      'Claude account · cdef',
-    );
+    expect(caption?.getAttribute('title')).toBe('Claude account · cdef');
 
     // An open row shows its whole caption, so it may wrap.
     fixture.componentRef.setInput('open', true);
     fixture.detectChanges();
 
     expect(lead?.classList.contains('truncate')).toBe(false);
-    expect(caption?.getAttribute('title')).toBe(
-      'Claude account · cdef',
-    );
+    expect(caption?.getAttribute('title')).toBe('Claude account · cdef');
   });
 
   it('hides the chip glyph and the chevron from assistive technology', () => {
@@ -291,11 +289,31 @@ describe('PlanLimitTileComponent', () => {
       }),
     );
 
-    expect(button(root).textContent).toContain('Local usage: tokens & estimated cost');
+    expect(button(root).textContent).toContain(
+      'Local usage: tokens & estimated cost',
+    );
     expect(button(root).textContent).toContain('1,234 tokens · $5.67');
-    expect(root.querySelector('[data-testid="plan-limit-progress"]')).toBeNull();
+    expect(
+      root.querySelector('[data-testid="plan-limit-progress"]'),
+    ).toBeNull();
     expect(button(root).getAttribute('aria-expanded')).toBeNull();
   });
+
+  it.each(['aged', 'not-confirmed'] as const)(
+    'shows the %s state chip on the closed row',
+    (state) => {
+      const root = render(
+        windowTile({
+          chip: { tone: 'warning', text: state },
+          window: { ...NEAR_WINDOW, state },
+        }),
+      );
+
+      expect(
+        root.querySelector('[data-testid="plan-limit-chip"]')?.textContent,
+      ).toContain(state);
+    },
+  );
 
   it('renders the detail lines of a non-window tile', () => {
     const root = render(
@@ -321,9 +339,7 @@ describe('PlanLimitTileComponent', () => {
 
   it('uses semantic colour only for the row accent and the bar fill, never text', () => {
     const root = render(windowTile({ tone: 'error' }));
-    const fill = root.querySelector(
-      '[data-testid="plan-limit-progress-fill"]',
-    );
+    const fill = root.querySelector('[data-testid="plan-limit-progress-fill"]');
 
     expect(button(root).className).toContain('border-error');
     expect(fill?.className).toContain('bg-error');
