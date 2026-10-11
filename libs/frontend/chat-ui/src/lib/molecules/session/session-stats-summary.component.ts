@@ -18,8 +18,13 @@ import { LaneSubtotalTileComponent } from './plan-limits/lane-subtotal-tile.comp
 import { LaneUsageTileComponent } from './plan-limits/lane-usage-tile.component';
 import { LimitsAlertComponent } from './plan-limits/limits-alert.component';
 import { PlanLimitTileComponent } from './plan-limits/plan-limit-tile.component';
+import {
+  planSectionProvenance,
+  sharedLaneCaption,
+} from './plan-limits/stats-limit-sections';
 import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
 import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
+import { sourceChipClass } from './plan-limits/stats-tile.styles';
 import {
   budgetTooltip,
   costBudgetSuffix,
@@ -34,6 +39,17 @@ import {
   formatTokens,
 } from './session-stats-format';
 import { SessionModelBreakdownComponent } from './session-model-breakdown.component';
+
+/** Tooltip line the TOKENS and COST chips add while showing an estimate. */
+const ESTIMATE_TOOLTIP_LINE =
+  'Live estimate while the turn runs; final figures replace it when it ends.';
+
+/** Puts the estimate line before an existing tooltip, or alone without one. */
+function withEstimateLine(tooltip: string | null): string {
+  return tooltip
+    ? `${ESTIMATE_TOOLTIP_LINE}\n\n${tooltip}`
+    : ESTIMATE_TOOLTIP_LINE;
+}
 
 /**
  * Live model stats from current session
@@ -125,6 +141,19 @@ export class SessionStatsSummaryComponent {
     const count = this.limits()?.lanesCount ?? 0;
     return count > 0 ? count : null;
   });
+
+  /** Caption and source chips the plan rows share, shown once in the header. */
+  protected readonly planProvenance = computed(() =>
+    planSectionProvenance(this.limits()?.planTiles ?? []),
+  );
+
+  /** Caption every lane row and the subtotal share ("lane · not in totals"). */
+  protected readonly laneCaption = computed(() => {
+    const vm = this.limits();
+    return vm ? sharedLaneCaption(vm.laneTiles, vm.subtotal) : null;
+  });
+
+  protected readonly sourceChipClass = sourceChipClass;
 
   protected readonly lanesTooltip =
     'Lane runs are counted separately from session totals';
@@ -276,14 +305,31 @@ export class SessionStatsSummaryComponent {
     }),
   );
 
-  readonly costTooltip = computed(() =>
-    costTooltip(this.budget(), this.budgetTooltip()),
-  );
+  /**
+   * Whether the snapshot carries an in-turn estimate (`session:stats-live`).
+   * Only then do the TOKENS and COST chips show a leading `~` and the
+   * estimate tooltip line; any other value leaves them unchanged.
+   */
+  readonly isEstimate = computed(() => this.snapshot()?.provisional === true);
 
-  /** Tooltip with the backend's token breakdown, plus any budget line. */
-  readonly tokenTooltip = computed(() =>
-    tokensTooltip(this.budget(), this.budgetTooltip(), this.tokenBreakdown()),
-  );
+  /** COST chip tooltip: any budget line, led by the estimate line while estimating. */
+  readonly costTooltip = computed(() => {
+    const tooltip = costTooltip(this.budget(), this.budgetTooltip());
+    return this.isEstimate() ? withEstimateLine(tooltip) : tooltip;
+  });
+
+  /**
+   * Tooltip with the backend's token breakdown, plus any budget line, led by
+   * the estimate line while estimating.
+   */
+  readonly tokenTooltip = computed(() => {
+    const tooltip = tokensTooltip(
+      this.budget(),
+      this.budgetTooltip(),
+      this.tokenBreakdown(),
+    );
+    return this.isEstimate() ? withEstimateLine(tooltip) : tooltip;
+  });
 
   private readonly tokenBreakdown = computed(() => {
     const stats = this.snapshot();

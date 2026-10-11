@@ -7,12 +7,18 @@
  * class only decides which of its owners applies to a lane:
  *
  * - codex — the account last read from the shared `CODEX_HOME`, unknown
- *   (keyed by that home) before the first read.
- * - opencode, antigravity — the CLI's own credential store.
+ *   (keyed by that home) before the first read; a lookup reads it first.
+ * - opencode — the OpenCode Go subscription when the store holds a Go key and
+ *   the model is not another provider's; otherwise the CLI's credential store.
+ * - antigravity, grok — the CLI's own credential store.
  * - ptah-cli on Claude — the account the lane's own `accountInfo()` returned.
  * - ptah-cli on Ollama Cloud — the fingerprint of the lane's stored key,
  *   unknown for the placeholder.
  * - anything else — no owner; it reads as "Unknown owner".
+ *
+ * Lanes without an owner rule (ptah-cli on Claude and other providers) learn
+ * their owner only from a run. The last known owner of each such lane is
+ * remembered in memory so a later lookup reads the evidence filed under it.
  *
  * A run's owner is recorded at spawn and may then only move from unknown to
  * known, or from a cli-store owner to the account of the same provider
@@ -33,6 +39,7 @@ export type LaneOwnerSource = Pick<
   | 'ownerForCodexHome'
   | 'resolveCodexHomeOwner'
   | 'ownerForCliStore'
+  | 'ownerForOpenCode'
   | 'ownerForAntigravity'
   | 'ownerForClaudeAccount'
   | 'ownerForPtahCli'
@@ -71,8 +78,20 @@ export function upgradeQuotaOwner(
   return undefined;
 }
 
+/** A lane as the remembered-owner map keys it. */
+export interface LaneOwnerKey {
+  readonly cli: CliType;
+  readonly ptahCliId?: string;
+}
+
+/** Remembered lane owners kept; the same bound as the plan-usage cache. */
+const MAX_REMEMBERED_LANE_OWNERS = 64;
+
 @injectable()
 export class LaneOwnerResolver {
+  /** Last known owner per lane, least recently written first. */
+  private readonly laneOwners = new Map<string, QuotaOwnerRef>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER)
@@ -85,27 +104,68 @@ export class LaneOwnerResolver {
    * including ptah-cli, whose owner arrives through the two methods below.
    * Never throws: a failed read leaves the lane without an owner.
    */
-  ownerForLane(cli: CliType): QuotaOwnerRef | undefined {
+  ownerForLane(cli: CliType, model?: string): QuotaOwnerRef | undefined {
     try {
       switch (cli) {
         case 'codex':
           return this.owners.ownerForCodexHome();
         case 'opencode':
-          return this.owners.ownerForCliStore(cli);
+          return this.owners.ownerForOpenCode(model);
         case 'antigravity':
           return this.owners.ownerForAntigravity();
+        case 'grok':
+          // The Grok reader itself answers no-usage-source for API-key and
+          // custom auth, so an unconditional owner only lets hits be filed.
+          return this.owners.ownerForCliStore('grok');
         default:
           return undefined;
       }
     } catch (error: unknown) {
       // degradation-audit: reported - logged at warn; the lane runs with no
       // recorded owner.
-      this.logger.warn('[LaneOwnerResolver] lane owner lookup failed', {
-        cli,
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
+      this.warnLookupFailed(cli, error);
       return undefined;
     }
+  }
+
+  /**
+   * {@link ownerForLane} for a limit lookup, which may wait: Codex reads its
+   * account first, so the lookup names the owner its reader reports on.
+   * Never rejects.
+   */
+  async resolveOwnerForLane(
+    cli: CliType,
+    model?: string,
+  ): Promise<QuotaOwnerRef | undefined> {
+    if (cli !== 'codex') return this.ownerForLane(cli, model);
+    try {
+      return await this.owners.resolveCodexHomeOwner();
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged at warn; the lookup reports the
+      // lane with no owner.
+      this.warnLookupFailed(cli, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Remember the owner a lane's run carries. Unknown owners are not kept; the
+   * map holds at most 64 lanes, dropping the least recently written.
+   */
+  rememberLaneOwner(lane: LaneOwnerKey, owner: QuotaOwnerRef): void {
+    if (owner.identityKind === 'unknown') return;
+    const key = laneKey(lane);
+    this.laneOwners.delete(key);
+    this.laneOwners.set(key, owner);
+    if (this.laneOwners.size > MAX_REMEMBERED_LANE_OWNERS) {
+      const oldest = this.laneOwners.keys().next().value;
+      if (oldest !== undefined) this.laneOwners.delete(oldest);
+    }
+  }
+
+  /** The last known owner a run of this lane carried, if any. */
+  lastLaneOwner(lane: LaneOwnerKey): QuotaOwnerRef | undefined {
+    return this.laneOwners.get(laneKey(lane));
   }
 
   /**
@@ -126,4 +186,15 @@ export class LaneOwnerResolver {
   ): Promise<QuotaOwnerRef> {
     return this.owners.ownerForPtahCli(ptahCliId, providerId);
   }
+
+  private warnLookupFailed(cli: CliType, error: unknown): void {
+    this.logger.warn('[LaneOwnerResolver] lane owner lookup failed', {
+      cli,
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+  }
+}
+
+function laneKey(lane: LaneOwnerKey): string {
+  return `${lane.cli}:${lane.ptahCliId ?? ''}`;
 }

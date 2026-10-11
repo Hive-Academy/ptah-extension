@@ -41,8 +41,7 @@ describe('Ollama Cloud plan-usage reader', () => {
   it('F33: maps usage limits and never logs the API key', async () => {
     const rawLogger = createMockLogger() as unknown as Record<string, unknown>;
     const fetcher = jest.fn(
-      async () =>
-        new Response(JSON.stringify(USAGE_PAYLOAD), { status: 200 }),
+      async () => new Response(JSON.stringify(USAGE_PAYLOAD), { status: 200 }),
     );
     const reader = createOllamaCloudPlanUsageReader(
       rawLogger as unknown as Logger,
@@ -124,7 +123,7 @@ describe('Ollama Cloud plan-usage reader', () => {
   });
 
   it.each([401, 403])(
-    'maps a rejected key (HTTP %i) to unsupported-auth',
+    'maps a rejected API key (HTTP %i) to unsupported-auth',
     async (status) => {
       const reader = createOllamaCloudPlanUsageReader(
         createMockLogger() as unknown as Logger,
@@ -144,6 +143,21 @@ describe('Ollama Cloud plan-usage reader', () => {
       });
     },
   );
+
+  it('maps HTTP 404 to no-usage-source', async () => {
+    const reader = createOllamaCloudPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      jest.fn(async () => new Response('', { status: 404 })),
+    );
+    await expect(
+      reader({
+        target: TARGET,
+        credential: new PlanSecret(API_KEY),
+        refresh: true,
+      }),
+    ).resolves.toMatchObject({ status: 'no-usage-source', windows: [] });
+  });
 
   it('never lets the bearer header follow a redirect', async () => {
     const fetcher = jest.fn(async (_url: string, init?: RequestInit) => {

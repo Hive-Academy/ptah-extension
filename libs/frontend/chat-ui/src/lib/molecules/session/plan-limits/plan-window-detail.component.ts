@@ -14,13 +14,12 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
  * and the next reset kept apart, the aged / not-confirmed note and the
  * per-field source chips.
  *
- * Used by the plan-limit tile panel and by a lane subgroup that shows a
- * window in full. The plan tile passes `showSummary="false"` because its own
- * face already shows the label, chip, used value and source chips; a lane
- * subgroup keeps the default and shows everything. A tile panel keeps the
- * known-percent meter but omits repeated summary text and source chips.
- * Unknown is never 0: without a percent no meter is drawn and the full row
- * reads "Used: unknown". The meter fill is neutral; the stripes on a hot
+ * Used by the plan-limit row panel and by a lane subgroup that shows a
+ * window in full. The plan row passes `showSummary="false"` because its own
+ * face already shows the label, usage bar, chip, used value and source
+ * chips, so its panel adds only the reset facts and the note; a lane
+ * subgroup keeps the default and shows everything. Unknown is never 0:
+ * without a percent no meter is drawn and the full row reads "Used: unknown". The meter fill is neutral; the stripes on a hot
  * window are decoration.
  */
 @Component({
@@ -42,7 +41,7 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
           }
         </div>
       }
-      @if (percent() !== null) {
+      @if (showSummary() && percent() !== null) {
         <div class="flex items-center gap-2 mt-1">
           <div
             class="relative flex-1 h-1.5 rounded bg-base-content/10 overflow-hidden"
@@ -65,12 +64,9 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
               aria-hidden="true"
             ></div>
           </div>
-          @if (showSummary()) {
-            <span
-              class="text-xs font-semibold tabular-nums whitespace-nowrap"
-              >{{ w.usedText }}</span
-            >
-          }
+          <span class="text-xs font-semibold tabular-nums whitespace-nowrap">{{
+            w.usedText
+          }}</span>
         </div>
       } @else if (showSummary()) {
         <div class="text-xs mt-1 font-semibold">Used: {{ w.usedText }}</div>
@@ -117,10 +113,9 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
 export class PlanWindowDetailComponent {
   readonly window = input.required<PlanWindowDetailModel>();
   /**
-   * False from the plan tile panel, whose face already shows the label,
-   * chip, used value and source chips; its known-percent meter remains as a
-   * visual detail. True (default) from a lane subgroup, which shows the
-   * window in full.
+   * False from the plan row panel, whose face already shows the label, usage
+   * bar, chip, used value and source chips. True (default) from a lane
+   * subgroup, which shows the window in full.
    */
   readonly showSummary = input<boolean>(true);
 

@@ -50,7 +50,7 @@ export const codexAccountResponseSchema = z.object({
       z.object({ type: z.literal('apiKey') }),
       z.object({
         type: z.literal('chatgpt'),
-        email: z.string().nullable(),
+        email: z.string().nullable().optional(),
         planType,
       }),
       z.object({

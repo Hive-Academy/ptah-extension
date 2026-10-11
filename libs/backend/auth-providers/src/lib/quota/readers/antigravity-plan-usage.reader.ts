@@ -32,6 +32,7 @@ import type {
   PlanUsageReader,
   PlanUsageReading,
 } from './plan-usage-reader.types';
+import { readAntigravityOAuthQuota } from './antigravity-oauth-plan-usage.reader';
 
 export const ANTIGRAVITY_USAGE_TIMEOUT_MS = 3_000;
 export const ANTIGRAVITY_MAX_BODY_BYTES = 1_048_576;
@@ -63,9 +64,19 @@ export function createAntigravityPlanUsageReader(
   run: ProbeCommandRunner = defaultRun,
   requestStatus: StatusRequest = defaultRequest,
   observeAccount: (email: string | null) => string = observeAntigravityAccount,
+  readOAuth: typeof readAntigravityOAuthQuota = readAntigravityOAuthQuota,
 ): PlanUsageReader {
   return async ({ signal, target }) => {
     if (signal?.aborted) return unavailable();
+    // An account owner observed through the language server has verified email;
+    // the ACP token file contains no email to prove it is the same account.
+    if (
+      target.ownerRef.identityKind === 'cli-store' ||
+      target.ownerRef.identityKind === 'unknown'
+    ) {
+      const oauth = await readOAuth(signal, now);
+      if (oauth?.status === 'available') return oauth;
+    }
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener('abort', abort, { once: true });

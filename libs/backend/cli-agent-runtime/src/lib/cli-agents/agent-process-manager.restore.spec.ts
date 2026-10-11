@@ -38,6 +38,7 @@ const ROOT_B = 'D:\\projects\\workspace-b';
 function makeManager(options: {
   providerRoot: string | undefined;
   resolver?: ICallerWorkspaceResolver | null;
+  rememberLaneOwner?: jest.Mock;
 }): AgentProcessManager {
   const logger = {
     info: jest.fn(),
@@ -93,7 +94,10 @@ function makeManager(options: {
     // Never consulted: these tests make no resume spawn.
     { evaluate: jest.fn() } as unknown as Args[8],
     // No quota owner and no ledger: plan limits are pinned by the manager spec.
-    { ownerForLane: jest.fn(() => undefined) } as unknown as Args[9],
+    {
+      ownerForLane: jest.fn(() => undefined),
+      rememberLaneOwner: options.rememberLaneOwner ?? jest.fn(),
+    } as unknown as Args[9],
     {
       recordWindowEvidence: jest.fn(),
       recordOwnerEvidence: jest.fn(),
@@ -256,7 +260,8 @@ describe('AgentProcessManager.restoreAgents', () => {
   });
 
   it('carries the quota owner the run recorded, and none when it recorded none (G3)', () => {
-    const manager = makeManager({ providerRoot: ROOT_A });
+    const rememberLaneOwner = jest.fn();
+    const manager = makeManager({ providerRoot: ROOT_A, rememberLaneOwner });
     const owner = {
       providerId: 'openai-codex',
       identityKind: 'account' as const,
@@ -273,8 +278,12 @@ describe('AgentProcessManager.restoreAgents', () => {
     );
 
     expect(manager.findAgentInfo(RESTORED_ID)?.quotaOwner).toEqual(owner);
-    expect(manager.findAgentInfo(IN_SCOPE_ID)).not.toHaveProperty(
-      'quotaOwner',
+    expect(manager.findAgentInfo(IN_SCOPE_ID)).not.toHaveProperty('quotaOwner');
+    // The recorded owner seeds the lane's remembered owner for limit lookups.
+    expect(rememberLaneOwner).toHaveBeenCalledTimes(1);
+    expect(rememberLaneOwner).toHaveBeenCalledWith(
+      { cli: 'codex', ptahCliId: undefined },
+      owner,
     );
     // A restored record is read-only: a later owner never replaces it.
     expect(

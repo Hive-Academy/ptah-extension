@@ -474,6 +474,166 @@ describe('SessionStatsSummaryComponent', () => {
       expect(root.querySelector('[data-testid="stats-cost"]')).toBeNull();
     });
   });
+
+  describe('in-turn estimate (TASK_2026_626 C9)', () => {
+    const ESTIMATE_LINE =
+      'Live estimate while the turn runs; final figures replace it when it ends.';
+
+    const PROVISIONAL: SessionStatsEntry = { ...SNAPSHOT, provisional: true };
+
+    const MARKERS = ['stats-tokens-estimate', 'stats-cost-estimate'] as const;
+
+    /** The `~` marker: visible tilde, hidden from AT; "estimated" for AT. */
+    function expectMarker(root: HTMLElement, testId: string): void {
+      const marker = required(root, `[data-testid="${testId}"]`);
+      const visible = required(marker, '[aria-hidden="true"]');
+      expect(visible.textContent).toBe('~');
+      // Trailing space: AT must not read "estimated12.3k" (style review #7).
+      expect(required(marker, '.sr-only').textContent).toBe('estimated ');
+    }
+
+    /** Title of the chip or card holding the given value element. */
+    function chipTitle(root: HTMLElement, testId: string): string | null {
+      return (
+        root
+          .querySelector(`[data-testid="${testId}"]`)
+          ?.closest('[title]')
+          ?.getAttribute('title') ?? null
+      );
+    }
+
+    it('marks the tokens and cost chips with "~" in both layouts', () => {
+      const root = render(PROVISIONAL);
+
+      MARKERS.forEach((id) => expectMarker(root, id));
+      // The figures themselves are unchanged; only the marker is added.
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+      expect(
+        root.querySelector('[data-testid="stats-cost"] ptah-cost-badge')
+          ?.textContent,
+      ).toContain('$38.18');
+
+      click(root, '[data-testid="stats-expand"]');
+      MARKERS.forEach((id) => expectMarker(root, id));
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+    });
+
+    it('leads the tokens and cost tooltips with the estimate line in both layouts', () => {
+      const root = render(PROVISIONAL);
+
+      const tokens = chipTitle(root, 'stats-tokens') ?? '';
+      expect(tokens.startsWith(`${ESTIMATE_LINE}\n\nInput (uncached):`)).toBe(
+        true,
+      );
+      // No budget: the estimate line is the whole cost tooltip.
+      expect(chipTitle(root, 'stats-cost-estimate')).toBe(ESTIMATE_LINE);
+
+      click(root, '[data-testid="stats-expand"]');
+      expect(chipTitle(root, 'stats-tokens')).toBe(tokens);
+      expect(chipTitle(root, 'stats-cost-estimate')).toBe(ESTIMATE_LINE);
+    });
+
+    it('keeps the budget line after the estimate line on the cost tooltip', () => {
+      const root = render(PROVISIONAL);
+      fixture.componentRef.setInput('budget', {
+        sessionId: 'session-1',
+        stage: 'normal',
+        unit: 'cost',
+        measure: 'cost',
+        used: 1,
+        limit: 30,
+        percent: 40,
+        lowerBound: false,
+        revision: 4,
+        compactions: 0,
+        extensions: 0,
+        blocked: false,
+      } satisfies SessionBudgetState);
+      fixture.detectChanges();
+
+      expect(chipTitle(root, 'stats-cost-estimate')).toContain(
+        `${ESTIMATE_LINE}\n\nSession budget: 40% used ($38.18 of $30).`,
+      );
+    });
+
+    it('marks the budget fallback text when it replaces the cost badge', () => {
+      const root = render({
+        ...PROVISIONAL,
+        totalCost: null,
+        knownCost: null,
+        pricingCoverage: 'none',
+      });
+      fixture.componentRef.setInput('budget', {
+        sessionId: 'session-1',
+        stage: 'normal',
+        unit: 'cost',
+        measure: 'weighted-fallback',
+        used: 6_200_000,
+        limit: 9_000_000,
+        percent: 68.9,
+        lowerBound: false,
+        revision: 4,
+        compactions: 0,
+        extensions: 0,
+        blocked: false,
+      } satisfies SessionBudgetState);
+      fixture.detectChanges();
+
+      expectMarker(root, 'stats-cost-estimate');
+      click(root, '[data-testid="stats-expand"]');
+      expectMarker(root, 'stats-cost-estimate');
+      expect(text(root, 'stats-cost-budget')).toContain(
+        'est. 6.2M / 9.0M weighted tokens (no price for this model)',
+      );
+    });
+
+    it.each([
+      { label: 'absent', snapshot: SNAPSHOT },
+      { label: 'false', snapshot: { ...SNAPSHOT, provisional: false } },
+    ])(
+      'adds no marker and no tooltip line when provisional is $label',
+      ({ snapshot }) => {
+        const root = render(snapshot);
+
+        const assertUnmarked = (): void => {
+          MARKERS.forEach((id) =>
+            expect(root.querySelector(`[data-testid="${id}"]`)).toBeNull(),
+          );
+          expect(chipTitle(root, 'stats-tokens')).not.toContain(ESTIMATE_LINE);
+          // No budget and no estimate: the cost chip/card keeps no title.
+          const cost = required(root, '[data-testid="stats-cost"]');
+          expect(cost.parentElement?.hasAttribute('title')).toBe(false);
+        };
+
+        assertUnmarked();
+        expect(text(root, 'stats-tokens')).toBe('14.9M');
+        expect(text(root, 'stats-cost')).toBe('$38.18');
+        expect(fixture.componentInstance.isEstimate()).toBe(false);
+
+        click(root, '[data-testid="stats-expand"]');
+        assertUnmarked();
+        expect(text(root, 'stats-cost')).toBe('$38.18');
+      },
+    );
+
+    it('drops the marker once the authoritative snapshot replaces the estimate', () => {
+      const root = render(PROVISIONAL);
+      expectMarker(root, 'stats-tokens-estimate');
+
+      const { provisional, ...authoritative } = PROVISIONAL;
+      void provisional;
+      fixture.componentRef.setInput('snapshot', {
+        ...authoritative,
+        revision: 5,
+      });
+      fixture.detectChanges();
+
+      MARKERS.forEach((id) =>
+        expect(root.querySelector(`[data-testid="${id}"]`)).toBeNull(),
+      );
+      expect(chipTitle(root, 'stats-tokens')).not.toContain(ESTIMATE_LINE);
+    });
+  });
 });
 
 /**
@@ -590,17 +750,26 @@ describe('SessionStatsSummaryComponent limits', () => {
     return found;
   }
 
-  /** Expanded-grid children as short names, in DOM order. */
-  function gridOrder(root: HTMLElement): string[] {
-    const grid = root.querySelector('.stats-cards');
-    if (!grid) throw new Error('grid not expanded');
-    return Array.from(grid.children).map((child) => {
-      const tag = child.tagName.toLowerCase();
-      if (tag.startsWith('ptah-')) return tag.replace('ptah-', '');
-      const testId = child.getAttribute('data-testid');
-      if (testId) return testId;
-      return (child.firstElementChild?.textContent ?? '').trim();
-    });
+  /** Expanded summary-line items, named by their (first) test id, in DOM order. */
+  function summaryOrder(root: HTMLElement): string[] {
+    const line = root.querySelector('[data-testid="stats-summary-line"]');
+    if (!line) throw new Error('card not expanded');
+    return Array.from(line.children).map(
+      (item) =>
+        item.getAttribute('data-testid') ??
+        item.querySelector('[data-testid]')?.getAttribute('data-testid') ??
+        (item.textContent ?? '').trim(),
+    );
+  }
+
+  /** Rows of one expanded-card section, as short component names. */
+  function sectionRows(root: HTMLElement, testId: string): string[] {
+    const section = root.querySelector(`[data-testid="${testId}"]`);
+    if (!section) throw new Error(`no section ${testId}`);
+    return Array.from(section.children)
+      .map((child) => child.tagName.toLowerCase())
+      .filter((tag) => tag.startsWith('ptah-'))
+      .map((tag) => tag.replace('ptah-', ''));
   }
 
   afterEach(() => TestBed.resetTestingModule());
@@ -609,7 +778,8 @@ describe('SessionStatsSummaryComponent limits', () => {
     const withoutInput = render(null);
     const collapsedHtml = withoutInput.innerHTML;
     click(withoutInput, '[data-testid="stats-expand"]');
-    const expandedOrder = gridOrder(withoutInput);
+    const expandedOrder = summaryOrder(withoutInput);
+    const sections = withoutInput.querySelectorAll('section');
     TestBed.resetTestingModule();
 
     const explicitNull = render(null, { sessionId: null });
@@ -622,12 +792,13 @@ describe('SessionStatsSummaryComponent limits', () => {
       explicitNull.querySelector('[data-testid="stats-lanes"]'),
     ).toBeNull();
     expect(expandedOrder).toEqual([
-      'Context',
-      'Tokens',
-      'Cost',
-      'Agents',
+      'stats-tokens',
+      'stats-cost',
+      'stats-context',
+      'stats-agents',
       'stats-models-toggle',
     ]);
+    expect(sections).toHaveLength(0);
   });
 
   it('shows the limits alert as a status line above the chip strip (variant A)', () => {
@@ -678,27 +849,70 @@ describe('SessionStatsSummaryComponent limits', () => {
     ).toBe('$38.18');
   });
 
-  it('appends plan, lane and subtotal tiles after the session cards in DOM order', () => {
+  it('stacks the summary line, plan-limit rows and lane rows in one card', () => {
     const root = render(limitsFor(40), { sessionId: 'session-1' });
     click(root, '[data-testid="stats-expand"]');
-    const grid = root.querySelector('.stats-cards') as HTMLElement;
+    const card = root.querySelector('[data-testid="stats-card"]') as HTMLElement;
 
-    expect(gridOrder(root)).toEqual([
-      'Context',
-      'Tokens',
-      'Cost',
-      'Agents',
+    expect(
+      Array.from(card.children).map((child) =>
+        child.getAttribute('data-testid'),
+      ),
+    ).toEqual([
+      null,
+      'stats-summary-line',
+      'stats-plan-section',
+      'stats-lanes-section',
+    ]);
+    expect(summaryOrder(root)).toEqual([
+      'stats-tokens',
+      'stats-cost',
+      'stats-context',
+      'stats-agents',
       'stats-models-toggle',
-      'plan-limit-tile',
+    ]);
+    expect(sectionRows(root, 'stats-plan-section')).toEqual(['plan-limit-tile']);
+    expect(sectionRows(root, 'stats-lanes-section')).toEqual([
       'lane-usage-tile',
       'lane-subtotal-tile',
     ]);
-    expect(grid.className).not.toContain('dense');
-    expect(grid.getAttribute('style') ?? '').not.toContain('dense');
-    // Every tile starts closed.
-    for (const button of Array.from(grid.querySelectorAll('[aria-expanded]'))) {
+    // Every row starts closed.
+    for (const button of Array.from(card.querySelectorAll('[aria-expanded]'))) {
+      if (button.getAttribute('data-testid') === 'stats-models-toggle') continue;
       expect(button.getAttribute('aria-expanded')).toBe('false');
     }
+  });
+
+  it('prints the shared provenance once per section header, not on every row', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+    click(root, '[data-testid="stats-expand"]');
+    const plan = root.querySelector(
+      '[data-testid="stats-plan-section"]',
+    ) as HTMLElement;
+    const lanes = root.querySelector(
+      '[data-testid="stats-lanes-section"]',
+    ) as HTMLElement;
+
+    expect(
+      plan.querySelector('[data-testid="plan-limits-caption"]')?.getAttribute(
+        'title',
+      ),
+    ).toContain('Claude account');
+    expect(
+      plan.querySelectorAll('[data-testid="plan-limits-source"]').length,
+    ).toBeGreaterThan(0);
+    expect(plan.querySelector('[data-testid="plan-limit-caption"]')).toBeNull();
+    expect(
+      plan.querySelector('ptah-plan-limit-tile')?.textContent,
+    ).not.toContain('Provider API');
+
+    expect(
+      lanes.querySelector('[data-testid="lanes-caption"]')?.textContent?.trim(),
+    ).toBe('lane · not in totals');
+    expect(lanes.querySelector('[data-testid="lane-caption"]')).toBeNull();
+    expect(
+      lanes.querySelector('[data-testid="lane-subtotal-caption"]'),
+    ).toBeNull();
   });
 
   it('toggles a tile open and closed', () => {
@@ -823,7 +1037,7 @@ describe('SessionStatsSummaryComponent limits', () => {
     expect(root.textContent).not.toContain('Main context');
   });
 
-  it('keeps the expanded-grid collapse control in the header, outside stat tiles', () => {
+  it('keeps the expanded-card collapse control in the header, outside the summary line', () => {
     const root = render(limitsFor(40), { sessionId: 'session-1' });
 
     click(root, '[data-testid="stats-expand"]');
@@ -831,7 +1045,8 @@ describe('SessionStatsSummaryComponent limits', () => {
       '[data-testid="stats-collapse"]',
     );
 
-    expect(collapse?.closest('.stats-cards')).toBeNull();
+    expect(collapse?.closest('.stats-card-header')).not.toBeNull();
+    expect(collapse?.closest('[data-testid="stats-summary-line"]')).toBeNull();
     collapse?.click();
     fixture.detectChanges();
     expect(root.querySelector('[data-testid="stats-expand"]')).not.toBeNull();

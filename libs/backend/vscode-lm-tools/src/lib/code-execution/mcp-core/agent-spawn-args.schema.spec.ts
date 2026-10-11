@@ -76,6 +76,18 @@ describe('AgentSpawnArgsSchema', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('accepts only a boolean force override', () => {
+    expect(
+      AgentSpawnArgsSchema.safeParse({ task: 't', force: true }).success,
+    ).toBe(true);
+    expect(
+      AgentSpawnArgsSchema.safeParse({ task: 't', force: false }).success,
+    ).toBe(true);
+    expect(
+      AgentSpawnArgsSchema.safeParse({ task: 't', force: 'true' }).success,
+    ).toBe(false);
+  });
+
   it('accepts the full documented shape', () => {
     const parsed = AgentSpawnArgsSchema.safeParse({
       task: 't',
@@ -90,6 +102,7 @@ describe('AgentSpawnArgsSchema', () => {
       resume_session_id: 's-1',
       role: 'architect',
       effort: 'high',
+      force: true,
     });
     expect(parsed.success).toBe(true);
   });

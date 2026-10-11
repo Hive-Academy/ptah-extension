@@ -742,10 +742,13 @@ export class MessageSenderService {
         this.tabManager.installSessionBudget(activeTabId, refusalBudget);
       }
       if (!result.success || authFailed || result.data?.success === false) {
-        console.error(
-          '[MessageSender] Failed to continue chat:',
-          result.data?.error ?? result.error,
-        );
+        // A budget refusal is an expected state with its own UI, not an error.
+        if (!budgetReached) {
+          console.error(
+            '[MessageSender] Failed to continue chat:',
+            result.data?.error ?? result.error,
+          );
+        }
         // At the budget limit the prompt goes back to the composer, so its
         // bubble goes too; showing it would claim a message that was refused.
         this.rollBackUnsentPrompt(

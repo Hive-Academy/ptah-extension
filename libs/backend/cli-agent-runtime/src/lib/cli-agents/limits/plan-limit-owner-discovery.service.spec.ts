@@ -9,6 +9,9 @@
  * with no network. A throwing source drops only that source.
  */
 import 'reflect-metadata';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -46,7 +49,9 @@ const CLAUDE_UNKNOWN = ref('anthropic', 'unknown', 'ac');
 const CODEX_A = ref('openai-codex', 'account', 'ca');
 const CODEX_B = ref('openai-codex', 'account', 'cb');
 const OPENCODE = ref('opencode', 'cli-store', 'dc');
+const OPENCODE_GO = ref('opencode-go', 'cli-store', 'dd');
 const ANTIGRAVITY = ref('antigravity', 'cli-store', 'ea');
+const GROK = ref('grok', 'cli-store', 'eb');
 const OLLAMA_KEY = ref('ollama-cloud', 'credential', 'fa');
 const GLM_LANE = ref('ollama-cloud', 'credential', 'fb');
 const GLM_NO_KEY = ref('ollama-cloud', 'unknown', 'fc');
@@ -85,8 +90,10 @@ function createHarness(active: ActiveAuth): Harness {
     ownerForCodexHome: jest.fn(() => CODEX_A),
     resolveCodexHomeOwner: jest.fn(async () => CODEX_A),
     ownerForCliStore: jest.fn(() => OPENCODE),
+    ownerForOpenCode: jest.fn(() => OPENCODE),
     ownerForAntigravity: jest.fn(() => ANTIGRAVITY),
     ownerForSession: jest.fn(async () => CLAUDE_A),
+    detailsFor: jest.fn(() => ({})),
   } as unknown as jest.Mocked<DiscoveryOwnerSource>;
   const ledger = {
     snapshotFor: jest.fn(() => undefined),
@@ -140,6 +147,137 @@ const THIRD_PARTY = (providerId: string): ActiveAuth => ({
 });
 
 describe('PlanLimitOwnerDiscoveryService', () => {
+  it('passes the exact resolved owner to metadata lookup and the read target', async () => {
+    const h = createHarness(THIRD_PARTY('ollama-cloud'));
+    const owner = { ...CLAUDE_UNKNOWN };
+    h.routes.set('session', 'native');
+    h.owners.ownerForSession.mockResolvedValue(owner);
+    h.owners.detailsFor.mockImplementation((candidate) =>
+      candidate === owner ? { unknownReason: 'unresolved-route' } : {},
+    );
+    const entries = await h.service.discoverTargets({
+      sessionIds: ['session'],
+    });
+    const entry = entries.find(
+      (item) => item.kind === 'read' && item.origin === 'session',
+    );
+    expect(entry).toMatchObject({ unknownReason: 'unresolved-route' });
+    if (entry?.kind !== 'read') throw new Error('session read missing');
+    expect(entry.target.ownerRef).toBe(owner);
+    expect(h.owners.detailsFor).toHaveBeenCalledWith(owner);
+  });
+
+  it('discovers a signed-in Grok CLI store as an account read', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'ptah-grok-'));
+    const oldHome = process.env['GROK_HOME'];
+    try {
+      process.env['GROK_HOME'] = home;
+      const h = createHarness(CLAUDE_CLI);
+      h.detection.detectAll.mockResolvedValue(detected('grok'));
+      h.owners.ownerForCliStore.mockReturnValue(GROK);
+      await h.service.discoverTargets({});
+      expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('grok');
+      await writeFile(
+        join(home, 'auth.json'),
+        JSON.stringify({
+          'https://accounts.x.ai/sign-in': { key: 'private-test-token' },
+        }),
+      );
+      const entries = await h.service.discoverTargets({});
+      expect(h.owners.ownerForCliStore).toHaveBeenCalledWith('grok');
+      expect(entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'read',
+            origin: 'cli-store',
+            target: expect.objectContaining({
+              providerId: 'grok',
+              ownerRef: GROK,
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      if (oldHome === undefined) delete process.env['GROK_HOME'];
+      else process.env['GROK_HOME'] = oldHome;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+  it('reconciles an unresolved Claude route with the sole verified account from the same home', async () => {
+    const h = createHarness(CLAUDE_CLI);
+    h.routes.set('verified', 'native');
+    h.routes.set('unresolved', 'native');
+    const verified = CLAUDE_A;
+    const unresolved = {
+      ...CLAUDE_UNKNOWN,
+      label: 'Claude (owner unknown) (route unresolved)',
+    };
+    h.owners.ownerForSession.mockImplementation(async (id) =>
+      id === 'verified' ? verified : unresolved,
+    );
+    h.owners.detailsFor.mockImplementation((owner) =>
+      owner.key === unresolved.key
+        ? { unknownReason: 'unresolved-route', nativeClaudeRoute: true }
+        : {},
+    );
+    const entries = await h.service.discoverTargets({
+      sessionIds: ['verified', 'unresolved'],
+    });
+    expect(entries.map(ownerKeyOf)).toEqual([verified.key]);
+  });
+
+  it('keeps distinct verified Claude accounts and an ambiguous unresolved route', async () => {
+    const h = createHarness(CLAUDE_CLI);
+    for (const id of ['first', 'second', 'unknown']) h.routes.set(id, 'native');
+    const first = CLAUDE_A;
+    const second = ref('anthropic', 'account', 'bb');
+    const unknown = {
+      ...CLAUDE_UNKNOWN,
+      label: 'Claude identity unavailable (no email)',
+    };
+    h.owners.ownerForSession.mockImplementation(async (id) =>
+      id === 'first' ? first : id === 'second' ? second : unknown,
+    );
+    h.owners.detailsFor.mockImplementation((owner) =>
+      owner.key === unknown.key
+        ? {
+            unknownReason: 'missing-account-email',
+            nativeClaudeRoute: true,
+            confirmedMissingEmail: true,
+          }
+        : {},
+    );
+    const entries = await h.service.discoverTargets({
+      sessionIds: ['first', 'second', 'unknown'],
+    });
+    expect(entries.map(ownerKeyOf)).toEqual([
+      first.key,
+      second.key,
+      unknown.key,
+    ]);
+  });
+
+  it('keeps a native Claude unknown when the account read failed', async () => {
+    const h = createHarness(CLAUDE_CLI);
+    h.routes.set('verified', 'native');
+    h.routes.set('failed', 'native');
+    h.owners.ownerForSession.mockImplementation(async (id) =>
+      id === 'verified' ? CLAUDE_A : CLAUDE_UNKNOWN,
+    );
+    h.owners.detailsFor.mockImplementation((owner) =>
+      owner.key === CLAUDE_UNKNOWN.key
+        ? {
+            unknownReason: 'missing-account-email',
+            nativeClaudeRoute: true,
+            confirmedMissingEmail: false,
+          }
+        : {},
+    );
+    const entries = await h.service.discoverTargets({
+      sessionIds: ['verified', 'failed'],
+    });
+    expect(entries.map(ownerKeyOf)).toEqual([CLAUDE_A.key, CLAUDE_UNKNOWN.key]);
+  });
   it('F69: one owner each for Claude, Codex, Antigravity, OpenCode and Ollama Cloud', async () => {
     const h = createHarness(CLAUDE_CLI);
     h.routes.set('sess-1', 'native');
@@ -163,8 +301,28 @@ describe('PlanLimitOwnerDiscoveryService', () => {
       expect.objectContaining({ origin: 'selected-provider' }),
     );
     expect(h.owners.ownerForAntigravity).toHaveBeenCalledTimes(1);
-    expect(h.owners.ownerForCliStore).toHaveBeenCalledWith('opencode');
+    expect(h.owners.ownerForOpenCode).toHaveBeenCalledTimes(1);
+    expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('opencode');
     expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('antigravity');
+  });
+
+  it('lists an installed OpenCode with a Go key once, as the Go subscription the lane bills', async () => {
+    const h = createHarness(CLAUDE_CLI);
+    h.detection.detectAll.mockResolvedValue(detected('opencode'));
+    h.owners.ownerForOpenCode.mockReturnValue(OPENCODE_GO);
+
+    const entries = await h.service.discoverTargets({});
+    const opencodeEntries = entries.filter((entry) =>
+      providerOf(entry).startsWith('opencode'),
+    );
+
+    expect(opencodeEntries).toEqual([
+      expect.objectContaining({
+        kind: 'read',
+        origin: 'cli-store',
+        target: { providerId: 'opencode-go', ownerRef: OPENCODE_GO },
+      }),
+    ]);
   });
 
   it('F81: selected claude-cli is a Claude subscription read through the probe handle, with no credential', async () => {

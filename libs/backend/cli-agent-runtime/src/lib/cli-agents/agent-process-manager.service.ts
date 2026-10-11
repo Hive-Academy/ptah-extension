@@ -859,7 +859,7 @@ export class AgentProcessManager {
     const quotaOwner =
       upgradeQuotaOwner(
         info.quotaOwner,
-        this.laneOwners.ownerForLane(info.cli),
+        this.laneOwners.ownerForLane(info.cli, info.model),
       ) ?? info.quotaOwner;
     const modelScope = resolveModelScope(info.cli, info.model);
     const trackedInfo: AgentProcessInfo = {
@@ -868,6 +868,7 @@ export class AgentProcessManager {
       ...(quotaOwner ? { quotaOwner } : {}),
       modelScope,
     };
+    this.rememberLaneOwner(trackedInfo);
     const tracked: TrackedAgent = {
       info: trackedInfo,
       process: null,
@@ -1006,6 +1007,7 @@ export class AgentProcessManager {
     const upgraded = upgradeQuotaOwner(tracked.info.quotaOwner, owner);
     if (!upgraded) return false;
     tracked.info = { ...tracked.info, quotaOwner: upgraded };
+    this.rememberLaneOwner(tracked.info);
     this.logger.debug('[AgentProcessManager] Lane quota owner recorded', {
       agentId,
       providerId: upgraded.providerId,
@@ -1225,6 +1227,9 @@ export class AgentProcessManager {
         ...(ref.quotaOwner ? { quotaOwner: ref.quotaOwner } : {}),
         modelScope: ref.modelScope ?? null,
       };
+      // Seeds the lane's remembered owner, so a lane that only learns its
+      // owner from a run still reads its evidence after a reload.
+      this.rememberLaneOwner(info);
 
       this.agents.set(agentId, {
         info,
@@ -2442,20 +2447,32 @@ export class AgentProcessManager {
     ) {
       const upgraded = upgradeQuotaOwner(
         current,
-        this.laneOwners.ownerForLane(tracked.info.cli),
+        this.laneOwners.ownerForLane(tracked.info.cli, tracked.info.model),
       );
-      if (upgraded) tracked.info = { ...tracked.info, quotaOwner: upgraded };
+      if (upgraded) {
+        tracked.info = { ...tracked.info, quotaOwner: upgraded };
+        this.rememberLaneOwner(tracked.info);
+      }
     }
     const {
       agentId,
       cli,
       status,
-      quotaOwner: owner,
+      quotaOwner: runOwner,
       modelScope,
     } = tracked.info;
-    if (!owner) return;
+    if (!runOwner) return;
     try {
       if (limit) {
+        // "Free usage exceeded" is the Zen free tier, not the Go subscription;
+        // filed under Go it would never clear, as OpenCode successes prove
+        // nothing about any allowance.
+        const owner =
+          limit.pattern === 'opencode-free-usage' &&
+          runOwner.providerId === 'opencode-go'
+            ? (this.laneOwners.ownerForLane('opencode', 'opencode/') ??
+              runOwner)
+            : runOwner;
         const evidence = laneLimitEvidence(limit, observedAt);
         if (evidence.kind === 'window') {
           this.planLimits.recordWindowEvidence(owner, evidence.window);
@@ -2470,12 +2487,12 @@ export class AgentProcessManager {
       if (
         status !== 'completed' ||
         !billing ||
-        owner.identityKind === 'unknown'
+        runOwner.identityKind === 'unknown'
       ) {
         return;
       }
       this.planLimits.recordSuccess({
-        ownerKey: owner.key,
+        ownerKey: runOwner.key,
         modelScopes: modelScope ? [modelScope] : [],
         billing,
         observedAt,
@@ -2487,6 +2504,15 @@ export class AgentProcessManager {
         errorName: error instanceof Error ? error.name : typeof error,
       });
     }
+  }
+
+  /** Keep the lane's current owner for limit lookups of that lane. */
+  private rememberLaneOwner(info: AgentProcessInfo): void {
+    if (!info.quotaOwner) return;
+    this.laneOwners.rememberLaneOwner(
+      { cli: info.cli, ptahCliId: info.ptahCliId },
+      info.quotaOwner,
+    );
   }
 
   /**
@@ -2604,15 +2630,17 @@ export class AgentProcessManager {
     });
     try {
       const done = tracked.sdkHandle?.done;
-      await (done
-        ? Promise.race([
-            done.then(
-              () => undefined,
-              () => undefined,
-            ),
-            bounded,
-          ])
-        : bounded);
+      if (done === undefined) {
+        await bounded;
+      } else {
+        await Promise.race([
+          done.then(
+            () => undefined,
+            () => undefined,
+          ),
+          bounded,
+        ]);
+      }
     } finally {
       if (settleTimer) {
         clearTimeout(settleTimer);
