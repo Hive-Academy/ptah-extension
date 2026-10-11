@@ -1000,6 +1000,7 @@ export class ChatSessionService {
           sessionId as string,
           params.ptahCliId,
           params.tabId,
+          resolvedWorkspacePath,
         );
       }
       // Keep this unsliced: history registration and stats depend on the full transcript.

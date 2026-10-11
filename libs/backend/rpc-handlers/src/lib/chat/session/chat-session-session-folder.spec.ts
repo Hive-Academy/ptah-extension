@@ -126,6 +126,7 @@ function makeHarness(
   const injectInterruptedAgentsContext = jest
     .fn()
     .mockImplementation(async (prompt: string) => ({ prompt }));
+  const registerResumedSession = jest.fn();
   const handleContinue = jest
     .fn()
     .mockResolvedValue(
@@ -164,7 +165,7 @@ function makeHarness(
       resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
       resolvePluginPaths: jest.fn().mockReturnValue([]),
     } as never,
-    { handleContinue, registerResumedSession: jest.fn() } as never,
+    { handleContinue, registerResumedSession } as never,
     {
       streamEventsToWebview: jest.fn(),
       isStreaming: jest.fn().mockReturnValue(false),
@@ -198,6 +199,7 @@ function makeHarness(
     injectInterruptedAgentsContext,
     restoreAgents,
     captureException,
+    registerResumedSession,
   };
 }
 
@@ -310,6 +312,24 @@ describe("ChatSessionService — the session's own folder (MP-3)", () => {
       });
       expect(h.restoreAgents).toHaveBeenCalledWith(
         [{ agentId: 'agent-1' }],
+        PROJECT_B,
+      );
+    });
+
+    it('files a resumed Ptah CLI session under its own project', async () => {
+      const h = makeHarness();
+
+      await h.service.resumeSession({
+        sessionId: SESSION_ID,
+        tabId: TAB_ID,
+        workspacePath: PROJECT_A,
+        ptahCliId: 'ptah-cli-agent',
+      });
+
+      expect(h.registerResumedSession).toHaveBeenCalledWith(
+        SESSION_ID,
+        'ptah-cli-agent',
+        TAB_ID,
         PROJECT_B,
       );
     });

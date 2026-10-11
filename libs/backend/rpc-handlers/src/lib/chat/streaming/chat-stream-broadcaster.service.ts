@@ -56,10 +56,6 @@ import {
   SessionTurnStateRegistry,
   toTurnStateEvent,
 } from '@ptah-extension/agent-sdk';
-import {
-  PLATFORM_TOKENS,
-  type IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
 import type {
   IAgentAdapter,
   SessionId,
@@ -98,8 +94,6 @@ export class ChatStreamBroadcaster {
     private readonly sentryService: SentryService,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: SessionMetadataStore,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider,
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
@@ -231,12 +225,18 @@ export class ChatStreamBroadcaster {
           event.sessionId !== tabId
         ) {
           childMetadataSaved = true;
-          // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
-          const workspacePath = this.workspaceProvider.getWorkspaceRoot() ?? '';
+          // The folder chat:start ran in, not the active one: the user may
+          // have switched projects since (PTAH-37).
+          const workspacePath = this.ptahCli.getWorkspacePath(tabId);
           const ptahCliAgentId = this.ptahCli.getAgentId(tabId);
           const sessionName = this.ptahCli.getSessionName(tabId);
           try {
-            if (sessionName?.trim()) {
+            if (!workspacePath) {
+              this.logger.warn(
+                '[RPC] Ptah CLI session folder unknown — child metadata was not replaced',
+                { tabId, sessionId: event.sessionId },
+              );
+            } else if (sessionName?.trim()) {
               await this.sessionMetadataStore.createChild(
                 event.sessionId,
                 workspacePath,
