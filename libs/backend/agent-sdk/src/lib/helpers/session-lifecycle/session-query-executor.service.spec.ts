@@ -1416,15 +1416,157 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
     msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: 'toolu_1' });
   const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-  function makeMonitor(observe = jest.fn().mockResolvedValue(undefined)) {
+  function makeMonitor(
+    observe = jest.fn().mockResolvedValue(undefined),
+    recordTaskStarted = jest.fn(),
+  ) {
     const release = jest.fn();
     const monitor = {
       observe,
+      recordTaskStarted,
       release,
       currentSessionId: jest.fn((id: string) => id),
     } as unknown as SubagentBudgetSink;
-    return { monitor, observe, release };
+    return { monitor, observe, recordTaskStarted, release };
   }
+
+  const taskStarted = (extra: Record<string, unknown>) =>
+    msg({
+      type: 'system',
+      subtype: 'task_started',
+      session_id: REAL,
+      task_id: 'task-1',
+      description: 'Map auth',
+      ...extra,
+    });
+
+  describe('task_started (TASK_2026_627 R5)', () => {
+    it('records the task id of an agent task under the real session id', async () => {
+      const { monitor, recordTaskStarted, observe } = makeMonitor();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        subagentMonitor: monitor,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_ts1'));
+      feed(run, init());
+      feed(
+        run,
+        taskStarted({
+          tool_use_id: 'toolu_1',
+          subagent_type: 'Explore',
+          task_type: 'local_agent',
+        }),
+      );
+      expect(recordTaskStarted).toHaveBeenCalledTimes(1);
+      expect(recordTaskStarted).toHaveBeenCalledWith(
+        REAL,
+        'toolu_1',
+        'task-1',
+        'Explore',
+      );
+      expect(observe).not.toHaveBeenCalled();
+      run.abortController.abort();
+    });
+
+    it('passes a non-agent task through (the monitor ignores its id) and skips one without a tool_use id', async () => {
+      const { monitor, recordTaskStarted } = makeMonitor();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        subagentMonitor: monitor,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_ts2'));
+      feed(run, init());
+      feed(
+        run,
+        taskStarted({ tool_use_id: 'toolu_bash', task_type: 'local_bash' }),
+      );
+      feed(run, taskStarted({ task_type: 'local_workflow' }));
+      expect(recordTaskStarted).toHaveBeenCalledTimes(1);
+      expect(recordTaskStarted).toHaveBeenCalledWith(
+        REAL,
+        'toolu_bash',
+        'task-1',
+        undefined,
+      );
+      run.abortController.abort();
+    });
+
+    it('a throwing monitor becomes one WARN and the turn goes on', async () => {
+      const logger = makeLogger();
+      const { monitor } = makeMonitor(
+        jest.fn().mockResolvedValue(undefined),
+        jest.fn(() => {
+          throw new Error('boom');
+        }),
+      );
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        subagentMonitor: monitor,
+        logger,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_ts3'));
+      feed(run, init());
+      expect(() =>
+        feed(run, taskStarted({ tool_use_id: 'toolu_1' })),
+      ).not.toThrow();
+      const lines = (logger.warn as jest.Mock).mock.calls.filter((c) =>
+        (c[0] as string).includes('failed to record a task start'),
+      );
+      expect(lines).toHaveLength(1);
+      expect(logger.error).not.toHaveBeenCalled();
+      run.abortController.abort();
+    });
+
+    it('lets a real monitor stop a subagent the registry never recorded and hand off', async () => {
+      const stopSubagent = jest.fn().mockResolvedValue(undefined);
+      const pushParentMessage = jest.fn().mockResolvedValue(undefined);
+      const registry = { get: jest.fn(() => undefined), update: jest.fn() };
+      const monitor = new SubagentBudgetMonitor(
+        makeLogger(),
+        {
+          getConfig: () => ({
+            enabled: true,
+            subagentHandoffTokens: 1_000,
+            subagentStopWeightedTokens: Number.MAX_SAFE_INTEGER,
+          }),
+        } as unknown as CompactionConfigProvider,
+        { stopSubagent, pushParentMessage },
+        registry as unknown as SubagentRegistryService,
+      );
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        subagentMonitor: monitor,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_ts4'));
+      feed(run, init());
+      feed(
+        run,
+        taskStarted({ tool_use_id: 'toolu_big', subagent_type: 'Explore' }),
+      );
+      feed(
+        run,
+        msg({
+          type: 'assistant',
+          session_id: REAL,
+          parent_tool_use_id: 'toolu_big',
+          message: {
+            id: 'msg_big',
+            usage: {
+              input_tokens: 2_000,
+              output_tokens: 0,
+              cache_read_input_tokens: 0,
+              cache_creation_input_tokens: 0,
+            },
+          },
+        }),
+      );
+      await flush();
+      expect(stopSubagent).toHaveBeenCalledWith(REAL, 'task-1');
+      expect(pushParentMessage).toHaveBeenCalledTimes(1);
+      expect(pushParentMessage).toHaveBeenCalledWith(
+        REAL,
+        expect.stringContaining('`Explore`'),
+      );
+      expect(registry.update).not.toHaveBeenCalled();
+      run.abortController.abort();
+    });
+  });
 
   it('forwards a subagent message to the monitor and ignores a main-session one', async () => {
     const { monitor, observe } = makeMonitor();

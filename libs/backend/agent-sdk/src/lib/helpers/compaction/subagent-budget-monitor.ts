@@ -19,12 +19,19 @@
  * - Safety: `weightedUsed` at or above `compaction.subagentStopWeightedTokens`.
  *
  * Either one stops the subagent through `SubagentMessageDispatcher.stopSubagent`,
- * marks it not resumable in the registry, and pushes one parent message with
- * a ready handoff through `SubagentMessageDispatcher.pushParentMessage` (the
- * same per-session ordering lock and `origin` as a user steer). The handoff
- * restates the subagent's task, read from the `Agent`/`Task` `tool_use` input
- * of the message that spawned it. Starting the fresh subagent is left to the
- * parent model: the SDK gives the host no API to spawn a Task subagent itself.
+ * marks it not resumable in the registry when it has a record there, and
+ * hands one parent message with a ready handoff to the port's
+ * `pushParentMessage` (bound in DI to the main-thread notice queue, so the
+ * handoff reaches the parent with its next main-thread tool result). The
+ * handoff restates the subagent's task, read from the `Agent`/`Task`
+ * `tool_use` input of the message that spawned it. Starting the fresh subagent
+ * is left to the parent model: the SDK gives the host no API to spawn a Task
+ * subagent itself.
+ *
+ * Task id: `stopSubagent` needs the SDK task id. It comes from the SDK's
+ * `task_started` message ({@link SubagentBudgetMonitor.recordTaskStarted}),
+ * else from the registry record of the subagent. With neither, the stop is
+ * deferred to the next subagent message (one log line per subagent).
  *
  * Off switch: with `compaction.enabled` false the monitor keeps counting (the
  * snapshot and the resume advice still work) but never stops a subagent.
@@ -45,10 +52,7 @@ import type {
   Logger,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
-import type {
-  SubagentPromptCacheTtl,
-  SubagentRecord,
-} from '@ptah-extension/shared';
+import type { SubagentPromptCacheTtl } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import type { SubagentMessageDispatcher } from '../subagent-message-dispatcher';
 
@@ -229,8 +233,20 @@ interface SubagentState {
   /** API message id of the request whose stop attempt last rejected; its other blocks do not retry. */
   failedStopMessageId?: string;
   stopped: boolean;
-  /** A stop could not start (no record or task id yet); logged once. */
+  /** A stop could not start (no task id from `task_started` or the registry yet); logged once. */
   stopDeferredLogged: boolean;
+}
+
+/** What the SDK's `task_started` message reported for one spawning tool_use. */
+interface StartedTask {
+  readonly taskId: string;
+  readonly subagentType?: string;
+}
+
+/** Who the handoff names: the registry record when there is one, else `task_started`. */
+interface HandoffSubject {
+  readonly agentType: string;
+  readonly teammateName?: string;
 }
 
 interface SessionState {
@@ -239,6 +255,8 @@ interface SessionState {
   readonly subagents: Map<string, SubagentState>;
   /** Task text per spawning `Agent`/`Task` tool_use id. */
   readonly taskTexts: Map<string, string>;
+  /** SDK task per spawning tool_use id, from `task_started`. */
+  readonly startedTasks: Map<string, StartedTask>;
   noUsageLogged: boolean;
   stopDisabledLogged: boolean;
   /** Set when a rekey merged this record into another; a stop in flight follows it. */
@@ -346,6 +364,28 @@ export class SubagentBudgetMonitor {
     });
   }
 
+  /**
+   * Remember the SDK task id the `task_started` message reports for the
+   * subagent spawned by `toolUseId`, so a stop does not wait for the registry.
+   * Tasks that spawn no subagent (bash, workflow) are recorded too; their
+   * tool_use id never parents a subagent message, so they never stop anything.
+   * A blank id is ignored.
+   */
+  recordTaskStarted(
+    sessionId: string,
+    toolUseId: string,
+    taskId: string,
+    subagentType?: string,
+  ): void {
+    if (!sessionId || !toolUseId || !taskId) {
+      return;
+    }
+    this.sessionState(sessionId).startedTasks.set(toolUseId, {
+      taskId,
+      subagentType: subagentType || undefined,
+    });
+  }
+
   /** What the monitor knows about a subagent, or `undefined` when it saw none of its usage. */
   getSnapshot(
     sessionId: string,
@@ -398,6 +438,11 @@ export class SubagentBudgetMonitor {
           session.taskTexts.set(toolUseId, text);
         }
       }
+      for (const [toolUseId, started] of existing.startedTasks) {
+        if (!session.startedTasks.has(toolUseId)) {
+          session.startedTasks.set(toolUseId, started);
+        }
+      }
       existing.mergedInto = session;
     }
     session.sessionId = toSessionId;
@@ -448,6 +493,7 @@ export class SubagentBudgetMonitor {
         sessionId,
         subagents: new Map(),
         taskTexts: new Map(),
+        startedTasks: new Map(),
         noUsageLogged: false,
         stopDisabledLogged: false,
       };
@@ -548,8 +594,10 @@ export class SubagentBudgetMonitor {
     },
   ): Promise<void> {
     const record = this.registry.get(toolCallId);
-    if (!record?.taskId) {
-      // The task id arrives with the SDK's task_started message; the next
+    const started = session.startedTasks.get(toolCallId);
+    const taskId = started?.taskId ?? record?.taskId;
+    if (!taskId) {
+      // Neither task_started nor the registry has the task id yet; the next
       // subagent message retries.
       if (!state.stopDeferredLogged) {
         state.stopDeferredLogged = true;
@@ -565,7 +613,7 @@ export class SubagentBudgetMonitor {
     const attemptMessageId = state.lastMessageId;
     let stopFailure: { readonly errorType: string } | undefined;
     try {
-      await this.dispatcher.stopSubagent(session.sessionId, record.taskId);
+      await this.dispatcher.stopSubagent(session.sessionId, taskId);
     } catch (error: unknown) {
       stopFailure = {
         errorType: error instanceof Error ? error.name : typeof error,
@@ -599,10 +647,12 @@ export class SubagentBudgetMonitor {
     liveState.stopFired = true;
     liveState.stopped = true;
     // A completed record is dropped from the registry, so it is never offered for resume.
-    this.registry.update(toolCallId, {
-      status: 'completed',
-      completedAt: Date.now(),
-    });
+    if (record) {
+      this.registry.update(toolCallId, {
+        status: 'completed',
+        completedAt: Date.now(),
+      });
+    }
     this.logger.info('[SubagentBudgetMonitor] Subagent stopped', {
       sessionId,
       toolCallId,
@@ -615,7 +665,11 @@ export class SubagentBudgetMonitor {
       await this.dispatcher.pushParentMessage(
         sessionId,
         handoffMessage(
-          record,
+          {
+            agentType:
+              record?.agentType ?? started?.subagentType ?? 'subagent',
+            teammateName: record?.teammateName,
+          },
           state,
           reason,
           limits,
@@ -680,7 +734,7 @@ function hasStopStarted(state: SubagentState): boolean {
 }
 
 function handoffMessage(
-  record: SubagentRecord,
+  subject: HandoffSubject,
   state: SubagentState,
   reason: StopReason,
   limits: {
@@ -689,9 +743,9 @@ function handoffMessage(
   },
   taskText: string | undefined,
 ): string {
-  const name = record.teammateName
-    ? `\`${record.agentType}\` ('${record.teammateName}')`
-    : `\`${record.agentType}\``;
+  const name = subject.teammateName
+    ? `\`${subject.agentType}\` ('${subject.teammateName}')`
+    : `\`${subject.agentType}\``;
   const why =
     reason === 'handoff'
       ? `at ${state.contextTokens} context tokens (handoff size ${limits.handoffTokens})`
@@ -699,7 +753,7 @@ function handoffMessage(
   const task = taskText ? ` Its task was: ${taskText}` : '';
   return (
     `Subagent ${name} was stopped ${why}. It cannot be resumed.${task} ` +
-    `If its task is not finished, start a fresh \`${record.agentType}\` subagent with a handoff: ` +
+    `If its task is not finished, start a fresh \`${subject.agentType}\` subagent with a handoff: ` +
     `restate its task and what remains; its output so far is in the session transcript.`
   );
 }

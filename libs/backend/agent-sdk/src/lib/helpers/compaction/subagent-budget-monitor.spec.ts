@@ -252,6 +252,180 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
   });
 
+  describe('task id from task_started (R5)', () => {
+    it('stops with the recorded task id and hands off when the registry has no record', async () => {
+      const h = makeHarness(null);
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-started-1', 'Plan');
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledWith(
+        SESSION,
+        'task-started-1',
+      );
+      expect(h.registry.update).not.toHaveBeenCalled();
+      expect(h.streamed).toHaveLength(1);
+      expect(h.streamed[0]).toContain('Subagent `Plan` was stopped');
+      expect(h.streamed[0]).toContain('start a fresh `Plan` subagent');
+      expect(h.logger.warn).not.toHaveBeenCalled();
+      expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)?.stopped).toBe(true);
+    });
+
+    it('names the subagent generically when neither the registry nor task_started gives a type', async () => {
+      const h = makeHarness(null);
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-started-1');
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.streamed[0]).toContain('Subagent `subagent` was stopped');
+    });
+
+    it('stops with the recorded task id when the registry record has none, and marks the record', async () => {
+      const h = makeHarness({ taskId: undefined, teammateName: 'scout' });
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-started-1', 'Plan');
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledWith(
+        SESSION,
+        'task-started-1',
+      );
+      expect(h.registry.update).toHaveBeenCalledWith(
+        TOOL_CALL,
+        expect.objectContaining({ status: 'completed' }),
+      );
+      // The registry record names the subagent when it exists.
+      expect(h.streamed[0]).toContain("`Explore` ('scout')");
+    });
+
+    it('prefers the recorded task id over the registry one', async () => {
+      const h = makeHarness();
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-started-1');
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledWith(
+        SESSION,
+        'task-started-1',
+      );
+    });
+
+    it('with nothing recorded and no registry record, defers with one WARN and no stop', async () => {
+      const h = makeHarness(null);
+      // A non-agent task (bash) under another tool_use id is not this subagent.
+      h.monitor.recordTaskStarted(SESSION, 'toolu_bash_1', 'task-bash-1');
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm2' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
+      expect(h.registry.update).not.toHaveBeenCalled();
+      expect(h.streamed).toHaveLength(0);
+      expect(h.logger.warn).toHaveBeenCalledTimes(1);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('stop deferred'),
+        expect.objectContaining({ toolCallId: TOOL_CALL }),
+      );
+    });
+
+    it('a task id recorded after a deferral lets the next message stop', async () => {
+      const h = makeHarness(null);
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-started-1');
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm2' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+      expect(h.streamed).toHaveLength(1);
+    });
+
+    it('ignores a blank session, tool_use or task id', async () => {
+      const h = makeHarness(null);
+      h.monitor.recordTaskStarted('', TOOL_CALL, 'task-started-1');
+      h.monitor.recordTaskStarted(SESSION, '', 'task-started-1');
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, '');
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
+    });
+
+    it('keeps a task id recorded under the old id across a rekey, and under an alias', async () => {
+      const h = makeHarness(null);
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-started-1');
+      h.monitor.rekey(SESSION, 'session-2');
+      h.monitor.recordTaskStarted(SESSION, 'toolu_task_2', 'task-started-2');
+      await h.monitor.observe(
+        'session-2',
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+      await h.monitor.observe(
+        'session-2',
+        assistant({ input: 200_000 }, { id: 'm2', parent: 'toolu_task_2' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenNthCalledWith(
+        1,
+        'session-2',
+        'task-started-1',
+      );
+      expect(h.dispatcher.stopSubagent).toHaveBeenNthCalledWith(
+        2,
+        'session-2',
+        'task-started-2',
+      );
+    });
+
+    it('merges task ids recorded under both ids on a rekey', async () => {
+      const h = makeHarness(null);
+      h.monitor.recordTaskStarted('session-2', TOOL_CALL, 'task-started-1');
+      h.monitor.recordTaskStarted(SESSION, 'toolu_task_2', 'task-started-2');
+      h.monitor.rekey(SESSION, 'session-2');
+      await h.monitor.observe(
+        'session-2',
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledWith(
+        'session-2',
+        'task-started-1',
+      );
+    });
+
+    it('forgets recorded task ids when the session is released', async () => {
+      const h = makeHarness(null);
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-started-1');
+      h.monitor.release(SESSION);
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
+    });
+  });
+
   it('retries a rejected stop on the next subagent message and gives up after the cap', async () => {
     const h = makeHarness();
     h.dispatcher.stopSubagent.mockRejectedValue(new Error('gone'));

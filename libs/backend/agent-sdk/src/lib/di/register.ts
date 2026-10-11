@@ -489,12 +489,16 @@ export function registerSdkServices(
   // monitor, and the monitor needs the dispatcher, which injects the manager.
   // The dispatcher is resolved on first use, after the manager exists, so
   // constructing the manager does not recurse.
+  // The handoff goes to the main-thread notice queue, not into the parent's
+  // input stream: the stopped subagent's own `Agent` tool result is the next
+  // main-thread PostToolUse, which drains the queue into its context.
   container.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, {
     useFactory: instanceCachingFactory((c) => {
       const dispatcher = () =>
         c.resolve<SubagentMessageDispatcher>(
           SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
         );
+      const notices = c.resolve(MainThreadNoticeQueue);
       return new SubagentBudgetMonitor(
         c.resolve<Logger>(TOKENS.LOGGER),
         c.resolve<CompactionConfigProvider>(
@@ -503,8 +507,10 @@ export function registerSdkServices(
         {
           stopSubagent: (sessionId, taskId) =>
             dispatcher().stopSubagent(sessionId, taskId),
-          pushParentMessage: (sessionId, content) =>
-            dispatcher().pushParentMessage(sessionId, content),
+          pushParentMessage: (sessionId, content) => {
+            notices.post(sessionId, content);
+            return Promise.resolve();
+          },
         },
         c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
       );
