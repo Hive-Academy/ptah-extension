@@ -1352,7 +1352,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Phase 4 accepted: code-logic APPROVED 7/10 (code-logic-review-phase4.md); code-style re-review of `b57910d88`
   APPROVED 9/10, Serious finding CLOSED, no new findings (code-style-review-phase4-fix.md, Codex lane).
 
-## Batch 22: H1 transcript projections — COMPLETE
+## Batch 22: H1 transcript projections — COMPLETE (commit 92d6a9597)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1405,7 +1405,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Deviations: 1, 2, 4, 5 accepted (decision #95); 3 accepted provisionally, NEEDS USER (decision #96), no batch
   blocked on it.
 
-## Batch 23: H2 dock state, transcript host sources, sidebar tab — IN_PROGRESS
+## Batch 23: H2 dock state, transcript host sources, sidebar tab — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1417,7 +1417,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   and per-tab (no await between `hasSeen` -> open -> `markSeen`); `setSurfaces` applies `retainedViewStateIds`; each
   sync mounts under its own transcript's `PTAH_UI_HOST_SOURCES` provider. Omitting any is a Serious defect.
 
-### Task 23.1: `DisplayDockState` — IN_PROGRESS
+### Task 23.1: `DisplayDockState` — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\services\display-dock\display-dock.state.ts
@@ -1444,7 +1444,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
     view-state entries whose component id is in `retainedViewStateIds`. The spec covers both, plus the R1.8 sequence
     through the real store (open, user close, second block same turn → closed with `newCount` 1, next turn opens).
 
-### Task 23.4: main-barrel export of the dock port (decision #59) — IN_PROGRESS
+### Task 23.4: main-barrel export of the dock port (decision #59) — COMPLETE
 
 - Order: runs first in the batch; Task 23.1 imports from it.
 
@@ -1463,7 +1463,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `export type { DisplaySurface } from './lib/organisms/display-panel/display-surfaces'` (type-only, erased); never a
   value export from that folder. The grep check must show line 2 of the dock file as `import type`.
 
-### Task 23.5: display-panel lazy entry exports the panel (decision #89) — IN_PROGRESS
+### Task 23.5: display-panel lazy entry exports the panel (decision #89) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\display-panel.ts
 - Implementation details: add `export { DisplayPanelComponent, DISPLAY_PANEL_SUMMARY_KEY } from
@@ -1475,7 +1475,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `grep -rn "_files.html\|_tests.html" libs/frontend/chat-ui/src` finds nothing.
 - Validation: the chat-ui typecheck and lint in the Batch 23 verification line cover the entry.
 
-### Task 23.2: transcript host-sources provider — IN_PROGRESS
+### Task 23.2: transcript host-sources provider — COMPLETE
 
 - File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-ptah-ui-host-sources.ts
 - Plan reference: implementation-plan.md:833-881, 977-993
@@ -1487,7 +1487,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `collectTurnAgentFacts(...)[i]`. The spec covers a message before the first user message (`null`) and a message
   in the second turn (`1`). The provider takes its messages from the same current records as Task 24.1 (#94).
 
-### Task 23.3: sidebar tab atom (count badge / tab ARIA) — IN_PROGRESS
+### Task 23.3: sidebar tab atom (count badge / tab ARIA) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\sidebar-tab.component.ts
 - Plan reference: implementation-plan.md:975
@@ -1498,6 +1498,21 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   the chat Jest call also names `libs/frontend/chat/src/lib/components/organisms/transcript/transcript-ptah-ui-host-sources.spec.ts`,
   and a chat-ui Jest call (`-c libs/frontend/chat-ui/jest.config.ts`) runs the sidebar-tab spec if one is added.
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/display-dock --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+### Batch 23 result (recorded at verification)
+
+- Team-leader re-ran in the worktree (bash, command-line `^vscode$`/`^marked$` mapper): chat Jest 2 suites / 32
+  passed (`display-dock` + `transcript-ptah-ui-host-sources.spec.ts`); chat-ui Jest 1 suite / 8 passed (sidebar tab);
+  `nx typecheck` succeeded for `@ptah-extension/chat` and `@ptah-extension/chat-ui`; `nx lint` 0 errors with the
+  baseline warnings (chat 34, chat-ui 10), none in a batch file. No TODO/FIXME/placeholder markers or timers.
+- Decision #81 hard check PASS on disk: `hasSeen`/`markSeen` are synchronous over a per-tab `Map<tabId, Set>`
+  (`display-dock.state.ts:314-326`); `setSurfaces` applies `retainedViewStateIds` and drops departed keys
+  (`:284-312`, `retainViewState` `:386-407`); `createTranscriptPtahUiHostSources` builds one instance per call with no
+  module-level state (`transcript-ptah-ui-host-sources.ts:51-71`), so each transcript can provide its own. #94 PASS:
+  the provider reads `slot.record()` per slot (`:54`), never `vm().messages`.
+- Scratch files `_files.html`/`_tests.html` are gone. Dock port file line 2 is `import type` (#76).
+- Deviations ruled in decisions #98-#103: 3, 5, 6, 7, 8 accepted; 1, 2, 4 accepted as GAP RULINGS (Codex peer
+  review). Follow-ons below in Tasks 24.1, 25.1 and 25.2.
 
 ## Batch 24: H3 transcript wiring and tests-row removal — PENDING
 
@@ -1541,6 +1556,25 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
     state (#81).
   - `chat-transcript.display.spec.ts` covers a content-only streaming write (no id, boundary or `isStreaming` change)
     that adds a display fence opener to the streaming message, and asserts the candidate appears.
+- Batch 23 follow-ons (decisions #99, #101, #102):
+  - Host sources (#102, deviation 7): build `createTranscriptPtahUiHostSources({ tabId, sessionId, slots, liveModelStats })`
+    once in a field of the transcript instance (`slots` = `computed(() => this.vm().slots)`, `liveModelStats` = the
+    tab's `liveModelStats ?? null`) and provide it in the transcript's own `providers` with
+    `{ provide: PTAH_UI_HOST_SOURCES, useFactory: () => inject(ChatTranscriptComponent).<field> }` (or the
+    `useExisting: forwardRef` equivalent). The transcript itself must not inject `PTAH_UI_HOST_SOURCES` (cycle). Use
+    the provider's `turnFacts` instead of a second `collectTurnAgentFacts` call. The display spec asserts two
+    transcripts resolve different host-source instances (#81).
+  - Live turn (#99, GAP): an effect calls `dock.setLiveTurn(tabId, turnKey)` while the tab streams, where `turnKey`
+    is the id of the last user message (the same rule as a candidate's `turnKey`), and `setLiveTurn(tabId, null)`
+    when the turn reaches a terminal state. Skip when the dock is not injected. The display spec asserts both calls.
+  - Summaries (#101, GAP): publish `dock.setSummaries(tabId, map)` with
+    `ReadonlyMap<turnKey, { model: TurnSummaryModel; changeSet: TurnChangeSet | null }>` in turn order; `changeSet`
+    is the turn's recorded change set from the same source the change-set card reads, else `null`. The same model
+    feeds the chip's `[summary]`. HARD CONSTRAINT: `buildTurnSummaryModel` is a value of the lazy
+    `@ptah-extension/chat-ui/turn-recap` entry; the transcript must not import it statically (that pulls the entry
+    into the eager closure; Batches 32/33 gate it). Load it through one cached dynamic
+    `import('@ptah-extension/chat-ui/turn-recap')`, Electron-gated, and publish nothing until it resolves; or an
+    equivalent lazy route, reported as a deviation. A failed load leaves no chip and no summaries (no throw).
 
 ### Task 24.2: delete the tests row — PENDING
 
@@ -1583,6 +1617,13 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   store and handle its outputs: `selectedKeyChange`, `viewStateChange` → `setViewState(tabId, surfaceKey, …)`,
   `openFile(path)` → `ChangeSetActionsService.openFile(changeSet, path)`, `review()` → `review(changeSet)`; a
   rejection sets `actionError`. No `openScm` wiring. The summary pill selects `DISPLAY_PANEL_SUMMARY_KEY`.
+- Batch 23 follow-ons (decisions #101, #102):
+  - Selection (deviation 3): `selectedKey` = `DISPLAY_PANEL_SUMMARY_KEY` for `{ kind: 'summary' }`, the
+    `surfaceKey` for `{ kind: 'surface' }`, `null` for `null`. `selectedKeyChange(key)` calls
+    `dock.select(tabId, key === DISPLAY_PANEL_SUMMARY_KEY ? { kind: 'summary' } : { kind: 'surface', surfaceKey: key })`.
+  - Summary (#101): `[summary]` = `dock.summaryFor(tabId)?.model ?? null`; `openFile(path)` / `review()` act on
+    `dock.summaryFor(tabId)?.changeSet`, and a `null` change set sets `actionError` instead of calling the service.
+  - No `setCandidates` exists (deviation 5); surface counts come from `tab(tabId).surfaces`.
 
 ### Task 25.2: ChatView mounts the dock; monitor panel becomes the Agents tabpanel — PENDING
 
@@ -1600,6 +1641,17 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   too, imported from `@ptah-extension/chat-ui` (main barrel), never from `/ptah-ui`. `chat-view.dock.spec.ts` asserts
   both tokens resolve to the same `DisplayDockState` instance, so the transcript's chips leave "Display panel
   unavailable".
+- Batch 23 follow-ons (decision #100, GAP; deviation 8):
+  - Agent auto-open maps the existing rule (`chat-view.component.ts:1194-1211`) per tab: running agents or a pending
+    permission → `dock.requestAgentsOpen(tabId)`; all agents settled with at least one agent →
+    `dock.releaseAgentsUserClose(tabId)`. An explicit `panelOpenRequest` for this tab (`:1163-1174`) →
+    `selectTab(tabId, 'agents')`, `open(tabId)`, `releaseAgentsUserClose(tabId)`. `toggleAgentPanel`/`closeAgentPanel`
+    route to `dock.toggle`/`dock.close`, so `_userExplicitlyClosed` is deleted (the store owns it). One user close
+    of the dock, on either tab, holds agent auto-open until release.
+  - The toggle is `ptah-sidebar-tab label="Display"` with `[newCount]="dock.tab(tabId).newCount"` and
+    `[isOpen]`; its name reads "Toggle Display panel, 1 new" and it carries `aria-expanded`.
+  - `chat-view.dock.spec.ts` covers: user close then running agent stays closed; agents settle then a new running
+    agent opens on Agents; a chip request opens on Agents after a user close.
 - Note: this batch touches 6 files in one lib (limit reached).
 
 ### Batch 25 verification

@@ -1,9 +1,10 @@
 /**
  * Chat UI - display-panel entry point (`@ptah-extension/chat-ui/display-panel`)
  *
- * The display panel pieces (TASK_2026_623, component 5): the pure surface
- * computation (`buildDisplaySurfaces`) and the headless surface sync the
- * transcript mounts. Eager code reaches this path only inside `@defer`, which
+ * The display panel pieces (TASK_2026_623, component 5): the panel the dock
+ * hosts (`DisplayPanelComponent`), the pure surface computation
+ * (`buildDisplaySurfaces`) and the headless surface sync the transcript
+ * mounts. Eager code reaches this path only inside `@defer`, which
  * the Angular compiler turns into a dynamic `import()`, so the fence pipeline,
  * the validator and `declarative-dashboard` stay in a lazy chunk (D14). The
  * main `@ptah-extension/chat-ui` barrel is statically imported by eager code;
@@ -16,6 +17,11 @@
  *
  * Do not re-export anything from this file in `index.ts`.
  */
+export {
+  DisplayPanelComponent,
+  DISPLAY_PANEL_SUMMARY_KEY,
+  type DisplayPanelViewStateChange,
+} from './lib/organisms/display-panel/display-panel.component';
 export { DisplaySurfaceSyncComponent } from './lib/organisms/display-panel/display-surface-sync.component';
 export type { DisplayTurnSnapshots } from './lib/organisms/display-panel/display-surface-sync.component';
 export {

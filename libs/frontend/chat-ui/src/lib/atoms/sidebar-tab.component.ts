@@ -9,10 +9,13 @@
  * - Right tabs: text reads top-to-bottom (default writing-mode)
  * - Active indicator line on the sidebar-facing edge when open
  * - Optional badge dot for status indicators (warning/info/neutral)
+ * - Optional "n new" text badge (`newCount`), also in the accessible name
+ * - `aria-expanded` follows `isOpen`
  */
 
 import {
   Component,
+  computed,
   input,
   output,
   ChangeDetectionStrategy,
@@ -53,7 +56,8 @@ import {
       [class.border-r]="side() === 'left'"
       [class.border-base-content/10]="true"
       [title]="(isOpen() ? 'Hide ' : 'Show ') + label()"
-      [attr.aria-label]="'Toggle ' + label() + ' panel'"
+      [attr.aria-label]="accessibleName()"
+      [attr.aria-expanded]="isOpen()"
       (click)="toggled.emit()"
     >
       <!-- Active indicator line (on sidebar-facing edge) -->
@@ -90,6 +94,19 @@ import {
           "
         ></span>
       }
+
+      <!-- New-content count: text, not colour alone (R1.8); the button's
+           accessible name carries it, so the visible badge is aria-hidden. -->
+      @if (newText(); as text) {
+        <span
+          class="tab-label tab-label--sm absolute bottom-2 left-1/2 -translate-x-1/2
+                 rounded-sm bg-primary text-primary-content font-semibold
+                 whitespace-nowrap leading-none px-0.5 py-1 select-none"
+          aria-hidden="true"
+          data-testid="sidebar-tab-new"
+          >{{ text }}</span
+        >
+      }
     </button>
   `,
 })
@@ -109,6 +126,25 @@ export class SidebarTabComponent {
   /** Optional status badge: 'warning' (yellow pulse), 'info' (blue pulse), 'neutral' (gray) */
   readonly badgeType = input<'warning' | 'info' | 'neutral' | null>(null);
 
+  /**
+   * Content that arrived while the panel was held closed (the Display dock's
+   * `newCount`, R1.8). Above 0 it shows the text badge "n new" and joins the
+   * accessible name: "Toggle Display panel, 1 new".
+   */
+  readonly newCount = input(0);
+
   /** Emits when the tab is clicked to toggle the panel */
   readonly toggled = output<void>();
+
+  /** "n new", or `null` when there is nothing new. */
+  protected readonly newText = computed(() => {
+    const count = this.newCount();
+    return count > 0 ? `${count} new` : null;
+  });
+
+  protected readonly accessibleName = computed(() => {
+    const name = `Toggle ${this.label()} panel`;
+    const text = this.newText();
+    return text === null ? name : `${name}, ${text}`;
+  });
 }
