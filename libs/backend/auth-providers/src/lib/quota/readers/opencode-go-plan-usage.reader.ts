@@ -1,20 +1,14 @@
 /** OpenCode Go subscription quota, separate from local `opencode stats`. */
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { z } from 'zod';
 import type { PlanLimitWindow } from '@ptah-extension/shared';
+import { readOpenCodeGoKey } from '../opencode-go-credential';
 import type {
   PlanUsageReader,
   PlanUsageReading,
 } from './plan-usage-reader.types';
 
 export const OPENCODE_GO_USAGE_URL = 'https://opencode.ai/zen/go/v1/usage';
-const AuthSchema = z.object({
-  'opencode-go': z
-    .object({ type: z.literal('api'), key: z.string().min(1) })
-    .optional(),
-});
 const WindowSchema = z.object({
   percent: z.number().finite(),
   resetsAt: z.string().datetime({ offset: true }),
@@ -56,31 +50,7 @@ export function createOpenCodeGoPlanUsageReader(
         };
     } else if (target.ownerRef.identityKind === 'cli-store') {
       try {
-        const dataHome =
-          env['XDG_DATA_HOME'] ||
-          join(
-            env['HOME'] || env['USERPROFILE'] || homedir(),
-            '.local',
-            'share',
-          );
-        let contents = env['OPENCODE_AUTH_CONTENT'];
-        if (!contents) {
-          try {
-            contents = await readAuth(
-              join(dataHome, 'opencode', 'auth.json'),
-              'utf8',
-            );
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-              return unavailable();
-            contents = '{}';
-          }
-        }
-        const auth = AuthSchema.safeParse(JSON.parse(contents));
-        if (!auth.success) return unavailable();
-        key = (
-          auth.data['opencode-go']?.key || env['OPENCODE_API_KEY']
-        )?.trim();
+        key = await readOpenCodeGoKey(env, readAuth);
       } catch {
         return unavailable();
       }

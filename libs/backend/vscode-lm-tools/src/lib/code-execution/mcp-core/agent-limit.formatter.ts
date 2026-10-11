@@ -15,9 +15,11 @@ import {
   formatToolUtc,
   formatUsed,
   groupAlternatives,
+  usedPercent,
   windowObservedAt,
   type ClassifiedWindow,
   type CliDetectionResult,
+  type LaneLimitState,
   type LaneStateReason,
   type OwnerLimitEvidence,
   type PlanLimitCooldown,
@@ -100,8 +102,9 @@ function reasonText(reason: LaneStateReason): string {
     case 'stale':
       return 'aged value';
     case 'no-usage-source':
-    case 'no-snapshot':
       return 'no usage source';
+    case 'no-snapshot':
+      return 'limits not tracked';
     case 'no-windows':
       return 'no windows reported';
     case 'window-set-not-established':
@@ -111,7 +114,8 @@ function reasonText(reason: LaneStateReason): string {
   }
 }
 
-function rowName(limit: AgentLimit): string {
+/** The lane name the tool text uses: the agent name for a Ptah CLI lane. */
+export function rowName(limit: AgentLimit): string {
   return limit.row.cli === 'ptah-cli'
     ? (limit.row.ptahCliName ?? 'Unknown')
     : limit.row.cli;
@@ -143,6 +147,157 @@ function activeCooldown(
   return cooldown !== undefined && cooldown.until > now ? cooldown : undefined;
 }
 
+/**
+ * Why a lane blocks a spawn. `window` and `owner` are the engine's own
+ * at-limit hits; `cooldown` is an active retry delay; `full-window` is a fresh
+ * reading of 100 % or more, which the engine files as near limit because it
+ * carries no exhaustion evidence. `resetsAt` is absent when any hit has no
+ * known reset.
+ */
+export interface LaneBlock {
+  readonly kind: 'window' | 'owner' | 'cooldown' | 'full-window';
+  readonly resetsAt?: number;
+  readonly detail: string;
+}
+
+/** The latest reset of every hit, or `undefined` when any reset is unknown. */
+function latestReset(
+  resets: readonly (number | undefined)[],
+): number | undefined {
+  if (resets.length === 0) return undefined;
+  let latest = -Infinity;
+  for (const resetsAt of resets) {
+    if (resetsAt === undefined) return undefined;
+    latest = Math.max(latest, resetsAt);
+  }
+  return latest;
+}
+
+function atLimitBlock(limit: AgentLimit): LaneBlock {
+  const evidence = ownerLimitEvidence(limit);
+  const resets: (number | undefined)[] = [];
+  const labels: string[] = [];
+  for (const reason of limit.state.reasons) {
+    if (reason.kind === 'owner-limit') resets.push(reason.evidence.resetsAt);
+    if (reason.kind === 'window-limit') {
+      resets.push(reason.window.resetsAt ?? reason.evidence.resetsAt);
+      labels.push(reason.window.label);
+    }
+  }
+  return {
+    kind: evidence ? 'owner' : 'window',
+    resetsAt: latestReset(resets),
+    detail: evidence
+      ? 'usage limit hit, window unknown'
+      : `${labels.join(', ')} limit reached`,
+  };
+}
+
+/** A fresh applicable window that reads 100 % used and has not reset yet. */
+function fullWindow(
+  limit: AgentLimit,
+  now: number,
+): ClassifiedWindow | undefined {
+  return limit.state.windows.find(
+    ({ window, state }) =>
+      (state === 'near-limit' || state === 'ok') &&
+      (usedPercent(window.used) ?? 0) >= 100 &&
+      (window.resetsAt === undefined || window.resetsAt > now),
+  );
+}
+
+/**
+ * Whether the lane is at its limit for a spawn, and why. Pure: a lane with no
+ * snapshot only blocks on the engine's own at-limit state.
+ */
+export function laneBlock(
+  limit: AgentLimit,
+  now: number,
+): LaneBlock | undefined {
+  if (!limit.snapshot) return undefined;
+  if (limit.state.state === 'at-limit') return atLimitBlock(limit);
+  const cooldown = activeCooldown(limit, now);
+  if (cooldown) {
+    return {
+      kind: 'cooldown',
+      resetsAt: cooldown.until,
+      detail: 'cooldown active',
+    };
+  }
+  const full = fullWindow(limit, now);
+  if (full) {
+    return {
+      kind: 'full-window',
+      resetsAt: full.window.resetsAt,
+      detail: `${full.window.label} ${formatUsed(full.window.used)}`,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The lane state the tool text and the spawn gate share: a lane that blocks a
+ * spawn reads as at its limit even when the engine filed it otherwise.
+ */
+export function effectiveLaneState(
+  limit: AgentLimit,
+  now: number,
+): LaneLimitState {
+  return laneBlock(limit, now) ? 'at-limit' : limit.state.state;
+}
+
+/** Status words for a snapshot whose reader could not measure the lane. */
+const UNKNOWN_STATUS_CAUSE: Readonly<
+  Partial<Record<NonNullable<AgentLimit['snapshot']>['status'], string>>
+> = {
+  'no-usage-source': 'no usage source',
+  stale: 'reader failed, aged value',
+  'provider-unsupported': 'no reader for provider',
+  'unsupported-config': 'credential missing',
+  'unsupported-auth': 'API key, no plan',
+  'cli-unavailable': 'cli unavailable',
+  'cli-version-unsupported': 'cli version unsupported',
+};
+
+/**
+ * The one short cause of an unknown lane state: why the limit could not be
+ * read. It wins over the first engine reason for the column and the
+ * alternatives detail.
+ */
+export function unknownCause(limit: AgentLimit): string {
+  switch (limit.lookup) {
+    case 'no-owner':
+      return 'limits not tracked';
+    case 'timeout':
+      return 'limit lookup timed out';
+    case 'failed':
+      return 'limit lookup failed';
+    default:
+      break;
+  }
+  const snapshot = limit.snapshot;
+  if (snapshot?.status === 'service-unavailable') {
+    return snapshot.unavailableReason === 'no-open-session'
+      ? 'no open session'
+      : 'reader failed';
+  }
+  const statusCause = snapshot && UNKNOWN_STATUS_CAUSE[snapshot.status];
+  if (statusCause) return statusCause;
+  const first = limit.state.reasons[0];
+  return first ? reasonText(first) : 'limits not tracked';
+}
+
+function blockedColumn(block: LaneBlock): string {
+  if (block.kind === 'cooldown') {
+    return `AT LIMIT (cooldown, retry after ${block.resetsAt === undefined ? 'an unknown time' : formatToolUtc(block.resetsAt)})`;
+  }
+  const reset =
+    block.resetsAt === undefined
+      ? 'reset unknown'
+      : 'resets ' + formatToolUtc(block.resetsAt);
+  return `AT LIMIT (${block.detail}, ${reset})`;
+}
+
 /** The list's `Limit state` cell and the spawn's `**Limit state:**` value. */
 export function formatLimitColumn(limit: AgentLimit, now = Date.now()): string {
   const { state, reasons, windows } = limit.state;
@@ -162,6 +317,8 @@ export function formatLimitColumn(limit: AgentLimit, now = Date.now()): string {
       })
       .join('; ')})`;
   }
+  const block = laneBlock(limit, now);
+  if (block) return blockedColumn(block);
   if (state === 'near-limit') {
     const near = windows.find((entry) => entry.state === 'near-limit');
     return near
@@ -169,9 +326,7 @@ export function formatLimitColumn(limit: AgentLimit, now = Date.now()): string {
       : 'near limit';
   }
   if (state === 'confirmed-room') return 'confirmed room';
-  const cooldown = activeCooldown(limit, now);
-  const reason = reasons[0] ? reasonText(reasons[0]) : 'no usage source';
-  return `unknown (${reason}${cooldown ? ` until ${formatToolUtc(cooldown.until)}` : ''})`;
+  return `unknown (${unknownCause(limit)})`;
 }
 
 function table(headers: readonly string[], rows: readonly string[][]): string {
@@ -268,17 +423,20 @@ function noWindowsDetail(limit: AgentLimit): string {
   if (first?.kind === 'lookup-failed') {
     return `${reasonText(first)}; no windows known`;
   }
-  if (hasNoUsageSource(limit) || first?.kind === 'no-snapshot') {
+  if (limit.lookup === 'no-owner' || first?.kind === 'no-snapshot') {
+    return 'limits not tracked, no limit recorded';
+  }
+  if (hasNoUsageSource(limit)) {
     return 'no usage source, no limit recorded';
   }
   if (first === undefined || first.kind === 'no-windows') {
     return 'no windows reported';
   }
-  return `${reasonText(first)}; no windows reported`;
+  return `${unknownCause(limit)}; no windows reported`;
 }
 
 function alternativeLine(limit: AgentLimit, now: number): string {
-  const { state, reasons, windows } = limit.state;
+  const { windows } = limit.state;
   const parts: string[] = [];
   const evidence = ownerLimitEvidence(limit);
   if (evidence) {
@@ -299,8 +457,8 @@ function alternativeLine(limit: AgentLimit, now: number): string {
       `cooldown until ${formatToolInstant(cooldown.until, now)}, a retry delay, not a plan reset`,
     );
   }
-  if (state === 'unknown' && windows.length > 0 && reasons[0]) {
-    parts.unshift(`not confirmed: ${reasonText(reasons[0])}`);
+  if (effectiveLaneState(limit, now) === 'unknown' && windows.length > 0) {
+    parts.unshift(`not confirmed: ${unknownCause(limit)}`);
   }
   return `- ${rowName(limit)}: ${parts.join('. ')}`;
 }
@@ -329,7 +487,7 @@ export function formatAlternatives(
     ].join('\n\n');
   }
   const groups = groupAlternatives(
-    rows.map((limit) => ({ limit, state: limit.state.state })),
+    rows.map((limit) => ({ limit, state: effectiveLaneState(limit, now) })),
   );
   const who = hasTarget ? 'other lane' : 'lane';
   const intro =
@@ -379,6 +537,20 @@ function spawnWarning(
   return `> WARNING: ${details.join('. ')}. ${outcome}`;
 }
 
+/** A WARNING for a lane the gate blocks but the engine did not file at limit. */
+function blockWarning(
+  limit: AgentLimit,
+  block: LaneBlock,
+  outcome: string,
+  now: number,
+): string {
+  const detail =
+    block.kind === 'cooldown'
+      ? 'is in a cooldown, a retry delay'
+      : `is at its plan limit (${block.detail}); ${resetPhrase(block.resetsAt, now)}`;
+  return `> WARNING: ${rowName(limit)} ${detail}. ${outcome}`;
+}
+
 /**
  * The estimate note for a lane that is neither at nor near its limit. Every
  * window and reason is checked: `classifyLaneState` lists estimated limits
@@ -410,6 +582,7 @@ export function formatSpawnLimitBlock(
   target: AgentLimitTarget | undefined,
   attempted: boolean,
   now = Date.now(),
+  options: { readonly forced?: boolean } = {},
 ): string {
   const alternatives = formatAlternatives(limits, {
     targetRowKey: target ? targetRowKey(target) : undefined,
@@ -422,15 +595,25 @@ export function formatSpawnLimitBlock(
       alternatives,
     ].join('\n\n');
   }
-  const outcome = attempted
-    ? 'The spawn was still attempted.'
-    : 'The spawn was still started.';
+  let outcome = 'The spawn was still started.';
+  if (options.forced) outcome = 'The spawn was forced past the limit gate.';
+  else if (attempted) outcome = 'The spawn was still attempted.';
   const lines = [`**Limit state:** ${formatLimitColumn(limit, now)}`];
-  const notice =
-    limit.state.state === 'at-limit' || limit.state.state === 'near-limit'
-      ? spawnWarning(limit, outcome, now)
-      : estimateNote(limit, now);
+  const block = laneBlock(limit, now);
+  let notice: string | undefined;
+  if (limit.state.state === 'at-limit' || limit.state.state === 'near-limit') {
+    notice = spawnWarning(limit, outcome, now);
+  } else if (block) {
+    notice = blockWarning(limit, block, outcome, now);
+  } else {
+    notice = estimateNote(limit, now);
+  }
   if (notice) lines.push(notice);
+  if (!block && limit.state.state === 'unknown') {
+    lines.push(
+      `> Note: limit state unknown (${unknownCause(limit)}); ${attempted ? 'attempted' : 'spawned'} without a limit check.`,
+    );
+  }
   const cooldown = activeCooldown(limit, now);
   if (cooldown) {
     lines.push(
