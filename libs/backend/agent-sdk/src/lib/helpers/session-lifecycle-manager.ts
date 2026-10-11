@@ -457,9 +457,8 @@ export class SessionLifecycleManager {
       compactionProvider ? () => compactionProvider.getConfig() : null,
       (sessionId) => this.onTurnTerminal(sessionId),
       (sessionId) =>
-        !this.handoverCoordinator?.admitInterrupt(
-          this.handoverKey(sessionId),
-        ).held,
+        !this.handoverCoordinator?.admitInterrupt(this.handoverKey(sessionId))
+          .held,
     );
     this.handoverCoordinator?.attachRuntime({
       sourceSnapshot: (sourceSessionId) => {
@@ -484,7 +483,10 @@ export class SessionLifecycleManager {
         };
       },
       queueOwnedHandoff: (sourceSessionId, prompt) =>
-        this._streamPump.enqueueOwnedHandoff(sourceSessionId as SessionId, prompt),
+        this._streamPump.enqueueOwnedHandoff(
+          sourceSessionId as SessionId,
+          prompt,
+        ),
       restoreInputs: (sourceSessionId, inputs) => {
         return this._registry.restoreQueuedInputs(sourceSessionId, inputs);
       },
@@ -492,11 +494,13 @@ export class SessionLifecycleManager {
         this.endSessionIfTokenMatches(sourceSessionId as SessionId, token),
       isOwnedHandoffPendingOrRunning: (sourceSessionId, token) => {
         const rec = this._registry.find(sourceSessionId);
-        return !!rec && rec.token === token && (
-          rec.turnInFlight ||
-          rec.messageQueue.some(
-            (input) => input.admission === 'owned-handoff',
-          )
+        return (
+          !!rec &&
+          rec.token === token &&
+          (rec.turnInFlight ||
+            rec.messageQueue.some(
+              (input) => input.admission === 'owned-handoff',
+            ))
         );
       },
       subagentsInFlight: (sourceSessionId) =>
@@ -512,16 +516,18 @@ export class SessionLifecycleManager {
     atBlockingLimit: boolean = this.isAtBlockingLimit(sessionId),
   ): void {
     const rec = this._registry.find(sessionId as string);
+    const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
     if (rec && this.handoverCoordinator) {
-      const canonicalId = this.handoverKey(sessionId);
-      const budgetSessionId = rec.realSessionId ?? (sessionId as string);
       this.handoverCoordinator.armAtTerminal(
-        canonicalId,
+        this.handoverKey(sessionId),
         atBlockingLimit,
         rec.messageQueue,
         this.sessionBudget?.stageFor(budgetSessionId) === 'handoff',
       );
     }
+    // After arming, which read the turn's estimate: it must not outlive the
+    // turn, nor may its pending notices reach the next one.
+    this.sessionBudget?.onTurnTerminal(budgetSessionId);
     this._registry.markTurnEnded(sessionId as string);
   }
 
@@ -538,8 +544,20 @@ export class SessionLifecycleManager {
       this.handoverKey(sessionId),
       this.isAtBlockingLimit(sessionId),
       rec.messageQueue,
-      this.sessionBudget?.stageFor(budgetSessionId) === 'handoff',
+      this.atHandoffOrLimitStage(budgetSessionId),
     );
+  }
+
+  /**
+   * At the handoff stage or past it, for the post-result path only. Here the
+   * live estimate is already cleared, so `limit` is authoritative and counts.
+   * `onTurnTerminal` checks `handoff` alone: there the stage may still be a
+   * live `limit`, which must wait for the result so a blocking limit arms
+   * `budget-limit` (the user's click) instead of an automatic rotation.
+   */
+  private atHandoffOrLimitStage(budgetSessionId: string): boolean {
+    const stage = this.sessionBudget?.stageFor(budgetSessionId);
+    return stage === 'handoff' || stage === 'limit';
   }
 
   /**
@@ -555,11 +573,15 @@ export class SessionLifecycleManager {
     );
     const toolCallIds = new Set<string>();
     for (const parentId of parentIds) {
-      for (const record of this.subagentRegistry.getRunningBySession(parentId)) {
+      for (const record of this.subagentRegistry.getRunningBySession(
+        parentId,
+      )) {
         toolCallIds.add(record.toolCallId);
       }
       // Only live (`background`, unexpired) records are returned here.
-      for (const record of this.subagentRegistry.getBackgroundAgents(parentId)) {
+      for (const record of this.subagentRegistry.getBackgroundAgents(
+        parentId,
+      )) {
         toolCallIds.add(record.toolCallId);
       }
     }

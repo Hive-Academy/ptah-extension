@@ -209,6 +209,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'interruptCurrentTurn'
     | 'markTurnEnded'
     | 'onTurnTerminal'
+    | 'armHandoverIfIdle'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
     | 'getSessionToken'
@@ -233,6 +234,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     markTurnEnded: jest.fn().mockReturnValue(true),
     onTurnTerminal: jest.fn(),
+    armHandoverIfIdle: jest.fn(),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     getSessionToken: jest.fn().mockReturnValue(null),
@@ -373,11 +375,17 @@ interface AdapterHarness {
 function createMockSessionBudget(): jest.Mocked<
   Pick<
     SessionBudgetService,
-    'observe' | 'recordCompaction' | 'release' | 'clearAll' | 'canSend'
+    | 'observe'
+    | 'observeLive'
+    | 'recordCompaction'
+    | 'release'
+    | 'clearAll'
+    | 'canSend'
   >
 > {
   return {
     observe: jest.fn().mockReturnValue(undefined),
+    observeLive: jest.fn(),
     recordCompaction: jest.fn(),
     release: jest.fn(),
     clearAll: jest.fn(),
@@ -1560,13 +1568,16 @@ describe('SdkAgentAdapter', () => {
         abortController: new AbortController(),
       } as ExecuteQueryResult);
 
-      await h.adapter.resumeSession('sess-1' as SessionId, {
-        providerProfile: {
-          providerId: 'anthropic',
-          model: 'claude-sonnet-4-20250514',
-          reasoningEffort: 'high',
-        },
-      } as AISessionConfig & { providerProfile: ProviderProfile });
+      await h.adapter.resumeSession(
+        'sess-1' as SessionId,
+        {
+          providerProfile: {
+            providerId: 'anthropic',
+            model: 'claude-sonnet-4-20250514',
+            reasoningEffort: 'high',
+          },
+        } as AISessionConfig & { providerProfile: ProviderProfile },
+      );
 
       expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2061,9 +2072,12 @@ describe('SdkAgentAdapter', () => {
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
         queryResult('run-token-stop'),
       );
-      await h.adapter.startChatSession(makeSessionConfig({ tabId: 'tab_stop' }));
+      await h.adapter.startChatSession(
+        makeSessionConfig({ tabId: 'tab_stop' }),
+      );
       const launched = h.streamTransformer.transform.mock.calls[0][0];
-      expect(launched.onLiveStats).toBe(onLive);
+      // The budget wrapper (TASK_2026_627) delivers to `onLive` below.
+      expect(typeof launched.onLiveStats).toBe('function');
       await launched.onSessionIdResolved?.('tab_stop', SESSION);
 
       // The stream's publisher, built from the config the adapter handed over.
@@ -2098,6 +2112,9 @@ describe('SdkAgentAdapter', () => {
 
       expect(live).toHaveLength(1);
       expect(live[0]?.sessionStats.provisional).toBe(true);
+      expect(h.sessionBudget.observeLive).toHaveBeenCalledWith(
+        live[0]?.sessionStats,
+      );
       expect(live[0]?.context).toEqual({
         model: 'claude-sonnet-4-20250514',
         contextTokens: 1234,
@@ -2294,7 +2311,9 @@ describe('SdkAgentAdapter', () => {
       expect(onStats).toHaveBeenCalledWith(fakeStats);
     });
 
-    it('passes no live-stats callback when none is registered (publisher inert)', async () => {
+    // TASK_2026_627: the budget wrapper is installed with no host callback, so
+    // the publisher is never inert and every host feeds the live budget.
+    it('installs the budget live wrapper when no live-stats callback is registered', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
@@ -2305,15 +2324,24 @@ describe('SdkAgentAdapter', () => {
 
       await h.adapter.startChatSession(makeSessionConfig());
 
-      expect(
-        h.streamTransformer.transform.mock.calls[0][0].onLiveStats,
-      ).toBeUndefined();
+      const onLiveStats =
+        h.streamTransformer.transform.mock.calls[0][0].onLiveStats;
+      expect(typeof onLiveStats).toBe('function');
+      const sessionStats = {
+        sessionId: 'tab_1',
+        provisional: true,
+        revision: 1,
+      } as SessionStatsEntry;
+      expect(() =>
+        onLiveStats?.({ sessionId: 'tab_1' as SessionId, sessionStats }),
+      ).not.toThrow();
+      expect(h.sessionBudget.observeLive).toHaveBeenCalledWith(sessionStats);
     });
 
-    // TASK_2026_626: a live estimate is not a result. The registered callback
-    // reaches every stream unwrapped, so it never notifies activity and never
-    // feeds the session budget.
-    it('threads the registered live-stats callback, unwrapped, into all four streams', async () => {
+    // TASK_2026_626/627: a live estimate is not a result. Every stream gets
+    // the budget wrapper around the registered callback: it feeds
+    // `observeLive`, never `observe`, and never notifies activity.
+    it('threads the registered live-stats callback, wrapped for the budget, into all four streams', async () => {
       const LIVE_SESSION = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000626';
       const h = makeAdapter();
       await h.adapter.initialize();
@@ -2331,9 +2359,12 @@ describe('SdkAgentAdapter', () => {
       await h.adapter.startChatSession(makeSessionConfig());
       // 2. Cold resume.
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce(launch());
-      await h.adapter.resumeSession(LIVE_SESSION as SessionId, {
-        projectPath: '/fake/workspace',
-      } as AISessionConfig);
+      await h.adapter.resumeSession(
+        LIVE_SESSION as SessionId,
+        {
+          projectPath: '/fake/workspace',
+        } as AISessionConfig,
+      );
       // 3. Active reuse of a running query.
       h.sessionLifecycle.find.mockReturnValueOnce({
         token: 'run-token-live',
@@ -2377,13 +2408,54 @@ describe('SdkAgentAdapter', () => {
         } as SessionStatsEntry,
       };
       for (const config of configs) {
-        expect(config.onLiveStats).toBe(onLive);
+        expect(typeof config.onLiveStats).toBe('function');
+        expect(config.onLiveStats).not.toBe(onLive);
         config.onLiveStats?.(payload);
       }
 
       expect(onLive).toHaveBeenCalledTimes(4);
       expect(onLive).toHaveBeenCalledWith(payload);
+      expect(h.sessionBudget.observeLive).toHaveBeenCalledTimes(4);
+      expect(h.sessionBudget.observeLive).toHaveBeenCalledWith(
+        payload.sessionStats,
+      );
       expect(h.sessionBudget.observe).not.toHaveBeenCalled();
+    });
+
+    it('still delivers the live payload when observeLive throws, and warns once', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const onLive = jest.fn();
+      h.adapter.setLiveStatsCallback(onLive);
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+      await h.adapter.startChatSession(makeSessionConfig());
+      h.sessionBudget.observeLive.mockImplementation(() => {
+        throw new Error('boom');
+      });
+      const onLiveStats =
+        h.streamTransformer.transform.mock.calls[0][0].onLiveStats;
+      const payload: SessionStatsLivePayload = {
+        sessionId: 'tab_1' as SessionId,
+        sessionStats: {
+          sessionId: 'tab_1',
+          provisional: true,
+          revision: 2,
+        } as SessionStatsEntry,
+      };
+
+      onLiveStats?.(payload);
+      onLiveStats?.(payload);
+
+      expect(onLive).toHaveBeenCalledTimes(2);
+      expect(onLive).toHaveBeenCalledWith(payload);
+      const warnings = h.logger.warn.mock.calls.filter((call) =>
+        String(call[0]).includes('Session budget live observe failed'),
+      );
+      expect(warnings).toHaveLength(1);
     });
   });
 
@@ -2518,6 +2590,69 @@ describe('SdkAgentAdapter', () => {
       expect(h.sessionBudget.observe.mock.calls[0][0]).toBe(snapshot);
     });
 
+    // R2: the result arrives after the turn terminal already armed.
+    it.each(['handoff', 'limit'] as const)(
+      'arms an idle handover after a result at the %s stage, after the broadcast',
+      async (stage) => {
+        const h = makeAdapter();
+        const onStats = jest.fn();
+        const arg = await startNewSession(h, onStats);
+        h.sessionBudget.observe.mockReturnValueOnce({
+          ...budgetFor(REAL_ID),
+          stage,
+        });
+
+        (arg.onResultStats as ResultStatsCallback)(
+          resultStats(snapshotFor(REAL_ID)),
+        );
+
+        expect(h.sessionLifecycle.armHandoverIfIdle).toHaveBeenCalledWith(
+          'tab_1',
+        );
+        expect(onStats.mock.invocationCallOrder[0]).toBeLessThan(
+          h.sessionLifecycle.armHandoverIfIdle.mock.invocationCallOrder[0],
+        );
+      },
+    );
+
+    it('does not arm below the handoff stage or without a budget state', async () => {
+      const h = makeAdapter();
+      const arg = await startNewSession(h);
+      h.sessionBudget.observe.mockReturnValueOnce(budgetFor(REAL_ID));
+
+      (arg.onResultStats as ResultStatsCallback)(
+        resultStats(snapshotFor(REAL_ID)),
+      );
+      (arg.onResultStats as ResultStatsCallback)(resultStats());
+
+      expect(h.sessionLifecycle.armHandoverIfIdle).not.toHaveBeenCalled();
+    });
+
+    it('never lets a throwing arm escape the result callback', async () => {
+      const h = makeAdapter();
+      const onStats = jest.fn();
+      const arg = await startNewSession(h, onStats);
+      h.sessionBudget.observe.mockReturnValueOnce({
+        ...budgetFor(REAL_ID),
+        stage: 'handoff',
+      });
+      h.sessionLifecycle.armHandoverIfIdle.mockImplementationOnce(() => {
+        throw new Error('arm failed');
+      });
+
+      expect(() =>
+        (arg.onResultStats as ResultStatsCallback)(
+          resultStats(snapshotFor(REAL_ID)),
+        ),
+      ).not.toThrow();
+      expect(onStats).toHaveBeenCalledTimes(1);
+      expect(
+        h.logger.warn.mock.calls.some((call) =>
+          String(call[0]).includes('Could not arm the budget handover'),
+        ),
+      ).toBe(true);
+    });
+
     it('passes a compaction recorder to the transformer that never throws', async () => {
       const h = makeAdapter();
       const arg = await startNewSession(h);
@@ -2539,12 +2674,10 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter();
       const arg = await startNewSession(h);
       const callOrder: string[] = [];
-      h.sessionLifecycle.onTurnTerminal.mockImplementation(
-        (sessionId) => {
-          callOrder.push('arm');
-          h.sessionLifecycle.markTurnEnded(sessionId);
-        },
-      );
+      h.sessionLifecycle.onTurnTerminal.mockImplementation((sessionId) => {
+        callOrder.push('arm');
+        h.sessionLifecycle.markTurnEnded(sessionId);
+      });
       h.sessionLifecycle.markTurnEnded.mockImplementation(() => {
         callOrder.push('markTurnEnded');
         return true;
