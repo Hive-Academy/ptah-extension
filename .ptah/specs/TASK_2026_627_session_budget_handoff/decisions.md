@@ -276,3 +276,22 @@ Dropped as not a defect in this diff, with evidence:
   starts `budget-auto`; (2) a live `handoff` at the terminal whose result reaches the blocking limit
   has already started `budget-auto` and is not converted by S1, the same click bypass as D17 by a
   narrower route. Any fix would touch the coordinator, outside Batch 8.
+
+## D21 (Phase 3 review): Phase 3 closes with no fix round; D20 item 2 goes to the user
+
+- Review: `code-logic-review-phase3.md`, APPROVED 7/10 on `91376becf..e6788c558`. 0 Blocking,
+  0 Serious, 3 Moderate, 5 Minor. The reviewer ran the three specs: 3 suites, 244 tests passed.
+- Fix-round rule: none of the three Moderates can break a lane config or lose data, so none is fixed
+  here. They are deferred as 627-L14 (D20 item 2), 627-L15 (Stop arms off an estimate) and 627-L16
+  (post-terminal live re-publication). Minors 1, 3, 4 and 5 are recorded as 627-L17..L20; Minor 2 is
+  the D15 residual already accepted.
+- D20 item 1 (a live `handoff` overestimate starts `budget-auto`) is the plan's intended path
+  (implementation-plan.md:387-394): accepted behaviour, no row.
+- D20 item 2 / 627-L14 is the one deviation from a user decision: a live `handoff` at the terminal
+  starts `budget-auto`, and when the result then reaches the blocking limit the op is already past
+  `waiting-for-turn-end`, so S1 (D5) does not convert it and the user loses the "New session" click
+  and the "Allow 20% more" choice (user decision 1). No data is lost and the window is narrow. The
+  fix belongs in the coordinator. Whether it lands in this branch or a later task is the user's
+  choice; it is not fixed now.
+- Phase 3 is closed. All 11 batches are COMPLETE; the task goes to `in_review` until the user's
+  Phase 2 manual Electron check (user decision 3) is done.

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_627_session_budget_handoff
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Session budget handoff never wraps up the agent, never rotates, and strands the user at the limit
 depends_on: [TASK_2026_626_7b3e]

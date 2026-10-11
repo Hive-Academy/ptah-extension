@@ -677,7 +677,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   runs with `this` undefined. Not caused by this branch. Awaiting the user's choice (separate task, or
   a batch here). Recorded in decisions.md D10.
 
-## Deferred follow-ups from the Phase 1 and Phase 2 reviews (named later tasks; decisions.md D8)
+## Deferred follow-ups from the Phase 1, 2 and 3 reviews (named later tasks; decisions.md D8, D21)
 
 | Id | Finding | Why deferred | Target |
 | --- | --- | --- | --- |
@@ -694,6 +694,13 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L11 | Re-review 6F minor: `continueFromGoneSource` returns silently while another budget action is in flight | Only for the duration of the in-flight action | Follow-up: show a busy state on the button |
 | 627-L12 | Re-review 6F minor: `goneSourceTab` remembers one source only; alternating two ended sources opens duplicate tabs; grid-mode `switchTab` focus has no spec | Rare path; no data lost | Follow-up: key the remembered tab by source session id and add a grid-mode spec |
 | 627-L13 | Batch 8 minor (D18): a held input that starts the next turn before the result is processed makes `armHandoverIfIdle` a no-op, and a non-blocking authoritative `limit` is not armed at the next terminal | Arms after the first result that lands with the source idle; the blocking limit is unaffected (`atBlockingLimit`) | Follow-up: let the terminal tell an authoritative from a live `limit` (e.g. a budget accessor for the authoritative stage) |
+| 627-L14 | Phase 3 Moderate 1 (D20 item 2): a live `handoff` at the terminal starts `budget-auto` (`armAtTerminal` moves it to `writing-handoff`, `session-handover-coordinator.service.ts:371-375`); when the result then reaches the blocking limit, S1 converts only `waiting-for-turn-end` (`:309-318`), so the rotation runs without the user's click and without "Allow 20% more" | No data loss and no lane config at risk (fix-round rule); narrow window (estimate 80-99%, result >=100%, last second of a turn). **Touches user decision 1 (limit = one click "New session") and D5: the user chooses whether to fix it now or later** | Coordinator: when a blocking result lands and the op is `budget-auto` not yet past `writing-handoff`, convert it to `budget-limit`; or let the lifecycle defer a live `handoff` at the terminal when `blockAtLimit` is on and the estimate is near the limit |
+| 627-L15 | Phase 3 Moderate 2: Stop (`session-control.service.ts:125`) at a live `handoff` stage arms `budget-auto` off an estimate that no result confirms | User can Cancel; the handoff doc is written first; no lane config at risk | Do not arm from the live figure on the interrupt path (authoritative stage only) |
+| 627-L16 | Phase 3 Moderate 3: a throttled provisional flush after an interrupt-driven terminal re-sets `liveFigure` (`session-budget.service.ts:313`) and can re-post a wrap-up notice (`:1162`); the non-provisional settle payload is ignored by `observeLive` (`:273`), so after an abnormal stream end the live stage stays elevated | Stale advisory stage and at most one stale notice; no data or lane config lost | Ignore live payloads for a session after its terminal until the next turn starts; route the settle payload to `accept` or clear the live figure on it |
+| 627-L17 | Phase 3 Minor 1: `onTurnTerminal` clears the whole session queue (`session-budget.service.ts:337`), dropping a pending subagent-monitor notice (`register.ts:511`) | Advisory text only | Clear only the budget's own notices (tag them by source) |
+| 627-L18 | Phase 3 Minor 3: if the host `inner(...)` throws in `wrapResultStatsForActivity`, `armHandoverIfIdle` (`sdk-agent-adapter.ts:1825`) is skipped for that result | Arms at the next terminal | Run the arm in its own try before `inner`, or guard `inner` |
+| 627-L19 | Phase 3 Minor 4: the limit notice says Ptah "will ask for a handoff and continue in a new session" (`session-budget.service.ts:205`), but at a blocking limit the user clicks "New session" | Wording only | Name the click at a blocking limit in the notice |
+| 627-L20 | Phase 3 Minor 5: the wrapper makes `onLiveStats` always defined (`sdk-agent-adapter.ts:1844`), so `LiveSessionStatsPublisher` runs a timer and owner watcher per stream on every host; a failed first terminal handover is retried once by the post-result arm in the same turn | Intended (plan: wrapper installed without a host callback); cost only | Measure the per-stream cost; document the single retry |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — COMPLETE (0917b8074)
 
@@ -917,3 +924,29 @@ Required fix (Task 8.2, inside `session-lifecycle-manager.ts` and its spec):
   typecheck passed; lint 0 errors / 54 warnings (baseline, no new warning). Committed `e6788c558`.
 - Phase 3 review due: code-logic on the combined Batches 7-8 diff, `91376becf..HEAD` (code commits
   `af073e5a2`, `e6788c558`), including the D20 items.
+- Phase 3 review: `code-logic-review-phase3.md` APPROVED 7/10 on `91376becf..e6788c558` (3 suites,
+  244 tests passed in the reviewer's run). 0 Blocking, 0 Serious, 3 Moderate, 5 Minor. No Moderate
+  can break a lane config or lose data, so no fix round (fix-round rule). Moderates deferred as
+  627-L14..L16, Minors 1, 3, 4, 5 as 627-L17..L20; Minor 2 is the accepted D15 residual. D20 item 1
+  is accepted plan behaviour. 627-L14 (D20 item 2) touches user decision 1 and is left to the
+  user (decisions.md D21).
+- Phase 3 (Batches 7-8) is CLOSED.
+
+## Completion (Mode 3)
+
+- All 11 batches COMPLETE, each with a commit that resolves on the branch: `f0882e60d` (0),
+  `28e3ddc05` (1), `221537118` (2), `306ee2732` (3), `833e5dadd` (4), `6cb27e3e4` (5), `44eba9fc3`
+  (5F), `0917b8074` (6), `98852ac81` (6F), `af073e5a2` (7), `e6788c558` (8).
+- Phase reviews accepted: Phase 1 (`code-logic-review.md`, `code-style-review.md`,
+  `code-logic-rereview-5F.md`), Phase 2 (`code-logic-review-phase2.md`,
+  `code-logic-rereview-6F.md`), Phase 3 (`code-logic-review-phase3.md`).
+- Parity: N/A. A BUGFIX; no surface is replaced, consolidated, rebuilt or redesigned.
+- Rendered visual evidence: replaced by user decision 3 (the user checks the budget banner and the
+  compaction card manually in Electron; no screenshot review). Still open, so `task.md` is
+  `in_review`, not `done`.
+- Write-path trace: no persisted setting or configuration key changes. The one storage write is the
+  existing handoff file from `buildHandoff`; its reader, the gone-source fallback (Batch 6F), reads
+  the same file (627-L10 records its staleness after extend or compact).
+- Open for the user: (1) the Phase 2 manual Electron check (decision 3); (2) optional A1 live run
+  (`additionalContext` reaches the main model mid-turn); (3) the choice on 627-L14; (4) the deferred
+  rows 627-L1..L20.
