@@ -7,6 +7,7 @@ import {
 import { inject, injectable } from 'tsyringe';
 import * as vscode from 'vscode';
 import {
+  parseWebviewRouteState,
   type WebviewMessage,
   type WorkspaceChangedPayload,
 } from '@ptah-extension/shared';
@@ -32,7 +33,9 @@ import { WebviewHtmlGenerator } from '../services/webview-html-generator';
  */
 
 @injectable()
-export class AngularWebviewProvider implements vscode.WebviewViewProvider {
+export class AngularWebviewProvider
+  implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer<unknown>
+{
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
   private readonly _panels = new Map<string, vscode.WebviewPanel>();
@@ -108,7 +111,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     initialSessionName?: string;
     initialView?: string;
   }): Promise<void> {
-    const panelId = `ptah.panel.${crypto.randomUUID()}`;
+    const panelId = this.allocatePanelId();
     const panelTitle =
       options?.initialView === 'analytics'
         ? 'Ptah - Session Analytics'
@@ -121,65 +124,136 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       'ptah-angular-spa',
       panelTitle,
       vscode.ViewColumn.One,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser'),
-          vscode.Uri.joinPath(this.context.extensionUri, 'assets'),
-          this.context.extensionUri, // Allow all extension resources
-        ],
-      },
+      this.panelOptions(),
     );
-    this._panels.set(panelId, panel);
-    this.webviewManager.registerWebviewView(
-      panelId,
-      panel as unknown as vscode.WebviewView,
-    );
-    const panelEventQueue = new WebviewEventQueue(this.logger as Logger);
-    this._panelEventQueues.set(panelId, panelEventQueue);
+    try {
+      this.adoptPanel(panel, panelId, options);
+      this.logger.info(
+        `Panel ${panelId} created, ${this._panels.size} total panels`,
+      );
+    } catch (error) {
+      panel.dispose();
+      throw error;
+    }
+  }
+
+  public async deserializeWebviewPanel(
+    panel: vscode.WebviewPanel,
+    state: unknown,
+  ): Promise<void> {
+    try {
+      const routeState = parseWebviewRouteState(state);
+      const restoredId = routeState?.panelId;
+      const panelId =
+        restoredId &&
+        /^ptah\.panel\.[0-9a-f-]{36}$/.test(restoredId) &&
+        !this._panels.has(restoredId)
+          ? restoredId
+          : this.allocatePanelId();
+      this.adoptPanel(panel, panelId);
+      this.logger.info(
+        `Panel ${panelId} restored, ${this._panels.size} total panels`,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to restore editor panel',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      panel.dispose();
+    }
+  }
+
+  private allocatePanelId(): string {
+    let panelId: string;
+    do {
+      panelId = `ptah.panel.${crypto.randomUUID()}`;
+    } while (this._panels.has(panelId));
+    return panelId;
+  }
+
+  private panelOptions(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
+    return {
+      retainContextWhenHidden: true,
+      ...this.webviewOptions(),
+    };
+  }
+
+  private webviewOptions(): vscode.WebviewOptions {
+    return {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser'),
+        vscode.Uri.joinPath(this.context.extensionUri, 'assets'),
+        this.context.extensionUri,
+      ],
+    };
+  }
+
+  private adoptPanel(
+    panel: vscode.WebviewPanel,
+    panelId: string,
+    options?: {
+      initialSessionId?: string;
+      initialSessionName?: string;
+      initialView?: string;
+    },
+  ): void {
+    const panelEventQueue = new WebviewEventQueue(this.logger);
     const panelDisposables: vscode.Disposable[] = [];
-    this.messageHandler.setupMessageListener(
-      {
-        webviewId: panelId,
-        webview: panel.webview,
-        onReady: () => {
-          if (!this._panels.has(panelId)) {
-            this.logger.warn(
-              `Panel ${panelId} ready signal received after disposal, ignoring`,
-            );
-            return;
-          }
-          this.logger.info(`Panel ${panelId} webview ready`);
-          panelEventQueue.markReady();
-          panelEventQueue.flush((event) => panel.webview.postMessage(event));
-        },
-      },
-      panelDisposables,
-    );
-    panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
-      panel.webview,
-      {
-        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo(),
-        panelId,
-        initialSessionId: options?.initialSessionId,
-        initialSessionName: options?.initialSessionName,
-        initialView: options?.initialView,
-      },
-    );
-    panel.onDidDispose(() => {
-      this._panels.delete(panelId);
+    let disposed = false;
+    const cleanup = (): void => {
+      if (disposed) return;
+      disposed = true;
+      if (this._panels.get(panelId) === panel) this._panels.delete(panelId);
       panelEventQueue.dispose();
       this._panelEventQueues.delete(panelId);
       panelDisposables.forEach((d) => d.dispose());
       this.logger.info(
         `Panel ${panelId} disposed, ${this._panels.size} panels remaining`,
       );
-    });
-
-    this.logger.info(
-      `Panel ${panelId} created, ${this._panels.size} total panels`,
-    );
+    };
+    panel.onDidDispose(cleanup);
+    try {
+      panel.webview.options = this.webviewOptions();
+      const html = this.htmlGenerator.generateAngularWebviewContent(
+        panel.webview,
+        {
+          workspaceInfo: this.htmlGenerator.buildWorkspaceInfo(),
+          panelId,
+          initialSessionId: options?.initialSessionId,
+          initialSessionName: options?.initialSessionName,
+          ...(options?.initialView ? { initialView: options.initialView } : {}),
+        },
+      );
+      this._panels.set(panelId, panel);
+      this._panelEventQueues.set(panelId, panelEventQueue);
+      this.webviewManager.registerWebviewView(
+        panelId,
+        panel as unknown as vscode.WebviewView,
+      );
+      this.messageHandler.setupMessageListener(
+        {
+          webviewId: panelId,
+          webview: panel.webview,
+          onReady: () => {
+            if (!this._panels.has(panelId)) {
+              this.logger.warn(
+                `Panel ${panelId} ready signal received after disposal, ignoring`,
+              );
+              return;
+            }
+            this.logger.info(`Panel ${panelId} webview ready`);
+            panelEventQueue.markReady();
+            panelEventQueue.flush((event) => panel.webview.postMessage(event));
+          },
+        },
+        panelDisposables,
+      );
+      panel.webview.html = html;
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
   }
 
   /**

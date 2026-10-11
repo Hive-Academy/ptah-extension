@@ -43,7 +43,11 @@ import {
 } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { filter, firstValueFrom, take } from 'rxjs';
-import { provideSurfaceRouterTesting, surfaceTestRoutes } from '../../testing';
+import {
+  provideSurfaceRouterTesting,
+  settleSurfaceNavigation,
+  surfaceTestRoutes,
+} from '../../testing';
 import { marketplaceRouteCommands } from '../marketplace/marketplace-route';
 import { AppStateManager } from '../services/app-state.service';
 import { MemoryPlatformLocation } from './memory-platform-location';
@@ -378,7 +382,10 @@ describe('SurfaceRouterService', () => {
       await expect(service.navigateToSurface(id)).resolves.toBe('navigated');
 
       expect(service.currentSurface()).toBe(id);
-      expect(TestBed.inject(Router).url).toBe(`/${id}`);
+      // Thoth's bare root redirects to its default tab, as in production.
+      expect(TestBed.inject(Router).url).toBe(
+        id === 'thoth' ? '/thoth/memory' : `/${id}`,
+      );
     },
   );
 
@@ -405,6 +412,57 @@ describe('SurfaceRouterService', () => {
     location.forward();
     await forwardLanded;
     expect(service.currentSurface()).toBe('analytics');
+  });
+
+  describe('history semantics (D6)', () => {
+    it('replaces the current entry with replaceUrl, so Back skips it', async () => {
+      const service = createService();
+      const router = TestBed.inject(Router);
+      router.setUpLocationChangeListener();
+      const location = TestBed.inject(Location);
+
+      await service.navigateToSurface('settings');
+      await service.navigateToSurface('chat', ['tab-1']);
+      await expect(
+        service.navigateToSurface('chat', ['tab-2'], { replaceUrl: true }),
+      ).resolves.toBe('navigated');
+      expect(router.url).toBe('/chat/tab-2');
+
+      // `/chat/tab-1` was replaced, not stacked under `/chat/tab-2`.
+      const backLanded = nextNavigationEnd(router);
+      location.back();
+      await backLanded;
+      expect(router.url).toBe('/settings');
+    });
+
+    it('pushes by default, so Back returns to the previous entry', async () => {
+      const service = createService();
+      const router = TestBed.inject(Router);
+      router.setUpLocationChangeListener();
+      const location = TestBed.inject(Location);
+
+      await service.navigateToSurface('settings');
+      await service.navigateToSurface('chat', ['tab-1']);
+      await service.navigateToSurface('chat', ['tab-2']);
+
+      const backLanded = nextNavigationEnd(router);
+      location.back();
+      await backLanded;
+      expect(router.url).toBe('/chat/tab-1');
+    });
+
+    it('passes no extras to the Router unless replacing', async () => {
+      const service = createService();
+      const navigate = jest.spyOn(TestBed.inject(Router), 'navigateByUrl');
+
+      await service.navigateToSurface('settings');
+      await service.navigateToSurface('analytics', [], { replaceUrl: false });
+      await service.navigateToSurface('chat', [], { replaceUrl: true });
+
+      expect(navigate.mock.calls[0]).toHaveLength(1);
+      expect(navigate.mock.calls[1]).toHaveLength(1);
+      expect(navigate.mock.calls[2][1]).toEqual({ replaceUrl: true });
+    });
   });
 
   it('falls back to the default surface for a non-routable id, with a warning', async () => {
@@ -491,6 +549,126 @@ describe('SurfaceRouterService', () => {
         await service.navigateToSurface('marketplace');
 
       expect(surfaceNavigationLanded(result)).toBe(false);
+      expect(service.currentSurface()).toBe('settings');
+    });
+  });
+
+  describe('navigateToUrl (restored route, TASK_2026_524 Batch 4)', () => {
+    it('lands on a restored chat tab URL and reports chat', async () => {
+      const service = createService();
+
+      await expect(
+        service.navigateToUrl('/chat/550e8400-e29b-41d4-a716-446655440000'),
+      ).resolves.toBe('navigated');
+
+      expect(TestBed.inject(Router).url).toBe(
+        '/chat/550e8400-e29b-41d4-a716-446655440000',
+      );
+      expect(service.currentSurface()).toBe('chat');
+    });
+
+    it('lands on a thoth tab URL', async () => {
+      const service = createService();
+
+      await expect(service.navigateToUrl('/thoth/skills')).resolves.toBe(
+        'navigated',
+      );
+      expect(TestBed.inject(Router).url).toBe('/thoth/skills');
+      expect(service.currentSurface()).toBe('thoth');
+    });
+
+    it('keeps matrix parameters, query and fragment', async () => {
+      const service = createService();
+
+      await expect(
+        service.navigateToUrl('/settings;panel=auth?x=1#top'),
+      ).resolves.toBe('navigated');
+      expect(TestBed.inject(Router).url).toBe('/settings;panel=auth?x=1#top');
+    });
+
+    it('reports a repeat of the current URL as already-there', async () => {
+      const service = createService();
+      await service.navigateToUrl('/settings');
+
+      await expect(service.navigateToUrl('/settings')).resolves.toBe(
+        'already-there',
+      );
+    });
+
+    it.each([
+      ['an unknown first segment', '/command-builder'],
+      ['a legacy alias that has no route', '/orchestra-canvas'],
+      ['the root', '/'],
+      ['a different case', '/Settings'],
+    ])('reports failed without navigating for %s', async (_label, route) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation();
+      const service = createService();
+      await service.navigateToSurface('settings');
+      const navigate = jest.spyOn(TestBed.inject(Router), 'navigateByUrl');
+
+      await expect(service.navigateToUrl(route)).resolves.toBe('failed');
+
+      // The wildcard would have landed on chat; the boot path must see the
+      // failure instead and fall back to the host value.
+      expect(navigate).not.toHaveBeenCalled();
+      expect(service.currentSurface()).toBe('settings');
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('addresses no surface'),
+      );
+    });
+
+    it.each([
+      ['an unbalanced outlet group', '/chat(a'],
+      ['a malformed percent escape', '/chat%'],
+    ])('reports failed — never rejects — for %s', async (_label, route) => {
+      const error = jest.spyOn(console, 'error').mockImplementation();
+      const service = createService();
+      const navigate = jest.spyOn(TestBed.inject(Router), 'navigateByUrl');
+
+      // `Router.parseUrl` would swallow this and return `/`; the serializer
+      // throws, and the throw must become `failed`.
+      await expect(service.navigateToUrl(route)).resolves.toBe('failed');
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining(`Navigation to "${route}" failed`),
+        expect.any(String),
+      );
+    });
+
+    it('reports failed when the navigation throws', async () => {
+      jest.spyOn(console, 'error').mockImplementation();
+      const service = createService();
+      jest
+        .spyOn(TestBed.inject(Router), 'navigateByUrl')
+        .mockRejectedValue(new Error('chunk fetch failed'));
+
+      await expect(service.navigateToUrl('/marketplace')).resolves.toBe(
+        'failed',
+      );
+    });
+
+    it('reports cancelled when the navigation resolves false from elsewhere', async () => {
+      const service = createService();
+      await service.navigateToSurface('settings');
+      jest
+        .spyOn(TestBed.inject(Router), 'navigateByUrl')
+        .mockResolvedValue(false);
+
+      await expect(service.navigateToUrl('/analytics')).resolves.toBe(
+        'cancelled',
+      );
+    });
+
+    it('reports cancelled when a newer navigation supersedes it', async () => {
+      const service = createService();
+      const router = TestBed.inject(Router);
+
+      const restored = service.navigateToUrl('/analytics');
+      void router.navigateByUrl('/settings');
+
+      await expect(restored).resolves.toBe('cancelled');
+      await settleSurfaceNavigation();
       expect(service.currentSurface()).toBe('settings');
     });
   });

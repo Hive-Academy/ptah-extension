@@ -1,7 +1,23 @@
 import { TestBed } from '@angular/core/testing';
-import { ErrorHandler, signal } from '@angular/core';
+import { ErrorHandler, signal, type Provider } from '@angular/core';
+import { Location } from '@angular/common';
+import { SpyLocation, provideLocationMocks } from '@angular/common/testing';
+import {
+  ChildrenOutletContexts,
+  NavigationEnd,
+  PRIMARY_OUTLET,
+  Router,
+  provideRouter,
+} from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
+import { filter, firstValueFrom } from 'rxjs';
 
-import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  SurfaceRouterService,
+  VSCodeService,
+} from '@ptah-extension/core';
+import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { MODEL_REFRESH_CONTROL } from '@ptah-extension/chat-state';
 import {
   MemoryRpcService,
@@ -19,6 +35,7 @@ import {
   ThothShellComponent,
   type ThothActiveTabId,
 } from './thoth-shell.component';
+import { THOTH_ROUTES } from '../thoth.routes';
 
 /**
  * Angular routes an exception thrown inside a subscription or an effect to the
@@ -193,6 +210,34 @@ function makeAppStateStub(activeTab: ActiveTabSignal): AppStateStub {
   } as unknown as AppStateStub;
 }
 
+/** The Electron-mode shell's stubs, without a Router. */
+function electronShellProviders(
+  errorHandler: RecordingErrorHandler,
+  appState: AppStateStub,
+): Provider[] {
+  return [
+    { provide: ErrorHandler, useValue: errorHandler },
+    { provide: AppStateManager, useValue: appState },
+    {
+      provide: VSCodeService,
+      useValue: { config: signal({ isElectron: true }) },
+    },
+    { provide: MemoryStateService, useValue: memoryStateStub },
+    { provide: SkillSynthesisStateService, useValue: skillStateStub },
+    { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
+    {
+      provide: MemoryDiagnosticsRpcService,
+      useValue: memoryDiagnosticsRpcStub(),
+    },
+  ];
+}
+
+/**
+ * Most specs create the shell directly rather than through `THOTH_ROUTES`, so
+ * it has no `:tab` child and shows the remembered tab. They still get the
+ * webview's Router (`provideSurfaceRouterTesting`, which carries `/thoth/:tab`),
+ * because the shell injects it and a tab click navigates.
+ */
 describe('ThothShellComponent', () => {
   let appState: AppStateStub;
   let activeTabSignal: ActiveTabSignal;
@@ -206,19 +251,8 @@ describe('ThothShellComponent', () => {
     await TestBed.configureTestingModule({
       imports: [ThothShellComponent],
       providers: [
-        { provide: ErrorHandler, useValue: errorHandler },
-        { provide: AppStateManager, useValue: appState },
-        {
-          provide: VSCodeService,
-          useValue: { config: signal({ isElectron: true }) },
-        },
-        { provide: MemoryStateService, useValue: memoryStateStub },
-        { provide: SkillSynthesisStateService, useValue: skillStateStub },
-        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
-        {
-          provide: MemoryDiagnosticsRpcService,
-          useValue: memoryDiagnosticsRpcStub(),
-        },
+        ...electronShellProviders(errorHandler, appState),
+        ...provideSurfaceRouterTesting(),
       ],
     }).compileComponents();
   });
@@ -255,21 +289,127 @@ describe('ThothShellComponent', () => {
     expect(host.firstElementChild?.className).toContain('bg-surface-0');
   });
 
-  it('switches active tab via setThothActiveTab when a tab is clicked', () => {
-    const fixture = TestBed.createComponent(ThothShellComponent);
-    fixture.detectChanges();
+  /**
+   * TASK_2026_524 Batch 4e: the URL decides the tab. Mounted the way the app
+   * mounts it — `THOTH_ROUTES` through `loadChildren` under `thoth` — with the
+   * real `SurfaceRouterService`.
+   */
+  describe('tab from the route (THOTH_ROUTES)', () => {
+    let harness: RouterTestingHarness;
+    let router: Router;
 
-    const tablist = fixture.nativeElement.querySelector(
-      '[role="tablist"][aria-label="Thoth feature tabs"]',
-    ) as HTMLElement;
-    const tabs = tablist.querySelectorAll(
-      ':scope > [role="tab"]',
-    ) as NodeListOf<HTMLButtonElement>;
-    tabs[1].click();
-    fixture.detectChanges();
+    const tabButton = (tab: ThothActiveTabId): HTMLButtonElement => {
+      const button =
+        harness.routeNativeElement?.querySelector<HTMLButtonElement>(
+          `[role="tab"][data-pillar="${tab}"]`,
+        );
+      if (!button) throw new Error(`no tab button for ${tab}`);
+      return button;
+    };
 
-    expect(appState.setThothActiveTab).toHaveBeenCalledWith('skills');
-    expect(activeTabSignal()).toBe('skills');
+    /**
+     * The next navigation that settles. Subscribe BEFORE the click that starts
+     * it. `fixture.whenStable()` is not usable here: with the real tab bodies
+     * mounted the zone never reports stable, so it would wait for ever.
+     */
+    const nextNavigationEnd = (): Promise<NavigationEnd> =>
+      firstValueFrom(
+        router.events.pipe(
+          filter(
+            (event): event is NavigationEnd => event instanceof NavigationEnd,
+          ),
+        ),
+      );
+
+    /** The shell the primary outlet is showing right now. */
+    const outletShell = (): ThothShellComponent =>
+      TestBed.inject(ChildrenOutletContexts).getContext(PRIMARY_OUTLET)?.outlet
+        ?.component as ThothShellComponent;
+
+    beforeEach(async () => {
+      TestBed.resetTestingModule();
+      activeTabSignal = signal<ThothActiveTabId>('memory');
+      appState = makeAppStateStub(activeTabSignal);
+      TestBed.configureTestingModule({
+        providers: [
+          ...electronShellProviders(errorHandler, appState),
+          provideLocationMocks(),
+          provideRouter([{ path: 'thoth', loadChildren: () => THOTH_ROUTES }]),
+        ],
+      });
+      harness = await RouterTestingHarness.create();
+      router = TestBed.inject(Router);
+    });
+
+    it('selectTab navigates to /thoth/<tab>; the tab and its memory follow only once it settles', async () => {
+      const shell = await harness.navigateByUrl(
+        '/thoth/memory',
+        ThothShellComponent,
+      );
+      appState.setThothActiveTab.mockClear();
+      // `provideLocationMocks()` binds `Location` to `SpyLocation`, which logs
+      // a push as the URL and a replace as `replace: <url>`.
+      const location = TestBed.inject(Location) as SpyLocation;
+      const changesBefore = location.urlChanges.length;
+      const settled = nextNavigationEnd();
+
+      tabButton('skills').click();
+
+      // Nothing moves ahead of the navigation (TASK_2026_317 rule).
+      expect(shell.activeTab()).toBe('memory');
+      expect(appState.setThothActiveTab).not.toHaveBeenCalled();
+
+      await settled;
+      harness.detectChanges();
+
+      expect(router.url).toBe('/thoth/skills');
+      expect(shell.activeTab()).toBe('skills');
+      expect(appState.setThothActiveTab).toHaveBeenCalledWith('skills');
+      expect(tabButton('skills').getAttribute('aria-selected')).toBe('true');
+      // A tab switch reuses the shell (Preserve list P6e).
+      expect(outletShell()).toBe(shell);
+      // D6: the tab switch replaced the URL, so Back leaves Thoth rather than
+      // returning to /thoth/memory.
+      expect(location.urlChanges.slice(changesBefore)).toEqual([
+        'replace: /thoth/skills',
+      ]);
+    });
+
+    it('writes no memory for a navigation that never settles', async () => {
+      await harness.navigateByUrl('/thoth/memory', ThothShellComponent);
+      appState.setThothActiveTab.mockClear();
+
+      // The second click supersedes the first navigation before it lands, so
+      // the first NavigationEnd to arrive is the second click's.
+      const settled = nextNavigationEnd();
+      tabButton('skills').click();
+      tabButton('cron').click();
+      expect((await settled).urlAfterRedirects).toBe('/thoth/cron');
+
+      expect(router.url).toBe('/thoth/cron');
+      expect(appState.setThothActiveTab.mock.calls).toEqual([['cron']]);
+    });
+
+    it('seeds the tab from the route snapshot when remounted with no navigation', async () => {
+      const first = await harness.navigateByUrl(
+        '/thoth/cron',
+        ThothShellComponent,
+      );
+      // The workspace switched to remembers another tab.
+      activeTabSignal.set('memory');
+      appState.setThothActiveTab.mockClear();
+
+      TestBed.inject(SurfaceRouterService).remountActiveSurface();
+
+      const remounted = outletShell();
+      expect(remounted).toBeInstanceOf(ThothShellComponent);
+      expect(remounted).not.toBe(first);
+      // Synchronous: no NavigationEnd follows a remount.
+      expect(remounted.activeTab()).toBe('cron');
+      // The Router is idle, so the seeded tab is settled and recorded.
+      expect(appState.setThothActiveTab).toHaveBeenCalledWith('cron');
+      expect(router.url).toBe('/thoth/cron');
+    });
   });
 
   it('shows desktop-only placeholder for gateway tab when not on Electron', () => {
@@ -280,6 +420,7 @@ describe('ThothShellComponent', () => {
       imports: [ThothShellComponent],
       providers: [
         { provide: ErrorHandler, useValue: errorHandler },
+        ...provideSurfaceRouterTesting(),
         {
           provide: AppStateManager,
           useValue: makeAppStateStub(activeTabSignal),
@@ -306,6 +447,7 @@ describe('ThothShellComponent', () => {
       imports: [ThothShellComponent],
       providers: [
         { provide: ErrorHandler, useValue: errorHandler },
+        ...provideSurfaceRouterTesting(),
         {
           provide: AppStateManager,
           useValue: makeAppStateStub(activeTabSignal),
@@ -339,6 +481,7 @@ describe('ThothShellComponent', () => {
       imports: [ThothShellComponent],
       providers: [
         { provide: ErrorHandler, useValue: errorHandler },
+        ...provideSurfaceRouterTesting(),
         {
           provide: AppStateManager,
           useValue: makeAppStateStub(activeTabSignal),
@@ -427,6 +570,7 @@ describe('ThothShellComponent', () => {
         imports: [ThothShellComponent],
         providers: [
           { provide: ErrorHandler, useValue: errorHandler },
+          ...provideSurfaceRouterTesting(),
           {
             provide: MemoryDiagnosticsRpcService,
             useValue: memoryDiagnosticsRpc,
@@ -494,7 +638,8 @@ describe('ThothShellComponent', () => {
       fixture.detectChanges();
       await flushAsync();
       fixture.detectChanges();
-      expect(activeTabSignal()).toBe('cron');
+      // The click navigates; the tile reload does not wait for it.
+      expect(TestBed.inject(Router).url).toBe('/thoth/cron');
       expect(skillsTileValue(el)).toBe('4');
 
       // Workspace switch: the backend root moves first, then the webview's.
