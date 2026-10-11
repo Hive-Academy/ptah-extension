@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 38/39
+Total tasks: 85 | Batches: 40 (incl. fix batches 6F, 12F, 15F, 21F, 28F, 33F, post-cap correction 12F2) | Complete: 38/40
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -2215,7 +2215,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   rpc-lane-plan-limits.types and the two declarative-dashboard components stay off the allow-list until Batch 33
   measures them (not a GAP); the ts-jest allowJs warning predates this batch.
 
-## Batch 33: V1 single build, gate run and visual review — IN_PROGRESS
+## Batch 33: V1 single build, gate run and visual review — IN_PROGRESS (33.1, 33.2 COMPLETE, gate PASS; 33.3 FAILED, visual-review.md FAIL D1/D2; fix Batch 33F, decisions #148-#154; COMPLETE only after the 33F scoped visual re-check passes)
 
 - Recommended executor: team-leader runs the build and gate once; visual-reviewer subagent reviews the launched app
 - Fallback executor: none (a second run needs a new user decision)
@@ -2228,12 +2228,12 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - PRECONDITION SATISFIED: decisions.md #116 (user, 2026-10-11, blanket approval) approves `nx build-dev ptah-electron`
   for Batch 33 alongside #17's one webview build and one app launch. Memory-safe rules still apply.
 
-### Task 33.1: one production webview build with stats — IN_PROGRESS
+### Task 33.1: one production webview build with stats — COMPLETE (measurement.md "Eager closure (Batch 33)"; no tracked source change)
 
 - Command (once): `npx nx copy-renderer ptah-electron --parallel=1` (its dependsOn runs the single production
   `ptah-extension-webview:build`, `statsJson: true`), producing `dist/apps/ptah-extension-webview/stats.json`.
 
-### Task 33.2: eager-closure gate on the head stats — IN_PROGRESS
+### Task 33.2: eager-closure gate on the head stats — COMPLETE (PASS, exit 0, 781 eager inputs; two #143(b) files ruled allow-list in #148, applied by 33F.3)
 
 - Command: `node scripts/eager-closure-gate.js dist/apps/ptah-extension-webview/stats.json`
 - No merge-base stats exist: record "growth check not run (single build, decisions.md #17)" and list added eager inputs
@@ -2242,7 +2242,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   `dashboard-avatar.component.ts`, `dashboard-sparkline.component.ts` found in the eager closure as "unlisted eager
   growth, ruling needed"; the team-leader rules after the run. Do not edit the gate script in Batch 33.
 
-### Task 33.3: one Electron app launch and visual review — IN_PROGRESS
+### Task 33.3: one Electron app launch and visual review — FAILED (visual-review.md verdict FAIL: D1, D2 serious; re-checked after 33F per #154)
 
 - Launch once (after the ruled main-process build): `node apps/ptah-electron/scripts/launch.js`
 - visual-reviewer checks against `prototype/screenshots/`: widths 360/1024 (chat) and 300/960 (panel), dark and light,
@@ -2267,3 +2267,83 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Shared path link (#128): record the diff-header `ptah-file-path-link` with a long path at chat-narrow (360); it
   ellipsises (`truncate`) where design-spec.md:140 wants wrapping. A defect there is a named later task (shared atom).
 - Plan reference: implementation-plan.md:1324-1345, 1420
+
+## Batch 33F: Phase 8 fix round — dock tabpanel display, chip word values, eager allow-list — IN_PROGRESS
+
+- Recommended executor: CLI lanes x3, one per task (self-contained prompts, absolute paths, CLAUDE.md memory-safe rules
+  repeated in each prompt)
+- Fallback executor: frontend-developer sub-agent sequential for 33F.1 then 33F.2; backend-developer for 33F.3
+- Execution mode: parallel
+- Rationale: three file-disjoint tasks (2 files each), no shared registry, entry point or config, no task depends on
+  another; one batch across three projects by orchestrator request (decision #153).
+- Tasks: 3 | Depends on: Batch 33 (Tasks 33.1-33.3)
+- Phase: 8 Visual verification (fix round) | Phase review: none for code-logic (decision #153); the one re-review is
+  the scoped visual re-check below, which needs USER approval of a second webview build and app relaunch (#154(d))
+- Decisions: #148 (allow-list), #149 (D1), #150 (D2), #151 (M1/M3 deferred), #152 (empty-state copy), #154 (re-check)
+- Lanes do not run git, do not edit batches.md or decisions.md, and do not run build/serve/package targets.
+
+### Task 33F.1: dock tabpanels honour `hidden` (D1) — IN_PROGRESS
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\display-dock\display-dock.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\display-dock\display-dock.component.spec.ts
+- Plan reference: visual-review.md Group 3 and Defects D1; decision #149; design-spec.md:31-40 (one dock, two tabs)
+- Pattern to follow: the existing tabpanel blocks at display-dock.component.ts:168-175 and :191-198
+- Quality requirements: on both `role="tabpanel"` divs remove the static `flex` class; keep `min-h-0 min-w-0 flex-1
+  flex-col`, `[id]`, `aria-labelledby`, `[hidden]` and `data-testid`; add `[class.flex]="<active>"` and
+  `[class.hidden]="!<active>"` where `<active>` is `state().activeTab === 'displays'` / `=== 'agents'`. Both panels
+  stay mounted (no `@if`), so agent-monitor and display-panel state survive tab switches.
+- Spec to add (display-dock.component.spec.ts): for activeTab `displays` and for `agents`, the inactive panel
+  (`[data-testid=display-dock-agents]` / `display-dock-displays`) has the `hidden` attribute, class `hidden`, and
+  NOT class `flex`; the active panel has class `flex`, no class `hidden`, no `hidden` attribute. Comment that jsdom
+  does not compute CSS, so the class contract is the guard against `.flex` overriding `[hidden]`.
+- Validation notes: do not touch `display-panel.component.ts` or `dashboard-stat.component.ts` (audited in #149, no
+  display utility on their `[hidden]` elements).
+
+### Task 33F.2: chip word values never break mid-word (D2) — IN_PROGRESS
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.spec.ts
+- Plan reference: visual-review.md Group 4 and Defects D2; decision #150; design-spec.md:110, 161, 172-173
+- Pattern to follow: `miniCards` computed at turn-summary-chip.component.ts:323-370 and the value span at :182-188
+- Quality requirements: add `word: boolean` to the chip's `ChipMiniCard` type, true when the shown value is the
+  literal `'unavailable'` or `'pending'` (`TurnSummaryUnavailable`, turn-summary.model.ts:24); set it for every card
+  in `miniCards`. The value span binds classes: word values `block break-normal text-sm font-medium`; all other
+  values (numbers, `?`, `+N −M`, `N/M`) keep `block break-words text-lg font-semibold tabular-nums`. Keep the
+  `.ts-mini-grid` minimum at 104 px (design-spec.md:173). Text, srSuffix and caption are unchanged.
+- Spec to add (turn-summary-chip.component.spec.ts): expanded chip with tokens, cost and duration `unavailable`:
+  those value spans have `break-normal` and `text-sm` and NOT `break-words` / `text-lg`; their text is still
+  "unavailable"; a numeric value span (e.g. Files `3` or Tests `2/3`) keeps `text-lg` and `break-words`; a `pending`
+  value takes the word classes too.
+
+### Task 33F.3: allow-list the two eager tool-preview helpers (#143(b) ruling) — IN_PROGRESS
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\scripts\eager-closure-gate.js
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-electron\src\config\eager-closure-gate.spec.ts
+- Plan reference: decision #148; measurement.md "Eager closure (Batch 33)"; decision #143(b)
+- Pattern to follow: `ALLOWED_EAGER_GROWTH_INPUTS` at scripts/eager-closure-gate.js:26-37 (anchored `$` regexes,
+  one comment per entry); the `allows listed eager growth input %s` table at eager-closure-gate.spec.ts:124-143
+- Quality requirements: add `/libs\/frontend\/chat-ui\/src\/lib\/atoms\/copy-text-button\.component\.ts$/` and
+  `/libs\/frontend\/chat-ui\/src\/lib\/utils\/tool-language\.utils\.ts$/` with a comment: eager because the
+  pre-existing inline tool-call header, input display, diff display and code output import them (#148). Add both
+  paths to the `it.each` allow table. Add one negative case: an unlisted sibling such as
+  `libs/frontend/chat-ui/src/lib/atoms/other-new.component.ts` still throws `unlisted eager input growth`. No change
+  to forbidden patterns, `assertNoForbiddenEager`, or the CLI.
+
+### Batch 33F verification (team-leader, one at a time, output tailed)
+
+Every Jest call adds `--moduleNameMapper='{"^vscode$":"<rootDir>/../../../__mocks__/vscode.ts","^marked$":"D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js"}'` (decision #135).
+
+1. `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/display-dock/display-dock.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+2. `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/turn-recap --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+3. `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/config/eager-closure-gate.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+4. `npx eslint` on the six changed files, then `npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+   and `npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20` (sequential).
+5. Commit 33F (team-leader). Then, ONLY with user approval of a second build (#154(d)): one
+   `npx nx copy-renderer ptah-electron --parallel=1`, one relaunch on CDP 9333, and a scoped visual-reviewer re-check
+   per #154(a): dock tab switching dark/light, chip at 360 dark/light, dock keyboard/focus pass, populated surfaces
+   if the provider can produce a turn. Re-running `node scripts/eager-closure-gate.js` on the new stats is cheap and
+   rides on the same build. Batch 33 moves to COMPLETE when that re-check passes; a still-429 provider goes to the
+   user per #154(b).
