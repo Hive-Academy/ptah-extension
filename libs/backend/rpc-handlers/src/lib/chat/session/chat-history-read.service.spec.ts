@@ -17,7 +17,7 @@ const WORKSPACE = '/c/projects/repo';
 function makeHarness(
   options: {
     folders?: string[];
-    metadata?: { workingDirectory?: string } | null;
+    metadata?: { workspaceId: string; workingDirectory?: string } | null;
     exists?: jest.Mock;
   } = {},
 ) {
@@ -29,7 +29,13 @@ function makeHarness(
     readSessionEvents: jest.fn().mockResolvedValue([]),
   };
   const metadataStore = {
-    get: jest.fn().mockResolvedValue(options.metadata ?? null),
+    get: jest
+      .fn()
+      .mockResolvedValue(
+        options.metadata === undefined
+          ? { workspaceId: WORKSPACE }
+          : options.metadata,
+      ),
   };
   const subagentRegistry = {
     getResumableBySession: jest.fn().mockReturnValue([]),
@@ -64,42 +70,71 @@ function makeHarness(
 }
 
 describe('ChatHistoryReadService', () => {
-  it('uses an existing authorized persisted directory for resume', async () => {
-    const persisted = `${WORKSPACE}/.claude/worktrees/task`;
-    const harness = makeHarness({ folders: [WORKSPACE, persisted] });
+  const OTHER_PROJECT = '/c/projects/other';
+
+  it("reads resume history from the session's own folder, not the active one", async () => {
+    const harness = makeHarness({
+      folders: [WORKSPACE, OTHER_PROJECT],
+      metadata: { workspaceId: OTHER_PROJECT },
+    });
 
     await expect(
-      harness.service.readForResume(SESSION_ID, WORKSPACE, persisted),
-    ).resolves.toMatchObject({ resolvedWorkspacePath: persisted });
+      harness.service.readForResume(SESSION_ID),
+    ).resolves.toMatchObject({ resolvedWorkspacePath: OTHER_PROJECT });
     expect(harness.historyReader.readSessionHistory).toHaveBeenCalledWith(
       SESSION_ID,
-      persisted,
+      OTHER_PROJECT,
       { checkCompactionBoundary: true },
     );
   });
 
-  it.each([
-    ['unauthorized', '/outside/repo', jest.fn().mockResolvedValue(true)],
-    ['missing', `${WORKSPACE}/deleted`, jest.fn().mockResolvedValue(false)],
-    [
-      'unreadable',
-      `${WORKSPACE}/unreadable`,
-      jest.fn().mockRejectedValue(new Error('EACCES')),
-    ],
-  ])(
-    'falls back for an %s persisted directory',
-    async (_label, persisted, exists) => {
-      const harness = makeHarness({ exists });
-      await expect(
-        harness.service.readForResume(SESSION_ID, WORKSPACE, persisted),
-      ).resolves.toMatchObject({ resolvedWorkspacePath: WORKSPACE });
-      expect(harness.historyReader.readSessionHistory).toHaveBeenCalledWith(
-        SESSION_ID,
-        WORKSPACE,
-        { checkCompactionBoundary: true },
-      );
-    },
-  );
+  it('uses the saved worktree cwd for resume', async () => {
+    const persisted = `${WORKSPACE}/.claude/worktrees/task`;
+    const harness = makeHarness({
+      metadata: { workspaceId: WORKSPACE, workingDirectory: persisted },
+    });
+
+    await expect(
+      harness.service.readForResume(SESSION_ID),
+    ).resolves.toMatchObject({ resolvedWorkspacePath: persisted });
+  });
+
+  it('refuses to resume when the session folder is not open', async () => {
+    const harness = makeHarness({
+      folders: [WORKSPACE],
+      metadata: { workspaceId: OTHER_PROJECT },
+    });
+
+    await expect(
+      harness.service.readForResume(SESSION_ID),
+    ).rejects.toMatchObject({ errorCode: 'SESSION_FOLDER_UNAVAILABLE' });
+    expect(harness.historyReader.readSessionHistory).not.toHaveBeenCalled();
+  });
+
+  it("reads a page from the session's own folder, not the active one", async () => {
+    const harness = makeHarness({
+      folders: [WORKSPACE, OTHER_PROJECT],
+      metadata: { workspaceId: OTHER_PROJECT },
+    });
+    harness.historyReader.readSessionEvents.mockResolvedValue([
+      { eventType: 'message_start', messageId: 'u2', role: 'user' },
+    ] as FlatStreamEventUnion[]);
+
+    await harness.service.readPage({ sessionId: SESSION_ID, cursor: 'h1:u2' });
+
+    expect(harness.historyReader.readSessionEvents).toHaveBeenCalledWith(
+      SESSION_ID,
+      OTHER_PROJECT,
+    );
+  });
+
+  it('rejects a page read for an unknown session', async () => {
+    const harness = makeHarness({ metadata: null });
+    await expect(
+      harness.service.readPage({ sessionId: SESSION_ID, cursor: 'h1:u2' }),
+    ).rejects.toMatchObject({ errorCode: 'SESSION_NOT_FOUND' });
+    expect(harness.historyReader.readSessionEvents).not.toHaveBeenCalled();
+  });
 
   it('reads an older page through the side-effect-free event API', async () => {
     const events = [
@@ -131,50 +166,5 @@ describe('ChatHistoryReadService', () => {
       WORKSPACE,
     );
     expect(harness.historyReader.readSessionHistory).not.toHaveBeenCalled();
-  });
-
-  it('rejects a caller-supplied workspace outside the open folders', async () => {
-    const harness = makeHarness();
-    await expect(
-      harness.service.readPage({
-        sessionId: SESSION_ID,
-        workspacePath: '/outside/repo',
-        cursor: 'h1:u2',
-      }),
-    ).rejects.toMatchObject({
-      message: 'Access denied: workspace path is not an open folder.',
-      errorCode: 'UNAUTHORIZED_WORKSPACE',
-    });
-    expect(harness.historyReader.readSessionEvents).not.toHaveBeenCalled();
-  });
-
-  it('rejects a page read when no workspace folder is open', async () => {
-    const harness = makeHarness({ folders: [] });
-    await expect(
-      harness.service.readPage({ sessionId: SESSION_ID, cursor: 'h1:u2' }),
-    ).rejects.toMatchObject({
-      message:
-        'No workspace folder open. Please open a folder before resuming a chat session.',
-      errorCode: 'WORKSPACE_NOT_OPEN',
-    });
-    expect(harness.historyReader.readSessionEvents).not.toHaveBeenCalled();
-  });
-
-  it('rejects an unsafe open workspace path', async () => {
-    const unsafeWorkspace = '/tmp/ptah-app';
-    const harness = makeHarness({ folders: [unsafeWorkspace] });
-    await expect(
-      harness.service.readPage({
-        sessionId: SESSION_ID,
-        workspacePath: unsafeWorkspace,
-        cursor: 'h1:u2',
-      }),
-    ).rejects.toMatchObject({
-      message: expect.stringContaining(
-        'Cannot start a session in this folder:',
-      ),
-      errorCode: 'UNAUTHORIZED_WORKSPACE',
-    });
-    expect(harness.historyReader.readSessionEvents).not.toHaveBeenCalled();
   });
 });

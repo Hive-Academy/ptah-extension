@@ -7,7 +7,6 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
-  isUnsafeWorkspacePath,
   type IFileSystemProvider,
   type IPlatformInfo,
   type IWorkspaceProvider,
@@ -21,14 +20,12 @@ import {
   type SessionId,
 } from '@ptah-extension/shared';
 import {
-  RpcUserError,
   TOKENS,
   type Logger,
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 
-import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
-import { resolveResumeWorkingDirectory } from './resume-working-directory';
+import { resolveSessionFolder } from './session-folder';
 
 @injectable()
 export class ChatHistoryReadService {
@@ -48,19 +45,11 @@ export class ChatHistoryReadService {
     private readonly platformInfo: IPlatformInfo,
   ) {}
 
-  /**
-   * The session's persisted cwd (a worktree, for agent children) when it is
-   * still open, safe and present; otherwise `fallbackPath`.
-   */
-  resolveWorkingDirectory(
-    sessionId: SessionId,
-    fallbackPath: string,
-    persistedPath?: string,
-  ): Promise<string> {
-    return resolveResumeWorkingDirectory({
-      persistedPath,
-      fallbackPath,
+  /** The folder this session acts in. See {@link resolveSessionFolder}. */
+  resolveSessionFolder(sessionId: SessionId): Promise<string> {
+    return resolveSessionFolder({
       sessionId,
+      metadataStore: this.sessionMetadataStore,
       workspaceProvider: this.workspaceProvider,
       fileSystemProvider: this.fileSystemProvider,
       platformInfo: this.platformInfo,
@@ -68,16 +57,8 @@ export class ChatHistoryReadService {
     });
   }
 
-  async readForResume(
-    sessionId: SessionId,
-    fallbackWorkspacePath: string,
-    persistedPath?: string,
-  ) {
-    const resolvedWorkspacePath = await this.resolveWorkingDirectory(
-      sessionId,
-      fallbackWorkspacePath,
-      persistedPath,
-    );
+  async readForResume(sessionId: SessionId) {
+    const resolvedWorkspacePath = await this.resolveSessionFolder(sessionId);
     const history = await this.historyReader.readSessionHistory(
       sessionId,
       resolvedWorkspacePath,
@@ -86,47 +67,16 @@ export class ChatHistoryReadService {
     return { ...history, resolvedWorkspacePath };
   }
 
+  /**
+   * `params.workspacePath` is ignored: the page is read from the session's own
+   * folder, whatever folder the caller has open.
+   */
   async readPage(
     params: ChatHistoryPageParams,
   ): Promise<ChatHistoryPageResult> {
-    const fallbackWorkspacePath =
-      params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
-    if (!fallbackWorkspacePath) {
-      throw new RpcUserError(
-        'No workspace folder open. Please open a folder before resuming a chat session.',
-        'WORKSPACE_NOT_OPEN',
-      );
-    }
-    if (
-      params.workspacePath &&
-      !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
-    ) {
-      throw new RpcUserError(
-        'Access denied: workspace path is not an open folder.',
-        'UNAUTHORIZED_WORKSPACE',
-      );
-    }
-    const safety = isUnsafeWorkspacePath(
-      fallbackWorkspacePath,
-      this.platformInfo,
+    const resolvedWorkspacePath = await this.resolveSessionFolder(
+      params.sessionId,
     );
-    if (!safety.ok) {
-      throw new RpcUserError(
-        `Cannot start a session in this folder: ${safety.reason}. Please open a real project folder.`,
-        'UNAUTHORIZED_WORKSPACE',
-      );
-    }
-
-    const metadata = await this.sessionMetadataStore.get(params.sessionId);
-    const resolvedWorkspacePath = await resolveResumeWorkingDirectory({
-      persistedPath: metadata?.workingDirectory,
-      fallbackPath: fallbackWorkspacePath,
-      sessionId: params.sessionId,
-      workspaceProvider: this.workspaceProvider,
-      fileSystemProvider: this.fileSystemProvider,
-      platformInfo: this.platformInfo,
-      logger: this.logger,
-    });
     const events = await this.historyReader.readSessionEvents(
       params.sessionId,
       resolvedWorkspacePath,

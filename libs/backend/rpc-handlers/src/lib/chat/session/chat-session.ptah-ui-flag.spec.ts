@@ -80,9 +80,7 @@ function makeHarness(): Harness {
       readForResume: jest
         .fn()
         .mockResolvedValue({ events: [], resolvedWorkspacePath: WORKSPACE }),
-      resolveWorkingDirectory: jest.fn(
-        async (_sessionId: string, fallbackPath: string) => fallbackPath,
-      ),
+      resolveSessionFolder: jest.fn().mockResolvedValue(WORKSPACE),
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),

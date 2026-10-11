@@ -120,7 +120,15 @@ function makeService(params: {
       params.getResumableBySession ?? jest.fn().mockReturnValue([]),
   } as unknown as SubagentRegistryService;
   const sessionMetadataStore = {
-    get: jest.fn().mockResolvedValue(params.metadata ?? null),
+    // Real records always carry `workspaceId`; the session's folder falls back
+    // to it when the saved cwd is gone.
+    get: jest
+      .fn()
+      .mockResolvedValue(
+        params.metadata === null
+          ? null
+          : { workspaceId: OPEN_FOLDER, ...params.metadata },
+      ),
     getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
     saveResumeState:
       params.saveResumeState ?? jest.fn().mockResolvedValue(undefined),
@@ -460,7 +468,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     );
   });
 
-  it('auto-resume falls back to the workspace root when the worktree is gone', async () => {
+  it('auto-resume falls back to the project folder when the worktree is gone', async () => {
     const resumeSession = jest.fn(async () =>
       (async function* () {
         /* no events */
@@ -468,7 +476,7 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     );
     const svc = makeService({
       metadata: { workingDirectory: `${OPEN_FOLDER}/.claude/worktrees/gone` },
-      fileExists: jest.fn().mockResolvedValue(false),
+      fileExists: jest.fn(async (path: string) => path === OPEN_FOLDER),
       resumeSession,
     });
 
@@ -520,8 +528,14 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
   });
 
   it.each([
-    ['missing', jest.fn().mockResolvedValue(false)],
-    ['unreadable', jest.fn().mockRejectedValue(new Error('stat failed'))],
+    ['missing', jest.fn(async (path: string) => path === OPEN_FOLDER)],
+    [
+      'unreadable',
+      jest.fn(async (path: string) => {
+        if (path !== OPEN_FOLDER) throw new Error('stat failed');
+        return true;
+      }),
+    ],
   ])('falls back when persisted cwd is %s', async (_label, fileExists) => {
     const readSessionHistory = jest
       .fn()
