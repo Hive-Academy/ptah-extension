@@ -65,13 +65,8 @@
 
       <!-- Compaction Notification Banner -->
       <div class="px-2">
-        <ptah-compaction-notification
-          [isCompacting]="resolvedIsCompacting()"
-          [completed]="compactionCompleted()"
-          [preTokens]="compactionPreTokens()"
-          [postTokens]="compactionPostTokens()"
-        />
-        @if (resolvedCompactionMarker(); as m) {
+        <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
+        @if (visibleCompactionMarker(); as m) {
           <ptah-compaction-marker
             [summary]="m.summary"
             [boundaryId]="m.boundaryId"

@@ -171,13 +171,6 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
  */
 export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
 
-/** A non-negative finite token count, or null. */
-function finiteToken(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? value
-    : null;
-}
-
 @Component({
   selector: 'ptah-chat-view',
   // Scoped to this host, not `document`: a canvas holds up to 20 chat tiles, and
@@ -995,26 +988,18 @@ export class ChatViewComponent implements OnDestroy {
   );
 
   /**
-   * Last completed compaction for this conversation. The notice uses it
-   * after the in-flight flag drops. The marker itself stays the summary chip.
+   * The finished-compaction chip: hidden while a run is in flight (the
+   * notice card shows then) and once the user sent a message after it.
    */
-  protected readonly compactionCompleted = computed(
-    () =>
-      !this.resolvedIsCompacting() && this.resolvedCompactionMarker() !== null,
-  );
-
-  /** Before-tokens: the start event while compacting, the result after. */
-  protected readonly compactionPreTokens = computed((): number | null => {
-    if (this.resolvedIsCompacting()) {
-      return finiteToken(this.compactionFlight()?.preTokens);
-    }
-    return this.compactionTokenPair().pre;
+  protected readonly visibleCompactionMarker = computed(() => {
+    if (this.resolvedIsCompacting()) return null;
+    const marker = this.resolvedCompactionMarker();
+    if (!marker) return null;
+    const answered = this.resolvedMessages().some(
+      (m) => m.role === 'user' && m.timestamp > marker.completedAt,
+    );
+    return answered ? null : marker;
   });
-
-  /** After-tokens from the completion marker. Absent while a run is in flight. */
-  protected readonly compactionPostTokens = computed((): number | null =>
-    this.resolvedIsCompacting() ? null : this.compactionTokenPair().post,
-  );
 
   /** Same tab scope as the banner above — the two must never disagree. */
   readonly resolvedCompactionMarker = computed(() => {
@@ -1338,28 +1323,6 @@ export class ChatViewComponent implements OnDestroy {
   /** Banner "Compact": the composer's `/compact` send, not a budget RPC. */
   protected onBudgetCompact(): Promise<void> {
     return this._budgetActions.compact();
-  }
-
-  /** In-flight compaction record for this tile, including the start sample. */
-  private compactionFlight(): { preTokens: number | null } | null {
-    const rawTabId = this.resolvedTabId();
-    if (!rawTabId) return null;
-    const tabId = TabId.safeParse(rawTabId);
-    if (!tabId) return null;
-    const convId = this._tabSessionBinding.conversationFor?.(tabId);
-    if (!convId) return null;
-    return this._conversationRegistry.compactionStateFor?.(convId) ?? null;
-  }
-
-  /** Before/after pair already carried on the completion marker. */
-  private compactionTokenPair(): { pre: number | null; post: number | null } {
-    const marker = this.resolvedCompactionMarker();
-    if (!marker) return { pre: null, post: null };
-    const measured = marker.measurement;
-    return {
-      pre: finiteToken(measured?.preTokens) ?? finiteToken(marker.preTokens),
-      post: finiteToken(measured?.postTokens) ?? finiteToken(marker.postTokens),
-    };
   }
 
   /**
