@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 36/39
+Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 38/39
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -2160,7 +2160,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Then, one at a time: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20` (Task 31.3).
 - Every Jest call adds the `--moduleNameMapper` from Batch 29 verification (decision #135).
 
-## Batch 32: G1 eager-closure gate patterns — COMPLETE (decision #143)
+## Batch 32: G1 eager-closure gate patterns — COMPLETE (commit 21074df38; decision #143; Phase 7 review code-logic-review-phase7.md APPROVED WITH NOTES 8/10, 0 Blocking/Serious/Moderate/Minor; Phase 7 ACCEPTED, no fix round; the only residual, the real production-metafile eager-closure run, is Task 33.2)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -2215,7 +2215,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   rpc-lane-plan-limits.types and the two declarative-dashboard components stay off the allow-list until Batch 33
   measures them (not a GAP); the ts-jest allowJs warning predates this batch.
 
-## Batch 33: V1 single build, gate run and visual review — PENDING
+## Batch 33: V1 single build, gate run and visual review — IN_PROGRESS
 
 - Recommended executor: team-leader runs the build and gate once; visual-reviewer subagent reviews the launched app
 - Fallback executor: none (a second run needs a new user decision)
@@ -2225,13 +2225,15 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Phase: 8 Visual verification | Phase review: visual (visual-reviewer), no code-logic
 - PRECONDITION (Risk HIGH above): the orchestrator records a user ruling that the one launch includes the Electron
   main-process build (`nx build-dev ptah-electron`) and native rebuild. Do not start this batch without it.
+- PRECONDITION SATISFIED: decisions.md #116 (user, 2026-10-11, blanket approval) approves `nx build-dev ptah-electron`
+  for Batch 33 alongside #17's one webview build and one app launch. Memory-safe rules still apply.
 
-### Task 33.1: one production webview build with stats — PENDING
+### Task 33.1: one production webview build with stats — IN_PROGRESS
 
 - Command (once): `npx nx copy-renderer ptah-electron --parallel=1` (its dependsOn runs the single production
   `ptah-extension-webview:build`, `statsJson: true`), producing `dist/apps/ptah-extension-webview/stats.json`.
 
-### Task 33.2: eager-closure gate on the head stats — PENDING
+### Task 33.2: eager-closure gate on the head stats — IN_PROGRESS
 
 - Command: `node scripts/eager-closure-gate.js dist/apps/ptah-extension-webview/stats.json`
 - No merge-base stats exist: record "growth check not run (single build, decisions.md #17)" and list added eager inputs
@@ -2240,7 +2242,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   `dashboard-avatar.component.ts`, `dashboard-sparkline.component.ts` found in the eager closure as "unlisted eager
   growth, ruling needed"; the team-leader rules after the run. Do not edit the gate script in Batch 33.
 
-### Task 33.3: one Electron app launch and visual review — PENDING
+### Task 33.3: one Electron app launch and visual review — IN_PROGRESS
 
 - Launch once (after the ruled main-process build): `node apps/ptah-electron/scripts/launch.js`
 - visual-reviewer checks against `prototype/screenshots/`: widths 360/1024 (chat) and 300/960 (panel), dark and light,
