@@ -1,6 +1,6 @@
 # Batches - TASK_2026_626_7b3e
 
-Total tasks: 20 | Batches: 9 | Complete: 6/9
+Total tasks: 20 | Batches: 9 | Complete: 7/9
 
 Worktree root (all relative paths below resolve against it):
 `D:/projects/ptah-extension/.claude-worktrees/fix-live-session-stats-a1634d3869cb`
@@ -196,7 +196,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 2
 - Phase: BACKEND | Phase review: code-logic + style (at end of Batch 5)
 
-### Task 3.1: Accumulate, flush on task_started, settle at result and dispose — IN_PROGRESS
+### Task 3.1: Accumulate, flush on task_started, settle at result and dispose — COMPLETE
 
 - Files: MODIFY `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts`;
   CREATE `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.live-stats.spec.ts`
@@ -212,8 +212,16 @@ Edge cases:
 
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/stream-transformer.live-stats.spec.ts libs/backend/agent-sdk/src/lib/helpers/stream-transformer.spec.ts libs/backend/agent-sdk/src/lib/helpers/stream-transformer.plan-limits.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`; `npx nx lint @ptah-extension/agent-sdk --parallel=1`
+- Result (team-leader run, serial): jest 4 suites / 157 tests passed (the three live-stats, stream-transformer
+  and plan-limits specs plus live-session-stats-publisher.spec.ts), which settles the report's three unrun
+  expectations (`agent-a1` counted once, `rejected-invalid` returns a snapshot, fake-timer `unref()`);
+  typecheck passed; lint 0 errors, 52 warnings (unchanged from the Batch 2 baseline). Report: `batch-3-report.md`.
+- `git diff -w` check: `onResultStats` call site and its conditions unchanged (only the try/finally wrap and two
+  prettier re-wraps); `onResult()` directly after `onTurnEnd?.()` with no await before it; `settle()` in the
+  branch `finally`; `dispose()` in the stream `finally` after `activityWatchdog?.stop()` and before
+  `onStreamEnd`; the publisher constructor has no side effects and is inert without `onLiveStats`.
 
-## Batch 4: Adapter port + callback registry (shared + agent-sdk) — PENDING
+## Batch 4: Adapter port + callback registry (shared + agent-sdk) — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -222,7 +230,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 3
 - Phase: BACKEND | Phase review: code-logic + style (at end of Batch 5)
 
-### Task 4.1: `IAgentAdapter.setLiveStatsCallback` + registry — PENDING
+### Task 4.1: `IAgentAdapter.setLiveStatsCallback` + registry — IN_PROGRESS
 
 - Files: MODIFY `libs/shared/src/lib/types/agent-adapter.types.ts` (add `setLiveStatsCallback(cb: LiveStatsCallback): void`
   next to `setResultStatsCallback`, `:334`), `libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-callback-registry.ts`,
@@ -230,7 +238,7 @@ Edge cases:
 - Plan reference: implementation-plan.md:722-766 (C5), C1 `:282-283`
 - Acceptance: registry `liveStats` field, `setLiveStats`, `getLiveStats`, cleared in `clear()`; spec covers set/get/clear.
 
-### Task 4.2: SdkAgentAdapter threads the callback — PENDING
+### Task 4.2: SdkAgentAdapter threads the callback — IN_PROGRESS
 
 - Files: MODIFY `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`, `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.spec.ts`
 - Depends on: Task 4.1
@@ -391,7 +399,7 @@ Edge cases:
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat-ui --parallel=1`; `npx nx lint @ptah-extension/chat-ui --parallel=1`
 
-## Batch 9: FRONTEND phase fix round (chat-state, chat, chat-ui) — COMPLETE
+## Batch 9: FRONTEND phase fix round (chat-state, chat, chat-ui) — COMPLETE (commit b44707139)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Execution mode: sequential
