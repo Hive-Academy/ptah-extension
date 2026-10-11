@@ -1331,7 +1331,7 @@ other rows stay as recorded.
   - G4: `noticeQueue?.post` only on the `request-wrap-up` path.
   - G5: `draftText` never reaches `restoreInputs` or `admitOrHold`.
 
-## Batch 14: Frontend tab state carries the live stage (F1-part) — COMPLETE
+## Batch 14: Frontend tab state carries the live stage (F1-part) — COMPLETE (a106621bf)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
