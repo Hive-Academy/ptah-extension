@@ -1,6 +1,6 @@
 # Batches - TASK_2026_626_7b3e
 
-Total tasks: 20 | Batches: 9 | Complete: 7/9
+Total tasks: 20 | Batches: 9 | Complete: 8/9
 
 Worktree root (all relative paths below resolve against it):
 `D:/projects/ptah-extension/.claude-worktrees/fix-live-session-stats-a1634d3869cb`
@@ -187,7 +187,7 @@ Edge cases:
    `stream-transformer.ts:575` pattern).
 6. Options object with `Pick<...>` dependency types. ACCEPTED: style-only.
 
-## Batch 3: StreamTransformer wiring (agent-sdk) — IN_PROGRESS
+## Batch 3: StreamTransformer wiring (agent-sdk) — COMPLETE (commit f24f363aa)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -221,7 +221,7 @@ Edge cases:
   branch `finally`; `dispose()` in the stream `finally` after `activityWatchdog?.stop()` and before
   `onStreamEnd`; the publisher constructor has no side effects and is inert without `onLiveStats`.
 
-## Batch 4: Adapter port + callback registry (shared + agent-sdk) — IN_PROGRESS
+## Batch 4: Adapter port + callback registry (shared + agent-sdk) — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -230,7 +230,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 3
 - Phase: BACKEND | Phase review: code-logic + style (at end of Batch 5)
 
-### Task 4.1: `IAgentAdapter.setLiveStatsCallback` + registry — IN_PROGRESS
+### Task 4.1: `IAgentAdapter.setLiveStatsCallback` + registry — COMPLETE
 
 - Files: MODIFY `libs/shared/src/lib/types/agent-adapter.types.ts` (add `setLiveStatsCallback(cb: LiveStatsCallback): void`
   next to `setResultStatsCallback`, `:334`), `libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-callback-registry.ts`,
@@ -238,7 +238,7 @@ Edge cases:
 - Plan reference: implementation-plan.md:722-766 (C5), C1 `:282-283`
 - Acceptance: registry `liveStats` field, `setLiveStats`, `getLiveStats`, cleared in `clear()`; spec covers set/get/clear.
 
-### Task 4.2: SdkAgentAdapter threads the callback — IN_PROGRESS
+### Task 4.2: SdkAgentAdapter threads the callback — COMPLETE
 
 - Files: MODIFY `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`, `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.spec.ts`
 - Depends on: Task 4.1
@@ -252,6 +252,20 @@ Edge cases:
 
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-callback-registry.spec.ts libs/backend/agent-sdk/src/lib/sdk-agent-adapter.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/shared --parallel=1`; `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`; `npx nx lint @ptah-extension/agent-sdk --parallel=1` (sequentially)
+
+### Batch 4 verification record (team-leader)
+
+- On disk: `onLiveStats: this.callbacks.getLiveStats()` passed raw at all four transform sites
+  (`sdk-agent-adapter.ts:916`, `:1075`, `:1222`, `:1583`). It is never routed through
+  `wrapResultStatsForActivity`. The registry has `liveStats`, `setLiveStats`, `getLiveStats` and clears it in `clear()`.
+  The port member sits next to `setResultStatsCallback`.
+- Re-run serially:
+  - jest (2 suites): 120/120 passed.
+  - typecheck shared: OK.
+  - typecheck agent-sdk: OK.
+  - lint agent-sdk: 0 errors, 52 warnings (baseline).
+  - lint shared: 0 errors, 5 warnings.
+- Carried to Batch 5: the `sdk-callbacks.spec.ts` adapter mocks lack `setLiveStatsCallback`, so Task 5.2 must add it.
 
 ## Batch 5: Host broadcast wiring (cli-agent-runtime) — PENDING
 

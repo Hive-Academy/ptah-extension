@@ -361,6 +361,11 @@ export interface IAgentAdapter extends IAIProvider {
   ): Promise<void>;
   setSessionIdResolvedCallback(cb: SessionIdResolvedCallback): void;
   setResultStatsCallback(cb: ResultStatsCallback): void;
+  /**
+   * Throttled, provisional in-turn snapshots (`session:stats-live`). Never a
+   * completion signal: no footer, budget or activity side effects.
+   */
+  setLiveStatsCallback(cb: LiveStatsCallback): void;
   setCompactionStartCallback(cb: CompactionStartCallback): void;
   setWorktreeCreatedCallback(cb: WorktreeCreatedCallback): void;
   setWorktreeRemovedCallback(cb: WorktreeRemovedCallback): void;
