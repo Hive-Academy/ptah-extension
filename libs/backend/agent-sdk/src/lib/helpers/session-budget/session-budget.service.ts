@@ -70,7 +70,7 @@ import {
 /** Session-control surface the budget needs (the lifecycle manager). */
 export type SessionBudgetSessionControl = Pick<
   SessionLifecycleManager,
-  'applySessionAutoCompactWindow' | 'getSessionWorkspace'
+  'applySessionAutoCompactWindow' | 'getSessionWorkspace' | 'find'
 >;
 
 /** Stats surface the budget reads when it has no state yet. */
@@ -96,11 +96,20 @@ export type SessionBudgetRotationAdvisor = Pick<
   'evaluate' | 'current' | 'release'
 >;
 
-/** Notice-queue surface the budget needs: post the wrap-up, drop pending notices. */
+/**
+ * Notice-queue surface the budget needs: post the user-requested wrap-up,
+ * drop pending notices.
+ */
 export type SessionBudgetNoticeQueue = Pick<
   MainThreadNoticeQueue,
   'post' | 'clear'
 >;
+
+/**
+ * The display-only live stage `observeLive` reports (D25): `undefined` keeps
+ * what the webview shows, `null` clears it, a value sets it.
+ */
+export type SessionBudgetLiveStage = 'handoff' | 'limit' | null | undefined;
 
 /** `canSend` verdict; a refusal carries the state that refused it. */
 export type SessionBudgetSendCheck =
@@ -150,8 +159,13 @@ interface BudgetEntry {
    * snapshot.
    */
   liveFigure: SessionBudgetFigure | null;
-  /** Highest rank the wrap-up notice was posted for in this turn. */
-  liveNoticedRank: number;
+  /** Highest live stage rank already logged in this turn. */
+  liveLoggedRank: number;
+  /**
+   * Highest stage rank the user asked the agent to wrap up at in this turn.
+   * Reset at turn end, on extend and on a settings change.
+   */
+  wrapUpRequestedRank: number;
   /** Settings the figure was computed with (a change resets the stage). */
   configKey: string | null;
   compactions: number;
@@ -195,21 +209,48 @@ function budgetAmount(value: number, figure: SessionBudgetFigure): string {
   return `${Math.round(value).toLocaleString('en-US')} ${unit}`;
 }
 
-/** The host-authored wrap-up notice for a live stage (plan Component 2). */
-function wrapUpNotice(figure: SessionBudgetFigure, atLimit: boolean): string {
+/**
+ * The host-authored wrap-up notice, posted only when the user asks for it
+ * (`request-wrap-up`). It tells the agent the user continues in a new session
+ * and, at a blocking limit, that the user does so with "New session"
+ * (627-L19). Ptah starts nothing on its own.
+ */
+function wrapUpNotice(
+  figure: SessionBudgetFigure,
+  atLimit: boolean,
+  blocking: boolean,
+): string {
   const usage =
     figure.used === null || figure.percent === null
       ? ''
       : ` (about ${budgetAmount(figure.used, figure)} of ${budgetAmount(figure.limit, figure)}, ${Math.floor(figure.percent)}%)`;
-  const handover =
-    'then end the turn. Ptah will ask for a handoff and continue in a new session.';
-  return atLimit
-    ? `[Ptah] This session reached its budget limit${usage}. Stop now: ` +
-        `do not start or wait for anything new, ${handover}`
-    : `[Ptah] This session is near its budget${usage}. Finish the step in ` +
-        'progress. Do not start new tasks, subagents or CLI lanes. Wait for ' +
-        'running subagents to return and for running CLI lanes ' +
-        `(ptah_agent_wait / ptah_agent_status), ${handover}`;
+  const ending =
+    'then end the turn with a short summary of where the work stands. ' +
+    'The user will continue in a new session.';
+  if (!atLimit) {
+    return (
+      `[Ptah] The user asked you to wrap up: this session is near its budget${usage}. ` +
+      'Finish the step in progress. Do not start new tasks, subagents or CLI ' +
+      'lanes. Wait for running subagents to return and for running CLI lanes ' +
+      `(ptah_agent_wait / ptah_agent_status), ${ending}`
+    );
+  }
+  const click = blocking
+    ? ' New messages to this session are refused at the limit; the user ' +
+      'will click "New session" to continue.'
+    : '';
+  return (
+    `[Ptah] The user asked you to wrap up: this session reached its budget limit${usage}. ` +
+    `Stop now: do not start or wait for anything new, ${ending}${click}`
+  );
+}
+
+/** Wrap-up rank of a stage: `handoff`, `limit`, or none (`unknown`). */
+function wrapUpRankOf(stage: SessionBudgetStage | undefined): number {
+  if (!stage) return UNKNOWN_RANK;
+  const rank = sessionBudgetStageRank(stage);
+  if (rank >= LIMIT_RANK) return LIMIT_RANK;
+  return rank >= HANDOFF_RANK ? HANDOFF_RANK : UNKNOWN_RANK;
 }
 
 @injectable()
@@ -266,25 +307,32 @@ export class SessionBudgetService {
 
   /**
    * In-turn estimate (`provisional: true`, TASK_2026_626). Kept apart from
-   * the authoritative figure: it raises `stageFor` and posts the wrap-up
-   * notice, but never refuses a send nor runs a stage action. Never throws.
+   * the authoritative figure: it raises `stageFor` for display only. It never
+   * refuses a send, runs a stage action, posts a notice or arms a handover.
+   * Never throws.
+   *
+   * Returns the display stage (D25): `undefined` when the estimate is ignored
+   * (not provisional, untracked or released, older than the authoritative
+   * figure, another measure, or a failure; the retained estimate is
+   * untouched); `null` when the budget is disabled or the accepted estimate
+   * is below `handoff`; otherwise `handoff` or `limit`.
    */
-  observeLive(snapshot: SessionStatsEntry): void {
-    if (snapshot.provisional !== true) return;
+  observeLive(snapshot: SessionStatsEntry): SessionBudgetLiveStage {
+    if (snapshot.provisional !== true) return undefined;
     const sessionId = snapshot.sessionId;
     try {
       const config = this.configSource.getConfig();
       if (!config.enabled) {
         const stale = this.entries.get(sessionId);
         if (stale) stale.liveFigure = null;
-        return;
+        return null;
       }
       const entry = this.trackedEntry(sessionId, 'live');
-      if (!entry) return;
+      if (!entry) return undefined;
       this.rememberWorkspace(entry);
       const authoritative = entry.figure?.revision ?? null;
       if (authoritative !== null && (snapshot.revision ?? -1) < authoritative) {
-        return;
+        return undefined;
       }
       const key = configKeyOf(config);
       const configChanged = entry.configKey !== null && entry.configKey !== key;
@@ -306,33 +354,38 @@ export class SessionBudgetService {
         this.logger.debug(
           `[SessionBudget] Ignored a live estimate measured as ${figure.measure} (authoritative ${previous.measure}) for ${sessionId}`,
         );
-        return;
+        return undefined;
       }
       const from =
         entry.liveFigure?.stage ?? previous?.stage ?? ('unknown' as const);
       entry.liveFigure = figure;
-      this.noticeLiveStage(entry, from, figure);
+      this.logLiveStage(entry, from, figure);
+      const rank = wrapUpRankOf(figure.stage);
+      if (rank === LIMIT_RANK) return 'limit';
+      return rank === HANDOFF_RANK ? 'handoff' : null;
     } catch (error: unknown) {
       // degradation-audit: reported - an estimate failure leaves the
-      // authoritative path untouched (fail-open).
+      // authoritative path untouched (fail-open) and the display unchanged.
       this.warnOnce(
         this.entries.get(sessionId),
         sessionId,
         'observe-live',
         error,
       );
+      return undefined;
     }
   }
 
   /**
-   * Turn end: drop the in-turn estimate, its notice ranks and the session's
-   * pending main-thread notices (they would land in the next turn).
+   * Turn end: drop the in-turn estimate, its log and wrap-up ranks and the
+   * session's pending main-thread notices (they would land in the next turn).
    */
   onTurnTerminal(sessionId: string): void {
     const entry = this.entries.get(sessionId);
     if (entry) {
       entry.liveFigure = null;
-      entry.liveNoticedRank = UNKNOWN_RANK;
+      entry.liveLoggedRank = UNKNOWN_RANK;
+      entry.wrapUpRequestedRank = UNKNOWN_RANK;
     }
     this.noticeQueue?.clear(sessionId);
   }
@@ -405,6 +458,8 @@ export class SessionBudgetService {
           return await this.writeHandoffAction(sessionId, entry);
         case 'preview-handoff':
           return await this.previewHandoff(sessionId, entry);
+        case 'request-wrap-up':
+          return this.requestWrapUp(sessionId, entry);
       }
     } catch (error: unknown) {
       this.logger.error(
@@ -548,9 +603,11 @@ export class SessionBudgetService {
     entry.configKey = key;
     if (options.resetStage || configChanged) {
       // Extend or new settings: the estimate was measured against the old
-      // limit; the next one re-evaluates and may notify again.
+      // limit; the next one re-evaluates, and the user may ask for a wrap-up
+      // again at the new stage.
       entry.liveFigure = null;
-      entry.liveNoticedRank = UNKNOWN_RANK;
+      entry.liveLoggedRank = UNKNOWN_RANK;
+      entry.wrapUpRequestedRank = UNKNOWN_RANK;
     }
 
     const rank = sessionBudgetStageRank(figure.stage);
@@ -827,6 +884,62 @@ export class SessionBudgetService {
   // User actions
   // ---------------------------------------------------------------------------
 
+  /**
+   * "Ask agent to wrap up" (plan v2 Decision 1): post the wrap-up notice to
+   * the running turn, only at the `handoff` or `limit` display stage. Once
+   * per stage rank per turn: a repeat succeeds and posts nothing. Refused
+   * with `WRAP_UP_UNAVAILABLE` without a budget entry, below `handoff`, while
+   * no turn runs (the notice would land in the next turn), with the budget
+   * disabled, or when the host has no notice queue.
+   */
+  private requestWrapUp(
+    sessionId: string,
+    entry: BudgetEntry | undefined,
+  ): SessionBudgetActionResult {
+    const figure =
+      entry && this.configSource.getConfig().enabled
+        ? this.displayFigure(entry)
+        : null;
+    const rank = wrapUpRankOf(figure?.stage);
+    if (
+      !entry ||
+      !figure ||
+      rank === UNKNOWN_RANK ||
+      !this.noticeQueue ||
+      this.sessionControl.find(sessionId)?.turnInFlight !== true
+    ) {
+      return {
+        success: false,
+        ...this.stateField(entry),
+        error:
+          'The agent is not working on a turn at the handoff or limit stage',
+        errorCode: 'WRAP_UP_UNAVAILABLE',
+      };
+    }
+    if (rank > entry.wrapUpRequestedRank) {
+      entry.wrapUpRequestedRank = rank;
+      this.logger.info(
+        `[SessionBudget] Wrap-up requested by the user for ${sessionId} at ${figure.stage}`,
+      );
+      this.noticeQueue.post(
+        sessionId,
+        wrapUpNotice(figure, rank === LIMIT_RANK, figure.blocked),
+      );
+    }
+    return { success: true, ...this.stateField(entry) };
+  }
+
+  /** The figure behind `stageFor`: the higher of authoritative and live. */
+  private displayFigure(entry: BudgetEntry): SessionBudgetFigure | null {
+    const { figure, liveFigure } = entry;
+    if (!liveFigure) return figure;
+    if (!figure) return liveFigure;
+    return sessionBudgetStageRank(liveFigure.stage) >
+      sessionBudgetStageRank(figure.stage)
+      ? liveFigure
+      : figure;
+  }
+
   private dismiss(entry: BudgetEntry | undefined): SessionBudgetActionResult {
     if (!entry?.figure) return this.noState();
     entry.dismissedStage = entry.figure.stage;
@@ -1011,7 +1124,8 @@ export class SessionBudgetService {
         usageSeq: 0,
         figure: null,
         liveFigure: null,
-        liveNoticedRank: UNKNOWN_RANK,
+        liveLoggedRank: UNKNOWN_RANK,
+        wrapUpRequestedRank: UNKNOWN_RANK,
         configKey: null,
         compactions: 0,
         extensions: 0,
@@ -1137,31 +1251,21 @@ export class SessionBudgetService {
   }
 
   /**
-   * Post the wrap-up notice when the estimate first reaches `handoff`, and
-   * again at `limit`, unless the authoritative stage already acted on it;
-   * once per rank per turn.
+   * Log the estimate's first arrival at `handoff`, and again at `limit`,
+   * unless the authoritative stage already reached it; once per rank per
+   * turn. Log only: the wrap-up notice is posted on the user's request.
    */
-  private noticeLiveStage(
+  private logLiveStage(
     entry: BudgetEntry,
     from: SessionBudgetStage,
     figure: SessionBudgetFigure,
   ): void {
-    const rank = sessionBudgetStageRank(figure.stage);
-    const noticeRank =
-      rank >= LIMIT_RANK
-        ? LIMIT_RANK
-        : rank >= HANDOFF_RANK
-          ? HANDOFF_RANK
-          : UNKNOWN_RANK;
-    if (noticeRank <= Math.max(entry.liveNoticedRank, entry.actedRank)) return;
-    entry.liveNoticedRank = noticeRank;
+    const rank = wrapUpRankOf(figure.stage);
+    if (rank <= Math.max(entry.liveLoggedRank, entry.actedRank)) return;
+    entry.liveLoggedRank = rank;
     this.logger.info(
       `[SessionBudget] Live stage ${from} -> ${figure.stage} for ${entry.sessionId}`,
       { measure: figure.measure, used: figure.used, percent: figure.percent },
-    );
-    this.noticeQueue?.post(
-      entry.sessionId,
-      wrapUpNotice(figure, noticeRank === LIMIT_RANK),
     );
   }
 

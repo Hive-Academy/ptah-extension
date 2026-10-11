@@ -26,6 +26,7 @@ import {
   type SessionBudgetState,
   type SessionStatsEntry,
   type LiveStatsCallback,
+  type SessionStatsLivePayload,
   blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
@@ -1837,17 +1838,21 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Feed each in-turn estimate to the budget's advisory stage (`observeLive`,
-   * never `observe`), then the host callback. Installed even without a host
-   * callback so every host feeds the budget; a budget throw is WARNed once
-   * and never withholds the payload from the host.
+   * Feed each in-turn estimate to the budget's display-only stage
+   * (`observeLive`, never `observe`), then the host callback with that stage
+   * as `liveBudgetStage`: omitted when the budget reports no change
+   * (`undefined`), set for `null` (clear) or a stage. Installed even without a
+   * host callback so every host feeds the budget. The live stage never arms
+   * or starts a handover (D17, D22); a budget throw is WARNed once, omits the
+   * field and never withholds the payload from the host.
    */
   private wrapLiveStatsForBudget(
     inner: LiveStatsCallback | undefined,
   ): LiveStatsCallback {
     return (payload) => {
+      let liveBudgetStage: SessionStatsLivePayload['liveBudgetStage'];
       try {
-        this.sessionBudget.observeLive(payload.sessionStats);
+        liveBudgetStage = this.sessionBudget.observeLive(payload.sessionStats);
       } catch (error: unknown) {
         if (!this.budgetObserveLiveWarned) {
           this.budgetObserveLiveWarned = true;
@@ -1858,7 +1863,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
         }
       }
       // Returned so the publisher still sees an async host failure.
-      return inner?.(payload);
+      return inner?.(
+        liveBudgetStage === undefined
+          ? payload
+          : { ...payload, liveBudgetStage },
+      );
     };
   }
 

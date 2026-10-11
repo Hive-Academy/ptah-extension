@@ -91,6 +91,8 @@ interface Harness {
   ownerLease: jest.Mock;
   applyWindow: jest.Mock;
   getWorkspace: jest.Mock;
+  /** Session control's `find`: the lifecycle record, idle by default. */
+  findSession: jest.Mock;
   build: jest.Mock;
   write: jest.Mock;
   /** The writer's `read`: the handoff file on disk, `null` by default. */
@@ -121,6 +123,9 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
       window === null ? undefined : { target: window, applied: true },
   );
   const getWorkspace = jest.fn((): string | undefined => '/workspace');
+  const findSession = jest.fn(
+    (_id: string): { turnInFlight: boolean } | undefined => undefined,
+  );
   const build = jest.fn(async () => ({ document: document() }));
   const write = jest.fn(async (sessionId: string) => ({
     path: `/home/.ptah/handoffs/${sessionId}.md`,
@@ -153,6 +158,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     {
       applySessionAutoCompactWindow: applyWindow,
       getSessionWorkspace: getWorkspace,
+      find: findSession,
     } as unknown as SessionBudgetSessionControl,
     { build } as unknown as SessionBudgetHandoffBuilder,
     { write, read } as unknown as SessionBudgetHandoffWriter,
@@ -170,6 +176,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     ownerLease,
     applyWindow,
     getWorkspace,
+    findSession,
     build,
     write,
     read,
@@ -964,75 +971,100 @@ describe('SessionBudgetService.act', () => {
   });
 });
 
-describe('SessionBudgetService.observeLive', () => {
-  /** A provisional in-turn snapshot at `percent` of the 50M limit. */
-  const live = (percent: number, revision: number): SessionStatsEntry => ({
-    ...at(percent, revision),
-    provisional: true,
-  });
+/** A provisional in-turn snapshot at `percent` of the 50M limit. */
+function live(percent: number, revision: number): SessionStatsEntry {
+  return { ...at(percent, revision), provisional: true };
+}
 
-  it('81% raises stageFor to handoff without a refusal or a handoff write; one notice per rank', async () => {
+/** INFO calls logging a live stage change. */
+function liveStageLogs(h: Harness): unknown[][] {
+  return h.logger.info.mock.calls.filter(([m]) =>
+    String(m).startsWith('[SessionBudget] Live stage'),
+  );
+}
+
+describe('SessionBudgetService.observeLive', () => {
+  it('S5: 81% returns handoff and raises stageFor without a refusal, a handoff write or a notice; logs once per rank', async () => {
     const h = harness();
     const post = jest.spyOn(h.notices, 'post');
     h.service.observe(at(10, 1));
 
-    h.service.observeLive(live(81, 2));
+    expect(h.service.observeLive(live(81, 2))).toBe('handoff');
     await flush();
 
     expect(h.service.stageFor(SID)).toBe('handoff');
     expect(h.service.canSend(SID)).toEqual({ ok: true });
     expect(h.write).not.toHaveBeenCalled();
-    expect(post).toHaveBeenCalledTimes(1);
-    const notice = h.notices.take(SID) ?? '';
-    expect(notice).toContain('40,500,000 tokens of 50,000,000 tokens, 81%');
-    expect(notice).toContain('Do not start new tasks, subagents or CLI lanes');
-    expect(notice).toContain('ptah_agent_wait');
+    expect(post).not.toHaveBeenCalled();
+    expect(h.notices.take(SID)).toBeUndefined();
     expect(h.logger.info).toHaveBeenCalledWith(
       `[SessionBudget] Live stage normal -> handoff for ${SID}`,
       expect.objectContaining({ used: 40_500_000, percent: 81 }),
     );
 
-    h.service.observeLive(live(85, 3));
-    expect(post).toHaveBeenCalledTimes(1);
+    expect(h.service.observeLive(live(85, 3))).toBe('handoff');
+    expect(liveStageLogs(h)).toHaveLength(1);
+    expect(post).not.toHaveBeenCalled();
   });
 
-  it('105% live never blocks and posts the firmer notice; authoritative 105% blocks', () => {
+  it('S5: 105% returns limit, never blocks and posts nothing; authoritative 105% blocks', () => {
     const h = harness();
+    const post = jest.spyOn(h.notices, 'post');
     h.service.observe(at(10, 1));
 
-    h.service.observeLive(live(105, 2));
+    expect(h.service.observeLive(live(105, 2))).toBe('limit');
 
     expect(h.service.stageFor(SID)).toBe('limit');
     expect(h.service.canSend(SID)).toEqual({ ok: true });
-    expect(h.notices.take(SID)).toContain('Stop now');
+    expect(post).not.toHaveBeenCalled();
 
     h.service.observe(at(105, 3));
     expect(h.service.canSend(SID)).toMatchObject({ ok: false });
+    expect(post).not.toHaveBeenCalled();
   });
 
-  it('posts nothing for a stage the authoritative figure already acted on', () => {
+  it('does not log a stage the authoritative figure already acted on, and still reports it', () => {
     const h = harness();
     const post = jest.spyOn(h.notices, 'post');
     h.service.observe(at(85, 1));
 
-    h.service.observeLive(live(90, 2));
+    expect(h.service.observeLive(live(90, 2))).toBe('handoff');
 
+    expect(liveStageLogs(h)).toHaveLength(0);
     expect(post).not.toHaveBeenCalled();
     expect(h.service.stageFor(SID)).toBe('handoff');
   });
 
-  it('onTurnTerminal clears the live stage and pending notices; the next turn notifies again', () => {
+  it('onTurnTerminal clears the live stage and pending notices; the next turn logs again', () => {
     const h = harness();
-    const post = jest.spyOn(h.notices, 'post');
     h.service.observe(at(10, 1));
     h.service.observeLive(live(81, 2));
+    h.notices.post(SID, 'pending');
 
     h.service.onTurnTerminal(SID);
 
     expect(h.service.stageFor(SID)).toBe('normal');
     expect(h.notices.take(SID)).toBeUndefined();
-    h.service.observeLive(live(82, 3));
-    expect(post).toHaveBeenCalledTimes(2);
+    expect(h.service.observeLive(live(82, 3))).toBe('handoff');
+    expect(liveStageLogs(h)).toHaveLength(2);
+  });
+
+  it('S21: an accepted estimate below handoff returns null (clear)', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+
+    expect(h.service.observeLive(live(50, 2))).toBeNull();
+    expect(h.service.observeLive(live(75, 3))).toBeNull();
+  });
+
+  it('S21: a fresh estimate after a settings change is re-staged; below handoff it returns null', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    expect(h.service.observeLive(live(81, 2))).toBe('handoff');
+
+    h.setConfig({ tokens: LIMIT * 2 });
+
+    expect(h.service.observeLive(live(82, 3))).toBeNull();
   });
 
   it('a newer authoritative snapshot replaces the estimate; an older live one is ignored', () => {
@@ -1043,55 +1075,76 @@ describe('SessionBudgetService.observeLive', () => {
     h.service.observe(at(20, 3));
     expect(h.service.stageFor(SID)).toBe('normal');
 
-    h.service.observeLive(live(90, 2));
+    expect(h.service.observeLive(live(90, 2))).toBeUndefined();
     expect(h.service.stageFor(SID)).toBe('normal');
   });
 
-  it('ignores a non-provisional snapshot, a released session and a disabled budget', () => {
+  it('S21: an estimate older than the authoritative figure returns undefined and keeps the retained estimate', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    expect(h.service.observeLive(live(81, 3))).toBe('handoff');
+    // Authoritative revision 2: accepted, but older than the retained estimate.
+    h.service.observe(at(12, 2));
+    expect(h.service.stageFor(SID)).toBe('handoff');
+
+    expect(h.service.observeLive(live(10, 1))).toBeUndefined();
+
+    expect(h.service.stageFor(SID)).toBe('handoff');
+  });
+
+  it('S21: a non-provisional snapshot and a released session return undefined; a disabled budget returns null', () => {
     const h = harness();
     const post = jest.spyOn(h.notices, 'post');
     h.service.observe(at(10, 1));
-    h.service.observeLive(at(90, 2));
+    expect(h.service.observeLive(at(90, 2))).toBeUndefined();
     expect(h.service.stageFor(SID)).toBe('normal');
 
     h.service.release(SID);
-    h.service.observeLive(live(90, 3));
+    expect(h.service.observeLive(live(90, 3))).toBeUndefined();
     expect(h.service.stageFor(SID)).toBeUndefined();
 
     const disabled = harness({ enabled: false });
-    disabled.service.observeLive(live(90, 1));
+    expect(disabled.service.observeLive(live(90, 1))).toBeNull();
     expect(disabled.service.stageFor(SID)).toBeUndefined();
     expect(post).not.toHaveBeenCalled();
   });
 
-  it('a live figure is dropped when the budget is disabled mid-turn', () => {
+  it('S21: disabling the budget mid-turn returns null and drops the live figure', () => {
     const h = harness();
     h.service.observe(at(10, 1));
     h.service.observeLive(live(81, 2));
 
     h.setConfig({ enabled: false });
-    h.service.observeLive(live(82, 3));
 
+    expect(h.service.observeLive(live(82, 3))).toBeNull();
     expect(h.service.stageFor(SID)).toBe('normal');
   });
 
-  it('ignores a live estimate whose measure differs from the authoritative one (A3)', () => {
+  it('S21: an estimate measured differently (A3) returns undefined and keeps the retained estimate', () => {
     const h = harness({ unit: 'cost', usd: 10 });
     const post = jest.spyOn(h.notices, 'post');
     h.service.observe(
       snapshot(1_000, 1, { totalCost: 1, pricingCoverage: 'full' }),
     );
-
-    h.service.observeLive({
-      ...snapshot(2_000, 2, {
-        totalCost: null,
-        knownCost: 9,
-        pricingCoverage: 'partial',
+    expect(
+      h.service.observeLive({
+        ...snapshot(2_000, 2, { totalCost: 9, pricingCoverage: 'full' }),
+        provisional: true,
       }),
-      provisional: true,
-    });
+    ).toBe('handoff');
 
-    expect(h.service.stageFor(SID)).toBe('normal');
+    expect(
+      h.service.observeLive({
+        ...snapshot(3_000, 3, {
+          totalCost: null,
+          knownCost: 9.5,
+          pricingCoverage: 'partial',
+        }),
+        provisional: true,
+      }),
+    ).toBeUndefined();
+
+    expect(h.service.stageFor(SID)).toBe('handoff');
     expect(post).not.toHaveBeenCalled();
     expect(h.logger.debug).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -1100,16 +1153,22 @@ describe('SessionBudgetService.observeLive', () => {
     );
   });
 
-  it('never throws; a failure is WARNed once as observe-live', () => {
+  it('S21: never throws; a failure returns undefined, keeps the retained estimate and is WARNed once', () => {
     const h = harness();
     h.service.observe(at(10, 1));
+    h.service.observeLive(live(81, 2));
     h.getConfig.mockImplementation(() => {
       throw new Error('config unreadable');
     });
 
-    expect(() => h.service.observeLive(live(81, 2))).not.toThrow();
-    h.service.observeLive(live(82, 3));
+    let result: ReturnType<SessionBudgetService['observeLive']> = 'limit';
+    expect(() => {
+      result = h.service.observeLive(live(95, 3));
+    }).not.toThrow();
+    expect(result).toBeUndefined();
+    expect(h.service.observeLive(live(96, 4))).toBeUndefined();
 
+    expect(h.service.stageFor(SID)).toBe('handoff');
     const warns = h.logger.warn.mock.calls.filter(([m]) =>
       String(m).includes('observe-live'),
     );
@@ -1127,6 +1186,214 @@ describe('SessionBudgetService.observeLive', () => {
     expect(h.build).toHaveBeenLastCalledWith(
       expect.objectContaining({ workspacePath: '/live-ws' }),
     );
+  });
+});
+
+describe("SessionBudgetService.act('request-wrap-up')", () => {
+  const running = (h: Harness): void => {
+    h.findSession.mockImplementation((id: string) =>
+      id === SID ? { turnInFlight: true } : undefined,
+    );
+  };
+
+  it('S6: posts once in a running turn at handoff; a repeat succeeds and posts nothing; posts again at limit', async () => {
+    const h = harness();
+    running(h);
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(10, 1));
+    h.service.observeLive(live(81, 2));
+
+    const first = await h.service.act(SID, 'request-wrap-up');
+
+    expect(first).toMatchObject({ success: true });
+    expect(first.errorCode).toBeUndefined();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(h.findSession).toHaveBeenCalledWith(SID);
+    const notice = h.notices.take(SID) ?? '';
+    expect(notice).toContain('The user asked you to wrap up');
+    expect(notice).toContain('40,500,000 tokens of 50,000,000 tokens, 81%');
+    expect(notice).toContain('Do not start new tasks, subagents or CLI lanes');
+    expect(notice).toContain('ptah_agent_wait');
+    expect(notice).toContain('The user will continue in a new session.');
+    expect(notice).not.toContain('Ptah will ask');
+    expect(h.logger.info).toHaveBeenCalledWith(
+      `[SessionBudget] Wrap-up requested by the user for ${SID} at handoff`,
+    );
+
+    const repeat = await h.service.act(SID, 'request-wrap-up');
+    expect(repeat).toMatchObject({ success: true });
+    expect(post).toHaveBeenCalledTimes(1);
+
+    h.service.observeLive(live(105, 3));
+    const atLimit = await h.service.act(SID, 'request-wrap-up');
+    expect(atLimit).toMatchObject({ success: true });
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(h.notices.take(SID)).toContain('Stop now');
+    expect(h.logger.info).toHaveBeenCalledWith(
+      `[SessionBudget] Wrap-up requested by the user for ${SID} at limit`,
+    );
+
+    await h.service.act(SID, 'request-wrap-up');
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('S6: after onTurnTerminal the next turn may post again', async () => {
+    const h = harness();
+    running(h);
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(85, 1));
+    await flush();
+
+    await h.service.act(SID, 'request-wrap-up');
+    expect(post).toHaveBeenCalledTimes(1);
+
+    h.service.onTurnTerminal(SID);
+    expect(h.notices.take(SID)).toBeUndefined();
+
+    expect(await h.service.act(SID, 'request-wrap-up')).toMatchObject({
+      success: true,
+    });
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('S6: refused while the session is idle; never posts', async () => {
+    const h = harness();
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(85, 1));
+
+    expect(await h.service.act(SID, 'request-wrap-up')).toMatchObject({
+      success: false,
+      errorCode: 'WRAP_UP_UNAVAILABLE',
+      state: expect.objectContaining({ stage: 'handoff' }),
+    });
+
+    h.findSession.mockReturnValue({ turnInFlight: false });
+    expect(await h.service.act(SID, 'request-wrap-up')).toMatchObject({
+      success: false,
+      errorCode: 'WRAP_UP_UNAVAILABLE',
+    });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('S6: refused below handoff, without a budget entry and with the budget disabled', async () => {
+    const h = harness();
+    running(h);
+    const post = jest.spyOn(h.notices, 'post');
+
+    expect(await h.service.act(SID, 'request-wrap-up')).toEqual({
+      success: false,
+      error: 'The agent is not working on a turn at the handoff or limit stage',
+      errorCode: 'WRAP_UP_UNAVAILABLE',
+    });
+
+    h.service.observe(at(70, 1));
+    expect(await h.service.act(SID, 'request-wrap-up')).toMatchObject({
+      success: false,
+      errorCode: 'WRAP_UP_UNAVAILABLE',
+    });
+
+    h.service.observe(at(90, 2));
+    h.setConfig({ enabled: false });
+    expect(await h.service.act(SID, 'request-wrap-up')).toMatchObject({
+      success: false,
+      errorCode: 'WRAP_UP_UNAVAILABLE',
+    });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('refused without a notice queue', async () => {
+    const service = new SessionBudgetService(
+      createMockLogger() as unknown as Logger,
+      {
+        getConfig: () => SESSION_BUDGET_DEFAULT_CONFIG,
+      } as SessionBudgetConfigSource,
+      {
+        snapshot: () => null,
+        leaseOf: () => null,
+      } as unknown as SessionBudgetStatsSource,
+      {
+        applySessionAutoCompactWindow: jest.fn(),
+        getSessionWorkspace: () => '/workspace',
+        find: () => ({ turnInFlight: true }),
+      } as unknown as SessionBudgetSessionControl,
+      { build: jest.fn() } as unknown as SessionBudgetHandoffBuilder,
+      { write: jest.fn() } as unknown as SessionBudgetHandoffWriter,
+      { evaluate: jest.fn(), current: jest.fn(), release: jest.fn() },
+    );
+    service.observe(at(85, 1));
+
+    expect(await service.act(SID, 'request-wrap-up')).toMatchObject({
+      success: false,
+      errorCode: 'WRAP_UP_UNAVAILABLE',
+    });
+  });
+
+  it('627-L19: at a blocking limit the notice names the "New session" click; a non-blocking limit does not', async () => {
+    const blocking = harness();
+    running(blocking);
+    blocking.service.observe(at(105, 1));
+
+    await blocking.service.act(SID, 'request-wrap-up');
+
+    const notice = blocking.notices.take(SID) ?? '';
+    expect(notice).toContain('reached its budget limit');
+    expect(notice).toContain('Stop now');
+    expect(notice).toContain('The user will continue in a new session.');
+    expect(notice).toContain('the user will click "New session"');
+
+    const open = harness({ blockAtLimit: false });
+    running(open);
+    open.service.observe(at(105, 1));
+
+    await open.service.act(SID, 'request-wrap-up');
+
+    const openNotice = open.notices.take(SID) ?? '';
+    expect(openNotice).toContain('reached its budget limit');
+    expect(openNotice).not.toContain('New session');
+  });
+
+  it('extend resets the requested rank: the lower stage may be requested again in the same turn', async () => {
+    const h = harness();
+    running(h);
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(105, 1));
+    await h.service.act(SID, 'request-wrap-up');
+    expect(post).toHaveBeenCalledTimes(1);
+
+    const extended = await h.service.act(SID, 'extend');
+    expect(extended.state?.stage).toBe('handoff');
+
+    await h.service.act(SID, 'request-wrap-up');
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(h.notices.take(SID)).toContain('near its budget');
+  });
+
+  it('a settings change resets the requested rank', async () => {
+    const h = harness();
+    running(h);
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(90, 1));
+    await h.service.act(SID, 'request-wrap-up');
+    expect(post).toHaveBeenCalledTimes(1);
+
+    h.setConfig({ handoffPercent: 85 });
+    h.service.observe(at(90, 2));
+
+    await h.service.act(SID, 'request-wrap-up');
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('never throws when session control fails', async () => {
+    const h = harness();
+    h.findSession.mockImplementation(() => {
+      throw new Error('lifecycle gone');
+    });
+    h.service.observe(at(85, 1));
+
+    await expect(h.service.act(SID, 'request-wrap-up')).resolves.toMatchObject({
+      success: false,
+    });
+    expect(h.notices.take(SID)).toBeUndefined();
   });
 });
 

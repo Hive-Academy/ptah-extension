@@ -2452,10 +2452,98 @@ describe('SdkAgentAdapter', () => {
 
       expect(onLive).toHaveBeenCalledTimes(2);
       expect(onLive).toHaveBeenCalledWith(payload);
+      // S21: a throw omits the live stage (no change on the webview).
+      for (const [delivered] of onLive.mock.calls) {
+        expect(delivered).toBe(payload);
+        expect(delivered).not.toHaveProperty('liveBudgetStage');
+      }
       const warnings = h.logger.warn.mock.calls.filter((call) =>
         String(call[0]).includes('Session budget live observe failed'),
       );
       expect(warnings).toHaveLength(1);
+    });
+
+    // S21 / D25: `observeLive`'s display stage rides the live payload with the
+    // `budget` convention: absent = no change, `null` = clear, a value = set.
+    it('S21: sets liveBudgetStage for a stage or null and omits it for undefined; the payload always reaches the host', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const onLive = jest.fn();
+      h.adapter.setLiveStatsCallback(onLive);
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+      await h.adapter.startChatSession(makeSessionConfig());
+      const onLiveStats =
+        h.streamTransformer.transform.mock.calls[0][0].onLiveStats;
+      const payload: SessionStatsLivePayload = {
+        sessionId: 'tab_1' as SessionId,
+        sessionStats: {
+          sessionId: 'tab_1',
+          provisional: true,
+          revision: 3,
+        } as SessionStatsEntry,
+        context: { model: 'claude-sonnet-4-20250514', contextTokens: 10 },
+      };
+
+      h.sessionBudget.observeLive.mockReturnValueOnce('handoff');
+      onLiveStats?.(payload);
+      h.sessionBudget.observeLive.mockReturnValueOnce('limit');
+      onLiveStats?.(payload);
+      h.sessionBudget.observeLive.mockReturnValueOnce(null);
+      onLiveStats?.(payload);
+      h.sessionBudget.observeLive.mockReturnValueOnce(undefined);
+      onLiveStats?.(payload);
+
+      expect(onLive).toHaveBeenCalledTimes(4);
+      expect(onLive.mock.calls[0][0]).toEqual({
+        ...payload,
+        liveBudgetStage: 'handoff',
+      });
+      expect(onLive.mock.calls[1][0]).toEqual({
+        ...payload,
+        liveBudgetStage: 'limit',
+      });
+      expect(onLive.mock.calls[2][0]).toEqual({
+        ...payload,
+        liveBudgetStage: null,
+      });
+      expect(onLive.mock.calls[2][0]).toHaveProperty('liveBudgetStage', null);
+      expect(onLive.mock.calls[3][0]).toBe(payload);
+      expect(onLive.mock.calls[3][0]).not.toHaveProperty('liveBudgetStage');
+      // The caller's payload is never mutated.
+      expect(payload).not.toHaveProperty('liveBudgetStage');
+    });
+
+    // D17 / D22: the live stage is display-only. A live `limit` (also at the
+    // turn's end) parks nothing and starts nothing; only the blocking result
+    // parks the limit handover.
+    it('D17: a live limit stage never parks or starts a handover', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+      await h.adapter.startChatSession(makeSessionConfig());
+      const onLiveStats =
+        h.streamTransformer.transform.mock.calls[0][0].onLiveStats;
+      h.sessionBudget.observeLive.mockReturnValue('limit');
+
+      onLiveStats?.({
+        sessionId: 'tab_1' as SessionId,
+        sessionStats: {
+          sessionId: 'tab_1',
+          provisional: true,
+          revision: 4,
+        } as SessionStatsEntry,
+      });
+
+      expect(h.sessionLifecycle.parkLimitHandoverIfIdle).not.toHaveBeenCalled();
+      expect(h.sessionBudget.observe).not.toHaveBeenCalled();
     });
   });
 
@@ -2628,7 +2716,9 @@ describe('SdkAgentAdapter', () => {
           resultStats(snapshotFor(REAL_ID)),
         );
 
-        expect(h.sessionLifecycle.parkLimitHandoverIfIdle).not.toHaveBeenCalled();
+        expect(
+          h.sessionLifecycle.parkLimitHandoverIfIdle,
+        ).not.toHaveBeenCalled();
       },
     );
 

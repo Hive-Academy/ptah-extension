@@ -292,17 +292,34 @@ export function isSessionBudgetPercentOrderValid(
   return tightenPercent < handoffPercent;
 }
 
-/** User actions on a session's budget (banner buttons). */
+/**
+ * User actions on a session's budget (banner buttons).
+ *
+ * `request-wrap-up` asks the running turn to wrap up (the user will continue
+ * in a new session). It is only ever sent on this explicit user request.
+ */
 export type SessionBudgetAction =
-  'dismiss' | 'extend' | 'restore-window' | 'write-handoff' | 'preview-handoff';
+  | 'dismiss'
+  | 'extend'
+  | 'restore-window'
+  | 'write-handoff'
+  | 'preview-handoff'
+  | 'request-wrap-up';
 
 export interface SessionBudgetActionParams {
   readonly sessionId: string;
   readonly action: SessionBudgetAction;
 }
 
-/** Machine-readable reason for an unsuccessful budget action. */
-export type SessionBudgetActionErrorCode = 'NO_SESSION_BUDGET_STATE';
+/**
+ * Machine-readable reason for an unsuccessful budget action.
+ *
+ * `WRAP_UP_UNAVAILABLE`: `request-wrap-up` was refused because the session has
+ * no budget entry, is not at the handoff or limit stage, has no turn running,
+ * or the host cannot deliver the notice.
+ */
+export type SessionBudgetActionErrorCode =
+  'NO_SESSION_BUDGET_STATE' | 'WRAP_UP_UNAVAILABLE';
 
 export interface SessionBudgetActionResult {
   readonly success: boolean;

@@ -818,6 +818,12 @@ export function registerSdkServices(
               SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
             )
             .getSessionWorkspace(...args),
+        find: (...args) =>
+          c
+            .resolve<SessionLifecycleManager>(
+              SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+            )
+            .find(...args),
       };
       return new SessionBudgetService(
         c.resolve<Logger>(TOKENS.LOGGER),

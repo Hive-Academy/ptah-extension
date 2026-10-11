@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 13/20
+Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 14/20
 
 Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
 completion below; see "Phase 4" at the end of this file.
@@ -1180,7 +1180,7 @@ other rows stay as recorded.
   then `npx nx typecheck @ptah-extension/shared --parallel=1`; then
   `npx nx lint @ptah-extension/shared --parallel=1`.
 
-## Batch 11: Budget service display-only live stage, wrap-up on request, adapter live wiring (S1-part, B3, B2-part) — PENDING
+## Batch 11: Budget service display-only live stage, wrap-up on request, adapter live wiring (S1-part, B3, B2-part) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -1190,7 +1190,7 @@ other rows stay as recorded.
 - Tasks: 3 | Depends on: Batches 9 and 10
 - Phase: 4 | Phase review: as Batch 9
 
-### Task 11.1: Budget action and error code — PENDING
+### Task 11.1: Budget action and error code — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-budget.types.ts`
 - Plan reference: implementation-plan-v2-user-authorized.md:186, :314
@@ -1199,7 +1199,7 @@ other rows stay as recorded.
   pins the union, update it in this task.
 - Validation notes: R-P3 (lands with Task 11.2 so `act` stays exhaustive).
 
-### Task 11.2: `SessionBudgetService` — `observeLive` returns a display stage; `request-wrap-up` — PENDING
+### Task 11.2: `SessionBudgetService` — `observeLive` returns a display stage; `request-wrap-up` — COMPLETE
 
 - Depends on: Task 11.1
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-budget.service.ts`
@@ -1226,7 +1226,7 @@ other rows stay as recorded.
   half stays (frontend rule, Task 15.3); 627-L17 stays (whole-queue clear unchanged).
 - Implementation details: the stage file write at handoff/limit (`:653-682`) is kept as preparation.
 
-### Task 11.3: Adapter `wrapLiveStatsForBudget` sets `liveBudgetStage` — PENDING
+### Task 11.3: Adapter `wrapLiveStatsForBudget` sets `liveBudgetStage` — COMPLETE
 
 - Depends on: Task 11.2
 - File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts`
