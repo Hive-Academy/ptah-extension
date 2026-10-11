@@ -964,6 +964,172 @@ describe('SessionBudgetService.act', () => {
   });
 });
 
+describe('SessionBudgetService.observeLive', () => {
+  /** A provisional in-turn snapshot at `percent` of the 50M limit. */
+  const live = (percent: number, revision: number): SessionStatsEntry => ({
+    ...at(percent, revision),
+    provisional: true,
+  });
+
+  it('81% raises stageFor to handoff without a refusal or a handoff write; one notice per rank', async () => {
+    const h = harness();
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(10, 1));
+
+    h.service.observeLive(live(81, 2));
+    await flush();
+
+    expect(h.service.stageFor(SID)).toBe('handoff');
+    expect(h.service.canSend(SID)).toEqual({ ok: true });
+    expect(h.write).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledTimes(1);
+    const notice = h.notices.take(SID) ?? '';
+    expect(notice).toContain('40,500,000 tokens of 50,000,000 tokens, 81%');
+    expect(notice).toContain('Do not start new tasks, subagents or CLI lanes');
+    expect(notice).toContain('ptah_agent_wait');
+    expect(h.logger.info).toHaveBeenCalledWith(
+      `[SessionBudget] Live stage normal -> handoff for ${SID}`,
+      expect.objectContaining({ used: 40_500_000, percent: 81 }),
+    );
+
+    h.service.observeLive(live(85, 3));
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('105% live never blocks and posts the firmer notice; authoritative 105% blocks', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+
+    h.service.observeLive(live(105, 2));
+
+    expect(h.service.stageFor(SID)).toBe('limit');
+    expect(h.service.canSend(SID)).toEqual({ ok: true });
+    expect(h.notices.take(SID)).toContain('Stop now');
+
+    h.service.observe(at(105, 3));
+    expect(h.service.canSend(SID)).toMatchObject({ ok: false });
+  });
+
+  it('posts nothing for a stage the authoritative figure already acted on', () => {
+    const h = harness();
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(85, 1));
+
+    h.service.observeLive(live(90, 2));
+
+    expect(post).not.toHaveBeenCalled();
+    expect(h.service.stageFor(SID)).toBe('handoff');
+  });
+
+  it('onTurnTerminal clears the live stage and pending notices; the next turn notifies again', () => {
+    const h = harness();
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(10, 1));
+    h.service.observeLive(live(81, 2));
+
+    h.service.onTurnTerminal(SID);
+
+    expect(h.service.stageFor(SID)).toBe('normal');
+    expect(h.notices.take(SID)).toBeUndefined();
+    h.service.observeLive(live(82, 3));
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('a newer authoritative snapshot replaces the estimate; an older live one is ignored', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.observeLive(live(81, 2));
+
+    h.service.observe(at(20, 3));
+    expect(h.service.stageFor(SID)).toBe('normal');
+
+    h.service.observeLive(live(90, 2));
+    expect(h.service.stageFor(SID)).toBe('normal');
+  });
+
+  it('ignores a non-provisional snapshot, a released session and a disabled budget', () => {
+    const h = harness();
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(at(10, 1));
+    h.service.observeLive(at(90, 2));
+    expect(h.service.stageFor(SID)).toBe('normal');
+
+    h.service.release(SID);
+    h.service.observeLive(live(90, 3));
+    expect(h.service.stageFor(SID)).toBeUndefined();
+
+    const disabled = harness({ enabled: false });
+    disabled.service.observeLive(live(90, 1));
+    expect(disabled.service.stageFor(SID)).toBeUndefined();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('a live figure is dropped when the budget is disabled mid-turn', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.observeLive(live(81, 2));
+
+    h.setConfig({ enabled: false });
+    h.service.observeLive(live(82, 3));
+
+    expect(h.service.stageFor(SID)).toBe('normal');
+  });
+
+  it('ignores a live estimate whose measure differs from the authoritative one (A3)', () => {
+    const h = harness({ unit: 'cost', usd: 10 });
+    const post = jest.spyOn(h.notices, 'post');
+    h.service.observe(
+      snapshot(1_000, 1, { totalCost: 1, pricingCoverage: 'full' }),
+    );
+
+    h.service.observeLive({
+      ...snapshot(2_000, 2, {
+        totalCost: null,
+        knownCost: 9,
+        pricingCoverage: 'partial',
+      }),
+      provisional: true,
+    });
+
+    expect(h.service.stageFor(SID)).toBe('normal');
+    expect(post).not.toHaveBeenCalled();
+    expect(h.logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'measured as cost-lower-bound (authoritative cost)',
+      ),
+    );
+  });
+
+  it('never throws; a failure is WARNed once as observe-live', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.getConfig.mockImplementation(() => {
+      throw new Error('config unreadable');
+    });
+
+    expect(() => h.service.observeLive(live(81, 2))).not.toThrow();
+    h.service.observeLive(live(82, 3));
+
+    const warns = h.logger.warn.mock.calls.filter(([m]) =>
+      String(m).includes('observe-live'),
+    );
+    expect(warns).toHaveLength(1);
+  });
+
+  it('remembers the workspace for a preview after the lifecycle forgot it', async () => {
+    const h = harness();
+    h.getWorkspace.mockReturnValue('/live-ws');
+    h.service.observeLive(live(10, 1));
+    h.getWorkspace.mockReturnValue(undefined);
+
+    await h.service.act(SID, 'preview-handoff');
+
+    expect(h.build).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspacePath: '/live-ws' }),
+    );
+  });
+});
+
 describe('SessionBudgetService.release / clearAll', () => {
   it('release drops the state; canSend falls back to the owner snapshot', () => {
     const h = harness();
