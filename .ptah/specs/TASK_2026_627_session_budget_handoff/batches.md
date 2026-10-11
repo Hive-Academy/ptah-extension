@@ -1,6 +1,9 @@
 # Batches - TASK_2026_627
 
-Total tasks: 24 | Batches: 11 (Batch 0 to Batch 8, plus fix Batches 5F and 6F) | Complete: 11/11
+Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 11/20
+
+Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
+completion below; see "Phase 4" at the end of this file.
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -682,25 +685,25 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | Id | Finding | Why deferred | Target |
 | --- | --- | --- | --- |
 | 627-L1 | M1: the notice can miss the stopped subagent's own `Agent` result and stay in the queue | Advisory text only; the plan accepts "notice not delivered → terminal handover still runs" (implementation-plan.md:403-404); no data or lane config is lost | Batch 7 (it adds the wrap-up notice on the same queue): post before awaiting the stop, or drain at turn end |
-| 627-L2 | M2: stale `waitingFor` on cancelled or failed snapshots | Display only. Its one planned consumer, Task 6.2, keys on `waiting-for-turn-end` | Follow-up: clear it in `cancel`, `fail` and `sourceEnded` |
+| 627-L2 | M2: stale `waitingFor` on cancelled or failed snapshots | Display only. Its one planned consumer, Task 6.2, keys on `waiting-for-turn-end` | Follow-up: clear it in `cancel`, `fail` and `sourceEnded`. **Phase 4: fixed in Task 9.2** (plan v2 B1, spec S9) |
 | 627-L3 | M5: `startedTasks` is not pruned during a session | Small entries, released at session end | Follow-up: drop an entry on task terminal |
 | 627-L4 | Style M1 and M2: cli-agent-runtime injects the concrete coordinator and registers in its constructor | Allowed boundary; no runtime fault | Follow-up: `Pick<SessionHandoverCoordinator, 'setLaneWorkProvider'>` and registration from `cli-agent-runtime/src/lib/di/register.ts` |
 | 627-L5 | INFO publish on every terminal while waiting (logic) and INFO-per-publish noise (style minor) | Noisy but bounded | Follow-up: publish only when `waitingFor` changes; per-event lines at DEBUG |
-| 627-L6 | `admitInterrupt` refuses an interrupt while an op is `waiting-for-turn-end` | Existing behaviour (9fe19b56e); the message is queued, not lost; the wait is now bounded by S2 | Follow-up: allow interrupts in `waiting-for-turn-end` |
+| 627-L6 | `admitInterrupt` refuses an interrupt while an op is `waiting-for-turn-end` | Existing behaviour (9fe19b56e); the message is queued, not lost; the wait is now bounded by S2 | Follow-up: allow interrupts in `waiting-for-turn-end`. **Phase 4: fixed in Task 9.2** (`holdsSource`, plan v2 Decision 6, spec S10) |
 | 627-L7 | `max-lines` warning on `session-handover-coordinator.service.ts` (726 vs 700) after Batch 5F | Lint warning, not an error; extracting now would turn the scoped S1/S2 re-review into a refactor review (decisions.md D9) | Follow-up after the Phase 1 re-review accepts: extract the work-in-flight gate (`workInFlight`, the wait bound, the S1 conversion, `setLaneWorkProvider` slot) into its own helper file in `session-handoff/`; behaviour-preserving, specs unchanged |
 | 627-L8 | Re-review 5F minor: the `capHeadAndTail` fallback tail (no `## Still running` or `## Next action` heading) can start inside a fenced code block | Display only (reviewer); the cut is marked with `[truncated]`, and the heading-based tail is unaffected (decisions.md D11) | Follow-up: move the fallback cut point past an unbalanced fence |
 | 627-L9 | Phase 2 review M2: the gone-source fallback skips the queued-input transfer, so queued composer text stays in the old tab and the user is not told | Nothing is lost (the text stays in the old composer); not a lane-config or data-loss Moderate, so outside the fix-round rule | Follow-up: carry the queued text to the new tab, or tell the user where it stayed, when the fallback opens the new tab |
 | 627-L10 | Re-review 6F moderate: the gone-source seed comes from the persisted handoff file, which can predate a later extend or compact | The file is the newest state written at the handoff or limit stage; the fallback runs only when the live entry is gone | Follow-up: mark a file-sourced seed as such in the new tab, or refresh the file on extend/compact |
 | 627-L11 | Re-review 6F minor: `continueFromGoneSource` returns silently while another budget action is in flight | Only for the duration of the in-flight action | Follow-up: show a busy state on the button |
 | 627-L12 | Re-review 6F minor: `goneSourceTab` remembers one source only; alternating two ended sources opens duplicate tabs; grid-mode `switchTab` focus has no spec | Rare path; no data lost | Follow-up: key the remembered tab by source session id and add a grid-mode spec |
-| 627-L13 | Batch 8 minor (D18): a held input that starts the next turn before the result is processed makes `armHandoverIfIdle` a no-op, and a non-blocking authoritative `limit` is not armed at the next terminal | Arms after the first result that lands with the source idle; the blocking limit is unaffected (`atBlockingLimit`) | Follow-up: let the terminal tell an authoritative from a live `limit` (e.g. a budget accessor for the authoritative stage) |
-| 627-L14 | Phase 3 Moderate 1 (D20 item 2): a live `handoff` at the terminal starts `budget-auto` (`armAtTerminal` moves it to `writing-handoff`, `session-handover-coordinator.service.ts:371-375`); when the result then reaches the blocking limit, S1 converts only `waiting-for-turn-end` (`:309-318`), so the rotation runs without the user's click and without "Allow 20% more" | No data loss and no lane config at risk (fix-round rule); narrow window (estimate 80-99%, result >=100%, last second of a turn). **Touches user decision 1 (limit = one click "New session") and D5: the user chooses whether to fix it now or later** | Coordinator: when a blocking result lands and the op is `budget-auto` not yet past `writing-handoff`, convert it to `budget-limit`; or let the lifecycle defer a live `handoff` at the terminal when `blockAtLimit` is on and the estimate is near the limit |
-| 627-L15 | Phase 3 Moderate 2: Stop (`session-control.service.ts:125`) at a live `handoff` stage arms `budget-auto` off an estimate that no result confirms | User can Cancel; the handoff doc is written first; no lane config at risk | Do not arm from the live figure on the interrupt path (authoritative stage only) |
-| 627-L16 | Phase 3 Moderate 3: a throttled provisional flush after an interrupt-driven terminal re-sets `liveFigure` (`session-budget.service.ts:313`) and can re-post a wrap-up notice (`:1162`); the non-provisional settle payload is ignored by `observeLive` (`:273`), so after an abnormal stream end the live stage stays elevated | Stale advisory stage and at most one stale notice; no data or lane config lost | Ignore live payloads for a session after its terminal until the next turn starts; route the settle payload to `accept` or clear the live figure on it |
+| 627-L13 | Batch 8 minor (D18): a held input that starts the next turn before the result is processed makes `armHandoverIfIdle` a no-op, and a non-blocking authoritative `limit` is not armed at the next terminal | Arms after the first result that lands with the source idle; the blocking limit is unaffected (`atBlockingLimit`) | Follow-up: let the terminal tell an authoritative from a live `limit` (e.g. a budget accessor for the authoritative stage). **Closed by D22** (no code: no non-blocking stage arms anything) |
+| 627-L14 | Phase 3 Moderate 1 (D20 item 2): a live `handoff` at the terminal starts `budget-auto` (`armAtTerminal` moves it to `writing-handoff`, `session-handover-coordinator.service.ts:371-375`); when the result then reaches the blocking limit, S1 converts only `waiting-for-turn-end` (`:309-318`), so the rotation runs without the user's click and without "Allow 20% more" | No data loss and no lane config at risk (fix-round rule); narrow window (estimate 80-99%, result >=100%, last second of a turn). **Touches user decision 1 (limit = one click "New session") and D5: the user chooses whether to fix it now or later** | Coordinator: when a blocking result lands and the op is `budget-auto` not yet past `writing-handoff`, convert it to `budget-limit`; or let the lifecycle defer a live `handoff` at the terminal when `blockAtLimit` is on and the estimate is near the limit. **Closed by D22** (no code: `budget-auto` and the S1 conversion are removed) |
+| 627-L15 | Phase 3 Moderate 2: Stop (`session-control.service.ts:125`) at a live `handoff` stage arms `budget-auto` off an estimate that no result confirms | User can Cancel; the handoff doc is written first; no lane config at risk | Do not arm from the live figure on the interrupt path (authoritative stage only). **Closed by D22** (no code: a terminal arms nothing below the blocking limit) |
+| 627-L16 | Phase 3 Moderate 3: a throttled provisional flush after an interrupt-driven terminal re-sets `liveFigure` (`session-budget.service.ts:313`) and can re-post a wrap-up notice (`:1162`); the non-provisional settle payload is ignored by `observeLive` (`:273`), so after an abnormal stream end the live stage stays elevated | Stale advisory stage and at most one stale notice; no data or lane config lost | Ignore live payloads for a session after its terminal until the next turn starts; route the settle payload to `accept` or clear the live figure on it. **Notice re-post half closed by D22** (no code: `observeLive` posts nothing). The display half stays, narrowed by the streaming-only display rule (Task 15.3) |
 | 627-L17 | Phase 3 Minor 1: `onTurnTerminal` clears the whole session queue (`session-budget.service.ts:337`), dropping a pending subagent-monitor notice (`register.ts:511`) | Advisory text only | Clear only the budget's own notices (tag them by source) |
 | 627-L18 | Phase 3 Minor 3: if the host `inner(...)` throws in `wrapResultStatsForActivity`, `armHandoverIfIdle` (`sdk-agent-adapter.ts:1825`) is skipped for that result | Arms at the next terminal | Run the arm in its own try before `inner`, or guard `inner` |
-| 627-L19 | Phase 3 Minor 4: the limit notice says Ptah "will ask for a handoff and continue in a new session" (`session-budget.service.ts:205`), but at a blocking limit the user clicks "New session" | Wording only | Name the click at a blocking limit in the notice |
-| 627-L20 | Phase 3 Minor 5: the wrapper makes `onLiveStats` always defined (`sdk-agent-adapter.ts:1844`), so `LiveSessionStatsPublisher` runs a timer and owner watcher per stream on every host; a failed first terminal handover is retried once by the post-result arm in the same turn | Intended (plan: wrapper installed without a host callback); cost only | Measure the per-stream cost; document the single retry |
+| 627-L19 | Phase 3 Minor 4: the limit notice says Ptah "will ask for a handoff and continue in a new session" (`session-budget.service.ts:205`), but at a blocking limit the user clicks "New session" | Wording only | Name the click at a blocking limit in the notice. **Phase 4: fixed in Task 11.2** (the rewritten `wrapUpNotice`, plan v2 Decision 1) |
+| 627-L20 | Phase 3 Minor 5: the wrapper makes `onLiveStats` always defined (`sdk-agent-adapter.ts:1844`), so `LiveSessionStatsPublisher` runs a timer and owner watcher per stream on every host; a failed first terminal handover is retried once by the post-result arm in the same turn | Intended (plan: wrapper installed without a host callback); cost only | Measure the per-stream cost; document the single retry. **Single-retry half closed by D22** (no code: the post-result path only parks the blocking limit). The cost half stays |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — COMPLETE (0917b8074)
 
@@ -950,3 +953,552 @@ Required fix (Task 8.2, inside `session-lifecycle-manager.ts` and its spec):
 - Open for the user: (1) the Phase 2 manual Electron check (decision 3); (2) optional A1 live run
   (`additionalContext` reaches the main model mid-turn); (3) the choice on 627-L14; (4) the deferred
   rows 627-L1..L20.
+- Superseded for the task as a whole by Phase 4 (D22): the task is open again until Batches 9-17 and
+  the Phase 4 review close.
+
+---
+
+# Phase 4 - Every session handover is user-authorized (D22-D25)
+
+Source: `implementation-plan-v2-user-authorized.md` (Gate 2 passed: `-review.md` REVISE 5/10,
+`-rereview.md` REVISE 6/10, `-rereview-2.md` APPROVED 8/10; commit `f680288dd`). Where it and
+`implementation-plan.md` disagree, v2 wins. Spec cases S1-S23 below are the v2 "Spec cases" table
+(`implementation-plan-v2-user-authorized.md:416-442`), not the S1/S2 of Batch 5F.
+
+Batching boundary: one invariant per commit that still compiles. The shared reason union, the
+`armAtTerminal` signature and the lifecycle rename cannot compile apart, so they land together
+(Batch 9); every other shared change lands with its first consumer. Backend first (9-13), then the
+frontend (14-17), because the webview needs the backend's new fields to have anything to show.
+
+Defaults chosen (the plan's handoff gives the ordering, so no clarification was needed):
+
+- Every batch is sequential with one in-process sub-agent executor (backend-developer for 9-13,
+  frontend-developer for 14-17). File-disjoint pairs that may run beside each other if the
+  orchestrator wants: 9 with 10; and after 11, any of 12, 13, 14. Each is committed on its own, and
+  the heavy checks still run one at a time across all executors.
+- Batch 9 has 7 files, one over the 6-file cap, on purpose: splitting it leaves a commit in which
+  agent-sdk does not typecheck (the reason union, the 4-argument `armAtTerminal` call in the
+  lifecycle, and the adapter's call to the renamed lifecycle method all break together).
+- The verification rules at the top of this file apply unchanged to every Phase 4 executor
+  (worktree only, scoped checks, one heavy check at a time, no `npm install`, no git, the `marked`
+  mapper). Nx project names added in Phase 4: `@ptah-extension/rpc-handlers`,
+  `@ptah-extension/vscode-lm-tools`, `@ptah-extension/chat-state`, `@ptah-extension/chat-types`.
+
+## Phase 4 plan validation
+
+Status: PASSED WITH RISKS
+
+Checked against the worktree at `f680288dd`. Every file the plan names exists; every plan line
+reference read was found at or within a few lines of the cited place.
+
+Assumptions:
+
+- A1 (plan): lane and background-subagent completions reach the source as turns that end in
+  `onTurnTerminal`, not through `refuseIfBudgetReached`. UNVERIFIED here; Task 9.3 traces it
+  (`agent-process-manager.service.ts` → `session-stream-pump.service.ts:100, 255`) and records the
+  answer in its report. Its failure mode is covered by design ("Continue now anyway").
+- A2 (plan): background subagents that finish without a parent turn leave `getBackgroundAgents`
+  before the next terminal. UNVERIFIED; Task 9.3 checks `subagent-registry.service.ts:481, 574`.
+- A3 (plan): vscode-lm-tools Jest may reach `marked`. Task 13.2 runs the spec once bare, then with
+  the mapper if it fails.
+- A4: the live payload reaches the aggregator unchanged. VERIFIED: `sdk-callbacks.ts:168-170`
+  (cli-agent-runtime) broadcasts the whole payload; `chat-message-handler.service.ts:719-731` passes
+  the parsed wire to `ChatStore.handleSessionStatsLive` → `handleLiveSessionStats` (`:212`). The only
+  field filter is the shared parser (Task 10.1). Neither file needs editing.
+- A5: the only production callers of `coordinator.begin` are `session-handover-rpc.handlers.ts:92`
+  and `session-spawner.service.ts:301`; `armAtTerminal` is called only from
+  `session-lifecycle-manager.ts:521, 543`; `armHandoverIfIdle` only from `sdk-agent-adapter.ts:1827`;
+  `budget-auto` appears only in the coordinator, its spec, `session-handover.types.ts:2` and the
+  banner spec. VERIFIED by grep over `libs` and `apps`.
+- A6: `admitOrHold` has two more production callers the plan does not list:
+  `chat-session.service.ts:503` (rpc-handlers) and `session-spawner.service.ts:645` (steer). Both
+  keep their code; their behaviour follows `holdsSource` (Decision 6). VERIFIED; S23 and the steer
+  specs pin it (Tasks 9.2, 13.1).
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| R-P1: widening `SessionBudgetSessionControl` with `'find'` (Decision 1) breaks agent-sdk typecheck: the DI factory builds it as an object literal at `di/register.ts:808-821`, a file the plan does not list | HIGH | Task 11.2 adds `find` to that literal (lazy resolve, same shape as its two siblings). The specs construct it with casts (`session-budget.service.spec.ts:153-156`, `chat-session-budget.spec.ts:133-136`) and need no change |
+| R-P2: `TabState` is declared in `libs/frontend/chat-types/src/lib/chat-types.ts:652`, not in `tab-manager.service.ts` as the plan says | MEDIUM | Task 14.1 adds the optional field in chat-types and the setter in tab-manager; the batch typechecks both projects |
+| R-P3: adding `'request-wrap-up'` to `SessionBudgetAction` makes `act`'s switch (`session-budget.service.ts:397-408`) non-exhaustive, so agent-sdk stops typechecking | MEDIUM | `session-budget.types.ts` ships in Batch 11 with the new `act` case, not with the other shared changes |
+| R-P4: `SessionBudgetActionsService.displayStage` does not exist yet (the plan's F1 reads as if it did) | LOW | Task 15.3 creates it as a computed beside the existing stage reads; the banner's `stage` input binds to it |
+| R-P5: `resolvedHandover` is documented "rendered only after this tab is idle" (`chat-view.component.ts:935`) and `showSessionBudgetBanner` requires `status === 'loaded'` (`:946`); an agent request arrives mid-turn | MEDIUM | Task 17.1 implements Decision 7 (render while `streaming` at display stage ≥ handoff or with a pending snapshot) and updates that comment; spec S13 |
+| R-P6: the handover client's guard (`session-handover-client.service.ts:10-20`) does not validate `draftText` | MEDIUM | Task 15.2: `peekDraft` returns a draft only when `draftText` is a non-empty string |
+| R-P7: the cancel RPC result carries `state` with `draftText`; if the client does not `record` it, a cancel whose broadcast is dropped loses the draft | MEDIUM | Task 15.3: `cancelHandover` records the returned `state` through `SessionHandoverClientService.record` (revision-guarded) before the draft effect reads it |
+| R-P8: spec churn (plan R4): many coordinator, lifecycle and adapter cases assert `budget-auto`, the D6 bound and the S1 conversion | MEDIUM | Tasks 9.2-9.3 rewrite them to S1-S23; the team-leader checks no assertion was merely deleted without a replacing case |
+| R-P9: the coordinator is 837 lines (`max-lines` 700, 627-L7) | LOW | Task 9.2 records the new count; a warning only. 627-L7 stays deferred |
+| R-P10: the spawner injects the concrete coordinator (`session-spawner.service.ts:232`), so only the spec `Pick` and a grep keep the agent path off `begin` | LOW | Task 13.1 narrows the spec `Pick`; grep gate G2 after Batch 13 |
+| R-P11 (plan Q2, R5-R7): extend leaves a parked limit op; the queued message rides to the successor; a converted agent request shows the limit copy; an agent can re-request | LOW | Accepted in the plan; copy in Tasks 16.2 and 15.3 |
+
+Edge cases:
+
+- Double-click on "Continue in new session" — repeat `begin` returns the snapshot unchanged except a
+  refreshed `waitingFor` (Task 9.2, S7).
+- Agent request, then a blocking-limit terminal or a blocking result — the same op becomes the
+  holding limit park (Tasks 9.2, 9.3; S16).
+- Lane provider throws — `lanes: null`, wait never ends on its own, "lane status unknown" (Tasks 9.2,
+  16.2; S22).
+- Stop during a user-started wait or an agent request — not held (Task 9.2; S10).
+- Draft with no mounted composer (compact view), a throwing write, two views — peek + acknowledge
+  (Tasks 15.2, 17.1; S20).
+- Live payload older revision, measure mismatch, untracked, throw — `undefined`, no change (Task
+  11.2; S21).
+- Wrap-up clicked at the turn edge — backend `WRAP_UP_UNAVAILABLE`, UI shows the refusal (Tasks 11.2,
+  15.3; S6).
+- A non-empty composer when a draft returns — appended after a blank line, never overwritten (Task
+  16.1; S20).
+
+Deferred rows under D22 (table above): closed by D22 with no code — 627-L13, L14, L15, the notice
+re-post half of L16, the single-retry half of L20. Fixed here — L6 and L19, and L2, which the
+approved plan folds into B1 and spec S9 asserts (`waitingFor` cleared on cancel). Shrink without a
+task — L7 (re-measured in Task 9.2), L18 (a skipped park after a throwing `inner` is harmless). All
+other rows stay as recorded.
+
+## Batch 9: Coordinator user-only start, lifecycle and adapter result path (S1-part, B1, B2-part) — IN_PROGRESS
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer, fresh session
+- Execution mode: sequential
+- Rationale: one invariant across three tightly coupled files that cannot compile apart; needs
+  judgement in the spec rewrites
+- Tasks: 3 | Depends on: none (may run beside Batch 10)
+- Phase: 4 (User-authorized handover) | Phase review: code-logic (cross-side CLI lane) plus style on
+  the new public API, on the combined Batch 9-17 diff
+
+### Task 9.1: Shared handover contract — IN_PROGRESS
+
+- File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-handover.types.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:178-191 (Decision 3), :308-313 (S1)
+- Pattern to follow: the existing optional fields and doc comments in the same file (`:16-58`)
+- Quality requirements: `SessionHandoverReason` drops `'budget-auto'`; `SessionHandoverState` gains
+  `requestedBy?: 'agent'` and `draftText?: string` (doc: the user's own composer text, published only
+  in `cancelled`/`failed`); `waitingFor.lanes: number | null` (`null` = lane status unknown; doc names
+  the user-started wait); `BeginSessionHandoverParams.continueNow?: boolean`; `queuedInput` keeps its
+  name and now becomes the draft. Header comment notes the draft exception to "never exposes queued
+  inputs". `BeginSessionHandoverResult`, `CancelSessionHandoverResult` and the
+  `'source session unavailable'` literal unchanged.
+- Validation notes: R-P8; the banner spec still names `budget-auto` — it is fixed in Task 16.2, and
+  the chat project is not checked in this batch.
+- Implementation details: type-only edits.
+
+### Task 9.2: `SessionHandoverCoordinator` — one setter, one gate, the draft slot — IN_PROGRESS
+
+- Depends on: Task 9.1
+- File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
+  and `session-handover-coordinator.service.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:27-58, :79-158, :162-228 (Decisions
+  1-8), :242-274 (B1), :416-442 (S1, S2, S7-S10, S15, S16, S19, S22, S23 coordinator parts)
+- Pattern to follow: existing `begin` guards (`:240-247`), `publish`/`snapshot` (`:809-836`),
+  `restore` (`:759-775`), `complete` (`:527-633`)
+- Quality requirements: `begin(source, reason, turnInFlight, agentHandoff?, options?: { continueNow?;
+  queuedInput? })` folds in `request()`, is the only place that sets `userConfirmed`, stores
+  `queuedInput` as `draftText` (appended after a blank line on a second capture, never in `inputs`),
+  clears `requestedBy` and keeps `agentHandoff` on a parked op, gates unless `continueNow`, sets
+  `forced` with `continueNow` mid-turn. New `requestFromAgent(source, agentHandoff?)`: same guards,
+  parks `successor` in `awaiting-confirmation` with `requestedBy: 'agent'`, never sets
+  `userConfirmed`, never gates, never starts; a live op returns its snapshot unchanged; INFO
+  `[SessionHandover] Agent requested a successor for <id>`. `armAtTerminal(source, atBlockingLimit,
+  queuedInputs)`: parks `budget-limit` at the blocking limit when no live op; converts a parked agent
+  op at the blocking limit (reason `budget-limit`, marker cleared, `agentHandoff` kept); re-gates a
+  `userConfirmed` op in `waiting-for-turn-end` unless `forced`; moves queued inputs only when
+  `holdsSource(op)`; creates nothing else. `workInFlight` returns `lanes: null` on a provider throw
+  (WARN once per op) and treats `null` as work. `startConfirmed(op)` replaces `startAutomatic`,
+  `confirmSuccessor`, `confirmBudgetOperation`, acts only on `userConfirmed`, and is the only caller
+  of `complete()`. `complete()` delivers the draft as one `require-idle` input after the held inputs
+  in the first transfer batch and clears it only at `closing`. `snapshot()` publishes `requestedBy`
+  when set and `draftText` only in `cancelled`/`failed`. `holdsSource(op)` is used by `admitOrHold`,
+  the queue move and `admitInterrupt` (627-L6). Clear `waitingFor` in `cancel`/`fail`/`sourceEnded`
+  (627-L2). Delete `budget-auto` handling, the S1 conversion, `WORK_IN_FLIGHT_WAIT_LIMIT_MS`,
+  `waitingSince`, `cancelledAutomaticSources`, `request()` as public, `confirm()`. Spec cases rewritten
+  to S1, S2, S7-S10, S15, S16, S19, S22, S23 (coordinator parts), not loosened.
+- Validation notes: R-P8, R-P9 (record the new line count in the report); A6 (`admitOrHold` callers
+  outside the plan follow `holdsSource`); the `restoreInputs` mock in every draft case asserts it
+  never receives the draft text.
+- Implementation details: `Operation` gains `draftText?`, `requestedBy?`, `forced?`; `agentHandoff`
+  stays readonly (the parked op keeps it).
+
+### Task 9.3: Lifecycle arms nothing; adapter parks only the blocking limit after a result — IN_PROGRESS
+
+- Depends on: Task 9.2
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`
+  and `session-lifecycle-manager.spec.ts`;
+  `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts`
+  and `sdk-agent-adapter.spec.ts` (the result path only; the live path is Task 11.3)
+- Plan reference: implementation-plan-v2-user-authorized.md:276-291 (B2), :416-442 (S1-S4, S16)
+- Pattern to follow: current `onTurnTerminal` (`session-lifecycle-manager.ts:514-532`),
+  `armHandoverIfIdle` (`:539-549`), `wrapResultStatsForActivity` (`sdk-agent-adapter.ts:1808-1836`)
+- Quality requirements: `onTurnTerminal` calls `armAtTerminal(key, atBlockingLimit, queue)` with no
+  stage argument, then `sessionBudget.onTurnTerminal`, then `markTurnEnded` (order kept and pinned).
+  `armHandoverIfIdle` renamed `parkLimitHandoverIfIdle`: no-op unless the record is idle and
+  `isAtBlockingLimit`; otherwise `armAtTerminal(key, true, rec.messageQueue)` (one conversion path for
+  terminal and post-result). Delete `atHandoffOrLimitStage`. The adapter calls it only when
+  `budget?.blocked === true` (WARN on a throw kept). Specs: S1-S4 lifecycle parts, S3 adapter part,
+  S16 post-result case (terminal saw non-blocking, result blocking → conversion, `complete` not
+  called).
+- Validation notes: A1 and A2 — trace both and put the answer, with file:line, in the report. 627-L18
+  shrinks (a skipped park after a throwing `inner` is harmless); no fix.
+- Implementation details: the D17/D18 comments on the old predicates go with them.
+
+### Batch 9 verification
+
+- Every listed file contains the work; no `budget-auto`, `startAutomatic`, `confirmSuccessor`,
+  `confirmBudgetOperation`, `WORK_IN_FLIGHT_WAIT_LIMIT_MS`, `cancelledAutomaticSources`,
+  `atHandoffOrLimitStage`, `armHandoverIfIdle` left in `libs/backend/agent-sdk` or `libs/shared`.
+- One heavy check at a time, from the worktree root:
+  `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/session-handoff/session-handover-coordinator.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.spec.ts libs/backend/agent-sdk/src/lib/sdk-agent-adapter.spec.ts --coverage=false --maxWorkers=2`;
+  then `npx nx typecheck @ptah-extension/shared --parallel=1`; then
+  `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`; then
+  `npx nx lint @ptah-extension/agent-sdk --parallel=1` and `npx nx lint @ptah-extension/shared --parallel=1`
+  (0 errors; no new warning on a changed line; record the coordinator `max-lines` figure).
+- No per-batch review; the Phase 4 review covers it.
+
+## Batch 10: Shared live-stage wire field (S1-part) — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer, fresh session
+- Execution mode: sequential
+- Rationale: small, additive, one lib; may run beside Batch 9 (file-disjoint)
+- Tasks: 1 | Depends on: none
+- Phase: 4 | Phase review: as Batch 9
+
+### Task 10.1: `liveBudgetStage` on the live payload and the parser — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\agent-adapter.types.ts`;
+  `...\libs\shared\src\lib\types\messages\session-stats-live.ts` and `session-stats-live.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:187-189 (Decision 3), :315-318 (S1), S14
+- Pattern to follow: the `budget` convention (`agent-adapter.types.ts:82-87`) and the `context` rule
+  in the parser (`session-stats-live.ts:68-98`)
+- Quality requirements: `SessionStatsLivePayload` and `SessionStatsLiveWire` gain
+  `liveBudgetStage?: 'handoff' | 'limit' | null` (absent = no change, `null` = clear, value = set).
+  The parser keeps `'handoff'`, `'limit'` or `null` only on a provisional payload; any other value, or
+  a non-provisional payload, drops only the field. Spec S14.
+- Validation notes: A4 (no change needed in `sdk-callbacks.ts` or `chat-message-handler.service.ts`).
+- Implementation details: additive; nothing reads the field until Batches 11 and 15.
+
+### Batch 10 verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/lib/types/messages/session-stats-live.spec.ts --coverage=false --maxWorkers=2`;
+  then `npx nx typecheck @ptah-extension/shared --parallel=1`; then
+  `npx nx lint @ptah-extension/shared --parallel=1`.
+
+## Batch 11: Budget service display-only live stage, wrap-up on request, adapter live wiring (S1-part, B3, B2-part) — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer, fresh session
+- Execution mode: sequential
+- Rationale: the action union, its `act` case, the DI literal and the adapter's use of the new
+  `observeLive` return type compile only together
+- Tasks: 3 | Depends on: Batches 9 and 10
+- Phase: 4 | Phase review: as Batch 9
+
+### Task 11.1: Budget action and error code — PENDING
+
+- File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-budget.types.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:186, :314
+- Quality requirements: `SessionBudgetAction` gains `'request-wrap-up'`;
+  `SessionBudgetActionErrorCode` gains `'WRAP_UP_UNAVAILABLE'`. If `session-budget.types.spec.ts`
+  pins the union, update it in this task.
+- Validation notes: R-P3 (lands with Task 11.2 so `act` stays exhaustive).
+
+### Task 11.2: `SessionBudgetService` — `observeLive` returns a display stage; `request-wrap-up` — PENDING
+
+- Depends on: Task 11.1
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-budget.service.ts`
+  and `session-budget.service.spec.ts`;
+  `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\di\register.ts`
+  (the `SessionBudgetSessionControl` literal at `:808-821` only)
+- Plan reference: implementation-plan-v2-user-authorized.md:162-171 (Decision 1), :293-306 (B3),
+  S5, S6, S21
+- Pattern to follow: existing `act` cases (`:397-408`), `noticeLiveStage` (`:1144-1166`), the DI
+  literal's lazy `c.resolve` siblings
+- Quality requirements: `observeLive(snapshot): 'handoff' | 'limit' | null | undefined` per D25 —
+  `undefined` on not provisional, untracked/released, older revision, measure mismatch and throw
+  (retained `liveFigure` untouched); `null` when disabled or an accepted figure below handoff; the
+  stage at `handoff`/`limit`. No `noticeQueue.post` from the live path; `noticeLiveStage` becomes
+  log-only `logLiveStage` (once per rank per turn). `liveNoticedRank` renamed `wrapUpRequestedRank`,
+  reset at `onTurnTerminal`, extend and a settings change. `act('request-wrap-up')` succeeds only with
+  a budget entry, a display stage of `handoff`/`limit` and `sessionControl.find(id)?.turnInFlight`;
+  posts once per rank per turn (a repeat succeeds and posts nothing); otherwise
+  `WRAP_UP_UNAVAILABLE`; no `noticeQueue` → `WRAP_UP_UNAVAILABLE`; never throws. INFO
+  `[SessionBudget] Wrap-up requested by the user for <id> at <stage>`. `wrapUpNotice` rewritten: says
+  the user will continue in a new session and, at a blocking limit, names the "New session" click
+  (627-L19). `SessionBudgetSessionControl` widened with `'find'`; the DI literal adds `find`.
+- Validation notes: R-P1 (the DI literal); D25 return contract exactly as S21; 627-L16's display
+  half stays (frontend rule, Task 15.3); 627-L17 stays (whole-queue clear unchanged).
+- Implementation details: the stage file write at handoff/limit (`:653-682`) is kept as preparation.
+
+### Task 11.3: Adapter `wrapLiveStatsForBudget` sets `liveBudgetStage` — PENDING
+
+- Depends on: Task 11.2
+- File: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts`
+  and `sdk-agent-adapter.spec.ts` (the live path only)
+- Plan reference: implementation-plan-v2-user-authorized.md:287-289 (B2), S21
+- Pattern to follow: `wrapLiveStatsForBudget` (`:1844-1862`)
+- Quality requirements: `undefined` → payload to `inner` without the field; `null` or a stage → field
+  set; a throw keeps the WARN-once and omits the field; the payload still reaches `inner` in every
+  case.
+
+### Batch 11 verification
+
+- `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget.service.spec.ts libs/backend/agent-sdk/src/lib/sdk-agent-adapter.spec.ts --coverage=false --maxWorkers=2`
+  (add `libs/shared/src/lib/types/session-budget.types.spec.ts` under `-c libs/shared/jest.config.ts`
+  as a separate run if Task 11.1 touched it); then `npx nx typecheck @ptah-extension/shared --parallel=1`;
+  then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`; then lint both with `--parallel=1`.
+- Grep: `noticeQueue?.post` in `session-budget.service.ts` appears only on the `request-wrap-up` path.
+
+## Batch 12: RPC handlers (R1) — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer, fresh session
+- Execution mode: sequential
+- Rationale: one lib, two small handler pairs
+- Tasks: 2 | Depends on: Batches 9 and 11
+- Phase: 4 | Phase review: as Batch 9
+
+### Task 12.1: `session:beginHandover` passes `continueNow` and the draft; no `admitOrHold` — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\rpc-handlers\src\lib\handlers\session-handover-rpc.schema.ts`;
+  `session-handover-rpc.handlers.ts` and `session-handover-rpc.handlers.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:320-327 (R1), S8, S9, S19
+- Pattern to follow: the begin handler (`session-handover-rpc.handlers.ts:85-106`)
+- Quality requirements: schema `continueNow: z.boolean().optional()`; the handler calls
+  `begin(source, 'successor', turnInFlight, params.handoff, { continueNow, queuedInput })`; the
+  `admitOrHold` call (`:98-103`) is removed; one INFO line `{ sourceSessionId, continueNow }`. Cancel
+  handler unchanged (its `state` carries `draftText`). Specs: S8 (`continueNow` passed), S9/S19 (no
+  `admitOrHold`; cancel result carries `draftText`).
+
+### Task 12.2: `request-wrap-up` in the budget RPC — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\rpc-handlers\src\lib\handlers\session-budget-rpc.schema.ts`
+  and `session-budget-rpc.handlers.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:326, S6, S11
+- Quality requirements: `'request-wrap-up'` in `SESSION_BUDGET_ACTIONS`; spec: the action is parsed
+  and forwarded; `WRAP_UP_UNAVAILABLE` returned as-is. `chat-session-budget.spec.ts` stays green
+  unchanged (S11).
+
+### Batch 12 verification
+
+- `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/session-handover-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/handlers/session-budget-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/chat/session/chat-session-budget.spec.ts --coverage=false --maxWorkers=2`;
+  then `npx nx typecheck @ptah-extension/rpc-handlers --parallel=1`; then
+  `npx nx lint @ptah-extension/rpc-handlers --parallel=1`.
+
+## Batch 13: Agent successor tool asks the user (C1, D23) — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer, fresh session
+- Execution mode: sequential
+- Rationale: one behaviour across two libs (spawner and its tool reply); small
+- Tasks: 2 | Depends on: Batch 9
+- Phase: 4 | Phase review: as Batch 9
+
+### Task 13.1: `startSuccessor` calls `requestFromAgent` — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\cli-agent-runtime\src\lib\session-children\session-spawner.service.ts`
+  and `session-spawner.service.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:329-339 (C1), :217-228 (Decision 8), S17
+- Pattern to follow: `startSuccessor` (`:289-311`)
+- Quality requirements: `handoverCoordinator.requestFromAgent(activeId, request.handoff)` replaces
+  `begin`; the local `turnInFlight` read goes (the injected `turnState` stays, used at `:1328-1329`);
+  refusals unchanged; returns `{ ok: true, successor: true }`. The spec harness `Pick`
+  (`:70`, `:185`) drops `'begin'` for `'requestFromAgent'`; the case at `:407-424` asserts
+  `requestFromAgent(child.childSessionId, 'continue')` and that no `begin` exists on the fake.
+- Validation notes: R-P10; A6 (the steer path `admitOrHold` at `:645` keeps its code; a steer during
+  an agent request or a user-started wait is not held).
+
+### Task 13.2: Tool reply and description say successor mode asks the user — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\session-tool-handlers.ts`,
+  `session-tools.ts`, `session-tools.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:225-228, :336-337, S17
+- Quality requirements: `sessionStartReply` successor text exactly: "Successor handover requested. It
+  waits for the user to approve it in the session banner; nothing changes until then. Keep working
+  normally. If the user cancels, this session continues." The `session-tools.ts:61-66` description
+  says successor mode asks the user to approve. Spec `:323` matches the new text.
+- Validation notes: A3 — run the spec bare first; on "Could not locate module marked" re-run with the
+  mapper.
+
+### Batch 13 verification
+
+- `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/session-children/session-spawner.service.spec.ts --coverage=false --maxWorkers=2 --moduleNameMapper='{"^marked$":"D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js","^vscode$":"D:/projects/ptah-extension/.claude-worktrees/session-budget-handoff/__mocks__/vscode.ts"}'`;
+  then `npx jest -c libs/backend/vscode-lm-tools/jest.config.ts libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/session-tools.spec.ts --coverage=false --maxWorkers=2`
+  (mapper if A3 fails); then typecheck and lint `@ptah-extension/cli-agent-runtime` and
+  `@ptah-extension/vscode-lm-tools` with `--parallel=1`, one at a time.
+- Backend grep gates (team-leader, after this batch; plan :498-505):
+  - G1: no `budget-auto`, `startAutomatic`, `WORK_IN_FLIGHT_WAIT_LIMIT_MS`, `cancelledAutomaticSources`
+    in `libs` (frontend banner spec excepted until Task 16.2).
+  - G2: `userConfirmed = true` only inside `begin`; `.begin(` on the coordinator only from
+    `session-handover-rpc.handlers.ts`.
+  - G3: `complete(` only from `startConfirmed`.
+  - G4: `noticeQueue?.post` only on the `request-wrap-up` path.
+  - G5: `draftText` never reaches `restoreInputs` or `admitOrHold`.
+
+## Batch 14: Frontend tab state carries the live stage (F1-part) — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer, fresh session
+- Execution mode: sequential
+- Rationale: the type home and its setter, two small libs
+- Tasks: 1 | Depends on: Batch 10
+- Phase: 4 | Phase review: as Batch 9
+
+### Task 14.1: `TabState.liveBudgetStage` and its setter — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat-types\src\lib\chat-types.ts`;
+  `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat-state\src\lib\tab-manager.service.ts`
+  and `tab-manager.service.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:348-349 (F1)
+- Pattern to follow: `sessionBudget` on `TabState` (`chat-types.ts:646-652`) and its setters
+  (`tab-manager.service.ts:2267-2293`)
+- Quality requirements: optional `liveBudgetStage?: 'handoff' | 'limit' | null` with a doc comment
+  (advisory, display only, counted only while streaming); a setter beside the budget setters; cleared
+  wherever `sessionBudget` is reset for a new or rebound session (`:1253`, `:2426`, `:2524`).
+- Validation notes: R-P2.
+
+### Batch 14 verification
+
+- `npx jest -c libs/frontend/chat-state/jest.config.ts libs/frontend/chat-state/src/lib/tab-manager.service.spec.ts --coverage=false --maxWorkers=2`;
+  then `npx nx typecheck @ptah-extension/chat-types --parallel=1`; then
+  `npx nx typecheck @ptah-extension/chat-state --parallel=1`; then lint both with `--parallel=1`.
+
+## Batch 15: Frontend services — live stage, draft bookkeeping, actions (F1) — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer, fresh session
+- Execution mode: sequential
+- Rationale: three services in one lib that the view reads together
+- Tasks: 3 | Depends on: Batches 9, 10, 11, 14
+- Phase: 4 | Phase review: as Batch 9
+
+### Task 15.1: Aggregator applies and clears `liveBudgetStage` — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.ts`
+  and `session-stats-aggregator.service.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:350-351, S21
+- Quality requirements: `handleLiveSessionStats` — field absent: no change; `null`: clear; a value:
+  set, only for a payload the revision floor accepted. `handleSessionStats` clears it on a result, not
+  on a snapshot-only broadcast.
+
+### Task 15.2: `SessionHandoverClientService.peekDraft` and `acknowledgeDraft` — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\session-handover-client.service.ts`
+  and `session-handover-client.service.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:357-368, S20
+- Quality requirements: `peekDraft(sessionId)` returns `{ operationId, text }` only for a
+  `cancelled`/`failed` state with a non-empty string `draftText` whose `operationId` is not
+  acknowledged; it changes nothing. `acknowledgeDraft(operationId)` adds to a root-scoped `Set`.
+- Validation notes: R-P6.
+
+### Task 15.3: `SessionBudgetActionsService` — display stage, wrap-up, continue now, Approve — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\session-budget-actions.service.ts`
+  and `session-budget-actions.service.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:352-356, :232-238, :383-386, S12, S13,
+  S18, S21
+- Quality requirements: a new `displayStage` (higher of the authoritative and the live stage; the live
+  stage counts only while the tab is `streaming` and `sessionBudget` is non-null).
+  `requestWrapUp()` → `runAction('request-wrap-up')` with a local `${sessionId}|${stage}` requested
+  flag reset when the tab leaves `streaming`; a `WRAP_UP_UNAVAILABLE` refusal shows "The agent is not
+  working on a turn right now." `continueNowAnyway()` → begin with `continueNow: true`.
+  `continueInNewSession` still clears `queuedContent` only when `accepted`, is also the Approve path,
+  and sets a per-`operationId` "queued message sent with the handover" flag when it sent a non-empty
+  `queuedInput` (R5 copy). `cancelHandover` records the returned `state` through the client. S12
+  (`source-unavailable` fallback) stays green.
+- Validation notes: R-P4, R-P7; 627-L16 display half (the streaming-only rule).
+
+### Batch 15 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.spec.ts libs/frontend/chat/src/lib/services/session-handover-client.service.spec.ts libs/frontend/chat/src/lib/services/session-budget-actions.service.spec.ts --coverage=false --maxWorkers=2`
+  (if it fails with "Could not locate module marked", re-run with the mapper from the Verification
+  rules); then `npx nx typecheck @ptah-extension/chat --parallel=1`; then
+  `npx nx lint @ptah-extension/chat --parallel=1`.
+
+## Batch 16: Banner copy and buttons; composer draft write (F2-part) — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer, fresh session
+- Execution mode: sequential
+- Rationale: two presentational components, each with its spec; independent of each other but
+  both consumed by the view in Batch 17
+- Tasks: 2 | Depends on: Batch 15
+- Phase: 4 | Phase review: as Batch 9
+
+### Task 16.1: `ChatInputComponent.restoreDraftToInput` — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\molecules\chat-input\chat-input.component.ts`
+  and `chat-input.component.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:387-388, S20
+- Quality requirements: empty composer → the text; non-empty → `current + '\n\n' + text`; never
+  sends, never touches `queuedContent`; focuses the composer (R3: only on the user's Cancel/failure).
+
+### Task 16.2: `SessionBudgetBannerComponent` — display stage, wrap-up, continue now, agent request — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\molecules\notifications\session-budget-banner.component.ts`
+  and `session-budget-banner.component.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:127-143 (state table), :370-377 (F2),
+  S13, S18, S22
+- Quality requirements: inputs `turnRunning`, `liveStage`; outputs `requestWrapUp`,
+  `continueNowAnyway`, `approveAgentRequest`. `stage` uses the display stage (a live stage marked
+  "estimate"). Copy per the state table: "This session is near its budget" replaces "Preparing to
+  continue…"; "Waiting for handover to start at …" removed; agent copy "The agent asks to continue in
+  a new session" with Approve/Cancel; waiting copy with counts, "lane status unknown" when
+  `lanes === null`, "Messages you send now go to this session", "Continue now anyway" and Cancel always
+  shown; "Your queued message will be sent in the new session." when flagged; "Ask agent to wrap up"
+  only while `turnRunning` at display stage ≥ handoff, disabled after one click per stage. New
+  buttons have `aria-label`s. Spec cases asserting `budget-auto` are rewritten, not deleted.
+- Validation notes: no timers or observers (no countdown).
+
+### Batch 16 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.spec.ts libs/frontend/chat/src/lib/components/molecules/notifications/session-budget-banner.component.spec.ts --coverage=false --maxWorkers=2`
+  (mapper if needed); then `npx nx typecheck @ptah-extension/chat --parallel=1`; then
+  `npx nx lint @ptah-extension/chat --parallel=1`.
+
+## Batch 17: Chat view — banner while streaming, bindings, draft effect (F2-part) — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer, fresh session
+- Execution mode: sequential
+- Rationale: one component triple; the integration point of Batches 15-16
+- Tasks: 1 | Depends on: Batches 15 and 16
+- Phase: 4 (last batch) | Phase review: as Batch 9
+
+### Task 17.1: Visibility, bindings and the draft effect — PENDING
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts`,
+  `chat-view.component.html`, `chat-view.component.spec.ts`
+- Plan reference: implementation-plan-v2-user-authorized.md:213-216 (Decision 7), :378-386 (F2),
+  S13, S20, S23
+- Pattern to follow: `showSessionBudgetBanner` (`chat-view.component.ts:939-950`), the banner
+  bindings (`chat-view.component.html:139-155`), the signal `viewChild` `chatInputRef` (`:638`)
+- Quality requirements: the banner also renders while `streaming` when the display stage is
+  `handoff`/`limit` or a handover snapshot is pending (including an agent request); update the
+  "rendered only after this tab is idle" comment (`:935`). Bind `turnRunning`, `liveStage` and the
+  three new outputs. One effect reads `resolvedHandover()` and `chatInputRef()`: no input → nothing;
+  with an input → `peekDraft` → `restoreDraftToInput` → `acknowledgeDraft`; a throw skips the
+  acknowledgement. Specs: S13 (streaming at a live handoff shows the banner), S20 (compact → full
+  recovery, second view does not re-apply, throwing write leaves it unacknowledged), S23 (a send
+  during a wait goes through the normal send path).
+- Validation notes: R-P5; R3 (no focus steal and no composer shift while streaming — covered by the
+  user's manual Electron check, not a screenshot review).
+
+### Batch 17 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/templates/chat-view.component.spec.ts --coverage=false --maxWorkers=2`
+  (mapper if needed); then `npx nx typecheck @ptah-extension/chat --parallel=1`; then
+  `npx nx lint @ptah-extension/chat --parallel=1`.
+- Final grep G1 over `libs` with no exception.
+
+## Phase 4 review (after Batch 17 commits)
+
+- Code-logic review on the combined diff from the parent of Batch 9's commit to `HEAD`, by a CLI
+  lane (cross-side: the implementers are in-process sub-agents). Scope: D22 items 1-3 and D23-D25 by
+  construction, S1-S23, grep gates G1-G5, the risks R-P1..R-P11, and the D17/D18 history (no path
+  may start a handover without the user's click).
+- Style review (code-style-reviewer) limited to the new public API: the shared contract additions
+  (`requestedBy`, `draftText`, `continueNow`, `lanes: null`, `liveBudgetStage`, `'request-wrap-up'`,
+  `'WRAP_UP_UNAVAILABLE'`), `SessionHandoverCoordinator.requestFromAgent`,
+  `SessionLifecycleManager.parkLimitHandoverIfIdle`, `SessionHandoverClientService.peekDraft` /
+  `acknowledgeDraft`, `ChatInputComponent.restoreDraftToInput`, and the banner's new inputs and
+  outputs.
+- No visual review: per user decision 3 the user does the manual Electron check (banner while
+  streaming, the new buttons and copy). No prototype is required (no new surface).
+- Fix round: at most one, per the lean rules at the top of the run.
