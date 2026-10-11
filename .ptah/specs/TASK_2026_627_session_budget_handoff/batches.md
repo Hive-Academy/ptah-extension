@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 23 | Batches: 10 (Batch 0 to Batch 8, plus fix Batch 5F) | Complete: 8/10
+Total tasks: 24 | Batches: 11 (Batch 0 to Batch 8, plus fix Batches 5F and 6F) | Complete: 9/11
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -677,7 +677,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   runs with `this` undefined. Not caused by this branch. Awaiting the user's choice (separate task, or
   a batch here). Recorded in decisions.md D10.
 
-## Deferred follow-ups from the Phase 1 review (named later tasks; decisions.md D8)
+## Deferred follow-ups from the Phase 1 and Phase 2 reviews (named later tasks; decisions.md D8)
 
 | Id | Finding | Why deferred | Target |
 | --- | --- | --- | --- |
@@ -689,6 +689,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L6 | `admitInterrupt` refuses an interrupt while an op is `waiting-for-turn-end` | Existing behaviour (9fe19b56e); the message is queued, not lost; the wait is now bounded by S2 | Follow-up: allow interrupts in `waiting-for-turn-end` |
 | 627-L7 | `max-lines` warning on `session-handover-coordinator.service.ts` (726 vs 700) after Batch 5F | Lint warning, not an error; extracting now would turn the scoped S1/S2 re-review into a refactor review (decisions.md D9) | Follow-up after the Phase 1 re-review accepts: extract the work-in-flight gate (`workInFlight`, the wait bound, the S1 conversion, `setLaneWorkProvider` slot) into its own helper file in `session-handoff/`; behaviour-preserving, specs unchanged |
 | 627-L8 | Re-review 5F minor: the `capHeadAndTail` fallback tail (no `## Still running` or `## Next action` heading) can start inside a fenced code block | Display only (reviewer); the cut is marked with `[truncated]`, and the heading-based tail is unaffected (decisions.md D11) | Follow-up: move the fallback cut point past an unbalanced fence |
+| 627-L9 | Phase 2 review M2: the gone-source fallback skips the queued-input transfer, so queued composer text stays in the old tab and the user is not told | Nothing is lost (the text stays in the old composer); not a lane-config or data-loss Moderate, so outside the fix-round rule | Follow-up: carry the queued text to the new tab, or tell the user where it stayed, when the fallback opens the new tab |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — COMPLETE (0917b8074)
 
@@ -745,9 +746,54 @@ beyond the plan text, accepted: a dismissed handoff stays visible while a handov
 `awaiting-confirmation`, so the 6.2 validation note (Continue now and Cancel must stay reachable)
 holds. Code commit `0917b8074`.
 
-Phase 2 review: PENDING. Code-logic + visual on the Batch 0 commit `f0882e60d` and the Batch 6 commit
-`0917b8074`. The visual review must capture dark and light before/after screenshots of the budget
-banner and the compaction card (before = base commit, no prototype).
+Phase 2 review: code-logic `code-logic-review-phase2.md` NEEDS_REVISION 6/10 (0 B, 2 S, 3 M, 2 minor)
+on the Batch 0 commit `f0882e60d` and the Batch 6 commit `0917b8074`; fix Batch 6F below. Visual
+review still owed: dark and light before/after screenshots of the budget banner and the compaction
+card (before = base commit, no prototype), now also covering the 6F limit-stage "Cancel handover"
+button and the no-budget handoff copy.
+
+## Batch 6F: Phase 2 fix round — COMPLETE (98852ac81)
+
+- Source: `code-logic-review-phase2.md`. In scope: S1, S2, M1, M3 (verified reachable), m1, m2.
+  M2 deferred as 627-L9 (fix-round rule: no lane config or data lost).
+- Recommended executor: frontend-developer (with a minimal backend read path)
+- Execution mode: sequential
+- Tasks: 1 | Depends on: Batch 6
+- Files (9, 2 libs): agent-sdk `session-handoff-writer.ts` (+ spec), `session-handoff-builder.ts`,
+  `session-budget.service.ts` (+ spec); chat `session-budget-actions.service.ts` (+ spec),
+  `session-budget-banner.component.ts` (+ spec)
+- Phase: 2 (Frontend) | Phase review: one code-logic re-review scoped to the 6F commit, plus the
+  owed Phase 2 visual review
+
+### Task 6F.1: Fix the Phase 2 code-logic findings — COMPLETE
+
+- S1: `SessionHandoffWriter.read(sessionId)` returns the persisted `~/.ptah/handoffs/<id>.md`;
+  `previewHandoff` with no budget entry answers from it (`persistedHandoff`, seed via the new
+  exported `sessionHandoffSeed`). The webview fallback `continueFromGoneSource` asks by session id,
+  always opens a new tab, and shows a notice in it when no seed exists.
+- S2: the banner shows a pending handover (`awaiting-confirmation` or `waiting-for-turn-end`)
+  whatever the budget stage, dismissal or a missing budget.
+- M1: a repeated Continue or Retry for the same gone source switches to the tab it opened.
+- M3: the limit stage offers "Cancel handover" while a handover is pending.
+- m1, m2: comments only.
+
+### Batch 6F verification
+
+Result (team-leader re-run before commit): agent-sdk Jest 3 suites, 126 tests passed; chat Jest 2
+suites, 90 tests passed; `npx nx typecheck` passed for `@ptah-extension/agent-sdk` and
+`@ptah-extension/chat` (`--parallel=1`). Executor lint: 0 errors, warnings at baseline (agent-sdk 53,
+chat 35). Report: `batch-6F-report.md`. Code commit `98852ac81`.
+
+- Path safety of `read()` checked: `resolveSessionHandoffPath` rejects any id that fails the anchored
+  `UUID_REGEX` (hex and `-` only, so no `..` or separators) before a path is built, then requires the
+  resolved target to be a single segment directly under the handoffs directory. The RPC handler also
+  validates the id as a UUID.
+- `max-lines` growth: `session-budget.service.ts` was already over the 700-line limit before 6F and
+  grows by 27 lines to 751 counted lines (lint warning, not an error). Same treatment as 627-L7:
+  accepted now so the re-review stays scoped to the fixes; follow-up is a behaviour-preserving
+  extraction (for example the handoff preview and persisted-handoff path) into its own helper file.
+- Behaviour change accepted: a `waiting-for-turn-end` handover at the handoff stage now also offers
+  "Cancel (keep working)" (both phases are in the coordinator's `CANCELLABLE_PHASES`).
 
 ## Batch 7: Budget live feed (Component 1, live part) — BLOCKED
 
