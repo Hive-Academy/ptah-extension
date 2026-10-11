@@ -52,6 +52,7 @@ const SESSION_CODE_FILES = [
   'libs/backend/rpc-handlers/src/lib/chat/**/*.ts',
   'libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts',
   'libs/backend/rpc-handlers/src/lib/handlers/peer-session-rpc.handlers.ts',
+  'libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts',
   'libs/backend/agent-sdk/src/lib/helpers/session-*.ts',
   'libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts',
 ];
