@@ -1,5 +1,9 @@
 # Handoff — TASK_2026_524_1125 Batches 3–4 (route reuse + route persistence)
 
+> **DONE (2026-10-12).** Batch 3 merged in PR #702 (`187537dc1`); Batch 4 + H1 in PR #703
+> (`81c7702b6`), including the CodeRabbit fixes (`bae85cc28`). The sections below are the
+> historical record; only "Follow-ups to report" is still open, as non-blocking work.
+
 ## Setup
 
 - Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-524-batch3-4`
@@ -64,7 +68,6 @@ newer navigation then fails, no surface lands. Owned by the newer navigation's c
 - Jest "worker failed to exit gracefully" warning in webview/thoth-shell suites; possibly the persistence subscription in specs.
 - No spec covers ChatTabRouteSync correcting a restored `/chat/<unknown-id>` at boot.
 - Manual checks needed: VS Code restart restore, Electron reload restore.
-- TASK_2026_531_c4a8 task.md still says `backlog` though PR #638 merged it.
 
 ## Pitfalls
 
