@@ -615,11 +615,44 @@ describe('ProviderAccountCardComponent', () => {
     expect(rows(el)).toHaveLength(0);
   });
 
+  it('does not claim local usage for an owner without a source', () => {
+    const el = render(
+      snapshotOf(
+        owner('grok', 'Grok account', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    expect(textOf(el)).toContain('No usage source available');
+    expect(textOf(el)).not.toContain('Local usage only');
+  });
+
+  it('shows local-only notice when an owner has local accounting', () => {
+    const el = render(
+      snapshotOf(
+        owner('grok', 'Grok account', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 1234,
+            estimatedCostUsd: 5.67,
+            observedAt: NOW,
+            source: 'local-cli',
+          },
+        }),
+      ),
+    );
+    expect(textOf(el)).toContain('Local usage only');
+  });
+
   it('distinguishes Ollama Cloud key failure, missing key and local usage', () => {
     const cases = [
       ['unsupported-auth', 'API key rejected — check the key'],
       ['unsupported-config', 'No API key configured'],
-      ['no-usage-source', 'Local usage only'],
+      ['no-usage-source', 'No usage source available'],
     ] as const;
     const el = render(
       snapshotOf(

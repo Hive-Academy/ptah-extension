@@ -120,7 +120,11 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
             class="text-right text-sm font-semibold tabular-nums whitespace-nowrap"
             data-testid="plan-limit-tile-value"
             >{{
-              progressPercent() !== null ? roundedProgressPercent() + '%' : '—'
+              t.kind === 'local-usage'
+                ? t.value
+                : progressPercent() !== null
+                  ? roundedProgressPercent() + '%'
+                  : '—'
             }}</span
           >
           @if (expandable()) {
@@ -201,6 +205,8 @@ export class PlanLimitTileComponent {
     const state = this.tile().window?.state;
     if (state === 'near-limit') return 'Near limit';
     if (state === 'limit-reached') return 'Limit reached';
+    if (state === 'aged' || state === 'not-confirmed')
+      return this.tile().chip?.text ?? null;
     return this.tile().tone === 'warning' && this.tile().chip?.text === 'Stale'
       ? 'Stale'
       : null;

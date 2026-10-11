@@ -786,8 +786,16 @@ function statusNotice(
   ) {
     return { text: 'Sign in to OpenCode Go', tone: 'neutral', sources: [] };
   }
-  if (!hasData && owner.status === 'no-usage-source') {
+  if (
+    owner.status === 'no-usage-source' &&
+    owner.localUsage &&
+    owner.windows.length === 0 &&
+    owner.ownerEvidence.length === 0
+  ) {
     return { text: 'Local usage only', tone: 'neutral', sources: [] };
+  }
+  if (!hasData && owner.status === 'no-usage-source') {
+    return { text: 'No usage source available', tone: 'neutral', sources: [] };
   }
   if (sentence === undefined || hasData) return null;
   return { text: sentence, tone: 'neutral', sources: [] };

@@ -241,6 +241,10 @@ function windowTile(
 ): PlanLimitTileModel {
   const detail = windowDetail(entry, snapshot, ctx);
   const chip = detail.chip;
+  const resetsAt =
+    entry.state === 'reset-usage-unknown'
+      ? resetPassage(entry.window, ctx.now)?.nextResetAt
+      : entry.window.resetsAt;
   return {
     id: `plan:${snapshot.owner.key}:${entry.window.key}`,
     kind: 'window',
@@ -249,9 +253,9 @@ function windowTile(
     value: detail.usedText,
     resetLine: windowResetLine(entry, ctx),
     shortReset:
-      entry.window.resetsAt === undefined
+      resetsAt === undefined
         ? 'Reset unknown'
-        : formatRelative(entry.window.resetsAt, ctx.now),
+        : formatRelative(resetsAt, ctx.now),
     ...(chip && { chip }),
     tone: windowTone(entry.state),
     sourceChips: detail.sourceChips,

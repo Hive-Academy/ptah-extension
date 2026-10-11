@@ -555,6 +555,7 @@ describe('buildStatsLimitViewModel', () => {
       const tile = vm.planTiles[0];
       expect(tile).toMatchObject({
         value: 'unknown',
+        shortReset: 'Reset unknown',
         resetLine: 'reset today 11:20 UTC passed · next unknown',
         chip: { tone: 'neutral', glyph: '↻', text: 'Reset · usage unknown' },
         sourceChips: ['Provider API'],
@@ -564,6 +565,18 @@ describe('buildStatsLimitViewModel', () => {
         'Reset today 11:20 UTC · 40m ago came after the last observation (today 10:52 UTC): current usage unknown',
         'Next reset unknown',
       ]);
+    });
+
+    it('uses the upcoming reset after a previous reset passed', () => {
+      const passed = planWindow({
+        lastResetAt: NOW - 40 * MIN,
+        resetsAt: NOW + 4 * HOUR,
+        observedAt: NOW - 68 * MIN,
+      });
+      const vm = buildStatsLimitViewModel(
+        input({ owners: [snapshot(CLAUDE_A, { windows: [passed] })] }),
+      );
+      expect(vm.planTiles[0].shortReset).toBe('in 4h 0m');
     });
 
     it('expired owner evidence never claims current exhaustion', () => {

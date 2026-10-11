@@ -449,6 +449,42 @@ describe('PlanUsageService', () => {
       expect(reader.mock.calls[0][0].credential?.reveal()).toBe(SECRET);
     });
 
+    it('keeps cached Grok windows stale on transient account failure without a session', async () => {
+      const h = harness();
+      const ownerRef = quotaOwnerRefFromKey(cliStoreOwnerKey('grok', '/cli'));
+      const readers = h.service as unknown as {
+        readers: Record<string, jest.Mock>;
+        localReaders: Record<string, jest.Mock>;
+      };
+      readers.readers.grok = jest.fn(async () => ({
+        status: 'available',
+        windowSetEstablished: true,
+        windows: [
+          {
+            key: 'weekly',
+            kind: 'weekly',
+            label: 'Weekly',
+            used: { kind: 'percent', percent: 20 },
+            usedSource: 'provider-api',
+            observedAt: T0,
+          },
+        ],
+      }));
+      readers.localReaders.grok = jest.fn();
+      const target = { providerId: 'grok', ownerRef };
+      await h.service.getOwnerSnapshot(target);
+      h.advance(PLAN_USAGE_CACHE_TTL_MS + 1);
+      readers.readers.grok.mockResolvedValue({
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
+      const snapshot = await h.service.getOwnerSnapshot(target);
+      expect(snapshot.status).toBe('stale');
+      expect(snapshot.unavailableReason).toBeUndefined();
+      expect(snapshot.windows).toHaveLength(1);
+    });
+
     it('keeps Grok account windows and explains absent local session usage', async () => {
       const h = harness();
       const ownerRef = quotaOwnerRefFromKey(cliStoreOwnerKey('grok', '/cli'));

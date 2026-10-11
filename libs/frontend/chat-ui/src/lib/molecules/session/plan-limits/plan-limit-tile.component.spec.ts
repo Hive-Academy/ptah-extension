@@ -145,5 +145,24 @@ describe('PlanLimitTileComponent', () => {
     )!;
     expect(face.disabled).toBe(true);
     expect(face.querySelector('lucide-angular')).toBeNull();
+    expect(
+      face
+        .querySelector('[data-testid="plan-limit-tile-value"]')
+        ?.textContent?.trim(),
+    ).toBe(tile.value);
   });
+
+  it.each(['aged', 'not-confirmed'] as const)(
+    'shows %s state on the closed face',
+    (state) => {
+      const el = render({
+        ...tile,
+        chip: { tone: 'warning', text: state },
+        window: { ...tile.window!, state },
+      });
+      expect(
+        el.querySelector('[data-testid="plan-limit-tile"]')?.textContent,
+      ).toContain(state);
+    },
+  );
 });

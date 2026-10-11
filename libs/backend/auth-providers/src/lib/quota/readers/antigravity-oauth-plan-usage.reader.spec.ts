@@ -38,7 +38,7 @@ describe('Antigravity OAuth quota', () => {
       fetcher.mock.calls.filter(([url]) => url.endsWith('/token')),
     ).toHaveLength(1);
   });
-  it.each([401, 403])(
+  it.each([401])(
     'refreshes a revoked cached token after quota %i',
     async (status) => {
       let tokenReads = 0;
@@ -170,6 +170,37 @@ describe('Antigravity OAuth quota', () => {
         {},
       ),
     ).resolves.toBeUndefined();
+  });
+  it('continues to a second endpoint after a quota 403 without refreshing the token', async () => {
+    let tokenReads = 0;
+    const fetcher = jest.fn(async (url: string) => {
+      if (url.endsWith('/token')) {
+        tokenReads += 1;
+        return new Response(JSON.stringify(access));
+      }
+      if (url.includes('daily-cloudcode-pa'))
+        return new Response('', { status: 403 });
+      return new Response(
+        JSON.stringify({
+          buckets: [{ bucketId: 'go', remainingFraction: 0.5 }],
+        }),
+      );
+    });
+    const result = await readAntigravityOAuthQuota(
+      undefined,
+      () => 1,
+      fetcher as typeof fetch,
+      token as never,
+      {},
+    );
+    expect(result?.status).toBe('available');
+    expect(tokenReads).toBe(1);
+    expect(
+      fetcher.mock.calls.some(
+        ([url]) =>
+          url.includes('cloudcode-pa') && !url.includes('daily-cloudcode-pa'),
+      ),
+    ).toBe(true);
   });
   it('maps OAuth 403 to no plan', async () => {
     const result = await readAntigravityOAuthQuota(
