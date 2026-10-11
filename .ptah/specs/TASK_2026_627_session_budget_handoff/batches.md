@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 12/20
+Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 13/20
 
 Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
 completion below; see "Phase 4" at the end of this file.
@@ -1151,7 +1151,7 @@ other rows stay as recorded.
   (0 errors; no new warning on a changed line; record the coordinator `max-lines` figure).
 - No per-batch review; the Phase 4 review covers it.
 
-## Batch 10: Shared live-stage wire field (S1-part) — PENDING
+## Batch 10: Shared live-stage wire field (S1-part) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -1160,7 +1160,7 @@ other rows stay as recorded.
 - Tasks: 1 | Depends on: none
 - Phase: 4 | Phase review: as Batch 9
 
-### Task 10.1: `liveBudgetStage` on the live payload and the parser — PENDING
+### Task 10.1: `liveBudgetStage` on the live payload and the parser — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\agent-adapter.types.ts`;
   `...\libs\shared\src\lib\types\messages\session-stats-live.ts` and `session-stats-live.spec.ts`

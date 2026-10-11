@@ -114,6 +114,13 @@ export interface SessionStatsLivePayload {
     readonly model: string;
     readonly contextTokens: number;
   };
+  /**
+   * Display-only budget stage observed during the turn, following the
+   * `budget` convention: `undefined` means no change, `null` clears a
+   * previously shown live stage, and a value sets it. Meaningful only on a
+   * provisional snapshot; the webview parser drops it otherwise.
+   */
+  readonly liveBudgetStage?: 'handoff' | 'limit' | null;
 }
 
 export type LiveStatsCallback = (payload: SessionStatsLivePayload) => void;
