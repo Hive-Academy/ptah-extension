@@ -96,7 +96,7 @@ Edge cases:
 | 2 Lane plan-limit read (R10 backend) | 7-12, 12F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase2.md`), style (APPROVED 8/10, `code-style-review-phase2.md`); fix round 12F, re-review REVISE 5/10 (`code-logic-review-phase2-fix.md`, Serious #1 open); post-cap correction 12F2 (decision #46), cross-side re-review APPROVED 9/10 (`code-logic-review-phase2-fix2.md`). Phase 2 ACCEPTED |
 | 3 Renderer `/4` | 13-15, 15F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase3.md`, Serious #1); fix round 15F, re-review APPROVED 8/10, Serious #1 CLOSED, no new findings (`code-logic-review-phase3-fix.md`). No style (Task 15.3 and 15F added no barrel exports). Phase 3 ACCEPTED |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
-| 5 Transcript and dock | 22-25 | code-logic |
+| 5 Transcript and dock | 22-25 | code-logic (APPROVED WITH NOTES 8/10, `code-logic-review-phase5.md`, Codex lane on `b57910d88..2ca5c9048`); #81 a/b/c and #94 PASS; one Minor (closed-tab dock state retained) recorded as a later item, decision #115. Phase 5 ACCEPTED |
 | 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util) |
 | 7 Hint, skill, measurement, eager gate | 29-32 | code-logic |
 | 8 Visual verification (V1) | 33 | visual (visual-reviewer subagent); no code-logic |
@@ -1604,7 +1604,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   Batch 32: the new eager transcript files (`transcript-display-feed.ts`, `transcript-turn-summaries.ts`,
   `transcript-turn-recap-loader.ts`) are eager growth the allow-list must name (decision #107).
 
-## Batch 25: H4 dock component and ChatView integration — COMPLETE (Phase 5 implementation complete; code-logic review on Batches 22-25 pending)
+## Batch 25: H4 dock component and ChatView integration — COMPLETE (commit 2ca5c9048; Phase 5 review code-logic-review-phase5.md APPROVED WITH NOTES 8/10, decision #115; Phase 5 ACCEPTED)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1697,9 +1697,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   1d85c1dfa (`git diff` empty), ChatView provides only the store and the two `useExisting` ports, never
   `PTAH_UI_HOST_SOURCES`. #94: no `.messages` read in added code. #100: `_userExplicitlyClosed` and `agentPanelOpen`
   gone from ChatView. #114(a) spec changes present (exact publication log; shared pending-load case). Eager-closure
-  gate: Batch 32 (#107, #113(b)), not this batch. Next: Phase 5 code-logic review on `b57910d88..HEAD`.
+  gate: Batch 32 (#107, #113(b)), not this batch. Phase 5 code-logic review on `b57910d88..2ca5c9048`: APPROVED WITH NOTES 8/10
+  (`code-logic-review-phase5.md`); the Minor closed-tab retention finding is a later item with #113(a) (decision #115).
 
-## Batch 26: P1 tool-language util, copy button, code output — PENDING
+## Batch 26: P1 tool-language util, copy button, code output — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1707,8 +1708,20 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Rationale: shared preview building blocks first.
 - Tasks: 3 | Depends on: none (runs after Phase 5)
 - Phase: 6 Previews (R7) | Phase review: code-logic + style (after Batch 28)
+- Team-leader constraints (set when Phase 5 was accepted):
+  - Both webviews (decision #8): no `isElectron` gating; behaviour identical in VS Code and Electron.
+  - Replace, do not accumulate: Task 26.1 MOVES `languageMap`, `detectLanguage` and `getLanguageFromPath` out of
+    `code-output.component.ts` (`:78-166,238-243`) into `tool-language.utils.ts`; `code-output` consumes the util and
+    keeps no private copy. Detection stays byte-for-byte equivalent (extension map, `bash` for Bash, JSON sniffing and
+    the "not JSON keeps the tool language" rule at `:150-163`); the existing code-output spec stays green unedited
+    for those cases.
+  - Task 26.2 is a new atom beside `copy-button.component.ts` (plan D15: the existing one copies whole messages);
+    do not change `ptah-copy-button`. Clipboard via `@angular/cdk/clipboard`; a rejection or `false` result shows
+    "Copy failed" in a polite live region and never throws (plan component 11 failure behaviour).
+  - No export from `libs/frontend/chat-ui/src/index.ts` in this batch unless chat consumes it now (it does not until
+    Batch 27); the style review judges any new public API.
 
-### Task 26.1: tool-language util — PENDING
+### Task 26.1: tool-language util — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\utils\tool-language.utils.ts
@@ -1716,13 +1729,13 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:1086-1145 (component 11)
 - Quality requirements: R7.5; keeps existing detection (extension, `bash`, JSON sniffing — parity section 4).
 
-### Task 26.2: copy-text button atom — PENDING
+### Task 26.2: copy-text button atom — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\copy-text-button.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\copy-text-button.component.spec.ts
 
-### Task 26.3: code output expand, language label — PENDING
+### Task 26.3: code output expand, language label — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\code-output.component.ts
