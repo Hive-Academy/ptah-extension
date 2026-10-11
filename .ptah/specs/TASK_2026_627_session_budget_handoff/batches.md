@@ -767,6 +767,10 @@ button and the no-budget handoff copy.
   `session-budget-banner.component.ts` (+ spec)
 - Phase: 2 (Frontend) | Phase review: one code-logic re-review scoped to the 6F commit, plus the
   owed Phase 2 visual review
+- Review result: code-logic re-review APPROVED 8/10 (`code-logic-rereview-6F.md`). Visual review:
+  the user chose (2026-10-11) to check the budget banner and compaction card manually in Electron;
+  no screenshot review is run. Phase 2 is closed. Batches 7–8 wait for TASK_2026_626 to merge
+  into main (user decision, 2026-10-11).
 
 ### Task 6F.1: Fix the Phase 2 code-logic findings — COMPLETE
 
