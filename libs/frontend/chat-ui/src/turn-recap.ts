@@ -1,11 +1,12 @@
 /**
  * Chat UI - Turn-recap entry point (`@ptah-extension/chat-ui/turn-recap`)
  *
- * Exports the turn-end recap pieces: `TurnTestsRowComponent`, the host-built
- * turn summary model (`buildTurnSummaryModel`) and its chip
- * (`TurnSummaryChipComponent`, TASK_2026_623 component 6). The chat
- * transcript mounts them at turn end inside `@defer`, which the Angular
- * compiler turns into a dynamic `import()` of this path. The main
+ * Exports the turn-end recap pieces: the host-built turn summary model
+ * (`buildTurnSummaryModel`) and its chip (`TurnSummaryChipComponent`,
+ * TASK_2026_623 component 6). The chat transcript mounts the chip at turn end
+ * inside `@defer` and loads the model builder through a dynamic `import()` of
+ * this path; the Angular compiler turns the `@defer` into the same dynamic
+ * `import()`. The main
  * `@ptah-extension/chat-ui` barrel is statically imported by eager code, so a
  * deferred import from there would land them in the eager closure; from this
  * file, which nothing eager imports statically, esbuild emits them as a lazy
@@ -15,7 +16,6 @@
  * Nothing here imports the surface renderer (D14). Do not re-export these from
  * `index.ts`.
  */
-export { TurnTestsRowComponent } from './lib/molecules/turn-recap/turn-tests-row.component';
 export { TurnSummaryChipComponent } from './lib/molecules/turn-recap/turn-summary-chip.component';
 export {
   buildTurnSummaryModel,

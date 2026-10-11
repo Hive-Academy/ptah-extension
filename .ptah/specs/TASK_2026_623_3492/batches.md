@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 27/38
+Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 28/38
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1405,7 +1405,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Deviations: 1, 2, 4, 5 accepted (decision #95); 3 accepted provisionally, NEEDS USER (decision #96), no batch
   blocked on it.
 
-## Batch 23: H2 dock state, transcript host sources, sidebar tab — COMPLETE
+## Batch 23: H2 dock state, transcript host sources, sidebar tab — COMPLETE (commit a4b7cc22e)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1514,7 +1514,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Deviations ruled in decisions #98-#103: 3, 5, 6, 7, 8 accepted; 1, 2, 4 accepted as GAP RULINGS (Codex peer
   review). Follow-ons below in Tasks 24.1, 25.1 and 25.2.
 
-## Batch 24: H3 transcript wiring and tests-row removal — PENDING
+## Batch 24: H3 transcript wiring and tests-row removal — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1526,7 +1526,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   and per-tab (no await between `hasSeen` -> open -> `markSeen`); `setSurfaces` applies `retainedViewStateIds`; each
   sync mounts under its own transcript's `PTAH_UI_HOST_SOURCES` provider. Omitting any is a Serious defect.
 
-### Task 24.1: transcript publishes candidates/summary inputs, mounts sync and chip — PENDING
+### Task 24.1: transcript publishes candidates/summary inputs, mounts sync and chip — IMPLEMENTED
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts
@@ -1575,8 +1575,15 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
     into the eager closure; Batches 32/33 gate it). Load it through one cached dynamic
     `import('@ptah-extension/chat-ui/turn-recap')`, Electron-gated, and publish nothing until it resolves; or an
     equivalent lazy route, reported as a deviation. A failed load leaves no chip and no summaries (no throw).
+    Amendment (#104, Codex peer review `decisions-review-99-101.md`): (a) the loader cache holds only the module
+    namespace promise and is shared; a REJECTED promise is cleared so the next eligible summary publication retries
+    (at most one attempt in flight, never a retry loop inside one reactive tick); (b) every async completion checks,
+    before `setSummaries`, that the transcript instance is not destroyed and that its generation/`tabId`/turn inputs
+    are still the ones the load started for, else it drops the result; (c) summary maps and turn data are never
+    cached outside `DisplayDockState`'s tab-keyed state. The display spec adds: rejection-then-retry publishes on the
+    next eligible update; two transcripts (one destroyed and remounted) never publish each other's or stale summaries.
 
-### Task 24.2: delete the tests row — PENDING
+### Task 24.2: delete the tests row — IMPLEMENTED
 
 - Depends on: Task 24.1 and Task 19.1 (cases already ported)
 - Files:

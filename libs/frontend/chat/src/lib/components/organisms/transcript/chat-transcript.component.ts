@@ -34,11 +34,13 @@ import type { ExecutionNode, TurnChangeSet } from '@ptah-extension/shared';
 // only when every symbol of the declaration is used inside `@defer` alone,
 // and esbuild splits it out only when no eager code imports that file.
 import { ChangeSetCardComponent } from '@ptah-extension/chat-ui/change-set-card';
-import type { ChangeSetCardHost } from '@ptah-extension/chat-ui/change-set-card';
 // Same lazy-entry contract as the change-set card above (see
-// `libs/frontend/chat-ui/src/turn-recap.ts`).
-import { TurnTestsRowComponent } from '@ptah-extension/chat-ui/turn-recap';
-import { PtahUiLiveWindow } from '@ptah-extension/chat-ui';
+// `libs/frontend/chat-ui/src/turn-recap.ts`); the model builder is loaded
+// through `TRANSCRIPT_TURN_RECAP_LOADER`, never imported as a value here.
+import { TurnSummaryChipComponent } from '@ptah-extension/chat-ui/turn-recap';
+// Same contract (see `libs/frontend/chat-ui/src/display-panel.ts`).
+import { DisplaySurfaceSyncComponent } from '@ptah-extension/chat-ui/display-panel';
+import { PTAH_UI_HOST_SOURCES, PtahUiLiveWindow } from '@ptah-extension/chat-ui';
 import {
   ChangeSetStore,
   type ChangeSetMarks,
@@ -50,11 +52,7 @@ import {
   transcriptOrderKey,
   type ChangeSetAnchors,
 } from './transcript-change-set-anchors';
-import {
-  anchorTurnTests,
-  NO_TURN_TESTS_ANCHORS,
-  type TurnTestsAnchors,
-} from './transcript-turns';
+import { TranscriptDisplayFeed } from './transcript-display-feed';
 import {
   NO_TURN_SNAPSHOTS,
   TranscriptTurnSnapshots,
@@ -180,11 +178,23 @@ interface TranscriptMessageSlot {
     // Used only inside `@defer`, so the compiler loads it lazily.
     ChangeSetCardComponent,
     // Used only inside `@defer`, so the compiler loads it lazily.
-    TurnTestsRowComponent,
+    TurnSummaryChipComponent,
+    // Used only inside `@defer`, so the compiler loads it lazily.
+    DisplaySurfaceSyncComponent,
   ],
-  // `PtahUiLiveWindow` is per tab: one transcript per tab owns it, so each
-  // tab caps its own live `ptah-ui` blocks (TASK_2026_610, decision 10).
-  providers: [TranscriptRenderWindow, PtahUiLiveWindow],
+  providers: [
+    TranscriptRenderWindow,
+    // `PtahUiLiveWindow` is per tab: one transcript per tab owns it, so each
+    // tab caps its own live `ptah-ui` blocks (TASK_2026_610, decision 10).
+    PtahUiLiveWindow,
+    // Per tab as well: this transcript's own host sources, so its blocks and
+    // its display sync never read another tab's facts (decisions #81, #102).
+    // Resolved after construction (the transcript itself never injects it).
+    {
+      provide: PTAH_UI_HOST_SOURCES,
+      useFactory: () => inject(ChatTranscriptComponent).display.hostSources,
+    },
+  ],
   templateUrl: './chat-transcript.component.html',
   styleUrl: './chat-transcript.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -577,24 +587,6 @@ export class ChatTranscriptComponent {
     return next;
   });
 
-  private _frozenTurnTestsAnchors: TurnTestsAnchors = NO_TURN_TESTS_ANCHORS;
-
-  /**
-   * Tests rows per message: each finalized turn's collected test runs render
-   * after the turn's last assistant message (see `anchorTurnTests`), next to
-   * the change-set card. Electron only [user scope] — the VS Code webview
-   * computes nothing and renders no row. Gated like `vm`, so a hidden
-   * transcript keeps its last placement and does no grouping work.
-   */
-  protected readonly turnTestsAnchors = computed<TurnTestsAnchors>(() => {
-    if (!this.vscodeService.isElectron) return NO_TURN_TESTS_ANCHORS;
-    const view = this.vm();
-    if (!this.workActive()) return this._frozenTurnTestsAnchors;
-    const next = anchorTurnTests(view.messages, view.streamingBoundary);
-    this._frozenTurnTestsAnchors = next;
-    return next;
-  });
-
   private _frozenPtahUiSnapshots: TurnSnapshots = NO_TURN_SNAPSHOTS;
 
   /** Per-turn snapshot builder and its identity-stable cache. */
@@ -624,9 +616,21 @@ export class ChatTranscriptComponent {
     return next;
   });
 
-  protected readonly changeSetHost = computed<ChangeSetCardHost>(() =>
-    this.vscodeService.isElectron ? 'electron' : 'vscode',
-  );
+  /**
+   * The display-panel feed (TASK_2026_623, component 7): host sources,
+   * display candidates, turn summaries and the live turn. Electron only, but
+   * the host sources serve any `ptah-ui` block. See `TranscriptDisplayFeed`.
+   */
+  readonly display = new TranscriptDisplayFeed({
+    enabled: this.vscodeService.isElectron,
+    tabId: this.tabId,
+    tab: this._tab,
+    view: this.vm,
+    snapshots: this.ptahUiSnapshots,
+    streaming: this.isStreaming,
+    finalized: this.finalizedFiltered,
+    marksFor: (changeSet) => this.changeSetStore.marksFor(changeSet),
+  });
 
   protected readonly ChangeSetErrorIcon = AlertTriangle;
 
