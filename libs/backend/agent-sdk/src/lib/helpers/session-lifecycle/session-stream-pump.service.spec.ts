@@ -301,6 +301,7 @@ describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
       restoreInputs: jest.fn().mockReturnValue(true),
       closeIfTokenMatches: jest.fn().mockResolvedValue(true),
       isOwnedHandoffPendingOrRunning: jest.fn().mockReturnValue(false),
+      subagentsInFlight: jest.fn().mockReturnValue(0),
     });
 
     expect(coordinator.begin(TAB as string, 'successor', false).accepted).toBe(true);

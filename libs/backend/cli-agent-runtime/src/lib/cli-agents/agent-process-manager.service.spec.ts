@@ -376,6 +376,8 @@ function createManager(deps: {
   reasoningSettings: { effort: { get: jest.Mock } };
   harnessPreflight: { ensure: jest.Mock } | null;
   mcpServerStatus: { getPort: jest.Mock<number | null, []> };
+  /** Optional handover coordinator stub (TASK_2026_627); absent by default. */
+  handoverCoordinator?: { setLaneWorkProvider: jest.Mock };
 }): ManagerHarness {
   type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
@@ -430,6 +432,7 @@ function createManager(deps: {
     resumeGate as unknown as ManagerArgs[8],
     laneOwners as unknown as ManagerArgs[9],
     planLimits as unknown as ManagerArgs[10],
+    (deps.handoverCoordinator ?? null) as unknown as ManagerArgs[11],
   );
   return {
     manager,
@@ -3281,6 +3284,120 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(parentOf(matching)).toBe(realSessionId);
       expect(parentOf(other)).toBe('');
+    });
+  });
+
+  /**
+   * TASK_2026_627 Component 7 — an automatic session handover waits for the
+   * source's running lanes, so the manager reports how many are still working.
+   */
+  describe('lane work provider (TASK_2026_627)', () => {
+    type LaneWorkProvider = (ids: {
+      readonly sessionId: string;
+      readonly tabId: string;
+    }) => number;
+
+    const sessionId = '11111111-2222-4333-8444-555555555555';
+    const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-333333333333';
+
+    let dispose: jest.Mock;
+    let coordinator: { setLaneWorkProvider: jest.Mock };
+
+    const managerWithCoordinator = (): AgentProcessManager =>
+      createManager({
+        logger,
+        cliDetection,
+        workspaceProvider: createMockWorkspaceProvider(),
+        reasoningSettings: { effort: { get: reasoningEffortGet } },
+        harnessPreflight: null,
+        mcpServerStatus: { getPort: getMcpPort },
+        handoverCoordinator: coordinator,
+      }).manager;
+
+    const registeredProvider = (): LaneWorkProvider => {
+      expect(coordinator.setLaneWorkProvider).toHaveBeenCalledTimes(1);
+      return coordinator.setLaneWorkProvider.mock.calls[0][0] as LaneWorkProvider;
+    };
+
+    const spawnLane = async (
+      target: AgentProcessManager,
+      parentSessionId: string | undefined,
+    ): Promise<{ agentId: string; controls: MockSdkHandleControls }> => {
+      const controls = createMockSdkHandle();
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);
+      const result = await target.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        parentSessionId,
+      });
+      return { agentId: result.agentId, controls };
+    };
+
+    beforeEach(() => {
+      setupVscodeConfig({ maxConcurrentAgents: 10 });
+      dispose = jest.fn();
+      coordinator = { setLaneWorkProvider: jest.fn(() => dispose) };
+    });
+
+    it('registers nothing when no coordinator is bound', () => {
+      // The suite's default manager is built without one; constructing it
+      // must not throw and there is nothing to register against.
+      expect(manager).toBeInstanceOf(AgentProcessManager);
+      expect(coordinator.setLaneWorkProvider).not.toHaveBeenCalled();
+    });
+
+    it('counts only running lanes whose parent is the session id or its tab id', async () => {
+      const target = managerWithCoordinator();
+      const provider = registeredProvider();
+
+      await spawnLane(target, sessionId);
+      await spawnLane(target, tabId);
+      await spawnLane(target, 'ffffffff-0000-4000-8000-000000000000');
+      await spawnLane(target, undefined);
+      const finished = await spawnLane(target, sessionId);
+
+      finished.controls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(target.getStatus(finished.agentId)).toHaveProperty(
+        'status',
+        'completed',
+      );
+
+      expect(provider({ sessionId, tabId })).toBe(2);
+      expect(
+        provider({
+          sessionId: 'ffffffff-0000-4000-8000-000000000000',
+          tabId: 'ffffffff-0000-4000-8000-000000000000',
+        }),
+      ).toBe(1);
+      expect(
+        provider({
+          sessionId: 'bbbbbbbb-0000-4000-8000-000000000000',
+          tabId: 'cccccccc-0000-4000-8000-000000000000',
+        }),
+      ).toBe(0);
+    });
+
+    it('does not count lanes with no parent when the tab id is empty', async () => {
+      const target = managerWithCoordinator();
+      const provider = registeredProvider();
+
+      await spawnLane(target, '');
+      await spawnLane(target, undefined);
+
+      expect(provider({ sessionId, tabId: '' })).toBe(0);
+    });
+
+    it('unregisters the provider on disposeAll', async () => {
+      const target = managerWithCoordinator();
+      registeredProvider();
+      expect(dispose).not.toHaveBeenCalled();
+
+      await target.disposeAll();
+
+      expect(dispose).toHaveBeenCalledTimes(1);
     });
   });
 

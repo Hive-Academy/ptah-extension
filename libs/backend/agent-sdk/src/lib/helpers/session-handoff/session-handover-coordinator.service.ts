@@ -82,11 +82,8 @@ export interface SessionHandoverRuntime {
   restoreInputs(sourceSessionId: string, inputs: readonly QueuedSessionInput[]): boolean;
   closeIfTokenMatches(sourceSessionId: string, token: string): Promise<boolean>;
   isOwnedHandoffPendingOrRunning(sourceSessionId: string, token: string): boolean;
-  /**
-   * Running plus background subagents of the source. Optional so test
-   * runtimes without subagents keep compiling; absent counts as none.
-   */
-  subagentsInFlight?(sourceSessionId: string): number;
+  /** Running plus background subagents of the source. */
+  subagentsInFlight(sourceSessionId: string): number;
 }
 
 /** Counts CLI agent lanes still working for a source session. */
@@ -458,7 +455,7 @@ export class SessionHandoverCoordinator {
 
   /** Subagents and lanes still working for the source; undefined when none. */
   private workInFlight(sourceSessionId: string): WaitingFor | undefined {
-    const subagents = this.runtime?.subagentsInFlight?.(sourceSessionId) ?? 0;
+    const subagents = this.runtime?.subagentsInFlight(sourceSessionId) ?? 0;
     let lanes = 0;
     if (this.laneWorkProvider) {
       const tabId = this.runtime?.sourceSnapshot(sourceSessionId)?.tabId ?? sourceSessionId;
