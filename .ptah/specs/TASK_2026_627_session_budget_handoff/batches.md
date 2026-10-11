@@ -1285,7 +1285,7 @@ other rows stay as recorded.
   production coordinator `.begin(` only at `session-handover-rpc.handlers.ts:99`; no `admitOrHold`
   or `restoreInputs` in the handler.
 
-## Batch 13: Agent successor tool asks the user (C1, D23) — COMPLETE
+## Batch 13: Agent successor tool asks the user (C1, D23) — COMPLETE (f3df2b0fc)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
