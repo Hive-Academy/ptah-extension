@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 85 | Batches: 40 (incl. fix batches 6F, 12F, 15F, 21F, 28F, 33F, post-cap correction 12F2) | Complete: 38/40
+Total tasks: 85 | Batches: 40 (incl. fix batches 6F, 12F, 15F, 21F, 28F, 33F, post-cap correction 12F2) | Complete: 40/40
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -99,7 +99,7 @@ Edge cases:
 | 5 Transcript and dock | 22-25 | code-logic (APPROVED WITH NOTES 8/10, `code-logic-review-phase5.md`, Codex lane on `b57910d88..2ca5c9048`); #81 a/b/c and #94 PASS; one Minor (closed-tab dock state retained) recorded as a later item, decision #115. Phase 5 ACCEPTED |
 | 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util). Implementation complete (Batches 26-28 committed); review on `ec4347772..HEAD` pending (`code-logic-review-phase6.md`, `code-style-review-phase6.md`) |
 | 7 Hint, skill, measurement, eager gate | 29-32 | code-logic |
-| 8 Visual verification (V1) | 33 | visual (visual-reviewer subagent); no code-logic |
+| 8 Visual verification (V1) | 33, 33F (fix) | visual (visual-reviewer subagent); no code-logic. `visual-review.md` FAIL (D1, D2 serious) -> fix round 33F (commit 5a2344e37) -> scoped re-check `visual-review-33F.md` PASS WITH NOTES (D1, D2 FIXED; populated surfaces UNVERIFIED, named follow-up per USER #155(b)); decisions #158-#161. Phase 8 ACCEPTED |
 
 Verification rule for every batch (CLAUDE.md): changed projects only, `--parallel=1`, `--maxWorkers=2`, one heavy check
 at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package except Batch 33.
@@ -2215,7 +2215,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   rpc-lane-plan-limits.types and the two declarative-dashboard components stay off the allow-list until Batch 33
   measures them (not a GAP); the ts-jest allowJs warning predates this batch.
 
-## Batch 33: V1 single build, gate run and visual review — IN_PROGRESS (33.1, 33.2 COMPLETE, gate PASS; 33.3 FAILED, visual-review.md FAIL D1/D2; fix Batch 33F, decisions #148-#154; COMPLETE only after the 33F scoped visual re-check passes)
+## Batch 33: V1 single build, gate run and visual review — COMPLETE (no source commit of its own: build/gate/review only; fix commit 5a2344e37 via Batch 33F; visual-review.md FAIL D1/D2 -> visual-review-33F.md PASS WITH NOTES; decisions #148-#161; Phase 8 ACCEPTED)
 
 - Recommended executor: team-leader runs the build and gate once; visual-reviewer subagent reviews the launched app
 - Fallback executor: none (a second run needs a new user decision)
@@ -2242,7 +2242,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   `dashboard-avatar.component.ts`, `dashboard-sparkline.component.ts` found in the eager closure as "unlisted eager
   growth, ruling needed"; the team-leader rules after the run. Do not edit the gate script in Batch 33.
 
-### Task 33.3: one Electron app launch and visual review — FAILED (visual-review.md verdict FAIL: D1, D2 serious; re-checked after 33F per #154)
+### Task 33.3: one Electron app launch and visual review — COMPLETE (first run visual-review.md FAIL: D1, D2 serious; after 33F, scoped re-check on the #157 rebuild visual-review-33F.md PASS WITH NOTES, #158; populated surfaces are follow-up #161(1) per USER #155(b))
 
 - Launch once (after the ruled main-process build): `node apps/ptah-electron/scripts/launch.js`
 - visual-reviewer checks against `prototype/screenshots/`: widths 360/1024 (chat) and 300/960 (panel), dark and light,
@@ -2268,7 +2268,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   ellipsises (`truncate`) where design-spec.md:140 wants wrapping. A defect there is a named later task (shared atom).
 - Plan reference: implementation-plan.md:1324-1345, 1420
 
-## Batch 33F: Phase 8 fix round — dock tabpanel display, chip word values, eager allow-list — code COMPLETE, visual re-check pending (#155)
+## Batch 33F: Phase 8 fix round — dock tabpanel display, chip word values, eager allow-list — COMPLETE (commit 5a2344e37; visual re-check visual-review-33F.md PASS WITH NOTES, #158; landmark-unique and markdown scrollable-region rulings #159; follow-ups #161)
 
 - Recommended executor: CLI lanes x3, one per task (self-contained prompts, absolute paths, CLAUDE.md memory-safe rules
   repeated in each prompt)
