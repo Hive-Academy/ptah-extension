@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 21 | Batches: 9 (Batch 0 to Batch 8) | Complete: 6/9
+Total tasks: 23 | Batches: 10 (Batch 0 to Batch 8, plus fix Batch 5F) | Complete: 6/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -507,6 +507,9 @@ Edge cases:
   45 warnings, agent-sdk 0 errors / 52 warnings; no warning on a changed line.
 - Phase 1 is now complete (Batches 1-5); its code-logic + style review is due on the combined diff
   `af9ed9112..6cb27e3e4`.
+- Phase 1 review: `code-logic-review.md` NEEDS_REVISION 6/10 and `code-style-review.md` APPROVED
+  7/10, both in this task folder. One fix round was opened as Batch 5F (decisions.md D5-D8). Phase 1
+  closes only when the 5F re-review accepts.
 
 ### Batch 5 verification
 
@@ -515,6 +518,140 @@ Edge cases:
 - For Task 5.2 (after the above, one at a time):
   `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/session-handoff/session-handover-coordinator.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-stream-pump.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.spec.ts --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
+
+## Batch 5F: Phase 1 fix round — IN_PROGRESS
+
+- Source: Phase 1 review on `af9ed9112..6cb27e3e4`. `code-logic-review.md` NEEDS_REVISION 6/10
+  (0 B, 2 S, 5 M, 4 minor); `code-style-review.md` APPROVED 7/10 (0 B, 0 S, 2 M, 4 minor). Each
+  finding was checked against the code; the triage is in decisions.md D5-D8.
+- In scope (fix round rule: all Blocking and Serious, and a Moderate only if it can break a lane
+  config or lose data): S1, S2, M3 and M4. Everything else is deferred (decisions.md D8, "Deferred
+  follow-ups" below).
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer, fresh session
+- Execution mode: sequential. There are two file-disjoint tasks in one lib, and they share one
+  verification run. That is too few tasks to justify lanes.
+- Rationale: Task 5F.1 changes coupled state-machine branches in one file. Task 5F.2 is one helper
+  in the builder.
+- Tasks: 2 | Depends on: Batch 5
+- Files (4, 1 lib): `session-handover-coordinator.service.ts` (+ spec);
+  `session-handoff-builder.ts` (+ spec)
+- Phase: 1 (Backend gates) | Phase review: one code-logic re-review scoped to the 5F fix commit (no
+  new public API except the exported constant `WORK_IN_FLIGHT_WAIT_LIMIT_MS`, so no style review)
+
+### Task 5F.1: Coordinator — blocking limit beats the work gate, bounded wait, safe handoff window — IN_PROGRESS
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
+  and `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.spec.ts`
+- Findings: S1, S2, M3 (decisions.md D5, D6, D7), plus a length line in the prompt that supports M4
+- Plan reference: implementation-plan.md:265-270 ("`budget-limit` is not gated (the user confirms)"),
+  :389-396 (limit path), :403-406 (fail open), :421 (no new timers, observers or polls)
+- Pattern to follow: `armAtTerminal` `:277-334`; `confirmBudgetOperation` `:440-453`; `workInFlight`
+  `:456-471`; `requestAgentHandoff` `:597-627`
+- Quality requirements:
+  1. S1. In `armAtTerminal`, when `atBlockingLimit` is true and the live operation is `budget-auto`
+     in `waiting-for-turn-end`, skip the work gate. Change the operation's reason to `budget-limit`
+     (drop `readonly` from `Operation.reason`; keep the same operation id), clear `waitingFor` and
+     the wait stamp, and bump the revision. The existing code then moves it to `armed` and on to
+     `awaiting-confirmation`, unless `userConfirmed` is set, in which case it starts. Held inputs
+     follow the existing `HELD_SOURCE_PHASES` rule. The gate condition must read `atBlockingLimit`,
+     not only `live.reason`.
+  2. S2. Add `export const WORK_IN_FLIGHT_WAIT_LIMIT_MS = 900_000;`. Its doc comment says it matches
+     `MAX_AGENT_WAIT_MS` in cli-agent-runtime `agent-process-manager.service.ts:211`, and that it is
+     not imported because agent-sdk must not depend on cli-agent-runtime. Add a private
+     `waitingSince?: number` to `Operation`. Stamp it with `Date.now()` the first time the gate finds
+     work in flight; later terminals do not reset it. At each gate check (`armAtTerminal`, which
+     `armHandoverIfIdle` also reaches), if work is still in flight and
+     `Date.now() - waitingSince >= WORK_IN_FLIGHT_WAIT_LIMIT_MS`, do not keep waiting. Instead:
+     - Move the operation to `awaiting-confirmation`. The reason stays `budget-auto`.
+     - Clear `waitingFor` and `waitingSince`, then bump the revision and publish.
+     - Move `queuedInputs` in under the existing held-phase rule.
+     - Log one WARN: `[SessionHandover] Work-in-flight wait limit reached; asking the user`, with
+       operationId, the last `waitingFor` and `elapsedMs`.
+     - Never call `startAutomatic` on this path. Running work is never cut off without a click.
+     - Add no timer, interval or poll. The check runs only when a terminal arrives (plan :421).
+     - Clear `waitingSince` whenever the operation leaves `waiting-for-turn-end`.
+  3. M3. In `requestAgentHandoff`, when `previousId` is defined but missing from `after` (for
+     example, a compaction boundary between the two reads trimmed it), use only the last assistant
+     message from `after`, not every assistant message. Log one DEBUG line. When `previousId` is
+     undefined (no assistant message before the request), keep today's `slice(0)` behaviour.
+  4. M4 support. Add one line to `HANDOFF_REQUEST_PROMPT`, before "Do not call tools":
+     `'Keep the whole handoff under 5,000 characters.'`. Keep every heading and its order.
+- Spec cases (all new, in the coordinator spec):
+  - S1: a `budget-auto` op waiting on 1 running subagent. A terminal with `atBlockingLimit = true`
+    gives `reason: 'budget-limit'`, `phase: 'awaiting-confirmation'`, no `waitingFor`, the same
+    operationId, and does not start automatically. Variant: with `userConfirmed` set, it goes
+    straight to `writing-handoff`.
+  - S2: mock `Date.now` (jest fake timers or `jest.spyOn(Date, 'now')`). Work in flight at t0 gives
+    waiting. At t0 + limit - 1 it is still waiting, and the stamp is not reset. At t0 + limit it is
+    `awaiting-confirmation` with `reason: 'budget-auto'`, no `waitingFor`, no `startAutomatic` or
+    owned-handoff call, and one WARN. Then `begin('successor')` reaches `writing-handoff` (one
+    click). Work that drops to 0 before the limit still starts automatically, which is today's
+    behaviour.
+  - M3: when `previousId` is absent from the second read, the handoff equals the last assistant
+    message only. When `previousId` is undefined, all assistants after the request are used (no
+    change).
+  - The prompt contains the length line and still contains all seven headings in order.
+- Validation notes: do not change `cancel`, `fail` or `sourceEnded`; stale `waitingFor` (M2) is
+  deferred (D8). Keep `cancelledAutomaticSources` semantics: a `budget-auto` op escalated by S2 and
+  then cancelled is suppressed until the hard limit, as today. Clearing `waitingFor` on these paths
+  is required by S1 and S2 only.
+
+### Task 5F.2: Builder — an over-cap agent handoff keeps its last sections — IN_PROGRESS
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-handoff-builder.ts`
+  and `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-handoff-builder.spec.ts`
+- Finding: M4 (decisions.md D7)
+- Plan reference: implementation-plan.md:336-348 (caps; a 7,000-character agent handoff is truncated
+  with the marker), :416-419 (the successor gets the agent handoff in full, up to 6,000 characters)
+- Pattern to follow: `capText` `:212-223`, `quoteWithin` `:659-676`, `withAgentHandoff` `:685-710`
+- Quality requirements:
+  - Only the agent-handoff path changes. `capText` keeps its head-only behaviour for every other
+    caller.
+  - Add a head-and-tail cut for the agent text, used by `quoteWithin` in place of `capText`:
+    - When the text is at or under the budget, return it unchanged.
+    - Otherwise the tail is the text from the last line that starts with `## Still running`, or, if
+      that heading is absent, from the last `## Next action` heading. The tail is used only when it
+      fits in half the budget. If it does not fit, or neither heading is present, the tail is the
+      last `floor(budget / 2)` characters, starting at a line start when one falls inside that
+      window.
+    - The head fills the rest: `budget - tail - '\n[truncated]\n'.length`.
+    - The result is `head.trimEnd() + '\n' + TRUNCATED_MARKER + '\n' + tail`, and `cut: true`.
+    - Neither cut point splits a surrogate pair.
+  - The final quoted section still fits in `SESSION_HANDOFF_LIMITS.agentHandoffChars` (6,000). The
+    existing shrink loop in `quoteWithin` must still terminate.
+- Spec cases:
+  - A 9,000-character agent handoff with all seven headings, where `## Next action` and
+    `## Still running` sit at the end. The section is at most 6,000 characters, contains
+    `[truncated]` once, and keeps `## Goal` and the full text of `## Still running` and
+    `## Next action`.
+  - Over the cap with no headings: the head and the tail both survive, with the marker between
+    them.
+  - Existing regressions still pass: a 5,000-character handoff is kept in full (R8), and a
+    7,000-character handoff is truncated with the marker.
+  - A surrogate pair at either cut point is not split.
+
+### Batch 5F verification
+
+Run these one at a time, in the foreground, from the worktree root, with the output filtered:
+
+- `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/session-handoff/session-handover-coordinator.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-budget/session-handoff-builder.spec.ts --coverage=false --maxWorkers=2`
+- `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`
+- `npx nx lint @ptah-extension/agent-sdk --parallel=1`: 0 errors, and no warning on a changed line
+- These agent-sdk specs need no `--moduleNameMapper` override. cli-agent-runtime is not touched; if
+  an executor touches it anyway, the override in "Verification rules" applies.
+- Then one code-logic re-review, scoped to the 5F commit. It checks S1, S2, M3 and M4 only.
+
+## Deferred follow-ups from the Phase 1 review (named later tasks; decisions.md D8)
+
+| Id | Finding | Why deferred | Target |
+| --- | --- | --- | --- |
+| 627-L1 | M1: the notice can miss the stopped subagent's own `Agent` result and stay in the queue | Advisory text only; the plan accepts "notice not delivered → terminal handover still runs" (implementation-plan.md:403-404); no data or lane config is lost | Batch 7 (it adds the wrap-up notice on the same queue): post before awaiting the stop, or drain at turn end |
+| 627-L2 | M2: stale `waitingFor` on cancelled or failed snapshots | Display only. Its one planned consumer, Task 6.2, keys on `waiting-for-turn-end` | Follow-up: clear it in `cancel`, `fail` and `sourceEnded` |
+| 627-L3 | M5: `startedTasks` is not pruned during a session | Small entries, released at session end | Follow-up: drop an entry on task terminal |
+| 627-L4 | Style M1 and M2: cli-agent-runtime injects the concrete coordinator and registers in its constructor | Allowed boundary; no runtime fault | Follow-up: `Pick<SessionHandoverCoordinator, 'setLaneWorkProvider'>` and registration from `cli-agent-runtime/src/lib/di/register.ts` |
+| 627-L5 | INFO publish on every terminal while waiting (logic) and INFO-per-publish noise (style minor) | Noisy but bounded | Follow-up: publish only when `waitingFor` changes; per-event lines at DEBUG |
+| 627-L6 | `admitInterrupt` refuses an interrupt while an op is `waiting-for-turn-end` | Existing behaviour (9fe19b56e); the message is queued, not lost; the wait is now bounded by S2 | Follow-up: allow interrupts in `waiting-for-turn-end` |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — PENDING
 
@@ -546,7 +683,11 @@ Edge cases:
   for N subagents and M CLI lanes before continuing in a new session." with the existing "Continue
   now"; limit `awaiting-confirmation` keeps "New session"; aria labels unchanged.
 - Validation notes: `waitingFor` is not validated by the webview guard; show the copy only for finite
-  non-negative integers, else the existing copy.
+  non-negative integers, else the existing copy. Show the counts only while the phase is
+  `waiting-for-turn-end`, because cancelled or failed states can carry a stale `waitingFor`
+  (627-L2). After the wait limit (Batch 5F, S2) a `budget-auto` op can sit in
+  `awaiting-confirmation` at the handoff stage. That state must still offer "Continue now" and
+  "Cancel".
 
 ### Task 6.3: `MessageSender` logs budget refusals and handover holds at `console.info` (R9) — PENDING
 
