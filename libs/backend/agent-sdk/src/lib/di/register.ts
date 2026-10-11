@@ -826,6 +826,7 @@ export function registerSdkServices(
         c.resolve(SessionHandoffBuilder),
         c.resolve(SessionHandoffWriter),
         c.resolve(SessionRotationAdvisor),
+        c.resolve(MainThreadNoticeQueue),
       );
     }),
   });

@@ -57,6 +57,7 @@ import {
 } from './session-handoff-builder';
 import { SessionHandoffWriter } from './session-handoff-writer';
 import { SessionRotationAdvisor } from '../compaction/session-rotation-advisor';
+import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
 import {
   acceptsSessionBudgetSnapshot,
   evaluateSessionBudget,
@@ -89,6 +90,9 @@ export type SessionBudgetRotationAdvisor = Pick<
   SessionRotationAdvisor,
   'evaluate' | 'current' | 'release'
 >;
+
+/** Notice-queue surface the budget needs: drop a session's pending notices. */
+export type SessionBudgetNoticeQueue = Pick<MainThreadNoticeQueue, 'clear'>;
 
 /** `canSend` verdict; a refusal carries the state that refused it. */
 export type SessionBudgetSendCheck =
@@ -143,6 +147,12 @@ interface BudgetEntry {
   /** `usageSeq` the kept `handoffCopy` was built at. */
   handoffCopySeq: number;
   dismissedStage?: SessionBudgetStage;
+  /**
+   * Session workspace, remembered the first time session control knows it, so
+   * a handoff built after the lifecycle forgot the session (disposal) still
+   * reads the transcript.
+   */
+  workspacePath?: string;
   /** Failure kinds already WARNed for this session. */
   readonly warned: Set<string>;
   /** Tail of the serialised stage-action chain; never rejects. */
@@ -183,6 +193,9 @@ export class SessionBudgetService {
     private readonly handoffWriter: SessionBudgetHandoffWriter,
     @inject(SessionRotationAdvisor)
     private readonly rotationAdvisor: SessionBudgetRotationAdvisor,
+    /** Absent in callers that construct the service without one: nothing to clear. */
+    @inject(MainThreadNoticeQueue)
+    private readonly noticeQueue?: SessionBudgetNoticeQueue,
   ) {}
 
   /**
@@ -284,12 +297,14 @@ export class SessionBudgetService {
   }
 
   /**
-   * Session end: drop its state, rotation advisory included, and remember the
-   * id so a late result or compaction does not bring the entry back.
+   * Session end: drop its state, rotation advisory and pending main-thread
+   * notices included, and remember the id so a late result or compaction does
+   * not bring the entry back.
    */
   release(sessionId: string): void {
     this.entries.delete(sessionId);
     this.rotationAdvisor.release(sessionId);
+    this.noticeQueue?.clear(sessionId);
     this.released.delete(sessionId);
     this.released.add(sessionId);
     if (this.released.size > RELEASED_IDS_CAP) {
@@ -298,10 +313,11 @@ export class SessionBudgetService {
     }
   }
 
-  /** Disposal: drop every session's state. */
+  /** Disposal: drop every session's state and pending notices. */
   clearAll(): void {
     for (const sessionId of this.entries.keys()) {
       this.rotationAdvisor.release(sessionId);
+      this.noticeQueue?.clear(sessionId);
     }
     this.entries.clear();
     this.released.clear();
@@ -340,6 +356,7 @@ export class SessionBudgetService {
     // A released session without a new owner is a known absence, unlike an
     // observation fault (which `accept` reports as `undefined`).
     if (!entry) return null;
+    this.rememberWorkspace(entry);
     const config = this.configSource.getConfig();
 
     if (!config.enabled) {
@@ -632,7 +649,11 @@ export class SessionBudgetService {
     const budget = entry?.figure
       ? this.composeState(entry, entry.figure)
       : undefined;
-    const workspacePath = this.sessionControl.getSessionWorkspace(sessionId);
+    // The live lookup first; after disposal the lifecycle no longer knows the
+    // session, so the workspace remembered on the entry is the fallback.
+    const workspacePath =
+      this.sessionControl.getSessionWorkspace(sessionId) ??
+      entry?.workspacePath;
     if (workspacePath === undefined) {
       this.warnOnce(
         entry,
@@ -844,6 +865,15 @@ export class SessionBudgetService {
       this.entries.set(sessionId, entry);
     }
     return entry;
+  }
+
+  /** Remember the session workspace the first time session control knows it. */
+  private rememberWorkspace(entry: BudgetEntry): void {
+    if (entry.workspacePath !== undefined) return;
+    const workspacePath = this.sessionControl.getSessionWorkspace(
+      entry.sessionId,
+    );
+    if (workspacePath !== undefined) entry.workspacePath = workspacePath;
   }
 
   /** Store `snapshot`; a different snapshot is newer usage (`usageSeq`). */

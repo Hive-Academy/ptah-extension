@@ -32,6 +32,7 @@ import {
   SessionRotationAdvisor,
   type SessionRotationConfigSource,
 } from '../compaction/session-rotation-advisor';
+import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
 
 const SID = '11111111-2222-4333-8444-555555555555';
 const OTHER = '99999999-2222-4333-8444-555555555555';
@@ -91,6 +92,7 @@ interface Harness {
   write: jest.Mock;
   /** The context-usage port's `getLast`. */
   getLast: jest.Mock;
+  notices: MainThreadNoticeQueue;
 }
 
 const ROTATION_THRESHOLD = 300_000;
@@ -122,6 +124,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
   const getLast = jest.fn(
     (_sessionId: string): ContextUsageReading | undefined => undefined,
   );
+  const notices = new MainThreadNoticeQueue(logger as unknown as Logger);
   const advisor = new SessionRotationAdvisor(
     logger as unknown as Logger,
     {
@@ -144,6 +147,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     { build } as unknown as SessionBudgetHandoffBuilder,
     { write } as unknown as SessionBudgetHandoffWriter,
     advisor,
+    notices,
   );
   return {
     service,
@@ -159,6 +163,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     build,
     write,
     getLast,
+    notices,
   };
 }
 
@@ -385,6 +390,59 @@ describe('SessionBudgetService — handoff and limit', () => {
     expect(h.write).toHaveBeenCalledWith(SID, expect.stringContaining(SID));
     const state = h.service.observe(at(86, 2));
     expect(state?.handoff?.readStatus).toBe('workspace-unknown');
+  });
+
+  it('remembers the workspace: a preview after the lifecycle forgot the session still reads the transcript', async () => {
+    const h = harness();
+    h.getWorkspace.mockReturnValue('/remembered');
+    h.service.observe(at(10, 1));
+    h.getWorkspace.mockReturnValue(undefined);
+
+    const result = await h.service.act(SID, 'preview-handoff');
+
+    expect(result.success).toBe(true);
+    expect(h.build).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SID, workspacePath: '/remembered' }),
+    );
+    const warns = h.logger.warn.mock.calls.filter(([m]) =>
+      String(m).includes('handoff-read'),
+    );
+    expect(warns).toHaveLength(0);
+  });
+
+  it('keeps the first known workspace and prefers the live lookup', async () => {
+    const h = harness();
+    h.getWorkspace.mockReturnValue(undefined);
+    h.service.observe(at(10, 1));
+    h.getWorkspace.mockReturnValue('/first');
+    h.service.observe(at(11, 2));
+    h.getWorkspace.mockReturnValue('/second');
+    h.service.observe(at(12, 3));
+
+    h.getWorkspace.mockReturnValue('/live');
+    await h.service.act(SID, 'preview-handoff');
+    expect(h.build).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspacePath: '/live' }),
+    );
+
+    h.getWorkspace.mockReturnValue(undefined);
+    h.service.observe(at(13, 4));
+    await h.service.act(SID, 'preview-handoff');
+    expect(h.build).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspacePath: '/first' }),
+    );
+  });
+
+  it('a workspace never known still reports workspace-unknown on preview', async () => {
+    const h = harness();
+    h.getWorkspace.mockReturnValue(undefined);
+    h.service.observe(at(10, 1));
+
+    const result = await h.service.act(SID, 'preview-handoff');
+
+    expect(result.success).toBe(true);
+    expect(h.build).not.toHaveBeenCalled();
+    expect(result.handoff?.content).toContain(SID);
   });
 
   it('a transcript read error marks the handoff read-failed and keeps the error out of the state', async () => {
@@ -854,6 +912,54 @@ describe('SessionBudgetService.release / clearAll', () => {
     h.service.observe(at(120, 1));
     h.service.release(SID);
     expect(h.service.canSend(SID)).toEqual({ ok: true });
+  });
+
+  it("release drops the session's pending main-thread notices", () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.notices.post(SID, 'wrap up');
+    h.notices.post(OTHER, 'other session');
+
+    h.service.release(SID);
+
+    expect(h.notices.take(SID)).toBeUndefined();
+    expect(h.notices.take(OTHER)).toBe('other session');
+  });
+
+  it("clearAll drops every session's pending notices", () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.observe(at(10, 1, OTHER));
+    h.notices.post(SID, 'one');
+    h.notices.post(OTHER, 'two');
+
+    h.service.clearAll();
+
+    expect(h.notices.take(SID)).toBeUndefined();
+    expect(h.notices.take(OTHER)).toBeUndefined();
+  });
+
+  it('release and clearAll work without a notice queue', () => {
+    const service = new SessionBudgetService(
+      createMockLogger() as unknown as Logger,
+      {
+        getConfig: () => SESSION_BUDGET_DEFAULT_CONFIG,
+      } as SessionBudgetConfigSource,
+      {
+        snapshot: () => null,
+        leaseOf: () => null,
+      } as unknown as SessionBudgetStatsSource,
+      {
+        applySessionAutoCompactWindow: jest.fn(),
+        getSessionWorkspace: () => '/workspace',
+      } as unknown as SessionBudgetSessionControl,
+      { build: jest.fn() } as unknown as SessionBudgetHandoffBuilder,
+      { write: jest.fn() } as unknown as SessionBudgetHandoffWriter,
+      { evaluate: jest.fn(), current: jest.fn(), release: jest.fn() },
+    );
+    service.observe(at(10, 1));
+    expect(() => service.release(SID)).not.toThrow();
+    expect(() => service.clearAll()).not.toThrow();
   });
 
   it('clearAll drops every session', async () => {

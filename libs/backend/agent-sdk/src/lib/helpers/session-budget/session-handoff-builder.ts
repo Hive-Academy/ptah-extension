@@ -36,10 +36,18 @@ import type {
 
 /** Caps from plan component 5. Section caps include their `[truncated]` marker. */
 export const SESSION_HANDOFF_LIMITS = {
-  /** Whole handoff document. */
+  /**
+   * Deterministic (transcript-built) document. The `## Agent handoff` section,
+   * when present, comes on top of this and is bounded by `agentHandoffChars`.
+   */
   totalChars: 8_000,
-  /** Seed prompt for "Continue in new session" (preamble + document). */
-  seedChars: 8_200,
+  /**
+   * Seed prompt for "Continue in new session": preamble + agent handoff
+   * section + deterministic document (`totalChars + agentHandoffChars + 200`;
+   * the 200 cover the preamble and the section heading), so the deterministic
+   * part can never squeeze the agent handoff out.
+   */
+  seedChars: 14_200,
   /** Latest compaction summary. */
   summaryChars: 2_500,
   /** First user prompt, used only when there is no summary. */
@@ -56,8 +64,12 @@ export const SESSION_HANDOFF_LIMITS = {
   pathChars: 300,
   /** One rendered TodoWrite item. */
   itemChars: 300,
-  /** Optional agent-authored supplement carried ahead of the durable seed. */
-  agentHandoffChars: 2_000,
+  /**
+   * Optional agent-authored handoff, rendered block-quoted as the
+   * `## Agent handoff` section at the top of the document and the seed. The
+   * cap applies to the quoted text, marker included.
+   */
+  agentHandoffChars: 6_000,
 } as const;
 
 /** Bytes read from the end of the transcript. */
@@ -76,6 +88,10 @@ const FILE_CHANGE_TOOLS: ReadonlySet<string> = new Set([
 /** `.ptah/specs/TASK_YYYY_NNN…` in either separator style (also JSON-escaped). */
 const TASK_FOLDER_PATTERN =
   /\.ptah[\\/]+specs[\\/]+(TASK_\d{4}_\d{3}[A-Za-z0-9_-]*)/g;
+
+const DOCUMENT_TITLE = '# Session handoff\n\n';
+
+const AGENT_HANDOFF_HEADING = '## Agent handoff\n\n';
 
 const SEED_PREAMBLE =
   'Continue the work of an earlier session. The handoff below was built ' +
@@ -126,7 +142,11 @@ export interface SessionHandoffMeta {
 }
 
 export interface SessionHandoffDocument {
-  /** The handoff Markdown, at most {@link SESSION_HANDOFF_LIMITS.totalChars}. */
+  /**
+   * The handoff Markdown: at most {@link SESSION_HANDOFF_LIMITS.totalChars}
+   * for the deterministic part, plus the `## Agent handoff` section (bounded
+   * by `agentHandoffChars`) when the agent supplied one.
+   */
   readonly content: string;
   /** First prompt for a new session, at most {@link SESSION_HANDOFF_LIMITS.seedChars}. */
   readonly seed: string;
@@ -439,9 +459,7 @@ export function renderSessionHandoff(
       ? `- Task folders:\n${folders.map((folder) => `  - ${codeSpan(folder)}`).join('\n')}`
       : '- Task folders: none found in the transcript',
   ];
-  sections.push(
-    `# Session handoff\n\n## Session\n\n${sessionLines.join('\n')}`,
-  );
+  sections.push(`${DOCUMENT_TITLE}## Session\n\n${sessionLines.join('\n')}`);
 
   // Goal + Decisions and current state
   if (facts.summary !== null) {
@@ -535,7 +553,10 @@ export function assembleSessionHandoff(
   meta: SessionHandoffMeta,
   boundaryId?: string,
 ): SessionHandoffDocument {
-  return renderSessionHandoff(extractSessionHandoffFacts(lines, boundaryId), meta);
+  return renderSessionHandoff(
+    extractSessionHandoffFacts(lines, boundaryId),
+    meta,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -630,29 +651,60 @@ export class SessionHandoffBuilder {
   }
 }
 
+/**
+ * Block-quote `text` so the quoted form fits in `max` characters, marker
+ * included. Quoting adds two characters per line, so the raw cap shrinks in
+ * proportion to the overflow (strictly, so the loop ends) until it fits.
+ */
+function quoteWithin(
+  text: string,
+  max: number,
+): { quoted: string; cut: boolean } {
+  const minBudget = TRUNCATED_MARKER.length + 1;
+  let budget = max;
+  for (;;) {
+    const capped = capText(text, budget);
+    const quoted = blockQuote(capped.text);
+    if (quoted.length <= max || budget <= minBudget) {
+      return { quoted, cut: capped.cut };
+    }
+    budget = Math.max(
+      minBudget,
+      Math.min(budget - 1, Math.floor((budget * max) / quoted.length)),
+    );
+  }
+}
+
+/**
+ * Put the agent's own handoff on top: a `## Agent handoff` section right
+ * under the document title, in the content and therefore in the seed. The
+ * section has its own cap on top of the deterministic `totalChars`, so the
+ * transcript facts can no longer squeeze it out (R8). No agent text → the
+ * document is returned unchanged.
+ */
 function withAgentHandoff(
   document: SessionHandoffDocument,
   agentHandoff: string | undefined,
 ): SessionHandoffDocument {
   if (!agentHandoff) return document;
-  const text = sanitizeHandoffText(agentHandoff).trim();
+  const text = sanitizeHandoffText(agentHandoff);
   if (!text) return document;
-  const separator = 'Agent handoff supplement:\n';
-  const suffix = '\n\n';
-  const available = Math.max(
-    0,
-    SESSION_HANDOFF_LIMITS.seedChars - document.seed.length - separator.length - suffix.length,
-  );
-  if (available <= TRUNCATED_MARKER.length + 1) return document;
-  const bounded = capText(
+  const { quoted, cut } = quoteWithin(
     text,
-    Math.min(SESSION_HANDOFF_LIMITS.agentHandoffChars, available),
-  ).text;
-  if (!bounded) return document;
-  const prefix = `${separator}${bounded}${suffix}`;
+    SESSION_HANDOFF_LIMITS.agentHandoffChars,
+  );
+  const section = `${AGENT_HANDOFF_HEADING}${quoted}\n\n`;
+  const content = document.content.startsWith(DOCUMENT_TITLE)
+    ? `${DOCUMENT_TITLE}${section}${document.content.slice(DOCUMENT_TITLE.length)}`
+    : `${section}${document.content}`;
   return {
     ...document,
-    seed: `${prefix}${document.seed}`,
-    truncated: document.truncated || bounded.length < text.length,
+    content,
+    seed: `${SEED_PREAMBLE}${content}`.slice(
+      0,
+      SESSION_HANDOFF_LIMITS.seedChars,
+    ),
+    chars: content.length,
+    truncated: document.truncated || cut,
   };
 }
