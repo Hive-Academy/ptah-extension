@@ -229,3 +229,50 @@ Dropped as not a defect in this diff, with evidence:
 - Accepted. `formatAmount` in `session-handoff-builder.ts` is not exported, and the executor stayed
   within its two files. Recorded as Minor duplication; can be unified with any later touch of the
   handoff builder.
+
+## D17 (Batch 8): a live `limit` estimate must not auto-arm at the turn terminal
+
+- Evidence: the terminal runs before the result (`stream-transformer.ts:698` vs `:996`), so at
+  `onTurnTerminal` `isAtBlockingLimit` reads only the authoritative figure (`canSend`) and is false,
+  while `stageFor` returns the live `limit`. With `atHandoffStage` true and no work in flight,
+  `armAtTerminal` creates `budget-auto` in `armed` and calls `startAutomatic` at once
+  (`session-handover-coordinator.service.ts:319-377`). S1 (D5) converts only an op still in
+  `waiting-for-turn-end` (`:309-318`), so when the blocking result then reaches `armHandoverIfIdle`
+  the op is already running and is never converted. The rotation proceeds without the user's click
+  and without the "Allow 20% more" choice.
+- That contradicts user decision 1 (`handoff.md:24`, limit = one click "New session") and D5's own
+  reason ("a `budget-auto` op at the hard limit would start automatically ... without a click").
+- Choice: not accepted. The live figure may arm automatically at the terminal only at `handoff`
+  (the plan's path, implementation-plan.md:387-388); `limit` counts as the handoff stage only in the
+  post-result `armHandoverIfIdle`, where the live figure is already cleared and the stage is
+  authoritative. The lifecycle cannot tell a blocking from a non-blocking budget for a live-only
+  `limit` (no public config on `SessionBudgetService`), so deferring to the result is the only safe
+  choice inside the batch's files. Fix listed in batches.md Batch 8.
+
+## D18 (Batch 8): the Batch 7 regression is real and stays fixed through the result path
+
+- Evidence: `stageFor` returns the higher of the authoritative and live stages
+  (`session-budget.service.ts:381-387`), so authoritative `handoff` + live `limit` gave `limit`, and
+  `=== 'handoff'` armed nothing; a non-blocking authoritative `limit` never armed at all. With D17's
+  split, both recover when the result lands: `wrapResultStatsForActivity` calls
+  `armHandoverIfIdle` for `handoff`/`limit`, which arms `budget-limit` (blocking) or `budget-auto`
+  (non-blocking or still `handoff`).
+- Residual (Minor, recorded as 627-L13): if a held input starts the next turn before the result is
+  processed, `armHandoverIfIdle` is a no-op and a non-blocking authoritative `limit` is not armed at
+  the next terminal either; it arms after the first result that lands with the source idle.
+
+## D19 (Batch 8): the Prettier reformat of four Batch 4 blocks is accepted
+
+- Formatting only (the `admitInterrupt` lambda, `queueOwnedHandoff`, `isOwnedHandoffPendingOrRunning`,
+  the two `subagentsInFlight` loops); the diff shows no token change. The file must pass
+  `prettier --check`, and these blocks were the only ones failing it.
+
+## D20 (Batch 8): the turn-end order finding is accepted; the live overestimate goes to Phase 3
+
+- Confirmed: the live figure decides the terminal arming, and D13 cannot drop it there because the
+  result has not arrived. This is the plan's intended path (implementation-plan.md:387-394), so no
+  change in Batch 8.
+- For the Phase 3 code-logic review: (1) a live `handoff` overestimate the result does not justify
+  starts `budget-auto`; (2) a live `handoff` at the terminal whose result reaches the blocking limit
+  has already started `budget-auto` and is not converted by S1, the same click bypass as D17 by a
+  narrower route. Any fix would touch the coordinator, outside Batch 8.

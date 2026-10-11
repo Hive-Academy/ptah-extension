@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 24 | Batches: 11 (Batch 0 to Batch 8, plus fix Batches 5F and 6F) | Complete: 10/11
+Total tasks: 24 | Batches: 11 (Batch 0 to Batch 8, plus fix Batches 5F and 6F) | Complete: 11/11
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -693,6 +693,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L10 | Re-review 6F moderate: the gone-source seed comes from the persisted handoff file, which can predate a later extend or compact | The file is the newest state written at the handoff or limit stage; the fallback runs only when the live entry is gone | Follow-up: mark a file-sourced seed as such in the new tab, or refresh the file on extend/compact |
 | 627-L11 | Re-review 6F minor: `continueFromGoneSource` returns silently while another budget action is in flight | Only for the duration of the in-flight action | Follow-up: show a busy state on the button |
 | 627-L12 | Re-review 6F minor: `goneSourceTab` remembers one source only; alternating two ended sources opens duplicate tabs; grid-mode `switchTab` focus has no spec | Rare path; no data lost | Follow-up: key the remembered tab by source session id and add a grid-mode spec |
+| 627-L13 | Batch 8 minor (D18): a held input that starts the next turn before the result is processed makes `armHandoverIfIdle` a no-op, and a non-blocking authoritative `limit` is not armed at the next terminal | Arms after the first result that lands with the source idle; the blocking limit is unaffected (`atBlockingLimit`) | Follow-up: let the terminal tell an authoritative from a live `limit` (e.g. a budget accessor for the authoritative stage) |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — COMPLETE (0917b8074)
 
@@ -846,7 +847,7 @@ additions beyond the plan accepted in D13-D16.
   had its `max-lines` warning before the batch); the 53 -> 54 agent-sdk count comes from the 626
   merge (`session-stats-owner.service.ts`, 709 lines, new `max-lines`) — see D12.
 
-## Batch 8: Adapter and lifecycle live wiring (Component 3, adapter part) — IN_PROGRESS
+## Batch 8: Adapter and lifecycle live wiring (Component 3, adapter part) — COMPLETE (e6788c558)
 
 Unblocked: 626 merged into the branch at `91376becf` (provides `setLiveStatsCallback` and the four
 `transform()` call sites) and Batch 7 is COMPLETE (`af073e5a2`).
@@ -858,7 +859,32 @@ Unblocked: 626 merged into the branch at `91376becf` (provides `setLiveStatsCall
 - Tasks: 2 | Depends on: 626 merge, Batches 4 and 7
 - Phase: 3 (Live feed) | Phase review: code-logic on the combined diff of Batches 7-8
 
-### Task 8.1: `wrapLiveStatsForBudget` and post-result `armHandoverIfIdle` in `SdkAgentAdapter` — IN_PROGRESS
+Result (first return, `batch-8-report.md`): NOT ACCEPTED, not committed. Task 8.1 verified on
+disk. Task 8.2 carries an unplanned predicate (`atHandoffStage`: `limit` counts as `handoff` in both
+arming paths) that lets a live `limit` estimate start an automatic rotation on a blocking budget
+before the result arrives, bypassing the user's click at the limit (D17). The Batch 7 regression it
+targets is real and must stay fixed (D18). Prettier reformat accepted (D19); turn-end order finding
+accepted and sent to the Phase 3 review (D20). Scoped checks not re-run: nothing to commit until the
+fix lands.
+
+Required fix (Task 8.2, inside `session-lifecycle-manager.ts` and its spec):
+
+1. `onTurnTerminal` passes `stageFor(budgetSessionId) === 'handoff'` as `atHandoffStage` again (the
+   live figure is still present here; a `limit` stage at the terminal defers to the result, and the
+   authoritative blocking limit is still handled by `atBlockingLimit`).
+2. `armHandoverIfIdle` keeps `handoff || limit` (it runs after the result; the live figure is already
+   cleared, so `limit` here is authoritative: blocking arms `budget-limit`, non-blocking arms
+   `budget-auto`).
+3. Split `atHandoffStage` accordingly (or inline both), with a doc comment saying why the two paths
+   differ.
+4. Spec: replace "treats a limit stage that does not block as the handoff stage" with (a) terminal at
+   `stageFor` = `limit`, not blocking → `armAtTerminal(..., false, ..., false)`; (b)
+   `armHandoverIfIdle` at `limit`, not blocking → `atHandoffStage` true; (c) authoritative `handoff`
+   + live `limit` (stage `limit` at the terminal) → nothing auto-armed at the terminal, then
+   `armHandoverIfIdle` after the result arms (pins the D18 recovery).
+5. Re-run the Batch 8 verification commands; update `batch-8-report.md` Deviations.
+
+### Task 8.1: `wrapLiveStatsForBudget` and post-result `armHandoverIfIdle` in `SdkAgentAdapter` — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts`
   and `…\sdk-agent-adapter.spec.ts`
@@ -868,7 +894,7 @@ Unblocked: 626 merged into the branch at `91376becf` (provides `setLiveStatsCall
   `observeBudget`, a `handoff`/`limit` state calls `sessionLifecycle.armHandoverIfIdle(sessionId)`
   (R2).
 
-### Task 8.2: Lifecycle `onTurnTerminal` calls `sessionBudget.onTurnTerminal` after arming — IN_PROGRESS
+### Task 8.2: Lifecycle `onTurnTerminal` calls `sessionBudget.onTurnTerminal` after arming — COMPLETE (D17 fix applied)
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`
   and `…\session-lifecycle-manager.spec.ts`
@@ -880,3 +906,14 @@ Unblocked: 626 merged into the branch at `91376becf` (provides `setLiveStatsCall
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`, then
   `npx nx lint @ptah-extension/agent-sdk --parallel=1`.
 - A1 live check (only if the user asks for a run): plan Verification points.
+- Second pass (team-leader re-run, after the D17 fix): fix verified on disk against items 1-4 —
+  `onTurnTerminal` passes `stageFor(...) === 'handoff'`; `armHandoverIfIdle` uses the private
+  `atHandoffOrLimitStage` (handoff || limit) with a doc comment on why the paths differ; the old
+  spec case is replaced by (a) terminal at non-blocking `limit` → `false`, (b) post-result
+  non-blocking `limit` → `true`, (c) live `limit` over authoritative `handoff` → nothing at the
+  terminal, armed after the result (D18 recovery). `sessionBudget.onTurnTerminal` runs after
+  `armAtTerminal` and before `markTurnEnded` (spec pins the order). Task 8.1 files unchanged since
+  the first verified pass (last modified before the fix). Jest 2 suites 161/161 passed; agent-sdk
+  typecheck passed; lint 0 errors / 54 warnings (baseline, no new warning). Committed `e6788c558`.
+- Phase 3 review due: code-logic on the combined Batches 7-8 diff, `91376becf..HEAD` (code commits
+  `af073e5a2`, `e6788c558`), including the D20 items.
