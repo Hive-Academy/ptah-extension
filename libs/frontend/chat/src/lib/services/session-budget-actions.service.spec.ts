@@ -13,6 +13,7 @@ import type {
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
 import { SessionBudgetActionsService } from './session-budget-actions.service';
+import { SessionHandoverClientService } from './session-handover-client.service';
 
 function rpcFail<T>(error: string): RpcResult<T> {
   return new RpcResult<T>(false, undefined, error);
@@ -357,6 +358,91 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
 
     expect(h.createTabMock).not.toHaveBeenCalled();
     expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+  });
+
+  // TASK_2026_627 Component 9: a gone source can never be handed over.
+  it('falls back to a new tab with the seed when the source is unavailable', async () => {
+    const h = setup();
+    h.rpcCallMock
+      .mockResolvedValueOnce(rpcOk({ accepted: false, error: 'source-unavailable' }))
+      .mockResolvedValueOnce(
+        rpcOk({
+          success: true,
+          handoff: { content: '# H', path: null, seed: 'FALLBACK SEED' },
+        }),
+      );
+
+    await h.service.continueInNewSession();
+
+    expect(h.rpcCallMock).toHaveBeenNthCalledWith(2, 'session:budgetAction', {
+      sessionId: SESSION,
+      action: 'preview-handoff',
+    });
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledWith('FALLBACK SEED', null);
+    expect(h.showErrorMock).not.toHaveBeenCalled();
+    expect(h.clearQueuedContentAndOptionsMock).not.toHaveBeenCalled();
+    expect(h.service.busy()).toBe(false);
+  });
+
+  it('still reports an unavailable host without opening a tab', async () => {
+    const h = setup();
+    h.rpcCallMock.mockResolvedValue(rpcOk({ accepted: false, error: 'unavailable' }));
+
+    await h.service.continueInNewSession();
+
+    expect(h.rpcCallMock).toHaveBeenCalledTimes(1);
+    expect(h.createTabMock).not.toHaveBeenCalled();
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      'Session handover is not available in this window.',
+      'tab-abc',
+    );
+  });
+
+  it('Retry after a "source session unavailable" failure opens a new tab with the seed', async () => {
+    const h = setup();
+    TestBed.inject(SessionHandoverClientService).record(SESSION, {
+      ...HANDOVER,
+      phase: 'failed',
+      revision: 2,
+      error: 'source session unavailable',
+    });
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: '# H', path: null, seed: 'RETRY SEED' },
+      }),
+    );
+
+    await h.service.continueInNewSession();
+
+    expect(h.rpcCallMock).not.toHaveBeenCalledWith(
+      'session:beginHandover',
+      expect.anything(),
+    );
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledWith('RETRY SEED', null);
+  });
+
+  it('Retry after any other failure begins a new handover', async () => {
+    const h = setup();
+    TestBed.inject(SessionHandoverClientService).record(SESSION, {
+      ...HANDOVER,
+      phase: 'failed',
+      revision: 2,
+      error: 'handover unavailable',
+    });
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({ accepted: true, state: { ...HANDOVER, revision: 3 } }),
+    );
+
+    await h.service.continueInNewSession();
+
+    expect(h.rpcCallMock).toHaveBeenCalledWith(
+      'session:beginHandover',
+      expect.objectContaining({ sourceSessionId: SESSION }),
+    );
+    expect(h.createTabMock).not.toHaveBeenCalled();
   });
 
   it('cancels an active handover to keep working', async () => {

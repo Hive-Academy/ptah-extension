@@ -43,7 +43,11 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
-import type { ExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+import {
+  SESSION_HANDOVER_HELD,
+  type ExecutionChatMessage,
+  type SessionId,
+} from '@ptah-extension/shared';
 
 /** Test tabs take plain-string ids: the brands (TabId, SessionId) are applied by the cast below. */
 function makeTab(
@@ -540,6 +544,69 @@ describe('MessageSenderService', () => {
         const outcome = await service.send('follow up', { tabId: 'tab-1' });
 
         expect(outcome).toEqual({ success: false, error: 'auth' });
+      });
+
+      // TASK_2026_627 R9: a budget refusal or a handover hold is expected,
+      // so it is logged at info; any other rejection stays an error.
+      describe('logging a refused continue', () => {
+        let consoleInfo: jest.SpyInstance;
+
+        beforeEach(() => {
+          consoleInfo = jest.spyOn(console, 'info').mockImplementation();
+        });
+
+        afterEach(() => {
+          consoleInfo.mockRestore();
+        });
+
+        it.each([
+          [
+            'a budget refusal',
+            {
+              success: true,
+              data: {
+                success: false,
+                errorCode: 'SESSION_BUDGET_REACHED',
+                error: 'Session budget reached',
+              },
+            },
+            { errorCode: 'SESSION_BUDGET_REACHED' },
+          ],
+          [
+            'a handover hold',
+            {
+              success: true,
+              data: { success: false, error: SESSION_HANDOVER_HELD },
+            },
+            { errorCode: SESSION_HANDOVER_HELD },
+          ],
+        ])(
+          'logs %s at info, not error',
+          async (_what, continueResult, expected) => {
+            failContinue(continueResult);
+
+            const outcome = await service.send('held', { tabId: 'tab-1' });
+
+            expect(outcome).toEqual(expect.objectContaining(expected));
+            expect(consoleInfo).toHaveBeenCalledWith(
+              '[MessageSender] Continue held by the session budget or handover:',
+              expect.any(String),
+            );
+            expect(consoleError).not.toHaveBeenCalled();
+          },
+        );
+
+        it('keeps any other rejection at error', async () => {
+          failContinue({ success: false, error: 'turn rejected' });
+
+          await service.send('follow up', { tabId: 'tab-1' });
+
+          expect(consoleError).toHaveBeenCalledWith(
+            '[MessageSender] Failed to continue chat:',
+            'turn rejected',
+          );
+          expect(consoleInfo).not.toHaveBeenCalled();
+        });
       });
 
       it('rolls nothing back when the continue is delivered', async () => {

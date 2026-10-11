@@ -70,6 +70,16 @@ const READ_STATUS_TEXT: Readonly<
 const COMPACT_NOTE =
   "/compact frees context but does not reset this session's budget";
 
+/** A finite, non-negative integer; `waitingFor` is not validated upstream. */
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+/** `1 subagent`, `2 subagents`. */
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
@@ -298,6 +308,16 @@ const FOCUS =
             >
               Continue now
             </button>
+            @if (awaitingConfirmation()) {
+              <button
+                type="button"
+                class="btn btn-xs btn-outline {{ focus }}"
+                [disabled]="busy()"
+                (click)="cancelHandover.emit()"
+              >
+                Cancel (keep working)
+              </button>
+            }
           } @else {
             <button
               type="button"
@@ -437,8 +457,44 @@ export class SessionBudgetBannerComponent {
     if (!budget || (budget.stage !== 'handoff' && budget.stage !== 'limit')) {
       return null;
     }
-    if (budget.stage === 'handoff' && budget.dismissedStage === 'handoff') return null;
+    // A handover waiting for the user's click is never hidden by a dismissal,
+    // or it would wait unseen (Batch 5F wait limit).
+    if (
+      budget.stage === 'handoff' &&
+      budget.dismissedStage === 'handoff' &&
+      handover?.phase !== 'awaiting-confirmation'
+    ) {
+      return null;
+    }
     return budget.stage;
+  });
+
+  /**
+   * True while a handover at the handoff stage waits for the user (an
+   * automatic one past its work-in-flight wait limit). "Continue now"
+   * confirms it; Cancel releases it.
+   */
+  protected readonly awaitingConfirmation = computed(
+    () =>
+      this.stage() === 'handoff' &&
+      this.handover()?.phase === 'awaiting-confirmation',
+  );
+
+  /**
+   * Work the automatic handover waits for. Only while the phase is
+   * `waiting-for-turn-end`: a cancelled or failed state can carry a stale
+   * `waitingFor` (627-L2). The webview guard does not validate the counts,
+   * so anything but non-negative integers falls back to the plain copy.
+   */
+  private readonly waitingFor = computed(() => {
+    const handover = this.handover();
+    if (handover?.phase !== 'waiting-for-turn-end') return null;
+    const subagents = handover.waitingFor?.subagents;
+    const lanes = handover.waitingFor?.lanes;
+    if (!isCount(subagents) || !isCount(lanes) || subagents + lanes === 0) {
+      return null;
+    }
+    return { subagents, lanes };
   });
 
   protected readonly tone = computed<BannerTone>(() => {
@@ -547,6 +603,13 @@ export class SessionBudgetBannerComponent {
     const budget = this.budget();
     if (!budget || !stage) return '';
     if (stage === 'handoff') {
+      const waiting = this.waitingFor();
+      if (waiting) {
+        return `Waiting for ${plural(waiting.subagents, 'subagent')} and ${plural(waiting.lanes, 'CLI lane')} before continuing in a new session.`;
+      }
+      if (this.awaitingConfirmation()) {
+        return 'Work is still running in this session. Continue now in a new session, or cancel to keep working here.';
+      }
       return `Waiting for handover to start at ${this.amount(budget)}. You can continue now if needed.`;
     }
     return this.limitBody(budget);

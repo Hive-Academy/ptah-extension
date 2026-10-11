@@ -180,6 +180,146 @@ describe('SessionBudgetBannerComponent', () => {
     expect(root.querySelectorAll('button')).toHaveLength(1);
   });
 
+  // TASK_2026_627 Component 9: the waiting copy names the work in flight.
+  describe('automatic handover waiting at the handoff stage', () => {
+    const HANDOFF_BUDGET: SessionBudgetState = {
+      ...BASE,
+      stage: 'handoff',
+      used: 40_000_000,
+      percent: 80,
+      handoff: HANDOFF,
+    };
+    const WAITING: SessionHandoverState = {
+      operationId: 'handover-1',
+      sourceSessionId: BASE.sessionId,
+      reason: 'budget-auto',
+      phase: 'waiting-for-turn-end',
+      revision: 2,
+      heldInputCount: 0,
+      waitingFor: { subagents: 2, lanes: 1 },
+    };
+    const PLAIN_COPY =
+      'Waiting for handover to start at 40.0M of 50.0M tokens. You can continue now if needed.';
+
+    function buttons(root: HTMLElement): (string | undefined)[] {
+      return Array.from(root.querySelectorAll('button')).map((item) =>
+        item.textContent?.trim(),
+      );
+    }
+
+    it('shows the subagent and lane counts and keeps Continue now', () => {
+      const root = render(HANDOFF_BUDGET, { handover: WAITING });
+      const continueInNewSession = jest.fn();
+      fixture.componentInstance.continueInNewSession.subscribe(continueInNewSession);
+
+      expect(text(root, 'session-budget-body')).toBe(
+        'Waiting for 2 subagents and 1 CLI lane before continuing in a new session.',
+      );
+      expect(buttons(root)).toEqual(['Continue now']);
+      const continueNow = button(root, 'Continue now');
+      expect(continueNow.getAttribute('aria-label')).toBe(
+        'Start new session from handoff',
+      );
+      continueNow.click();
+      expect(continueInNewSession).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['a negative count', { subagents: -1, lanes: 1 }],
+      ['a fractional count', { subagents: 1.5, lanes: 0 }],
+      ['an infinite count', { subagents: Infinity, lanes: 0 }],
+      ['NaN', { subagents: Number.NaN, lanes: 1 }],
+      ['a non-number', { subagents: '2' as unknown as number, lanes: 1 }],
+      ['nothing in flight', { subagents: 0, lanes: 0 }],
+    ])('(a) falls back to the plain copy for %s', (_what, waitingFor) => {
+      const root = render(HANDOFF_BUDGET, {
+        handover: { ...WAITING, waitingFor },
+      });
+
+      expect(text(root, 'session-budget-body')).toBe(PLAIN_COPY);
+      expect(buttons(root)).toEqual(['Continue now']);
+    });
+
+    it('falls back to the plain copy without waitingFor', () => {
+      const root = render(HANDOFF_BUDGET, {
+        handover: { ...WAITING, waitingFor: undefined },
+      });
+
+      expect(text(root, 'session-budget-body')).toBe(PLAIN_COPY);
+    });
+
+    it.each(['cancelled', 'armed'] as const)(
+      '(b) a %s state with a stale waitingFor never shows waiting copy',
+      (phase) => {
+        const root = render(HANDOFF_BUDGET, {
+          handover: { ...WAITING, phase, revision: 3 },
+        });
+
+        expect(text(root, 'session-budget-body')).toBe(PLAIN_COPY);
+        expect(text(root, 'session-budget-body')).not.toContain('subagent');
+      },
+    );
+
+    it('(b) a failed state with a stale waitingFor shows the failure, not waiting copy', () => {
+      const root = render(HANDOFF_BUDGET, {
+        handover: { ...WAITING, phase: 'failed', revision: 3, error: 'handover unavailable' },
+      });
+
+      expect(text(root, 'session-budget-title')).toBe('Could not continue in a new session');
+      expect(text(root, 'session-budget-body')).toBe('handover unavailable');
+    });
+
+    it('(c) awaiting confirmation after the wait limit offers Continue now and Cancel', () => {
+      const root = render(HANDOFF_BUDGET, {
+        handover: { ...WAITING, phase: 'awaiting-confirmation', revision: 4, waitingFor: undefined },
+      });
+      const continueInNewSession = jest.fn();
+      const cancel = jest.fn();
+      fixture.componentInstance.continueInNewSession.subscribe(continueInNewSession);
+      fixture.componentInstance.cancelHandover.subscribe(cancel);
+
+      expect(text(root, 'session-budget-title')).toBe('Preparing to continue in a new session…');
+      expect(text(root, 'session-budget-body')).toBe(
+        'Work is still running in this session. Continue now in a new session, or cancel to keep working here.',
+      );
+      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+      button(root, 'Continue now').click();
+      button(root, 'Cancel (keep working)').click();
+      expect(continueInNewSession).toHaveBeenCalledTimes(1);
+      expect(cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('(c) a dismissed handoff still shows a handover awaiting confirmation', () => {
+      const root = render(
+        { ...HANDOFF_BUDGET, dismissedStage: 'handoff' },
+        { handover: { ...WAITING, phase: 'awaiting-confirmation', revision: 4 } },
+      );
+
+      expect(banner(root)).not.toBeNull();
+      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+    });
+
+    it('the limit stage awaiting confirmation keeps New session', () => {
+      const root = render(
+        { ...HANDOFF_BUDGET, stage: 'limit', blocked: true, percent: 100.2 },
+        {
+          handover: {
+            ...WAITING,
+            reason: 'budget-limit',
+            phase: 'awaiting-confirmation',
+            revision: 4,
+            waitingFor: undefined,
+          },
+        },
+      );
+
+      expect(buttons(root)).toEqual(['New session', 'Preview handoff', 'Allow 20% more']);
+      expect(button(root, 'New session').getAttribute('aria-label')).toBe(
+        'Continue in new session',
+      );
+    });
+  });
+
   it('renders limit stats and its sparkline in the same notification', () => {
     const root = render(
       {

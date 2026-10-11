@@ -742,10 +742,19 @@ export class MessageSenderService {
         this.tabManager.installSessionBudget(activeTabId, refusalBudget);
       }
       if (!result.success || authFailed || result.data?.success === false) {
-        console.error(
-          '[MessageSender] Failed to continue chat:',
-          result.data?.error ?? result.error,
-        );
+        // A budget refusal or a handover hold is an expected outcome the
+        // banner explains, not a failure (R9). Everything else stays an error.
+        if (!authFailed && (budgetReached || handoverHeld)) {
+          console.info(
+            '[MessageSender] Continue held by the session budget or handover:',
+            result.data?.error ?? result.error,
+          );
+        } else {
+          console.error(
+            '[MessageSender] Failed to continue chat:',
+            result.data?.error ?? result.error,
+          );
+        }
         // At the budget limit the prompt goes back to the composer, so its
         // bubble goes too; showing it would claim a message that was refused.
         this.rollBackUnsentPrompt(

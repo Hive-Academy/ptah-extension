@@ -41,6 +41,13 @@ export interface SessionBudgetUsageSample {
 /** Sparkline length. Older points drop off the front. */
 const USAGE_CAP = 60;
 
+/**
+ * The coordinator's `failed` error when the source session no longer exists
+ * (`session-handover-coordinator.service.ts`). Not part of the shared
+ * contract, so it is matched as published.
+ */
+const SOURCE_UNAVAILABLE_FAILURE = 'source session unavailable';
+
 const NO_VIEW: SessionBudgetView = {
   activeTab: signal(null),
   tabId: signal(null),
@@ -186,14 +193,28 @@ export class SessionBudgetActionsService {
     });
   }
 
-  /** Start the backend-owned, single-flight successor flow. */
+  /**
+   * Start the backend-owned, single-flight successor flow. When the source
+   * session is gone (refused with `source-unavailable`, or a Retry after the
+   * handover failed for that reason) the backend can never hand it over, so
+   * fall back to {@link rotateSession}: a new tab with the seed in its composer.
+   */
   async continueInNewSession(): Promise<void> {
     const sessionId = this.view().sessionId();
     const tabId = this.view().tabId();
     if (!sessionId || !tabId || this._busy()) return;
+    const handover = this.handoverClient.stateFor(sessionId);
+    if (
+      handover?.phase === 'failed' &&
+      handover.error === SOURCE_UNAVAILABLE_FAILURE
+    ) {
+      await this.rotateSession();
+      return;
+    }
     const queuedInput = this.tabManager
       .findTabByIdAcrossWorkspaces(tabId)
       ?.tab.queuedContent?.trim();
+    let sourceGone = false;
     this._busy.set(true);
     try {
       const result = await this.claudeRpc.call('session:beginHandover', {
@@ -212,11 +233,15 @@ export class SessionBudgetActionsService {
         this.handoverClient.record(sessionId, data.state);
         return;
       }
-      this.showError(
-        data?.error === 'unavailable'
-          ? 'Session handover is not available in this window.'
-          : 'Could not start the session handover. Please try again.',
-      );
+      if (data?.error === 'source-unavailable') {
+        sourceGone = true;
+      } else {
+        this.showError(
+          data?.error === 'unavailable'
+            ? 'Session handover is not available in this window.'
+            : 'Could not start the session handover. Please try again.',
+        );
+      }
     } catch (error: unknown) {
       this.showError(
         `Could not start the session handover: ${error instanceof Error ? error.message : String(error)}`,
@@ -224,6 +249,8 @@ export class SessionBudgetActionsService {
     } finally {
       this._busy.set(false);
     }
+    // After `finally`: the rotate runs its own busy-guarded budget action.
+    if (sourceGone) await this.rotateSession();
   }
 
   /** Release the backend-held transfer and keep the source session active. */
