@@ -13,7 +13,10 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import type { TabState } from '@ptah-extension/chat-types';
+import {
+  createEmptyStreamingState,
+  type TabState,
+} from '@ptah-extension/chat-types';
 import { SessionId, type SessionStatsEntry } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import {
@@ -841,6 +844,126 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       expect(service.installSessionStats(tabId, provisional(4))).toBe(true);
 
       expect(tabOf(tabId)?.sessionBudget).toBe(budget);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // liveBudgetStage (TASK_2026_627 F1)
+  // The display-only live stage is set and cleared through its own setter,
+  // guarded by the bound session, and reset wherever `sessionBudget` is reset
+  // for a new or rebound session.
+  // ---------------------------------------------------------------------
+  describe('liveBudgetStage (TASK_2026_627)', () => {
+    const SESSION = SessionId.create();
+    const OTHER = SessionId.create();
+
+    const tabOf = (tabId: string) =>
+      service.tabs().find((candidate) => candidate.id === tabId);
+
+    function boundTab(stage: 'handoff' | 'limit' | null = null): string {
+      const tabId = service.createTab('live stage');
+      service.attachSession(tabId, SESSION);
+      if (stage) service.setLiveBudgetStage(tabId, SESSION, stage);
+      return tabId;
+    }
+
+    function spyOnUpdates(): jest.SpyInstance {
+      const internal = service as unknown as {
+        updateTabInternal: (id: string, updates: Partial<TabState>) => void;
+      };
+      return jest.spyOn(internal, 'updateTabInternal');
+    }
+
+    it.each(['handoff', 'limit'] as const)(
+      'sets %s on the tab bound to the session',
+      (stage) => {
+        const tabId = boundTab();
+
+        service.setLiveBudgetStage(tabId, SESSION, stage);
+
+        expect(tabOf(tabId)?.liveBudgetStage).toBe(stage);
+      },
+    );
+
+    it('clears the stage on null and leaves the budget alone', () => {
+      const tabId = boundTab('limit');
+      const budgetBefore = tabOf(tabId)?.sessionBudget;
+
+      service.setLiveBudgetStage(tabId, SESSION, null);
+
+      expect(tabOf(tabId)?.liveBudgetStage).toBeNull();
+      expect(tabOf(tabId)?.sessionBudget).toBe(budgetBefore);
+    });
+
+    it('writes nothing for another session or an unknown tab', () => {
+      const tabId = boundTab('handoff');
+      const update = spyOnUpdates();
+
+      service.setLiveBudgetStage(tabId, OTHER, 'limit');
+      service.setLiveBudgetStage('missing-tab', SESSION, 'limit');
+
+      expect(update).not.toHaveBeenCalled();
+      expect(tabOf(tabId)?.liveBudgetStage).toBe('handoff');
+    });
+
+    it('skips the write when the stage is unchanged', () => {
+      const tabId = boundTab('handoff');
+      const update = spyOnUpdates();
+
+      service.setLiveBudgetStage(tabId, SESSION, 'handoff');
+
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('skips a null write on a tab that never had a stage', () => {
+      const tabId = boundTab();
+      const update = spyOnUpdates();
+
+      service.setLiveBudgetStage(tabId, SESSION, null);
+
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('resetTabToFresh clears the stage', () => {
+      const tabId = boundTab('limit');
+
+      service.resetTabToFresh(tabId);
+
+      expect(tabOf(tabId)?.liveBudgetStage).toBeNull();
+    });
+
+    it('rebindTabSession clears the stage', () => {
+      const tabId = boundTab('limit');
+
+      service.rebindTabSession(tabId, OTHER, 'forked');
+
+      expect(tabOf(tabId)?.liveBudgetStage).toBeNull();
+    });
+
+    it('applyResumingSession clears the stage for another session', () => {
+      const tabId = boundTab('handoff');
+
+      service.applyResumingSession(tabId, {
+        sessionId: OTHER,
+        name: 'name',
+        title: 'title',
+        streamingState: createEmptyStreamingState(),
+      });
+
+      expect(tabOf(tabId)?.liveBudgetStage).toBeNull();
+    });
+
+    it('applyResumingSession keeps the stage for the same session', () => {
+      const tabId = boundTab('handoff');
+
+      service.applyResumingSession(tabId, {
+        sessionId: SESSION,
+        name: 'name',
+        title: 'title',
+        streamingState: createEmptyStreamingState(),
+      });
+
+      expect(tabOf(tabId)?.liveBudgetStage).toBe('handoff');
     });
   });
 

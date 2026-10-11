@@ -1251,6 +1251,7 @@ export class TabManagerService {
       queuedOptions: null,
       sessionStats: null,
       sessionBudget: null,
+      liveBudgetStage: null,
       liveModelStats: null,
       hasLiveSession: false,
       compactionCount: 0,
@@ -2275,6 +2276,23 @@ export class TabManagerService {
   }
 
   /**
+   * Set or clear the display-only live budget stage a `session:stats-live`
+   * payload carried. Dropped when it names another session than the tab is
+   * bound to, and skipped when the stage is unchanged so a stream of live
+   * payloads does not rewrite the tab. Never touches `sessionBudget`.
+   */
+  setLiveBudgetStage(
+    tabId: string,
+    sessionId: string,
+    stage: 'handoff' | 'limit' | null,
+  ): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab || tab.claudeSessionId !== sessionId) return;
+    if ((tab.liveBudgetStage ?? null) === stage) return;
+    this.updateTabInternal(tabId, { liveBudgetStage: stage });
+  }
+
+  /**
    * Drop the budget state from every open tab in every workspace. Called when
    * the user saves `sessionBudget.enabled = false`: sends already go through,
    * so a limit banner must not wait for the next stats snapshot to go away.
@@ -2424,6 +2442,7 @@ export class TabManagerService {
       queuedContent: null,
       sessionStats: null,
       sessionBudget: null,
+      liveBudgetStage: null,
       liveModelStats: null,
       compactionCount: 0,
     });
@@ -2521,7 +2540,9 @@ export class TabManagerService {
       name: payload.name,
       titleOrigin: 'history',
       claudeSessionId: payload.sessionId,
-      ...(previousSessionId !== payload.sessionId ? { sessionBudget: null } : {}),
+      ...(previousSessionId !== payload.sessionId
+        ? { sessionBudget: null, liveBudgetStage: null }
+        : {}),
       // A resume installs a fresh SDK query. Its revisions do NOT restart —
       // the backend floor is per session id (TASK_2026_371) — but this tab may
       // be adopting a session it never streamed, so it starts with no recorded

@@ -1331,7 +1331,7 @@ other rows stay as recorded.
   - G4: `noticeQueue?.post` only on the `request-wrap-up` path.
   - G5: `draftText` never reaches `restoreInputs` or `admitOrHold`.
 
-## Batch 14: Frontend tab state carries the live stage (F1-part) — PENDING
+## Batch 14: Frontend tab state carries the live stage (F1-part) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
@@ -1340,7 +1340,7 @@ other rows stay as recorded.
 - Tasks: 1 | Depends on: Batch 10
 - Phase: 4 | Phase review: as Batch 9
 
-### Task 14.1: `TabState.liveBudgetStage` and its setter — PENDING
+### Task 14.1: `TabState.liveBudgetStage` and its setter — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat-types\src\lib\chat-types.ts`;
   `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat-state\src\lib\tab-manager.service.ts`
@@ -1358,6 +1358,10 @@ other rows stay as recorded.
 - `npx jest -c libs/frontend/chat-state/jest.config.ts libs/frontend/chat-state/src/lib/tab-manager.service.spec.ts --coverage=false --maxWorkers=2`;
   then `npx nx typecheck @ptah-extension/chat-types --parallel=1`; then
   `npx nx typecheck @ptah-extension/chat-state --parallel=1`; then lint both with `--parallel=1`.
+- Result (team-leader): jest 60/60; typecheck both OK; lint chat-types 0 problems, chat-state 0 errors
+  and 2 pre-existing warnings (baseline). Report: `batch-14-report.md`.
+- Accepted deviation: D25 "clear on budget disabled" and the persisted stage were left out (files not
+  owned); both moved to Task 15.4.
 
 ## Batch 15: Frontend services — live stage, draft bookkeeping, actions (F1) — PENDING
 
@@ -1365,7 +1369,7 @@ other rows stay as recorded.
 - Fallback executor: frontend-developer, fresh session
 - Execution mode: sequential
 - Rationale: three services in one lib that the view reads together
-- Tasks: 3 | Depends on: Batches 9, 10, 11, 14
+- Tasks: 4 | Depends on: Batches 9, 10, 11, 14
 - Phase: 4 | Phase review: as Batch 9
 
 ### Task 15.1: Aggregator applies and clears `liveBudgetStage` — PENDING
@@ -1403,6 +1407,20 @@ other rows stay as recorded.
   `queuedInput` (R5 copy). `cancelHandover` records the returned `state` through the client. S12
   (`source-unavailable` fallback) stays green.
 - Validation notes: R-P4, R-P7; 627-L16 display half (the streaming-only rule).
+
+### Task 15.4: Clear `liveBudgetStage` on disable and on persist/restore (Batch 14 follow-ups) — PENDING
+
+- Added by team-leader at Batch 14 acceptance. Adds chat-state files to Batch 15 (above the 6-file
+  cap; accepted because each change is one line).
+- Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat-state\src\lib\tab-manager.service.ts`,
+  `tab-manager.intent-mutators.spec.ts`, `tab-persistence.ts` (and its spec if one asserts the shape)
+- Quality requirements: (a) D25 — `clearSessionBudgets()` and `clearSessionBudget()` patch
+  `{ sessionBudget: null, liveBudgetStage: null }`; update the exact-payload assertion at
+  `tab-manager.intent-mutators.spec.ts:1339-1342`. (b) `projectTabForPersist` and
+  `sanitizeRestoredTab` set `liveBudgetStage: null`, so a stale stage cannot flash at the start of
+  the next turn after a reload.
+- Verification: also run the chat-state specs touched, then `npx nx typecheck` and `npx nx lint`
+  for `@ptah-extension/chat-state` with `--parallel=1` (lint baseline 0 errors, 2 warnings).
 
 ### Batch 15 verification
 
