@@ -67,7 +67,7 @@ function makeHarness(
     config?: Record<string, unknown>;
     /** `null` builds the spawner with no recorder bound (VS Code). */
     recorder?: { recordAgentStartedSession: jest.Mock } | null;
-    handoverCoordinator?: Pick<SessionHandoverCoordinator, 'begin' | 'admitOrHold' | 'setResourceLeaseProvider' | 'onStateChange'> | null;
+    handoverCoordinator?: Pick<SessionHandoverCoordinator, 'requestFromAgent' | 'admitOrHold' | 'setResourceLeaseProvider' | 'onStateChange'> | null;
   } = {},
 ) {
   const logger = createMockLogger() as unknown as Logger;
@@ -182,7 +182,7 @@ function makeHarness(
       host?: unknown;
       mcpStatus?: unknown;
       container?: DependencyContainer | null;
-      handoverCoordinator?: Pick<SessionHandoverCoordinator, 'begin' | 'admitOrHold' | 'setResourceLeaseProvider' | 'onStateChange'> | null;
+      handoverCoordinator?: Pick<SessionHandoverCoordinator, 'requestFromAgent' | 'admitOrHold' | 'setResourceLeaseProvider' | 'onStateChange'> | null;
     } = {},
   ) =>
     new SessionSpawnerService(
@@ -404,16 +404,15 @@ describe('SessionSpawnerService.start — guards in order', () => {
     expect(result).toMatchObject({ ok: false, refusal: 'depth-exceeded' });
   });
 
-  it('lets a child start a successor but not another child', async () => {
-    const begin = jest.fn().mockReturnValue({ accepted: true, state: {} });
-    const h = makeHarness({
-      handoverCoordinator: {
-        begin,
-        admitOrHold: jest.fn(() => ({ held: false })),
-        setResourceLeaseProvider: jest.fn(() => () => undefined),
-        onStateChange: jest.fn(() => () => undefined),
-      },
-    });
+  it('lets a child request a successor but not start another child', async () => {
+    const requestFromAgent = jest.fn().mockReturnValue({ accepted: true, state: {} });
+    const coordinator = {
+      requestFromAgent,
+      admitOrHold: jest.fn(() => ({ held: false })),
+      setResourceLeaseProvider: jest.fn(() => () => undefined),
+      onStateChange: jest.fn(() => () => undefined),
+    };
+    const h = makeHarness({ handoverCoordinator: coordinator });
     const child = await h.startChild();
 
     await expect(h.spawner.start({
@@ -421,12 +420,37 @@ describe('SessionSpawnerService.start — guards in order', () => {
       mode: 'successor',
       handoff: 'continue',
     })).resolves.toEqual({ ok: true, successor: true });
-    expect(begin).toHaveBeenCalledWith(child.childSessionId, 'successor', false, 'continue');
+    // An agent only asks (D23): the request waits for the user; no `begin`.
+    expect(requestFromAgent).toHaveBeenCalledWith(child.childSessionId, 'continue');
+    expect(coordinator).not.toHaveProperty('begin');
     await expect(h.spawner.start(h.request({
       callerSessionId: child.childSessionId,
       branch: 'feat/grandchild',
     }))).resolves.toMatchObject({ ok: false, refusal: 'depth-exceeded' });
   });
+
+  it.each(['unavailable', 'source-unavailable'] as const)(
+    'refuses chat-runtime-unavailable when the coordinator refuses the agent request (%s)',
+    async (error) => {
+      const requestFromAgent = jest.fn().mockReturnValue({ accepted: false, error });
+      const h = makeHarness({
+        handoverCoordinator: {
+          requestFromAgent,
+          admitOrHold: jest.fn(() => ({ held: false })),
+          setResourceLeaseProvider: jest.fn(() => () => undefined),
+          onStateChange: jest.fn(() => () => undefined),
+        },
+      });
+      const child = await h.startChild();
+
+      await expect(h.spawner.start({
+        callerSessionId: child.childSessionId,
+        mode: 'successor',
+        handoff: 'continue',
+      })).resolves.toMatchObject({ ok: false, refusal: 'chat-runtime-unavailable' });
+      expect(requestFromAgent).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('refuses mcp-unavailable when the server has no port, before reserving', async () => {
     const h = makeHarness({ config: { 'agentSessions.maxConcurrent': 1 } });
@@ -524,7 +548,7 @@ describe('SessionSpawnerService — successor lease transfer', () => {
   function withHandover() {
     let stateListener: (state: SessionHandoverState) => void = () => undefined;
     const coordinator = {
-      begin: jest.fn(),
+      requestFromAgent: jest.fn(),
       admitOrHold: jest.fn(() => ({ held: false })),
       setResourceLeaseProvider: jest.fn(() => () => undefined),
       onStateChange: jest.fn((listener: (state: SessionHandoverState) => void) => {

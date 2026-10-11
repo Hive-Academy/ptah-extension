@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 14/20
+Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 15/20
 
 Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
 completion below; see "Phase 4" at the end of this file.
@@ -1285,7 +1285,7 @@ other rows stay as recorded.
   production coordinator `.begin(` only at `session-handover-rpc.handlers.ts:99`; no `admitOrHold`
   or `restoreInputs` in the handler.
 
-## Batch 13: Agent successor tool asks the user (C1, D23) — PENDING
+## Batch 13: Agent successor tool asks the user (C1, D23) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -1294,7 +1294,7 @@ other rows stay as recorded.
 - Tasks: 2 | Depends on: Batch 9
 - Phase: 4 | Phase review: as Batch 9
 
-### Task 13.1: `startSuccessor` calls `requestFromAgent` — PENDING
+### Task 13.1: `startSuccessor` calls `requestFromAgent` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\cli-agent-runtime\src\lib\session-children\session-spawner.service.ts`
   and `session-spawner.service.spec.ts`
@@ -1308,7 +1308,7 @@ other rows stay as recorded.
 - Validation notes: R-P10; A6 (the steer path `admitOrHold` at `:645` keeps its code; a steer during
   an agent request or a user-started wait is not held).
 
-### Task 13.2: Tool reply and description say successor mode asks the user — PENDING
+### Task 13.2: Tool reply and description say successor mode asks the user — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\session-tool-handlers.ts`,
   `session-tools.ts`, `session-tools.spec.ts`
@@ -1334,6 +1334,19 @@ other rows stay as recorded.
   - G3: `complete(` only from `startConfirmed`.
   - G4: `noticeQueue?.post` only on the `request-wrap-up` path.
   - G5: `draftText` never reaches `restoreInputs` or `admitOrHold`.
+- Team-leader verified: spawner spec 1 suite / 77 tests passed (mapper); `session-tools.spec.ts`
+  1 suite / 45 tests passed; typecheck and lint passed for both projects (0 errors; eslint on the
+  five changed files gives only the existing `max-lines` warning on `session-spawner.service.ts`,
+  1456 lines, down from 1457). Grep gates: G1 only the frontend banner spec (`budget-auto`, Task 16.2);
+  G2 `userConfirmed = true` only in `begin` and the coordinator `.begin(` only at
+  `session-handover-rpc.handlers.ts:99`; G3 `complete(` only from `startConfirmed`; G4 the budget
+  `noticeQueue.post` only on the wrap-up request path (the separate `notices.post` in
+  `agent-sdk/di/register.ts` is the Batch 2 subagent monitor); G5 clean. A6: steer `admitOrHold`
+  (`session-spawner.service.ts:644`) unchanged.
+- Mapper note for later runs: a CLI `--moduleNameMapper` replaces the config's mapper, so the
+  vscode-lm-tools specs need a third entry. In a single-quoted Bash argument, write it as
+  `"(^|/)wasm-bundle-dir(\\\\.js)?$":"D:/projects/ptah-extension/.claude-worktrees/session-budget-handoff/libs/backend/vscode-lm-tools/__mocks__/wasm-bundle-dir.ts"`
+  (four backslashes; two fail JSON parsing).
 
 ## Batch 14: Frontend tab state carries the live stage (F1-part) — COMPLETE (a106621bf)
 

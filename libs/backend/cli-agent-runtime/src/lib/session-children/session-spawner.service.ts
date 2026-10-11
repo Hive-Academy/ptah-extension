@@ -296,12 +296,11 @@ export class SessionSpawnerService implements ISessionSpawner {
     if (!this.handoverCoordinator) {
       return this.refuseStart('chat-runtime-unavailable', 'this host has no handover coordinator');
     }
+    // An agent may only ask (D23): the request waits in the source tab's
+    // banner for the user's approval and nothing starts until then.
     const activeId = this.sdkIdOf(caller) ?? caller;
-    const turnInFlight = this.turnState.get(activeId)?.phase === 'generating';
-    const result = this.handoverCoordinator.begin(
+    const result = this.handoverCoordinator.requestFromAgent(
       activeId,
-      'successor',
-      turnInFlight,
       request.handoff,
     );
     if (!result.accepted) {

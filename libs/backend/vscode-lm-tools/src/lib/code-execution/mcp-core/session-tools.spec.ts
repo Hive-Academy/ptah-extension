@@ -321,7 +321,11 @@ describe('handleSessionToolCall', () => {
       start: jest.fn().mockResolvedValue({ ok: true, successor: true }),
     });
     expect((await call('ptah_session_start', { mode: 'successor', handoff: 'notes' }, successor)).text)
-      .toMatch(/Successor handover accepted/);
+      .toBe(
+        'Successor handover requested. It waits for the user to approve it in the session ' +
+          'banner; nothing changes until then. Keep working normally. If the user cancels, ' +
+          'this session continues.',
+      );
     expect(successor.start).toHaveBeenCalledWith({ mode: 'successor', handoff: 'notes' });
 
     const held = fakeSession({
