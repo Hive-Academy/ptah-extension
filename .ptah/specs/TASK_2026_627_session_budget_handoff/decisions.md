@@ -312,3 +312,29 @@ Dropped as not a defect in this diff, with evidence:
 - Consequence: 627-L14, 627-L15 and D20 item 1 disappear by design (nothing auto-starts). The
   live feed (Batches 7-8) stays only for display (stage in the banner); it must arm nothing.
 - Next: software-architect writes a plan addendum; cross-side review on a codex lane; Gate 2.
+
+## D23 (orchestrator, plan v2 review round 1): agent-initiated successor needs the user's confirmation
+
+- Review: `implementation-plan-v2-user-authorized-review.md` (codex lane, REVISE 5/10), Finding 1 / Q1.
+- Choice: keep `ptah_session_start` successor mode, but it no longer starts or waits on its own. It
+  parks a `successor` op in `awaiting-confirmation` with an "agent requested" marker; the banner shows
+  "The agent asks to continue in a new session" with Approve (→ the normal user begin path, work
+  gate included) and Cancel. The tool returns that the request awaits the user.
+- Why: D22 requires a user click for every handover; a tool call under general tool permission is not
+  that click (reviewer). A refusal would remove a capability, which needs the user's approval; routing
+  through confirmation keeps the capability and satisfies D22.
+
+## D24 (orchestrator, plan v2 review round 1): Cancel puts captured composer text back as a draft
+
+- Review Finding 2: `restoreInputs` prepends to the source message queue and wakes the pump
+  (`session-registry.service.ts:560-573`), so captured composer text would be sent on Cancel.
+- Choice: composer text captured by the click is stored apart from held send inputs and is returned to
+  the tab's composer as a draft on Cancel/failure (before and after the turn ends, and at the blocking
+  limit). It is never sent to the source without the user pressing send.
+
+## D25 (orchestrator, plan v2 review round 1): live stage semantics and unknown lane counts
+
+- Finding 3: define the live-stage contract so an ignored estimate never clears the display; clear
+  only at turn terminal/result and when the budget is disabled or settings change.
+- Lane-provider error: show "lane status unknown" in the waiting copy; do not count it as zero, so the
+  wait does not end by itself on an unknown; the user can always use "Continue now anyway".
