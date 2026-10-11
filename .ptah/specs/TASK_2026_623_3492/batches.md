@@ -2110,7 +2110,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   `notes`. Contrast `laneListItems`, which appends a "+N more" item for `$limits` only.
 - Checks: `diff -r` exit 0; `ptah-ui-compactness.spec.ts` 31/31. No fence, example or catalog.md touched. No GAP.
 
-## Batch 31: DOC2 content manifest and measurement — COMPLETE (decisions #141-#142)
+## Batch 31: DOC2 content manifest and measurement — COMPLETE (commit 29c3418f0; decisions #141-#142)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -2160,7 +2160,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Then, one at a time: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20` (Task 31.3).
 - Every Jest call adds the `--moduleNameMapper` from Batch 29 verification (decision #135).
 
-## Batch 32: G1 eager-closure gate patterns — IN_PROGRESS
+## Batch 32: G1 eager-closure gate patterns — COMPLETE (decision #143)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -2170,7 +2170,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Tasks: 2 | Depends on: Batch 25
 - Phase: 7 (last batch) | Phase review: code-logic on Batches 29-32
 
-### Task 32.1: forbidden and allowed eager inputs — IN_PROGRESS
+### Task 32.1: forbidden and allowed eager inputs — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\scripts\eager-closure-gate.js
@@ -2196,7 +2196,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   explicitly as lazy-only (a comment or entry next to the `chat/.*/organisms/display-dock/` forbidden pattern), and
   add a synthetic fixture whose eager `main.js` lists that exact input and assert the gate fails closed on it.
 
-### Task 32.2: correct the stale rationale comment in the hint spec (decision #141) — IN_PROGRESS
+### Task 32.2: correct the stale rationale comment in the hint spec (decision #141) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.spec.ts
 - Quality requirements: comment-only edit inside the `component syntax coverage: ...` case. Replace "The hint carries
@@ -2210,6 +2210,10 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Then (Task 32.2): `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20`
 - Every Jest call adds the `--moduleNameMapper` from Batch 29 verification (decision #135).
 - Phase 7 code-logic review due after commit
+- Result (team-leader): gate spec 20/20, hint spec 7/7, eslint on the three files clean. Executor points ruled in
+  decisions.md #143: the three #107 transcript files are required (not a GAP); copy-text-button, tool-language.utils,
+  rpc-lane-plan-limits.types and the two declarative-dashboard components stay off the allow-list until Batch 33
+  measures them (not a GAP); the ts-jest allowJs warning predates this batch.
 
 ## Batch 33: V1 single build, gate run and visual review — PENDING
 
@@ -2232,6 +2236,9 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Command: `node scripts/eager-closure-gate.js dist/apps/ptah-extension-webview/stats.json`
 - No merge-base stats exist: record "growth check not run (single build, decisions.md #17)" and list added eager inputs
   by name and bytes in D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.ptah\specs\TASK_2026_623_3492\measurement.md.
+- Decision #143: flag any of `copy-text-button.component.ts`, `tool-language.utils.ts`, `rpc-lane-plan-limits.types.ts`,
+  `dashboard-avatar.component.ts`, `dashboard-sparkline.component.ts` found in the eager closure as "unlisted eager
+  growth, ruling needed"; the team-leader rules after the run. Do not edit the gate script in Batch 33.
 
 ### Task 33.3: one Electron app launch and visual review — PENDING
 

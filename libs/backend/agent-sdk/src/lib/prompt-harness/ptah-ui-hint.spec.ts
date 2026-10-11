@@ -59,9 +59,10 @@ describe('PTAH_UI_HINT', () => {
   });
 
   it('component syntax coverage: the named display [id] opener segments as a display fence and each listed source parses as a stat value', () => {
-    // The hint carries no full example to stay in budget, so the forms it names
-    // are checked instead: the display opener with a concrete id, and each listed
-    // source as a stat value.
+    // The hint carries no example because R8.1 does not require one and R8.3
+    // assigns worked examples to the ptah-surface-authoring skill, so the forms
+    // it names are checked instead: the display opener with a concrete id, and
+    // each listed source as a stat value.
     const opener = /```ptah-ui display \[id\]/.exec(PTAH_UI_HINT)?.[0];
     expect(opener).toBeDefined();
     const fence = `${(opener ?? '').replace('[id]', 'turn-stats')}\nlist $tests\n\`\`\``;
