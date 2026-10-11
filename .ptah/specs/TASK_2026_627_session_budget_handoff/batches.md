@@ -1151,7 +1151,7 @@ other rows stay as recorded.
   (0 errors; no new warning on a changed line; record the coordinator `max-lines` figure).
 - No per-batch review; the Phase 4 review covers it.
 
-## Batch 10: Shared live-stage wire field (S1-part) — COMPLETE
+## Batch 10: Shared live-stage wire field (S1-part) — COMPLETE (f4291b91f)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
