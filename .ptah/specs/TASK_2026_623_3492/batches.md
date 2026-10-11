@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 30/38
+Total tasks: 79 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 31/38
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1700,7 +1700,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   gate: Batch 32 (#107, #113(b)), not this batch. Phase 5 code-logic review on `b57910d88..2ca5c9048`: APPROVED WITH NOTES 8/10
   (`code-logic-review-phase5.md`); the Minor closed-tab retention finding is a later item with #113(a) (decision #115).
 
-## Batch 26: P1 tool-language util, copy button, code output — IN_PROGRESS
+## Batch 26: P1 tool-language util, copy button, code output — COMPLETE (commit PENDING_SHA)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1721,7 +1721,21 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - No export from `libs/frontend/chat-ui/src/index.ts` in this batch unless chat consumes it now (it does not until
     Batch 27); the style review judges any new public API.
 
-### Task 26.1: tool-language util — IN_PROGRESS
+- Team-leader Mode 2 (first report, `batch-26-report.md`): NOT ACCEPTED, batch stays IN_PROGRESS. Checks pass (Jest
+  3 suites / 79, typecheck OK, lint 0 errors / 9 baseline warnings), but Task 26.3 keeps `overflow-x-auto`, which
+  breaks R9.5 (decision #119). Fix round for Task 26.3 only: #119 (wrap, no horizontal scroll), #118 (row estimate
+  counts wrapped rows for every language), #120(a) (Escape collapses expanded output, refocuses the toggle, stops
+  the event). Tasks 26.1 and 26.2 verified on disk (#117); not to be touched again.
+- Team-leader Mode 2 (fix report, `batch-26-fix-report.md`): ACCEPTED. Verified on disk: no `overflow-x-auto`;
+  `pre, code` inside `.tool-output-markdown` use `white-space: pre-wrap` + `overflow-wrap: anywhere`; `max-h-48
+  overflow-y-auto` kept when not clipped; `collapsible` counts `max(1, ceil(length / WRAP_CHARS))` rows for every
+  language; host `(keydown.escape)` collapses, refocuses the toggle and calls `preventDefault()` +
+  `stopPropagation()` only while expanded. The three #118 cases, the #119 case and the two #120(a) cases sit inside
+  `describe.each([true, false])`; `git diff -U0` on the spec removes no line. Checks: Jest 3 suites / 91 tests
+  passed; `nx typecheck @ptah-extension/chat-ui` OK; `nx lint @ptah-extension/chat-ui` 0 errors / 9 baseline
+  warnings. Codex peer review of #118/#120 recorded (#121): no Batch 26 code change.
+
+### Task 26.1: tool-language util — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\utils\tool-language.utils.ts
@@ -1729,33 +1743,64 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:1086-1145 (component 11)
 - Quality requirements: R7.5; keeps existing detection (extension, `bash`, JSON sniffing — parity section 4).
 
-### Task 26.2: copy-text button atom — IN_PROGRESS
+### Task 26.2: copy-text button atom — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\copy-text-button.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\copy-text-button.component.spec.ts
 
-### Task 26.3: code output expand, language label — IN_PROGRESS
+### Task 26.3: code output expand, language label — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\code-output.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\code-output.component.spec.ts
 - Quality requirements: R7.4; keep `max-h-48` scroll, ANSI/system-reminder/`N→` stripping (parity section 4).
+- Fix required (decisions #118, #119, #120(a)): `max-h-48` is the vertical limit only; remove `overflow-x-auto`
+  and wrap code (`white-space: pre-wrap`, `overflow-wrap: anywhere` on `pre`/`code`, R9.5); every line counts
+  `max(1, ceil(length / WRAP_CHARS))` rows; Escape while expanded collapses, focuses the toggle, and calls
+  `preventDefault()` + `stopPropagation()`; Escape while collapsed bubbles. Add the spec cases named in #118-#120
+  under the existing `describe.each([true, false])`; original cases stay unedited.
 
 ### Batch 26 verification
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/utils/tool-language.utils.spec.ts libs/frontend/chat-ui/src/lib/atoms/copy-text-button.component.spec.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution/code-output.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
-## Batch 27: P2 tool-call header and tool-call item — PENDING
+## Batch 27: P2 tool-call header and tool-call item — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
 - Rationale: header redesign and its host item; edits `chat-ui/src/index.ts` after Batch 16.
-- Tasks: 2 | Depends on: Batches 26, 16
+- Tasks: 3 | Depends on: Batches 26, 16
 - Phase: 6 | Phase review: after Batch 28
+- Team-leader constraints (set at Batch 26 Mode 2; real API names, decisions #117-#120):
+  - Starts only after Batch 26 is COMPLETE and the Codex peer review of #118 and #120 is recorded.
+  - Use the Batch 26 API as built: `detectToolLanguage(node)`, `getLanguageFromPath(path)`,
+    `getLanguageLabel(language)` from `../../utils/tool-language.utils` (chat-ui) and `ptah-copy-text-button`
+    (`[text]`, `label`, no outputs). Do not re-implement language maps or a copy button anywhere.
+  - `chat-ui/src/index.ts`: export `CopyTextButtonComponent` and the three util functions (plus
+    `ToolLanguageSource`) only if chat imports them; the style review judges the new public API.
+  - Header (27.1): the file-tool language label is `getLanguageLabel(getLanguageFromPath(file_path))`; Bash body uses
+    `<ptah-copy-text-button label="Copy command">` with the full command; command and paths wrap, never scroll
+    sideways (#119, R9.5); the open-file button is a sibling of the toggle, not nested.
+  - Item (27.2): Escape per #120(b) as amended by #121(b): with focus inside an expanded item and
+    `event.defaultPrevented` false, collapse, refocus the header toggle, then call `preventDefault()` +
+    `stopPropagation()`; while a permission request is pending Escape is a no-op for the item (auto-expand kept) but
+    the item STILL calls `preventDefault()` + `stopPropagation()` so no enclosing Escape action runs; when
+    `event.defaultPrevented` is already true, do nothing. A collapsed item with no pending permission leaves the
+    event alone. Do not edit `code-output` (it owns its own Escape).
+  - ChatView guard (27.3, #121(b)): `ChatViewComponent.onEscapeKey` (`chat-view.component.ts:514-519`) returns at once
+    when `event.defaultPrevented`, then keeps its existing overlay-close behaviour unchanged. One-line guard only; no
+    other ChatView change.
+  - Integration cases (#121(b)), in `tool-call-item.component.spec.ts` with a real `CodeOutputComponent` child and an
+    outer keydown listener standing in for the ChatView handler: (1) expanded item, collapsed inner code-output,
+    Escape -> only the item collapses, toggle focused, outer listener not reached; (2) pending permission, Escape ->
+    item stays expanded, outer listener not reached; (3) expanded item, expanded inner code-output, Escape -> only
+    the code-output collapses, item stays expanded, outer listener not reached.
+  - Decision #8: no `isElectron` gating; specs that touch host behaviour run `describe.each([true, false])` with
+    `{ provide: VSCodeService, useValue: { isElectron } }`; file-open via `FILE_LINK_OPENER` in both.
 
-### Task 27.1: tool-call header (command preview, status text, accessible names) — PENDING
+### Task 27.1: tool-call header (command preview, status text, accessible names) — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-call-header.component.ts
@@ -1766,16 +1811,35 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   status icons, duration badge).
 - Validation notes: resolve A9; with no exit code, "Command succeeded/failed".
 
-### Task 27.2: tool-call item — PENDING
+### Task 27.2: tool-call item — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\molecules\tool-execution\tool-call-item.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\molecules\tool-execution\tool-call-item.component.spec.ts
-- Quality requirements: collapsed by default; auto-expand on permission request; R7.10 both webviews.
+- Quality requirements: collapsed by default; auto-expand on permission request; R7.10 both webviews; Escape per
+  #120(b)/#121(b) plus the three integration cases above.
+
+### Task 27.3: ChatView Escape guard (#121(b)) — IN_PROGRESS
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\templates\chat-view.component.spec.ts
+- Change: first line of `onEscapeKey(event)`: `if (event.defaultPrevented) return;`. Existing behaviour otherwise
+  unchanged.
+- Spec case: overlay mode with the agent panel open, dispatch a cancelable Escape keydown whose default is already
+  prevented -> the panel stays open (`closeAgentPanel` not called); existing overlay-close cases stay green unedited.
 
 ### Batch 27 verification
 
-- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-call-header.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/molecules/tool-execution/tool-call-item.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root; add the command-line `--moduleNameMapper`
+override (`^vscode$`, `^marked$`) to each Jest run when the default config fails to resolve them:
+
+1. `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-call-header.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+2. `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/molecules/tool-execution/tool-call-item.component.spec.ts libs/frontend/chat/src/lib/components/templates/chat-view.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+3. `npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+4. `npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+5. `npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+6. `npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
 
 ## Batch 28: P3 diff, input and output displays — PENDING
 
@@ -1967,6 +2031,13 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   collapsed and expanded; chat chips, previews (Bash/Read/Write/Edit, Electron and VS Code webviews per R7.8/R7.10),
   summary, states, agents, atoms, dock, empty, the Agents empty tabpanel; R9.5 width script (prototype `?check=1`);
   collapsed row ≤ 36 px (R7.9); axe zero serious/critical. Writes visual-review.md in the task folder.
+- Code-output row estimate (decisions #118, #121(a)): at chat-narrow (360) and chat-wide (1024), dark and light,
+  render code-output with three named inputs: (1) six short lines of 60-100 ASCII characters each; (2) six lines
+  of wide/CJK text; (3) a multi-line structural markdown sample (headings, a list, a fenced block). For each, assert
+  no clipped content and no horizontal overflow (`scrollWidth <= clientWidth` on the block), and record whether the
+  "Show full output" toggle or the non-collapsible `max-h-48` vertical-scroll fallback appears. The fallback is
+  accepted for this task; if the reviewer judges it unacceptable, record it as the later width-aware-estimate
+  change, not a Batch 26 redesign.
 - Approved differences from the prototype (not fidelity defects): the expanded display chip shows no item counts or
   totals (decision #63); an evicted chip has no open button (decision #61); user-approved in decision #91: each
   Files row has one action, "Review"/"Resolve", no "Open file" pill (#83); summary stat cards have no sparklines or
