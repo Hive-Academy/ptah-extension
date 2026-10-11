@@ -167,7 +167,9 @@ let nextDisplayDockInstance = 0;
 
       <div
         role="tabpanel"
-        class="flex min-h-0 min-w-0 flex-1 flex-col"
+        class="min-h-0 min-w-0 flex-1 flex-col"
+        [class.flex]="state().activeTab === 'displays'"
+        [class.hidden]="state().activeTab !== 'displays'"
         [id]="panelElementId('displays')"
         [attr.aria-labelledby]="tabElementId('displays')"
         [hidden]="state().activeTab !== 'displays'"
@@ -190,7 +192,9 @@ let nextDisplayDockInstance = 0;
 
       <div
         role="tabpanel"
-        class="flex min-h-0 min-w-0 flex-1 flex-col"
+        class="min-h-0 min-w-0 flex-1 flex-col"
+        [class.flex]="state().activeTab === 'agents'"
+        [class.hidden]="state().activeTab !== 'agents'"
         [id]="panelElementId('agents')"
         [attr.aria-labelledby]="tabElementId('agents')"
         [hidden]="state().activeTab !== 'agents'"

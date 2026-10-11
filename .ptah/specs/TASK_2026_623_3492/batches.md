@@ -2268,7 +2268,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   ellipsises (`truncate`) where design-spec.md:140 wants wrapping. A defect there is a named later task (shared atom).
 - Plan reference: implementation-plan.md:1324-1345, 1420
 
-## Batch 33F: Phase 8 fix round — dock tabpanel display, chip word values, eager allow-list — IN_PROGRESS
+## Batch 33F: Phase 8 fix round — dock tabpanel display, chip word values, eager allow-list — code COMPLETE, visual re-check pending (#155)
 
 - Recommended executor: CLI lanes x3, one per task (self-contained prompts, absolute paths, CLAUDE.md memory-safe rules
   repeated in each prompt)
@@ -2282,7 +2282,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Decisions: #148 (allow-list), #149 (D1), #150 (D2), #151 (M1/M3 deferred), #152 (empty-state copy), #154 (re-check)
 - Lanes do not run git, do not edit batches.md or decisions.md, and do not run build/serve/package targets.
 
-### Task 33F.1: dock tabpanels honour `hidden` (D1) — IN_PROGRESS
+### Task 33F.1: dock tabpanels honour `hidden` (D1) — COMPLETE (display-dock Jest 21/21)
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\display-dock\display-dock.component.ts
@@ -2300,7 +2300,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Validation notes: do not touch `display-panel.component.ts` or `dashboard-stat.component.ts` (audited in #149, no
   display utility on their `[hidden]` elements).
 
-### Task 33F.2: chip word values never break mid-word (D2) — IN_PROGRESS
+### Task 33F.2: chip word values never break mid-word (D2) — COMPLETE (turn-recap Jest 58/58)
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.ts
@@ -2317,7 +2317,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   "unavailable"; a numeric value span (e.g. Files `3` or Tests `2/3`) keeps `text-lg` and `break-words`; a `pending`
   value takes the word classes too.
 
-### Task 33F.3: allow-list the two eager tool-preview helpers (#143(b) ruling) — IN_PROGRESS
+### Task 33F.3: allow-list the two eager tool-preview helpers (#143(b) ruling) — COMPLETE (gate Jest 23/23)
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\scripts\eager-closure-gate.js

@@ -235,6 +235,40 @@ describe('DisplayDockComponent', () => {
       expect(document.activeElement).toBe(tab('displays'));
     });
 
+    // jsdom does not compute CSS, so it cannot show `.flex { display: flex }`
+    // overriding the `[hidden]` attribute. The class contract is the guard:
+    // the inactive panel must never carry `flex` and must carry `hidden` (D1, #149).
+    it.each([
+      ['displays', 'agents'],
+      ['agents', 'displays'],
+    ] as const)(
+      'with %s active, hides the %s panel by attribute and class, not overridden by flex',
+      (active, inactive) => {
+        dock.selectTab(TAB, active);
+        fixture.detectChanges();
+
+        const shown = tabpanel(active);
+        expect(shown.classList.contains('flex')).toBe(true);
+        expect(shown.classList.contains('hidden')).toBe(false);
+        expect(shown.hasAttribute('hidden')).toBe(false);
+
+        const off = tabpanel(inactive);
+        expect(off.hasAttribute('hidden')).toBe(true);
+        expect(off.classList.contains('hidden')).toBe(true);
+        expect(off.classList.contains('flex')).toBe(false);
+      },
+    );
+
+    it('keeps both tabpanels mounted across tab switches', () => {
+      dock.selectTab(TAB, 'agents');
+      fixture.detectChanges();
+      expect(tabpanel('displays')).not.toBeNull();
+      expect(panel()).toBeTruthy();
+      dock.selectTab(TAB, 'displays');
+      fixture.detectChanges();
+      expect(tabpanel('agents')).not.toBeNull();
+    });
+
     it('labels each tab with its count and a running suffix', () => {
       dock.setSurfaces(TAB, {
         surfaces: [surface('id:a'), surface('id:b')],

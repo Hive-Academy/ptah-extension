@@ -131,6 +131,8 @@ describe('eager-closure bundle gate', () => {
     'libs/frontend/chat/src/lib/services/display-dock/display-dock.state.ts',
     'libs/frontend/chat-ui/src/lib/services/ptah-ui-host-sources.ts',
     'libs/frontend/chat-ui/src/lib/services/ptah-ui-display-dock.ts',
+    'libs/frontend/chat-ui/src/lib/atoms/copy-text-button.component.ts',
+    'libs/frontend/chat-ui/src/lib/utils/tool-language.utils.ts',
   ])('allows listed eager growth input %s', (input) => {
     const head = stats({ 'main.js': { inputs: { [input]: {} } } });
     expect(() => eagerClosureGate.assertNoForbiddenEager(head)).not.toThrow();
@@ -145,6 +147,16 @@ describe('eager-closure bundle gate', () => {
   it('does not allow a display-panel input as eager growth', () => {
     const input =
       'libs/frontend/chat-ui/src/lib/organisms/display-panel/display-surfaces.ts';
+    expect(() =>
+      eagerClosureGate.assertNoUnlistedEagerGrowth(
+        stats({ 'main.js': { inputs: { [input]: {} } } }),
+        stats({ 'main.js': { inputs: {} } }),
+      ),
+    ).toThrow(`unlisted eager input growth: ${input}`);
+  });
+
+  it('does not allow an unlisted sibling of the allowed atoms as eager growth', () => {
+    const input = 'libs/frontend/chat-ui/src/lib/atoms/other-new.component.ts';
     expect(() =>
       eagerClosureGate.assertNoUnlistedEagerGrowth(
         stats({ 'main.js': { inputs: { [input]: {} } } }),

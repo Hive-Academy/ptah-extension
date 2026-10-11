@@ -37,7 +37,8 @@ function model(
     runs?: readonly TurnTestRun[];
     diff?: TurnChangeSet | null;
     incomplete?: boolean;
-    usage?: boolean;
+    /** `false` → usage unavailable; `'pending'` → usage still loading. */
+    usage?: boolean | 'pending';
   } = {},
 ): TurnSummaryModel {
   const runs = options.runs ?? [];
@@ -63,13 +64,15 @@ function model(
     usage:
       options.usage === false
         ? { kind: 'unavailable' }
-        : {
-            kind: 'available',
-            input: 180_000,
-            output: 4_200,
-            cost: 1.84,
-            durationMs: 252_000,
-          },
+        : options.usage === 'pending'
+          ? { kind: 'pending' }
+          : {
+              kind: 'available',
+              input: 180_000,
+              output: 4_200,
+              cost: 1.84,
+              durationMs: 252_000,
+            },
   };
   const built = buildTurnSummaryModel(snapshot);
   if (built === null) throw new Error('expected a summary');
@@ -312,6 +315,62 @@ describe('TurnSummaryChipComponent', () => {
         'Cost unavailable',
         'Time unavailable',
       ]);
+    });
+
+    describe('value classes (D2, decision #150)', () => {
+      const valueOf = (label: string): HTMLElement => {
+        const card = queryAll('turn-summary-chip-card').find(
+          (item) => item.querySelector('span')?.textContent?.trim() === label,
+        );
+        const value = card?.querySelector<HTMLElement>(
+          '[data-testid="turn-summary-chip-card-value"]',
+        );
+        if (!value) throw new Error(`no value span for ${label}`);
+        return value;
+      };
+      const expectWord = (value: HTMLElement, word: string): void => {
+        expect(value.textContent?.trim()).toBe(word);
+        expect(value.classList.contains('break-normal')).toBe(true);
+        expect(value.classList.contains('text-sm')).toBe(true);
+        expect(value.classList.contains('break-words')).toBe(false);
+        expect(value.classList.contains('text-lg')).toBe(false);
+      };
+      const expectNumber = (value: HTMLElement): void => {
+        expect(value.classList.contains('text-lg')).toBe(true);
+        expect(value.classList.contains('break-words')).toBe(true);
+        expect(value.classList.contains('tabular-nums')).toBe(true);
+        expect(value.classList.contains('break-normal')).toBe(false);
+      };
+
+      it('sets "unavailable" values as small unbroken words, numbers stay large', () => {
+        render(model({ usage: false, runs: [run('nx test a', 'passed')] }));
+        expand();
+
+        for (const label of ['Tokens', 'Cost', 'Time']) {
+          expectWord(valueOf(label), 'unavailable');
+        }
+        expectNumber(valueOf('Files'));
+        expectNumber(valueOf('Lines'));
+        expectNumber(valueOf('Tests'));
+        expect(valueOf('Files').textContent?.trim()).toBe('3');
+      });
+
+      it('sets "pending" values as words too', () => {
+        render(model({ usage: 'pending' }));
+        expand();
+
+        for (const label of ['Tokens', 'Cost', 'Time']) {
+          expectWord(valueOf(label), 'pending');
+        }
+      });
+
+      it('keeps "?" as a number-style value', () => {
+        render(model({ diff: { ...changeSet, countsUnavailable: true } }));
+        expand();
+
+        expectNumber(valueOf('Files'));
+        expectNumber(valueOf('Tokens'));
+      });
     });
 
     it('never lists files, even expanded (R6.9; ported "no file content")', () => {

@@ -33,7 +33,17 @@ interface ChipMiniCard {
   readonly srSuffix: string | null;
   /** A muted caption under the value ("counts unavailable"). */
   readonly caption: string | null;
+  /**
+   * True when the value is a status word (`unavailable` / `pending`): it is
+   * set smaller and never broken mid-word in a narrow card (D2, #150).
+   */
+  readonly word: boolean;
 }
+
+/** Number-like values: large, tabular, may break anywhere to fit the card. */
+const MINI_VALUE_CLASS = 'block break-words text-lg font-semibold tabular-nums';
+/** Status-word values: wrap only at word boundaries. */
+const MINI_WORD_CLASS = 'block break-normal text-sm font-medium';
 
 /**
  * Full class list per tone, literal for Tailwind. Success and error text use
@@ -85,6 +95,11 @@ function plural(count: number, one: string, many: string): string {
 /** A value the source could not produce reads as its status word, never 0. */
 function shown(value: number | string, format: (n: number) => string): string {
   return typeof value === 'number' ? format(value) : value;
+}
+
+/** Whether a shown value is the literal `TurnSummaryUnavailable` word. */
+function isStatusWord(value: string): boolean {
+  return value === 'unavailable' || value === 'pending';
 }
 
 /**
@@ -180,7 +195,8 @@ function shown(value: number | string, format: (n: number) => string): string {
                     >{{ card.label }}</span
                   >
                   <span
-                    class="block break-words text-lg font-semibold tabular-nums"
+                    [class]="card.word ? MINI_WORD_CLASS : MINI_VALUE_CLASS"
+                    data-testid="turn-summary-chip-card-value"
                     >{{ card.value }}
                     @if (card.srSuffix; as suffix) {
                       <span class="sr-only"> {{ suffix }}</span>
@@ -242,6 +258,8 @@ export class TurnSummaryChipComponent {
   protected readonly unavailableId = `${this.instanceId}-unavailable`;
 
   protected readonly METRIC_CLASS = METRIC_CLASS;
+  protected readonly MINI_VALUE_CLASS = MINI_VALUE_CLASS;
+  protected readonly MINI_WORD_CLASS = MINI_WORD_CLASS;
   protected readonly LayoutDashboardIcon = LayoutDashboard;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly PanelRightIcon = PanelRight;
@@ -322,7 +340,7 @@ export class TurnSummaryChipComponent {
 
   protected readonly miniCards = computed((): readonly ChipMiniCard[] => {
     const { files, lines, tokens, cost, duration, tests } = this.summary();
-    const cards: ChipMiniCard[] = [];
+    const cards: Omit<ChipMiniCard, 'word'>[] = [];
     if (files !== null) {
       cards.push({
         label: 'Files',
@@ -366,7 +384,7 @@ export class TurnSummaryChipComponent {
         caption: tests.label,
       });
     }
-    return cards;
+    return cards.map((card) => ({ ...card, word: isStatusWord(card.value) }));
   });
 
   protected toggle(): void {
