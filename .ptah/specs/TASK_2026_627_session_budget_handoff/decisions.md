@@ -295,3 +295,20 @@ Dropped as not a defect in this diff, with evidence:
   choice; it is not fixed now.
 - Phase 3 is closed. All 11 batches are COMPLETE; the task goes to `in_review` until the user's
   Phase 2 manual Electron check (user decision 3) is done.
+
+## D22 (user, 2026-10-12): no automatic handover; every handover is user-authorized
+
+- Replaces user decision 1 in `handoff.md` ("automatic rotation at the handoff stage"). The user
+  wants the flow predictable and authorized: Ptah shows notifications and buttons; the user acts.
+- Answers (AskUserQuestion, 2026-10-12):
+  1. Agent wrap-up notice: only on the user's click. No automatic notice at handoff or limit (live
+     or authoritative). The banner gets an "Ask agent to wrap up" action that queues the notice.
+  2. Work in flight when the user clicks "Continue in new session": wait and show what runs
+     ("Waiting for N subagents, M lanes") with "Continue now anyway" and "Cancel". The 15-minute
+     auto escalation (D6) is no longer needed for a user-started op.
+  3. Scope: handoff and limit. 80%: banner with buttons, no rotation. 100% blocking: sends refused,
+     banner with "New session" / "Allow 20% more" (as today). Remove every automatic `budget-auto`
+     start.
+- Consequence: 627-L14, 627-L15 and D20 item 1 disappear by design (nothing auto-starts). The
+  live feed (Batches 7-8) stays only for display (stage in the banner); it must arm nothing.
+- Next: software-architect writes a plan addendum; cross-side review on a codex lane; Gate 2.
