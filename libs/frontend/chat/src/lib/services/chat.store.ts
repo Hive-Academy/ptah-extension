@@ -16,6 +16,7 @@ import type {
   SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
+  SessionStatsLiveWire,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -531,6 +532,11 @@ export class ChatStore {
   /** Handle session stats update. Delegates to SessionStatsAggregatorService. */
   handleSessionStats(stats: SessionStatsEvent): void {
     this.statsAggregator.handleSessionStats(stats);
+  }
+
+  /** Handle an in-turn `session:stats-live` update. Delegates to SessionStatsAggregatorService. */
+  handleSessionStatsLive(event: SessionStatsLiveWire): void {
+    this.statsAggregator.handleLiveSessionStats(event);
   }
 
   /** Handle session ID resolution from backend. Delegates to ChatLifecycleService. */

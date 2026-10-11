@@ -1,6 +1,6 @@
 # Batches - TASK_2026_626_7b3e
 
-Total tasks: 16 | Batches: 8 | Complete: 4/8
+Total tasks: 16 | Batches: 8 | Complete: 5/8
 
 Worktree root (all relative paths below resolve against it):
 `D:/projects/ptah-extension/.claude-worktrees/fix-live-session-stats-a1634d3869cb`
@@ -125,7 +125,7 @@ Edge cases:
 - `npx nx typecheck @ptah-extension/shared --parallel=1` then `npx nx lint @ptah-extension/shared --parallel=1` (one at a time, output tailed)
 - `git diff --name-only` must not list `host-source-registry.baseline.ts`.
 
-## Batch 2: Owner provisional state + live publisher (agent-sdk) — COMPLETE
+## Batch 2: Owner provisional state + live publisher (agent-sdk) — COMPLETE (commit 46ba9ed65)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: none parallel — same sub-agent re-run; the revision invariant needs one mind
@@ -308,7 +308,7 @@ Edge cases:
 - `npx jest -c libs/frontend/chat-state/jest.config.ts libs/frontend/chat-state/src/lib/session-stats-snapshot.spec.ts libs/frontend/chat-state/src/lib/tab-manager.service.spec.ts libs/frontend/chat-state/src/lib/surface-session-stats.registry.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat-state --parallel=1`; `npx nx lint @ptah-extension/chat-state --parallel=1`
 
-## Batch 7: Routing and aggregation (chat) — IN_PROGRESS
+## Batch 7: Routing and aggregation (chat) — COMPLETE
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -317,7 +317,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 6
 - Phase: FRONTEND | Phase review: code-logic + style + visual (after Batch 7 and Batch 8 both commit)
 
-### Task 7.1: ChatMessageHandler route — IN_PROGRESS
+### Task 7.1: ChatMessageHandler route — COMPLETE
 
 - Files: MODIFY `libs/frontend/chat/src/lib/services/chat-message-handler.service.ts`, `libs/frontend/chat/src/lib/services/chat-message-handler.service.spec.ts`
 - Plan reference: implementation-plan.md:873-961 (C8)
@@ -325,13 +325,13 @@ Edge cases:
   `handleSessionStatsLive` parses with `parseSessionStatsLivePayload`, warns once (session only) and drops on
   `null`; header comment list updated; `SESSION_STATS` handling unchanged.
 
-### Task 7.2: ChatStore facade — IN_PROGRESS
+### Task 7.2: ChatStore facade — COMPLETE
 
 - Files: MODIFY `libs/frontend/chat/src/lib/services/chat.store.ts`
 - Pattern to follow: facade `chat.store.ts:532-534`
 - Acceptance: `handleSessionStatsLive` delegates to the aggregator only.
 
-### Task 7.3: `SessionStatsAggregatorService.handleLiveSessionStats` — IN_PROGRESS
+### Task 7.3: `SessionStatsAggregatorService.handleLiveSessionStats` — COMPLETE
 
 - Files: MODIFY `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts`,
   `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.spec.ts`
@@ -349,6 +349,21 @@ Edge cases:
 
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/chat-message-handler.service.spec.ts libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat --parallel=1`; `npx nx lint @ptah-extension/chat --parallel=1`
+
+### Batch 7 verification record (team-leader)
+
+- Jest (2 suites): 105/105 passed. The worktree has no `node_modules`, so `jest.preset.js`'s `<root>/node_modules/marked`
+  mapper fails for any suite that reaches `@ptah-extension/chat-ui` (pre-existing `CostBadgeComponent` import); a
+  temporary gitignored junction to the main checkout's `node_modules` was used for the run and removed afterwards.
+- `nx typecheck @ptah-extension/chat`: passed (lib tsconfig). `nx lint @ptah-extension/chat`: 0 errors, 35 warnings.
+- Spec-tsconfig errors at aggregator spec :149/:176/:291/:501 (TurnModelUsage / TabId literals) sit in base lines
+  untouched by this batch (the spec diff is pure additions: header, imports, a new describe from :1114); they
+  pre-exist on 69a2b835e, are outside the typecheck target and do not fail jest.
+- Addition beyond plan, accepted: `handleLiveSessionStats` uses `SessionId.safeParse` and drops a non-UUID live
+  session id with one warning instead of throwing via `SessionId.from`. A throttled advisory event must not throw
+  out of `handleMessage`; the authoritative `session:stats` path keeps its throwing `SessionId.from`. Also accepted:
+  `tabsForSession` extraction shared by both handlers, and `snapshotFor` handler label (existing warning strings
+  byte-identical).
 
 ## Batch 8: Header estimate marker (chat-ui) — COMPLETE (commit 6ea2de360)
 
