@@ -1,6 +1,11 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 85 | Batches: 40 (incl. fix batches 6F, 12F, 15F, 21F, 28F, 33F, post-cap correction 12F2) | Complete: 40/40
+Total tasks: 87 | Batches: 40 (incl. fix batches 6F, 12F, 15F, 21F, 28F, 33F, post-cap correction 12F2) | Complete: 40/40
+
+Final status (Mode 3, 2026-10-12): TASK COMPLETE WITH NOTES. All 40 batches and 87 tasks COMPLETE; 39 commits verified
+as ancestors of HEAD (Batch 33 has no source commit of its own); Phases 1-8 ACCEPTED. Populated display surfaces are
+not rendered-verified: USER #155(b) with #158 and #160 makes them follow-up #161(1). Summary: `completion-report.md`
+(untracked, decision #142). Gate 3 pending.
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -95,10 +100,10 @@ Edge cases:
 | 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); re-review of 6F: APPROVED 8/10 (`code-logic-review-phase1-fix.md`). Phase 1 ACCEPTED |
 | 2 Lane plan-limit read (R10 backend) | 7-12, 12F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase2.md`), style (APPROVED 8/10, `code-style-review-phase2.md`); fix round 12F, re-review REVISE 5/10 (`code-logic-review-phase2-fix.md`, Serious #1 open); post-cap correction 12F2 (decision #46), cross-side re-review APPROVED 9/10 (`code-logic-review-phase2-fix2.md`). Phase 2 ACCEPTED |
 | 3 Renderer `/4` | 13-15, 15F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase3.md`, Serious #1); fix round 15F, re-review APPROVED 8/10, Serious #1 CLOSED, no new findings (`code-logic-review-phase3-fix.md`). No style (Task 15.3 and 15F added no barrel exports). Phase 3 ACCEPTED |
-| 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
+| 4 chat-ui display panel | 16-21, 21F (fix) | code-logic APPROVED 7/10 (`code-logic-review-phase4.md`), style REVISE 7/10 (`code-style-review-phase4.md`) -> fix 21F, style re-review APPROVED 9/10 (`code-style-review-phase4-fix.md`); decision #92. Phase 4 ACCEPTED |
 | 5 Transcript and dock | 22-25 | code-logic (APPROVED WITH NOTES 8/10, `code-logic-review-phase5.md`, Codex lane on `b57910d88..2ca5c9048`); #81 a/b/c and #94 PASS; one Minor (closed-tab dock state retained) recorded as a later item, decision #115. Phase 5 ACCEPTED |
-| 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util). Implementation complete (Batches 26-28 committed); review on `ec4347772..HEAD` pending (`code-logic-review-phase6.md`, `code-style-review-phase6.md`) |
-| 7 Hint, skill, measurement, eager gate | 29-32 | code-logic |
+| 6 Previews (R7, both webviews) | 26-28, 28F (fix) | code-logic REVISE 6/10 (`code-logic-review-phase6.md`), style APPROVED WITH NOTES (`code-style-review-phase6.md`); decision #133 -> fix 28F, code-logic re-review APPROVED WITH NOTES 8/10 (`code-logic-review-phase6-fix.md`); decision #135. Phase 6 ACCEPTED |
+| 7 Hint, skill, measurement, eager gate | 29-32 | code-logic APPROVED WITH NOTES 8/10 (`code-logic-review-phase7.md`), no fix round. Phase 7 ACCEPTED |
 | 8 Visual verification (V1) | 33, 33F (fix) | visual (visual-reviewer subagent); no code-logic. `visual-review.md` FAIL (D1, D2 serious) -> fix round 33F (commit 5a2344e37) -> scoped re-check `visual-review-33F.md` PASS WITH NOTES (D1, D2 FIXED; populated surfaces UNVERIFIED, named follow-up per USER #155(b)); decisions #158-#161. Phase 8 ACCEPTED |
 
 Verification rule for every batch (CLAUDE.md): changed projects only, `--parallel=1`, `--maxWorkers=2`, one heavy check
