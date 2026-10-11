@@ -222,6 +222,54 @@ function capText(
   return { text: `${value.slice(0, end).trimEnd()}${suffix}`, cut: true };
 }
 
+/** Start of the last line that begins with `heading`, or -1. */
+function lastHeadingStart(value: string, heading: string): number {
+  const at = value.lastIndexOf(`\n${heading}`);
+  if (at >= 0) return at + 1;
+  return value.startsWith(heading) ? 0 : -1;
+}
+
+/**
+ * Cut the agent's handoff to at most `max` characters, keeping both ends: the
+ * prompt puts `## Still running` and `## Next action` last, and the successor
+ * needs them most. The tail is the text from the last of those headings when
+ * it fits in half of `max`, otherwise the last `max / 2` characters from a
+ * line start. The head fills the rest. Never splits a surrogate pair.
+ */
+function capHeadAndTail(
+  value: string,
+  max: number,
+): { text: string; cut: boolean } {
+  if (value.length <= max) return { text: value, cut: false };
+  const join = `\n${TRUNCATED_MARKER}\n`;
+  // Too small for a head, a tail and the marker: keep the head only.
+  if (max < 2 * join.length) return capText(value, max, '\n');
+  const half = Math.floor(max / 2);
+  let tailStart = -1;
+  for (const heading of ['## Still running', '## Next action']) {
+    const start = lastHeadingStart(value, heading);
+    if (start >= 0) {
+      if (value.length - start <= half) tailStart = start;
+      break;
+    }
+  }
+  if (tailStart < 0) {
+    tailStart = value.length - half;
+    const newline = value.indexOf('\n', tailStart - 1);
+    if (newline >= 0 && newline + 1 < value.length) {
+      tailStart = newline + 1;
+    } else {
+      const firstCode = value.charCodeAt(tailStart);
+      if (firstCode >= 0xdc00 && firstCode <= 0xdfff) tailStart++;
+    }
+  }
+  const tail = value.slice(tailStart);
+  let headEnd = Math.max(0, Math.min(tailStart, max - tail.length - join.length));
+  const lastCode = value.charCodeAt(headEnd - 1);
+  if (headEnd > 0 && lastCode >= 0xd800 && lastCode <= 0xdbff) headEnd--;
+  return { text: `${value.slice(0, headEnd).trimEnd()}${join}${tail}`, cut: true };
+}
+
 function blockQuote(text: string): string {
   return text
     .split('\n')
@@ -663,7 +711,7 @@ function quoteWithin(
   const minBudget = TRUNCATED_MARKER.length + 1;
   let budget = max;
   for (;;) {
-    const capped = capText(text, budget);
+    const capped = capHeadAndTail(text, budget);
     const quoted = blockQuote(capped.text);
     if (quoted.length <= max || budget <= minBudget) {
       return { quoted, cut: capped.cut };

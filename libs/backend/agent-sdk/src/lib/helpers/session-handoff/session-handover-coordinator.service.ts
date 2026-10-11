@@ -106,7 +106,8 @@ export function isInProgress(state: SessionHandoverState | undefined): boolean {
 interface Operation {
   readonly id: string;
   readonly sourceSessionId: string;
-  readonly reason: SessionHandoverReason;
+  /** A waiting `budget-auto` op becomes `budget-limit` at the blocking limit. */
+  reason: SessionHandoverReason;
   readonly agentHandoff?: string;
   phase: SessionHandoverState['phase'];
   revision: number;
@@ -118,6 +119,8 @@ interface Operation {
   successorTabId?: string;
   /** Work an automatic handover waits for in `waiting-for-turn-end`. */
   waitingFor?: WaitingFor;
+  /** When the gate first found work in flight; cleared once the wait ends. */
+  waitingSince?: number;
   /** The user asked to go now mid-turn: the next terminal skips the work gate. */
   userConfirmed?: boolean;
 }
@@ -131,6 +134,14 @@ const HELD_SOURCE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
   'closing',
 ]);
 
+/**
+ * Longest an automatic handover waits for work in flight before it asks the
+ * user instead. Matches `MAX_AGENT_WAIT_MS` in cli-agent-runtime
+ * `agent-process-manager.service.ts`, the longest the main agent itself blocks
+ * in `ptah_agent_wait`. Not imported: agent-sdk must not depend on
+ * cli-agent-runtime. Checked only when a terminal arrives; no timer.
+ */
+export const WORK_IN_FLIGHT_WAIT_LIMIT_MS = 900_000;
 export const HANDOFF_REQUEST_TIMEOUT_MS = 180_000;
 export const HANDOFF_REQUEST_PROMPT = [
   'Write a concise Markdown handoff for the next agent taking over this work.',
@@ -142,6 +153,7 @@ export const HANDOFF_REQUEST_PROMPT = [
   '## Open items',
   '## Still running (subagents and CLI agent lanes with their ids, or "None")',
   '## Next action',
+  'Keep the whole handoff under 5,000 characters.',
   'Do not call tools; respond only with the handoff.',
 ].join('\n');
 
@@ -292,33 +304,58 @@ export class SessionHandoverCoordinator {
       return undefined;
     }
     const live = operation && !this.isRestartable(operation) ? operation : undefined;
+    // The blocking limit is never gated (the user confirms): a waiting
+    // automatic op becomes the limit op in place, keeping its id.
+    if (
+      atBlockingLimit &&
+      live?.reason === 'budget-auto' &&
+      live.phase === 'waiting-for-turn-end'
+    ) {
+      live.reason = 'budget-limit';
+      live.waitingFor = undefined;
+      live.waitingSince = undefined;
+      live.revision += 1;
+    }
     const reason = live?.reason ?? (atBlockingLimit ? 'budget-limit' : 'budget-auto');
+    let waitLimitReached = false;
     // Work-in-flight gate: an automatic handover waits for running subagents
     // and lanes. Inputs are not held in `waiting-for-turn-end`, so their
     // completion turns run on the source and re-arm here at their terminal.
     if (
       reason === 'budget-auto' &&
+      !atBlockingLimit &&
       (!live || live.phase === 'waiting-for-turn-end') &&
       !live?.userConfirmed
     ) {
       const waitingFor = this.workInFlight(sourceSessionId);
       if (waitingFor) {
-        const waiting =
-          live ?? this.createBudgetOperation(sourceSessionId, 'budget-auto', 'waiting-for-turn-end');
-        if (live) live.revision += 1;
-        waiting.waitingFor = waitingFor;
-        return this.publish(waiting);
+        const now = Date.now();
+        const elapsedMs = live?.waitingSince === undefined ? 0 : now - live.waitingSince;
+        if (live && elapsedMs >= WORK_IN_FLIGHT_WAIT_LIMIT_MS) {
+          // Leaked or very long work: ask the user rather than wait forever
+          // or cut running work off without a click.
+          this.logger?.warn('[SessionHandover] Work-in-flight wait limit reached; asking the user', { operationId: live.id, waitingFor, elapsedMs });
+          waitLimitReached = true;
+        } else {
+          const waiting =
+            live ?? this.createBudgetOperation(sourceSessionId, 'budget-auto', 'waiting-for-turn-end');
+          if (live) live.revision += 1;
+          waiting.waitingFor = waitingFor;
+          waiting.waitingSince ??= now;
+          return this.publish(waiting);
+        }
       }
     }
     operation = live ?? this.createBudgetOperation(sourceSessionId, reason);
     if (operation.phase === 'waiting-for-turn-end') {
       operation.phase = 'armed';
       operation.waitingFor = undefined;
+      operation.waitingSince = undefined;
       operation.revision += 1;
     }
     if (
       operation.phase === 'armed' &&
-      operation.reason === 'budget-limit' &&
+      (operation.reason === 'budget-limit' || waitLimitReached) &&
       !operation.userConfirmed
     ) {
       operation.phase = 'awaiting-confirmation';
@@ -449,6 +486,7 @@ export class SessionHandoverCoordinator {
       return;
     }
     operation.waitingFor = undefined;
+    operation.waitingSince = undefined;
     this.transition(operation, 'writing-handoff');
     void this.complete(operation);
   }
@@ -614,11 +652,17 @@ export class SessionHandoverCoordinator {
         source.workspacePath,
       );
       const assistants = after?.filter((message) => message.role === 'assistant') ?? [];
-      const previousIndex = previousId
-        ? assistants.findIndex((message) => message.id === previousId)
-        : -1;
-      const handoff = assistants
-        .slice(previousIndex + 1)
+      const previousIndex = previousId === undefined
+        ? -1
+        : assistants.findIndex((message) => message.id === previousId);
+      let replies = assistants.slice(previousIndex + 1);
+      if (previousId !== undefined && previousIndex < 0) {
+        // A compaction between the reads trimmed the anchor: only the last
+        // assistant text is surely the handoff, never older text.
+        this.logger?.debug('[SessionHandover] Handoff anchor not found; using the last assistant message', { sessionId: source.sessionId });
+        replies = assistants.filter((message) => message.content.trim()).slice(-1);
+      }
+      const handoff = replies
         .map((message) => message.content.trim())
         .filter(Boolean)
         .join('\n\n');

@@ -471,6 +471,20 @@ describe('SessionHandoffBuilder', () => {
     ];
   }
 
+  /** The block-quoted body of the `## Agent handoff` section. */
+  function agentSection(content: string): string {
+    const heading = '## Agent handoff\n\n';
+    const start = content.indexOf(heading) + heading.length;
+    return content.slice(start, content.indexOf('\n\n## Session', start));
+  }
+
+  function blockQuoted(text: string): string {
+    return text
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n');
+  }
+
   it('renders the agent handoff as a block-quoted section under the title', async () => {
     const { builder } = makeBuilder();
     const result = await builder.build({
@@ -533,12 +547,89 @@ describe('SessionHandoffBuilder', () => {
     });
 
     const { content, seed, truncated } = result.document;
-    const quoted = content.match(/## Agent handoff\n\n(> [^\n]*)\n\n/)?.[1];
-    expect(quoted?.length).toBe(SESSION_HANDOFF_LIMITS.agentHandoffChars);
-    expect(quoted?.endsWith(` ${TRUNCATED_MARKER}`)).toBe(true);
+    const quoted = agentSection(content);
+    expect(quoted.length).toBeLessThanOrEqual(
+      SESSION_HANDOFF_LIMITS.agentHandoffChars,
+    );
+    expect(quoted.split(TRUNCATED_MARKER)).toHaveLength(2);
+    expect(quoted).toContain(`\n> ${TRUNCATED_MARKER}\n> b`);
     expect(truncated).toBe(true);
     expect(seed.endsWith(content)).toBe(true);
     expect(seed.length).toBeLessThanOrEqual(SESSION_HANDOFF_LIMITS.seedChars);
+  });
+
+  it('keeps the goal and the last sections of an over-cap agent handoff (M4)', async () => {
+    const { builder } = makeBuilder();
+    const ending =
+      '## Still running\nlane-7f3 (codex) writing tests\nsubagent a1b2 reviewing\n' +
+      '## Next action\nWait for lane-7f3, then run the agent-sdk tests.';
+    const middle = [
+      '## Decisions',
+      '## Task folders',
+      '## Changed files',
+      '## Open items',
+    ].map((heading) => `${heading}\n${'detail line for this section\n'.repeat(70)}`).join('');
+    let agentText = `## Goal\nShip the budget handoff.\n${middle}`;
+    agentText += 'p'.repeat(9_000 - agentText.length - ending.length - 1) + '\n' + ending;
+    expect(agentText).toHaveLength(9_000);
+
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: agentText,
+    });
+
+    const quoted = agentSection(result.document.content);
+    expect(quoted.length).toBeLessThanOrEqual(
+      SESSION_HANDOFF_LIMITS.agentHandoffChars,
+    );
+    expect(quoted.split(TRUNCATED_MARKER)).toHaveLength(2);
+    expect(quoted.startsWith('> ## Goal\n> Ship the budget handoff.')).toBe(true);
+    expect(quoted.endsWith(`> ${TRUNCATED_MARKER}\n${blockQuoted(ending)}`)).toBe(true);
+    expect(result.document.truncated).toBe(true);
+  });
+
+  it('keeps both ends of an over-cap agent handoff without headings', async () => {
+    const { builder } = makeBuilder();
+    const agentText = `HEAD-START\n${'filler text without any heading\n'.repeat(300)}TAIL-END`;
+
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: agentText,
+    });
+
+    const quoted = agentSection(result.document.content);
+    expect(quoted.length).toBeLessThanOrEqual(
+      SESSION_HANDOFF_LIMITS.agentHandoffChars,
+    );
+    const head = quoted.indexOf('HEAD-START');
+    const marker = quoted.indexOf(TRUNCATED_MARKER);
+    const tail = quoted.indexOf('TAIL-END');
+    expect(head).toBeGreaterThanOrEqual(0);
+    expect(marker).toBeGreaterThan(head);
+    expect(tail).toBeGreaterThan(marker);
+    expect(quoted.split(TRUNCATED_MARKER)).toHaveLength(2);
+    expect(quoted).toContain(`> ${TRUNCATED_MARKER}\n> filler text without any heading\n`);
+  });
+
+  it('never splits a surrogate pair at either cut point', async () => {
+    const { builder } = makeBuilder();
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const agentText of ['😀'.repeat(4_000), `x${'😀'.repeat(4_000)}`]) {
+      const result = await builder.build({
+        sessionId: SESSION_ID,
+        workspacePath: 'D:/work/repo',
+        agentHandoff: agentText,
+      });
+
+      const quoted = agentSection(result.document.content);
+      expect(quoted.length).toBeLessThanOrEqual(
+        SESSION_HANDOFF_LIMITS.agentHandoffChars,
+      );
+      expect(quoted).toContain(TRUNCATED_MARKER);
+      expect(lone.test(quoted)).toBe(false);
+    }
   });
 
   it('caps the quoted form when quoting adds characters per line', async () => {
@@ -555,7 +646,7 @@ describe('SessionHandoffBuilder', () => {
     expect(quoted.length).toBeLessThanOrEqual(
       SESSION_HANDOFF_LIMITS.agentHandoffChars,
     );
-    expect(quoted.endsWith(TRUNCATED_MARKER)).toBe(true);
+    expect(quoted).toContain(`> ${TRUNCATED_MARKER}`);
     expect(result.document.truncated).toBe(true);
   });
 
