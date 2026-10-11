@@ -2189,6 +2189,28 @@ describe('agent panel narrow overlay mode', () => {
     expect(sidebarTab()).not.toBeNull();
   });
 
+  it('leaves the overlay open when an inner component already claimed Escape (defaultPrevented)', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.fixture.detectChanges();
+    emitHostWidth(500);
+    openPanelFromSidebar();
+    expect(panel().classList.contains('absolute')).toBe(true);
+    const closeSpy = jest.spyOn(h.component, 'closeAgentPanel');
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    document.activeElement?.dispatchEvent(event);
+    h.fixture.detectChanges();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(panel().classList.contains('absolute')).toBe(true);
+  });
+
   it('does not close the panel on Escape when in wide mode', () => {
     h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
     h.fixture.detectChanges();

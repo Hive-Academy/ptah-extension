@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 79 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 31/38
+Total tasks: 79 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 32/38
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1700,7 +1700,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   gate: Batch 32 (#107, #113(b)), not this batch. Phase 5 code-logic review on `b57910d88..2ca5c9048`: APPROVED WITH NOTES 8/10
   (`code-logic-review-phase5.md`); the Minor closed-tab retention finding is a later item with #113(a) (decision #115).
 
-## Batch 26: P1 tool-language util, copy button, code output — COMPLETE (commit PENDING_SHA)
+## Batch 26: P1 tool-language util, copy button, code output — COMPLETE (commit 583108bcf)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1765,7 +1765,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/utils/tool-language.utils.spec.ts libs/frontend/chat-ui/src/lib/atoms/copy-text-button.component.spec.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution/code-output.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
-## Batch 27: P2 tool-call header and tool-call item — IN_PROGRESS
+## Batch 27: P2 tool-call header and tool-call item — COMPLETE (commit PENDING_SHA; deviations ruled in decisions #122-#124)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1800,7 +1800,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - Decision #8: no `isElectron` gating; specs that touch host behaviour run `describe.each([true, false])` with
     `{ provide: VSCodeService, useValue: { isElectron } }`; file-open via `FILE_LINK_OPENER` in both.
 
-### Task 27.1: tool-call header (command preview, status text, accessible names) — IN_PROGRESS
+### Task 27.1: tool-call header (command preview, status text, accessible names) — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-call-header.component.ts
@@ -1811,7 +1811,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   status icons, duration badge).
 - Validation notes: resolve A9; with no exit code, "Command succeeded/failed".
 
-### Task 27.2: tool-call item — IN_PROGRESS
+### Task 27.2: tool-call item — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\molecules\tool-execution\tool-call-item.component.ts
@@ -1819,7 +1819,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: collapsed by default; auto-expand on permission request; R7.10 both webviews; Escape per
   #120(b)/#121(b) plus the three integration cases above.
 
-### Task 27.3: ChatView Escape guard (#121(b)) — IN_PROGRESS
+### Task 27.3: ChatView Escape guard (#121(b)) — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts
@@ -1841,7 +1841,7 @@ override (`^vscode$`, `^marked$`) to each Jest run when the default config fails
 5. `npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 6. `npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
 
-## Batch 28: P3 diff, input and output displays — PENDING
+## Batch 28: P3 diff, input and output displays — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1849,22 +1849,53 @@ override (`^vscode$`, `^marked$`) to each Jest run when the default config fails
 - Rationale: the three file-preview molecules; closes Phase 6.
 - Tasks: 3 | Depends on: Batch 26
 - Phase: 6 (last batch) | Phase review: code-logic + style on Batches 26-28
+- Team-leader constraints (set at Batch 27 Mode 2; reflects Batches 26-27 as built, decisions #117-#124):
+  - Starts only after the Codex peer review of #123 is recorded (Batch 28 does not build on #123's code, but the
+    orchestrator closes the review before Phase 6 review). #122 and #124 need no peer review.
+  - Use the Batch 26 API as built, imported by relative path inside chat-ui: `detectToolLanguage(node)`,
+    `getLanguageFromPath(path)`, `getLanguageLabel(language)` from `../../utils/tool-language.utils`, and
+    `ptah-copy-text-button` (`[text]`, `label`, no outputs) from `../../atoms/copy-text-button.component`. Do not
+    re-implement a language map, a copy button or a clipboard call. Do not edit `code-output`,
+    `tool-call-header` or `tool-language.utils` (Batches 26-27 own them); `chat-ui/src/index.ts` stays unchanged
+    (#124: chat imports none of these symbols).
+  - Wrapping (#119, R9.5): no `overflow-x-auto`, `overflow-x-scroll` or `whitespace-nowrap` on any code, diff, input
+    or output block; code lines wrap (`white-space: pre-wrap` + `overflow-wrap: anywhere`, or Tailwind
+    `whitespace-pre-wrap break-all`); vertical height limits stay (`max-h-64` in diff, existing limits elsewhere)
+    with `overflow-y-auto`. Each of the three specs asserts no horizontal-scroll class in any state.
+  - Height-limited blocks are focusable (`tabindex="0"`) with an aria-label naming their content (design-spec.md
+    section 6); clipped text stays in the accessibility tree.
+  - 28.1 diff: keep the existing path link (`ptah-file-path-link`, which still opens through `FILE_LINK_OPENER`),
+    the replacements badge and the old-then-new order; add removed/added counts in the header and a sign gutter
+    (`+`/`-` glyph with `aria-label` "added"/"removed") plus row tint and a line-number gutter.
+  - 28.2 input: Bash `command` and Write `content` are never cut to 60 characters (R7.2, R7.7); other parameters
+    keep the 60-character rule; trivial-input hiding and the retention notice are kept. Write preview:
+    highlighted, height-limited, "Show all N lines" toggle (`aria-expanded`) and "Copy content" via
+    `ptah-copy-text-button`. Correct the stale "chat-ui is type:ui" comment at `tool-input-display.component.ts`
+    (plan component 11).
+  - 28.3 output: output routing, retention notice and error alert kept; correct the stale "chat-ui is type:ui"
+    comment in `tool-output-display.component.ts`. Escape inside these components is not added: only
+    `code-output` and `tool-call-item` own Escape (#120, #121(b)); if a Write preview toggle is expandable, it
+    follows #120(a) exactly (collapse on Escape only while expanded, focus its toggle, `preventDefault()` +
+    `stopPropagation()`; otherwise bubble) and gets the two #120 spec cases.
+  - Decision #8: no `isElectron` gating; every new spec block runs `describe.each([true, false])` with
+    `{ provide: VSCodeService, useValue: { isElectron } }`; file opening through `FILE_LINK_OPENER` in both.
+  - Existing spec cases stay green unedited; only add cases.
 
-### Task 28.1: diff display (+/− counts, gutter) — PENDING
+### Task 28.1: diff display (+/− counts, gutter) — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.spec.ts
 - Quality requirements: R7.6; keeps path link, replacements badge, `max-h-64`.
 
-### Task 28.2: tool input display (full command, Write preview) — PENDING
+### Task 28.2: tool input display (full command, Write preview) — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.spec.ts
 - Quality requirements: R7.2, R7.7; trivial-input hiding, 60-char truncation for other params, retention notice kept.
 
-### Task 28.3: tool output display — PENDING
+### Task 28.3: tool output display — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-output-display.component.ts
@@ -1873,7 +1904,12 @@ override (`^vscode$`, `^marked$`) to each Jest run when the default config fails
 
 ### Batch 28 verification
 
-- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, with the command-line override
+`--moduleNameMapper='{"^vscode$":"<rootDir>/../../../__mocks__/vscode.ts","^marked$":"D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js"}'` on the Jest run:
+
+1. `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+2. `npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+3. `npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20` (baseline 0 errors / 9 warnings)
 - Phase 6 code-logic + style review due after commit
 
 ## Batch 29: A1 prompt hint and no-write-back fixtures — PENDING
@@ -2030,7 +2066,9 @@ override (`^vscode$`, `^marked$`) to each Jest run when the default config fails
 - visual-reviewer checks against `prototype/screenshots/`: widths 360/1024 (chat) and 300/960 (panel), dark and light,
   collapsed and expanded; chat chips, previews (Bash/Read/Write/Edit, Electron and VS Code webviews per R7.8/R7.10),
   summary, states, agents, atoms, dock, empty, the Agents empty tabpanel; R9.5 width script (prototype `?check=1`);
-  collapsed row ≤ 36 px (R7.9); axe zero serious/critical. Writes visual-review.md in the task folder.
+  collapsed row height (R7.9) per decision #123: header toggle row ≤ 36 px for Bash/Read/Write/Edit, collapsed
+  Bash card ≤ the prototype's collapsed Bash card (header + one ellipsised command line), merge-base Bash height
+  recorded; axe zero serious/critical. Writes visual-review.md in the task folder.
 - Code-output row estimate (decisions #118, #121(a)): at chat-narrow (360) and chat-wide (1024), dark and light,
   render code-output with three named inputs: (1) six short lines of 60-100 ASCII characters each; (2) six lines
   of wide/CJK text; (3) a multi-line structural markdown sample (headings, a list, a fenced block). For each, assert

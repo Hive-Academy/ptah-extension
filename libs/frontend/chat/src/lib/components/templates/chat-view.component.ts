@@ -512,6 +512,7 @@ export class ChatViewComponent implements OnDestroy {
    * Escape is only a no-op if focus is moved outside the tile by another surface.
    */
   protected onEscapeKey(event: Event): void {
+    if (event.defaultPrevented) return;
     if (this.isOverlay() && this.panelOpen()) {
       event.preventDefault();
       this.closeAgentPanel();
