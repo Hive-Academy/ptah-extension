@@ -79,7 +79,7 @@ describe('PlanWindowDetailComponent', () => {
     expect(text).not.toContain('94% used');
     expect(text).not.toContain('used · reset Provider API');
     expect(text).not.toContain('limit From error');
-    expect(root.querySelector('[role="meter"]')).not.toBeNull();
+    expect(root.querySelector('[role="progressbar"]')).not.toBeNull();
     expect(text).toContain('Resets today 15:10 UTC · in 3h 10m');
     expect(text).toContain('observed 10m ago');
   });

@@ -37,9 +37,24 @@ function owner(
 
 // 16-hex fingerprints, so the display labels carry their key suffix
 // ("Claude account · aaaa") the way real hashed keys do.
-const CLAUDE_A = owner('claude-cli', 'account', 'aaaaaaaaaaaaaaaa', 'Claude account');
-const CLAUDE_B = owner('claude-cli', 'account', 'bbbbbbbbbbbbbbbb', 'Claude account');
-const CODEX = owner('openai-codex', 'cli-store', 'cccccccccccccccc', 'Codex account');
+const CLAUDE_A = owner(
+  'claude-cli',
+  'account',
+  'aaaaaaaaaaaaaaaa',
+  'Claude account',
+);
+const CLAUDE_B = owner(
+  'claude-cli',
+  'account',
+  'bbbbbbbbbbbbbbbb',
+  'Claude account',
+);
+const CODEX = owner(
+  'openai-codex',
+  'cli-store',
+  'cccccccccccccccc',
+  'Codex account',
+);
 const ANTHROPIC_KEY = owner(
   'anthropic',
   'credential',
@@ -159,6 +174,11 @@ describe('buildStatsLimitViewModel', () => {
       );
       const group = onlySubgroup(vm);
       expect(group.ownerStatus).toBe('different');
+      expect(
+        vm.planTiles
+          .filter((tile) => tile.kind === 'window')
+          .map((tile) => tile.shortReset),
+      ).toEqual(['in 3h 10m', 'in 3d 0h']);
       expect(group.ownerLabel).toBe('Different owner');
       expect(group.planTileChips).toEqual([]);
       expect(group.windows.map((entry) => entry.windowKey)).toEqual([
@@ -600,7 +620,10 @@ describe('buildStatsLimitViewModel', () => {
 
     it('keeps the owner suffix separate from the truncating caption lead', () => {
       const canonical = buildStatsLimitViewModel(input()).planTiles[0];
-      const nonCanonicalOwner = { ...CLAUDE_A, key: 'claude-cli#account:short' };
+      const nonCanonicalOwner = {
+        ...CLAUDE_A,
+        key: 'claude-cli#account:short',
+      };
       const nonCanonical = buildStatsLimitViewModel(
         input({
           sessionOwnerKey: nonCanonicalOwner.key,
@@ -704,9 +727,9 @@ describe('buildStatsLimitViewModel', () => {
           laneRuns: [run({ quotaOwner: CLAUDE_B })],
         }),
       );
-      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual(
-        ['Last known · limit evidence'],
-      );
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual([
+        'Last known · limit evidence',
+      ]);
       expect(onlySubgroup(vm).state).toBe('unknown');
     });
 
@@ -722,9 +745,9 @@ describe('buildStatsLimitViewModel', () => {
           laneRuns: [run({ quotaOwner: CLAUDE_B })],
         }),
       );
-      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual(
-        ['Limit unknown'],
-      );
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual([
+        'Limit unknown',
+      ]);
     });
 
     it('(ii) a saved Claude account owner with no open session', () => {
@@ -750,9 +773,9 @@ describe('buildStatsLimitViewModel', () => {
       expect(group.state).toBe('unknown');
       // No evidence of its own: the session owner's windows are never borrowed.
       expect(group.stateChip.text).toBe('Limit unknown');
-      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual(
-        ['Limit unknown'],
-      );
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual([
+        'Limit unknown',
+      ]);
     });
 
     it('(iii) a saved Anthropic API-key owner is unsupported, with no windows', () => {
@@ -966,8 +989,7 @@ describe('buildStatsLimitViewModel', () => {
     it('has no notice after a good read or when nothing is held', () => {
       expect(buildStatsLimitViewModel(input()).refreshNotice).toBeUndefined();
       expect(
-        buildStatsLimitViewModel(input({ refreshFailed: false }))
-          .refreshNotice,
+        buildStatsLimitViewModel(input({ refreshFailed: false })).refreshNotice,
       ).toBeUndefined();
       expect(
         buildStatsLimitViewModel(input({ refreshFailed: true, owners: [] }))

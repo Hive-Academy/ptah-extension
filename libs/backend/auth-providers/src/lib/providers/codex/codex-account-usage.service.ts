@@ -33,6 +33,15 @@ class AppServerError extends Error {
   }
 }
 
+class CodexReadStageError extends Error {
+  constructor(
+    readonly stage: string,
+    readonly underlyingError: unknown,
+  ) {
+    super(stage);
+  }
+}
+
 interface RpcResponse {
   id: number;
   result?: unknown;
@@ -155,8 +164,18 @@ export class CodexAccountUsageService
     }
     // The initiating caller still owns cancellation of the shared process.
     // Joiners can abandon only their own wait without disrupting other callers.
-    if (this.readInFlight !== null)
-      return joinWithCallerAbort(this.readInFlight, options.signal);
+    if (this.readInFlight !== null) {
+      const shared = this.readInFlight;
+      try {
+        return await joinWithCallerAbort(shared, options.signal);
+      } catch (error) {
+        if (options.signal?.aborted) throw callerAbortError();
+        // The initiating caller cancelled the shared process. Give this
+        // still-active caller a fresh read instead of its abort.
+        if (this.readInFlight === shared) this.readInFlight = null;
+        return this.getAccountUsage(options);
+      }
+    }
     const read = this.performRead(options.signal);
     this.readInFlight = read;
     try {
@@ -175,22 +194,33 @@ export class CodexAccountUsageService
   ): Promise<CodexAccountUsageResult> {
     const generation = this.generation;
     try {
-      const { result, ownerKey } = await this.readFromAppServer(signal);
+      const { result, ownerKey } = await this.readFromAppServer(
+        generation,
+        signal,
+      );
       if (generation === this.generation) {
         this.cached = result;
         this.ownerKey = ownerKey;
       }
       return result;
     } catch (error: unknown) {
+      if (signal?.aborted) throw callerAbortError();
+      const cause =
+        error instanceof CodexReadStageError ? error.underlyingError : error;
       const status =
-        error instanceof AppServerError && error.kind === 'method'
+        cause instanceof AppServerError && cause.kind === 'method'
           ? 'cli-version-unsupported'
-          : error instanceof AppServerError && error.kind === 'cli'
+          : cause instanceof AppServerError && cause.kind === 'cli'
             ? 'cli-unavailable'
             : 'service-unavailable';
       this.logger.warn(
         '[CodexAccountUsage] App Server account read unavailable',
-        { status },
+        {
+          status,
+          stage: error instanceof CodexReadStageError ? error.stage : 'spawn',
+          errorClass:
+            cause instanceof Error ? cause.constructor.name : typeof cause,
+        },
       );
       return this.cached
         ? { ...this.cached, status: 'stale', staleSince: Date.now() }
@@ -202,6 +232,7 @@ export class CodexAccountUsageService
   }
 
   private async readFromAppServer(
+    generation: number,
     signal?: AbortSignal,
   ): Promise<AppServerRead> {
     let child: SpawnedProcessHandle;
@@ -211,15 +242,18 @@ export class CodexAccountUsageService
       throw new AppServerError('cli');
     }
     const rpc = this.createRpcClient(child, signal);
+    let stage = 'initialize';
     try {
       const initialized = codexInitializeResponseSchema.parse(
         await rpc.request(1, 'initialize', {
           clientInfo: { name: 'ptah', version: '1' },
         }),
       );
+      stage = 'home';
       if (!samePath(initialized.codexHome, this.codexHome.path))
         throw new AppServerError('unavailable');
       rpc.notify('initialized');
+      stage = 'account';
       const account = codexAccountResponseSchema.parse(
         await rpc.request(2, 'account/read', { refreshToken: false }),
       );
@@ -243,33 +277,51 @@ export class CodexAccountUsageService
       const ownerKey = email
         ? accountOwnerKey('openai-codex', `${this.codexHome.path}\0${email}`)
         : null;
+      if (generation === this.generation && this.ownerKey !== ownerKey) {
+        this.cached = null;
+        this.ownerKey = ownerKey;
+      }
+      stage = 'rate-limits';
       const quota = codexRateLimitsResponseSchema.parse(
         await rpc.request(3, 'account/rateLimits/read'),
       );
-      const activity = codexTokenUsageResponseSchema.parse(
-        await rpc.request(4, 'account/usage/read'),
-      );
-      const reachedType = quota.rateLimits.rateLimitReachedType;
+      const limits = quota.rateLimitsByLimitId?.['codex'] ?? quota.rateLimits;
+      let activity:
+        ReturnType<typeof codexTokenUsageResponseSchema.parse> | undefined;
+      stage = 'activity';
+      try {
+        activity = codexTokenUsageResponseSchema.parse(
+          await rpc.request(4, 'account/usage/read'),
+        );
+      } catch (error: unknown) {
+        if (signal?.aborted) throw error;
+        this.logger.debug('[CodexAccountUsage] optional read unavailable', {
+          stage,
+          errorClass:
+            error instanceof Error ? error.constructor.name : typeof error,
+        });
+      }
+      const reachedType = limits.rateLimitReachedType;
       const result: CodexAccountUsageResult = {
         status: 'available',
         providerId: 'openai-codex',
         fetchedAt: Date.now(),
         account: { planType: account.account.planType },
         quota: {
-          ...(quota.rateLimits.primary
-            ? { primary: quota.rateLimits.primary }
-            : {}),
-          ...(quota.rateLimits.secondary
-            ? { secondary: quota.rateLimits.secondary }
-            : {}),
+          ...(limits.primary ? { primary: limits.primary } : {}),
+          ...(limits.secondary ? { secondary: limits.secondary } : {}),
           ...(reachedType ? { rateLimitReachedType: reachedType } : {}),
         },
-        activity: {
-          lifetimeTokens: activity.summary.lifetimeTokens,
-          dailyUsage: activity.dailyUsageBuckets ?? [],
-        },
+        ...(activity && {
+          activity: {
+            lifetimeTokens: activity.summary.lifetimeTokens,
+            dailyUsage: activity.dailyUsageBuckets ?? [],
+          },
+        }),
       };
       return { result, ownerKey };
+    } catch (error: unknown) {
+      throw new CodexReadStageError(stage, error);
     } finally {
       await this.closeChild(child);
     }

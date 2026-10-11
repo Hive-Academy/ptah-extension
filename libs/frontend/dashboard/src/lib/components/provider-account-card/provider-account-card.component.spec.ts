@@ -186,17 +186,24 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(five)).toContain(
       `Resets ${formatRelative(resetAt, NOW)} (${abs(resetAt)})`,
     );
-    const meter = five.querySelector('[data-testid="window-radial-progress"]');
+    const meter = five.querySelector('[data-testid="window-progress"]');
     expect(meter?.getAttribute('aria-valuenow')).toBe('94');
     expect(meter?.getAttribute('aria-label')).toBe('5-hour session plan usage');
     expect(
       el.querySelector('[data-testid="provider-account-section"]')?.className,
     ).toContain('surface-2');
-    expect(meter?.className).toContain('radial-progress');
-    expect(meter?.className).toContain('text-warning');
-    expect(meter?.style.getPropertyValue('--value')).toBe('94');
+    expect(meter?.className).toContain('rounded');
+    expect((meter?.firstElementChild as HTMLElement)?.style.width).toBe('94%');
+    expect(meter?.firstElementChild?.classList.contains('bg-warning')).toBe(
+      true,
+    );
 
     expect(chipsIn(opus, 'state-chip')).toEqual(['■ Limit reached']);
+    expect(
+      opus
+        .querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild?.classList.contains('bg-error'),
+    ).toBe(true);
     expect(textOf(opus)).toContain(
       `Limit reached — resets ${at(NOW + 45 * HOUR)}`,
     );
@@ -269,10 +276,7 @@ describe('ProviderAccountCardComponent', () => {
       rows(el).map((r) => textOf(r.querySelector('.text-\\[13px\\]'))),
     ).toEqual(['5-hour session', 'Weekly']);
     expect(chipsIn(el, 'state-chip')).toEqual([]);
-    expect(chipsIn(el, 'source-chip')).toEqual([
-      'Provider API',
-      'Provider API',
-    ]);
+    expect(chipsIn(el, 'source-chip')).toEqual(['Provider API']);
     expect(textOf(el)).toContain('Lifetime tokens: 9007199254740993');
     expect(textOf(el)).toContain(
       'Activity is not remaining messages, credits, or billing.',
@@ -364,7 +368,7 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(stat)).toContain('Local usage: tokens & estimated cost');
     expect(textOf(stat)).toContain('1,234 tokens · $5.67');
     expect(stat?.querySelector('.radial-progress')).toBeNull();
-    expect(el.querySelector('[data-testid="window-radial-progress"]')).toBeNull();
+    expect(el.querySelector('[data-testid="window-progress"]')).toBeNull();
   });
 
   it('6. OpenCode: no usage source plus a recorded limit hit with a known reset', () => {
@@ -607,10 +611,88 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
       'API key — no plan limits',
     );
-    expect(textOf(el)).toContain(
-      'No plan windows: this account signs in with an API key',
-    );
+    expect(textOf(el)).toContain('No plan limits (API key)');
     expect(rows(el)).toHaveLength(0);
+  });
+
+  it('distinguishes Ollama Cloud key failure, missing key and local usage', () => {
+    const cases = [
+      ['unsupported-auth', 'API key rejected — check the key'],
+      ['unsupported-config', 'No API key configured'],
+      ['no-usage-source', 'Local usage only'],
+    ] as const;
+    const el = render(
+      snapshotOf(
+        ...cases.map(([status], i) =>
+          owner(
+            'ollama-cloud',
+            'Ollama Cloud account',
+            { status },
+            `0123456789abcde${i}`,
+          ),
+        ),
+      ),
+    );
+    cases.forEach(([, expected], i) =>
+      expect(textOf(sections(el)[i])).toContain(expected),
+    );
+  });
+
+  it('shows distinct unknown-owner reasons and a short key suffix', () => {
+    const cases = [
+      ['missing-account-email', 'Signed in · account email not shared'],
+      ['codex-not-read', 'Account not read yet'],
+      ['unrouted-daemon', 'Local Ollama daemon'],
+      ['missing-api-key', 'No API key configured'],
+      ['unresolved-route', 'Account identity unavailable'],
+    ] as const;
+    const el = render(
+      snapshotOf(
+        ...cases.map(([reason], i) =>
+          owner('ollama-cloud', 'Ollama account unknown', {
+            unknownReason: reason,
+            owner: {
+              key: `ollama-cloud#unknown:0123456789abcde${i}`,
+              providerId: 'ollama-cloud',
+              identityKind: 'unknown',
+              label: 'Ollama account unknown',
+            },
+          }),
+        ),
+      ),
+    );
+    cases.forEach(([, expected], i) => {
+      expect(textOf(sections(el)[i])).toContain(expected);
+      expect(textOf(sections(el)[i])).toContain(
+        `Ollama account unknown · cde${i}`,
+      );
+    });
+  });
+
+  it('shows the used amount visibly when a window has no percentage', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({
+              key: 'other:tokens',
+              label: 'Tokens',
+              used: { kind: 'amount', amount: 42, limit: 1000, unit: 'tokens' },
+            }),
+          ],
+        }),
+      ),
+    );
+    const value = el.querySelector('[data-testid="window-value"]');
+    expect(value?.textContent).toContain('42');
+    expect(value?.textContent).not.toContain('—');
+  });
+
+  it('shows a clear empty state when a successful read has no windows', () => {
+    const el = render(snapshotOf(owner('opencode', 'OpenCode account')));
+    expect(textOf(el)).toContain('No plan limits reported');
+    expect(rows(el)).toHaveLength(0);
+    expect(el.querySelector('section')?.className).not.toContain('h-full');
   });
 
   it('16. service-unavailable: raw status name and sentence; other failure statuses name themselves', () => {
@@ -641,7 +723,7 @@ describe('ProviderAccountCardComponent', () => {
       ),
     );
     expect(chipsIn(el, 'status-chip')).toEqual([
-      'No usage source',
+      'No API key configured',
       'No usage source',
       'CLI unavailable',
     ]);
@@ -662,11 +744,11 @@ describe('ProviderAccountCardComponent', () => {
     const header = el.querySelector(
       '[data-testid="section-header"]',
     ) as HTMLElement;
-    expect(header.className).toContain('flex-wrap');
+    expect(header.className).toContain('grid-cols-[minmax(0,1fr)_auto]');
     expect(header.firstElementChild?.className).toContain('min-w-0');
     expect(
       el.querySelector('[data-testid="status-chip"]')?.className,
-    ).toContain('whitespace-nowrap');
+    ).toContain('whitespace-normal');
   });
 
   // ---- ledger-only and informational evidence ----

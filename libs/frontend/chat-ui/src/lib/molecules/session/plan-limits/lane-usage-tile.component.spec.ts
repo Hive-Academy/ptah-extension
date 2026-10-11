@@ -209,7 +209,9 @@ describe('LaneUsageTileComponent', () => {
       'Different owner · Codex account · cccc',
     );
     expect(
-      groups[1].querySelector('[role="meter"]')?.getAttribute('aria-valuenow'),
+      groups[1]
+        .querySelector('[role="progressbar"]')
+        ?.getAttribute('aria-valuenow'),
     ).toBe('12');
     expect(text(groups[1], 'lane-run-row')).toContain('Tokens 31.4k');
   });
@@ -266,7 +268,10 @@ describe('LaneUsageTileComponent', () => {
   });
 
   it('a restored lane of a last-known owner: the face agrees with its panel', () => {
-    const CLAUDE_B: QuotaOwnerRef = { ...CLAUDE_A, key: 'claude-cli#account:bbbbbbbbbbbbbbbb' };
+    const CLAUDE_B: QuotaOwnerRef = {
+      ...CLAUDE_A,
+      key: 'claude-cli#account:bbbbbbbbbbbbbbbb',
+    };
     const vm = buildStatsLimitViewModel({
       sessionId: 'session-1',
       sessionOwnerKey: CLAUDE_A.key,
@@ -333,7 +338,9 @@ describe('LaneUsageTileComponent', () => {
   it('draws a focus ring in base-content, which reaches 3:1 in both themes', () => {
     const root = render(laneTile());
 
-    expect(face(root).className).toContain('focus-visible:outline-base-content');
+    expect(face(root).className).toContain(
+      'focus-visible:outline-base-content',
+    );
     expect(face(root).className).not.toContain('outline-info');
   });
 

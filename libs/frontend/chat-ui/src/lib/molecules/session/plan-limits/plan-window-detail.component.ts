@@ -26,9 +26,13 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
 @Component({
   selector: 'ptah-plan-window-detail',
   standalone: true,
+  host: { '[class.contents]': '!showSummary()' },
   template: `
     @let w = window();
-    <div class="py-1" data-testid="plan-window-detail">
+    <div
+      [class]="showSummary() ? 'py-1' : 'contents'"
+      data-testid="plan-window-detail"
+    >
       @if (showSummary()) {
         <div class="flex flex-wrap items-center justify-between gap-1.5">
           <span class="font-semibold text-xs">{{ w.label }}</span>
@@ -42,46 +46,84 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
           }
         </div>
       }
-      @if (percent() !== null) {
-        <div class="flex items-center gap-2 mt-1">
-          <div
-            class="relative flex-1 h-1.5 rounded bg-base-content/10 overflow-hidden"
-            role="meter"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            [attr.aria-valuenow]="percent()"
-            [attr.aria-valuetext]="w.usedText"
-            [attr.aria-label]="w.label + ' used'"
-          >
-            <div
-              class="h-full rounded bg-base-content/70"
-              [class.stripes-error]="w.chip?.tone === 'error'"
-              [class.stripes-warning]="w.chip?.tone === 'warning'"
-              [style.width.%]="percent()"
-            ></div>
-            <div
-              class="absolute top-0 h-full w-px bg-base-content"
-              [style.left.%]="nearLimitPercent"
-              aria-hidden="true"
-            ></div>
-          </div>
-          @if (showSummary()) {
+      @if (!showSummary()) {
+        <span class="text-base-content-muted">Used</span>
+        <span class="min-w-0">
+          @if (percent() !== null) {
             <span
-              class="text-xs font-semibold tabular-nums whitespace-nowrap"
-              >{{ w.usedText }}</span
+              class="block h-1.5 overflow-hidden rounded bg-base-content/10"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              [attr.aria-valuenow]="percent()"
+              [attr.aria-label]="w.label + ' used'"
             >
+              <span
+                class="block h-full rounded bg-base-content/70"
+                [style.width.%]="percent()"
+              ></span>
+            </span>
+          } @else {
+            {{ w.usedText }}
           }
-        </div>
-      } @else if (showSummary()) {
-        <div class="text-xs mt-1 font-semibold">Used: {{ w.usedText }}</div>
-      }
-      @for (fact of w.resetFacts; track $index) {
-        <div class="text-[11px] text-base-content-muted mt-0.5">{{ fact }}</div>
-      }
-      @if (w.note) {
-        <div class="text-[11px] text-base-content-muted mt-0.5">
-          {{ w.note }}
-        </div>
+        </span>
+        <span class="text-right tabular-nums whitespace-nowrap">{{
+          percent() !== null ? percent() + '%' : '—'
+        }}</span>
+        @for (fact of w.resetFacts; track $index) {
+          <span class="text-base-content-muted">{{
+            $first ? 'Resets' : 'Next reset'
+          }}</span
+          ><span class="col-span-2 min-w-0">{{ fact }}</span>
+        }
+        @if (w.note) {
+          <span class="text-base-content-muted">Observed</span
+          ><span class="col-span-2 min-w-0">{{ w.note }}</span>
+        }
+      } @else {
+        @if (percent() !== null) {
+          <div class="flex items-center gap-2 mt-1">
+            <div
+              class="relative flex-1 h-1.5 rounded bg-base-content/10 overflow-hidden"
+              role="meter"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              [attr.aria-valuenow]="percent()"
+              [attr.aria-valuetext]="w.usedText"
+              [attr.aria-label]="w.label + ' used'"
+            >
+              <div
+                class="h-full rounded bg-base-content/70"
+                [class.stripes-error]="w.chip?.tone === 'error'"
+                [class.stripes-warning]="w.chip?.tone === 'warning'"
+                [style.width.%]="percent()"
+              ></div>
+              <div
+                class="absolute top-0 h-full w-px bg-base-content"
+                [style.left.%]="nearLimitPercent"
+                aria-hidden="true"
+              ></div>
+            </div>
+            @if (showSummary()) {
+              <span
+                class="text-xs font-semibold tabular-nums whitespace-nowrap"
+                >{{ w.usedText }}</span
+              >
+            }
+          </div>
+        } @else if (showSummary()) {
+          <div class="text-xs mt-1 font-semibold">Used: {{ w.usedText }}</div>
+        }
+        @for (fact of w.resetFacts; track $index) {
+          <div class="text-[11px] text-base-content-muted mt-0.5">
+            {{ fact }}
+          </div>
+        }
+        @if (w.note) {
+          <div class="text-[11px] text-base-content-muted mt-0.5">
+            {{ w.note }}
+          </div>
+        }
       }
       @if (showSummary()) {
         @if (w.sourceChips.length > 0) {

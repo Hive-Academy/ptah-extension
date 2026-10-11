@@ -61,6 +61,29 @@ function reader(
   );
 }
 describe('Antigravity plan-usage reader', () => {
+  it('uses the local probe when OAuth is unavailable', async () => {
+    const request = jest.fn(async () => response);
+    const readOAuth = jest.fn(async () => ({
+      status: 'service-unavailable' as const,
+      windowSetEstablished: false,
+      windows: [],
+    }));
+    const instance = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      async (command) => (command === 'lsof' ? 'n127.0.0.1:5555' : PROCESS),
+      request,
+      () => owner,
+      readOAuth,
+    );
+    const result = await instance({
+      target: { ownerRef: { key: owner, identityKind: 'cli-store' } } as never,
+      refresh: true,
+    });
+    expect(readOAuth).toHaveBeenCalled();
+    expect(request).toHaveBeenCalled();
+    expect(result.status).toBe('available');
+  });
   it('tries HTTPS then HTTP and maps the provisional response without exposing its email', async () => {
     const request = jest.fn(async (scheme: 'http' | 'https') =>
       scheme === 'https' ? Promise.reject(new Error('tls')) : response,

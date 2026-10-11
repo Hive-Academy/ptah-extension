@@ -75,6 +75,7 @@ export interface WindowRowView {
   readonly percent: number | null;
   readonly barTone: Tone;
   readonly valueText: string;
+  readonly isPercent: boolean;
   /** "Limit reached — …" headline; bold. */
   readonly limitLine: string | null;
   readonly resetLines: readonly string[];
@@ -105,6 +106,7 @@ export interface OwnerSectionView {
   readonly noUsageSource: boolean;
   readonly statusNotice: NoticeView | null;
   readonly windows: readonly WindowRowView[];
+  readonly commonSources: readonly SourceChipView[];
   readonly localUsage: LocalUsageView | null;
   readonly evidence: readonly NoticeView[];
   readonly cooldown: string | null;
@@ -147,7 +149,7 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
   imports: [ProviderMarkComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
-    ':host{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:0.5rem;align-items:stretch}',
+    ':host{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,21rem),1fr));gap:0.5rem;align-items:start}',
   ],
   template: `
     @if (sections(); as list) {
@@ -162,22 +164,20 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
       }
       @for (section of list; track section.key) {
         <section
-          class="surface-2 flex h-full min-w-0 flex-col rounded-lg border border-base-content/10 p-3"
+          class="surface-2 flex min-w-0 flex-col rounded-lg border border-base-content/10 p-3"
           [attr.aria-label]="section.label + ' usage'"
           data-testid="provider-account-section"
         >
           <div
-            class="flex flex-wrap items-start justify-between gap-2"
+            class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2"
             data-testid="section-header"
           >
-            <!-- A 5rem basis, not the subtitle's full width, decides when the
-                 chip group wraps below: only when the title would get less. -->
-            <div class="flex min-w-0 flex-1 items-start gap-2">
+            <div class="flex min-w-0 items-start gap-2">
               <ptah-provider-mark [providerId]="section.providerId" />
               <div class="min-w-0">
                 <h4 class="font-semibold text-sm">{{ section.label }}</h4>
                 <p
-                  class="truncate text-[10px] text-base-content-muted"
+                  class="text-[10px] text-base-content-muted break-words"
                   [title]="section.subtitle"
                 >
                   {{ section.subtitle }}
@@ -185,15 +185,6 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
               </div>
             </div>
             <div class="flex items-center gap-1 shrink-0">
-              @if (section.statusChip; as status) {
-                <span
-                  class="badge badge-sm whitespace-nowrap"
-                  [class]="statusChipClass(status.tone)"
-                  [attr.title]="section.statusNotice?.text ?? status.text"
-                  data-testid="status-chip"
-                  >{{ status.text }}</span
-                >
-              }
               <button
                 type="button"
                 class="btn btn-ghost btn-xs btn-square"
@@ -206,6 +197,30 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
               </button>
             </div>
           </div>
+          @if (section.statusChip; as status) {
+            <div class="mt-1">
+              <span
+                class="badge badge-sm whitespace-normal h-auto text-left"
+                [class]="statusChipClass(status.tone)"
+                [attr.title]="section.statusNotice?.text ?? status.text"
+                data-testid="status-chip"
+                >{{ status.text }}</span
+              >
+            </div>
+          }
+          @if (section.commonSources.length > 0) {
+            <div class="mt-1 flex flex-wrap gap-1" aria-label="Usage source">
+              @for (source of section.commonSources; track source.text) {
+                <span
+                  class="text-[10px] px-1 rounded border border-base-content/20 text-base-content-muted"
+                  [class.border-dashed]="source.unofficial"
+                  [class.italic]="source.unofficial"
+                  data-testid="source-chip"
+                  >{{ source.text }}</span
+                >
+              }
+            </div>
+          }
 
           @if (section.noUsageSource) {
             <p class="sr-only">
@@ -227,28 +242,39 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
           }
 
           @if (section.localUsage; as usage) {
-            <div class="mt-3 rounded border border-base-content/20 px-3 py-2" data-testid="local-usage-stat">
-              <p class="text-[10px] uppercase tracking-wider text-base-content-muted">{{ usage.label }}</p>
-              <p class="text-sm font-semibold tabular-nums">{{ usage.value }}</p>
+            <div
+              class="mt-3 rounded border border-base-content/20 px-3 py-2"
+              data-testid="local-usage-stat"
+            >
+              <p
+                class="text-[10px] uppercase tracking-wider text-base-content-muted"
+              >
+                {{ usage.label }}
+              </p>
+              <p class="text-sm font-semibold tabular-nums">
+                {{ usage.value }}
+              </p>
               @if (usage.range) {
-                <p class="text-[11px] text-base-content-muted">Range: {{ usage.range }}</p>
+                <p class="text-[11px] text-base-content-muted">
+                  Range: {{ usage.range }}
+                </p>
               }
-              <p class="text-[11px] text-base-content-muted">Local CLI accounting · not a plan percentage or reset</p>
+              <p class="text-[11px] text-base-content-muted">
+                Local CLI accounting · not a plan percentage or reset
+              </p>
             </div>
           }
 
           @if (section.windows.length > 0) {
-            <div
-              class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2"
-            >
+            <div class="mt-3 grid gap-1.5">
               @for (row of section.windows; track row.key) {
                 <div
                   role="group"
                   [attr.aria-label]="row.name"
-                  class="flex min-w-0 flex-col items-center rounded-md bg-surface-0/50 p-2 text-center"
+                  class="grid min-w-0 grid-cols-[minmax(5.5rem,auto)_minmax(0,1fr)_4.5rem] items-start gap-2 rounded-md bg-surface-0/50 p-2 text-left"
                   data-testid="window-row"
                 >
-                  <div class="flex w-full items-center justify-center gap-1">
+                  <div class="flex min-w-0 flex-col items-start gap-1">
                     <span class="text-[13px] font-semibold">{{
                       row.name
                     }}</span>
@@ -262,69 +288,82 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
                       >
                     }
                   </div>
-                  @if (row.percent !== null) {
+                  <div class="min-w-0">
+                    <span class="sr-only">{{ row.valueText }}</span>
+                    @if (row.percent !== null) {
+                      <div
+                        class="h-1.5 w-full overflow-hidden rounded bg-base-content/10"
+                        role="progressbar"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        [attr.aria-valuenow]="roundPercent(row.percent)"
+                        [attr.aria-valuetext]="row.valueText"
+                        [attr.aria-label]="row.name + ' plan usage'"
+                        [attr.title]="
+                          row.valueText + '. ' + row.resetLines.join(' ')
+                        "
+                        data-testid="window-progress"
+                      >
+                        <div
+                          class="h-full rounded"
+                          [class.bg-error]="row.barTone === 'error'"
+                          [class.bg-warning]="row.barTone === 'warning'"
+                          [class.bg-base-content]="row.barTone === 'success'"
+                          [style.width.%]="clampPercent(row.percent)"
+                        ></div>
+                      </div>
+                    }
                     <div
-                      [class]="radialClass(row.percent, row.barTone)"
-                      role="progressbar"
-                      aria-valuemin="0"
-                      aria-valuemax="100"
-                      [attr.aria-valuenow]="roundPercent(row.percent)"
-                      [attr.aria-valuetext]="row.valueText"
-                      [attr.aria-label]="row.name + ' plan usage'"
-                      [attr.title]="
-                        row.valueText + '. ' + row.resetLines.join(' ')
-                      "
-                      [style.--value]="clampPercent(row.percent)"
-                      style="--size: 3.5rem; --thickness: 5px"
-                      data-testid="window-radial-progress"
+                      class="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[11px] text-base-content-muted break-words"
                     >
-                      {{ roundPercent(row.percent) }}%
+                      @if (row.limitLine) {
+                        <strong class="text-base-content">{{
+                          row.limitLine
+                        }}</strong>
+                      }
+                      @for (line of row.resetLines; track $index) {
+                        <span
+                          [class.font-semibold]="line.startsWith('Resets in')"
+                          >{{ line }}</span
+                        >
+                      }
+                      @if (row.note) {
+                        <span>{{ row.note }}</span>
+                      }
+                      @if (section.commonSources.length === 0) {
+                        @for (source of row.sources; track source.text) {
+                          <span
+                            class="text-[10px] px-1 rounded border border-base-content/20 text-base-content-muted"
+                            [class.border-dashed]="source.unofficial"
+                            [class.italic]="source.unofficial"
+                            [attr.title]="
+                              'Source for ' + row.name + ': ' + source.text
+                            "
+                            data-testid="source-chip"
+                            >{{ source.text }}</span
+                          >
+                        }
+                      }
                     </div>
-                    <span class="sr-only" data-testid="window-value">{{
-                      row.valueText
-                    }}</span>
-                  } @else {
-                    <span
-                      class="mt-1 text-xs font-semibold tabular-nums"
-                      data-testid="window-value"
-                      >{{ row.valueText }}</span
-                    >
-                  }
-                  <div
-                    class="mt-1 flex flex-wrap justify-center gap-x-2 gap-y-1 text-[11px] text-base-content-muted"
-                  >
-                    @if (row.limitLine) {
-                      <strong class="text-base-content">{{
-                        row.limitLine
-                      }}</strong>
-                    }
-                    @for (line of row.resetLines; track $index) {
-                      <span
-                        [class.font-semibold]="line.startsWith('Resets in')"
-                        >{{ line }}</span
+                    @if (row.estimateNote) {
+                      <p
+                        class="text-[11px] text-base-content-muted mt-1"
+                        data-testid="estimate-note"
                       >
-                    }
-                    @if (row.note) {
-                      <span>{{ row.note }}</span>
-                    }
-                    @for (source of row.sources; track source.text) {
-                      <span
-                        class="text-[10px] px-1 rounded border border-base-content/20 text-base-content-muted"
-                        [class.border-dashed]="source.unofficial"
-                        [class.italic]="source.unofficial"
-                        data-testid="source-chip"
-                        >{{ source.text }}</span
-                      >
+                        {{ row.estimateNote }}
+                      </p>
                     }
                   </div>
-                  @if (row.estimateNote) {
-                    <p
-                      class="text-[11px] text-base-content-muted mt-1"
-                      data-testid="estimate-note"
-                    >
-                      {{ row.estimateNote }}
-                    </p>
-                  }
+                  <span
+                    class="text-right text-xs font-semibold tabular-nums break-words"
+                    [class.whitespace-nowrap]="row.isPercent"
+                    data-testid="window-value"
+                    >{{
+                      row.isPercent && row.percent !== null
+                        ? roundPercent(row.percent) + '%'
+                        : row.valueText
+                    }}</span
+                  >
                 </div>
               }
             </div>
@@ -474,15 +513,6 @@ export class ProviderAccountCardComponent {
     return Math.max(0, Math.min(100, percent));
   }
 
-  /** DaisyUI's radial fill inherits `currentColor`; its track stays base-muted. */
-  protected radialClass(percent: number, stateTone: Tone): string {
-    return stateTone === 'error'
-      ? 'radial-progress bg-base-300 text-error'
-      : percent >= 75
-        ? 'radial-progress bg-base-300 text-warning'
-        : 'radial-progress bg-base-300 text-success';
-  }
-
   protected statusChipClass(tone: Tone): string {
     return tone === 'error'
       ? 'badge-error'
@@ -577,7 +607,23 @@ function buildOwnerSection(
   now: number,
   time: LocalTimeOptions,
 ): OwnerSectionView {
-  const hasData = owner.windows.length > 0 || owner.ownerEvidence.length > 0 || owner.localUsage !== undefined;
+  const hasData =
+    owner.windows.length > 0 ||
+    owner.ownerEvidence.length > 0 ||
+    owner.localUsage !== undefined;
+  const windows = owner.windows.map((w) => buildWindowRow(w, owner, now, time));
+  const firstSources = windows[0]?.sources ?? [];
+  const commonSources =
+    windows.length > 0 &&
+    windows.every(
+      (row) =>
+        row.sources.length === firstSources.length &&
+        row.sources.every(
+          (source, index) => source.text === firstSources[index]?.text,
+        ),
+    )
+      ? firstSources
+      : [];
   return {
     key: owner.owner.key,
     providerId: owner.owner.providerId,
@@ -585,10 +631,11 @@ function buildOwnerSection(
     // owners of one provider are told apart; never the full key.
     label: ownerDisplayLabel(owner.owner),
     subtitle: subtitleFor(owner),
-    statusChip: statusChip(owner.status),
+    statusChip: statusChip(owner.status, owner.owner.providerId),
     noUsageSource: owner.status === 'no-usage-source',
     statusNotice: statusNotice(owner, hasData, now, time),
-    windows: owner.windows.map((w) => buildWindowRow(w, owner, now, time)),
+    windows,
+    commonSources,
     localUsage: owner.localUsage ? localUsageView(owner.localUsage) : null,
     evidence: owner.ownerEvidence.map((e) => evidenceNotice(e, now, time)),
     cooldown:
@@ -608,6 +655,16 @@ function localUsageView(usage: PlanLocalUsage): LocalUsageView {
 }
 
 function subtitleFor(owner: PlanLimitOwnerSnapshot): string {
+  if (owner.owner.identityKind === 'unknown') {
+    const reasons: Record<string, string> = {
+      'missing-account-email': 'Signed in · account email not shared',
+      'codex-not-read': 'Account not read yet',
+      'unrouted-daemon': 'Local Ollama daemon',
+      'missing-api-key': 'No API key configured',
+      'unresolved-route': 'Account identity unavailable',
+    };
+    return reasons[owner.unknownReason ?? ''] ?? 'Account identity unavailable';
+  }
   const base =
     owner.activity !== undefined
       ? 'Subscription quota and account activity'
@@ -617,7 +674,10 @@ function subtitleFor(owner: PlanLimitOwnerSnapshot): string {
 }
 
 /** Short, human-readable status labels; diagnostic codes stay out of the UI. */
-function statusChip(status: ProviderAccountUsageStatus): StateChipView | null {
+function statusChip(
+  status: ProviderAccountUsageStatus,
+  providerId: string,
+): StateChipView | null {
   switch (status) {
     case 'available':
       return null;
@@ -626,8 +686,23 @@ function statusChip(status: ProviderAccountUsageStatus): StateChipView | null {
     case 'stale':
       return { glyph: '', text: 'Cached data', tone: 'warning' };
     case 'unsupported-auth':
-      return { glyph: '', text: 'API key — no plan limits', tone: 'neutral' };
+      return {
+        glyph: '',
+        text:
+          providerId === 'ollama-cloud'
+            ? 'API key rejected'
+            : 'API key — no plan limits',
+        tone: 'neutral',
+      };
     case 'unsupported-config':
+      return {
+        glyph: '',
+        text:
+          providerId === 'ollama-cloud'
+            ? 'No API key configured'
+            : 'No usage source',
+        tone: 'neutral',
+      };
     case 'provider-unsupported':
       return { glyph: '', text: 'No usage source', tone: 'neutral' };
     case 'cli-unavailable':
@@ -677,13 +752,43 @@ function statusNotice(
     }
     if (owner.owner.providerId === 'antigravity') {
       return {
-      text: 'Open Antigravity to read local quota',
+        text: 'Open Antigravity to read local quota',
         tone: 'neutral',
         sources: [],
       };
     }
   }
   const sentence = STATUS_SENTENCES[owner.status];
+  if (!hasData && owner.status === 'available') {
+    return { text: 'No plan limits reported', tone: 'neutral', sources: [] };
+  }
+  if (!hasData && owner.status === 'unsupported-auth') {
+    return {
+      text:
+        owner.owner.providerId === 'ollama-cloud'
+          ? 'API key rejected — check the key'
+          : 'No plan limits (API key)',
+      tone: 'neutral',
+      sources: [],
+    };
+  }
+  if (
+    !hasData &&
+    owner.status === 'unsupported-config' &&
+    owner.owner.providerId === 'ollama-cloud'
+  ) {
+    return { text: 'No API key configured', tone: 'neutral', sources: [] };
+  }
+  if (
+    !hasData &&
+    owner.status === 'no-usage-source' &&
+    owner.owner.providerId === 'opencode'
+  ) {
+    return { text: 'Sign in to OpenCode Go', tone: 'neutral', sources: [] };
+  }
+  if (!hasData && owner.status === 'no-usage-source') {
+    return { text: 'Local usage only', tone: 'neutral', sources: [] };
+  }
   if (sentence === undefined || hasData) return null;
   return { text: sentence, tone: 'neutral', sources: [] };
 }
@@ -745,6 +850,7 @@ function buildWindowRow(
           ? 'warning'
           : 'success',
     valueText: showValue ? `${formatUsed(window.used)} used` : 'Used: unknown',
+    isPercent: window.used?.kind === 'percent',
     limitLine,
     resetLines,
     note,

@@ -120,13 +120,21 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
       @if (open()) {
         @for (group of t.subgroups; track group.key; let first = $first) {
           <section
-            [class]="first ? 'py-1' : subgroupDivider"
+            [class]="
+              (first ? 'py-1' : subgroupDivider) +
+              ' grid grid-cols-[minmax(6rem,auto)_minmax(0,1fr)_4.5rem] gap-x-2 gap-y-1 break-words'
+            "
             [attr.data-owner-status]="group.ownerStatus"
             data-testid="lane-subgroup"
           >
-            <h4 class="text-xs font-semibold">{{ group.heading }}</h4>
+            <h4 class="col-span-full text-xs font-semibold">
+              {{ group.heading }}
+            </h4>
             @for (run of group.runs; track run.runId) {
-              <p class="text-xs mt-0.5" data-testid="lane-run-row">
+              <p
+                class="col-span-full text-xs mt-0.5"
+                data-testid="lane-run-row"
+              >
                 <span class="font-semibold">{{ run.label }}</span>
                 · Model {{ run.model }} · Tokens {{ run.tokensText }} · Cost
                 {{ run.costText }} · {{ run.stateText }}
@@ -135,10 +143,15 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
                 }
               </p>
             }
-            <p class="text-xs mt-1 font-semibold" data-testid="lane-owner-text">
+            <span class="text-base-content-muted">Account</span>
+            <p
+              class="col-span-2 min-w-0 text-xs font-semibold"
+              data-testid="lane-owner-text"
+            >
               {{ group.ownerText }}
             </p>
-            <div class="flex flex-wrap gap-1 mt-1">
+            <span class="text-base-content-muted">Status</span>
+            <div class="col-span-2 flex flex-wrap gap-1">
               <span [class]="chipClass(group.stateChip.tone)">
                 @if (group.stateChip.glyph) {
                   <span aria-hidden="true">{{ group.stateChip.glyph }}</span>
@@ -161,21 +174,40 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
               }
             </div>
             @for (window of group.windows; track window.windowKey) {
-              <ptah-plan-window-detail [window]="window" />
+              <span class="col-span-full font-semibold">{{
+                window.label
+              }}</span>
+              <ptah-plan-window-detail
+                [window]="window"
+                [showSummary]="false"
+              />
+              <span class="text-base-content-muted">Source</span
+              ><span class="col-span-2 flex flex-wrap gap-1">
+                @for (source of window.sourceChips; track source) {
+                  <span [class]="sourceChipClass(source)">{{ source }}</span>
+                }
+              </span>
             }
             @for (line of group.evidenceLines; track $index) {
-              <p class="text-[11px] text-base-content-muted mt-0.5">
+              <p
+                class="col-span-full text-[11px] text-base-content-muted mt-0.5"
+              >
                 {{ line }}
               </p>
             }
             @if (group.cooldownLine) {
-              <p class="text-[11px] text-base-content-muted mt-0.5">
+              <p
+                class="col-span-full text-[11px] text-base-content-muted mt-0.5"
+              >
                 {{ group.cooldownLine }}
               </p>
             }
             @for (note of group.notes; track $index) {
               <p
-                [class]="note.tone === 'info' ? infoNote : neutralNote"
+                [class]="
+                  (note.tone === 'info' ? infoNote : neutralNote) +
+                  ' col-span-full'
+                "
                 [attr.data-note-tone]="note.tone"
                 data-testid="lane-note"
               >

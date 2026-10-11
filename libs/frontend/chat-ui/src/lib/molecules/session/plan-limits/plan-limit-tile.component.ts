@@ -33,7 +33,7 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
   imports: [LucideAngularModule, PlanWindowDetailComponent],
   host: {
     class: 'block min-w-0',
-    '[class.col-span-full]': 'open()',
+    '[class.col-span-full]': 'open() && tile().kind !== "status"',
     '[attr.data-tile-id]': 'tile().id',
   },
   template: `
@@ -71,100 +71,66 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
           >{{ t.value }} · {{ t.resetLine }}</span
         >
       } @else {
-        @if (progressPercent() !== null) {
-          <span class="mt-1 flex min-w-0 items-center gap-2">
-            <span
-              [class]="radialClass()"
-              role="progressbar"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              [attr.aria-valuenow]="progressPercent()!"
-              [attr.aria-label]="t.label + ' plan usage'"
-              [attr.title]="t.value + '. ' + t.resetLine"
-              [style.--value]="progressPercent()!"
-              style="--size: 2.75rem; --thickness: 4px"
-              data-testid="plan-limit-radial-progress"
-              >{{ roundedProgressPercent() }}%</span
-            >
-            <span class="min-w-0 text-left">
+        <span
+          class="grid min-w-0 grid-cols-[4.75rem_minmax(0,1fr)_4rem_1rem] items-center gap-1"
+          [attr.title]="t.caption + '. ' + t.resetLine"
+        >
+          <span
+            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+            >{{ t.label }}</span
+          >
+          <span class="min-w-0">
+            @if (progressPercent() !== null) {
               <span
-                class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-                >{{ t.label }}</span
+                class="block h-1.5 overflow-hidden rounded bg-base-content/10"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                [attr.aria-valuenow]="progressPercent()"
+                [attr.aria-valuetext]="
+                  roundedProgressPercent() + '% used, ' + t.resetLine
+                "
+                [attr.aria-label]="t.label + ' plan usage'"
+                data-testid="plan-limit-progress"
               >
-              <span
-                class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
-                [attr.title]="t.caption"
-                data-testid="plan-limit-caption"
-              >
-                <span [class.truncate]="!open()">{{ t.captionLead }}</span>
-                @if (t.captionTail; as tail) {
-                  <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
-                }
-              </span>
-              <span
-                class="block text-sm font-semibold leading-tight"
-                data-testid="plan-limit-tile-value"
-                >{{ t.value }}</span
-              >
-              @if (t.resetLine) {
                 <span
-                  class="block text-[11px] text-base-content-muted leading-tight mt-0.5"
-                  >{{ t.resetLine }}</span
+                  class="block h-full rounded"
+                  [class.bg-error]="t.tone === 'error'"
+                  [class.bg-warning]="t.tone === 'warning'"
+                  [class.bg-base-content]="
+                    t.tone !== 'error' && t.tone !== 'warning'
+                  "
+                  [style.width.%]="progressPercent()"
+                ></span>
+              </span>
+            }
+            <span
+              class="block text-[11px] text-base-content-muted leading-tight mt-0.5 break-words"
+              >{{ t.shortReset ?? t.resetLine }}
+              @if (faceStatus(); as status) {
+                <span
+                  class="font-semibold text-base-content"
+                  data-testid="plan-limit-face-status"
+                  >· {{ status }}</span
                 >
               }
             </span>
           </span>
-        } @else {
           <span
-            class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-            >{{ t.label }}</span
-          >
-          <span
-            class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
-            [attr.title]="t.caption"
-            data-testid="plan-limit-caption"
-          >
-            <span [class.truncate]="!open()">{{ t.captionLead }}</span>
-            @if (t.captionTail; as tail) {
-              <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
-            }
-          </span>
-          <span
-            class="block text-sm font-semibold leading-tight mt-0.5"
+            class="text-right text-sm font-semibold tabular-nums whitespace-nowrap"
             data-testid="plan-limit-tile-value"
-            >{{ t.value }}</span
+            >{{
+              progressPercent() !== null ? roundedProgressPercent() + '%' : '—'
+            }}</span
           >
-          @if (t.resetLine) {
-            <span
-              class="block text-[11px] text-base-content-muted leading-tight mt-0.5"
-              >{{ t.resetLine }}</span
-            >
+          @if (expandable()) {
+            <lucide-angular
+              [img]="open() ? ChevronUpIcon : ChevronDownIcon"
+              class="w-3 h-3 text-base-content-muted"
+              aria-hidden="true"
+            />
           }
-        }
-        @if (t.chip; as chip) {
-          <span class="flex flex-wrap gap-1 mt-1">
-            <span [class]="chipClass(chip.tone)" data-testid="plan-limit-chip">
-              @if (chip.glyph) {
-                <span aria-hidden="true">{{ chip.glyph }}</span>
-              }
-              {{ chip.text }}
-            </span>
-          </span>
-        }
-        @if (t.sourceChips.length > 0) {
-          <span class="flex flex-wrap gap-1 mt-1">
-            @for (source of t.sourceChips; track source) {
-              <span [class]="sourceChipClass(source)">{{ source }}</span>
-            }
-          </span>
-        }
-      }
-      @if (expandable()) {
-        <lucide-angular
-          [img]="open() ? ChevronUpIcon : ChevronDownIcon"
-          class="absolute top-1.5 right-1 w-3 h-3 text-base-content-muted"
-          aria-hidden="true"
-        />
+        </span>
       }
     </button>
     <div
@@ -174,12 +140,28 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
       data-testid="plan-limit-panel"
     >
       @if (open()) {
-        @if (t.window; as window) {
-          <ptah-plan-window-detail [window]="window" [showSummary]="false" />
-        }
-        @for (line of t.detailLines; track $index) {
-          <p class="text-[11px] text-base-content-muted mt-0.5">{{ line }}</p>
-        }
+        <div
+          class="grid grid-cols-[minmax(6rem,auto)_minmax(0,1fr)_4.5rem] gap-x-2 gap-y-1 break-words"
+        >
+          <span class="text-base-content-muted">Account</span
+          ><span class="col-span-2 min-w-0">{{ t.caption }}</span>
+          @if (t.window; as window) {
+            <ptah-plan-window-detail [window]="window" [showSummary]="false" />
+          }
+          <span class="text-base-content-muted">Status</span
+          ><span class="col-span-2">{{ t.chip?.text ?? 'Available' }}</span>
+          <span class="text-base-content-muted">Source</span
+          ><span class="col-span-2 flex flex-wrap gap-1">
+            @for (source of t.sourceChips; track source) {
+              <span [class]="sourceChipClass(source)">{{ source }}</span>
+            }
+          </span>
+          @for (line of t.detailLines; track $index) {
+            <p class="col-span-full text-[11px] text-base-content-muted mt-0.5">
+              {{ line }}
+            </p>
+          }
+        </div>
       }
     </div>
   `,
@@ -200,8 +182,8 @@ export class PlanLimitTileComponent {
   protected readonly faceClass = computed(() =>
     planFaceClass(this.tile().tone),
   );
-  protected readonly expandable = computed(() =>
-    this.tile().kind !== 'status' && this.tile().kind !== 'local-usage',
+  protected readonly expandable = computed(
+    () => this.tile().kind !== 'status' && this.tile().kind !== 'local-usage',
   );
   protected readonly statusTitle = computed(() =>
     this.tile().detailLines.join(' '),
@@ -215,12 +197,12 @@ export class PlanLimitTileComponent {
   protected readonly roundedProgressPercent = computed(() =>
     Math.round(this.progressPercent() ?? 0),
   );
-  protected readonly radialClass = computed(() => {
-    const percent = this.progressPercent();
-    return this.tile().tone === 'error'
-      ? 'radial-progress bg-base-300 text-error'
-      : percent !== null && percent >= 75
-        ? 'radial-progress bg-base-300 text-warning'
-        : 'radial-progress bg-base-300 text-success';
+  protected readonly faceStatus = computed(() => {
+    const state = this.tile().window?.state;
+    if (state === 'near-limit') return 'Near limit';
+    if (state === 'limit-reached') return 'Limit reached';
+    return this.tile().tone === 'warning' && this.tile().chip?.text === 'Stale'
+      ? 'Stale'
+      : null;
   });
 }

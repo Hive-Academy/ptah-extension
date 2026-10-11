@@ -96,11 +96,7 @@ export interface PlanWindowDetailModel {
 }
 
 export type PlanLimitTileKind =
-  | 'window'
-  | 'local-usage'
-  | 'evidence'
-  | 'cooldown'
-  | 'status';
+  'window' | 'local-usage' | 'evidence' | 'cooldown' | 'status';
 
 export interface PlanLimitTileModel {
   /** Stable id: `plan:<owner>:<window>`, `plan-evidence:<owner>[:<scope>]`, … */
@@ -115,6 +111,8 @@ export interface PlanLimitTileModel {
   readonly caption: string;
   readonly value: string;
   readonly resetLine: string;
+  /** Compact relative reset for the closed face. */
+  readonly shortReset?: string;
   readonly chip?: StatsChip;
   readonly tone: StatsTileTone;
   /** Short source chips for the values on the closed face. */
