@@ -1245,7 +1245,7 @@ other rows stay as recorded.
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`; then lint both with `--parallel=1`.
 - Grep: `noticeQueue?.post` in `session-budget.service.ts` appears only on the `request-wrap-up` path.
 
-## Batch 12: RPC handlers (R1) — COMPLETE
+## Batch 12: RPC handlers (R1) — COMPLETE (1978ec264)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
