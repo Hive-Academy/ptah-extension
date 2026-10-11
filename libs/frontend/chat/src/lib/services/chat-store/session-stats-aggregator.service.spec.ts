@@ -47,6 +47,7 @@ import {
   type SessionBudgetState,
   type SessionStatsEntry,
   type SessionStatsLiveWire,
+  type TabId,
 } from '@ptah-extension/shared';
 
 // Production `SessionStatsAggregatorService.handleSessionStats` validates the
@@ -288,7 +289,7 @@ describe('SessionStatsAggregatorService', () => {
     const BG_SESSION = SessionId.create();
 
     it('applies the stats to the background tab and delegates to streamingHandler instead of dropping', () => {
-      const bgTab = makeTab({ id: 'bg-tab', claudeSessionId: BG_SESSION });
+      const bgTab = makeTab({ id: 'bg-tab' as TabId, claudeSessionId: BG_SESSION });
       findTabsBySessionIdMock.mockReturnValue([]);
       findBackgroundTabsMock.mockReturnValue([bgTab]);
 
@@ -322,8 +323,8 @@ describe('SessionStatsAggregatorService', () => {
     });
 
     it('updates every bound tab: active ones and each background one, once per tab', () => {
-      const bgA = makeTab({ id: 'bg-a', claudeSessionId: SESS_1 });
-      const bgB = makeTab({ id: 'bg-b', claudeSessionId: SESS_1 });
+      const bgA = makeTab({ id: 'bg-a' as TabId, claudeSessionId: SESS_1 });
+      const bgB = makeTab({ id: 'bg-b' as TabId, claudeSessionId: SESS_1 });
       // The active lookup's unbound fallback may already return a background
       // tab; it must not be updated twice.
       findTabsBySessionIdMock.mockReturnValue([tabs[0], bgA]);

@@ -221,7 +221,7 @@ Edge cases:
   branch `finally`; `dispose()` in the stream `finally` after `activityWatchdog?.stop()` and before
   `onStreamEnd`; the publisher constructor has no side effects and is inert without `onLiveStats`.
 
-## Batch 4: Adapter port + callback registry (shared + agent-sdk) — COMPLETE
+## Batch 4: Adapter port + callback registry (shared + agent-sdk) — COMPLETE (commit c28c150e7)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -449,8 +449,26 @@ Edge cases:
 - `nx typecheck` chat-state, chat, chat-ui: pass. `nx lint` chat-state, chat, chat-ui: 0 errors (warnings only).
 - Recorded, not fixed: branded `TabId` type errors in `session-stats-aggregator.service.spec.ts:290,324,325`
   (`makeTab({ id: 'bg-tab' })`). Visible only to the spec tsconfig (project has 252 such spec-only errors);
-  Jest passes; lib typecheck excludes specs. Cheap fix later: `id: 'bg-tab' as TabId`.
+  Jest passes; lib typecheck excludes specs. Cheap fix later: `id: 'bg-tab' as TabId`. (Fixed; see FRONTEND phase
+  review below.)
 - A temporary `node_modules` junction was used for the checks and removed afterwards.
+
+### FRONTEND phase review — CLOSED
+
+- Fix-commit re-review: `frontend-fix-rereview.md` (codex), NEEDS_FIXES at 7/10.
+  - All prior logic and style findings are resolved.
+  - The only new finding was the Minor branded `TabId` errors in the new spec fixtures.
+- Bounded correction, committed as a `test(chat)` commit:
+  - `type TabId` is imported from `@ptah-extension/shared`.
+  - `as TabId` is applied at the three `makeTab` ids (`session-stats-aggregator.service.spec.ts:292`, `:326`, `:327`).
+- Team-leader verification:
+  - `tsc --noEmit -p libs/frontend/chat/tsconfig.spec.json` reports no errors in the new tests. Errors remain at
+    `:150`, `:177` and `:519`, and they all predate the branch: they come from `4b14db5f8` and an earlier commit,
+    which are ancestors of merge-base `69a2b835e`.
+  - Jest on the spec passes 60/60.
+  - ESLint on the file is clean.
+- Phase FRONTEND (Batches 6-9) is accepted. Visual review of the rendered header marker is still due at completion
+  (Mode 3).
 
 ### Deferred to later work (orchestrator ruling; none can break a lane config or lose data)
 
