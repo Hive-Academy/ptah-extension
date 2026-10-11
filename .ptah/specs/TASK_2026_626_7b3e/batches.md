@@ -1,6 +1,6 @@
 # Batches - TASK_2026_626_7b3e
 
-Total tasks: 16 | Batches: 8 | Complete: 3/8
+Total tasks: 16 | Batches: 8 | Complete: 4/8
 
 Worktree root (all relative paths below resolve against it):
 `D:/projects/ptah-extension/.claude-worktrees/fix-live-session-stats-a1634d3869cb`
@@ -125,7 +125,7 @@ Edge cases:
 - `npx nx typecheck @ptah-extension/shared --parallel=1` then `npx nx lint @ptah-extension/shared --parallel=1` (one at a time, output tailed)
 - `git diff --name-only` must not list `host-source-registry.baseline.ts`.
 
-## Batch 2: Owner provisional state + live publisher (agent-sdk) — IN_PROGRESS
+## Batch 2: Owner provisional state + live publisher (agent-sdk) — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: none parallel — same sub-agent re-run; the revision invariant needs one mind
@@ -134,7 +134,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1
 - Phase: BACKEND | Phase review: code-logic + style (at end of Batch 5)
 
-### Task 2.1: SessionStatsOwnerService provisional run, live snapshot, watchers, release settle — IN_PROGRESS
+### Task 2.1: SessionStatsOwnerService provisional run, live snapshot, watchers, release settle — COMPLETE
 
 - Files: MODIFY `libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts`,
   `libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.spec.ts`
@@ -148,7 +148,7 @@ Edge cases:
   `false` branches, on `startNew` replacement or on `clearAll`; a throwing watcher never breaks `release` or
   `recordAgent`; watchers follow `rebind`. Spec cases include "startNew over an existing key calls no watcher".
 
-### Task 2.2: LiveSessionStatsPublisher — IN_PROGRESS
+### Task 2.2: LiveSessionStatsPublisher — COMPLETE
 
 - Files: CREATE `libs/backend/agent-sdk/src/lib/helpers/live-session-stats-publisher.ts`,
   `libs/backend/agent-sdk/src/lib/helpers/live-session-stats-publisher.spec.ts`
@@ -164,8 +164,30 @@ Edge cases:
 
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/live-session-stats-publisher.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`; `npx nx lint @ptah-extension/agent-sdk --parallel=1` (sequentially)
+- Result (team-leader run): jest 2 suites / 122 tests passed; typecheck passed; lint 0 errors (52 pre-existing
+  warnings, none in Batch 2 files). Report: `batch-2-report.md`.
 
-## Batch 3: StreamTransformer wiring (agent-sdk) — PENDING
+### Batch 2 accepted deviations (judged against implementation-plan.md rev 3)
+
+1. Flush skips a snapshot with the same revision and kind as the last emitted one
+   (`live-session-stats-publisher.ts:410-416`). ACCEPTED: the skip lives only in `flush()`;
+   `emitAuthoritative` (`:271-279`) never consults it, so the settle payload is never suppressed. Settle
+   revision is strictly higher: `onResult`/`settle`/`dispose` call `clearProvisional`, which touches when the
+   run holds an estimate (`session-stats-owner.service.ts:635-645`); release clears and touches before
+   `publish` (`:703-712`). `recordAgent` touches before notifying (`:589-591`), so the agent-count flush
+   always carries a new revision and is not skipped. It also enforces plan C3 "no third payload" (`:622`).
+2. `settle()`/`dispose()` re-clear the estimate before `publishLive(null)`. ACCEPTED: idempotent (no touch
+   when already cleared); matches plan `:563-565`.
+3. A concurrent run of the same owner still holding an estimate makes the settle payload that run's
+   provisional build (no `context`). ACCEPTED: direct consequence of the plan's `publishLive(null)` rule
+   (`:547-549`); the other stream settles its own estimate. Flag for the BACKEND phase code-logic review.
+4. Frames seen before `setSessionKey` are kept and flushed on bind. ACCEPTED: nothing is published before
+   bind (plan `:596`).
+5. `setSessionKey(sessionId: SessionId)`. ACCEPTED: Batch 3 passes `realSessionId as SessionId` (existing
+   `stream-transformer.ts:575` pattern).
+6. Options object with `Pick<...>` dependency types. ACCEPTED: style-only.
+
+## Batch 3: StreamTransformer wiring (agent-sdk) — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -174,7 +196,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 2
 - Phase: BACKEND | Phase review: code-logic + style (at end of Batch 5)
 
-### Task 3.1: Accumulate, flush on task_started, settle at result and dispose — PENDING
+### Task 3.1: Accumulate, flush on task_started, settle at result and dispose — IN_PROGRESS
 
 - Files: MODIFY `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts`;
   CREATE `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.live-stats.spec.ts`
@@ -252,7 +274,7 @@ Edge cases:
 - `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/cli-agent-runtime --parallel=1`; `npx nx lint @ptah-extension/cli-agent-runtime --parallel=1`
 
-## Batch 6: Snapshot validator + admitted live install (chat-state) — COMPLETE
+## Batch 6: Snapshot validator + admitted live install (chat-state) — COMPLETE (commit 74fa44175)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
