@@ -441,10 +441,9 @@ export class NotificationLedgerService {
       this.burstCompletionCount = 0;
       this.burstAttentionCount = 0;
       this.burstTimer = null;
+      const sessionNoun = completionCount === 1 ? 'session' : 'sessions';
       const completionPhrase =
-        completionCount > 0
-          ? `${completionCount} ${completionCount === 1 ? 'session' : 'sessions'} finished`
-          : '';
+        completionCount > 0 ? `${completionCount} ${sessionNoun} finished` : '';
       const attentionPhrase =
         attentionCount > 0 ? `${attentionCount} need attention` : '';
       this._announcement.set(
