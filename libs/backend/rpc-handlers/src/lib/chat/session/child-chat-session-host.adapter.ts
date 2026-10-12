@@ -71,7 +71,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
     const uiAnnounced = await this.announce(input);
     // The child inherits the parent's live permission level, so a parent in
     // YOLO does not spawn a child that prompts for every out-of-policy call.
-    const permissionLevel = this.lifecycle?.find(
+    const permissionLevel = input.permissionLevel ?? this.lifecycle?.find(
       input.descriptor.parentTabId,
     )?.permissionLevel;
 

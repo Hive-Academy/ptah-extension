@@ -472,6 +472,25 @@ describe('PermissionHandlerService', () => {
       service.attachPromptTargets(req.id, ['tab-child', 'tab-1']);
       expect(service.unmatchedPermissions()).toEqual([req]);
     });
+
+    it('shows fallback when the only target tab closes during pop-out', () => {
+      tabSignals.tabs.set([{ id: 'tab-1' }, { id: 'tab-source' }]);
+      const req = makePermissionRequest({ toolUseId: 'tool-popout' });
+      service.handlePermissionRequest(req);
+      service.attachPromptTargets(req.id, ['tab-source']);
+      expect(service.unmatchedPermissions()).toEqual([]);
+
+      tabSignals.tabs.set([{ id: 'tab-1' }]);
+      expect(service.unmatchedPermissions()).toEqual([req]);
+    });
+
+    it('keeps genuine surface-only prompts out of the fallback', () => {
+      const req = makePermissionRequest({ toolUseId: 'tool-surface' });
+      service.handlePermissionRequest(req);
+      service.attachPromptTargets(req.id, ['surface-harness-1']);
+
+      expect(service.unmatchedPermissions()).toEqual([]);
+    });
   });
 
   describe('AskUserQuestion', () => {

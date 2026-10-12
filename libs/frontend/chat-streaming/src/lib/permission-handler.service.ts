@@ -59,6 +59,8 @@ export class PermissionHandlerService {
    * without another routing pass.
    */
   private readonly _promptTargetTabs = new Map<string, readonly string[]>();
+  /** Surface-only routing is identified at attachment, before a tab can close. */
+  private readonly _surfaceOnlyPrompts = new Set<string>();
 
   /**
    * Reactive invalidation seam for routing metadata stored in the two maps.
@@ -281,13 +283,18 @@ export class PermissionHandlerService {
 
     const toolIdsInTree = this.toolIdsInExecutionTree();
     const activeTabId = this.tabManager.activeTabId();
+    const liveTabIds = new Set<string>(
+      this.tabManager.tabs().map((tab) => tab.id),
+    );
     this._routingTargetRevision();
 
     return sessionPermissions.filter((req) => {
-      if (this.hasSurfaceTargets(req.id)) return false;
+      if (this._surfaceOnlyPrompts.has(req.id)) return false;
       // Routed to other tabs (e.g. a child session): those tabs show the card
       // inline, so the active tab must not raise a duplicate fallback.
-      const targets = this._promptTargetTabs.get(req.id);
+      const targets = this._promptTargetTabs.get(req.id)?.filter((id) =>
+        liveTabIds.has(id),
+      );
       if (targets?.length && !targets.includes(activeTabId ?? '')) return false;
       if (!req.toolUseId) return true;
       return !toolIdsInTree.has(req.toolUseId);
@@ -335,6 +342,7 @@ export class PermissionHandlerService {
       requests.filter((r) => r.id !== payload.id),
     );
     if (this._promptTargetTabs.delete(payload.id)) {
+      this._surfaceOnlyPrompts.delete(payload.id);
       this.bumpRoutingTargetRevision();
     }
   }
@@ -354,6 +362,14 @@ export class PermissionHandlerService {
   attachPromptTargets(promptId: string, tabIds: readonly string[]): void {
     if (!tabIds || tabIds.length === 0) return;
     this._promptTargetTabs.set(promptId, [...tabIds]);
+    const liveTabIds = new Set<string>(
+      this.tabManager.tabs().map((tab) => tab.id),
+    );
+    if (tabIds.every((id) => !liveTabIds.has(id))) {
+      this._surfaceOnlyPrompts.add(promptId);
+    } else {
+      this._surfaceOnlyPrompts.delete(promptId);
+    }
     this.bumpRoutingTargetRevision();
   }
 
@@ -375,11 +391,7 @@ export class PermissionHandlerService {
    * workflow on tabs/sessions that have no tab targets of their own.
    */
   hasSurfaceTargets(promptId: string): boolean {
-    const targets = this._promptTargetTabs.get(promptId);
-    if (!targets || targets.length === 0) return false;
-    return targets.every(
-      (id) => !this.tabManager.tabs().some((t) => t.id === id),
-    );
+    return this._surfaceOnlyPrompts.has(promptId);
   }
 
   /**
@@ -400,6 +412,7 @@ export class PermissionHandlerService {
       requests.filter((r) => r.id !== promptId),
     );
     if (this._promptTargetTabs.delete(promptId)) {
+      this._surfaceOnlyPrompts.delete(promptId);
       this.bumpRoutingTargetRevision();
     }
   }
@@ -437,6 +450,7 @@ export class PermissionHandlerService {
       decidingTabId,
     });
     if (this._promptTargetTabs.delete(response.id)) {
+      this._surfaceOnlyPrompts.delete(response.id);
       this.bumpRoutingTargetRevision();
     }
     this.vscodeService.postMessage({
@@ -707,6 +721,7 @@ export class PermissionHandlerService {
 
     let routingTargetsChanged = false;
     for (const id of removedIds) {
+      this._surfaceOnlyPrompts.delete(id);
       routingTargetsChanged =
         this._promptTargetTabs.delete(id) || routingTargetsChanged;
     }
