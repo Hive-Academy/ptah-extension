@@ -263,6 +263,14 @@ test.describe('C# AST reaches the packaged app (TASK_2026_270)', () => {
   const INDEX_POLL_TIMEOUT_MS = 60_000;
   const INDEX_POLL_INTERVAL_MS = 500;
 
+  /**
+   * Bounded wait for the symbols to become SEARCHABLE, which is not the same
+   * moment as the state row reaching "indexed" — see the poll comment at the
+   * search below.
+   */
+  const SEARCH_POLL_TIMEOUT_MS = 30_000;
+  const SEARCH_POLL_INTERVAL_MS = 500;
+
   test('the shipped tree-sitter C# grammar indexes a real .cs file into real symbols', async ({
     rpcBridge,
     repo,
@@ -339,32 +347,56 @@ test.describe('C# AST reaches the packaged app (TASK_2026_270)', () => {
         `(last state: "${lastState}", error: ${lastError ?? 'none'})`,
     ).toBe('indexed');
 
-    const searchResponse = (await rpcBridge.sendRpc(
-      'rpc',
-      {
-        type: 'rpc:call',
-        payload: {
-          method: 'memory:searchSymbols',
-          params: { workspaceRoot: repo.root, query: 'Invoice' },
+    // Why the search is a poll and not a one-shot: boot fires a governed
+    // background census of this workspace (WorkspaceIndexLifecycleService in
+    // boot-thoth-runtime), and CodeSymbolIndexer.indexWorkspace JOINS an
+    // active census instead of starting a fresh one. Under CI load that boot
+    // census can still be in flight when `indexing:start` above arrives, so
+    // the call joins it and settles with the boot census's file list — which
+    // was discovered before Invoice.cs existed, so no C# symbols were written
+    // even though the state row now says "indexed". The workspace watcher's
+    // debounced per-file reindex of the just-written Invoice.cs (the watcher
+    // is subscribed in the same boot lifecycle, before this test runs) lands
+    // the symbols moments later, and memory:searchSymbols reads the SQLite
+    // store directly — so poll until the symbols are actually visible rather
+    // than trusting the first lookup after "indexed" to see a settled store.
+    const searchDeadline = Date.now() + SEARCH_POLL_TIMEOUT_MS;
+    let items: Array<{ symbolName: string; kind: string; filePath: string }> =
+      [];
+    let lastSearchResponseText = '';
+    for (;;) {
+      const searchResponse = (await rpcBridge.sendRpc(
+        'rpc',
+        {
+          type: 'rpc:call',
+          payload: {
+            method: 'memory:searchSymbols',
+            params: { workspaceRoot: repo.root, query: 'Invoice' },
+          },
         },
-      },
-      30_000,
-    )) as {
-      data?: {
-        items?: Array<{
-          symbolName: string;
-          kind: string;
-          filePath: string;
-        }>;
+        30_000,
+      )) as {
+        data?: {
+          items?: Array<{
+            symbolName: string;
+            kind: string;
+            filePath: string;
+          }>;
+        };
       };
-    };
-
-    const items = searchResponse.data?.items ?? [];
+      items = searchResponse.data?.items ?? [];
+      lastSearchResponseText = JSON.stringify(searchResponse.data);
+      if (items.length > 0) break;
+      if (Date.now() > searchDeadline) break;
+      await new Promise((resolve) =>
+        setTimeout(resolve, SEARCH_POLL_INTERVAL_MS),
+      );
+    }
     expect(
       items.length,
       `memory:searchSymbols returned no C# symbols for a workspace containing ` +
         `Invoice.cs — the grammar likely failed to load. Full response: ` +
-        `${JSON.stringify(searchResponse.data)}`,
+        lastSearchResponseText,
     ).toBeGreaterThan(0);
 
     const invoiceClass = items.find((item) => item.symbolName === 'Invoice');
