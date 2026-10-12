@@ -69,7 +69,10 @@ describe('CanvasStore', () => {
     remove: jest.Mock;
   };
 
+  let getWorkspaceTabs: jest.Mock;
+
   beforeEach(() => {
+    getWorkspaceTabs = jest.fn(() => []);
     tabs = signal([]);
     agents = signal([]);
     subagents = signal(new Map());
@@ -93,6 +96,7 @@ describe('CanvasStore', () => {
           useValue: {
             onTabClosed: jest.fn(() => () => undefined),
             tabs,
+            getWorkspaceTabs,
             activeTabId: signal<string | null>(null),
             activeWorkspacePath$: signal<string | null>(null),
             createTab: jest.fn(() => `tab-${tabs().length + 1}`),
@@ -146,22 +150,32 @@ describe('CanvasStore', () => {
     expect(store.runningSessionCount()).toBe(9);
   });
 
-  it('counts running tiles across all workspaces', () => {
-    const first = Array.from({ length: 5 }, (_, i) => `a-${i}`);
-    const second = Array.from({ length: 4 }, (_, i) => `b-${i}`);
-    tabs.set(
-      [...first, ...second].map((id) => ({
+  it('counts running tiles across all workspaces, reading hidden tabs from the partition', () => {
+    const streaming = (ids: readonly string[]) =>
+      ids.map((id) => ({
         id,
         name: id,
         claudeSessionId: null,
         status: 'streaming' as const,
-      })),
+      }));
+    const first = Array.from({ length: 5 }, (_, i) => `a-${i}`);
+    const second = Array.from({ length: 4 }, (_, i) => `b-${i}`);
+    const hiddenTabs = new Map([
+      ['/ws/a', streaming(first)],
+      ['/ws/b', streaming(second)],
+    ]);
+    getWorkspaceTabs.mockImplementation(
+      (path: string) => hiddenTabs.get(path) ?? [],
     );
+    // `tabs()` holds only the active workspace, like the real TabManagerService.
+    tabs.set(streaming(first));
     store.hydrateWorkspace('/ws/a', first);
     expect(store.runningSessionCount()).toBe(5);
+    tabs.set(streaming(second));
     store.hydrateWorkspace('/ws/b', second);
     expect(store.runningSessionCount()).toBe(9);
     expect(store.canStartRunningSession()).toBe(false);
+    tabs.set(streaming(first));
     store.hydrateWorkspace('/ws/a', first);
     expect(store.canStartRunningSession()).toBe(false);
   });

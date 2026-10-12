@@ -9,6 +9,7 @@ import {
 import { TabManagerService } from '@ptah-extension/chat';
 import { SessionId } from '@ptah-extension/shared';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import type { TabState } from '@ptah-extension/chat-types';
 import {
   countRunningSessions,
   MAX_RUNNING_SESSIONS,
@@ -149,14 +150,24 @@ export class CanvasStore {
     () => this.tiles().length < CanvasStore.MAX_TILES,
   );
   readonly runningSessionCount = computed(() => {
-    const tabs = this.tabManager.tabs();
     // Running sessions in hidden workspaces still count toward the canvas cap.
-    const tileTabIds = new Set(
-      [...this._workspaceTiles().values()].flatMap((tiles) =>
-        tiles.map((tile) => tile.tabId),
-      ),
-    );
-    const canvasTabs = tabs.filter((tab) => tileTabIds.has(tab.id));
+    // `tabs()` holds only the active workspace; hidden workspace tabs come from
+    // the partition snapshot, which is not a signal, so their status is read
+    // again whenever a tile, agent, active tab or workspace change re-runs this.
+    const activeTabs = this.tabManager.tabs();
+    const activePath = this._activeWorkspacePath();
+    const byId = new Map<string, TabState>();
+    for (const [path, tiles] of this._workspaceTiles()) {
+      const workspaceTabs =
+        path === activePath
+          ? activeTabs
+          : this.tabManager.getWorkspaceTabs(path);
+      for (const tile of tiles) {
+        const tab = workspaceTabs.find((t) => t.id === tile.tabId);
+        if (tab) byId.set(tab.id, tab);
+      }
+    }
+    const canvasTabs = [...byId.values()];
     return countRunningSessions(
       canvasTabs,
       (key) =>

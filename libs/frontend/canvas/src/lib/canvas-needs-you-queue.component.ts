@@ -165,28 +165,29 @@ export class CanvasNeedsYouQueueComponent {
           decision,
           decision === 'deny' ? 'User denied' : undefined,
         );
-        if (!posted) {
-          this.answering.update((keys) => {
-            const next = new Set(keys);
-            next.delete(item.key);
-            return next;
-          });
-        }
+        if (!posted) this.releaseAnswer(item.key);
       } else if (item.kind === 'permission') {
         const request = this.permissions
           .permissionRequests()
           .find((candidate) => candidate.id === item.requestId);
-        if (request)
+        if (request) {
           this.responder.respondSession(request, decision, item.tabId);
+        } else {
+          this.releaseAnswer(item.key);
+        }
       }
     } catch (error) {
-      this.answering.update((keys) => {
-        const next = new Set(keys);
-        next.delete(item.key);
-        return next;
-      });
+      this.releaseAnswer(item.key);
       throw error;
     }
+  }
+
+  private releaseAnswer(key: string): void {
+    this.answering.update((keys) => {
+      const next = new Set(keys);
+      next.delete(key);
+      return next;
+    });
   }
 
   openSession(item: NeedsYouItem): void {

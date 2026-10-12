@@ -765,6 +765,7 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
 
     const tabManagerMock = {
       tabs: tabsSignal,
+      getWorkspaceTabs: jest.fn(() => []),
       activeTabId: signal<string | null>(null),
       activeWorkspacePath$,
       removedWorkspace$: signal<{ path: string; seq: number } | null>(null),
