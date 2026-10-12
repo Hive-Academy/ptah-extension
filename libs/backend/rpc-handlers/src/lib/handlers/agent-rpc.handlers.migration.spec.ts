@@ -100,6 +100,8 @@ function makeHarness() {
       deleteProviderKey: jest.fn().mockResolvedValue(undefined),
       hasProviderKey: jest.fn().mockResolvedValue(false),
     } as unknown as IAuthSecretsService,
+    { exists: jest.fn().mockResolvedValue(true) } as never,
+    { type: 'electron', extensionPath: '/ptah-app' } as never,
   );
   return {
     handlers,
@@ -132,9 +134,7 @@ describe('migrateAgentOrchestrationSettings', () => {
     await flushAsyncWork();
 
     expect(h.logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '[AgentRpc] agentOrchestration migration failed',
-      ),
+      expect.stringContaining('[AgentRpc] agentOrchestration migration failed'),
     );
     // The failure aborted the migration before the flag was written, so the
     // next launch retries instead of silently losing the legacy values.

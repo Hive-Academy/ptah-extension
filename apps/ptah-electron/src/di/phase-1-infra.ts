@@ -40,6 +40,7 @@ import {
   SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from '@ptah-extension/agent-sdk';
 import { TURN_CHANGE_SETS_KEY_PREFIX } from '@ptah-extension/rpc-handlers';
+import { registerSessionStoreServices } from '@ptah-extension/persistence-sqlite';
 
 /**
  * Keys the worker storage reads on demand instead of loading into its startup
@@ -160,6 +161,10 @@ export function registerPhase1Infra(
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: workspaceAwareStorage,
   });
+  // One session store for every project (PTAH-35). Bound here, before any
+  // service resolves the session metadata store; the legacy copy-forward runs
+  // after workspace restore and opens the store's read gate when done.
+  registerSessionStoreServices(container, logger, { host: 'electron' });
 
   const workspaceContextManager = new WorkspaceContextManager(
     options.userDataPath,

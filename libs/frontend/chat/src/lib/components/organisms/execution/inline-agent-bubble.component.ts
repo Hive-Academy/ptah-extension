@@ -581,7 +581,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
         }
       }
       :host ::ng-deep .agent-fade-in {
-        animation: agentFadeIn 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+        animation: agentFadeIn 260ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
       }
       :host ::ng-deep .agent-fade-out {
         animation: agentFadeOut 180ms cubic-bezier(0.4, 0, 0.2, 1) both;

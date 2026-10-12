@@ -120,7 +120,15 @@ function makeService(params: {
       params.getResumableBySession ?? jest.fn().mockReturnValue([]),
   } as unknown as SubagentRegistryService;
   const sessionMetadataStore = {
-    get: jest.fn().mockResolvedValue(params.metadata ?? null),
+    // Real records always carry `workspaceId`; the session's folder falls back
+    // to it when the saved cwd is gone.
+    get: jest
+      .fn()
+      .mockResolvedValue(
+        params.metadata === null
+          ? null
+          : { workspaceId: OPEN_FOLDER, ...params.metadata },
+      ),
     getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
     saveResumeState:
       params.saveResumeState ?? jest.fn().mockResolvedValue(undefined),
@@ -438,6 +446,47 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
     ]);
   });
 
+  it('auto-resume (chat:continue path) runs a worktree child in its worktree, not the workspace root', async () => {
+    const worktree = `${OPEN_FOLDER}/.claude/worktrees/fix`;
+    const resumeSession = jest.fn(async () =>
+      (async function* () {
+        /* no events */
+      })(),
+    );
+    const svc = makeService({
+      metadata: { workingDirectory: worktree },
+      fileExists: jest.fn().mockResolvedValue(true),
+      resumeSession,
+    });
+
+    await expect(
+      svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER),
+    ).resolves.toEqual({ resumed: true });
+    expect(resumeSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ projectPath: worktree }),
+    );
+  });
+
+  it('auto-resume falls back to the project folder when the worktree is gone', async () => {
+    const resumeSession = jest.fn(async () =>
+      (async function* () {
+        /* no events */
+      })(),
+    );
+    const svc = makeService({
+      metadata: { workingDirectory: `${OPEN_FOLDER}/.claude/worktrees/gone` },
+      fileExists: jest.fn(async (path: string) => path === OPEN_FOLDER),
+      resumeSession,
+    });
+
+    await svc.ensureSessionActiveForRewind(SESSION_ID, TAB_ID, OPEN_FOLDER);
+    expect(resumeSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ projectPath: OPEN_FOLDER }),
+    );
+  });
+
   it('persists cwd and interrupted SDK records from the session-end lifecycle', async () => {
     const worktree = `${OPEN_FOLDER}/.claude/worktrees/fix`;
     const persisted = {
@@ -479,8 +528,14 @@ describe('ChatSessionService — resumeSession activate:true (TS-04)', () => {
   });
 
   it.each([
-    ['missing', jest.fn().mockResolvedValue(false)],
-    ['unreadable', jest.fn().mockRejectedValue(new Error('stat failed'))],
+    ['missing', jest.fn(async (path: string) => path === OPEN_FOLDER)],
+    [
+      'unreadable',
+      jest.fn(async (path: string) => {
+        if (path !== OPEN_FOLDER) throw new Error('stat failed');
+        return true;
+      }),
+    ],
   ])('falls back when persisted cwd is %s', async (_label, fileExists) => {
     const readSessionHistory = jest
       .fn()

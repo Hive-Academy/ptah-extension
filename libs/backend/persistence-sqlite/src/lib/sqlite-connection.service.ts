@@ -788,7 +788,7 @@ const requireResolveVecPath: SqliteVecPathResolver = () => {
 };
 
 /** Lazy default factory that requires better-sqlite3 only when invoked. */
-const defaultBetterSqlite3Factory: SqliteDatabaseFactory = (
+export const defaultBetterSqlite3Factory: SqliteDatabaseFactory = (
   filePath: string,
 ) => {
   const Database = require('better-sqlite3') as new (

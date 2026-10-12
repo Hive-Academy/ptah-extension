@@ -1745,6 +1745,30 @@ describe('SdkAgentAdapter', () => {
       expect(h.statsOwner.snapshot(SESSION)?.tokenCount).toBe(1108);
     });
 
+    it("reads stats from the session's own project when the caller sends no folder (PTAH-37)", async () => {
+      // The active folder is /fake/workspace-root; the session is in /projects/b.
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.metadataStore.get.mockResolvedValue({
+        sessionId: SESSION,
+        workspaceId: '/projects/b',
+        name: 'Session',
+      } as never);
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce(
+        queryResult('run-token-folder'),
+      );
+
+      await h.adapter.resumeSession(
+        SESSION as SessionId,
+        {} as AISessionConfig,
+      );
+
+      expect(h.historyReader.readSessionUsagePrefix).toHaveBeenCalledWith(
+        SESSION,
+        '/projects/b',
+      );
+    });
+
     it('seeds a known-empty prefix for a new session and keeps it under the canonical id', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();

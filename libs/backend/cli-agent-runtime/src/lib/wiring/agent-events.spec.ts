@@ -244,6 +244,7 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
           expect.objectContaining({ id: 'evt-0' }),
         ]),
       }),
+      PARENT_SESSION,
     );
     expect(saveAgentOutput.mock.calls[0][1].segments).toHaveLength(3);
     expect(saveAgentOutput.mock.calls[0][1].streamEvents).toHaveLength(25);

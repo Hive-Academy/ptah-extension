@@ -20,6 +20,7 @@
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
+  RpcUserError,
   TOKENS,
   ConfigManager,
   SubagentRegistryService,
@@ -540,6 +541,7 @@ export class ChatSessionService {
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
+        // eslint-disable-next-line no-restricted-properties -- chat:start creates a session, it does not act for one; with no caller path the host default (app folder or CLI --cwd) is the new session's folder
         params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspacePath) {
         return {
@@ -915,29 +917,6 @@ export class ChatSessionService {
   ): Promise<ChatContinueResult> {
     try {
       const { prompt, sessionId, tabId, name } = params;
-      const workspacePath =
-        params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
-      if (!workspacePath) {
-        return {
-          success: false,
-          error:
-            'No workspace folder open. Please open a folder before continuing a chat session.',
-        };
-      }
-      if (
-        params.workspacePath &&
-        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
-      ) {
-        return {
-          success: false,
-          error: 'Access denied: workspace path is not an open folder.',
-        };
-      }
-      const unsafeContinue = this.rejectIfUnsafeWorkspace(
-        workspacePath,
-        'chat:continue',
-      );
-      if (unsafeContinue) return unsafeContinue;
       this.logger.debug('RPC: chat:continue called', {
         sessionId,
         tabId,
@@ -956,6 +935,10 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
+      // The session's own folder, never `params.workspacePath` or the active
+      // root: with several projects open those name another repo (PTAH-37).
+      const workspacePath =
+        await this.historyRead.resolveSessionFolder(sessionId);
       const budgetRefusal = this.refuseIfBudgetReached(sessionId, prompt);
       if (budgetRefusal) return budgetRefusal;
       // Threaded into the resume below rather than dropped: `autoResumeIfInactive`
@@ -1007,7 +990,6 @@ export class ChatSessionService {
         const resumeOutcome = await this.autoResumeIfInactive(
           sessionId,
           tabId,
-          workspacePath,
           prompt,
           params,
           mcpRegisteredForSubagents,
@@ -1085,6 +1067,17 @@ export class ChatSessionService {
 
       return { success: true, sessionId };
     } catch (error) {
+      if (error instanceof RpcUserError) {
+        this.logger.warn(
+          `RPC: chat:continue returned user error (${error.errorCode}): ${error.message}`,
+          { sessionId: params.sessionId },
+        );
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.errorCode,
+        };
+      }
       this.logger.error(
         'RPC: chat:continue failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -1107,44 +1100,13 @@ export class ChatSessionService {
   async resumeSession(params: ChatResumeParams): Promise<ChatResumeResult> {
     try {
       const { sessionId } = params;
-      const fallbackWorkspacePath =
-        params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
-      if (!fallbackWorkspacePath) {
-        return {
-          success: false,
-          error:
-            'No workspace folder open. Please open a folder before resuming a chat session.',
-        };
-      }
-      if (
-        params.workspacePath &&
-        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
-      ) {
-        return {
-          success: false,
-          error: 'Access denied: workspace path is not an open folder.',
-        };
-      }
-      const unsafeResume = this.rejectIfUnsafeWorkspace(
-        fallbackWorkspacePath,
-        'chat:resume',
-      );
-      if (unsafeResume) return unsafeResume;
-
       const metadata = await this.sessionMetadataStore.get(sessionId);
-      const result = await this.historyRead.readForResume(
-        sessionId,
-        fallbackWorkspacePath,
-        metadata?.workingDirectory,
-      );
+      const result = await this.historyRead.readForResume(sessionId);
       const resolvedWorkspacePath = result.resolvedWorkspacePath;
       this.logger.info('RPC: chat:resume called', {
         sessionId,
         workspacePath: params.workspacePath || '(empty)',
         resolvedWorkspacePath,
-        usedFallback: resolvedWorkspacePath === fallbackWorkspacePath,
-        restoredWorkingDirectory:
-          resolvedWorkspacePath !== fallbackWorkspacePath,
         ptahCliId: params.ptahCliId,
       });
       if (params.ptahCliId) {
@@ -1152,6 +1114,7 @@ export class ChatSessionService {
           sessionId as string,
           params.ptahCliId,
           params.tabId,
+          resolvedWorkspacePath,
         );
       }
       // Keep this unsliced: history registration and stats depend on the full transcript.
@@ -1232,7 +1195,6 @@ export class ChatSessionService {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
-            resolvedWorkspacePath,
             '',
             {
               sessionId,
@@ -1284,6 +1246,17 @@ export class ChatSessionService {
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
+      if (error instanceof RpcUserError) {
+        this.logger.warn(
+          `RPC: chat:resume returned user error (${error.errorCode}): ${error.message}`,
+          { sessionId: params.sessionId },
+        );
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.errorCode,
+        };
+      }
       this.logger.error(
         'RPC: chat:resume failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -1444,17 +1417,11 @@ export class ChatSessionService {
       return { alreadyActive: true };
     }
 
-    const outcome = await this.autoResumeIfInactive(
+    const outcome = await this.autoResumeIfInactive(sessionId, tabId, '', {
       sessionId,
       tabId,
       workspacePath,
-      '',
-      {
-        sessionId,
-        tabId,
-        workspacePath,
-      },
-    );
+    });
 
     if ('error' in outcome) {
       return {
@@ -1499,7 +1466,6 @@ export class ChatSessionService {
   private async autoResumeIfInactive(
     sessionId: SessionId,
     tabId: string,
-    workspacePath: string,
     prompt: string,
     params: AutoResumePreflight,
     /**
@@ -1552,6 +1518,24 @@ export class ChatSessionService {
     this.logger.info(
       `[RPC] Session ${sessionId} not active, attempting resume...`,
     );
+
+    // Resolved here, not taken from the caller, so every caller resumes in the
+    // session's own folder. A worktree child must resume in its worktree, or
+    // its edits land on the parent's branch.
+    let workspacePath: string;
+    try {
+      workspacePath = await this.historyRead.resolveSessionFolder(sessionId);
+    } catch (error) {
+      if (!(error instanceof RpcUserError)) throw error;
+      return {
+        error: {
+          success: false,
+          sessionId,
+          error: error.message,
+          errorCode: error.errorCode,
+        },
+      };
+    }
 
     const mcpServerRunning =
       this.sdkContext.isMcpServerRunning() && mcpRegisteredForSubagents;

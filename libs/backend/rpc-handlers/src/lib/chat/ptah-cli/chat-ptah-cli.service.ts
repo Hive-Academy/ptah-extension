@@ -34,6 +34,8 @@ interface PtahCliSessionEntry {
    * sessions 1 and 2 are still using).
    */
   readonly leaseKey: string;
+  /** The folder the session runs in, from chat:start or chat:resume. */
+  readonly workspacePath?: string;
 }
 
 /**
@@ -184,6 +186,7 @@ export class ChatPtahCliService {
       agentName,
       sessionName,
       leaseKey,
+      workspacePath,
     });
 
     this.logger.info('[RPC] chat:start - Ptah CLI session started', {
@@ -325,6 +328,10 @@ export class ChatPtahCliService {
     return this.ptahCliSessions.get(key)?.sessionName;
   }
 
+  getWorkspacePath(key: string): string | undefined {
+    return this.ptahCliSessions.get(key)?.workspacePath;
+  }
+
   setSdkSessionId(key: string, sdkSessionId: string): void {
     this.ptahCliSdkSessionIds.set(key, sdkSessionId);
   }
@@ -351,11 +358,13 @@ export class ChatPtahCliService {
     sessionId: string,
     ptahCliId: string,
     tabId: string | undefined,
+    workspacePath: string,
   ): void {
     const entry: PtahCliSessionEntry = {
       agentId: ptahCliId,
       agentName: ptahCliId,
       leaseKey: tabId ?? sessionId,
+      workspacePath,
     };
     this.ptahCliSessions.set(sessionId, entry);
     if (tabId) {
