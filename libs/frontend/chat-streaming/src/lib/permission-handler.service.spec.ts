@@ -201,6 +201,26 @@ describe('PermissionHandlerService', () => {
       expect(ids.has(UNKNOWN_AGENT_TOOL_CALL_ID)).toBe(true);
     });
 
+    it('buckets an unscoped deny under the explicit deciding tab instead of the active tab', () => {
+      tabSignals.tabs.set([{ id: 'tab-active' }, { id: 'tab-card' }]);
+      tabSignals.activeTabId.set('tab-active');
+      service.handlePermissionRequest(
+        makePermissionRequest({ sessionId: undefined, tabId: undefined }),
+      );
+
+      service.handlePermissionResponse(
+        { id: 'req-1', decision: 'deny' } as never,
+        'tab-card',
+      );
+
+      expect(
+        service
+          .consumeHardDenyToolUseIds('tab-card')
+          .has(UNKNOWN_AGENT_TOOL_CALL_ID),
+      ).toBe(true);
+      expect(service.consumeHardDenyToolUseIds('tab-active').size).toBe(0);
+    });
+
     it('does not track deny ids on allow decisions', () => {
       service.handlePermissionRequest(makePermissionRequest());
       service.handlePermissionResponse({

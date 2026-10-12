@@ -133,9 +133,12 @@ export class CompactSessionCardComponent {
       ? (this.tab().liveModelStats?.contextPercent ?? null)
       : null,
   );
+  private readonly sessionAgents = computed(() =>
+    this.agentStore.agentsForSession(this.sessionIdentity()),
+  );
   readonly laneSummary = computed(() =>
     buildLaneSummary(
-      this.agentStore.agentsForSession(this.sessionIdentity()),
+      this.sessionAgents(),
       this.agentStore.sessionSubagentsForSession(this.sessionIdentity()),
       this.sessionIdentity(),
     ),
@@ -152,7 +155,7 @@ export class CompactSessionCardComponent {
       };
     }
     const agent = this.agentStore
-      .agentsForSession(this.sessionIdentity())
+      .agentsOwnedBySession(this.sessionIdentity())
       .find((candidate) => candidate.permissionQueue.length > 0);
     const request = agent?.permissionQueue[0];
     if (agent && request) {
@@ -280,7 +283,7 @@ export class CompactSessionCardComponent {
   constructor() {
     effect(() => this.sampleStream(this.tab()));
     effect(() => {
-      if (this.laneSummary().counts.running > 0) {
+      if (this.streaming() || this.laneSummary().counts.running > 0) {
         if (this.elapsedTimer === null) {
           this.now.set(Date.now());
           this.elapsedTimer = setInterval(() => this.now.set(Date.now()), 1000);
@@ -304,7 +307,12 @@ export class CompactSessionCardComponent {
         this.responder.respondSession(request, decision, callout.tabId);
       }
     } else if (callout.agentId) {
-      this.responder.respondLane(callout.agentId, callout.requestId, decision);
+      this.responder.respondLane(
+        callout.agentId,
+        callout.requestId,
+        decision,
+        decision === 'deny' ? 'User denied' : undefined,
+      );
     }
   }
 

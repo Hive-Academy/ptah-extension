@@ -438,7 +438,11 @@ export class PermissionHandlerService {
         originalRequest.agentToolCallId !== UNKNOWN_AGENT_TOOL_CALL_ID
           ? originalRequest.agentToolCallId
           : UNKNOWN_AGENT_TOOL_CALL_ID;
-      const bucket = this.hardDenyBucketFor(response.id, originalRequest);
+      const bucket = this.hardDenyBucketFor(
+        response.id,
+        originalRequest,
+        tabId,
+      );
       const ids = this._hardDenyToolUseIds.get(bucket) ?? new Set<string>();
       ids.add(denyId);
       this._hardDenyToolUseIds.set(bucket, ids);
@@ -471,11 +475,13 @@ export class PermissionHandlerService {
   private hardDenyBucketFor(
     promptId: string,
     request: PermissionRequest | undefined,
+    decidingTabId?: string,
   ): string {
     if (request?.sessionId) return request.sessionId;
     const tabId =
       request?.tabId ??
       this._promptTargetTabs.get(promptId)?.[0] ??
+      decidingTabId ??
       this.tabManager.activeTabId() ??
       '';
     const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;

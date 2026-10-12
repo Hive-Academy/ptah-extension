@@ -132,6 +132,8 @@ describe(CompactSessionCardComponent.name, () => {
   };
   const agentStore = {
     agentsForSession: () => agents(),
+    agentsOwnedBySession: (sessionId: string) =>
+      agents().filter((agent) => agent.parentSessionId === sessionId),
     sessionSubagentsForSession: () => subagents(),
   };
 
@@ -267,7 +269,45 @@ describe(CompactSessionCardComponent.name, () => {
       '[data-testid="cs-callout-permission"] button',
     ) as NodeListOf<HTMLButtonElement>;
     buttons[1].click();
-    expect(respondLane).toHaveBeenCalledWith('agent-1', 'cli-request', 'deny');
+    expect(respondLane).toHaveBeenCalledWith(
+      'agent-1',
+      'cli-request',
+      'deny',
+      'User denied',
+    );
+  });
+
+  it('does not offer a CLI permission whose owner is unresolved', () => {
+    agents.set([
+      lane({
+        parentSessionId: undefined,
+        permissionQueue: [
+          {
+            requestId: 'unowned',
+            description: 'Wrong session approval',
+          } as MonitoredAgent['permissionQueue'][number],
+        ],
+      }),
+    ]);
+    const fixture = render();
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Wrong session approval',
+    );
+  });
+
+  it('ignores a session permission that was resolved before its click', () => {
+    const fixture = render();
+    fixture.componentInstance.respond(
+      {
+        kind: 'permission',
+        source: 'session',
+        requestId: 'already-resolved',
+        tabId: 'tab-1',
+        text: 'Stale',
+      },
+      'deny',
+    );
+    expect(respondSession).not.toHaveBeenCalled();
   });
 
   it('opens lane output through the token, or expands when absent', () => {
@@ -330,6 +370,28 @@ describe(CompactSessionCardComponent.name, () => {
       const nextHandle = interval.mock.results[1].value;
       fixture.destroy();
       expect(clear).toHaveBeenCalledWith(nextHandle);
+    } finally {
+      interval.mockRestore();
+      clear.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the elapsed interval while streaming without a lane, then clears it', () => {
+    jest.useFakeTimers();
+    const interval = jest.spyOn(globalThis, 'setInterval');
+    const clear = jest.spyOn(globalThis, 'clearInterval');
+    try {
+      const fixture = render(
+        tab({ streamingState: createEmptyStreamingState() }),
+      );
+      expect(interval).toHaveBeenCalledTimes(1);
+      const handle = interval.mock.results[0].value;
+      fixture.componentRef.setInput('tab', tab());
+      fixture.detectChanges();
+      expect(clear).toHaveBeenCalledWith(handle);
+      fixture.destroy();
     } finally {
       interval.mockRestore();
       clear.mockRestore();

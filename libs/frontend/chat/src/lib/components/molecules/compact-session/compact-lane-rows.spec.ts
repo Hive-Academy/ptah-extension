@@ -2,7 +2,7 @@ import type {
   MonitoredAgent,
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import { buildLaneSummary, laneKey } from './compact-lane-rows';
+import { buildLaneSummary, laneKey, parseLaneKey } from './compact-lane-rows';
 
 function cli(
   id: string,
@@ -34,6 +34,27 @@ describe('compact lane rows', () => {
     expect(laneKey('cli', 'a')).toBe('cli:a');
     expect(laneKey('subagent', 'b')).toBe('sub:b');
     expect(laneKey('background', 'c')).toBe('bg:c');
+  });
+
+  it('round trips lane keys and rejects unknown or empty IDs', () => {
+    expect(parseLaneKey(laneKey('background', 'task:1'))).toEqual({
+      kind: 'background',
+      id: 'task:1',
+    });
+    expect(parseLaneKey('unknown:1')).toBeNull();
+    expect(parseLaneKey('cli:')).toBeNull();
+  });
+
+  it('does not present last activity as a subagent start time', () => {
+    const result = buildLaneSummary(
+      [],
+      [sub('running', 'running', 100), sub('ended', 'completed', 200)],
+      's',
+    );
+    expect(result.rows.every((row) => row.startedAt === null)).toBe(true);
+    expect(result.rows.find((row) => row.id === 'sub:ended')?.endedAt).toBe(
+      200,
+    );
   });
 
   it('sorts by priority then newest, caps rows and counts hidden lanes', () => {
@@ -71,8 +92,8 @@ describe('compact lane rows', () => {
     ];
     const result = buildLaneSummary(agents, [sub('sub', 'background', 4)], 's');
     expect(result.rows.map((row) => [row.id, row.status])).toEqual([
-      ['bg:sub', 'running'],
       ['cli:unknown', 'running'],
+      ['bg:sub', 'running'],
     ]);
     expect(result.moreCount).toBe(0);
   });

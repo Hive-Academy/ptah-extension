@@ -60,6 +60,13 @@ describe('AgentPermissionResponder', () => {
     expect(queue).toHaveLength(2);
   });
 
+  it('posts and clears a lane request only once across repeated answers', () => {
+    responder.respondLane('agent', 'first', 'allow');
+    responder.respondLane('agent', 'first', 'deny', 'User denied');
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(clearPermission).toHaveBeenCalledTimes(1);
+  });
+
   it('forwards the deciding tab for session permissions', () => {
     const request = { id: 'session-perm' } as PermissionRequest;
     responder.respondSession(request, 'allow', 'tab-2');

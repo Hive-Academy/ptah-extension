@@ -15,6 +15,7 @@ export class AgentPermissionResponder {
   private readonly vscode = inject(VSCodeService);
   private readonly agentStore = inject(AgentMonitorStore);
   private readonly permissionHandler = inject(PermissionHandlerService);
+  private readonly answeredRequestIds = new Set<string>();
 
   respondLane(
     agentId: string,
@@ -22,15 +23,22 @@ export class AgentPermissionResponder {
     decision: 'allow' | 'deny',
     reason?: string,
   ): void {
-    this.vscode.postMessage({
-      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
-      payload: {
-        requestId,
-        decision,
-        ...(reason === undefined ? {} : { reason }),
-      },
-    });
-    this.agentStore.clearPermission(agentId, requestId);
+    if (this.answeredRequestIds.has(requestId)) return;
+    this.answeredRequestIds.add(requestId);
+    try {
+      this.vscode.postMessage({
+        type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
+        payload: {
+          requestId,
+          decision,
+          ...(reason === undefined ? {} : { reason }),
+        },
+      });
+      this.agentStore.clearPermission(agentId, requestId);
+    } catch (error) {
+      this.answeredRequestIds.delete(requestId);
+      throw error;
+    }
   }
 
   respondSession(

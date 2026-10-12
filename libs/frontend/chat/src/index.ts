@@ -27,6 +27,9 @@ export { ChatAgentFeedbackSender } from './lib/services/agent-feedback/chat-agen
 export { AgentPermissionResponder } from './lib/services/agent-permission-responder';
 export {
   buildLaneSummary,
+  LANE_KEY_PREFIX,
   laneKey,
+  parseLaneKey,
 } from './lib/components/molecules/compact-session/compact-lane-rows';
 export { SESSION_CARD_ACTIONS } from './lib/tokens/session-context.token';
+export type { SessionCardActions } from './lib/tokens/session-context.token';

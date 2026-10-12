@@ -18,10 +18,26 @@ const statusOrder: Readonly<Record<CompactLaneStatus, number>> = {
   stopped: 4,
 };
 
+export const LANE_KEY_PREFIX: Readonly<Record<CompactLaneKind, string>> = {
+  cli: 'cli',
+  subagent: 'sub',
+  background: 'bg',
+};
+
 export function laneKey(kind: CompactLaneKind, id: string): string {
-  const prefix =
-    kind === 'subagent' ? 'sub' : kind === 'background' ? 'bg' : 'cli';
-  return `${prefix}:${id}`;
+  return `${LANE_KEY_PREFIX[kind]}:${id}`;
+}
+
+export function parseLaneKey(
+  key: string,
+): { kind: CompactLaneKind; id: string } | null {
+  const colon = key.indexOf(':');
+  if (colon < 0 || colon === key.length - 1) return null;
+  const prefix = key.slice(0, colon);
+  const kind = (Object.keys(LANE_KEY_PREFIX) as CompactLaneKind[]).find(
+    (candidate) => LANE_KEY_PREFIX[candidate] === prefix,
+  );
+  return kind ? { kind, id: key.slice(colon + 1) } : null;
 }
 
 function laneStatus(status: string, waiting: boolean): CompactLaneStatus {
@@ -53,6 +69,7 @@ export function buildLaneSummary(
       })),
     ...subagents.map((agent): CompactLaneRow => {
       const kind = agent.status === 'background' ? 'background' : 'subagent';
+      const status = laneStatus(agent.status, false);
       return {
         id: laneKey(kind, agent.parentToolUseId),
         name:
@@ -61,13 +78,10 @@ export function buildLaneSummary(
           agent.description ||
           'Sub-agent',
         kind,
-        status: laneStatus(agent.status, false),
-        startedAt: agent.lastEventAt ?? null,
+        status,
+        startedAt: null,
         endedAt:
-          agent.status === 'completed' ||
-          agent.status === 'failed' ||
-          agent.status === 'killed' ||
-          agent.status === 'stopped'
+          status === 'done' || status === 'error' || status === 'stopped'
             ? (agent.lastEventAt ?? null)
             : null,
       };
