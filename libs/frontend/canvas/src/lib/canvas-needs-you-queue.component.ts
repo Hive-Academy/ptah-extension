@@ -13,9 +13,11 @@ import {
 import {
   AgentPermissionResponder,
   TabManagerService,
+  laneKey,
 } from '@ptah-extension/chat';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { CanvasStore } from './canvas.store';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import {
   buildNeedsYouItems,
   type NeedsYouItem,
@@ -113,6 +115,7 @@ export class CanvasNeedsYouQueueComponent {
   private readonly agents = inject(AgentMonitorStore);
   private readonly responder = inject(AgentPermissionResponder);
   private readonly canvas = inject(CanvasStore);
+  private readonly detail = inject(CanvasDetailService, { optional: true });
   private readonly tabs = inject(TabManagerService);
 
   readonly open = signal(false);
@@ -192,6 +195,15 @@ export class CanvasNeedsYouQueueComponent {
 
   openSession(item: NeedsYouItem): void {
     this.open.set(false);
-    this.canvas.focusTile(item.tabId);
+    if (this.detail) {
+      this.detail.open(
+        item.tabId,
+        item.kind === 'lane-permission' && item.agentId
+          ? laneKey('cli', item.agentId)
+          : 'orchestrator',
+      );
+    } else {
+      this.canvas.focusTile(item.tabId);
+    }
   }
 }

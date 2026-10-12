@@ -43,6 +43,7 @@ import { inject, signal } from '@angular/core';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { CanvasTileComponent } from './canvas-tile.component';
 import { CanvasStore } from './canvas.store';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import {
   SendToMessagingComponent,
   TabManagerService,
@@ -1155,6 +1156,7 @@ describe('CanvasTileComponent SURFACE_ACTIVE for tile content', () => {
 
 describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
   const focusTile = jest.fn();
+  const detail = { toggle: jest.fn(), open: jest.fn() };
   /** Stands in for ChatViewComponent: a SESSION_FOCUSED consumer. */
   @Component({
     selector: 'ptah-test-focus-probe',
@@ -1176,11 +1178,14 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     unregisterVisibleTab: jest.fn(),
   };
 
-  function mountFocused(focused: boolean | undefined) {
+  function mountFocused(focused: boolean | undefined, withDetail = false) {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [CanvasTileComponent],
       providers: [
+        ...(withDetail
+          ? [{ provide: CanvasDetailService, useValue: detail }]
+          : []),
         { provide: CanvasStore, useValue: { focusTile } },
         { provide: TabManagerService, useValue: tabManager },
         { provide: SURFACE_ACTIVE, useValue: canvasActive },
@@ -1292,5 +1297,46 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     actions.openLane('cli:lane-1');
     expect(focusTile).toHaveBeenNthCalledWith(1, 'tile-1');
     expect(focusTile).toHaveBeenNthCalledWith(2, 'tile-1');
+  });
+
+  it('opens and toggles detail from card actions and the keyboard', () => {
+    detail.toggle.mockClear();
+    detail.open.mockClear();
+    const fixture = mountFocused(false, true);
+    fixture.componentRef.setInput('autoCard', true);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.getAttribute('role')).toBe('button');
+    expect(host.getAttribute('tabindex')).toBe('0');
+    const injector = fixture.componentInstance.childInjector();
+    if (!injector) throw new Error('Tile child injector was not created');
+    const actions = injector.get(SESSION_CARD_ACTIONS);
+    actions.openSession();
+    actions.openLane('cli:lane-1');
+    expect(detail.toggle).toHaveBeenCalledWith('tile-1');
+    expect(detail.open).toHaveBeenCalledWith('tile-1', 'cli:lane-1');
+    host.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    host.dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true }),
+    );
+    expect(detail.toggle).toHaveBeenCalledTimes(3);
+    host.querySelector('button')?.click();
+    expect(detail.toggle).toHaveBeenCalledTimes(3);
+  });
+
+  it('toggles detail on a plain click inside a card-mode tile', () => {
+    detail.toggle.mockClear();
+    const fixture = mountFocused(false, true);
+    fixture.componentRef.setInput('autoCard', true);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const inner = document.createElement('span');
+    host.appendChild(inner);
+    inner.click();
+    host.click();
+    expect(detail.toggle).toHaveBeenCalledTimes(2);
+    expect(detail.toggle).toHaveBeenCalledWith('tile-1');
   });
 });

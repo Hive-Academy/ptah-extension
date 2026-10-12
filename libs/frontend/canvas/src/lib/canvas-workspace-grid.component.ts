@@ -333,6 +333,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       this.creationOptions,
       this.compactTabIds(),
       this.effectiveFocusedTabId(),
+      this.detailTabId() !== null,
       this.previousAutoCards,
       this.active(),
       this.locked() || this.layoutFocusTabId() !== null,

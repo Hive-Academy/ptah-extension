@@ -2,7 +2,7 @@ import type { GridStackWidget } from 'gridstack';
 import type { TileIntent } from './canvas-layout-intent';
 import { firstTileIdByOrder } from './canvas-layout-intent';
 import type { CanvasLayoutService } from './canvas-layout.service';
-import { isAutoCardTile } from './canvas-live-budget';
+import { CANVAS_LIVE_BUDGET, isAutoCardTile } from './canvas-live-budget';
 
 const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
 
@@ -13,6 +13,7 @@ export function canvasGridItems(
   creationOptions: Map<string, GridStackWidget>,
   compactIds: ReadonlySet<string>,
   focusedTabId: string | null,
+  detailOpen: boolean,
   previousAutoCards: Map<string, boolean>,
   visible: boolean,
   frozen: boolean,
@@ -48,7 +49,8 @@ export function canvasGridItems(
       options.noResize = frozen;
     }
     const autoCard = visible
-      ? isAutoCardTile(tiles.length, focusedTabId === tile.tabId)
+      ? isAutoCardTile(tiles.length, focusedTabId === tile.tabId) ||
+        (tiles.length > CANVAS_LIVE_BUDGET && detailOpen)
       : (previousAutoCards.get(tile.tabId) ?? false);
     if (visible) previousAutoCards.set(tile.tabId, autoCard);
     return {

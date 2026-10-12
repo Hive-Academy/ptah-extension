@@ -68,6 +68,7 @@ import { SessionId, TabId } from '@ptah-extension/shared';
 import type { TabState } from '@ptah-extension/chat-types';
 import { OrchestraCanvasComponent } from './orchestra-canvas.component';
 import { CanvasStore } from './canvas.store';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
@@ -79,6 +80,14 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
   template: '',
 })
 class NeedsYouQueueStub {}
+@Component({
+  selector: 'ptah-canvas-detail-panel',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class DetailPanelStub {
+  @Input() tabId = '';
+}
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
@@ -311,6 +320,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         imports: [],
         providers: [
           { provide: CanvasStore, useValue: canvasStoreMock },
+          CanvasDetailService,
           { provide: CanvasLayoutService, useValue: layoutServiceMock },
           {
             provide: CanvasLayoutPersistenceService,
@@ -319,6 +329,37 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         ],
       },
     });
+  });
+
+  it('closes detail when its tile is removed or the live budget is no longer exceeded', () => {
+    const fixture = mount();
+    const detail = fixture.debugElement.injector.get(CanvasDetailService);
+    const tiles = canvasStoreMock.tiles as WritableSignal<
+      ReturnType<CanvasStore['tiles']>
+    >;
+    const tile = (tabId: string, order: number) => ({
+      tabId,
+      order,
+      width: { kind: 'auto' as const, weight: 1 },
+      rowBreakBefore: false,
+    });
+    tiles.set([tile('a', 0), tile('b', 1), tile('c', 2)]);
+    flush();
+    detail.open('b');
+    flush();
+    expect(detail.detailTabId()).toBe('b');
+    tiles.set([tile('a', 0), tile('c', 2)]);
+    fixture.detectChanges();
+    flush();
+    expect(detail.detailTabId()).toBeNull();
+    tiles.set([tile('a', 0), tile('b', 1), tile('c', 2)]);
+    flush();
+    detail.open('b');
+    flush();
+    tiles.set([tile('a', 0), tile('b', 1)]);
+    fixture.detectChanges();
+    flush();
+    expect(detail.detailTabId()).toBeNull();
   });
 
   it('refuses new-session requests at nine running and clears the message when a slot frees', () => {
@@ -708,6 +749,7 @@ class WorkspaceGridStub {
   @Input() workspacePath = '';
   @Input() visible = false;
   @Input() locked = false;
+  @Input() detailTabId: string | null = null;
 }
 
 @Component({
@@ -839,6 +881,7 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
         imports: [WorkspaceGridStub],
         providers: [
           CanvasStore,
+          CanvasDetailService,
           { provide: CanvasLayoutService, useValue: layoutServiceMock },
           {
             provide: CanvasLayoutPersistenceService,
@@ -1030,6 +1073,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
           LucideAngularModule,
           WorkspaceGridStub,
           EmptyStateStub,
+          DetailPanelStub,
           CanvasLayoutControlsComponent,
           NeedsYouQueueStub,
           ActivityTickerComponent,
@@ -1037,6 +1081,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
         ],
         providers: [
           CanvasStore,
+          CanvasDetailService,
           { provide: CanvasLayoutService, useValue: layoutServiceMock },
           {
             provide: CanvasLayoutPersistenceService,

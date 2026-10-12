@@ -17,6 +17,7 @@ import {
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
 import { CanvasStore } from './canvas.store';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import {
   ChatViewComponent,
   TabManagerService,
@@ -137,6 +138,12 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
     // Marker for the unfocused-tile CSS below. Host-level so the tile content
     // needs no focus wiring of its own for the animation pause.
     '[class.tile-unfocused]': '!focused()',
+    '[attr.role]': "cardMode() ? 'button' : null",
+    '[attr.tabindex]': 'cardMode() ? 0 : null',
+    '[attr.aria-label]':
+      "cardMode() ? 'Open session detail for ' + tabLabel() : null",
+    '(click)': 'onTileClick($event)',
+    '(keydown)': 'onTileKeydown($event)',
   },
   styles: [
     `
@@ -160,7 +167,6 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
       [class.ring-primary]="focused()"
       [class.surface-2]="!focused()"
       [class.surface-3]="focused()"
-      (click)="onTileClick()"
     >
       <!-- Tile header: label + agent indicator + layout menu + close button -->
       <div
@@ -498,6 +504,8 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
 
   private readonly tabManager = inject(TabManagerService);
   private readonly canvasStore = inject(CanvasStore, { optional: true });
+  private readonly detail = inject(CanvasDetailService, { optional: true });
+  private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly effortState = inject(EffortStateService);
   private readonly modelState = inject(ModelStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
@@ -606,6 +614,9 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     this.tabManager.getTabViewMode(this.tabId()),
   );
   readonly isCompactMode = computed(() => isCompactViewMode(this.viewMode()));
+  protected readonly cardMode = computed(
+    () => this.autoCard() || this.isCompactMode(),
+  );
   /** Compact height in grid rows, clamped exactly as the grid projects it. */
   readonly compactHeightUnits = computed(() =>
     clampCompactHeightUnits(
@@ -630,8 +641,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
             provide: SESSION_CARD_ACTIONS,
             useValue: {
               openSession: () => this.openCardSession(),
-              // B7a adds lane detail; until then opening a lane focuses its tile.
-              openLane: (_laneKey: string) => this.openCardSession(),
+              openLane: (laneKey: string) => this.openCardLane(laneKey),
             },
           },
           { provide: SURFACE_ACTIVE, useValue: this.tileSurfaceActive },
@@ -647,8 +657,17 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   }
 
   private openCardSession(): void {
+    if (this.detail) {
+      this.detail.toggle(this.tabId());
+      return;
+    }
     if (this.canvasStore) this.canvasStore.focusTile(this.tabId());
     else this.focusRequested.emit(this.tabId());
+  }
+
+  private openCardLane(laneKey: string): void {
+    if (this.detail) this.detail.open(this.tabId(), laneKey);
+    else this.openCardSession();
   }
 
   /**
@@ -656,8 +675,30 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    * canvasStore.focusTile(tabId), which in turn calls tabManager.switchTab(tabId).
    * This keeps global activeTabId in sync before any message is sent.
    */
-  onTileClick(): void {
-    this.focusRequested.emit(this.tabId());
+  onTileClick(event?: MouseEvent): void {
+    if (event && this.isInteractiveTarget(event.target)) return;
+    if (this.cardMode()) this.openCardSession();
+    else this.focusRequested.emit(this.tabId());
+  }
+
+  onTileKeydown(event: KeyboardEvent): void {
+    if (
+      !this.cardMode() ||
+      event.target !== event.currentTarget ||
+      (event.key !== 'Enter' && event.key !== ' ')
+    )
+      return;
+    event.preventDefault();
+    this.openCardSession();
+  }
+
+  /** True for a control inside the tile; the card-mode host is itself a role="button". */
+  private isInteractiveTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    const control = target.closest(
+      'button, a, input, textarea, select, [role="button"], [contenteditable="true"]',
+    );
+    return control !== null && control !== this.hostRef.nativeElement;
   }
 
   /**

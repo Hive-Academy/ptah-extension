@@ -1,6 +1,7 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  computed,
   OnDestroy,
   inject,
   effect,
@@ -39,6 +40,9 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import type { CanvasLayoutPreset } from './canvas-layout-intent';
 import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
+import { CANVAS_LIVE_BUDGET } from './canvas-live-budget';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
+import { CanvasDetailPanelComponent } from './canvas-detail/canvas-detail-panel.component';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -62,11 +66,13 @@ import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
 @Component({
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(window:keydown)': 'onDetailKeydown($event)' },
   providers: [
     CanvasStore,
     CanvasLayoutService,
     CanvasLayoutPersistenceService,
     CanvasRenderMetricsService,
+    CanvasDetailService,
   ],
   imports: [
     FormsModule,
@@ -74,6 +80,7 @@ import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
     CanvasEmptyStateComponent,
     CanvasLayoutControlsComponent,
     CanvasNeedsYouQueueComponent,
+    CanvasDetailPanelComponent,
     ActivityTickerComponent,
     LucideAngularModule,
     NativePopoverComponent,
@@ -225,8 +232,18 @@ import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
             class="h-full overflow-auto w-full"
             [workspacePath]="path"
             [visible]="path === canvasStore.activeWorkspacePath()"
-            [locked]="locked()"
-          />
+            [locked]="locked() || detailTabId() !== null"
+            [detailTabId]="
+              path === canvasStore.activeWorkspacePath() ? detailTabId() : null
+            "
+          >
+            @if (
+              path === canvasStore.activeWorkspacePath() && detailTabId();
+              as id
+            ) {
+              <ptah-canvas-detail-panel ptahCanvasDetail [tabId]="id" />
+            }
+          </ptah-canvas-workspace-grid>
         }
 
         @if (canvasStore.tiles().length === 0) {
@@ -312,6 +329,35 @@ import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
 })
 export class OrchestraCanvasComponent implements OnDestroy {
   readonly canvasStore = inject(CanvasStore);
+  readonly detail = inject(CanvasDetailService);
+  protected readonly detailTabId = computed(() => {
+    const id = this.detail.detailTabId();
+    return id &&
+      this.canvasStore.tiles().length > CANVAS_LIVE_BUDGET &&
+      this.canvasStore.tiles().some((tile) => tile.tabId === id)
+      ? id
+      : null;
+  });
+
+  protected onDetailKeydown(event: KeyboardEvent): void {
+    if (!this.detailTabId()) return;
+    if (event.key === 'Escape') {
+      this.detail.close();
+      event.preventDefault();
+      return;
+    }
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        target.closest('input, textarea, select, [contenteditable="true"]'))
+    )
+      return;
+    if (event.key === 'ArrowRight') this.detail.next();
+    else if (event.key === 'ArrowLeft') this.detail.prev();
+    else return;
+    event.preventDefault();
+  }
   private readonly appState = inject(AppStateManager);
   /** The dock ticker's only source of items (TASK_2026_380). */
   protected readonly activity = inject(BackOfficeActivityService);
@@ -351,6 +397,9 @@ export class OrchestraCanvasComponent implements OnDestroy {
     viewChild<ElementRef<HTMLElement>>('sessionViewport');
 
   constructor() {
+    effect(() => {
+      if (this.detail.detailTabId() && !this.detailTabId()) this.detail.close();
+    });
     afterNextRender(() => {
       const el = this.sessionViewport()?.nativeElement;
       if (el) {

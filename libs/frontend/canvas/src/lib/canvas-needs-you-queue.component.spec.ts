@@ -14,6 +14,7 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import { CanvasNeedsYouQueueComponent } from './canvas-needs-you-queue.component';
 
 describe('CanvasNeedsYouQueueComponent', () => {
@@ -29,6 +30,7 @@ describe('CanvasNeedsYouQueueComponent', () => {
   const respondSession = jest.fn();
   const respondLane = jest.fn();
   const focusTile = jest.fn();
+  const openDetail = jest.fn();
   const request = (id: string, tabId: string): PermissionRequest => ({
     id,
     tabId,
@@ -47,6 +49,7 @@ describe('CanvasNeedsYouQueueComponent', () => {
     respondSession.mockClear();
     respondLane.mockReset().mockReturnValue(true);
     focusTile.mockClear();
+    openDetail.mockClear();
     TestBed.configureTestingModule({
       imports: [CanvasNeedsYouQueueComponent],
       providers: [
@@ -125,6 +128,42 @@ describe('CanvasNeedsYouQueueComponent', () => {
     const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('All clear');
+  });
+
+  it('opens a lane request in detail and closes the queue', () => {
+    agents.set([
+      {
+        agentId: 'agent',
+        parentSessionId: 's2',
+        displayName: 'Codex',
+        permissionQueue: [
+          {
+            requestId: 'lane-request',
+            toolName: 'bash',
+            description: 'Run',
+            timestamp: 1,
+          },
+        ],
+      } as MonitoredAgent,
+    ]);
+    TestBed.overrideComponent(CanvasNeedsYouQueueComponent, {
+      add: {
+        providers: [
+          { provide: CanvasDetailService, useValue: { open: openDetail } },
+        ],
+      },
+    });
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    (
+      fixture.nativeElement.querySelector(
+        'button.btn-ghost',
+      ) as HTMLButtonElement
+    ).click();
+    expect(openDetail).toHaveBeenCalledWith('b', 'cli:agent');
+    expect(fixture.componentInstance.open()).toBe(false);
+    expect(focusTile).not.toHaveBeenCalled();
   });
 
   it('denies a lane using its request id and clears its answered state when removed', () => {
