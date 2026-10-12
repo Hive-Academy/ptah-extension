@@ -14,13 +14,16 @@
  * A computed value is accepted on purpose: `spawnCli` and the off-thread
  * spawner set `windowsHide: !needsConsole`, because CLIs that run shell tools
  * through ConPTY (Copilot, Antigravity) need a real console — ConPTY's
- * AttachConsole() fails without one. Those runs keep a VISIBLE window until a
- * hidden-console design lands.
+ * AttachConsole() fails without one. Those runs keep a VISIBLE window. The
+ * options and the manual check that decides between them are in the task
+ * folder (`.ptah/specs/TASK_2026_625_99ae/context.md`, `## Decisions`).
  *
- * NOT COVERED (third-party code, no spawn hook; tracked in the task context):
- * `@openai/codex-sdk` (`codex exec` per turn), the `@cursor/sdk` local runtime
- * (git, shell tool, ffmpeg), and `chrome-launcher`'s `taskkill` on browser
- * close. Each needs a patch, not a source change here.
+ * THIRD-PARTY SPAWNS (not scanned, `node_modules` is excluded): the
+ * `@openai/codex-sdk` `codex exec` per turn, the `@cursor/sdk` local runtime
+ * (git, shell tool, ffmpeg) and `chrome-launcher`'s `taskkill` on browser
+ * close have no spawn hook. The postinstall script
+ * `scripts/windows-hide-patch/patch-windows-hide-deps.js` patches them, and
+ * its spec fails when a dependency bump no longer matches the patch.
  *
  * KNOWN LIMIT: an options object built in a separate statement and passed by
  * name is not seen, and fails this guard. Inline the options, or add the key
