@@ -468,7 +468,7 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       expect(dock.summaryFor(TAB)?.changeSet).toBe(TURN_1_CHANGE_SET);
     });
 
-    it('shows "Display panel unavailable" without a dock (decision #67)', async () => {
+    it('keeps the change-set card without a dock', async () => {
       configure({
         tabs: signal([tab(TAB, SUMMARY_MESSAGES)]),
         changeSets: signal([TURN_1_CHANGE_SET]),
@@ -478,15 +478,9 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       const fixture = mount(TAB);
       await settle(fixture);
 
-      const open = query(fixture, 'turn-summary-chip-open') as HTMLButtonElement;
-      expect(open).not.toBeNull();
-      expect(open.disabled).toBe(true);
-      expect(query(fixture, 'turn-summary-chip')?.textContent).toContain(
-        'Display panel unavailable',
-      );
-      // Clicking a disabled control emits nothing and throws nothing.
-      open.click();
-      await settle(fixture);
+      expect(query(fixture, 'chat-turn-summary')).toBeNull();
+      expect(query(fixture, 'chat-change-set')).not.toBeNull();
+      expect(query(fixture, 'turn-summary-chip-open')).toBeNull();
     });
   });
 

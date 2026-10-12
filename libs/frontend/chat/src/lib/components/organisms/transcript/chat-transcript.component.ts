@@ -627,6 +627,7 @@ export class ChatTranscriptComponent {
     tab: this._tab,
     view: this.vm,
     snapshots: this.ptahUiSnapshots,
+    activeTrees: this._executionTrees,
     streaming: this.isStreaming,
     finalized: this.finalizedFiltered,
     marksFor: (changeSet) => this.changeSetStore.marksFor(changeSet),

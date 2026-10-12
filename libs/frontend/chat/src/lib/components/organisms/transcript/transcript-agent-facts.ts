@@ -43,8 +43,10 @@ type AgentNodeFact = TurnAgentFacts['nodes'][number];
  */
 export function collectTurnAgentFacts(
   messages: readonly ExecutionChatMessage[],
+  activeTrees: readonly ExecutionNode[] = [],
 ): readonly TurnAgentFacts[] {
   const turns: TurnBuilder[] = [];
+  const recordedTreeIds = new Set<string>();
   for (const message of messages) {
     if (message.role === 'user') {
       turns.push({
@@ -62,7 +64,14 @@ export function collectTurnAgentFacts(
     ) {
       continue;
     }
+    recordedTreeIds.add(message.streamingState.id);
     collectTree(message.streamingState, turn);
+  }
+  const activeTurn = turns.at(-1);
+  if (activeTurn !== undefined) {
+    for (const tree of activeTrees) {
+      if (!recordedTreeIds.has(tree.id)) collectTree(tree, activeTurn);
+    }
   }
   return turns.map((turn) => ({
     startedAt: turn.startedAt,

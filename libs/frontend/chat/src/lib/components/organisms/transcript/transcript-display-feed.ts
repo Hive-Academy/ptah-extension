@@ -4,6 +4,7 @@ import type { PtahUiHostSources } from '@ptah-extension/chat-ui';
 import type { TabState } from '@ptah-extension/chat-types';
 import type {
   ExecutionChatMessage,
+  ExecutionNode,
   TurnChangeSet,
 } from '@ptah-extension/shared';
 import type { ChangeSetMarks } from '../../../services/change-set/change-set.store';
@@ -33,6 +34,8 @@ export interface TranscriptDisplayFeedInput {
   readonly view: Signal<TranscriptDisplayView>;
   /** The transcript's `ptahUiSnapshots`. */
   readonly snapshots: Signal<TurnSnapshots>;
+  /** Execution trees still held by the tab while their assistant records are live. */
+  readonly activeTrees: Signal<readonly ExecutionNode[]>;
   /** The tab streams (`streaming` or `resuming`); read from the tab, ungated. */
   readonly streaming: Signal<boolean>;
   /** The tab's finalized messages, compaction noise filtered; ungated. */
@@ -76,16 +79,17 @@ export class TranscriptDisplayFeed {
   private previousCandidates: readonly DisplayCandidate[] = NO_CANDIDATES;
 
   constructor(input: TranscriptDisplayFeedInput) {
-    this.enabled = input.enabled;
+    this.enabled = input.enabled && this.dock !== null;
     const slots = computed(() => input.view().slots);
     this.hostSources = createTranscriptPtahUiHostSources({
       tabId: input.tabId,
       sessionId: computed(() => input.tab()?.claudeSessionId ?? null),
       slots,
+      activeTrees: input.activeTrees,
       liveModelStats: computed(() => input.tab()?.liveModelStats ?? null),
     });
     this.candidates = computed((): readonly DisplayCandidate[] => {
-      if (!input.enabled) return NO_CANDIDATES;
+      if (!this.enabled) return NO_CANDIDATES;
       const view = input.view();
       const records = view.slots.map((slot) => slot.record());
       const next = collectDisplayCandidates(

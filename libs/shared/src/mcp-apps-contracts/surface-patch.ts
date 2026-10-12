@@ -8,7 +8,7 @@
  * document with `validateSurfaceDocument` before it commits (Req 5.2).
  */
 import { isSurfaceLayoutComponent } from './surface-bindings';
-import { SURFACE_CATALOG_4_LAYOUT_KINDS } from './surface-catalog';
+import { SURFACE_LAYOUT_KINDS } from './surface-catalog';
 import type { SurfaceLayoutComponent } from './surface-bindings';
 import { applyDataModelOps } from './surface-data-model';
 import type { SurfaceDataModelOp } from './surface-data-model';
@@ -48,10 +48,10 @@ type ListResult =
 const fail = (reason: string): Failure => ({ ok: false, reason });
 
 /**
- * "section, stack, grid, card and accordion": the same `/4` superset that
- * `isSurfaceLayoutComponent` accepts, so the message cannot drift from it.
+ * "section, stack, grid and card": the `/3` layouts, the only catalog
+ * `ptah_surface_update` accepts; the type guard keeps the `/4` superset.
  */
-const PARENT_KINDS_TEXT = `${SURFACE_CATALOG_4_LAYOUT_KINDS.slice(0, -1).join(', ')} and ${SURFACE_CATALOG_4_LAYOUT_KINDS[SURFACE_CATALOG_4_LAYOUT_KINDS.length - 1]}`;
+const PARENT_KINDS_TEXT = `${SURFACE_LAYOUT_KINDS.slice(0, -1).join(', ')} and ${SURFACE_LAYOUT_KINDS[SURFACE_LAYOUT_KINDS.length - 1]}`;
 
 /** Ops can come from untyped callers; read the discriminant defensively. */
 function opName(op: unknown): string {

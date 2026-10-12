@@ -29,6 +29,14 @@ describe('parsePtahUi', () => {
   });
 
   it('accepts CRLF lines', () => valid('title CRLF\r\n'));
+  it.each([
+    ['title', 'title  Session\n'],
+    ['card', 'card  Summary\n  stats\n    Files | 1\n'],
+    ['section', 'section  Checks\n  stats\n    Passed | 1\n'],
+    ['accordion', 'accordion  Details\n  stats\n    Files | 1\n'],
+    ['table source', 'table  $diff\n'],
+    ['list source', 'list  $tests\n'],
+  ])('accepts multiple spaces after %s headers', (_name, body) => valid(body));
   it('decodes escaped pipe, backslash and dollar', () =>
     expect(parse('title A\\|B\\\\C\\$D\n')).toMatchObject({
       ok: true,

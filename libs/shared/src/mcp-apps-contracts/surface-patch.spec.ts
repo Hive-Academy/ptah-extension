@@ -163,7 +163,7 @@ describe('applySurfaceOps — structure', () => {
         parentId: 'stat',
         component: { kind: 'stat', id: 'x', value: 1 },
       },
-      'only section, stack, grid, card and accordion take children',
+      'only section, stack, grid and card take children',
     ],
     [
       'an index past the end',

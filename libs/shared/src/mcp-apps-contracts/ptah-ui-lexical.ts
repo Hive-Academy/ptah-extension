@@ -37,8 +37,7 @@ export function leadingSpaces(line: string): number {
   return count;
 }
 export function headerText(line: string, keyword: string): string | undefined {
-  if (!line.startsWith(`${keyword} `) || line.startsWith(`${keyword}  `))
-    return undefined;
+  if (!line.startsWith(`${keyword} `)) return undefined;
   return decodeText(line.slice(keyword.length + 1).trim());
 }
 /** Splits indentation-free `content` on unescaped pipes. */

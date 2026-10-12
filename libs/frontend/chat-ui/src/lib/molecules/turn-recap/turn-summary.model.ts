@@ -185,7 +185,11 @@ export function turnTestsOutcomeLabel(summary: TurnTestSummary): string {
   if (failed > 0) parts.push(`${failed} failed`);
   if (running > 0) parts.push(`${running} running in background`);
   if (unknown > 0) {
-    parts.push(passed === 0 && failed === 0 ? 'unknown' : `${unknown} unknown`);
+    parts.push(
+      passed === 0 && failed === 0 && running === 0
+        ? 'unknown'
+        : `${unknown} unknown`,
+    );
   }
   return parts.join(', ');
 }

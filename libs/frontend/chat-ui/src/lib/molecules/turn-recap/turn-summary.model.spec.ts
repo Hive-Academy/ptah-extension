@@ -318,6 +318,18 @@ describe('buildTurnSummaryModel', () => {
       expect(model.tests?.runs[0].outcomeName).toBe('running in background');
     });
 
+    it('keeps unknown runs in a background outcome label', () => {
+      expect(
+        turnTestsOutcomeLabel({
+          total: 2,
+          passed: 0,
+          failed: 0,
+          running: 1,
+          unknown: 1,
+        }),
+      ).toBe('1 running in background, 1 unknown');
+    });
+
     it('lists each run in execution order as outcome word plus command', () => {
       const model = build(
         snapshot({

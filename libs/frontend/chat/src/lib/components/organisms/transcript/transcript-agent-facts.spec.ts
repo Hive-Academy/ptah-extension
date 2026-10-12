@@ -109,6 +109,45 @@ describe('collectTurnAgentFacts', () => {
       ]);
     });
 
+    it('includes an active tree missing from the live assistant record', () => {
+      const activeTree = createExecutionNode({
+        id: 'live-a1',
+        type: 'message',
+        children: [taskTool('t-live', agent('n-live', 't-live'))],
+      });
+
+      const turns = collectTurnAgentFacts(
+        [user('u1', 1_000), createExecutionChatMessage({ id: 'a1', role: 'assistant', timestamp: 1_100 })],
+        [activeTree],
+      );
+
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['n-live']);
+      expect(turns[0].spawnToolCallIds).toEqual(['t-live']);
+    });
+
+    it('does not collect an active tree twice when its record already carries it', () => {
+      const tree = createExecutionNode({
+        id: 'a1-root',
+        type: 'message',
+        children: [taskTool('t1', agent('n1', 't1'))],
+      });
+
+      const turns = collectTurnAgentFacts(
+        [
+          user('u1', 1_000),
+          createExecutionChatMessage({
+            id: 'a1',
+            role: 'assistant',
+            timestamp: 1_100,
+            streamingState: tree,
+          }),
+        ],
+        [tree],
+      );
+
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['n1']);
+    });
+
     it('attributes nothing before the first user message', () => {
       const turns = collectTurnAgentFacts([
         assistant('a0', 500, [taskTool('t0', agent('n0', 't0'))]),

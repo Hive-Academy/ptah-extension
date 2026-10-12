@@ -4,6 +4,7 @@ import type { LiveModelStatsPayload } from '@ptah-extension/chat-state';
 import type {
   ContextCapacity,
   ExecutionChatMessage,
+  ExecutionNode,
 } from '@ptah-extension/shared';
 import { collectTurnAgentFacts } from './transcript-agent-facts';
 
@@ -22,6 +23,8 @@ export interface TranscriptPtahUiHostSourcesInput {
    * only on a structural change (decision #94) and must not be used.
    */
   readonly slots: Signal<readonly TranscriptHostSourceSlot[]>;
+  /** Trees not yet persisted on their assistant message records. */
+  readonly activeTrees: Signal<readonly ExecutionNode[]>;
   /** The tab's live model stats; the only source of a context capacity. */
   readonly liveModelStats: Signal<LiveModelStatsPayload | null>;
 }
@@ -52,7 +55,9 @@ export function createTranscriptPtahUiHostSources(
   input: TranscriptPtahUiHostSourcesInput,
 ): PtahUiHostSources {
   const records = computed(() => input.slots().map((slot) => slot.record()));
-  const turnFacts = computed(() => collectTurnAgentFacts(records()));
+  const turnFacts = computed(() =>
+    collectTurnAgentFacts(records(), input.activeTrees()),
+  );
   const turnIndexByMessage = computed(() => turnIndexes(records()));
   const contextCapacity = computed(
     () => input.liveModelStats()?.contextCapacity ?? null,

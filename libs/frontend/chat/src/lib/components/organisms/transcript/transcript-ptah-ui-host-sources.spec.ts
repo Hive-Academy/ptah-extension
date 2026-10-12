@@ -5,6 +5,7 @@ import {
   createExecutionNode,
   type ContextCapacity,
   type ExecutionChatMessage,
+  type ExecutionNode,
 } from '@ptah-extension/shared';
 import { collectDisplayCandidates } from './transcript-display-candidates';
 import {
@@ -74,13 +75,15 @@ function setup(messages: readonly ExecutionChatMessage[]) {
     records.map((record) => ({ record })),
   );
   const liveModelStats = signal<LiveModelStatsPayload | null>(null);
+  const activeTrees = signal<readonly ExecutionNode[]>([]);
   const sources = createTranscriptPtahUiHostSources({
     tabId: signal('tab-1'),
     sessionId: signal<string | null>('session-1'),
     slots,
+    activeTrees,
     liveModelStats,
   });
-  return { sources, records, slots, liveModelStats };
+  return { sources, records, slots, activeTrees, liveModelStats };
 }
 
 const PREAMBLE = assistant('a0', 500);
@@ -93,6 +96,28 @@ const MESSAGES = [
 ];
 
 describe('createTranscriptPtahUiHostSources', () => {
+  it('includes a live tree absent from the assistant record', () => {
+    const { sources, activeTrees } = setup([user('u1', 1_000)]);
+    activeTrees.set([
+      createExecutionNode({
+        id: 'live-a1',
+        type: 'message',
+        children: [
+          createExecutionNode({
+            id: 'live-agent',
+            type: 'agent',
+            status: 'streaming',
+            toolCallId: 'live-call',
+          }),
+        ],
+      }),
+    ]);
+
+    expect(sources.turnFacts()[0].nodes.map((node) => node.id)).toEqual([
+      'live-agent',
+    ]);
+  });
+
   it('passes the tab and session through', () => {
     const { sources } = setup(MESSAGES);
     expect(sources.tabId()).toBe('tab-1');
