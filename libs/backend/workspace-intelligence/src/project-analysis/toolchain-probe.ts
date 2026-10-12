@@ -115,6 +115,7 @@ function runProbe(
       child = crossSpawn(binary, args, {
         detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       });
     } catch {

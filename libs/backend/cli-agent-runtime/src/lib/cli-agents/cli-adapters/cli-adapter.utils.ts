@@ -287,10 +287,12 @@ export function assertCommandLineWithinLimit(
  * Cross-platform spawn. Uses `cross-spawn` — transparent .cmd handling on Windows.
  * No shell: true needed, no argument mangling.
  *
- * @param options.needsConsole - When true, ensures the child process gets its own
- *   console window (hidden). Required for CLIs that use node-pty/ConPTY internally
- *   for shell command execution. Without a console, ConPTY's
- *   AttachConsole() fails on Windows, breaking shell command execution.
+ * @param options.needsConsole - When true, the child gets its own console
+ *   (`windowsHide: false`), and that console window is VISIBLE for the whole
+ *   run. Required for CLIs that use node-pty/ConPTY internally for shell
+ *   command execution. Without a console, ConPTY's AttachConsole() fails on
+ *   Windows, breaking shell command execution. Every other spawn hides its
+ *   window.
  * @param options.spawner - When supplied, the child is created on a worker
  *   thread instead of this one. `child_process.spawn` is a synchronous
  *   `CreateProcessW` on Windows whose cost tracks the binary's size, and the
@@ -336,9 +338,7 @@ export function spawnCli(
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
       detached,
-      ...(options.needsConsole && process.platform === 'win32'
-        ? { windowsHide: false }
-        : {}),
+      windowsHide: !(options.needsConsole && process.platform === 'win32'),
     }),
   );
 }
