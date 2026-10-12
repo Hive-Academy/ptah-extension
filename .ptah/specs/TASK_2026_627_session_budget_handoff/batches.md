@@ -704,6 +704,13 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L18 | Phase 3 Minor 3: if the host `inner(...)` throws in `wrapResultStatsForActivity`, `armHandoverIfIdle` (`sdk-agent-adapter.ts:1825`) is skipped for that result | Arms at the next terminal | Run the arm in its own try before `inner`, or guard `inner` |
 | 627-L19 | Phase 3 Minor 4: the limit notice says Ptah "will ask for a handoff and continue in a new session" (`session-budget.service.ts:205`), but at a blocking limit the user clicks "New session" | Wording only | Name the click at a blocking limit in the notice. **Phase 4: fixed in Task 11.2** (the rewritten `wrapUpNotice`, plan v2 Decision 1) |
 | 627-L20 | Phase 3 Minor 5: the wrapper makes `onLiveStats` always defined (`sdk-agent-adapter.ts:1844`), so `LiveSessionStatsPublisher` runs a timer and owner watcher per stream on every host; a failed first terminal handover is retried once by the post-result arm in the same turn | Intended (plan: wrapper installed without a host callback); cost only | Measure the per-stream cost; document the single retry. **Single-retry half closed by D22** (no code: the post-result path only parks the blocking limit). The cost half stays |
+| 627-L21 | Phase 4 style Moderate 3: the literal `'handoff' \| 'limit' \| null` is repeated about 7 times with no named type (`session-stats-live.ts:37`, `agent-adapter.types.ts:123`, `chat-types.ts:662`, actions service, banner, `displayBudgetStage`) | Type hygiene only | Export `SessionLiveBudgetStage = Extract<SessionBudgetStage, 'handoff' \| 'limit'>` from shared and use it everywhere |
+| 627-L22 | Phase 4 style Moderate 4: naming drift (`liveBudgetStage` / `liveStage` / `LiveBudgetStage`; `wrapUpRequested` vs `requestWrapUp`; `continueNowAnyway` vs `continueNow`; `approveAgentRequest` routed to `continueInNewSession`) | Naming only | Pick one root name per concept, or document the split once |
+| 627-L23 | Phase 4 style Moderate 5: `WRAP_UP_UNAVAILABLE_NOTICE` says "not working on a turn" for all four causes of `WRAP_UP_UNAVAILABLE` | Wording only; no data or config effect | Use a generic message ("The agent could not be asked to wrap up right now.") |
+| 627-L24 | Phase 4 style Minor 6: `peekDraft` widens typed `draftText` to `unknown` | Noise only | `const text = state.draftText; if (!text?.trim())` |
+| 627-L25 | Phase 4 style Minor 7: `SESSION_BUDGET_ACTIONS` not checked for exhaustiveness (`session-budget-rpc.schema.ts:16-24`) | Future-proofing | Compile-time check that the union is assignable to the array element type, or derive the union |
+| 627-L26 | Phase 4 style Minor 8: `armAtTerminal(…, true, …)` takes a bare boolean (`session-lifecycle-manager.ts:547-551`) | Readability only | Options object when the coordinator is split (with 627-L7) |
+| 627-L27 | Phase 4 style Minor 9: `restoreDraftToInput` / `restoreContentToInput` overlap (deliberate, D24) | None | Cross-reference in `restoreContentToInput`'s doc comment |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — COMPLETE (0917b8074)
 
@@ -1595,3 +1602,60 @@ other rows stay as recorded.
 - No visual review: per user decision 3 the user does the manual Electron check (banner while
   streaming, the new buttons and copy). No prototype is required (no new surface).
 - Fix round: at most one, per the lean rules at the top of the run.
+
+### Phase 4 review verdicts
+
+- Code-logic (CLI lane): 5/10 NEEDS_REVISION — `code-logic-review-phase4.md`. F1 Serious (Cancel
+  offered in non-cancellable progress phases), F2 Blocking (a begin at `closing` is accepted and the
+  frontend erased composer text the backend did not capture). The lane overwrote the tracked Phase 1
+  `code-logic-review.md`; the orchestrator restored it from HEAD (verified unmodified) and moved the
+  lane output to `code-logic-review-phase4.md`.
+- Code-style: 7/10 REVISE — `code-style-review-phase4.md`. F1 and F2 Serious fixed in Batch 17F;
+  Moderate 3-5 and Minor 6-9 deferred as 627-L21..L27 (none can lose data or break a lane config).
+
+## Batch 17F: Phase 4 review fix round — COMPLETE (b3d8a8193)
+
+- Executor: backend-developer (Part A), frontend-developer (Part B), sequential.
+- Phase: 4 | Phase review: one re-review scoped to b3d8a8193 (code-logic; style for the new shared
+  `ENDED_HANDOVER_PHASES` / `draftCaptured` / `displayBudgetStage`).
+
+### Task 17F.1: `draftCaptured` on accepted begin (logic F2, backend + contract) — COMPLETE
+
+- `session-handover.types.ts` accepted branch gains optional `draftCaptured`; the coordinator's
+  `begin` spreads `{ draftCaptured: true }` only when `captureDraft` took the text (all three accepted
+  returns). RPC handler passes it through unchanged (`session-handover-rpc.handlers.ts:99`).
+- Specs: draftCaptured only when captured; `closing` begin accepted with falsy `draftCaptured` and
+  the late text never delivered.
+
+### Task 17F.2: Composer cleared only on `draftCaptured === true` (logic F2, frontend) — COMPLETE
+
+- `session-budget-actions.service.ts` `beginHandover`: clear and queued-operation flag both gated on
+  `queuedInput && data.draftCaptured === true`; spec pins the `closing` case (text kept, no flag).
+
+### Task 17F.3: Cancel only in `writing-handoff` (logic F1) — COMPLETE
+
+- Banner `handoverCancellable` computed; spec shows Cancel in `writing-handoff` and none in
+  `starting-successor`, `successor-confirmed`, `closing`.
+
+### Task 17F.4: Shared `ENDED_HANDOVER_PHASES` and `displayBudgetStage` (style F1, F2) — COMPLETE
+
+- One exported set in shared; local copies removed from chat-view and the actions service. One pure
+  `displayBudgetStage` in `session-budget-format.ts` used by both the service and the banner.
+- Deviation (shared pure function instead of a new banner input) — ACCEPTED: one owner of the rule,
+  no banner API change, and behaviour is identical (checked: the old banner branches equal the rank
+  comparison for every `live` value; the service already imports from `components/`).
+
+### Batch 17F result
+
+- Commit: b3d8a8193 (9 code files).
+- Team-leader checks (each under `.ptah/tmp-check-lock`, scoped): coordinator spec 64/64; actions,
+  banner and chat-view specs 3 suites 221/221; `nx typecheck` shared, agent-sdk,
+  `@ptah-extension/chat` succeeded; `nx lint @ptah-extension/chat` 0 errors, 34 warnings (baseline
+  unchanged); eslint on the shared/agent-sdk files 0 errors, 1 pre-existing `no-useless-assignment`.
+- G1 over `libs` (non-spec): no `budget-auto` / `startAutomatic` / `WORK_IN_FLIGHT_WAIT_LIMIT_MS` /
+  `cancelledAutomaticSources`; `coordinator.begin(` only at `session-handover-rpc.handlers.ts:99`.
+  PASS.
+- Pitfalls: no new start path (only `begin` sets `userConfirmed`); captured text still never goes
+  through `restoreInputs`/send/queue; composer kept whenever `draftCaptured` is not true; no wrap-up
+  change.
+- Phase 4 re-review: pending (scoped to b3d8a8193).
