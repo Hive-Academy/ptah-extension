@@ -265,7 +265,7 @@ export class AppShellComponent {
   );
   /**
    * True while a handle drag is active. The template swaps the width
-   * `transition-all` for `transition-none` while this is set, so the drag
+   * `transition-[width]` for `transition-none` while this is set, so the drag
    * tracks the pointer 1:1 instead of lagging behind the animation.
    */
   private readonly _sidebarResizing = signal(false);
