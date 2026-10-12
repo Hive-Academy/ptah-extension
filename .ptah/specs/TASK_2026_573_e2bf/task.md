@@ -5,12 +5,14 @@ type: BUGFIX
 title: 'Close quarantine test gaps on node:sqlite and pin restore'
 depends_on: []
 created: '2026-09-26T20:53:55.778Z'
-updated: '2026-09-26T20:53:55.778Z'
+updated: '2026-10-12T19:41:51.738Z'
 description: 'New real-SQLite quarantine specs ran only on better-sqlite3 (node:sqlite fallback unverified); add a spec that an unpin on a quarantined pinned row keeps pinned=1 after restore'
 labels:
   - memory-curator
+  - P3
 relates_to:
   - TASK_2026_563_2939
+parent: TASK_2026_638_7a8e
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

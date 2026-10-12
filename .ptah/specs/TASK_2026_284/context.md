@@ -55,3 +55,7 @@ This is the reason the task starts with research rather than code.
 - opencode can receive a user-installed MCP server, or the reason it cannot is written down.
 - pi's lack of MCP is recorded as an upstream limit rather than left as a silent `false`.
 - Specs: whatever facets land, plus the detection path (E17 — CLI absent, nothing written).
+
+## Triage 2026-10-12
+
+Re-scoped to the pi half. The opencode target shipped with a recorded rationale (libs/backend/harness-sync/src/lib/targets/rival-targets.ts:34-45, :190-199). Do not add a pi skills facet before TASK_2026_279 (provenance marker) lands.

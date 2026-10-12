@@ -5,16 +5,13 @@ type: REFACTORING
 title: >-
   Resolve the memory-curator to agent-sdk import rule contradiction
 description: >-
-  Found by TASK_2026_443_40ec Task 10.2. Three non-spec files in
-  libs/backend/memory-curator/src import @ptah-extension/agent-sdk
-  (curator-pass-admission.ts, knowledge-agent.service.ts,
-  memory-trigger.service.ts), which the Nx boundary lint permits but the
-  memory-curator CLAUDE.md Cross-Lib Rules sentence forbids. The imports predate
-  TASK_2026_443 and exist unchanged on main. Either the code moves behind a port
-  or the rule sentence changes; the two must not disagree.
+  Found by TASK_2026_443_40ec Task 10.2. Three non-spec files in libs/backend/memory-curator/src import @ptah-extension/agent-sdk (curator-pass-admission.ts, knowledge-agent.service.ts, memory-trigger.service.ts), which the Nx boundary lint permits but the memory-curator CLAUDE.md Cross-Lib Rules sentence forbids. The imports predate TASK_2026_443 and exist unchanged on main. Either the code moves behind a port or the rule sentence changes; the two must not disagree.
 depends_on: []
 created: 2026-09-16T01:00:00.000Z
-updated: 2026-09-16T01:00:00.000Z
+updated: '2026-10-12T19:41:51.738Z'
+parent: TASK_2026_638_7a8e
+labels:
+  - P3
 ---
 
 ## Description

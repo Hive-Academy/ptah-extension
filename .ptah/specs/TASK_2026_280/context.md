@@ -25,3 +25,7 @@ Follow-up to TASK_2026_278. Frontend-led; the backend contracts already exist.
 - Both settings are editable in the UI and round-trip to `~/.ptah/settings.json`.
 - An orphaned clone cannot be sent to Rebase from any surface.
 - Badge panel lists paths; specs cover severity derivation, orphaned gating, and truncation.
+
+## Triage 2026-10-12
+
+Re-scoped to the harness settings UI only (schema and controls for harness.manageGitignore and harness.preflightTimeoutMs). Rebase-on-orphaned is fixed (clone-action-gating.ts:125-136) and the badge lists paths (harness-health-badge.component.ts:167-168). The blocked-list cap and e2e coverage stay in TASK_2026_313.
