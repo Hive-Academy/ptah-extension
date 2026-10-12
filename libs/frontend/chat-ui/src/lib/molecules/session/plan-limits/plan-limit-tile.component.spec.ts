@@ -23,9 +23,9 @@ function windowTile(
     id: 'plan:claude-cli#account:0123456789abcdef:five_hour',
     kind: 'window',
     label: '5-hour',
-    captionLead: 'Claude account plan limit',
+    captionLead: 'Claude account',
     captionTail: '· cdef',
-    caption: 'Claude account plan limit · cdef',
+    caption: 'Claude account · cdef',
     value: '94% used',
     resetLine: 'resets 15:10 · in 3h 10m',
     chip: NEAR_WINDOW.chip,
@@ -86,7 +86,6 @@ describe('PlanLimitTileComponent', () => {
 
     expect(panel(root).hidden).toBe(true);
     expect(root.querySelector('[role="meter"]')).toBeNull();
-    expect(root.classList.contains('col-span-full')).toBe(false);
   });
 
   it('shows the state, reset line and source chips on the closed face', () => {
@@ -97,7 +96,7 @@ describe('PlanLimitTileComponent', () => {
     expect(
       button(root).querySelector('[data-testid="plan-limit-caption"]')
         ?.textContent,
-    ).toBe('Claude account plan limit· cdef');
+    ).toBe('Claude account· cdef');
     expect(face).toContain('94% used');
     expect(face).toContain('resets 15:10 · in 3h 10m');
     expect(face).toContain('Near limit');
@@ -105,17 +104,86 @@ describe('PlanLimitTileComponent', () => {
     expect(face).toContain('limit From error');
   });
 
-  it('shows an accessible radial usage gauge on a window tile', () => {
+  it('shows an accessible linear usage bar on a window row', () => {
     const root = render(windowTile());
     const progress = root.querySelector<HTMLElement>(
-      '[data-testid="plan-limit-radial-progress"]',
+      '[data-testid="plan-limit-progress"]',
+    );
+    const fill = root.querySelector<HTMLElement>(
+      '[data-testid="plan-limit-progress-fill"]',
     );
 
+    expect(progress?.getAttribute('role')).toBe('progressbar');
     expect(progress?.getAttribute('aria-valuenow')).toBe('94');
-    expect(progress?.classList.contains('radial-progress')).toBe(true);
-    expect(progress?.classList.contains('text-warning')).toBe(true);
-    expect(progress?.style.getPropertyValue('--value')).toBe('94');
+    expect(progress?.getAttribute('aria-valuemin')).toBe('0');
+    expect(progress?.getAttribute('aria-valuemax')).toBe('100');
+    expect(progress?.getAttribute('aria-valuetext')).toBe('94% used');
+    expect(progress?.getAttribute('aria-label')).toBe('5-hour plan usage');
     expect(progress?.getAttribute('title')).toContain('resets 15:10');
+    expect(fill?.classList.contains('bg-warning')).toBe(true);
+    expect(fill?.style.width).toBe('94%');
+  });
+
+  it('fills the bar by severity: success below 75%, warning from 75%', () => {
+    const calm = render(
+      windowTile({ tone: 'neutral', window: { ...NEAR_WINDOW, percent: 40 } }),
+    );
+    expect(
+      calm.querySelector('[data-testid="plan-limit-progress-fill"]')?.className,
+    ).toContain('bg-success');
+    TestBed.resetTestingModule();
+
+    const hot = render(
+      windowTile({ tone: 'neutral', window: { ...NEAR_WINDOW, percent: 75 } }),
+    );
+    expect(
+      hot.querySelector('[data-testid="plan-limit-progress-fill"]')?.className,
+    ).toContain('bg-warning');
+  });
+
+  it('omits the caption and the shared source chips the section header shows', () => {
+    const root = render(windowTile());
+    fixture.componentRef.setInput('captionShared', true);
+    fixture.componentRef.setInput('sharedSources', [
+      'used · reset Provider API',
+      'limit From error',
+    ]);
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="plan-limit-caption"]')).toBeNull();
+    expect(button(root).textContent).not.toContain('Provider API');
+    expect(button(root).textContent).not.toContain('From error');
+
+    // A row whose sources differ from the shared list keeps its own chips.
+    fixture.componentRef.setInput('sharedSources', ['Provider API']);
+    fixture.detectChanges();
+    expect(button(root).textContent).toContain('used · reset Provider API');
+  });
+
+  it('renders a status row on one line, without a bar or disclosure', () => {
+    const root = render(
+      windowTile({
+        id: 'plan-status:none',
+        kind: 'status',
+        label: 'Usage',
+        value: 'Unavailable',
+        resetLine: 'owner not resolved',
+        chip: undefined,
+        tone: 'neutral',
+        sourceChips: [],
+        window: undefined,
+        detailLines: ['Account not resolved yet.'],
+      }),
+    );
+    const status = root.querySelector('[data-testid="plan-limit-status"]');
+
+    expect(status?.textContent?.trim()).toBe(
+      'Unavailable · owner not resolved',
+    );
+    expect(status?.getAttribute('title')).toBe('Account not resolved yet.');
+    expect(root.querySelector('[role="progressbar"]')).toBeNull();
+    expect(button(root).disabled).toBe(true);
+    expect(button(root).getAttribute('aria-expanded')).toBeNull();
   });
 
   it('truncates the closed caption to one line and titles the full text', () => {
@@ -133,18 +201,14 @@ describe('PlanLimitTileComponent', () => {
     expect(tail?.classList.contains('shrink-0')).toBe(true);
     expect(tail?.textContent?.trim()).toBe('· cdef');
     expect(tail?.textContent).toBe('· cdef');
-    expect(caption?.getAttribute('title')).toBe(
-      'Claude account plan limit · cdef',
-    );
+    expect(caption?.getAttribute('title')).toBe('Claude account · cdef');
 
-    // An open tile spans both columns, so its caption may keep wrapping.
+    // An open row shows its whole caption, so it may wrap.
     fixture.componentRef.setInput('open', true);
     fixture.detectChanges();
 
     expect(lead?.classList.contains('truncate')).toBe(false);
-    expect(caption?.getAttribute('title')).toBe(
-      'Claude account plan limit · cdef',
-    );
+    expect(caption?.getAttribute('title')).toBe('Claude account · cdef');
   });
 
   it('hides the chip glyph and the chevron from assistive technology', () => {
@@ -170,13 +234,12 @@ describe('PlanLimitTileComponent', () => {
     expect(button(root).getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('when open, spans the grid and shows the facts the face does not have', () => {
+  it('when open, shows the facts the face does not have', () => {
     const root = render(windowTile(), true);
     const text = panel(root).textContent ?? '';
 
     expect(button(root).getAttribute('aria-expanded')).toBe('true');
     expect(panel(root).hidden).toBe(false);
-    expect(root.classList.contains('col-span-full')).toBe(true);
     expect(text).toContain('Resets today 15:10 UTC · in 3h 10m');
   });
 
@@ -184,14 +247,15 @@ describe('PlanLimitTileComponent', () => {
     const root = render(windowTile(), true);
     const text = panel(root).textContent ?? '';
 
-    // The face already shows the label, value, chip and source chips, so the
-    // panel shows only the reset facts (previous test).
+    // The face already shows the label, usage bar, value, chip and source
+    // chips, so the panel shows only the reset facts (previous test).
     expect(text).not.toContain('5-hour');
     expect(text).not.toContain('94% used');
     expect(text).not.toContain('Near limit');
     expect(text).not.toContain('used · reset Provider API');
     expect(text).not.toContain('limit From error');
-    expect(root.querySelectorAll('[role="meter"]')).toHaveLength(1);
+    expect(panel(root).querySelector('[role="meter"]')).toBeNull();
+    expect(root.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
   });
 
   it('never draws a meter for an unknown used value (unknown is never 0)', () => {
@@ -211,7 +275,7 @@ describe('PlanLimitTileComponent', () => {
     expect(panel(root).textContent).not.toMatch(/\b0%/);
   });
 
-  it('renders local token and cost accounting without a radial gauge', () => {
+  it('renders local token and cost accounting without a usage bar', () => {
     const root = render(
       windowTile({
         id: 'local-usage:opencode#account:0123456789abcdef',
@@ -225,11 +289,31 @@ describe('PlanLimitTileComponent', () => {
       }),
     );
 
-    expect(button(root).textContent).toContain('Local usage: tokens & estimated cost');
+    expect(button(root).textContent).toContain(
+      'Local usage: tokens & estimated cost',
+    );
     expect(button(root).textContent).toContain('1,234 tokens · $5.67');
-    expect(root.querySelector('[data-testid="plan-limit-radial-progress"]')).toBeNull();
+    expect(
+      root.querySelector('[data-testid="plan-limit-progress"]'),
+    ).toBeNull();
     expect(button(root).getAttribute('aria-expanded')).toBeNull();
   });
+
+  it.each(['aged', 'not-confirmed'] as const)(
+    'shows the %s state chip on the closed row',
+    (state) => {
+      const root = render(
+        windowTile({
+          chip: { tone: 'warning', text: state },
+          window: { ...NEAR_WINDOW, state },
+        }),
+      );
+
+      expect(
+        root.querySelector('[data-testid="plan-limit-chip"]')?.textContent,
+      ).toContain(state);
+    },
+  );
 
   it('renders the detail lines of a non-window tile', () => {
     const root = render(
@@ -253,13 +337,12 @@ describe('PlanLimitTileComponent', () => {
     expect(button(root).className).toContain('border-info');
   });
 
-  it('uses semantic text colour only for the radial gauge fill', () => {
+  it('uses semantic colour only for the row accent and the bar fill, never text', () => {
     const root = render(windowTile({ tone: 'error' }));
-    const gauge = root.querySelector(
-      '[data-testid="plan-limit-radial-progress"]',
-    );
+    const fill = root.querySelector('[data-testid="plan-limit-progress-fill"]');
 
     expect(button(root).className).toContain('border-error');
-    expect(gauge?.className).toContain('text-error');
+    expect(fill?.className).toContain('bg-error');
+    expect(root.innerHTML).not.toMatch(/text-(error|warning|success|info)\b/);
   });
 });

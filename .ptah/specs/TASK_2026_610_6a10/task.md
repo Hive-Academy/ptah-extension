@@ -1,12 +1,13 @@
 ---
 id: TASK_2026_610_6a10
-status: in_progress
+status: done
 type: FEATURE
 title: A2UI-shaped generative UI in the coding chat
 description: >-
-  Host-built turn recap card (zero model tokens), declarative surfaces in coding-chat tabs through one
-  small coding-profile tool, an A2UI v0.9 adapter at the boundary, and agent-registered custom catalog
-  templates rendered in a Shadow DOM sandbox, without context or render-performance regressions.
+  Host-built turn recap card (zero model tokens), declarative surfaces in
+  coding-chat tabs through one small coding-profile tool, an A2UI v0.9 adapter
+  at the boundary, and agent-registered custom catalog templates rendered in a
+  Shadow DOM sandbox, without context or render-performance regressions.
 depends_on: []
 relates_to:
   - TASK_2026_539_67f5
@@ -17,7 +18,7 @@ labels:
   - generative-ui
 estimate: XL
 created: '2026-10-03T20:00:00.000Z'
-updated: '2026-10-03T20:00:00.000Z'
+updated: '2026-10-10T18:17:27.475Z'
 ---
 
 ## Description

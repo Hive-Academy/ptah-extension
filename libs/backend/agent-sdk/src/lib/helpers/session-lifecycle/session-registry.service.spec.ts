@@ -1204,3 +1204,24 @@ describe('SessionRegistry — turn state owns the idle watchdog hold (TASK_2026_
     expect(rec.turnInFlight).toBe(false);
   });
 });
+
+describe('SessionRegistry handover queue restoration', () => {
+  it('prepends held source-neutral inputs in their original FIFO order', () => {
+    const { registry } = makeRegistry();
+    const rec = registry.register('tab_restore', makeConfig(), new AbortController());
+    rec.messageQueue.push({ content: 'already queued' });
+
+    expect(
+      registry.restoreQueuedInputs('tab_restore', [
+        { content: 'first held' },
+        { content: 'second held' },
+      ]),
+    ).toBe(true);
+
+    expect(rec.messageQueue.map((input) => input.content)).toEqual([
+      'first held',
+      'second held',
+      'already queued',
+    ]);
+  });
+});

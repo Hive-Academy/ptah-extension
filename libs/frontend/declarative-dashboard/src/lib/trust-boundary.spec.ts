@@ -4,6 +4,7 @@ import type { DashboardAction, DashboardComponent } from '@ptah-extension/shared
 import {
   SURFACE_ACTIONS,
   SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
   type SurfaceAction,
   type SurfaceComponent,
   type SurfaceDataModel,
@@ -11,6 +12,7 @@ import {
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import * as ts from 'typescript';
+import { avatarInitials } from './components/dashboard-avatar.component';
 import { SurfaceRendererComponent } from './components/surface-renderer.component';
 import type { SurfaceActionUiState, SurfaceInteractionState } from './surface-interaction';
 import type { SurfaceRenderable, SurfaceViewState } from './surface-view-state';
@@ -29,6 +31,10 @@ const series = [{ name: markup, points: [{ x: markup, y: 1 }, { x: 'b', y: 2 }] 
 function v2(components: readonly SurfaceComponent[], dataModel: SurfaceDataModel = {}): SurfaceRenderable {
   return { contract: 'dashboard-spec/2', dataModel, surface: { schemaVersion: 'dashboard-spec/2',
     catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 'surface', title: text, description: text, components } };
+}
+function v4(components: readonly SurfaceComponent[]): SurfaceRenderable {
+  return { contract: 'dashboard-spec/2', dataModel: {}, surface: { schemaVersion: 'dashboard-spec/2',
+    catalogVersion: SURFACE_CATALOG_VERSION_4, surfaceId: 'surface', title: text, description: text, components } };
 }
 function v1(components: readonly DashboardComponent[]): SurfaceRenderable {
   return { contract: 'dashboard-spec/1', spec: { schemaVersion: 'dashboard-spec/1', catalogVersion: 'dashboard-catalog/1',
@@ -184,6 +190,95 @@ describe('trust boundary: producer text renders literally', () => {
   });
 });
 
+/**
+ * `dashboard-catalog/4` (R4.7, decision #49): accordion, avatar and the stat
+ * trend and spark carry agent text as data only. Text fields render literally;
+ * the closed numeric and enum fields reject anything else, so the surface fails
+ * closed (nothing renders) instead of placing agent text in an attribute.
+ */
+describe('trust boundary: /4 accordion, avatar, trend and spark', () => {
+  const scriptUrl = 'javascript:alert(1)';
+  /** Fields the `/4` avatar does not have; a producer may still send them. */
+  const avatarExtras = { url: scriptUrl, image: scriptUrl, src: scriptUrl, href: scriptUrl, html: markup,
+    style: 'background:url(javascript:alert(3))', class: 'agent-injected' };
+
+  /** No attribute anywhere names a URL or style, or holds the script URL or markup. */
+  function expectNoAgentAttributes(element: HTMLElement): void {
+    const attributes = Array.from(element.querySelectorAll('*')).flatMap(node => Array.from(node.attributes));
+    expect(attributes.filter(attribute => /^(href|src|srcset|xlink:href|url|image|html|style)$/i.test(attribute.name)))
+      .toEqual([]);
+    // Accessible names (`aria-label`: the stat's expand button and sparkline) repeat the agent's title as a
+    // literal attribute value, which is inert; the sparkline label is pinned literally below.
+    expect(attributes.filter(attribute => attribute.name !== 'aria-label'
+      && (attribute.value.includes(scriptUrl) || attribute.value.includes('<img')))).toEqual([]);
+    expect(element.querySelectorAll('a, image, use, .agent-injected')).toHaveLength(0);
+  }
+
+  it('renders accordion title, avatar name and subtitle, and stat title with trend and spark literally', () => {
+    const element = render(v4([
+      { id: 'acc', kind: 'accordion', title: text, children: [
+        { id: 'who', kind: 'avatar', name: markup, subtitle: markup },
+      ] },
+      { id: 'url', kind: 'avatar', name: scriptUrl, subtitle: scriptUrl, ...avatarExtras } as SurfaceComponent,
+      { id: 'cost', kind: 'stat', title: text, value: 1, trend: { direction: 'up', amount: 4.2, percent: true, polarity: 'bad' },
+        spark: [1, 2, 3] },
+    ]), interactionOf(), { components: { acc: { expanded: true } }, drafts: {} });
+    expect(texts(element, '[data-kind="accordion"] > h3 button span.font-semibold')).toEqual([markup]);
+    expect(texts(element, '[data-testid="avatar-name"]')).toEqual([markup, scriptUrl]);
+    expect(texts(element, '[data-testid="avatar-subtitle"]')).toEqual([markup, scriptUrl]);
+    expect(texts(element, '[data-testid="avatar-initials"]')).toEqual([avatarInitials(markup), avatarInitials(scriptUrl)]);
+    expect(element.querySelectorAll('[data-testid="avatar-initials"][aria-hidden="true"]')).toHaveLength(2);
+    expect(texts(element, 'ptah-dashboard-stat h3')).toEqual([markup]);
+    expect(texts(element, '[data-testid="stat-trend"]')).toEqual(['Trend up 4.2%, bad']);
+    const spark = element.querySelector('[data-testid="stat-spark"]');
+    expect(spark?.getAttribute('aria-label')).toBe(`${markup} trend, 3 points: 1, 2, 3; latest 3`);
+    // Decision #51: polarity `bad` draws the latest bar in the error fill; every class is a literal from the atom.
+    expect(Array.from(spark?.querySelectorAll('rect') ?? []).map(bar => bar.getAttribute('class')))
+      .toEqual(['dp-spark-bar', 'dp-spark-bar', 'dp-spark-bar dp-spark-bar--failing']);
+    expectNoAgentAttributes(element);
+    expectInert(element);
+  });
+
+  it('keeps a closed accordion body inert, with its agent text still literal', () => {
+    const element = render(v4([{ id: 'acc', kind: 'accordion', title: text, children: [
+      { id: 'who', kind: 'avatar', name: markup },
+    ] }]));
+    expect(element.querySelector('[data-kind="accordion"] h3 button')?.getAttribute('aria-expanded')).toBe('false');
+    expect(element.querySelector('[data-kind="accordion"] [inert]')).not.toBeNull();
+    expect(texts(element, '[data-testid="avatar-name"]')).toEqual([markup]);
+    expectNoAgentAttributes(element);
+    expectInert(element);
+  });
+
+  const statWith = (extras: Record<string, unknown>) =>
+    ({ id: 'cost', kind: 'stat', title: { text: 'Cost' }, value: 1, ...extras }) as SurfaceComponent;
+  const trendOf = (patch: Record<string, unknown>) =>
+    ({ trend: { direction: 'up', amount: 1, percent: false, ...patch } });
+
+  it.each<[string, SurfaceComponent]>([
+    ['trend direction', statWith(trendOf({ direction: markup }))],
+    ['trend amount', statWith(trendOf({ amount: markup }))],
+    ['trend percent', statWith(trendOf({ percent: markup }))],
+    ['trend polarity', statWith(trendOf({ polarity: markup }))],
+    ['trend direction as a prototype key', statWith(trendOf({ direction: '__proto__' }))],
+    ['spark point', statWith({ spark: [1, markup] })],
+    ['spark point as a URL', statWith({ spark: [1, scriptUrl] })],
+    ['avatar name as rich text', { id: 'who', kind: 'avatar', name: { text: markup } } as unknown as SurfaceComponent],
+    ['avatar subtitle as rich text', { id: 'who', kind: 'avatar', name: 'n', subtitle: { text: markup } } as unknown as SurfaceComponent],
+  ])('fails closed when the %s carries agent text: nothing renders', (_name, component) => {
+    const fixture = TestBed.createComponent(TrustHostComponent);
+    fixture.componentInstance.renderable.set(v4([{ id: 'acc', kind: 'accordion', title: { text: 'A' }, children: [component] }]));
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(fixture.componentInstance.failures).toBeGreaterThan(0);
+    expect(element.querySelector('[data-testid="surface-root"]')).toBeNull();
+    expect(element.textContent).not.toContain('<img');
+    expect(element.textContent).not.toContain(scriptUrl);
+    expectNoAgentAttributes(element);
+    expectInert(element);
+  });
+});
+
 describe('trust boundary: no action other than submit and select is a control', () => {
   /** Every enabled control, by focus key or tag, in document order. */
   function enabledControls(element: HTMLElement): string[] {
@@ -331,6 +426,14 @@ describe('trust boundary: no HTML sink in either lib (comment-stripped source sc
     const files = sourceFiles(root);
     expect(files.length).toBeGreaterThan(0);
     const findings = files.flatMap(file => sinkFindings(readFileSync(file, 'utf8'), file).map(pattern => `${file}: ${pattern}`));
+    expect(findings).toEqual([]);
+  });
+
+  it('the /4 atoms bind no style, URL or HTML property in their templates', () => {
+    const atoms = ['dashboard-avatar', 'dashboard-sparkline', 'dashboard-stat', 'surface-layout', 'surface-node']
+      .map(name => join(renderer, 'lib', 'components', `${name}.component.ts`));
+    const binding = /\[(?:attr\.)?style(?:\.[\w-]+)*\]|\[ngStyle\]|\[(?:attr\.)?(?:href|src|srcset|xlink:href|innerHTML)\]/;
+    const findings = atoms.filter(file => binding.test(stripComments(readFileSync(file, 'utf8'), file)));
     expect(findings).toEqual([]);
   });
 

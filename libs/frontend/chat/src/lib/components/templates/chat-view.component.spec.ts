@@ -105,7 +105,11 @@ import {
 import { RpcResult } from '@ptah-extension/core';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
-import type { SessionBudgetState } from '@ptah-extension/shared';
+import type {
+  SessionBudgetState,
+  SessionHandoverState,
+} from '@ptah-extension/shared';
+import { SessionHandoverClientService } from '../../services/session-handover-client.service';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2189,6 +2193,28 @@ describe('agent panel narrow overlay mode', () => {
     expect(sidebarTab()).not.toBeNull();
   });
 
+  it('leaves the overlay open when an inner component already claimed Escape (defaultPrevented)', () => {
+    h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
+    h.fixture.detectChanges();
+    emitHostWidth(500);
+    openPanelFromSidebar();
+    expect(panel().classList.contains('absolute')).toBe(true);
+    const closeSpy = jest.spyOn(h.component, 'closeAgentPanel');
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    document.activeElement?.dispatchEvent(event);
+    h.fixture.detectChanges();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(panel().classList.contains('absolute')).toBe(true);
+  });
+
   it('does not close the panel on Escape when in wide mode', () => {
     h = makeHarness({ sessionId: '', renderOverlayTemplate: true });
     h.fixture.detectChanges();
@@ -2275,17 +2301,57 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     onBudgetPreview(): Promise<void>;
     onBudgetContinue(): Promise<void>;
     onBudgetRotate(): Promise<void>;
+    onBudgetRequestWrapUp(): Promise<void>;
+    onBudgetContinueNowAnyway(): Promise<void>;
+    onBudgetApproveAgentRequest(): Promise<void>;
+    showSessionBudgetBanner(): boolean;
+    budgetLiveStage(): 'handoff' | 'limit' | null;
+    budgetTurnRunning(): boolean;
+    budgetWrapUpRequested(): boolean;
+    budgetQueuedMessageCarried(): boolean;
+    handleResumeAgent(
+      agent: Parameters<ChatViewComponent['handleResumeAgent']>[0],
+    ): void;
   };
 
-  function setup(budget: SessionBudgetState | null = BUDGET) {
+  const TIGHTEN: SessionBudgetState = {
+    ...BUDGET,
+    stage: 'tighten',
+    used: 40_000_000,
+    percent: 80,
+    blocked: false,
+  };
+
+  function setup(
+    budget: SessionBudgetState | null = BUDGET,
+    liveBudgetStage: 'handoff' | 'limit' | null = null,
+  ) {
     const h = makeHarness();
     const tab = signal({
       id: 'tab-abc',
       claudeSessionId: SESSION,
       sessionBudget: budget,
+      liveBudgetStage,
+      status: 'streaming',
     });
     h.activeTabMock.mockImplementation(() => tab());
-    return { h, view: h.component as unknown as BudgetView };
+    return { h, tab, view: h.component as unknown as BudgetView };
+  }
+
+  /** A handover snapshot for the view's resolved session (`h.sessionId`). */
+  function handover(
+    sessionId: string,
+    patch: Partial<SessionHandoverState> = {},
+  ): SessionHandoverState {
+    return {
+      operationId: 'handover-1',
+      sourceSessionId: sessionId,
+      reason: 'successor',
+      phase: 'waiting-for-turn-end',
+      revision: 1,
+      heldInputCount: 0,
+      ...patch,
+    };
   }
 
   afterEach(() => {
@@ -2296,6 +2362,166 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
   it('passes the tab budget through', () => {
     const { view } = setup();
     expect(view.resolvedSessionBudget()).toBe(BUDGET);
+  });
+
+  it('waits for terminal turn_state before showing a below-handoff budget received while generating', () => {
+    const { tab, view } = setup(TIGHTEN);
+
+    // session:stats has already supplied the budget, but the turn still runs
+    // and nothing needs a click mid-turn.
+    expect(view.showSessionBudgetBanner()).toBe(false);
+
+    // This is the terminal turn_state application; the queue flush runs in the
+    // streaming store before Angular can render this now-idle banner.
+    tab.update((current) => ({ ...current, status: 'loaded' }));
+    expect(view.showSessionBudgetBanner()).toBe(true);
+  });
+
+  describe('while streaming (Decision 7, S13)', () => {
+    it('shows the banner at a live handoff and binds the live stage and turn', () => {
+      const { view } = setup(TIGHTEN, 'handoff');
+
+      expect(view.showSessionBudgetBanner()).toBe(true);
+      expect(view.budgetLiveStage()).toBe('handoff');
+      expect(view.budgetTurnRunning()).toBe(true);
+      expect(view.budgetWrapUpRequested()).toBe(false);
+      expect(view.budgetQueuedMessageCarried()).toBe(false);
+    });
+
+    it.each(['handoff', 'limit'] as const)(
+      'shows the banner at an authoritative %s',
+      (stage) => {
+        const { view } = setup({ ...BUDGET, stage });
+        expect(view.showSessionBudgetBanner()).toBe(true);
+      },
+    );
+
+    it('drops the live stage once the turn ends, keeping the idle banner', () => {
+      const { tab, view } = setup(TIGHTEN, 'handoff');
+      tab.update((current) => ({ ...current, status: 'loaded' }));
+
+      expect(view.budgetLiveStage()).toBeNull();
+      expect(view.budgetTurnRunning()).toBe(false);
+      expect(view.showSessionBudgetBanner()).toBe(true);
+    });
+
+    it('shows a pending agent request mid-turn, even below handoff', () => {
+      const { h, view } = setup(TIGHTEN);
+      expect(view.showSessionBudgetBanner()).toBe(false);
+
+      TestBed.inject(SessionHandoverClientService).record(
+        h.sessionId,
+        handover(h.sessionId, {
+          phase: 'awaiting-confirmation',
+          requestedBy: 'agent',
+        }),
+      );
+
+      expect(view.showSessionBudgetBanner()).toBe(true);
+    });
+
+    it('shows a pending handover without a budget; an ended one waits for idle', () => {
+      const { h, tab, view } = setup(null);
+      const client = TestBed.inject(SessionHandoverClientService);
+
+      client.record(h.sessionId, handover(h.sessionId));
+      expect(view.showSessionBudgetBanner()).toBe(true);
+
+      client.record(
+        h.sessionId,
+        handover(h.sessionId, { phase: 'cancelled', revision: 2 }),
+      );
+      expect(view.showSessionBudgetBanner()).toBe(false);
+
+      tab.update((current) => ({ ...current, status: 'loaded' }));
+      expect(view.showSessionBudgetBanner()).toBe(true);
+    });
+
+    it('wrap-up goes through session:budgetAction once, then reads as requested', async () => {
+      const { h, view } = setup(TIGHTEN, 'handoff');
+      h.rpcCallMock.mockResolvedValue(rpcOk({ success: true }));
+
+      await view.onBudgetRequestWrapUp();
+      await view.onBudgetRequestWrapUp();
+
+      expect(h.rpcCallMock).toHaveBeenCalledTimes(1);
+      expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
+        sessionId: SESSION,
+        action: 'request-wrap-up',
+      });
+      expect(view.budgetWrapUpRequested()).toBe(true);
+    });
+
+    it('never sends the wrap-up request while the tab is idle', async () => {
+      const { h, tab, view } = setup({ ...TIGHTEN, stage: 'handoff' });
+      tab.update((current) => ({ ...current, status: 'loaded' }));
+
+      await view.onBudgetRequestWrapUp();
+
+      expect(h.rpcCallMock).not.toHaveBeenCalled();
+    });
+
+    it('"Continue now anyway" begins with continueNow; Approve begins without it', async () => {
+      const { h, view } = setup(TIGHTEN, 'handoff');
+      h.rpcCallMock.mockResolvedValue(
+        rpcOk({ accepted: true, state: handover(h.sessionId) }),
+      );
+
+      await view.onBudgetContinueNowAnyway();
+      expect(h.rpcCallMock).toHaveBeenLastCalledWith('session:beginHandover', {
+        sourceSessionId: h.sessionId,
+        sourceTabId: 'tab-abc',
+        continueNow: true,
+      });
+
+      await view.onBudgetApproveAgentRequest();
+      expect(h.rpcCallMock).toHaveBeenLastCalledWith('session:beginHandover', {
+        sourceSessionId: h.sessionId,
+        sourceTabId: 'tab-abc',
+      });
+      expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('S23: a send during a user-started wait goes through the normal send path', () => {
+      const { h, view } = setup(TIGHTEN, 'handoff');
+      TestBed.inject(SessionHandoverClientService).record(
+        h.sessionId,
+        handover(h.sessionId, { waitingFor: { subagents: 1, lanes: 0 } }),
+      );
+      expect(view.showSessionBudgetBanner()).toBe(true);
+      // The shared ChatStore stub has no resumable-subagent bookkeeping.
+      (
+        TestBed.inject(ChatStore) as unknown as {
+          removeResumableSubagent: jest.Mock;
+        }
+      ).removeResumableSubagent = jest.fn();
+
+      const interrupted: Parameters<ChatViewComponent['handleResumeAgent']>[0] =
+        {
+          agentId: 'a1',
+          agentType: 'Explore',
+          toolCallId: 'tc-1',
+          status: 'interrupted',
+          startedAt: 1,
+        };
+      view.handleResumeAgent(interrupted);
+
+      expect(h.sendOrQueueMessageMock).toHaveBeenCalledTimes(1);
+      expect(h.sendOrQueueMessageMock).toHaveBeenCalledWith(
+        expect.stringContaining('Resume agent a1'),
+        { tabId: undefined },
+      );
+      // Nothing about the wait intercepts it: no handover RPC is made.
+      expect(h.rpcCallMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('renders the idle active view as the session banner owner', () => {
+    const { h, tab, view } = setup();
+    tab.update((current) => ({ ...current, status: 'loaded' }));
+    expect(view.showSessionBudgetBanner()).toBe(true);
+
+    expect(h.activeTabIdSig()).toBe('tab-abc');
   });
 
   it('a banner action calls session:budgetAction and reports on this tab', async () => {
@@ -2338,22 +2564,199 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     expect(view.budgetPreviewText()).toBeNull();
   });
 
-  it('continue and rotate open a new tab from the handoff seed', async () => {
+  it('continues through the backend-owned handover and keeps rotation local', async () => {
     const { h, view } = setup();
-    h.rpcCallMock.mockResolvedValue(
+    h.rpcCallMock.mockResolvedValueOnce(
+      rpcOk({
+        accepted: true,
+        state: {
+          operationId: 'handover-1',
+          sourceSessionId: SESSION,
+          reason: 'budget-limit',
+          phase: 'armed',
+          revision: 1,
+          heldInputCount: 0,
+        },
+      }),
+    );
+
+    await view.onBudgetContinue();
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:beginHandover', {
+      sourceSessionId: 'session-uuid-123',
+      sourceTabId: 'tab-abc',
+    });
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+
+    h.rpcCallMock.mockResolvedValueOnce(
       rpcOk({
         success: true,
         handoff: { content: '# H', path: null, seed: 'SEED' },
       }),
     );
 
-    await view.onBudgetContinue();
-    expect(h.sendOrQueueMessageMock).toHaveBeenCalledWith('SEED', {
-      tabId: 'tab-new',
-    });
-
     await view.onBudgetRotate();
     expect(h.requestComposerPrefillMock).toHaveBeenCalledWith('SEED', null);
-    expect(h.createTabMock).toHaveBeenCalledTimes(2);
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts lost handover text back into this source view composer', () => {
+    const { view } = setup();
+    const restoreContentToInput = jest.fn();
+    (view as unknown as { chatInputRef: jest.Mock }).chatInputRef = jest.fn(
+      () => ({ restoreContentToInput }),
+    );
+
+    (view as unknown as { onRestoreLostHandoverInputs(texts: readonly string[]): void })
+      .onRestoreLostHandoverInputs(['first lost message', 'second lost message']);
+
+    expect(restoreContentToInput).toHaveBeenCalledWith(
+      'first lost message\n\nsecond lost message',
+    );
+  });
+});
+
+// D24 draft return (S20): the view applies a cancelled/failed handover's draft
+// to its own mounted composer, once per operation. The composer write itself
+// is covered in chat-input.component.spec.ts, peek/ack in the handover client spec.
+describe('ChatViewComponent — handover draft return (S20)', () => {
+  type DraftInput = {
+    restoreDraftToInput: jest.Mock;
+    restoreContentToInput: jest.Mock;
+  };
+
+  function draftInput(): DraftInput {
+    return {
+      restoreDraftToInput: jest.fn(),
+      restoreContentToInput: jest.fn(),
+    };
+  }
+
+  /**
+   * A rendered surface (children swapped out, so `TestBed.tick()` runs the
+   * effects) whose composer `viewChild` is a writable signal the test drives:
+   * `undefined` is the compact view, which has no composer.
+   */
+  function mountView(
+    fixture: { componentInstance: ChatViewComponent },
+    input: DraftInput | undefined,
+  ) {
+    const composer = signal<DraftInput | undefined>(input);
+    (
+      fixture.componentInstance as unknown as {
+        chatInputRef: typeof composer;
+      }
+    ).chatInputRef = composer;
+    return composer;
+  }
+
+  function cancelled(
+    sessionId: string,
+    patch: Partial<SessionHandoverState> = {},
+  ): SessionHandoverState {
+    return {
+      operationId: 'handover-draft-1',
+      sourceSessionId: sessionId,
+      reason: 'successor',
+      phase: 'cancelled',
+      revision: 3,
+      heldInputCount: 0,
+      draftText: 'my unsent message',
+      ...patch,
+    };
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+  });
+
+  it('compact → full: waits unacknowledged without a composer, then applies once', () => {
+    const h = makeHarness({ renderCompactTemplate: true });
+    const client = TestBed.inject(SessionHandoverClientService);
+    const composer = mountView(h.fixture, undefined);
+
+    client.record(h.sessionId, cancelled(h.sessionId));
+    TestBed.tick();
+
+    // Compact view: nothing is written and the draft stays recoverable.
+    expect(client.peekDraft(h.sessionId)).toEqual({
+      operationId: 'handover-draft-1',
+      text: 'my unsent message',
+    });
+
+    const input = draftInput();
+    composer.set(input);
+    TestBed.tick();
+
+    expect(input.restoreDraftToInput).toHaveBeenCalledTimes(1);
+    expect(input.restoreDraftToInput).toHaveBeenCalledWith('my unsent message');
+    expect(input.restoreContentToInput).not.toHaveBeenCalled();
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+    expect(client.peekDraft(h.sessionId)).toBeNull();
+
+    // A later re-run (e.g. the composer re-mounting) does not re-apply it.
+    composer.set(undefined);
+    TestBed.tick();
+    composer.set(input);
+    TestBed.tick();
+    expect(input.restoreDraftToInput).toHaveBeenCalledTimes(1);
+  });
+
+  it('a second view of the same session does not re-apply the draft', () => {
+    const h = makeHarness({ renderCompactTemplate: true });
+    const client = TestBed.inject(SessionHandoverClientService);
+    const first = draftInput();
+    mountView(h.fixture, first);
+    client.record(h.sessionId, cancelled(h.sessionId, { phase: 'failed' }));
+    TestBed.tick();
+    expect(first.restoreDraftToInput).toHaveBeenCalledTimes(1);
+
+    const secondFixture = TestBed.createComponent(ChatViewComponent);
+    const second = draftInput();
+    mountView(secondFixture, second);
+    TestBed.tick();
+
+    expect(second.restoreDraftToInput).not.toHaveBeenCalled();
+    secondFixture.destroy();
+  });
+
+  it('a throwing composer write leaves the draft unacknowledged', () => {
+    const h = makeHarness({ renderCompactTemplate: true });
+    const client = TestBed.inject(SessionHandoverClientService);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const input = draftInput();
+    input.restoreDraftToInput.mockImplementation(() => {
+      throw new Error('composer gone');
+    });
+    mountView(h.fixture, input);
+
+    client.record(h.sessionId, cancelled(h.sessionId));
+    TestBed.tick();
+
+    expect(input.restoreDraftToInput).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    expect(client.peekDraft(h.sessionId)?.operationId).toBe('handover-draft-1');
+  });
+
+  it('writes nothing for a pending handover or a terminal state without a draft', () => {
+    const h = makeHarness({ renderCompactTemplate: true });
+    const client = TestBed.inject(SessionHandoverClientService);
+    const input = draftInput();
+    mountView(h.fixture, input);
+
+    client.record(
+      h.sessionId,
+      cancelled(h.sessionId, { phase: 'waiting-for-turn-end', revision: 1 }),
+    );
+    TestBed.tick();
+    client.record(
+      h.sessionId,
+      cancelled(h.sessionId, { revision: 2, draftText: undefined }),
+    );
+    TestBed.tick();
+
+    expect(input.restoreDraftToInput).not.toHaveBeenCalled();
+    expect(input.restoreContentToInput).not.toHaveBeenCalled();
   });
 });

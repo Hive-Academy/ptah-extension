@@ -15,6 +15,7 @@ import {
 import {
   SURFACE_ACTIONS,
   SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
   SURFACE_GAPS,
   SURFACE_ID_PATTERN,
   SURFACE_LIMITS,
@@ -23,12 +24,17 @@ import {
   SURFACE_PATH_SEGMENT_PATTERN,
   SURFACE_PATH_SEPARATOR,
   SURFACE_SCHEMA_VERSION,
+  SURFACE_SPARK_MIN_POINTS,
   SURFACE_STACK_DIRECTIONS,
+  SURFACE_TREND_DIRECTIONS,
+  SURFACE_TREND_POLARITIES,
   SURFACE_V1_ID_PREFIX,
 } from './surface-catalog';
 import type {
+  SurfaceAccordionComponent,
   SurfaceAction,
   SurfaceAlertComponent,
+  SurfaceAvatarComponent,
   SurfaceBadgeAction,
   SurfaceBadgeComponent,
   SurfaceBarChartComponent,
@@ -55,6 +61,7 @@ import type {
   SurfaceSelectionTarget,
   SurfaceStackComponent,
   SurfaceStatComponent,
+  SurfaceStatTrend,
   SurfaceTableComponent,
   SurfaceTextBlockComponent,
   SurfaceTextHints,
@@ -517,6 +524,83 @@ export const SurfaceComponentSchema: z.ZodType<SurfaceComponent> = z
   ])
   .meta({ id: 'SurfaceComponent' }) satisfies z.ZodType<SurfaceComponent>;
 
+/*
+ * dashboard-catalog/4 (D1, D2). Every `/3` schema above stays exactly as
+ * released, so `/3` envelopes, `ptah_surface_update` input and its generated
+ * JSON schema are unchanged. The `/4` tree reuses the `/3` leaf schemas and
+ * re-points layout `children` at the `/4` union. `.extend` keeps `.strict()`.
+ */
+const catalog4Children = () =>
+  z.lazy(() =>
+    z
+      .array(SurfaceCatalog4ComponentSchema)
+      .max(SURFACE_LIMITS.maxChildrenPerNode),
+  );
+
+export const SurfaceAccordionComponentSchema = z
+  .object({
+    ...layoutShape,
+    children: catalog4Children(),
+    kind: z.literal('accordion'),
+    title: DashboardRichTextSchema,
+  })
+  .strict() satisfies z.ZodType<SurfaceAccordionComponent>;
+
+export const SurfaceStatTrendSchema = z
+  .object({
+    direction: z.enum(SURFACE_TREND_DIRECTIONS),
+    amount: z.number().nonnegative(),
+    percent: z.boolean(),
+    polarity: z.enum(SURFACE_TREND_POLARITIES).optional(),
+  })
+  .strict() satisfies z.ZodType<SurfaceStatTrend>;
+
+/** One sparkline series per stat: the per-component point budget is `maxSeriesPoints` (A7). */
+export const SurfaceCatalog4StatComponentSchema =
+  SurfaceStatComponentSchema.extend({
+    trend: SurfaceStatTrendSchema.optional(),
+    spark: z
+      .array(z.number())
+      .min(SURFACE_SPARK_MIN_POINTS)
+      .max(SURFACE_LIMITS.maxSeriesPoints)
+      .optional(),
+  }) satisfies z.ZodType<SurfaceStatComponent>;
+
+export const SurfaceAvatarComponentSchema = z
+  .object({
+    id: componentId(),
+    kind: z.literal('avatar'),
+    name: z.string().min(1).max(SURFACE_LIMITS.maxStringLength),
+    subtitle: boundedString().optional(),
+  })
+  .strict() satisfies z.ZodType<SurfaceAvatarComponent>;
+
+/** Explicit annotation breaks the recursive children/type inference cycle. */
+export const SurfaceCatalog4ComponentSchema: z.ZodType<SurfaceComponent> =
+  z.discriminatedUnion('kind', [
+    SurfaceSectionComponentSchema.extend({ children: catalog4Children() }),
+    SurfaceStackComponentSchema.extend({ children: catalog4Children() }),
+    SurfaceGridComponentSchema.extend({ children: catalog4Children() }),
+    SurfaceCardComponentSchema.extend({ children: catalog4Children() }),
+    SurfaceAccordionComponentSchema,
+    SurfaceTextInputSchema,
+    SurfaceSelectInputSchema,
+    SurfaceRadioGroupInputSchema,
+    SurfaceCheckboxInputSchema,
+    SurfaceCatalog4StatComponentSchema,
+    SurfaceLineChartComponentSchema,
+    SurfaceBarChartComponentSchema,
+    SurfaceTableComponentSchema,
+    SurfaceListComponentSchema,
+    SurfaceAlertComponentSchema,
+    SurfaceBadgeComponentSchema,
+    SurfaceProgressComponentSchema,
+    SurfaceRadialProgressComponentSchema,
+    SurfaceDividerComponentSchema,
+    SurfaceTextBlockComponentSchema,
+    SurfaceAvatarComponentSchema,
+  ]) satisfies z.ZodType<SurfaceComponent>;
+
 /**
  * Recursive JSON with a finite expansion: stop BEFORE parsing a seventh
  * container. This also rejects cycles without overflowing the call stack.
@@ -592,6 +676,18 @@ export const SurfaceEnvelopeSchema = z
     dataModel: SurfaceDataModelSchema.optional(),
   })
   .strict() satisfies z.ZodType<SurfaceEnvelope>;
+/**
+ * A `dashboard-catalog/4` surface document. Validated by
+ * `validateSurfaceDocument`; `ptah_surface_update` keeps the `/3` schema above,
+ * so the `/4` kinds are not advertised to Apps agents.
+ */
+export const SurfaceCatalog4EnvelopeSchema = SurfaceEnvelopeSchema.extend({
+  catalogVersion: z.literal(SURFACE_CATALOG_VERSION_4),
+  components: z
+    .array(SurfaceCatalog4ComponentSchema)
+    .min(1)
+    .max(SURFACE_LIMITS.maxComponents),
+}) satisfies z.ZodType<SurfaceEnvelope>;
 
 export const SurfacePatchOpSchema = z.discriminatedUnion('op', [
   z

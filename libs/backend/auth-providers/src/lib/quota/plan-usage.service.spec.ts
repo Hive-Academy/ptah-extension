@@ -26,7 +26,10 @@ import {
   quotaOwnerRefFromKey,
   unknownOwnerKey,
 } from './provider-owner.resolver';
-import type { PlanOwnerTarget } from './readers/plan-usage-reader.types';
+import type {
+  PlanOwnerTarget,
+  PlanUsageReading,
+} from './readers/plan-usage-reader.types';
 
 const T0 = Date.UTC(2026, 9, 4, 12, 0, 0);
 const SECRET = 'sk-plan-usage-secret-123';
@@ -245,8 +248,286 @@ describe('PlanUsageService', () => {
       });
     });
 
-    it('F31: OpenCode with no evidence answers no-usage-source alone, without reading its key', async () => {
+    // OpenCode reads local usage through its CLI (PR #673); stub that reader
+    // so these tests never spawn a real `opencode` process.
+    const stubOpenCodeReader = (
+      service: PlanUsageService,
+      providerId: 'opencode' | 'opencode-go',
+      reading: PlanUsageReading,
+    ): jest.Mock => {
+      const reader = jest.fn<Promise<PlanUsageReading>, [unknown]>(
+        async () => reading,
+      );
+      (service as unknown as { readers: Record<string, unknown> }).readers[
+        providerId
+      ] = reader;
+      if (providerId === 'opencode-go') {
+        (
+          service as unknown as { localReaders: Record<string, unknown> }
+        ).localReaders[providerId] = jest.fn(async () => ({
+          status: 'service-unavailable',
+          windowSetEstablished: false,
+          windows: [],
+        }));
+      }
+      return reader;
+    };
+
+    it.each(['opencode-go', 'grok'] as const)(
+      '%s combines account windows and local usage when either source fails',
+      async (providerId) => {
+        const h = harness();
+        const ownerRef = quotaOwnerRefFromKey(
+          providerId === 'grok'
+            ? accountOwnerKey('grok', 'account')
+            : credentialOwnerKey(providerId, 'test-key'),
+        );
+        const readers = h.service as unknown as {
+          readers: Record<string, jest.Mock>;
+          localReaders: Record<string, jest.Mock>;
+        };
+        const window = {
+          key: 'weekly',
+          kind: 'weekly' as const,
+          label: 'Weekly',
+          used: { kind: 'percent' as const, percent: 30 },
+          usedSource: 'provider-api' as const,
+          observedAt: T0,
+        };
+        const usage = {
+          kind: 'local-usage' as const,
+          label: 'Local usage',
+          tokens: 12,
+          estimatedCostUsd: 1,
+          observedAt: T0,
+          source: 'local-cli' as const,
+        };
+        readers.readers[providerId] = jest.fn(async () => ({
+          status: 'available',
+          fetchedAt: T0,
+          windowSetEstablished: true,
+          windows: [window],
+        }));
+        readers.localReaders[providerId] = jest.fn(async () => ({
+          status: 'available',
+          fetchedAt: T0,
+          windowSetEstablished: false,
+          windows: [],
+          localUsage: usage,
+        }));
+        const target = {
+          providerId,
+          ownerRef,
+          ...(providerId === 'grok' ? { cliSessionId: 'session1' } : {}),
+        };
+        const both = await h.service.getOwnerSnapshot(target);
+        expect(both.windows).toHaveLength(1);
+        expect(both.localUsage).toEqual(usage);
+
+        readers.localReaders[providerId].mockRejectedValueOnce(
+          new Error('local failed'),
+        );
+        const accountOnly = await h.service.getOwnerSnapshot(target, {
+          refresh: true,
+        });
+        expect(accountOnly.windows).toHaveLength(1);
+        expect(accountOnly.localUsage).toBeUndefined();
+
+        readers.readers[providerId].mockRejectedValueOnce(
+          new Error('account failed'),
+        );
+        const localOnly = await h.service.getOwnerSnapshot(target, {
+          refresh: true,
+        });
+        expect(localOnly.status).toBe('stale');
+        expect(localOnly.windows).toHaveLength(1);
+        expect(localOnly.localUsage).toEqual(usage);
+      },
+    );
+
+    it.each(['opencode-go', 'grok'] as const)(
+      '%s retains an account error with local usage',
+      async (providerId) => {
+        const h = harness();
+        const ownerRef = quotaOwnerRefFromKey(
+          cliStoreOwnerKey(providerId, '/cli'),
+        );
+        const readers = h.service as unknown as {
+          readers: Record<string, jest.Mock>;
+          localReaders: Record<string, jest.Mock>;
+        };
+        readers.readers[providerId] = jest.fn(async () => ({
+          status: 'unsupported-auth',
+          windowSetEstablished: false,
+          windows: [],
+        }));
+        readers.localReaders[providerId] = jest.fn(async () => ({
+          status: 'available',
+          windowSetEstablished: false,
+          windows: [],
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Usage',
+            tokens: 1,
+            estimatedCostUsd: 0,
+            observedAt: T0,
+            source: 'local-cli',
+          },
+        }));
+        const snapshot = await h.service.getOwnerSnapshot({
+          providerId,
+          ownerRef,
+          cliSessionId: 'session1',
+        });
+        expect(snapshot.status).toBe('unsupported-auth');
+        expect(snapshot.localUsage?.tokens).toBe(1);
+      },
+    );
+
+    it.each(['opencode-go', 'grok'] as const)(
+      '%s keeps local usage with no plan',
+      async (providerId) => {
+        const h = harness();
+        const ownerRef = quotaOwnerRefFromKey(
+          credentialOwnerKey(providerId, 'key'),
+        );
+        const readers = h.service as unknown as {
+          readers: Record<string, jest.Mock>;
+          localReaders: Record<string, jest.Mock>;
+        };
+        readers.readers[providerId] = jest.fn(async () => ({
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          windows: [],
+        }));
+        readers.localReaders[providerId] = jest.fn(async () => ({
+          status: 'available',
+          windowSetEstablished: false,
+          windows: [],
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Usage',
+            tokens: 1,
+            estimatedCostUsd: 0,
+            observedAt: T0,
+            source: 'local-cli',
+          },
+        }));
+        const snapshot = await h.service.getOwnerSnapshot({
+          providerId,
+          ownerRef,
+          cliSessionId: 'session1',
+        });
+        expect(snapshot.status).toBe(
+          providerId === 'grok' ? 'available' : 'no-usage-source',
+        );
+        expect(snapshot.localUsage?.tokens).toBe(1);
+        if (providerId === 'grok')
+          expect(readers.readers.grok).not.toHaveBeenCalled();
+      },
+    );
+
+    it('resolves the stored OpenCode Go credential for its reader', async () => {
       const h = harness();
+      const reader = jest.fn(async (_request: { credential?: PlanSecret }) => ({
+        status: 'available',
+        windowSetEstablished: true,
+        windows: [],
+      }));
+      (h.service as unknown as { readers: Record<string, jest.Mock> }).readers[
+        'opencode-go'
+      ] = reader;
+      await h.service.getOwnerSnapshot({
+        providerId: 'opencode-go',
+        ownerRef: OPENCODE,
+        credentialRef: { kind: 'provider-key', providerId: 'opencode-go' },
+      });
+      expect(h.resolve).toHaveBeenCalledWith({
+        kind: 'provider-key',
+        providerId: 'opencode-go',
+      });
+      expect(reader.mock.calls[0][0].credential?.reveal()).toBe(SECRET);
+    });
+
+    it('keeps cached Grok windows stale on transient account failure without a session', async () => {
+      const h = harness();
+      const ownerRef = quotaOwnerRefFromKey(cliStoreOwnerKey('grok', '/cli'));
+      const readers = h.service as unknown as {
+        readers: Record<string, jest.Mock>;
+        localReaders: Record<string, jest.Mock>;
+      };
+      readers.readers.grok = jest.fn(async () => ({
+        status: 'available',
+        windowSetEstablished: true,
+        windows: [
+          {
+            key: 'weekly',
+            kind: 'weekly',
+            label: 'Weekly',
+            used: { kind: 'percent', percent: 20 },
+            usedSource: 'provider-api',
+            observedAt: T0,
+          },
+        ],
+      }));
+      readers.localReaders.grok = jest.fn();
+      const target = { providerId: 'grok', ownerRef };
+      await h.service.getOwnerSnapshot(target);
+      h.advance(PLAN_USAGE_CACHE_TTL_MS + 1);
+      readers.readers.grok.mockResolvedValue({
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
+      const snapshot = await h.service.getOwnerSnapshot(target);
+      expect(snapshot.status).toBe('stale');
+      expect(snapshot.unavailableReason).toBeUndefined();
+      expect(snapshot.windows).toHaveLength(1);
+    });
+
+    it('keeps Grok account windows and explains absent local session usage', async () => {
+      const h = harness();
+      const ownerRef = quotaOwnerRefFromKey(cliStoreOwnerKey('grok', '/cli'));
+      const window = {
+        key: 'weekly',
+        kind: 'weekly' as const,
+        label: 'Weekly',
+        used: { kind: 'percent' as const, percent: 20 },
+        usedSource: 'provider-api' as const,
+        observedAt: T0,
+      };
+      const readers = h.service as unknown as {
+        readers: Record<string, jest.Mock>;
+        localReaders: Record<string, jest.Mock>;
+      };
+      readers.readers.grok = jest.fn(async () => ({
+        status: 'available',
+        windowSetEstablished: true,
+        windows: [window],
+      }));
+      readers.localReaders.grok = jest.fn();
+      const snapshot = await h.service.getOwnerSnapshot({
+        providerId: 'grok',
+        ownerRef,
+      });
+      expect(snapshot.windows).toHaveLength(1);
+      expect(snapshot.status).toBe('available');
+      expect(snapshot.unavailableReason).toBeUndefined();
+      expect(readers.readers.grok).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: expect.objectContaining({ ownerRef }),
+        }),
+      );
+      expect(readers.localReaders.grok).not.toHaveBeenCalled();
+    });
+
+    it('F31: OpenCode with no local usage answers its reader status and no evidence', async () => {
+      const h = harness();
+      const reader = stubOpenCodeReader(h.service, 'opencode-go', {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
 
       const snapshot = await h.service.getOwnerSnapshot({
         providerId: 'opencode-go',
@@ -254,18 +535,23 @@ describe('PlanUsageService', () => {
         credentialRef: { kind: 'provider-key', providerId: 'opencode-go' },
       });
 
+      expect(reader).toHaveBeenCalledTimes(1);
       expect(snapshot).toEqual({
         owner: OPENCODE,
-        status: 'no-usage-source',
+        status: 'service-unavailable',
         windowSetEstablished: false,
         windows: [],
         ownerEvidence: [],
       });
-      expect(h.resolve).not.toHaveBeenCalled();
     });
 
-    it('F32: OpenCode with a recorded limit hit returns no-usage-source plus that evidence (Req 2.8)', async () => {
+    it('F32: OpenCode with a recorded limit hit keeps that evidence (Req 2.8)', async () => {
       const h = harness();
+      stubOpenCodeReader(h.service, 'opencode', {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
       const owner = quotaOwnerRefFromKey(cliStoreOwnerKey('opencode', '/oc'));
       const hit = { observedAt: T0 - 60_000, source: 'error-derived' as const };
       h.ledger.recordOwnerEvidence(owner, hit);
@@ -277,6 +563,64 @@ describe('PlanUsageService', () => {
 
       expect(snapshot.status).toBe('no-usage-source');
       expect(snapshot.ownerEvidence).toEqual([hit]);
+    });
+
+    it('keeps an exhausted ledger window and a cooldown for a no-usage-source owner', async () => {
+      const h = harness();
+      stubOpenCodeReader(h.service, 'opencode', {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
+      const owner = quotaOwnerRefFromKey(cliStoreOwnerKey('opencode', '/oc'));
+      h.ledger.recordWindowEvidence(owner, {
+        key: 'five_hour',
+        kind: 'five_hour',
+        label: '5-hour',
+        observedAt: T0 - 60_000,
+        exhaustion: { observedAt: T0 - 60_000, source: 'error-derived' },
+      });
+      h.ledger.recordWindowEvidence(owner, {
+        key: 'weekly',
+        kind: 'weekly',
+        label: 'Weekly',
+        observedAt: T0 - 60_000,
+      });
+      const cooldown = { until: T0 + 60_000, observedAt: T0 - 1_000 };
+      h.ledger.recordCooldown(owner, cooldown);
+
+      const snapshot = await h.service.getOwnerSnapshot({
+        providerId: 'opencode',
+        ownerRef: owner,
+      });
+
+      expect(snapshot.status).toBe('no-usage-source');
+      expect(snapshot.windowSetEstablished).toBe(false);
+      expect(snapshot.windows.map((window) => window.key)).toEqual([
+        'five_hour',
+      ]);
+      expect(snapshot.cooldown).toEqual(cooldown);
+    });
+
+    it('an unsupported-auth owner carries no windows even with exhaustion evidence', async () => {
+      const h = harness();
+      h.readPlanUsage.mockResolvedValue({
+        subscription_type: null,
+        rate_limits_available: false,
+        rate_limits: null,
+      } as unknown as ClaudePlanUsage);
+      h.ledger.recordWindowEvidence(CLAUDE_A, {
+        key: 'five_hour',
+        kind: 'five_hour',
+        label: '5-hour',
+        observedAt: T0 - 1_000,
+        exhaustion: { observedAt: T0 - 1_000, source: 'error-derived' },
+      });
+
+      const snapshot = await h.service.getOwnerSnapshot(claudeTarget());
+
+      expect(snapshot.status).toBe('unsupported-auth');
+      expect(snapshot.windows).toEqual([]);
     });
 
     it('answers provider-unsupported for a provider without a reader', async () => {

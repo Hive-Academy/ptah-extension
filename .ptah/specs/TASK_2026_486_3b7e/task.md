@@ -1,11 +1,12 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: Cap Jest workers so a test run does not starve the running app
 description: >-
   The root Jest preset sets no maxWorkers, so Jest defaults to cores minus one.
   One nx run-many took 15 workers and 11 GB on a 16-core host, starving the
   Electron app the developer was working in.
+updated: '2026-10-10T18:18:03.922Z'
 ---
 
 # Cap Jest workers

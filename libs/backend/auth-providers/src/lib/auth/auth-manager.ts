@@ -62,6 +62,13 @@ export class AuthManager implements IAuthEnvProvider {
   private configInProgress: Promise<AuthResult> | null = null;
   private activeStrategy: IAuthStrategy | null = null;
 
+  /**
+   * The provider the shared AuthEnv currently holds credentials for: set when
+   * a configuration succeeds, `null` while one runs, after a failed one and
+   * after {@link clearAuthentication}.
+   */
+  private configuredAuth: ActiveAuth | null = null;
+
   /** Strategy registry: maps AuthStrategyType to the injected strategy instance */
   private readonly strategyRegistry: ReadonlyMap<
     AuthStrategyType,
@@ -113,7 +120,7 @@ export class AuthManager implements IAuthEnvProvider {
    * 5. Log env summary (boolean presence, no secrets)
    */
   async configureAuthentication(rawAuthMethod?: string): Promise<AuthResult> {
-    if (this.configInProgress) {
+    if (this.configInProgress !== null) {
       this.logger.debug(
         '[AuthManager] configureAuthentication already in progress, awaiting existing call',
       );
@@ -130,6 +137,14 @@ export class AuthManager implements IAuthEnvProvider {
 
   resolveActiveAuth(): ActiveAuth {
     return this.activeProviderResolver.resolveActiveAuth();
+  }
+
+  /**
+   * Which provider the shared AuthEnv is configured for, or `null` when it
+   * holds no usable configuration (none yet, failed, cleared, or mid-change).
+   */
+  getConfiguredAuth(): ActiveAuth | null {
+    return this.configuredAuth;
   }
 
   /**
@@ -155,6 +170,7 @@ export class AuthManager implements IAuthEnvProvider {
       ANTHROPIC_AUTH_TOKEN: process.env['ANTHROPIC_AUTH_TOKEN'],
       ANTHROPIC_BASE_URL: process.env['ANTHROPIC_BASE_URL'],
     };
+    this.configuredAuth = null;
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
     if (this.activeStrategy) {
@@ -194,6 +210,7 @@ export class AuthManager implements IAuthEnvProvider {
     });
     if (result.configured) {
       this.activeStrategy = strategy;
+      this.configuredAuth = { authMethod, providerId };
     }
     if (result.configured) {
       this.logger.info(
@@ -225,6 +242,7 @@ export class AuthManager implements IAuthEnvProvider {
    * Clear all authentication environment variables and tear down active strategy.
    */
   clearAuthentication(): void {
+    this.configuredAuth = null;
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
     if (this.activeStrategy) {

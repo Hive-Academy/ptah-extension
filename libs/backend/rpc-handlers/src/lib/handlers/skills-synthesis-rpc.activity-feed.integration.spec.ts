@@ -371,12 +371,6 @@ const TRIGGER_WRITES: ReadonlyArray<{
   readonly readBack: Partial<SkillTriggersDto>;
 }> = [
   {
-    control: 'sessionEnd',
-    payload: { sessionEnd: false },
-    writes: [[`${P}sessionEnd`, false]],
-    readBack: { sessionEnd: false },
-  },
-  {
     control: 'idleMs on',
     payload: { idleMs: 600_000 },
     writes: [[`${P}idleMs`, 600_000]],
@@ -480,7 +474,6 @@ describe('Settings trigger toggles: setTriggers write path', () => {
 
   it('applying every control in turn leaves each value as last written and clobbers none', async () => {
     const rig = buildRig();
-    await rig.setTriggers({ sessionEnd: false });
     await rig.setTriggers({ idleMs: 120_000 });
     await rig.setTriggers({ bootScan: false });
     await rig.setTriggers({ subagentStop: { enabled: false } });
@@ -490,7 +483,6 @@ describe('Settings trigger toggles: setTriggers write path', () => {
     await rig.setTriggers({ maxAnalyzesPerHour: 100 });
 
     expect((await rig.getTriggers()).triggers).toEqual({
-      sessionEnd: false,
       idleMs: 120_000,
       bootScan: false,
       subagentStop: { enabled: false },

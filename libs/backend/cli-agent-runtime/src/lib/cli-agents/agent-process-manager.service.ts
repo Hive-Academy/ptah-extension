@@ -38,7 +38,10 @@ import type {
   LaneStopReason,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
-import { claudeModelFamily } from '@ptah-extension/agent-sdk';
+import {
+  claudeModelFamily,
+  SessionHandoverCoordinator,
+} from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   type PlanLimitBilling,
@@ -286,6 +289,9 @@ export class AgentProcessManager {
   /** EventEmitter for agent lifecycle events (spawned, output, exited) */
   readonly events = new EventEmitter();
 
+  /** Unregisters the lane count from the handover coordinator; run in {@link disposeAll}. */
+  private releaseLaneWorkProvider: (() => void) | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
@@ -329,8 +335,41 @@ export class AgentProcessManager {
      */
     @inject(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER)
     private readonly planLimits: LanePlanLimitLedger,
+    /**
+     * An automatic session handover waits for the source's running lanes
+     * (TASK_2026_627). Absent → no lane count is reported and the handover
+     * does not wait on lanes.
+     */
+    @inject(SessionHandoverCoordinator, { isOptional: true })
+    handoverCoordinator: SessionHandoverCoordinator | null = null,
   ) {
+    if (handoverCoordinator) {
+      this.releaseLaneWorkProvider = handoverCoordinator.setLaneWorkProvider(
+        ({ sessionId, tabId }) => this.countRunningLanes(sessionId, tabId),
+      );
+    }
     this.logger.info('[AgentProcessManager] Initialized');
+  }
+
+  /**
+   * Running lanes whose parent is the session's real id or its tab id: a lane
+   * spawned before the SDK id bound keeps the tab id until
+   * {@link resolveParentSessionId} re-parents it. `'running'` is the only
+   * non-terminal `AgentStatus`.
+   */
+  private countRunningLanes(sessionId: string, tabId: string): number {
+    let running = 0;
+    for (const tracked of this.agents.values()) {
+      const { status, parentSessionId } = tracked.info;
+      if (
+        status === 'running' &&
+        parentSessionId &&
+        (parentSessionId === sessionId || parentSessionId === tabId)
+      ) {
+        running += 1;
+      }
+    }
+    return running;
   }
 
   /**
@@ -859,7 +898,7 @@ export class AgentProcessManager {
     const quotaOwner =
       upgradeQuotaOwner(
         info.quotaOwner,
-        this.laneOwners.ownerForLane(info.cli),
+        this.laneOwners.ownerForLane(info.cli, info.model),
       ) ?? info.quotaOwner;
     const modelScope = resolveModelScope(info.cli, info.model);
     const trackedInfo: AgentProcessInfo = {
@@ -868,6 +907,7 @@ export class AgentProcessManager {
       ...(quotaOwner ? { quotaOwner } : {}),
       modelScope,
     };
+    this.rememberLaneOwner(trackedInfo);
     const tracked: TrackedAgent = {
       info: trackedInfo,
       process: null,
@@ -1006,6 +1046,7 @@ export class AgentProcessManager {
     const upgraded = upgradeQuotaOwner(tracked.info.quotaOwner, owner);
     if (!upgraded) return false;
     tracked.info = { ...tracked.info, quotaOwner: upgraded };
+    this.rememberLaneOwner(tracked.info);
     this.logger.debug('[AgentProcessManager] Lane quota owner recorded', {
       agentId,
       providerId: upgraded.providerId,
@@ -1225,6 +1266,9 @@ export class AgentProcessManager {
         ...(ref.quotaOwner ? { quotaOwner: ref.quotaOwner } : {}),
         modelScope: ref.modelScope ?? null,
       };
+      // Seeds the lane's remembered owner, so a lane that only learns its
+      // owner from a run still reads its evidence after a reload.
+      this.rememberLaneOwner(info);
 
       this.agents.set(agentId, {
         info,
@@ -1965,6 +2009,8 @@ export class AgentProcessManager {
    * tree-kill and the host stops waiting on it.
    */
   async disposeAll(): Promise<void> {
+    this.releaseLaneWorkProvider?.();
+    this.releaseLaneWorkProvider = null;
     const entries = Array.from(this.agents.entries());
     this.logger.info('[AgentProcessManager] Disposing all agents...', {
       agents: entries.length,
@@ -2442,20 +2488,32 @@ export class AgentProcessManager {
     ) {
       const upgraded = upgradeQuotaOwner(
         current,
-        this.laneOwners.ownerForLane(tracked.info.cli),
+        this.laneOwners.ownerForLane(tracked.info.cli, tracked.info.model),
       );
-      if (upgraded) tracked.info = { ...tracked.info, quotaOwner: upgraded };
+      if (upgraded) {
+        tracked.info = { ...tracked.info, quotaOwner: upgraded };
+        this.rememberLaneOwner(tracked.info);
+      }
     }
     const {
       agentId,
       cli,
       status,
-      quotaOwner: owner,
+      quotaOwner: runOwner,
       modelScope,
     } = tracked.info;
-    if (!owner) return;
+    if (!runOwner) return;
     try {
       if (limit) {
+        // "Free usage exceeded" is the Zen free tier, not the Go subscription;
+        // filed under Go it would never clear, as OpenCode successes prove
+        // nothing about any allowance.
+        const owner =
+          limit.pattern === 'opencode-free-usage' &&
+          runOwner.providerId === 'opencode-go'
+            ? (this.laneOwners.ownerForLane('opencode', 'opencode/') ??
+              runOwner)
+            : runOwner;
         const evidence = laneLimitEvidence(limit, observedAt);
         if (evidence.kind === 'window') {
           this.planLimits.recordWindowEvidence(owner, evidence.window);
@@ -2470,12 +2528,12 @@ export class AgentProcessManager {
       if (
         status !== 'completed' ||
         !billing ||
-        owner.identityKind === 'unknown'
+        runOwner.identityKind === 'unknown'
       ) {
         return;
       }
       this.planLimits.recordSuccess({
-        ownerKey: owner.key,
+        ownerKey: runOwner.key,
         modelScopes: modelScope ? [modelScope] : [],
         billing,
         observedAt,
@@ -2487,6 +2545,15 @@ export class AgentProcessManager {
         errorName: error instanceof Error ? error.name : typeof error,
       });
     }
+  }
+
+  /** Keep the lane's current owner for limit lookups of that lane. */
+  private rememberLaneOwner(info: AgentProcessInfo): void {
+    if (!info.quotaOwner) return;
+    this.laneOwners.rememberLaneOwner(
+      { cli: info.cli, ptahCliId: info.ptahCliId },
+      info.quotaOwner,
+    );
   }
 
   /**
@@ -2604,15 +2671,17 @@ export class AgentProcessManager {
     });
     try {
       const done = tracked.sdkHandle?.done;
-      await (done
-        ? Promise.race([
-            done.then(
-              () => undefined,
-              () => undefined,
-            ),
-            bounded,
-          ])
-        : bounded);
+      if (done === undefined) {
+        await bounded;
+      } else {
+        await Promise.race([
+          done.then(
+            () => undefined,
+            () => undefined,
+          ),
+          bounded,
+        ]);
+      }
     } finally {
       if (settleTimer) {
         clearTimeout(settleTimer);

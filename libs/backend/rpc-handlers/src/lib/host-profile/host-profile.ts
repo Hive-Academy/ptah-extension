@@ -82,6 +82,7 @@ const ALL_DISABLED: HostCapabilities = {
   commandExecution: false,
   appUpdater: false,
   goVetDiagnostics: false,
+  lanePlanLimits: false,
 };
 
 /**

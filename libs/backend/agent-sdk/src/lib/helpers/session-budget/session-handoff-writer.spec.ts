@@ -50,6 +50,35 @@ describe('SessionHandoffWriter', () => {
     );
   });
 
+  // TASK_2026_627 6F S1: the rotate fallback for an ended session reads it back.
+  it('reads back the handoff written for a session', async () => {
+    await writer.write(uuid(1), '# handoff\n');
+    expect(await writer.read(uuid(1))).toEqual({
+      path: path.join(dir, `${uuid(1)}.md`),
+      content: '# handoff\n',
+    });
+  });
+
+  it('read returns null for a missing file, a missing directory or an invalid id', async () => {
+    expect(await writer.read(uuid(3))).toBeNull();
+    await writer.write(uuid(1), 'x');
+    expect(await writer.read(uuid(3))).toBeNull();
+    expect(await writer.read('../escape')).toBeNull();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('read WARNs once and returns null when the file cannot be read', async () => {
+    // A directory at the target path makes readFile fail with EISDIR.
+    await fs.mkdir(path.join(dir, `${uuid(4)}.md`), { recursive: true });
+    expect(await writer.read(uuid(4))).toBeNull();
+    expect(await writer.read(uuid(4))).toBeNull();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[SessionHandoffWriter] Could not read a handoff file',
+      expect.objectContaining({ sessionId: uuid(4) }),
+    );
+  });
+
   it('defaults to the user home directory', () => {
     expect(sessionHandoffsDirectory()).toBe(
       path.resolve(os.homedir(), '.ptah', 'handoffs'),

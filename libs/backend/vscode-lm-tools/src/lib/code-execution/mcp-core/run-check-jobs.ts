@@ -133,6 +133,7 @@ export function createRunCheckJobRegistry(
       if (job.outcome !== undefined) return job.outcome;
       if (signal?.aborted) return undefined;
       return await new Promise<RunCheckOutcome | undefined>((resolve) => {
+        // settle only runs asynchronously, after timer is initialised.
         const settle = (outcome: RunCheckOutcome | undefined) => {
           clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);

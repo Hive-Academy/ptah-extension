@@ -6,6 +6,7 @@ import type {
 import type {
   SurfaceAction,
   SurfaceAlertComponent,
+  SurfaceAvatarComponent,
   SurfaceBadgeComponent,
   SurfaceComponent,
   SurfaceDataValue,
@@ -13,6 +14,7 @@ import type {
   SurfaceInput,
   SurfaceProgressComponent,
   SurfaceRadialProgressComponent,
+  SurfaceStatComponent,
   SurfaceTextBlockComponent,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
@@ -24,8 +26,11 @@ interface DisplayNodeFields {
   readonly children?: readonly DisplayNode[];
 }
 
+/** `dashboard-catalog/4` stat extras; a v1 or `/3` stat never carries them. */
+type StatExtras = Pick<SurfaceStatComponent, 'trend' | 'spark'>;
+
 type DisplayOf<T> = T extends DashboardComponent
-  ? Omit<T, 'children' | 'actions'> & DisplayNodeFields
+  ? Omit<T, 'children' | 'actions'> & DisplayNodeFields & (T extends { readonly kind: 'stat' } ? StatExtras : unknown)
   : never;
 
 export type DisplayNode = DisplayOf<DashboardComponent>;
@@ -37,7 +42,7 @@ interface LayoutNodeFields {
 }
 
 type LayoutOf<T> = T extends {
-  readonly kind: 'section' | 'stack' | 'grid' | 'card';
+  readonly kind: 'section' | 'stack' | 'grid' | 'card' | 'accordion';
 }
   ? Omit<T, 'children'> & LayoutNodeFields
   : never;
@@ -57,11 +62,14 @@ export type StatusNode =
   | StatusNodeOf<SurfaceRadialProgressComponent>
   | StatusNodeOf<SurfaceDividerComponent>
   | StatusNodeOf<SurfaceTextBlockComponent>;
+/** `dashboard-catalog/4`: plain name and subtitle only, never an image or URL. */
+export type AvatarNode = SurfaceAvatarComponent & { readonly selectable: boolean };
 export type SurfaceNode =
   | LayoutNode
   | InputNode
   | DisplayNode
-  | StatusNode;
+  | StatusNode
+  | AvatarNode;
 
 export interface DashboardViewModel {
   readonly title: DashboardRichText;

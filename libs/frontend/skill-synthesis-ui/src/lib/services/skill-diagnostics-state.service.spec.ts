@@ -8,6 +8,8 @@ import type {
 } from '@ptah-extension/shared';
 
 import { SkillDiagnosticsRpcService } from './skill-diagnostics-rpc.service';
+import { SkillsPausedError } from './skill-synthesis-rpc.service';
+import { SKILLS_PAUSED_NOTICE } from './skill-synthesis-state.service';
 import {
   SKILL_EVENT_WINDOW,
   SkillDiagnosticsStateService,
@@ -54,7 +56,7 @@ describe('SkillDiagnosticsStateService', () => {
         sessionId: 'a',
       },
     ],
-    triggers: { sessionEnd: true, idleMs: 60_000, bootScan: false },
+    triggers: { idleMs: 60_000, bootScan: false },
   };
 
   beforeEach(() => {
@@ -178,6 +180,25 @@ describe('SkillDiagnosticsStateService', () => {
       expect.objectContaining({ sessionId: 'manual' }),
     );
     expect(diagnostics).toHaveBeenCalled();
+  });
+
+  it('analyzeNow() resolves "paused" and shows a paused notice on a PAUSED refusal', async () => {
+    analyzeNow.mockRejectedValueOnce(new SkillsPausedError());
+
+    await expect(service.analyzeNow()).resolves.toBe('paused');
+
+    expect(service.error()).toBeNull();
+    expect(service.pausedNotice()).toBe(SKILLS_PAUSED_NOTICE);
+    expect(service.loading()).toBe(false);
+  });
+
+  it('analyzeNow() keeps other failures as errors and resolves "done"', async () => {
+    analyzeNow.mockRejectedValueOnce(new Error('model down'));
+
+    await expect(service.analyzeNow()).resolves.toBe('done');
+
+    expect(service.error()).toBe('model down');
+    expect(service.pausedNotice()).toBeNull();
   });
 
   it('analyzeNow() no-ops + sets error when there is no active session', async () => {

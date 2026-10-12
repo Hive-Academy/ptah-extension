@@ -22,9 +22,17 @@ import type {
   SurfaceSelectionChange,
 } from '../surface-interaction';
 import type { SurfaceRenderable, SurfaceViewState } from '../surface-view-state';
-import { buildSurfaceViewModel, type SurfaceViewModelBuild } from '../view-model/surface-view-model';
+import {
+  buildSurfaceViewModel,
+  isSurfaceAvatarName,
+  isSurfaceAvatarSubtitle,
+  isSurfaceSpark,
+  isSurfaceStatTrend,
+  type SurfaceViewModelBuild,
+} from '../view-model/surface-view-model';
 import type { InputNode, SurfaceNode, SurfaceViewModel } from '../view-model/view-model.types';
 import { committedInputValue, plainText } from './surface-input-messages';
+import { SURFACE_CONTAINER_GRID_STYLES, type SurfaceLayoutWidth } from './surface-layout.component';
 import { SURFACE_NODE_KINDS, SurfaceNodeComponent, type SurfaceComponentViewStateWrite } from './surface-node.component';
 import type { SurfaceDraftWrite } from './surface-text-input.component';
 
@@ -42,6 +50,8 @@ export const SURFACE_VIEW_MODEL_BUILDER = new InjectionToken<SurfaceViewModelBui
 });
 
 const EMPTY_VIEW_STATE: SurfaceViewState = { components: {}, drafts: {} };
+/** Semantic text's base-content share: AA on every 16% semantic tint. */
+export const DISPLAY_TEXT_MIX = '65%';
 const NO_LOCAL_OVERLAYS: ReadonlyMap<string, SurfaceDataValue> = new Map();
 const NO_INTERACTION: SurfaceInteractionState = {
   selection: null,
@@ -65,7 +75,60 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
   return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
-const LAYOUT_KINDS: ReadonlySet<string> = new Set(['section', 'stack', 'grid', 'card']);
+const LAYOUT_KINDS: ReadonlySet<string> = new Set(['section', 'stack', 'grid', 'card', 'accordion']);
+
+/** Literal class names so the Tailwind scanner emits them. */
+const VIEWPORT_ROOT_CLASS = 'grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-2 gap-y-4 text-base-content';
+/** Root stats follow the stat-grid rules: one column below 360 px, 3 at 700 px and up. */
+const CONTAINER_ROOT_CLASS = 'dp-grid dp-grid--stats dp-cols-3 dp-gap-small text-base-content';
+
+/**
+ * Display tokens (D17, design sections 1, 3 and 9), defined once on the
+ * renderer root and derived only from DaisyUI theme variables. Status text
+ * and fills are mixed toward `base-content` for light-theme contrast. The
+ * sparkline highlight is the theme `primary` (decisions.md #12).
+ */
+const DISPLAY_TOKEN_STYLES = `
+  :host {
+    /* 65% base-content keeps every semantic label AA on its 16% status tint. */
+    --dp-text-mix: ${DISPLAY_TEXT_MIX};
+    --dp-fill-mix: 0%;
+    --dp-dock: oklch(var(--b1));
+    --dp-card: oklch(var(--b2));
+    --dp-well: oklch(var(--b3));
+    --dp-bar-dim: color-mix(in oklab, oklch(var(--bc)) 20%, oklch(var(--b2)));
+    --dp-shadow: 0 1px 1px oklch(0% 0 0 / 0.28), 0 8px 24px -12px oklch(0% 0 0 / 0.5);
+    --dp-rim: color-mix(in oklab, oklch(var(--bc)) 9%, transparent);
+    --dp-hl: oklch(var(--p));
+    --dp-border: color-mix(in oklab, oklch(var(--bc)) 14%, transparent);
+    --dp-border-strong: color-mix(in oklab, oklch(var(--bc)) 24%, transparent);
+    --dp-muted: oklch(var(--bcm, var(--bc)));
+    --dp-fg: oklch(var(--bc));
+    --dp-su-fill: color-mix(in oklab, oklch(var(--su)) calc(100% - var(--dp-fill-mix)), oklch(var(--bc)) var(--dp-fill-mix));
+    --dp-wa-fill: color-mix(in oklab, oklch(var(--wa)) calc(100% - var(--dp-fill-mix)), oklch(var(--bc)) var(--dp-fill-mix));
+    --dp-er-fill: color-mix(in oklab, oklch(var(--er)) calc(100% - var(--dp-fill-mix)), oklch(var(--bc)) var(--dp-fill-mix));
+    --dp-in-fill: color-mix(in oklab, oklch(var(--in)) calc(100% - var(--dp-fill-mix)), oklch(var(--bc)) var(--dp-fill-mix));
+    --dp-su-text: color-mix(in oklab, oklch(var(--su)) calc(100% - var(--dp-text-mix)), oklch(var(--bc)) var(--dp-text-mix));
+    --dp-wa-text: color-mix(in oklab, oklch(var(--wa)) calc(100% - var(--dp-text-mix)), oklch(var(--bc)) var(--dp-text-mix));
+    --dp-er-text: color-mix(in oklab, oklch(var(--er)) calc(100% - var(--dp-text-mix)), oklch(var(--bc)) var(--dp-text-mix));
+    --dp-in-text: color-mix(in oklab, oklch(var(--in)) calc(100% - var(--dp-text-mix)), oklch(var(--bc)) var(--dp-text-mix));
+    --dp-su-tint: color-mix(in oklab, oklch(var(--su)) 16%, oklch(var(--b3)));
+    --dp-wa-tint: color-mix(in oklab, oklch(var(--wa)) 16%, oklch(var(--b3)));
+    --dp-er-tint: color-mix(in oklab, oklch(var(--er)) 16%, oklch(var(--b3)));
+    --dp-in-tint: color-mix(in oklab, oklch(var(--in)) 16%, oklch(var(--b3)));
+    --dp-n-tint: oklch(var(--b3));
+  }
+  :host-context([data-theme='anubis-light']) {
+    --dp-fill-mix: 25%;
+    --dp-dock: oklch(var(--b2));
+    --dp-card: oklch(var(--b1));
+    --dp-well: oklch(var(--b2));
+    --dp-bar-dim: color-mix(in oklab, oklch(var(--bc)) 14%, oklch(var(--b1)));
+    --dp-shadow: 0 1px 1px oklch(23% 0.066 313 / 0.07), 0 10px 26px -14px oklch(23% 0.066 313 / 0.28);
+    --dp-rim: color-mix(in oklab, oklch(var(--bc)) 8%, transparent);
+  }
+  :host(.dp-root) { display: block; min-width: 0; container-type: inline-size; container-name: dp; }
+`;
 const CHOICE_KINDS: ReadonlySet<string> = new Set(['select', 'radio-group']);
 const INPUT_KINDS: ReadonlySet<string> = new Set(['text', 'select', 'radio-group', 'checkbox']);
 
@@ -74,17 +137,29 @@ function isOption(value: unknown): boolean {
 }
 
 /**
+ * `/4` atom fields, by the default mapper's own rules: an avatar's plain name
+ * and optional subtitle; a stat's trend and spark when present.
+ */
+function hasRenderableAtomFields(kind: string, value: Record<string, unknown>): boolean {
+  if (kind === 'avatar') return isSurfaceAvatarName(value['name']) && isSurfaceAvatarSubtitle(value['subtitle']);
+  if (kind !== 'stat') return true;
+  return (value['trend'] === undefined || isSurfaceStatTrend(value['trend']))
+    && (value['spark'] === undefined || isSurfaceSpark(value['spark']));
+}
+
+/**
  * The fields the node and input components dereference without a guard: a
  * known kind, a string id, `selectable`; per layout, `children` and
  * `submitActions`; per input, `label`, `path`, a host value and, for a
- * choice, well-formed options; v1 display `children` when present. A node
- * that is its own ancestor is malformed too (the check would never end).
+ * choice, well-formed options; the `/4` avatar and stat atom fields; v1
+ * display `children` when present. A node that is its own ancestor is
+ * malformed too (the check would never end).
  */
 function isRenderableNode(value: unknown, ancestors: Set<unknown>): boolean {
   if (!isObject(value) || ancestors.has(value)) return false;
   const kind = value['kind'];
   if (typeof kind !== 'string' || !SURFACE_NODE_KINDS.has(kind) || typeof value['id'] !== 'string'
-    || typeof value['selectable'] !== 'boolean') return false;
+    || typeof value['selectable'] !== 'boolean' || !hasRenderableAtomFields(kind, value)) return false;
   if (INPUT_KINDS.has(kind)) {
     if (typeof value['label'] !== 'string' || typeof value['path'] !== 'string' || value['hostValue'] === undefined) return false;
     const options = value['options'];
@@ -184,17 +259,20 @@ function sameSelection(left: SurfaceSelection | null, right: SurfaceSelection): 
   standalone: true,
   imports: [SurfaceNodeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.dp-root]': "layoutWidth() === 'container'" },
+  styles: [DISPLAY_TOKEN_STYLES, SURFACE_CONTAINER_GRID_STYLES],
   template: `
     @if (viewModel(); as model) {
       <!-- Root stats flow as compact tiles, several across (prototype stats row); every other node takes a full row. -->
-      <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-2 gap-y-4 text-base-content" data-testid="surface-root">
+      <div [class]="rootClass()" data-testid="surface-root">
         <header class="col-span-full flex flex-col gap-0.5">
           @if (hasTitle()) { <h2 class="text-base font-semibold">{{ title() }}</h2> }
           @if (description(); as description) { <p class="text-xs text-base-content-muted">{{ description }}</p> }
         </header>
         <!-- Position plus id: duplicate ids stay distinct, and a swapped id gets a fresh view. -->
         @for (node of model.components; track $index + ':' + node.id) {
-          <ptah-surface-node [class.col-span-full]="node.kind !== 'stat'" [node]="node" [surfaceId]="surfaceId()" [componentStates]="state().components"
+          <ptah-surface-node [class.col-span-full]="node.kind !== 'stat'" [node]="node" [surfaceId]="surfaceId()"
+            [layoutWidth]="layoutWidth()" [componentStates]="state().components"
             [drafts]="state().drafts" [interaction]="effectiveInteraction()"
             (componentViewStateChange)="writeComponentState($event)" (selectionChange)="select($event)"
             (inputCommit)="commit($event)" (draftChange)="writeDraft($event)" (actionInvoke)="invoke($event)"
@@ -210,6 +288,12 @@ export class SurfaceRendererComponent {
   public readonly renderable = input.required<SurfaceRenderable>();
   public readonly viewState = input<SurfaceViewState>(EMPTY_VIEW_STATE);
   public readonly interaction = input<SurfaceInteractionState>(NO_INTERACTION);
+  /**
+   * `viewport` (default): the Apps page layout, unchanged. `container`: the
+   * host element becomes the `dp` size container and every grid follows its
+   * width, for inline blocks and the display panel (D9, R3.5).
+   */
+  public readonly layoutWidth = input<SurfaceLayoutWidth>('viewport');
   public readonly viewStateChange = output<SurfaceViewState>();
   public readonly selectionChange = output<SurfaceSelectionChange>();
   public readonly inputCommit = output<SurfaceInputCommit>();
@@ -226,6 +310,7 @@ export class SurfaceRendererComponent {
   public readonly hasTitle = computed(() => this.title().trim().length > 0);
   public readonly description = computed(() => plainText(this.viewModel()?.description));
   public readonly surfaceId = computed(() => surfaceIdOf(this.renderable()));
+  public readonly rootClass = computed(() => (this.layoutWidth() === 'container' ? CONTAINER_ROOT_CLASS : VIEWPORT_ROOT_CLASS));
 
   /** The parent's copy, per surface: a surface switch re-adopts it even when the object is the same. */
   private readonly parentState = computed(() => ({ surfaceId: this.surfaceId(), viewState: this.viewState() }));

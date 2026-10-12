@@ -165,6 +165,14 @@ export function createHeavyServicesBooter(
       workspaceRoot,
       logPrefix: '[Ptah Electron]',
       signal,
+      // The skill trigger starts on the continuation of the UNAWAITED skill
+      // synthesis start, or later still when a failed start is retried, so a
+      // copy taken when this call returns is almost always `null` and
+      // shutdown would never stop the trigger that runs. The callback hands
+      // over the instance at the moment it starts.
+      onSkillTriggerStarted: (skillTrigger) => {
+        refs.skillTrigger = skillTrigger;
+      },
     });
     refs.sqliteConnection = thoth.sqliteConnection;
     // The persistence gate opens HERE and nowhere else on the happy path.
@@ -179,7 +187,6 @@ export function createHeavyServicesBooter(
     refs.memoryCurator = thoth.memoryCurator;
     refs.memoryTrigger = thoth.memoryTrigger;
     refs.skillSynthesis = thoth.skillSynthesis;
-    refs.skillTrigger = thoth.skillTrigger;
     refs.symbolWatcher = thoth.symbolWatcher;
     refs.statusBridgeDisposables = thoth.statusBridgeDisposables;
 

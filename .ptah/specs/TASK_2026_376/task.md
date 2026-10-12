@@ -1,15 +1,15 @@
 ---
-status: in_review
+status: done
 type: bugfix
-title: Background agent lifecycle, empty assistant bubbles and internal-query hygiene
+title: 'Background agent lifecycle, empty assistant bubbles and internal-query hygiene'
 description: >-
   Seven findings from a live Electron dev session on 2026-09-03. Three are
   confirmed UI-visible defects in the background-agent lifecycle and the
   assistant-message transformer. One is a silent data loss in the memory
-  curator. Two are internal-query hygiene items, one of them a
-  prompt-injection surface. One needs investigation before it is called a
-  defect. Evidence, per-finding severity and the batch split are in
-  context.md.
+  curator. Two are internal-query hygiene items, one of them a prompt-injection
+  surface. One needs investigation before it is called a defect. Evidence,
+  per-finding severity and the batch split are in context.md.
+updated: '2026-10-10T20:04:23.977Z'
 ---
 
 # TASK_2026_376

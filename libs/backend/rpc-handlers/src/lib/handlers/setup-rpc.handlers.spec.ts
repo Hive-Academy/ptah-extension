@@ -157,12 +157,7 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 
-import {
-  createMockModelSettings,
-  type MockModelSettings,
-} from '../../test-utils/mock-settings';
 import { SetupRpcHandlers } from './setup-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -252,7 +247,6 @@ interface Harness {
   handlers: SetupRpcHandlers;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
-  modelSettings: MockModelSettings;
   pluginLoader: MockPluginLoader;
   workspace: MockWorkspaceProvider;
   container: MockContainer;
@@ -262,7 +256,6 @@ interface Harness {
 function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
-  const modelSettings = createMockModelSettings();
   const pluginLoader = createMockPluginLoader();
   const workspace = createMockWorkspaceProvider({
     folders: opts.workspaceFolders ?? [WORKSPACE],
@@ -273,7 +266,6 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   const handlers = new SetupRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as RpcHandler,
-    modelSettings as unknown as ModelSettings,
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
     container as unknown as DependencyContainer,
@@ -284,7 +276,6 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     handlers,
     logger,
     rpcHandler,
-    modelSettings,
     pluginLoader,
     workspace,
     container,

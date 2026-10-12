@@ -348,7 +348,11 @@ function createMockSentryService(): Record<string, jest.Mock> {
 
 /** Lane owner stub: no owner unless a test sets one (TASK_2026_596). */
 interface LaneOwnersStub {
-  ownerForLane: jest.Mock<QuotaOwnerRef | undefined, [string]>;
+  ownerForLane: jest.Mock<QuotaOwnerRef | undefined, [string, string?]>;
+  rememberLaneOwner: jest.Mock<
+    void,
+    [{ cli: string; ptahCliId?: string }, QuotaOwnerRef]
+  >;
 }
 
 /** Plan-limit ledger stub (TASK_2026_596). */
@@ -376,6 +380,8 @@ function createManager(deps: {
   reasoningSettings: { effort: { get: jest.Mock } };
   harnessPreflight: { ensure: jest.Mock } | null;
   mcpServerStatus: { getPort: jest.Mock<number | null, []> };
+  /** Optional handover coordinator stub (TASK_2026_627); absent by default. */
+  handoverCoordinator?: { setLaneWorkProvider: jest.Mock };
 }): ManagerHarness {
   type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
@@ -406,7 +412,10 @@ function createManager(deps: {
     })),
   };
   const laneOwners: LaneOwnersStub = {
-    ownerForLane: jest.fn<QuotaOwnerRef | undefined, [string]>(() => undefined),
+    ownerForLane: jest.fn<QuotaOwnerRef | undefined, [string, string?]>(
+      () => undefined,
+    ),
+    rememberLaneOwner: jest.fn(),
   };
   const planLimits: PlanLimitsStub = {
     recordWindowEvidence: jest.fn(),
@@ -430,6 +439,7 @@ function createManager(deps: {
     resumeGate as unknown as ManagerArgs[8],
     laneOwners as unknown as ManagerArgs[9],
     planLimits as unknown as ManagerArgs[10],
+    (deps.handoverCoordinator ?? null) as unknown as ManagerArgs[11],
   );
   return {
     manager,
@@ -1877,7 +1887,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     const antigravityAccount = owner('antigravity', 'account');
 
     const spawnLane = async (
-      cli: 'codex' | 'antigravity' | 'opencode' | 'ptah-cli',
+      cli: 'codex' | 'antigravity' | 'opencode' | 'grok' | 'ptah-cli',
       model?: string,
     ): Promise<string> =>
       (
@@ -1900,7 +1910,14 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const agentId = await spawnLane('codex', 'claude-sonnet-4-5');
 
-      expect(laneOwners.ownerForLane).toHaveBeenCalledWith('codex');
+      expect(laneOwners.ownerForLane).toHaveBeenCalledWith(
+        'codex',
+        'claude-sonnet-4-5',
+      );
+      expect(laneOwners.rememberLaneOwner).toHaveBeenCalledWith(
+        { cli: 'codex', ptahCliId: undefined },
+        codexAccount,
+      );
       expect(manager.getStatus(agentId)).toHaveProperty(
         'quotaOwner',
         codexAccount,
@@ -2060,6 +2077,53 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         '[AgentProcessManager] Plan-limit ledger write failed',
         expect.objectContaining({ agentId, errorName: 'Error' }),
+      );
+    });
+
+    it('files a Grok free-usage hit under the Grok CLI store owner', async () => {
+      const grokStore = owner('grok', 'cli-store');
+      laneOwners.ownerForLane.mockImplementation((cli) =>
+        cli === 'grok' ? grokStore : undefined,
+      );
+      const agentId = await spawnLane('grok');
+
+      sdkControls.emitOutput('error: subscription:free-usage-exhausted\n');
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(manager.getStatus(agentId)).toMatchObject({
+        failureKind: 'quota',
+      });
+      expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+        grokStore,
+        expect.objectContaining({ source: 'error-derived' }),
+      );
+    });
+
+    it('files an OpenCode free-tier hit under the OpenCode store, not the Go subscription', async () => {
+      const goStore = owner('opencode-go', 'cli-store');
+      const openCodeStore = owner('opencode', 'cli-store');
+      laneOwners.ownerForLane.mockImplementation((_cli, model) =>
+        model === 'opencode/' ? openCodeStore : goStore,
+      );
+      const agentId = await spawnLane('opencode', 'opencode-go/kimi-k2');
+
+      sdkControls.emitOutput('Error: Free usage exceeded\n');
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(laneOwners.ownerForLane).toHaveBeenCalledWith(
+        'opencode',
+        'opencode-go/kimi-k2',
+      );
+      expect(manager.getStatus(agentId)).toHaveProperty('quotaOwner', goStore);
+      expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+        openCodeStore,
+        expect.anything(),
+      );
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalledWith(
+        goStore,
+        expect.anything(),
       );
     });
 
@@ -2268,6 +2332,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
           status: 'running',
           quotaOwner: codexAccount,
         });
+        expect(laneOwners.rememberLaneOwner).toHaveBeenLastCalledWith(
+          { cli: 'codex', ptahCliId: undefined },
+          codexAccount,
+        );
       });
 
       it('never overwrites a known owner', async () => {
@@ -3281,6 +3349,120 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(parentOf(matching)).toBe(realSessionId);
       expect(parentOf(other)).toBe('');
+    });
+  });
+
+  /**
+   * TASK_2026_627 Component 7 — an automatic session handover waits for the
+   * source's running lanes, so the manager reports how many are still working.
+   */
+  describe('lane work provider (TASK_2026_627)', () => {
+    type LaneWorkProvider = (ids: {
+      readonly sessionId: string;
+      readonly tabId: string;
+    }) => number;
+
+    const sessionId = '11111111-2222-4333-8444-555555555555';
+    const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-333333333333';
+
+    let dispose: jest.Mock;
+    let coordinator: { setLaneWorkProvider: jest.Mock };
+
+    const managerWithCoordinator = (): AgentProcessManager =>
+      createManager({
+        logger,
+        cliDetection,
+        workspaceProvider: createMockWorkspaceProvider(),
+        reasoningSettings: { effort: { get: reasoningEffortGet } },
+        harnessPreflight: null,
+        mcpServerStatus: { getPort: getMcpPort },
+        handoverCoordinator: coordinator,
+      }).manager;
+
+    const registeredProvider = (): LaneWorkProvider => {
+      expect(coordinator.setLaneWorkProvider).toHaveBeenCalledTimes(1);
+      return coordinator.setLaneWorkProvider.mock.calls[0][0] as LaneWorkProvider;
+    };
+
+    const spawnLane = async (
+      target: AgentProcessManager,
+      parentSessionId: string | undefined,
+    ): Promise<{ agentId: string; controls: MockSdkHandleControls }> => {
+      const controls = createMockSdkHandle();
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);
+      const result = await target.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        parentSessionId,
+      });
+      return { agentId: result.agentId, controls };
+    };
+
+    beforeEach(() => {
+      setupVscodeConfig({ maxConcurrentAgents: 10 });
+      dispose = jest.fn();
+      coordinator = { setLaneWorkProvider: jest.fn(() => dispose) };
+    });
+
+    it('registers nothing when no coordinator is bound', () => {
+      // The suite's default manager is built without one; constructing it
+      // must not throw and there is nothing to register against.
+      expect(manager).toBeInstanceOf(AgentProcessManager);
+      expect(coordinator.setLaneWorkProvider).not.toHaveBeenCalled();
+    });
+
+    it('counts only running lanes whose parent is the session id or its tab id', async () => {
+      const target = managerWithCoordinator();
+      const provider = registeredProvider();
+
+      await spawnLane(target, sessionId);
+      await spawnLane(target, tabId);
+      await spawnLane(target, 'ffffffff-0000-4000-8000-000000000000');
+      await spawnLane(target, undefined);
+      const finished = await spawnLane(target, sessionId);
+
+      finished.controls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(target.getStatus(finished.agentId)).toHaveProperty(
+        'status',
+        'completed',
+      );
+
+      expect(provider({ sessionId, tabId })).toBe(2);
+      expect(
+        provider({
+          sessionId: 'ffffffff-0000-4000-8000-000000000000',
+          tabId: 'ffffffff-0000-4000-8000-000000000000',
+        }),
+      ).toBe(1);
+      expect(
+        provider({
+          sessionId: 'bbbbbbbb-0000-4000-8000-000000000000',
+          tabId: 'cccccccc-0000-4000-8000-000000000000',
+        }),
+      ).toBe(0);
+    });
+
+    it('does not count lanes with no parent when the tab id is empty', async () => {
+      const target = managerWithCoordinator();
+      const provider = registeredProvider();
+
+      await spawnLane(target, '');
+      await spawnLane(target, undefined);
+
+      expect(provider({ sessionId, tabId: '' })).toBe(0);
+    });
+
+    it('unregisters the provider on disposeAll', async () => {
+      const target = managerWithCoordinator();
+      registeredProvider();
+      expect(dispose).not.toHaveBeenCalled();
+
+      await target.disposeAll();
+
+      expect(dispose).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -30,6 +30,8 @@ import type {
  * - Compose ToolCallHeaderComponent, ToolInputDisplayComponent, ToolOutputDisplayComponent
  * - Manage collapse state (default: collapsed)
  * - Toggle collapse on header click
+ * - Escape inside the expanded item collapses it and refocuses the header
+ *   toggle; a pending permission keeps it open (decisions #120(b), #121(b))
  * - Pass ExecutionNode to all child components
  * - Preserve <ng-content /> slot for nested execution nodes
  *
@@ -43,8 +45,8 @@ import type {
  * ToolCallItemComponent (this component)
  *   ├─ ToolCallHeaderComponent
  *   │    ├─ ToolIconComponent (icon + color)
- *   │    ├─ FilePathLinkComponent (clickable file paths)
- *   │    └─ DurationBadgeComponent (duration display)
+ *   │    ├─ DurationBadgeComponent (duration display)
+ *   │    └─ CopyTextButtonComponent ("Copy command")
  *   ├─ ToolInputDisplayComponent
  *   │    └─ ExpandableContentComponent (large content expand/collapse)
  *   └─ ToolOutputDisplayComponent
@@ -55,6 +57,7 @@ import type {
 @Component({
   selector: 'ptah-tool-call-item',
   standalone: true,
+  host: { '(keydown.escape)': 'onEscape($event)' },
   imports: [
     ToolCallHeaderComponent,
     ToolInputDisplayComponent,
@@ -152,6 +155,29 @@ export class ToolCallItemComponent {
    */
   protected toggleCollapse(): void {
     this.isCollapsed.update((val) => !val);
+  }
+
+  /**
+   * Escape, innermost first: an inner expandable (code-output) that already
+   * handled the key marks it `defaultPrevented`, and the item then leaves it
+   * alone. While a permission request is pending the item stays open (the
+   * auto-expand rule wins) but still claims the key, so no enclosing Escape
+   * action (the chat view's overlay close) runs. Otherwise an expanded item
+   * collapses, returns focus to its header toggle and claims the key. A
+   * collapsed item lets the event bubble.
+   */
+  protected onEscape(event: Event): void {
+    if (event.defaultPrevented) return;
+    if (this.permission()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (this.isCollapsed()) return;
+    this.isCollapsed.set(true);
+    this.headerRef()?.focusToggle();
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   /**

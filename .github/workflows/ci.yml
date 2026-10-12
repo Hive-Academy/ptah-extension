@@ -141,6 +141,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
 
+      # `npm ci --ignore-scripts` (setup-ci) skips Electron's binary downloader,
+      # and apps/ptah-electron/src/windows/shell-csp.spec.ts launches real
+      # Electron under xvfb-run.
+      - name: Install Electron binary and xvfb for ptah-electron specs
+        if: contains(format(',{0},', steps.bucket.outputs.projects), ',ptah-electron,')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          node node_modules/electron/install.js
+
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below

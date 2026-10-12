@@ -23,7 +23,6 @@ function makeWorkspace(
   overrides: Partial<Record<string, unknown>> = {},
 ): IWorkspaceProvider {
   const cfg: Record<string, unknown> = {
-    'skillSynthesis.triggers.sessionEnd': true,
     'skillSynthesis.triggers.idleMs': 600000,
     'skillSynthesis.triggers.bootScan': true,
     ...overrides,
@@ -140,7 +139,6 @@ describe('SkillSynthesisDiagnosticsService', () => {
     });
     expect(snap.recentEvents).toHaveLength(1);
     expect(snap.triggers).toMatchObject({
-      sessionEnd: true,
       idleMs: 600000,
       bootScan: true,
       subagentStop: { enabled: true },
@@ -155,14 +153,12 @@ describe('SkillSynthesisDiagnosticsService', () => {
       makeSynthesis({}),
       makeStore(),
       makeWorkspace({
-        'skillSynthesis.triggers.sessionEnd': false,
         'skillSynthesis.triggers.idleMs': 60000,
         'skillSynthesis.triggers.bootScan': false,
       }),
     );
     const snap = await service.getSnapshot('/ws');
     expect(snap.triggers).toMatchObject({
-      sessionEnd: false,
       idleMs: 60000,
       bootScan: false,
     });

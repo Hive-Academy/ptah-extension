@@ -760,11 +760,9 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       ).toBe('Time limit: 120 seconds');
     });
 
-    it('sits in its own table row directly beneath Judging & enhancement', () => {
-      const judgingRow = query(fixture, 'consumer-row-judging-enhancement');
-      expect(judgingRow?.nextElementSibling?.getAttribute('data-testid')).toBe(
-        'enhancement-timeout-section',
-      );
+    it('occupies its own full-width grid slot after the role cards', () => {
+      const timeout = query(fixture, 'enhancement-timeout-section');
+      expect(timeout?.className).toContain('consumer-timeout-section');
     });
 
     it('derives bounds from backend enhanceTimeoutMs rather than inventing range', async () => {
@@ -923,17 +921,20 @@ describe('ProviderConsumerAssignmentsComponent', () => {
   });
 
   describe('6. Role cards, chips and accessibility', () => {
-    it('renders responsive CLI-style surface cards, with the time limit in its own card', () => {
+    it('renders responsive grid cards, with the time limit spanning the grid', () => {
       const roles = query(fixture, 'consumer-table');
       expect(roles?.tagName).toBe('DIV');
       expect(roles?.className).toContain('grid');
+      expect(roles?.className).toContain('consumer-grid');
       const judge = query(fixture, 'consumer-row-judge');
       expect(judge?.tagName).toBe('ARTICLE');
       expect(judge?.className).toContain('surface-2');
       expect(judge?.className).toContain('rounded-lg');
+      expect(judge?.className).toContain('flex-col');
       const timeout = query(fixture, 'enhancement-timeout-section');
       expect(timeout?.tagName).toBe('SECTION');
       expect(timeout?.className).toContain('surface-2');
+      expect(timeout?.className).toContain('consumer-timeout-section');
     });
 
     it('shows "Follows main agent →" for a role without its own provider, and "{provider} · {model}" otherwise', () => {
@@ -971,6 +972,7 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       const label = query(fixture, 'consumer-summary-archaeologist');
       expect(label?.className).toContain('truncate');
       expect(cell?.querySelector('ptah-provider-mark')).toBeTruthy();
+      expect(cell?.className).toContain('w-full');
       expect(
         button(fixture, 'consumer-edit-synthesis')?.getAttribute('title'),
       ).toBe('anthropic · claude-3-5-sonnet');

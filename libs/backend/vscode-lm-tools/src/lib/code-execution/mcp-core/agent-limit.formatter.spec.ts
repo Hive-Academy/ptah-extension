@@ -13,10 +13,12 @@ import {
   findAgentLimit,
   formatAlternatives,
   formatLimitColumn,
+  formatPlanLimitRows,
   formatPlanLimitsSection,
   formatSpawnLimitBlock,
   spawnRequestTarget,
   targetRowKey,
+  unknownCause,
   type AgentLimit,
 } from './agent-limit.formatter';
 
@@ -266,7 +268,9 @@ describe('agent limit formatter (TASK_2026_596 Batch 14)', () => {
       cliRow('codex'),
       snapshot({ status: 'stale', windows: [FIVE_HOUR_ROOM] }),
     );
-    expect(formatLimitColumn(aged, NOW)).toBe('unknown (aged value)');
+    expect(formatLimitColumn(aged, NOW)).toBe(
+      'unknown (reader failed, aged value)',
+    );
     const partial = lane(
       cliRow('copilot'),
       snapshot({ windowSetEstablished: false, windows: [FIVE_HOUR_ROOM] }),
@@ -457,7 +461,7 @@ describe('agent limit formatter (TASK_2026_596 Batch 14)', () => {
       NOW,
     );
     expect(block).toContain(
-      '**Limit state:** unknown (cooldown active until 2026-10-03 12:01 UTC)',
+      '**Limit state:** AT LIMIT (cooldown, retry after 2026-10-03 12:01 UTC)',
     );
     expect(block).toContain(
       '**Cooldown:** retrying after 2026-10-03 12:01 UTC (in 1m). This is a retry delay, not a plan reset.',
@@ -539,5 +543,259 @@ describe('limit column and spawn block: unknown and at-limit variants', () => {
     expect(block).toContain('The spawn was still attempted.');
     expect(block).toContain('### Alternatives by limit state');
     expect(block).toContain('**Confirmed room:**\n- codex:');
+  });
+});
+
+describe('formatPlanLimitRows: one implementation for the list and $limits (TASK_2026_623 R10.2)', () => {
+  const PLAN_LIMITS_HEADER =
+    '### Plan limits\n\n| Agent | Window | Used | State | Reset | Source |\n| --- | --- | --- | --- | --- | --- |';
+
+  /** The body rows of `formatPlanLimitsSection`, split back into cells. */
+  function sectionRows(limits: readonly AgentLimit[]): string[][] {
+    const section = formatPlanLimitsSection(limits, NOW);
+    expect(section.startsWith(`${PLAN_LIMITS_HEADER}\n`)).toBe(true);
+    return section
+      .slice(PLAN_LIMITS_HEADER.length + 1)
+      .split('\n')
+      .map((line) => line.slice('| '.length, -' |'.length).split(' | '));
+  }
+
+  /** R10.2: the first five cells per row equal the list's, in list order. */
+  function expectListEquivalent(limits: readonly AgentLimit[]): string[][] {
+    const rows = formatPlanLimitRows(limits, NOW);
+    expect(rows.map((cells) => cells.slice(0, 5))).toEqual(
+      sectionRows(limits).map((cells) => cells.slice(0, 5)),
+    );
+    for (const cells of rows) {
+      expect(cells).toHaveLength(6);
+      for (const cell of cells) expect(cell).not.toBe('');
+    }
+    return rows;
+  }
+
+  const RESET_PASSED_WINDOW: PlanLimitWindow = {
+    key: 'five_hour',
+    kind: 'five_hour',
+    label: '5-hour session',
+    used: { kind: 'percent', percent: 70 },
+    usedSource: 'provider-api',
+    resetsAt: NOW - 10 * MIN,
+    resetSource: 'provider-api',
+    lastResetAt: NOW - 5 * HOUR - 10 * MIN,
+    observedAt: NOW - 30 * MIN,
+  };
+
+  it('keeps the list section byte-identical to its own rows', () => {
+    const body = formatPlanLimitRows(ROSTER, NOW)
+      .map((cells) => `| ${cells.join(' | ')} |`)
+      .join('\n');
+    expect(formatPlanLimitsSection(ROSTER, NOW)).toBe(
+      `${PLAN_LIMITS_HEADER}\n${body}`,
+    );
+    expect(formatPlanLimitsSection(ROSTER, NOW)).toBe(
+      [
+        PLAN_LIMITS_HEADER,
+        '| copilot | 5-hour session | 94% | near limit | resets 2026-10-03 15:10 UTC (in 3h 10m) | provider-api |',
+        '| copilot | Weekly · Opus | 100% | LIMIT REACHED | resets 2026-10-05 09:00 UTC (in 1d 21h) | used+reset provider-api; limit error-derived |',
+        '| codex | 5-hour session | 38% | ok | resets 2026-10-03 16:40 UTC (in 4h 40m) | provider-api |',
+        '| codex | Weekly | 12% | ok | resets 2026-10-09 07:30 UTC (in 5d 19h) | provider-api |',
+        '| antigravity | 5-hour session | 57% | not confirmed (last reset unknown) | resets 2026-10-03 17:00 UTC (in 5h 0m) | used provider-unofficial; reset estimated |',
+        '| antigravity | Weekly | unknown | unknown | reset unknown | - |',
+        '| opencode | (none) | no usage source | AT LIMIT (owner level, window unknown) | reset unknown | error-derived |',
+        '| Glm | (none) | unknown | limit lookup timed out | - | - |',
+      ].join('\n'),
+    );
+  });
+
+  it('returns no rows for no lanes, as the list prints an empty table', () => {
+    expect(formatPlanLimitRows([], NOW)).toEqual([]);
+    expect(formatPlanLimitsSection([], NOW)).toBe(PLAN_LIMITS_HEADER);
+  });
+
+  it('a lane with two windows gives two rows', () => {
+    const rows = expectListEquivalent([roomLane]);
+    expect(rows.map((cells) => cells.slice(0, 5))).toEqual([
+      [
+        'codex',
+        '5-hour session',
+        '38%',
+        'ok',
+        'resets 2026-10-03 16:40 UTC (in 4h 40m)',
+      ],
+      [
+        'codex',
+        'Weekly',
+        '12%',
+        'ok',
+        'resets 2026-10-09 07:30 UTC (in 5d 19h)',
+      ],
+    ]);
+  });
+
+  it('a lane with no windows and no usage source reads (none), no usage source, unknown', () => {
+    const noSource = lane(
+      cliRow('codex'),
+      snapshot({ status: 'no-usage-source' }),
+    );
+    expect(expectListEquivalent([noSource])).toEqual([
+      ['codex', '(none)', 'no usage source', 'unknown', '-', '-'],
+    ]);
+  });
+
+  it('an owner-level limit with no window reads AT LIMIT (owner level, window unknown)', () => {
+    expect(expectListEquivalent([ownerLevelLane])).toEqual([
+      [
+        'opencode',
+        '(none)',
+        'no usage source',
+        'AT LIMIT (owner level, window unknown)',
+        'reset unknown',
+        'error-derived',
+      ],
+    ]);
+  });
+
+  it('a reset-usage-unknown window reads used unknown, never the stale percent', () => {
+    const resetPassed = lane(
+      cliRow('codex'),
+      snapshot({ windows: [RESET_PASSED_WINDOW] }),
+    );
+    expect(resetPassed.state.windows[0]?.state).toBe('reset-usage-unknown');
+    const rows = expectListEquivalent([resetPassed]);
+    expect(rows).toHaveLength(1);
+    const row = rows[0] ?? [];
+    expect(row.slice(0, 4)).toEqual([
+      'codex',
+      '5-hour session',
+      'unknown',
+      'reset passed, usage unknown',
+    ]);
+    expect(row.join(' ')).not.toContain('70%');
+  });
+
+  it('a failed and a timed-out lookup read limit lookup failed / timed out', () => {
+    const failed = lane(cliRow('codex'), undefined, {
+      lookupFailure: 'failed',
+    });
+    expect(expectListEquivalent([failed, timedOutLane])).toEqual([
+      ['codex', '(none)', 'unknown', 'limit lookup failed', '-', '-'],
+      ['Glm', '(none)', 'unknown', 'limit lookup timed out', '-', '-'],
+    ]);
+  });
+
+  it('a Ptah CLI lane uses its name, or Unknown without one', () => {
+    const named = lane(ptahCliRow('glm-1', 'Glm'), undefined, {
+      lookupFailure: 'failed',
+    });
+    const nameless = lane(
+      {
+        cli: 'ptah-cli',
+        installed: true,
+        messagingMode: 'queue',
+        ptahCliId: 'nameless-1',
+      },
+      undefined,
+      { lookupFailure: 'failed' },
+    );
+    const rows = expectListEquivalent([named, nameless]);
+    expect(rows.map((cells) => cells[0])).toEqual(['Glm', 'Unknown']);
+    expect(rows.flat().join(' ')).not.toContain('nameless-1');
+  });
+
+  it('keeps list order across a mixed roster', () => {
+    expect(expectListEquivalent(ROSTER)).toHaveLength(8);
+  });
+});
+
+describe('unknown causes and the gate-aware spawn block (cli-lane-limits)', () => {
+  function withSnapshot(overrides: Partial<PlanLimitOwnerSnapshot>): AgentLimit {
+    return lane(cliRow('codex'), snapshot({ windows: [], ...overrides }));
+  }
+
+  it.each([
+    [{ status: 'no-usage-source' as const }, 'no usage source'],
+    [
+      {
+        status: 'service-unavailable' as const,
+        unavailableReason: 'no-open-session' as const,
+      },
+      'no open session',
+    ],
+    [{ status: 'service-unavailable' as const }, 'reader failed'],
+    [{ status: 'stale' as const }, 'reader failed, aged value'],
+    [{ status: 'provider-unsupported' as const }, 'no reader for provider'],
+    [{ status: 'unsupported-config' as const }, 'credential missing'],
+    [{ status: 'unsupported-auth' as const }, 'API key, no plan'],
+    [{ status: 'cli-unavailable' as const }, 'cli unavailable'],
+  ])('names the cause of %o', (overrides, cause) => {
+    const limit = withSnapshot(overrides);
+    expect(limit.state.state).toBe('unknown');
+    expect(unknownCause(limit)).toBe(cause);
+    expect(formatLimitColumn(limit, NOW)).toBe(`unknown (${cause})`);
+  });
+
+  it('says limits are not tracked for a lane with no owner', () => {
+    const untracked: AgentLimit = {
+      ...lane(cliRow('cursor'), undefined),
+      lookup: 'no-owner',
+    };
+    expect(formatLimitColumn(untracked, NOW)).toBe(
+      'unknown (limits not tracked)',
+    );
+    expect(formatAlternatives([untracked], { now: NOW })).toContain(
+      '- cursor: limits not tracked, no limit recorded',
+    );
+  });
+
+  it('adds the unknown note to a spawn on an unknown lane', () => {
+    const untracked: AgentLimit = {
+      ...lane(cliRow('cursor'), undefined),
+      lookup: 'no-owner',
+    };
+    expect(
+      formatSpawnLimitBlock([untracked], { cli: 'cursor' }, false, NOW),
+    ).toContain(
+      '> Note: limit state unknown (limits not tracked); spawned without a limit check.',
+    );
+    expect(
+      formatSpawnLimitBlock([timedOutLane], timedOutLane.row, true, NOW),
+    ).toContain(
+      '> Note: limit state unknown (limit lookup timed out); attempted without a limit check.',
+    );
+  });
+
+  it('never adds the unknown note to a lane with confirmed room', () => {
+    expect(
+      formatSpawnLimitBlock([roomLane], { cli: 'codex' }, false, NOW),
+    ).not.toContain('> Note: limit state unknown');
+  });
+
+  it('says a forced spawn passed the gate', () => {
+    const block = formatSpawnLimitBlock(
+      [atLimitLane],
+      { cli: 'copilot' },
+      false,
+      NOW,
+      { forced: true },
+    );
+    expect(block).toContain('The spawn was forced past the limit gate.');
+    expect(block).not.toContain('The spawn was still started.');
+  });
+
+  it('warns on a forced spawn past a cooldown', () => {
+    const cooling = lane(
+      cliRow('codex'),
+      snapshot({
+        windows: [FIVE_HOUR_ROOM],
+        cooldown: { until: NOW + MIN, observedAt: NOW - MIN },
+      }),
+    );
+    expect(
+      formatSpawnLimitBlock([cooling], { cli: 'codex' }, false, NOW, {
+        forced: true,
+      }),
+    ).toContain(
+      '> WARNING: codex is in a cooldown, a retry delay. The spawn was forced past the limit gate.',
+    );
   });
 });

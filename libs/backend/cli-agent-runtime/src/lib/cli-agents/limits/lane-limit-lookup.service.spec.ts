@@ -3,7 +3,8 @@
  *
  * One slow reader costs only its own lane ("limit lookup timed out"); a
  * throwing read is `failed`; the lookup never rejects; a run's recorded owner
- * wins over the lane rule; the lane's model scope narrows the owner's limits.
+ * wins over the lane rule; the lane's model scope narrows the owner's limits;
+ * a Ptah CLI lane without an owner rule reads the owner its last run carried.
  */
 import 'reflect-metadata';
 import { createMockLogger } from '@ptah-extension/shared/testing';
@@ -13,7 +14,10 @@ import type {
   PlanLimitWindow,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
-import type { PlanOwnerTarget } from '@ptah-extension/auth-providers';
+import type {
+  PlanLimitLedgerOwnerSnapshot,
+  PlanOwnerTarget,
+} from '@ptah-extension/auth-providers';
 import {
   LaneLimitLookupService,
   type LaneLimitLedger,
@@ -65,7 +69,7 @@ function createHarness(
   ) => Promise<PlanLimitOwnerSnapshot>,
 ): Harness {
   const rules = {
-    ownerForLane: jest.fn((cli: string) =>
+    resolveOwnerForLane: jest.fn(async (cli: string) =>
       cli === 'codex'
         ? CODEX
         : cli === 'opencode'
@@ -75,10 +79,13 @@ function createHarness(
             : undefined,
     ),
     ownerForPtahCliKey: jest.fn(async () => OLLAMA),
+    lastLaneOwner: jest.fn(() => undefined),
   } as unknown as jest.Mocked<LaneLimitOwnerRules>;
   const snapshots = { getOwnerSnapshot: jest.fn(getOwnerSnapshot) };
   const ledger = {
-    snapshotFor: jest.fn(() => undefined),
+    snapshotFor: jest.fn(
+      (): PlanLimitLedgerOwnerSnapshot | undefined => undefined,
+    ),
   } as unknown as jest.Mocked<LaneLimitLedger>;
   const service = new LaneLimitLookupService(
     createMockLogger() as unknown as Logger,
@@ -111,9 +118,9 @@ describe('LaneLimitLookupService', () => {
       { cli: 'opencode' as const },
     ]);
     // The fast lanes settle on their own; only then does the deadline pass.
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
     jest.advanceTimersByTime(2_999);
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
     jest.advanceTimersByTime(1);
     const results = await pending;
 
@@ -173,9 +180,7 @@ describe('LaneLimitLookupService', () => {
     const { service, rules } = createHarness(async (target) =>
       snapshot(target.ownerRef),
     );
-    rules.ownerForLane.mockImplementation(() => {
-      throw new Error('store unreadable');
-    });
+    rules.resolveOwnerForLane.mockRejectedValue(new Error('store unreadable'));
 
     const [result] = await service.lookup([{ cli: 'codex' as const }]);
 
@@ -230,7 +235,8 @@ describe('LaneLimitLookupService', () => {
       { cli: 'ptah-cli' as const, ptahCliId: 'pc-1', quotaOwner: CLAUDE_RUN },
     ]);
 
-    expect(rules.ownerForLane).not.toHaveBeenCalled();
+    expect(rules.resolveOwnerForLane).not.toHaveBeenCalled();
+    expect(rules.lastLaneOwner).not.toHaveBeenCalled();
     expect(snapshots.getOwnerSnapshot).not.toHaveBeenCalled();
     expect(ledger.snapshotFor).toHaveBeenCalledWith(CLAUDE_RUN.key);
     expect(result.owner).toEqual(CLAUDE_RUN);
@@ -275,6 +281,77 @@ describe('LaneLimitLookupService', () => {
     expect(sonnet.state.windows).toEqual([]);
   });
 
+  it("resolves a system lane's owner asynchronously and passes the spawn model", async () => {
+    const { service, rules } = createHarness(async (target) =>
+      snapshot(target.ownerRef),
+    );
+
+    const [codex, opencode] = await service.lookup([
+      { cli: 'codex' as const },
+      { cli: 'opencode' as const, model: 'opencode-go/kimi-k2' },
+    ]);
+
+    expect(rules.resolveOwnerForLane).toHaveBeenCalledWith('codex', undefined);
+    expect(rules.resolveOwnerForLane).toHaveBeenCalledWith(
+      'opencode',
+      'opencode-go/kimi-k2',
+    );
+    expect(codex.owner).toEqual(CODEX);
+    expect(opencode.owner).toEqual(OPENCODE);
+  });
+
+  it('a Ptah CLI Claude lane reads the remembered owner and its exhausted ledger window', async () => {
+    const now = Date.now();
+    const fiveHourHit: PlanLimitWindow = {
+      key: 'five_hour',
+      kind: 'five_hour',
+      label: '5-hour',
+      resetsAt: now + 3_600_000,
+      resetSource: 'error-derived',
+      exhaustion: {
+        observedAt: now - 1_000,
+        source: 'error-derived',
+        resetsAt: now + 3_600_000,
+        resetSource: 'error-derived',
+      },
+      observedAt: now - 1_000,
+    };
+    const { service, rules, snapshots, ledger } = createHarness(async (t) =>
+      snapshot(t.ownerRef),
+    );
+    rules.lastLaneOwner.mockReturnValue(CLAUDE_RUN);
+    ledger.snapshotFor.mockReturnValue({
+      owner: CLAUDE_RUN,
+      windows: [fiveHourHit],
+      ownerEvidence: [],
+    });
+
+    const [result] = await service.lookup([
+      { cli: 'ptah-cli' as const, ptahCliId: 'pc-claude' },
+    ]);
+
+    expect(rules.lastLaneOwner).toHaveBeenCalledWith({
+      cli: 'ptah-cli',
+      ptahCliId: 'pc-claude',
+    });
+    expect(snapshots.getOwnerSnapshot).not.toHaveBeenCalled();
+    expect(result.lookup).toBe('ok');
+    expect(result.owner).toEqual(CLAUDE_RUN);
+    expect(result.snapshot?.windows).toEqual([fiveHourHit]);
+    expect(result.state.state).toBe('at-limit');
+  });
+
+  it('a Ptah CLI lane with no remembered owner has no owner', async () => {
+    const { service, rules } = createHarness(async (t) => snapshot(t.ownerRef));
+
+    const [result] = await service.lookup([
+      { cli: 'ptah-cli' as const, ptahCliId: 'pc-other', providerId: 'x' },
+    ]);
+
+    expect(rules.ownerForPtahCliKey).not.toHaveBeenCalled();
+    expect(result.lookup).toBe('no-owner');
+  });
+
   it("a caller's abort ends the lanes still waiting as `failed`", async () => {
     const { service } = createHarness(() => new Promise(() => undefined));
     const controller = new AbortController();
@@ -287,6 +364,48 @@ describe('LaneLimitLookupService', () => {
     await expect(pending).resolves.toEqual([
       expect.objectContaining({ lookup: 'failed' }),
     ]);
+  });
+
+  it('never forwards `refresh` to the plan-usage caches when called as `agent.limits(rows)` calls it', async () => {
+    const { service, snapshots, ledger } = createHarness(async (target) =>
+      snapshot(target.ownerRef),
+    );
+
+    // `ptah_agent_list` / `agent.limits(rows)` call `getLaneLimits(rows)`:
+    // rows only, no options object.
+    const results = await service.lookup([
+      { cli: 'codex' as const },
+      { cli: 'opencode' as const },
+      { cli: 'antigravity' as const },
+      {
+        cli: 'ptah-cli' as const,
+        ptahCliId: 'pc-glm',
+        providerId: 'ollama-cloud',
+      },
+      { cli: 'ptah-cli' as const, ptahCliId: 'pc-1', quotaOwner: CLAUDE_RUN },
+      { cli: 'copilot' as const },
+    ]);
+
+    expect(results.map((r) => r.lookup)).toEqual([
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      'no-owner',
+    ]);
+    expect(snapshots.getOwnerSnapshot).toHaveBeenCalledTimes(4);
+    for (const [target, options] of snapshots.getOwnerSnapshot.mock.calls) {
+      // Exactly the cancellation signal: no `refresh` key at all, so the
+      // reader's 30 s cache is honoured and no forced re-read happens.
+      expect(Object.keys(options)).toEqual(['signal']);
+      expect(options).not.toHaveProperty('refresh');
+      expect(target).not.toHaveProperty('refresh');
+    }
+    // The recorded-owner lane reads the ledger by key alone.
+    expect(ledger.snapshotFor).toHaveBeenCalledTimes(1);
+    expect(ledger.snapshotFor).toHaveBeenCalledWith(CLAUDE_RUN.key);
+    expect(ledger.snapshotFor.mock.calls[0]).toHaveLength(1);
   });
 
   it('returns nothing for no rows', async () => {

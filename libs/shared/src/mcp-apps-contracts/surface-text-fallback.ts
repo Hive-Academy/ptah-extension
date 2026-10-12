@@ -13,12 +13,42 @@ import {
 } from './surface-bindings';
 import { SURFACE_LIMITS } from './surface-catalog';
 import { readSurfacePath } from './surface-data-model';
-import type { SurfaceComponent, SurfaceStateView } from './surface.types';
+import type {
+  SurfaceComponent,
+  SurfaceStatComponent,
+  SurfaceStateView,
+} from './surface.types';
+
+/**
+ * dashboard-catalog/4 stat additions, appended after the v1 stat line so a
+ * `/3` stat (which never carries them) renders exactly as before. Direction is
+ * spelled out and the spark is summarised, never listed point by point.
+ */
+function renderStatExtras(component: SurfaceStatComponent): string {
+  let text = '';
+  const trend = component.trend;
+  if (trend !== undefined) {
+    const amount = `${trend.amount}${trend.percent ? '%' : ''}`;
+    const polarity = trend.polarity === undefined ? '' : ` (${trend.polarity})`;
+    text += `; trend ${trend.direction} ${amount}${polarity}`;
+  }
+  const spark = component.spark;
+  if (spark !== undefined && spark.length > 0) {
+    const first = spark[0];
+    const last = spark[spark.length - 1];
+    text += `; spark ${spark.length} points from ${first} to ${last} (low ${Math.min(...spark)}, high ${Math.max(...spark)})`;
+  }
+  return text;
+}
 
 function renderDisplay(component: SurfaceComponent): string {
   switch (component.kind) {
     case 'stat':
-      return renderStat(component) ?? '';
+      return (renderStat(component) ?? '') + renderStatExtras(component);
+    case 'avatar':
+      return component.subtitle
+        ? `Avatar: ${component.name} — ${component.subtitle}`
+        : `Avatar: ${component.name}`;
     case 'table':
       return renderTable(component);
     case 'list':

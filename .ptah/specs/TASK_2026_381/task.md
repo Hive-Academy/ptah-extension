@@ -1,21 +1,20 @@
 ---
 id: TASK_2026_381
-status: in_review
+status: done
 type: REFACTORING
 title: >-
   Bound renderer memory: virtualize the chat transcript and cap the
   streamingState retained on finalized messages
 depends_on: []
 created: '2026-09-06T02:00:00.000Z'
-updated: '2026-09-06T02:00:00.000Z'
+updated: '2026-10-10T18:19:08.099Z'
 description: >-
   A single Electron window with one live session holds 2474 MB private in the
   renderer process. The transcript renders every message through one unbounded
   `@for` with no virtualization, and every finalized ExecutionChatMessage
-  retains its full streamingState execution tree including whole tool inputs
-  and outputs. The agent-monitor path is already capped
-  (agent-output-retention.ts); the tab transcript is the one uncapped surface.
-  Bound both.
+  retains its full streamingState execution tree including whole tool inputs and
+  outputs. The agent-monitor path is already capped (agent-output-retention.ts);
+  the tab transcript is the one uncapped surface. Bound both.
 executor: software-architect
 estimate: L
 labels:

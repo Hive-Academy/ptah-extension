@@ -8,9 +8,19 @@ import {
   effect,
   untracked,
 } from '@angular/core';
-import { LucideAngularModule, ArrowLeft, Sparkles, Key, Cpu, Globe } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  ArrowLeft,
+  Plug,
+  Workflow,
+  SlidersHorizontal,
+  AudioLines,
+} from 'lucide-angular';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
-import { ProvidersSettingsComponent, type ProvidersSettingsFocusTarget } from './providers/providers-settings.component';
+import {
+  ProvidersSettingsComponent,
+  type ProvidersSettingsFocusTarget,
+} from './providers/providers-settings.component';
 import { ProvidersModelsLoader } from './providers/providers-models-loader.service';
 import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
 import { SettingsToastComponent } from './feedback/settings-toast.component';
@@ -30,17 +40,33 @@ import {
 
 type PendingSection = NonNullable<PendingSettingsTab['section']>;
 
-const PROVIDERS_SECTIONS: ReadonlySet<string> = new Set<ProvidersSettingsFocusTarget>([
-  'main-agent', 'main-model', 'main-effort', 'connections', 'more-providers',
-]);
-const ORCHESTRATION_SECTIONS: ReadonlySet<string> = new Set<OrchestrationSettingsFocusTarget>([
-  'background-models', 'cli-agents',
-  'memory-curator', 'archaeologist', 'synthesis', 'judge', 'replay', 'judging-enhancement',
-]);
+const PROVIDERS_SECTIONS: ReadonlySet<string> =
+  new Set<ProvidersSettingsFocusTarget>([
+    'main-agent',
+    'main-model',
+    'main-effort',
+    'connections',
+    'more-providers',
+  ]);
+const ORCHESTRATION_SECTIONS: ReadonlySet<string> =
+  new Set<OrchestrationSettingsFocusTarget>([
+    'background-models',
+    'cli-agents',
+    'memory-curator',
+    'archaeologist',
+    'synthesis',
+    'judge',
+    'replay',
+    'judging-enhancement',
+  ]);
 
-const isProvidersSection = (section: PendingSection | undefined): section is ProvidersSettingsFocusTarget =>
+const isProvidersSection = (
+  section: PendingSection | undefined,
+): section is ProvidersSettingsFocusTarget =>
   section !== undefined && PROVIDERS_SECTIONS.has(section);
-const isOrchestrationSection = (section: PendingSection | undefined): section is OrchestrationSettingsFocusTarget =>
+const isOrchestrationSection = (
+  section: PendingSection | undefined,
+): section is OrchestrationSettingsFocusTarget =>
   section !== undefined && ORCHESTRATION_SECTIONS.has(section);
 
 /**
@@ -90,6 +116,62 @@ const isOrchestrationSection = (section: PendingSection | undefined): section is
     { provide: PROVIDER_MODELS_LOADER, useClass: ProvidersModelsLoader },
   ],
   templateUrl: './settings.component.html',
+  // Card-tab layout follows the header's own width (a VS Code sidebar can be ~300 px), not the
+  // viewport: one row of four from 46rem (the widest label fits on one line), a 2x2 grid below,
+  // icon-only tiles below 18rem (the label stays in the accessible name and title).
+  styles: `
+    .settings-header {
+      display: block;
+      container-type: inline-size;
+    }
+    .settings-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.375rem;
+    }
+    .settings-tab:not(.tab-active):hover {
+      background: var(--surface-3);
+      color: oklch(var(--bc));
+    }
+    /* One row from 36rem: the Electron page beside its sidebar (~42rem) must keep one row, because a 2x2 bar pushes
+       the Orchestration roles summary below the 660 px fold. */
+    @container (min-width: 36rem) {
+      .settings-tabs {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .settings-tab-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+    /* Tighter tiles until 46rem, so "Agent Orchestration" fits a quarter of ~42rem without an ellipsis. */
+    @container (min-width: 36rem) and (max-width: 45.99rem) {
+      .settings-tab {
+        padding-inline: 0.375rem;
+        gap: 0.375rem;
+      }
+    }
+    @container (max-width: 17.99rem) {
+      .settings-tabs {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .settings-tab {
+        padding-inline: 0;
+      }
+      .settings-tab-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border-width: 0;
+      }
+    }
+  `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsComponent implements OnInit {
@@ -98,16 +180,20 @@ export class SettingsComponent implements OnInit {
   private readonly providersState = inject(ProvidersSettingsStateService);
   readonly authState = inject(AuthStateService);
   readonly ArrowLeftIcon = ArrowLeft;
-  readonly SparklesIcon = Sparkles;
-  readonly KeyIcon = Key;
-  readonly CpuIcon = Cpu;
-  readonly GlobeIcon = Globe;
+  /** Card tabs, in order. Each label is the button's exact accessible name (live-app scripts use it). */
+  readonly settingsTabs = [
+    { id: 'claude-auth', label: 'Providers', icon: Plug },
+    { id: 'orchestration', label: 'Agent Orchestration', icon: Workflow },
+    { id: 'pro-features', label: 'Advanced', icon: SlidersHorizontal },
+    { id: 'tools', label: 'Search & Voice', icon: AudioLines },
+  ] as const;
   readonly activeSettingsTab = signal<
     'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
 
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
-  readonly orchestrationTarget = signal<OrchestrationSettingsFocusTarget | null>(null);
+  readonly orchestrationTarget =
+    signal<OrchestrationSettingsFocusTarget | null>(null);
 
   /**
    * Provider id carried by a deep-link into the settings page (e.g. the
@@ -120,7 +206,9 @@ export class SettingsComponent implements OnInit {
   /** Header "App: …" label. */
   readonly appLabel = this.isElectron ? 'Desktop' : 'VS Code';
   /** Header workspace path (full, for `title`); null until setting sources load or with no folder open. */
-  readonly workspacePath = computed(() => this.providersState.scopes().data?.activePath ?? null);
+  readonly workspacePath = computed(
+    () => this.providersState.scopes().data?.activePath ?? null,
+  );
   readonly workspaceName = computed(
     () => this.workspacePath()?.split(/[\\/]/).filter(Boolean).pop() ?? null,
   );
@@ -133,7 +221,8 @@ export class SettingsComponent implements OnInit {
     // A request raised while Settings is already open (e.g. Agent Orchestration's
     // "Manage ... in Providers") never re-runs ngOnInit, so react to it here.
     effect(() => {
-      if (this.appState.pendingSettingsTab()) untracked(() => this.applyPendingTab());
+      if (this.appState.pendingSettingsTab())
+        untracked(() => this.applyPendingTab());
     });
   }
 
@@ -148,7 +237,8 @@ export class SettingsComponent implements OnInit {
    * the Providers tab does not reopen it.
    */
   consumeRequestedProvider(providerId: string): void {
-    if (this.requestedProviderId() === providerId) this.requestedProviderId.set(undefined);
+    if (this.requestedProviderId() === providerId)
+      this.requestedProviderId.set(undefined);
   }
 
   /**
@@ -179,7 +269,8 @@ export class SettingsComponent implements OnInit {
    * Switch active settings tab
    */
   setActiveTab(
-    tab: 'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
+    tab:
+      'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
   ): void {
     const next = tab === 'providers' ? 'claude-auth' : tab;
     if (next !== this.activeSettingsTab()) {

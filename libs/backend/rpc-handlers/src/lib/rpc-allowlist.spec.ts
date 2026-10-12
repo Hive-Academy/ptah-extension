@@ -150,3 +150,22 @@ describe('session:budgetAction registration (TASK_2026_597 N7)', () => {
     expect(ALLOWED_METHOD_PREFIXES).toContain('session:');
   });
 });
+
+describe('session handover registration', () => {
+  const methods = [
+    'session:beginHandover',
+    'session:cancelHandover',
+    'session:successorBound',
+  ];
+
+  it.each(methods)('%s is in the shared RPC registry', (method) => {
+    expect(RPC_METHOD_NAMES).toContain(method);
+  });
+
+  it.each(methods)('%s has the sessionHandover manifest owner', (method) => {
+    const owners = RPC_HANDLER_MANIFEST.filter((entry) =>
+      (entry.methods as readonly string[]).includes(method),
+    );
+    expect(owners.map((entry) => entry.key)).toEqual(['sessionHandover']);
+  });
+});

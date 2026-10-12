@@ -18,6 +18,7 @@ import {
 import {
   DASHBOARD_CONTRACT_VERSION_PAIRS,
   SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
   SURFACE_COMPONENT_KINDS,
   SURFACE_DISPLAY_KINDS,
   SURFACE_HOST_SUPPORTED_ACTIONS,
@@ -44,6 +45,7 @@ import type { SurfacePatchOp, SurfaceUpdateInput } from './surface.types';
 describe('surface catalog and version separation', () => {
   it('extends the display vocabulary and budgets without widening the v1 lists', () => {
     expect(SURFACE_CATALOG_VERSION).toBe('dashboard-catalog/3');
+    expect(SURFACE_CATALOG_VERSION_4).toBe('dashboard-catalog/4');
     expect(
       SURFACE_DISPLAY_KINDS.slice(0, DASHBOARD_COMPONENT_KINDS.length),
     ).toEqual(DASHBOARD_COMPONENT_KINDS);
@@ -74,6 +76,7 @@ describe('surface catalog and version separation', () => {
     expect(DASHBOARD_CONTRACT_VERSION_PAIRS).toEqual([
       ['dashboard-spec/1', 'dashboard-catalog/1'],
       ['dashboard-spec/2', SURFACE_CATALOG_VERSION],
+      ['dashboard-spec/2', SURFACE_CATALOG_VERSION_4],
     ]);
     expect(SURFACE_HOST_SUPPORTED_ACTIONS).toEqual([
       'surface.submit',

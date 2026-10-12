@@ -16,7 +16,6 @@ import {
   ProvidersSettingsStateService,
 } from '@ptah-extension/core';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
-import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
@@ -62,7 +61,6 @@ const FOCUS =
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     LucideAngularModule,
-    AgentOrchestrationConfigComponent,
     CliOrchestrationMatrixComponent,
     ProviderConsumerAssignmentsComponent,
     SubagentCacheTtlSettingComponent,
@@ -72,8 +70,6 @@ const FOCUS =
   ],
   template: `
     <div class="flex flex-col gap-4 font-sans text-sm text-base-content">
-      <ptah-agent-orchestration-config />
-
       <!-- Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
       @defer (on immediate) {
         <ptah-cli-orchestration-matrix #cliMatrix />
@@ -82,17 +78,6 @@ const FOCUS =
           class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40"
           aria-busy="true"
           data-testid="cli-matrix-placeholder"
-        ></div>
-      }
-
-      <!-- Subagent prompt-cache TTL (TASK_2026_597 N1): its own chunk, loaded when scrolled into view. -->
-      @defer (on viewport) {
-        <ptah-subagent-cache-ttl-setting />
-      } @placeholder {
-        <div
-          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
-          aria-busy="true"
-          data-testid="subagent-cache-ttl-placeholder"
         ></div>
       }
 
@@ -181,6 +166,19 @@ const FOCUS =
           </section>
         </details>
       </ptah-surface-section>
+
+      <!-- Subagent prompt-cache TTL (TASK_2026_597 N1): its own chunk, loaded when scrolled into view. Like the
+           session budget below, it sits after the background roles so it cannot push the roles summary past the
+           660 px Orchestration fold. -->
+      @defer (on viewport) {
+        <ptah-subagent-cache-ttl-setting />
+      } @placeholder {
+        <div
+          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+          aria-busy="true"
+          data-testid="subagent-cache-ttl-placeholder"
+        ></div>
+      }
 
       <!-- Session budget (TASK_2026_597 N7): its own chunk, loaded when scrolled into view. It sits after the
            background roles — below the Orchestration fold content (Batch 36: the roles summary ends within the

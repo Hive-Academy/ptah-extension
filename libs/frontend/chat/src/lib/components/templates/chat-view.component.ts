@@ -24,6 +24,11 @@ import {
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
+// Referenced only in `imports` and inside `@defer (when panelOpen())`, so the
+// dock and the lazy `chat-ui/display-panel` entry it imports stay out of the
+// eager chunk (decisions #84, #89, #107).
+import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
+import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { BackgroundAgentTrayComponent } from '../organisms/background-agent-tray.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import {
@@ -34,6 +39,8 @@ import {
   CompactionMarkerComponent,
   SidebarTabComponent,
   StatsTileExpansionState,
+  PTAH_UI_DISPLAY_DOCK,
+  PTAH_UI_DISPLAY_DOCK_SYNC,
   buildStatsLimitViewModel,
   type StatsLimitLaneRun,
   type StatsLimitViewModel,
@@ -47,6 +54,7 @@ import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/age
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
+import { SessionHandoverClientService } from '../../services/session-handover-client.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -76,9 +84,10 @@ import {
   AuthStateService,
   PlanLimitsStore,
   RpcResult,
+  VSCodeService,
 } from '@ptah-extension/core';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
-import { SessionId } from '@ptah-extension/shared';
+import { ENDED_HANDOVER_PHASES, SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
   CliType,
@@ -170,12 +179,20 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
  */
 export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
 
-/** A non-negative finite token count, or null. */
-function finiteToken(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? value
-    : null;
-}
+/** The Display dock's default width (design-spec section 2, R1.5). */
+export const DISPLAY_DOCK_DEFAULT_WIDTH = 400;
+
+/** `PanelResizeService` bounds: 300 px, at most 75% of the host. */
+const DOCK_MIN_WIDTH = 300;
+const DOCK_MAX_WIDTH_RATIO = 0.75;
+/** One separator arrow-key step (design-spec section 8, assertion 11). */
+const DOCK_KEY_STEP = 16;
+
+/**
+ * The panel-state key of a view with no per-tab dock: the VS Code webview
+ * (one monitor panel per view, as before) or an Electron view with no tab yet.
+ */
+const VIEW_PANEL_KEY = '';
 
 @Component({
   selector: 'ptah-chat-view',
@@ -190,6 +207,7 @@ function finiteToken(value: number | null | undefined): number | null {
     ChatTranscriptComponent,
     ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
+    DisplayDockComponent,
     BackgroundAgentTrayComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
@@ -215,6 +233,20 @@ function finiteToken(value: number | null | undefined): number | null {
     StatsTileExpansionState,
     // Budget banner state belongs to this view's tab and session.
     SessionBudgetActionsService,
+    // The Display dock store, only where the dock mounts: Electron with the
+    // agent sidebar shown (R1.14, decision #108). Elsewhere the token resolves
+    // to null, so the transcript's live-turn effect and the chips stay inert.
+    {
+      provide: DisplayDockState,
+      useFactory: (): DisplayDockState | null =>
+        inject(VSCodeService).isElectron &&
+        !(inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false)
+          ? new DisplayDockState()
+          : null,
+    },
+    // The chat-ui ports the chip and the display sync read (decisions #59, #60).
+    { provide: PTAH_UI_DISPLAY_DOCK, useExisting: DisplayDockState },
+    { provide: PTAH_UI_DISPLAY_DOCK_SYNC, useExisting: DisplayDockState },
   ],
 })
 export class ChatViewComponent implements OnDestroy {
@@ -383,12 +415,48 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly isOverlay = computed(() => {
     const width = this.hostWidth();
     return width === 0
-      ? this.agentPanelOpen()
+      ? this.panelOpen()
       : width < AGENT_PANEL_OVERLAY_BREAKPOINT;
   });
 
-  /** Local panel open/close state */
-  readonly agentPanelOpen = signal(false);
+  /** The Electron dock store; `null` in VS Code or with the sidebar hidden. */
+  private readonly displayDock = inject(DisplayDockState, { optional: true });
+  /** Electron: the right-side panel is the `Displays | Agents` dock. */
+  protected readonly dockEnabled = this.displayDock !== null;
+  /**
+   * Open state and the agent user-close rule of the right-side panel. The
+   * dock store when there is one (per tab); otherwise a view-private instance
+   * that no child can inject, so the VS Code monitor keeps one state per view.
+   */
+  private readonly panelState = this.displayDock ?? new DisplayDockState();
+  /** The panel-state key: the dock's chat tab, or the view key. */
+  protected readonly panelKey = computed(() =>
+    this.displayDock !== null
+      ? (this.resolvedTabId() ?? VIEW_PANEL_KEY)
+      : VIEW_PANEL_KEY,
+  );
+  protected readonly panelTab = computed(() =>
+    this.panelState.tab(this.panelKey()),
+  );
+  /** The right-side panel (dock or monitor) is open. */
+  readonly panelOpen = computed(() => this.panelTab().open);
+  /** Raised when the user opens the dock as an overlay: it focuses its close. */
+  protected readonly dockFocusRequest = signal(0);
+
+  /** The dock width beside the chat: the user's width or 400 px, clamped. */
+  protected readonly dockWidth = computed(() =>
+    clampDockWidth(
+      this.panelResizeService.customWidth() ?? DISPLAY_DOCK_DEFAULT_WIDTH,
+      this.hostWidth(),
+    ),
+  );
+  protected readonly dockMaxWidth = computed(() => {
+    const host = this.hostWidth();
+    return host > 0 ? Math.round(host * DOCK_MAX_WIDTH_RATIO) : null;
+  });
+  protected readonly dockMinWidth = computed(() =>
+    Math.min(DOCK_MIN_WIDTH, this.dockMaxWidth() ?? DOCK_MIN_WIDTH),
+  );
 
   private readonly agentSidebarTab = viewChild(SidebarTabComponent);
   private restoreAgentSidebarTabFocus = false;
@@ -438,7 +506,8 @@ export class ChatViewComponent implements OnDestroy {
    * Escape is only a no-op if focus is moved outside the tile by another surface.
    */
   protected onEscapeKey(event: Event): void {
-    if (this.isOverlay() && this.agentPanelOpen()) {
+    if (event.defaultPrevented) return;
+    if (this.isOverlay() && this.panelOpen()) {
       event.preventDefault();
       this.closeAgentPanel();
     }
@@ -483,22 +552,60 @@ export class ChatViewComponent implements OnDestroy {
     },
   );
 
-  /** Tracks whether the user explicitly closed the panel this session.
-   *  Prevents auto-open from fighting user intent. Reset when all agents complete. */
-  private _userExplicitlyClosed = false;
-
+  /**
+   * The sidebar toggle. A user close holds agent auto-open until the agents
+   * settle or a chip asks for them; the store owns that rule (decision #100).
+   */
   toggleAgentPanel(): void {
-    const wasOpen = this.agentPanelOpen();
-    this.agentPanelOpen.update((v) => !v);
-    if (wasOpen) {
-      this._userExplicitlyClosed = true;
+    const key = this.panelKey();
+    const opening = !this.panelState.tab(key).open;
+    this.panelState.toggle(key);
+    if (opening && this.dockEnabled && this.isOverlay()) {
+      this.dockFocusRequest.update((request) => request + 1);
     }
   }
 
   closeAgentPanel(): void {
-    this._userExplicitlyClosed = true;
     this.restoreAgentSidebarTabFocus = this.isOverlay();
-    this.agentPanelOpen.set(false);
+    this.panelState.close(this.panelKey());
+  }
+
+  /**
+   * The dock separator's keys (R1.5, design-spec section 8 assertion 11): the
+   * separator sits on the dock's left edge, so ArrowLeft widens and
+   * ArrowRight narrows by 16 px; Home and End go to the bounds; Enter resets
+   * to the default width. `PanelResizeService` clamps every value.
+   */
+  protected onDockSeparatorKeydown(event: KeyboardEvent): void {
+    const host = this.hostWidth() || window.innerWidth;
+    const width = this.dockWidth();
+    let next: number | null;
+    switch (event.key) {
+      case 'ArrowLeft':
+        next = width + DOCK_KEY_STEP;
+        break;
+      case 'ArrowRight':
+        next = width - DOCK_KEY_STEP;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = Number.POSITIVE_INFINITY;
+        break;
+      case 'Enter':
+        next = null;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    if (next === null) {
+      this.panelResizeService.resetWidth();
+    } else {
+      this.panelResizeService.setCustomWidth(next, host);
+    }
+    this.storeDockWidth();
   }
 
   private resizeHandleEl: HTMLElement | null = null;
@@ -522,12 +629,13 @@ export class ChatViewComponent implements OnDestroy {
     this._latestResizeEvent = null;
     if (!event || this._hostRight === null) return;
     const newWidth = this._hostRight - event.clientX;
-    this.ngZone.run(() =>
+    this.ngZone.run(() => {
       this.panelResizeService.setCustomWidth(
         newWidth,
         this.hostEl.nativeElement.clientWidth,
-      ),
-    );
+      );
+      this.storeDockWidth();
+    });
   };
 
   private readonly onResizeEnd = (event: PointerEvent): void => {
@@ -582,6 +690,7 @@ export class ChatViewComponent implements OnDestroy {
   /** Double-click the handle to fall back to the responsive default width. */
   onResizeReset(): void {
     this.panelResizeService.resetWidth();
+    this.storeDockWidth();
   }
 
   ngOnDestroy(): void {
@@ -599,12 +708,13 @@ export class ChatViewComponent implements OnDestroy {
     const startWidth = this._startWidth;
     this._cancelResizeFrame();
     if (cancel && startWidth !== null) {
-      this.ngZone.run(() =>
+      this.ngZone.run(() => {
         this.panelResizeService.setCustomWidth(
           startWidth,
           this.hostEl.nativeElement.clientWidth,
-        ),
-      );
+        );
+        this.storeDockWidth();
+      });
     } else {
       this._applyResize();
     }
@@ -932,11 +1042,51 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Budget banner state and flows, scoped to this view's tab and session. */
   private readonly _budgetActions = inject(SessionBudgetActionsService);
+  private readonly _handoverClient = inject(SessionHandoverClientService);
 
   /** The tab's budget, or the newer state a budget action returned (M6). */
   readonly resolvedSessionBudget = this._budgetActions.budget;
   /** Per-session samples for the budget sparkline. */
   protected readonly budgetUsage = this._budgetActions.usage;
+  /**
+   * Stored immediately from stats. Shown once this tab is idle, or while it
+   * streams when the handover is still pending (see `showSessionBudgetBanner`).
+   */
+  protected readonly resolvedHandover = computed(() =>
+    this._handoverClient.stateFor(this.resolvedSessionId()),
+  );
+  /** The live budget stage; counts only while this tab streams with a budget. */
+  protected readonly budgetLiveStage = this._budgetActions.liveStage;
+  protected readonly budgetTurnRunning = this._budgetActions.turnRunning;
+  protected readonly budgetWrapUpRequested = this._budgetActions.wrapUpRequested;
+  protected readonly budgetQueuedMessageCarried =
+    this._budgetActions.queuedMessageCarried;
+  /**
+   * An idle tab shows any budget or handover notice. A streaming tab shows the
+   * banner only when it needs a click mid-turn (Decision 7): the display stage
+   * is `handoff`/`limit` (wrap-up, continue), or a handover is still pending,
+   * including an agent request that arrives mid-turn (Approve/Cancel). Other
+   * stats received while generating wait for the terminal turn_state.
+   */
+  protected readonly showSessionBudgetBanner = computed(() => {
+    const tab = this.resolvedActiveTab();
+    const tabId = this.resolvedTabId();
+    const handover = this.resolvedHandover();
+    const hasNotice = this.resolvedSessionBudget() !== null || handover !== null;
+    const stage = this._budgetActions.displayStage();
+    const showWhileStreaming =
+      tab?.status === 'streaming' &&
+      (stage === 'handoff' ||
+        stage === 'limit' ||
+        (handover !== null && !ENDED_HANDOVER_PHASES.has(handover.phase)));
+    return (
+      hasNotice &&
+      this.mainPanelShowing() &&
+      (tab?.status === 'loaded' || showWhileStreaming) &&
+      tabId !== null &&
+      tabId === this._tabManager.activeTabId()
+    );
+  });
   protected readonly budgetActionBusy = this._budgetActions.busy;
   protected readonly budgetPreviewText = this._budgetActions.previewText;
   /** True when the last preview load for this session failed (F.6). */
@@ -977,26 +1127,18 @@ export class ChatViewComponent implements OnDestroy {
   );
 
   /**
-   * Last completed compaction for this conversation. The notice uses it
-   * after the in-flight flag drops. The marker itself stays the summary chip.
+   * The finished-compaction chip: hidden while a run is in flight (the
+   * notice card shows then) and once the user sent a message after it.
    */
-  protected readonly compactionCompleted = computed(
-    () =>
-      !this.resolvedIsCompacting() && this.resolvedCompactionMarker() !== null,
-  );
-
-  /** Before-tokens: the start event while compacting, the result after. */
-  protected readonly compactionPreTokens = computed((): number | null => {
-    if (this.resolvedIsCompacting()) {
-      return finiteToken(this.compactionFlight()?.preTokens);
-    }
-    return this.compactionTokenPair().pre;
+  protected readonly visibleCompactionMarker = computed(() => {
+    if (this.resolvedIsCompacting()) return null;
+    const marker = this.resolvedCompactionMarker();
+    if (!marker) return null;
+    const answered = this.resolvedMessages().some(
+      (m) => m.role === 'user' && m.timestamp > marker.completedAt,
+    );
+    return answered ? null : marker;
   });
-
-  /** After-tokens from the completion marker. Absent while a run is in flight. */
-  protected readonly compactionPostTokens = computed((): number | null =>
-    this.resolvedIsCompacting() ? null : this.compactionTokenPair().post,
-  );
 
   /** Same tab scope as the banner above — the two must never disagree. */
   readonly resolvedCompactionMarker = computed(() => {
@@ -1100,8 +1242,29 @@ export class ChatViewComponent implements OnDestroy {
     });
     this.observeHostWidth();
 
+    // A closed chat tab's dock state is released, whichever path closed it
+    // (tab bar, shortcut, canvas, tribunal); the view's own key is never a tab.
+    // `tabs()` lists only the active workspace, so a tab that left it is
+    // forgotten only when no workspace still holds it.
+    const dock = this.displayDock;
+    if (dock !== null) {
+      const openIds = (): ReadonlySet<TabId> =>
+        new Set(this._tabManager.tabs().map((tab) => tab.id));
+      let openTabIds = untracked(openIds);
+      effect(() => {
+        const current = openIds();
+        for (const tabId of openTabIds)
+          if (!current.has(tabId))
+            untracked(() => {
+              if (!this._tabManager.findTabByIdAcrossWorkspaces(tabId))
+                dock.forgetTab(tabId);
+            });
+        openTabIds = current;
+      });
+    }
+
     afterRenderEffect(() => {
-      const panelOpen = this.agentPanelOpen();
+      const panelOpen = this.panelOpen();
       const sidebarTab = this.agentSidebarTab();
       if (this.restoreAgentSidebarTabFocus && !panelOpen && sidebarTab) {
         const button =
@@ -1168,10 +1331,14 @@ export class ChatViewComponent implements OnDestroy {
           ? request.tabId === this._sessionContext()
           : request.tabId === null;
         if (!mine) return;
-        this.agentPanelOpen.set(true);
-        this._userExplicitlyClosed = false;
+        const key = this.panelKey();
+        this.panelState.selectTab(key, 'agents');
+        this.panelState.open(key);
+        this.panelState.releaseAgentsUserClose(key);
       });
     });
+
+    this.syncDockWidthPerTab();
 
     effect(() => {
       const request = this._appState.composerPrefillRequest();
@@ -1190,25 +1357,67 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
+    // Handover draft return (D24, S20): reads the handover state and the
+    // composer, so a compact → full switch re-runs it with a mounted input.
     effect(() => {
+      this.resolvedHandover();
+      const chatInput = this.chatInputRef();
+      if (!chatInput) return;
+      untracked(() => this.applyHandoverDraft(chatInput));
+    });
+
+    // Agent auto-open, per panel key (decision #100): running agents or a
+    // pending permission ask for the Agents tab, which the store ignores while
+    // the panel is open or after a user close; settled agents release it.
+    effect(() => {
+      const key = this.panelKey();
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');
       const hasPendingPermission = agents.some(
         (a) => a.permissionQueue.length > 0,
       );
-      const isOpen = untracked(() => this.agentPanelOpen());
-
-      if (
-        (hasRunning || hasPendingPermission) &&
-        !isOpen &&
-        !this._userExplicitlyClosed
-      ) {
-        this.agentPanelOpen.set(true);
-      }
-      if (!hasRunning && !hasPendingPermission && agents.length > 0) {
-        this._userExplicitlyClosed = false;
-      }
+      untracked(() => {
+        if (hasRunning || hasPendingPermission) {
+          this.panelState.requestAgentsOpen(key);
+        } else if (agents.length > 0) {
+          this.panelState.releaseAgentsUserClose(key);
+        }
+      });
     });
+  }
+
+  /**
+   * Electron: the dock width is kept per chat tab (R1.5). A tab switch
+   * restores the tab's width into `PanelResizeService`. Only a user resize
+   * stores a width (`storeDockWidth`): a restore clamped to a narrow host
+   * never overwrites the tab's saved width.
+   */
+  private syncDockWidthPerTab(): void {
+    const dock = this.displayDock;
+    if (dock === null) return;
+    effect(() => {
+      const key = this.panelKey();
+      untracked(() => {
+        const width = dock.tab(key).widthPx;
+        if (width === this.panelResizeService.customWidth()) return;
+        if (width === null) {
+          this.panelResizeService.resetWidth();
+        } else {
+          this.panelResizeService.setCustomWidth(
+            width,
+            this.hostWidth() || window.innerWidth,
+          );
+        }
+      });
+    });
+  }
+
+  /** Stores the current width for this tab after a user resize (R1.5). */
+  private storeDockWidth(): void {
+    this.displayDock?.setWidth(
+      untracked(this.panelKey),
+      this.panelResizeService.customWidth(),
+    );
   }
 
   /**
@@ -1303,6 +1512,50 @@ export class ChatViewComponent implements OnDestroy {
     return this._budgetActions.continueInNewSession();
   }
 
+  protected onBudgetCancelHandover(): Promise<void> {
+    return this._budgetActions.cancelHandover();
+  }
+
+  protected onBudgetRequestWrapUp(): Promise<void> {
+    return this._budgetActions.requestWrapUp();
+  }
+
+  protected onBudgetContinueNowAnyway(): Promise<void> {
+    return this._budgetActions.continueNowAnyway();
+  }
+
+  /** Approving an agent request is the user's own begin (D23). */
+  protected onBudgetApproveAgentRequest(): Promise<void> {
+    return this._budgetActions.continueInNewSession();
+  }
+
+  /**
+   * Put a cancelled or failed handover's returned draft (D24) into this view's
+   * composer, once per operation. Without a mounted composer (compact view)
+   * nothing happens and the draft stays unacknowledged; the effect re-runs when
+   * the composer mounts. A throwing write skips the acknowledgement, so the
+   * draft stays recoverable. Never routed through restoreInputs or the send path.
+   */
+  private applyHandoverDraft(chatInput: ChatInputComponent): void {
+    const draft = this._handoverClient.peekDraft(this.resolvedSessionId());
+    if (!draft) return;
+    try {
+      chatInput.restoreDraftToInput(draft.text);
+    } catch (err) {
+      // degradation-audit: reported - logged below; skipping the
+      // acknowledgement keeps the draft recoverable for the next attempt.
+      console.warn('[ChatView] Failed to restore the handover draft:', err);
+      return;
+    }
+    this._handoverClient.acknowledgeDraft(draft.operationId);
+  }
+
+  /** Put bounded lost handover inputs back into this source view's composer. */
+  protected onRestoreLostHandoverInputs(texts: readonly string[]): void {
+    const content = texts.filter(Boolean).join('\n\n');
+    if (content) this.chatInputRef()?.restoreContentToInput(content);
+  }
+
   protected onBudgetRotate(): Promise<void> {
     return this._budgetActions.rotateSession();
   }
@@ -1310,28 +1563,6 @@ export class ChatViewComponent implements OnDestroy {
   /** Banner "Compact": the composer's `/compact` send, not a budget RPC. */
   protected onBudgetCompact(): Promise<void> {
     return this._budgetActions.compact();
-  }
-
-  /** In-flight compaction record for this tile, including the start sample. */
-  private compactionFlight(): { preTokens: number | null } | null {
-    const rawTabId = this.resolvedTabId();
-    if (!rawTabId) return null;
-    const tabId = TabId.safeParse(rawTabId);
-    if (!tabId) return null;
-    const convId = this._tabSessionBinding.conversationFor?.(tabId);
-    if (!convId) return null;
-    return this._conversationRegistry.compactionStateFor?.(convId) ?? null;
-  }
-
-  /** Before/after pair already carried on the completion marker. */
-  private compactionTokenPair(): { pre: number | null; post: number | null } {
-    const marker = this.resolvedCompactionMarker();
-    if (!marker) return { pre: null, post: null };
-    const measured = marker.measurement;
-    return {
-      pre: finiteToken(measured?.preTokens) ?? finiteToken(marker.preTokens),
-      post: finiteToken(measured?.postTokens) ?? finiteToken(marker.postTokens),
-    };
   }
 
   /**
@@ -1731,4 +1962,12 @@ export class ChatViewComponent implements OnDestroy {
       this._tabManager.toggleTabViewMode(tabId);
     }
   }
+}
+
+/** A dock width within `PanelResizeService`'s bounds; unmeasured host: as is. */
+function clampDockWidth(width: number, hostWidth: number): number {
+  if (hostWidth <= 0) return width;
+  const max = hostWidth * DOCK_MAX_WIDTH_RATIO;
+  const min = Math.min(DOCK_MIN_WIDTH, max);
+  return Math.round(Math.min(Math.max(width, min), max));
 }

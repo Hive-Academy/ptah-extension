@@ -29,8 +29,9 @@ function isRelativeWithoutParent(value: string): boolean {
 
 const sessionId = z.string().min(1).max(200);
 
-export const SessionStartArgsSchema = z
+const SessionChildStartArgsSchema = z
   .object({
+    mode: z.literal('child'),
     task: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH),
     branch: z.string().min(1).max(200),
     baseRef: z.string().min(1).max(200).optional(),
@@ -51,6 +52,50 @@ export const SessionStartArgsSchema = z
     model: z.string().min(1).max(200).optional(),
   })
   .strict();
+
+const SessionSuccessorStartArgsSchema = z
+  .object({
+    mode: z.literal('successor'),
+    handoff: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH).optional(),
+  })
+  .strict();
+
+/**
+ * Flat, permissive-at-the-JSON-level schema for MCP tool publication.
+ * Runtime validation remains the exclusive child/successor union below.
+ */
+export const SessionStartToolInputSchema = z
+  .object({
+    mode: z.enum(['child', 'successor']).optional(),
+    task: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH).optional(),
+    branch: z.string().min(1).max(200).optional(),
+    baseRef: z.string().min(1).max(200).optional(),
+    label: z.string().min(1).max(60).optional(),
+    taskId: z.string().regex(SESSION_TASK_ID_PATTERN).optional(),
+    taskFolder: z.string().min(1).max(500).optional(),
+    deliverables: z
+      .array(z.string().min(1).max(500))
+      .max(MAX_SESSION_DELIVERABLES)
+      .optional(),
+    model: z.string().min(1).max(200).optional(),
+    handoff: z.string().min(1).max(MAX_AGENT_MESSAGE_LENGTH).optional(),
+  })
+  .strict();
+
+/**
+ * A successor replaces its caller; it never accepts child provisioning fields.
+ * An omitted mode is "child", so field errors name the field of that branch.
+ */
+export const SessionStartArgsSchema = z.preprocess(
+  (value) =>
+    value && typeof value === 'object' && !('mode' in value)
+      ? { ...value, mode: 'child' }
+      : value,
+  z.discriminatedUnion('mode', [
+    SessionChildStartArgsSchema,
+    SessionSuccessorStartArgsSchema,
+  ]),
+);
 
 export const SessionSendArgsSchema = z
   .object({

@@ -685,6 +685,18 @@ describe('MemoryRetentionService — health warnings', () => {
 });
 
 describe('MemoryRetentionService — gates', () => {
+  it('memory paused → skipped/memory-paused before retention work', async () => {
+    const { service, options, store } = harness({
+      settings: { 'memory.enabled': false },
+    });
+
+    await expect(service.run(options)).resolves.toMatchObject({
+      status: 'skipped',
+      reason: 'memory-paused',
+    });
+    expect(store.calls).toEqual(['writeSkip', 'readState']);
+  });
+
   it('disabled → skipped/disabled, recorded, no row work', async () => {
     const h = harness({ settings: { 'memory.retention.enabled': false } });
     h.store.processed = 10;

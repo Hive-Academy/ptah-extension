@@ -39,6 +39,7 @@ import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
   AgentSessionAdoptionService,
+  ChatTabRouteSync,
   AgentMonitorMessageHandler,
   ChatStore,
   UpdateDialogService,
@@ -193,6 +194,10 @@ export const appConfig: ApplicationConfig = {
     // on every workspace switch for the children this panel missed. `start()`
     // installs one root effect and returns; the RPC itself is detached.
     provideAppInitializer(() => inject(AgentSessionAdoptionService).start()),
+    // `/chat/:tabId` follows the active tab, and a settled `/chat/<id>` selects
+    // it (TASK_2026_524 Batch 4c). One `NavigationEnd` subscription and one
+    // root effect; `TabManagerService` stays the owner of the active tab.
+    provideAppInitializer(() => inject(ChatTabRouteSync).start()),
     // The ONE `surface:updated` intake for every host (TASK_2026_494, plan
     // D3). Eager on purpose: a lazy consumer claims its routing id before
     // `chat:start`, so nothing can arrive unclaimed, and the zod-free inbox
@@ -230,9 +235,11 @@ export const appConfig: ApplicationConfig = {
     // Electron startup TTI, because ElectronShellComponent forces grid mode in
     // its constructor — the canvas IS the launch surface there, so there is no
     // path on which deferring it helps. Do not convert this to a loader, and
-    // do not turn it into a route: the canvas is kept mounted behind
-    // `[class.hidden]` so `CanvasStore` survives navigation (batch 3 replaces
-    // that with a `RouteReuseStrategy`).
+    // do not turn it into a route: the canvas lives in the shell row that
+    // `AppShellComponent` retains with `*ptahRetainWhile` — detached on a
+    // standalone surface, never destroyed — so its single `CanvasStore`
+    // survives navigation. No `RouteReuseStrategy` exists; routed surfaces are
+    // not retained.
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     {

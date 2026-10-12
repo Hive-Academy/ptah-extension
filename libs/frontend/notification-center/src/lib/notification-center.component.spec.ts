@@ -167,14 +167,14 @@ describe('NotificationCenterComponent', () => {
     expect(document.activeElement).toBe(bell);
   }));
 
-  it('keeps one polite live region outside the panel', () => {
+  it('renders no live region of its own (NotificationAnnouncerComponent owns it)', () => {
+    // The bell can sit inside retained chrome that leaves the document on a
+    // standalone surface (TASK_2026_524 batch 3), so the shells render the
+    // announcer outside it; a second region here would announce twice.
     const fixture = TestBed.createComponent(NotificationCenterComponent);
     fixture.detectChanges();
     const statuses = fixture.debugElement.queryAll(By.css('[role="status"]'));
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0]?.nativeElement.textContent.trim()).toBe(
-      '12 sessions finished; 3 need attention',
-    );
+    expect(statuses).toHaveLength(0);
   });
 
   it('closes the panel after successful completion and prompt activation', fakeAsync(() => {
@@ -326,14 +326,11 @@ describe('NotificationCenterComponent', () => {
       .nativeElement.click();
     fixture.detectChanges();
     tick();
-    const row = fixture.debugElement.query(
-      By.css('.notification-row'),
-    ).nativeElement as HTMLButtonElement;
+    const row = fixture.debugElement.query(By.css('.notification-row'))
+      .nativeElement as HTMLButtonElement;
     expect(row.getAttribute('aria-label')).toBe('Open session Build release');
     const sessionName = fixture.debugElement.query(By.css('.link'));
-    expect(sessionName.nativeElement.textContent.trim()).toBe(
-      'Build release',
-    );
+    expect(sessionName.nativeElement.textContent.trim()).toBe('Build release');
     row.click();
     tick();
     fixture.detectChanges();

@@ -29,6 +29,7 @@ import {
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
   FileEditRpcHandlers,
+  LanePlanLimitsRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 /** Handler classes the VS Code host must never construct.
@@ -53,6 +54,8 @@ export const EXPECTED_ABSENT_HANDLERS = [
   // Edits happen in VS Code's own editor, so the spot editor's
   // `file:saveContent` has nothing to serve here either.
   FileEditRpcHandlers,
+  // `agent:getLanePlanLimits` belongs to the desktop display panel (R10.9).
+  LanePlanLimitsRpcHandlers,
 ] as const;
 
 /**
@@ -71,4 +74,8 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'fileViewer',
   'fileEditor',
   'appUpdater',
+  // The lane plan-limit read (`agent:getLanePlanLimits`) feeds the desktop
+  // display panel only; this host shows plan limits through
+  // `provider:getPlanLimits` and must not expose per-lane rows (R10.9).
+  'lanePlanLimits',
 ] as const;

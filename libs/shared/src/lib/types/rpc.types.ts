@@ -41,6 +41,13 @@ export * from './rpc/rpc-surface.types';
 
 export * from './rpc/rpc-capability.types';
 
+export * from './rpc/rpc-lane-plan-limits.types';
+
+import type {
+  AgentGetLanePlanLimitsParams,
+  AgentGetLanePlanLimitsResult,
+} from './rpc/rpc-lane-plan-limits.types';
+
 import type {
   CapabilitiesGetEffectiveParams,
   CapabilitiesGetEffectiveResult,
@@ -730,6 +737,16 @@ import type {
   SessionBudgetActionParams,
   SessionBudgetActionResult,
 } from './session-budget.types';
+import type {
+  BeginSessionHandoverParams,
+  BeginSessionHandoverResult,
+  CancelSessionHandoverParams,
+  CancelSessionHandoverResult,
+  GetSessionHandoverStateParams,
+  GetSessionHandoverStateResult,
+  SuccessorBoundParams,
+  SuccessorBoundResult,
+} from './session-handover.types';
 
 /**
  * RPC Method Registry
@@ -841,6 +858,22 @@ export interface RpcMethodRegistry {
   'session:budgetAction': {
     params: SessionBudgetActionParams;
     result: SessionBudgetActionResult;
+  };
+  'session:beginHandover': {
+    params: BeginSessionHandoverParams;
+    result: BeginSessionHandoverResult;
+  };
+  'session:cancelHandover': {
+    params: CancelSessionHandoverParams;
+    result: CancelSessionHandoverResult;
+  };
+  'session:successorBound': {
+    params: SuccessorBoundParams;
+    result: SuccessorBoundResult;
+  };
+  'session:getHandoverState': {
+    params: GetSessionHandoverStateParams;
+    result: GetSessionHandoverStateResult;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -1366,6 +1399,14 @@ export interface RpcMethodRegistry {
         startedAt: number;
       }>;
     };
+  };
+  /**
+   * Read-only per-lane plan-limit rows, as `ptah_agent_list` prints them
+   * (TASK_2026_623 R10.1). Electron only; text and lane counts, no identity.
+   */
+  'agent:getLanePlanLimits': {
+    params: AgentGetLanePlanLimitsParams;
+    result: AgentGetLanePlanLimitsResult;
   };
   'ptahCli:list': {
     params: PtahCliListParams;
@@ -3748,6 +3789,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:removePrLink': true,
   'session:listForTasks': true,
   'session:budgetAction': true,
+  'session:beginHandover': true,
+  'session:cancelHandover': true,
+  'session:successorBound': true,
+  'session:getHandoverState': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,
@@ -3861,6 +3906,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:continue': true,
   'agent:resumeCliSession': true, // CLI agent session resume
   'agent:backgroundList': true, // Background agent listing
+  // TASK_2026_623 R10.1. `agent:` is ALREADY in `ALLOWED_METHOD_PREFIXES`, so
+  // the registry entry plus this allow-map entry are the whole of
+  // dual-registration. Capability-gated to Electron in RPC_HANDLER_MANIFEST.
+  'agent:getLanePlanLimits': true,
   'ptahCli:list': true,
   'ptahCli:create': true,
   'ptahCli:update': true,

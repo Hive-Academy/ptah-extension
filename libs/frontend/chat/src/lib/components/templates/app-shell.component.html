@@ -29,10 +29,13 @@
   Layout Architecture:
   - Standalone surfaces render ON TOP, through the router outlet below. The
     route table lives in apps/ptah-extension-webview/src/app/app.routes.ts.
-  - Shared chrome (sidebar, header, agent panel) is ALWAYS rendered but hidden
-    when a standalone surface is active
-  - Canvas state persists across standalone navigation (the canvas is hidden,
-    not destroyed — see the content area at the bottom of this file)
+  - Shared chrome (sidebar, header, agent panel) is built on the first visit to
+    chat and RETAINED by `*ptahRetainWhile`: on a standalone surface it is
+    hidden at once, then detached from the DOM and from change detection, never
+    destroyed
+  - Canvas state persists across standalone navigation (the canvas lives inside
+    the retained row, so its instance and `CanvasStore` survive — see the
+    content area at the bottom of this file)
   - Content area switches between canvas grid and single chat via layoutMode signal
 -->
 
@@ -67,9 +70,26 @@
   <router-outlet />
 </div>
 
-<!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
-<!-- Uses [class.hidden] (CSS display:none) so canvas tiles survive navigation to settings/analytics -->
-<div #shellRow class="flex h-full bg-surface-0" [class.hidden]="isStandaloneView()">
+<!-- Notification live region, OUTSIDE the retained row below: the bell is in
+     that row and leaves the document on a standalone surface, but a burst must
+     still be announced there. Electron's shell renders its own next to its
+     bell. -->
+@if (!isElectron) {
+  <ptah-notification-announcer />
+}
+
+<!-- 2. Shared chrome — retained, not re-created, across standalone surfaces.
+     `*ptahRetainWhile` hides the row in the pass that leaves chat, so the
+     activity-gated consumers inside it see SURFACE_ACTIVE go false, and
+     detaches it in the next pass. The row, the canvas and its component-scoped
+     CanvasStore are never destroyed while the shell lives; returning to chat
+     re-inserts the same view. The row is not built until the first visit to
+     chat. -->
+<div
+  #shellRow
+  *ptahRetainWhile="!isStandaloneView()"
+  class="flex h-full bg-surface-0"
+>
   <!-- Session Sidebar (toggleable and resizable width, no border — tab
        provides the one visual edge, so this surface-1 panel does not add
        another). Open width defaults to 272 px, follows the
@@ -282,9 +302,7 @@
                   [class.pr-20]="organizationAvailable()"
                   data-testid="session-row-meta"
                 >
-                  <span>{{
-                    formatRelativeDate(session.lastActivityAt)
-                  }}</span>
+                  <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
                   @if (session.messageCount > 0) {
                     <span class="text-base-content-muted"
                       >{{ session.messageCount }} msgs</span
@@ -378,10 +396,7 @@
               />
             }
           } @else {
-            <li
-              class="flex flex-col gap-0.5"
-              data-testid="session-group"
-            >
+            <li class="flex flex-col gap-0.5" data-testid="session-group">
               <h3
                 [id]="'session-group-' + group.key"
                 class="pt-2 pb-0.5 pl-2.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-base-content-muted"
@@ -775,7 +790,8 @@
 
     <!-- Content area: both layout modes are always rendered, toggled via CSS hidden.
          This preserves canvas tile state (CanvasStore is scoped per component instance)
-         across layout toggles. Matches the [class.hidden] pattern used for standalone views. -->
+         across layout toggles. Leaving chat for a standalone surface is handled by
+         the `*ptahRetainWhile` row above, not by this toggle. -->
     <div class="flex-1 overflow-hidden">
       <div
         class="h-full"

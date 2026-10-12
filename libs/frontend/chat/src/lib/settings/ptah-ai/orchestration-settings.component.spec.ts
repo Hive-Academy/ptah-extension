@@ -18,21 +18,12 @@ import {
   type ProvidersSettingsSection,
 } from '@ptah-extension/core';
 import { OrchestrationSettingsComponent } from './orchestration-settings.component';
-import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
 import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
-
-@Component({
-  selector: 'ptah-agent-orchestration-config',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '<p>Orchestration policy</p>',
-})
-class OrchestrationPolicyStub {}
 
 @Component({
   selector: 'ptah-provider-consumer-assignments',
@@ -146,7 +137,6 @@ describe('OrchestrationSettingsComponent', () => {
       .overrideComponent(OrchestrationSettingsComponent, {
         remove: {
           imports: [
-            AgentOrchestrationConfigComponent,
             ProviderConsumerAssignmentsComponent,
             CliOrchestrationMatrixComponent,
             SubagentCacheTtlSettingComponent,
@@ -156,7 +146,6 @@ describe('OrchestrationSettingsComponent', () => {
         },
         add: {
           imports: [
-            OrchestrationPolicyStub,
             ConsumerStub,
             CliMatrixStub,
             SubagentCacheTtlStub,
@@ -197,13 +186,13 @@ describe('OrchestrationSettingsComponent', () => {
   });
 
   // Batch 34: the old Ptah CLI instance manager is gone; the matrix (deferred) holds every instance capability.
-  it('mounts the policy bar, the CLI matrix and the background roles, in that order, and no old CLI manager', async () => {
+  it('mounts the CLI matrix (which holds the policy toolbar) and the background roles, in that order, and no old CLI manager', async () => {
     await render();
     const order = [
-      'ptah-agent-orchestration-config',
       '[data-testid="cli-matrix"]',
       '[data-testid="background-roles-details"]',
     ].map((selector) => element.querySelector(selector));
+    expect(element.querySelector('ptah-agent-orchestration-config')).toBeNull();
     expect(
       element.querySelector(
         '#providers-cli-heading, [data-focus="cli-agents"]',
@@ -217,7 +206,7 @@ describe('OrchestrationSettingsComponent', () => {
     }
   });
 
-  it('defers the subagent cache TTL card behind a placeholder, then mounts it after the CLI matrix', async () => {
+  it('defers the subagent cache TTL card behind a placeholder, then mounts it after the CLI matrix and the roles', async () => {
     await render();
     const ttl = () =>
       element.querySelector('[data-testid="subagent-cache-ttl-setting"]');
@@ -234,7 +223,8 @@ describe('OrchestrationSettingsComponent', () => {
     expect(matrixTable()?.compareDocumentPosition(ttl() as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(ttl()?.compareDocumentPosition(rolesDetails() as Node)).toBe(
+    // Below the roles (fold room on Electron): the roles summary stays above 660 px.
+    expect(rolesDetails()?.compareDocumentPosition(ttl() as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });

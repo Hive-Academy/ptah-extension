@@ -79,6 +79,22 @@ function todos(
 const meta = { sessionId: SESSION_ID, builtAt: BUILT_AT };
 
 describe('extractSessionHandoffFacts', () => {
+  it('ignores changed files, todos and assistant text at or before the compact boundary', () => {
+    const facts = extractSessionHandoffFacts([
+      toolUse('Edit', { file_path: 'before.ts' }),
+      assistantText('before action'),
+      todos(['before todo', 'pending']),
+      boundary,
+      toolUse('Edit', { file_path: 'after.ts' }),
+      assistantText('after action'),
+      todos(['after todo', 'pending']),
+    ]);
+    expect(facts.changedFiles).toEqual(['after.ts']);
+    expect(facts.openItems).toEqual([
+      { content: 'after todo', status: 'pending' },
+    ]);
+    expect(facts.nextAction).toEqual({ source: 'pending', text: 'after todo' });
+  });
   it('uses the first user text after the latest compact boundary as the summary', () => {
     const facts = extractSessionHandoffFacts([
       user('first prompt'),
@@ -438,6 +454,221 @@ describe('SessionHandoffBuilder', () => {
     logger = createMockLogger();
   });
 
+  /** A transcript that fills every deterministic section past its cap. */
+  function fullTranscript(): SessionHistoryMessage[] {
+    return [
+      boundary,
+      user('s'.repeat(5_000)),
+      ...Array.from({ length: 60 }, (_, i) =>
+        toolUse('Edit', { file_path: `${'d/'.repeat(100)}file-${i}.ts` }),
+      ),
+      todos(
+        ...Array.from(
+          { length: 25 },
+          (_, i) => [`${'t'.repeat(400)} ${i}`, 'pending'] as [string, string],
+        ),
+      ),
+    ];
+  }
+
+  /** The block-quoted body of the `## Agent handoff` section. */
+  function agentSection(content: string): string {
+    const heading = '## Agent handoff\n\n';
+    const start = content.indexOf(heading) + heading.length;
+    return content.slice(start, content.indexOf('\n\n## Session', start));
+  }
+
+  function blockQuoted(text: string): string {
+    return text
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n');
+  }
+
+  it('renders the agent handoff as a block-quoted section under the title', async () => {
+    const { builder } = makeBuilder();
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: 'agent context\n## Not a section\u0007',
+    });
+    const { content, seed } = result.document;
+    expect(
+      content.startsWith(
+        '# Session handoff\n\n## Agent handoff\n\n> agent context\n> ## Not a section\n\n## Session\n\n',
+      ),
+    ).toBe(true);
+    expect(seed.startsWith('Continue the work of an earlier session.')).toBe(
+      true,
+    );
+    expect(seed.endsWith(content)).toBe(true);
+    expect(result.document.chars).toBe(content.length);
+  });
+
+  it('keeps a 5,000-character agent handoff whole next to a full document (R8)', async () => {
+    const { builder, reader } = makeBuilder();
+    jest.spyOn(reader, 'readJsonlTail').mockResolvedValue(fullTranscript());
+    const without = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      builtAt: BUILT_AT,
+    });
+    const agentText = 'a'.repeat(4_999) + 'Z';
+
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      builtAt: BUILT_AT,
+      agentHandoff: agentText,
+    });
+
+    const { content, seed } = result.document;
+    expect(without.document.content.length).toBeGreaterThan(
+      SESSION_HANDOFF_LIMITS.totalChars - 100,
+    );
+    expect(content).toContain(`> ${agentText}\n\n## Session`);
+    expect(seed).toContain(`> ${agentText}\n\n## Session`);
+    expect(seed.endsWith(content)).toBe(true);
+    expect(content).toContain('## How to continue');
+    expect(seed.length).toBeLessThanOrEqual(SESSION_HANDOFF_LIMITS.seedChars);
+    expect(content.slice(content.indexOf('## Session'))).toBe(
+      without.document.content.slice('# Session handoff\n\n'.length),
+    );
+  });
+
+  it('truncates a 7,000-character agent handoff with the marker', async () => {
+    const { builder, reader } = makeBuilder();
+    jest.spyOn(reader, 'readJsonlTail').mockResolvedValue(fullTranscript());
+
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: 'b'.repeat(7_000),
+    });
+
+    const { content, seed, truncated } = result.document;
+    const quoted = agentSection(content);
+    expect(quoted.length).toBeLessThanOrEqual(
+      SESSION_HANDOFF_LIMITS.agentHandoffChars,
+    );
+    expect(quoted.split(TRUNCATED_MARKER)).toHaveLength(2);
+    expect(quoted).toContain(`\n> ${TRUNCATED_MARKER}\n> b`);
+    expect(truncated).toBe(true);
+    expect(seed.endsWith(content)).toBe(true);
+    expect(seed.length).toBeLessThanOrEqual(SESSION_HANDOFF_LIMITS.seedChars);
+  });
+
+  it('keeps the goal and the last sections of an over-cap agent handoff (M4)', async () => {
+    const { builder } = makeBuilder();
+    const ending =
+      '## Still running\nlane-7f3 (codex) writing tests\nsubagent a1b2 reviewing\n' +
+      '## Next action\nWait for lane-7f3, then run the agent-sdk tests.';
+    const middle = [
+      '## Decisions',
+      '## Task folders',
+      '## Changed files',
+      '## Open items',
+    ].map((heading) => `${heading}\n${'detail line for this section\n'.repeat(70)}`).join('');
+    let agentText = `## Goal\nShip the budget handoff.\n${middle}`;
+    agentText += 'p'.repeat(9_000 - agentText.length - ending.length - 1) + '\n' + ending;
+    expect(agentText).toHaveLength(9_000);
+
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: agentText,
+    });
+
+    const quoted = agentSection(result.document.content);
+    expect(quoted.length).toBeLessThanOrEqual(
+      SESSION_HANDOFF_LIMITS.agentHandoffChars,
+    );
+    expect(quoted.split(TRUNCATED_MARKER)).toHaveLength(2);
+    expect(quoted.startsWith('> ## Goal\n> Ship the budget handoff.')).toBe(true);
+    expect(quoted.endsWith(`> ${TRUNCATED_MARKER}\n${blockQuoted(ending)}`)).toBe(true);
+    expect(result.document.truncated).toBe(true);
+  });
+
+  it('keeps both ends of an over-cap agent handoff without headings', async () => {
+    const { builder } = makeBuilder();
+    const agentText = `HEAD-START\n${'filler text without any heading\n'.repeat(300)}TAIL-END`;
+
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: agentText,
+    });
+
+    const quoted = agentSection(result.document.content);
+    expect(quoted.length).toBeLessThanOrEqual(
+      SESSION_HANDOFF_LIMITS.agentHandoffChars,
+    );
+    const head = quoted.indexOf('HEAD-START');
+    const marker = quoted.indexOf(TRUNCATED_MARKER);
+    const tail = quoted.indexOf('TAIL-END');
+    expect(head).toBeGreaterThanOrEqual(0);
+    expect(marker).toBeGreaterThan(head);
+    expect(tail).toBeGreaterThan(marker);
+    expect(quoted.split(TRUNCATED_MARKER)).toHaveLength(2);
+    expect(quoted).toContain(`> ${TRUNCATED_MARKER}\n> filler text without any heading\n`);
+  });
+
+  it('never splits a surrogate pair at either cut point', async () => {
+    const { builder } = makeBuilder();
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const agentText of ['😀'.repeat(4_000), `x${'😀'.repeat(4_000)}`]) {
+      const result = await builder.build({
+        sessionId: SESSION_ID,
+        workspacePath: 'D:/work/repo',
+        agentHandoff: agentText,
+      });
+
+      const quoted = agentSection(result.document.content);
+      expect(quoted.length).toBeLessThanOrEqual(
+        SESSION_HANDOFF_LIMITS.agentHandoffChars,
+      );
+      expect(quoted).toContain(TRUNCATED_MARKER);
+      expect(lone.test(quoted)).toBe(false);
+    }
+  });
+
+  it('caps the quoted form when quoting adds characters per line', async () => {
+    const { builder } = makeBuilder();
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: Array.from({ length: 3_000 }, () => 'x').join('\n'),
+    });
+    const content = result.document.content;
+    const start =
+      content.indexOf('## Agent handoff\n\n') + '## Agent handoff\n\n'.length;
+    const quoted = content.slice(start, content.indexOf('\n\n## Session'));
+    expect(quoted.length).toBeLessThanOrEqual(
+      SESSION_HANDOFF_LIMITS.agentHandoffChars,
+    );
+    expect(quoted).toContain(`> ${TRUNCATED_MARKER}`);
+    expect(result.document.truncated).toBe(true);
+  });
+
+  it('leaves the document unchanged without agent text', async () => {
+    const { builder } = makeBuilder();
+    const plain = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      builtAt: BUILT_AT,
+    });
+    for (const agentHandoff of [undefined, '', '  \n\u0007 ']) {
+      const result = await builder.build({
+        sessionId: SESSION_ID,
+        workspacePath: 'D:/work/repo',
+        builtAt: BUILT_AT,
+        agentHandoff,
+      });
+      expect(result.document).toEqual(plain.document);
+      expect(result.document.content).not.toContain('## Agent handoff');
+    }
+  });
+
   it('reads the fixture transcript tail and renders every fact', async () => {
     const { builder, reader } = makeBuilder();
     const tail = jest.spyOn(reader, 'readJsonlTail');
@@ -458,8 +689,8 @@ describe('SessionHandoffBuilder', () => {
       '> This session is being continued from a previous conversation.',
     );
     expect(content).toContain(
-      '- `libs/shared/src/lib/types/session-budget.types.ts`\n' +
-        '- `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-config.provider.ts`\n' +
+      '- `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-config.provider.ts`\n' +
+        '- `libs/shared/src/lib/types/session-budget.types.ts`\n' +
         '- `notebooks/budget.ipynb`',
     );
     expect(content).toContain(

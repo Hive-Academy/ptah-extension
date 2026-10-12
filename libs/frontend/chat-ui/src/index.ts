@@ -101,6 +101,27 @@ export {
   PTAH_UI_LIVE_CAP,
 } from './lib/services/ptah-ui-live-window';
 export {
+  PTAH_UI_HOST_SOURCES,
+  type PtahUiHostSources,
+} from './lib/services/ptah-ui-host-sources';
+// Eager-light dock ports (decisions #59, #60, #73): the file's only runtime
+// import is `@angular/core`. The ChatView provides both tokens, the chip reads
+// `PTAH_UI_DISPLAY_DOCK` and the lazy display sync writes through
+// `PTAH_UI_DISPLAY_DOCK_SYNC`.
+export {
+  PTAH_UI_DISPLAY_DOCK,
+  PTAH_UI_DISPLAY_DOCK_SYNC,
+  displayFenceKey,
+  type PtahUiDisplayDock,
+  type PtahUiDisplayDockSync,
+  type PtahUiDisplayFenceState,
+  type PtahUiDisplayFenceStatus,
+  type PtahUiDisplaySurfacesPublication,
+} from './lib/services/ptah-ui-display-dock';
+// Type only (erased): the dock store names the surfaces it holds. Never add a
+// value export from `organisms/display-panel/` here; that folder is lazy.
+export type { DisplaySurface } from './lib/organisms/display-panel/display-surfaces';
+export {
   generateAgentColor,
   generateAgentColorOklch,
   formatOklch,

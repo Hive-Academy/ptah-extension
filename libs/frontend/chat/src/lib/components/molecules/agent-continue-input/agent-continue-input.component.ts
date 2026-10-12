@@ -9,10 +9,11 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, SendHorizontal, X } from 'lucide-angular';
+import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
-  AgentMonitorStore,
-  type MonitoredAgent,
-} from '@ptah-extension/chat-streaming';
+  AgentFollowUpQueueService,
+  followUpResumesInstead,
+} from '../../../services/agent-follow-up-queue.service';
 
 @Component({
   selector: 'ptah-agent-continue-input',
@@ -75,7 +76,7 @@ import {
   `,
 })
 export class AgentContinueInputComponent {
-  private readonly store = inject(AgentMonitorStore);
+  private readonly followUps = inject(AgentFollowUpQueueService);
 
   readonly agent = input.required<MonitoredAgent>();
 
@@ -83,21 +84,26 @@ export class AgentContinueInputComponent {
   readonly CancelIcon = X;
 
   protected readonly draft = signal('');
-  protected readonly submitting = signal(false);
-  protected readonly error = signal<string | null>(null);
 
   /**
-   * Follow-up typed while the agent was still running, held here until the run
+   * Follow-up typed while the agent was still running, held until the run
    * ends (TASK_2026_294 follow-up).
    *
-   * The backend refuses `agent:continue` on a running agent with `busy`, and
-   * this box used to be disabled outright for the whole run — so steering a
-   * working agent was impossible and the typed text was lost. The queue lives
-   * in the component for the same reason chat's lives in `TabManagerService`:
-   * the message has not been sent, so nothing downstream should know about it
-   * yet.
+   * The backend refuses `agent:continue` on a running agent with `busy`, so
+   * the message waits. The queue and its flush live in the root
+   * `AgentFollowUpQueueService`, not here: this box sits in the shell row,
+   * which is detached on a standalone surface, and a component effect would
+   * not send the follow-up until the user came back to chat.
    */
-  protected readonly queued = signal<string | null>(null);
+  protected readonly queued = computed(() =>
+    this.followUps.queued(this.agent().agentId),
+  );
+  protected readonly submitting = computed(() =>
+    this.followUps.sending(this.agent().agentId),
+  );
+  protected readonly error = computed(() =>
+    this.followUps.error(this.agent().agentId),
+  );
 
   protected readonly visible = computed(
     () =>
@@ -112,31 +118,18 @@ export class AgentContinueInputComponent {
   protected readonly disabled = computed(() => this.submitting());
 
   /**
-   * Send the held follow-up as soon as the agent leaves `running`.
-   *
-   * Tracks `agent()` alone; `queued` is read and cleared through `untracked` so
-   * writing it cannot re-trigger this effect.
+   * Take back a follow-up that failed to send, including one the service
+   * flushed while this box was detached. Runs again whenever the box is
+   * attached and the service holds undelivered text for this agent.
    */
-  private readonly flushOnIdle = effect(() => {
-    const status = this.agent().status;
-    if (status === 'running') return;
-    const pending = untracked(() => this.queued());
-    if (!pending) return;
-    untracked(() => this.queued.set(null));
-    void this.deliver(pending);
+  private readonly restoreUndelivered = effect(() => {
+    const agentId = this.agent().agentId;
+    if (this.followUps.undelivered(agentId) === null) return;
+    untracked(() => this.absorbUndelivered(agentId));
   });
 
-  /**
-   * A follow-up has to go through session resume when the continuation record
-   * expired or the agent never supported in-process continuation. Only true
-   * when there is a session to resume with — without `cliSessionId` there is no
-   * path at all, and saying "resumes the session" would promise one.
-   */
-  protected readonly resumesInstead = computed(
-    () =>
-      !!this.agent().cliSessionId &&
-      (this.agent().continuationExpired === true ||
-        this.agent().supportsContinuation !== true),
+  protected readonly resumesInstead = computed(() =>
+    followUpResumesInstead(this.agent()),
   );
 
   protected readonly subtitle = computed(() => {
@@ -166,12 +159,16 @@ export class AgentContinueInputComponent {
     const message = this.draft().trim();
     if (message.length === 0 || this.disabled()) return;
 
-    if (this.agent().status === 'running') {
-      this.enqueue(message);
+    const agent = this.agent();
+    this.draft.set('');
+    if (agent.status === 'running') {
+      this.followUps.enqueue(agent.agentId, message);
       return;
     }
-    this.draft.set('');
-    await this.deliver(message);
+    await this.followUps.send(agent, message);
+    // A direct send that failed is put back now, not on the next change
+    // detection pass, so the box never shows empty in between.
+    this.absorbUndelivered(agent.agentId);
   }
 
   /**
@@ -179,114 +176,17 @@ export class AgentContinueInputComponent {
    * Mirrors `ChatStore.moveQueueToInput`.
    */
   protected unqueue(): void {
-    const pending = this.queued();
-    if (!pending) return;
-    this.queued.set(null);
-    const draft = this.draft().trim();
-    this.draft.set(draft ? `${pending}\n${draft}` : pending);
+    const pending = this.followUps.unqueue(this.agent().agentId);
+    if (pending !== null) this.prependToDraft(pending);
   }
 
-  /**
-   * Hold a follow-up for the end of the current run, coalescing repeats into
-   * one message the same way `ConversationService.queueOrAppendMessage` does —
-   * a second thought should not become a second turn.
-   */
-  private enqueue(message: string): void {
-    this.error.set(null);
-    this.queued.update((existing) =>
-      existing ? `${existing}\n${message}` : message,
-    );
-    this.draft.set('');
+  private absorbUndelivered(agentId: string): void {
+    const message = this.followUps.takeUndelivered(agentId);
+    if (message !== null) this.prependToDraft(message);
   }
 
-  /**
-   * Actually send a follow-up. Shared by the direct send and the queue flush.
-   */
-  private async deliver(message: string): Promise<void> {
-    this.submitting.set(true);
-    this.error.set(null);
-    try {
-      // A card whose record we already know is gone skips the round trip that
-      // can only answer `not_found` and resumes straight away.
-      if (this.resumesInstead()) {
-        await this.sendByResuming(message);
-        return;
-      }
-
-      const result = await this.store.continueAgent(
-        this.agent().agentId,
-        message,
-      );
-      if (result.ok) {
-        return;
-      }
-      if (result.code === 'busy') {
-        // The card's status had not caught up with the backend yet. Re-queue
-        // rather than erroring — the flush effect retries at the real turn end.
-        this.enqueue(message);
-      } else if (
-        result.code === 'not_found' ||
-        result.code === 'released' ||
-        result.code === 'unsupported'
-      ) {
-        // `not_found`: the record aged out (or the host restarted) without us
-        // hearing about it. `released`: the record is still there but its
-        // process was reclaimed after idling, so there is nothing in memory to
-        // continue INTO. `unsupported` means the adapter has no in-process
-        // continuation capability. In every case the CONVERSATION is still on
-        // disk, so resume it rather than telling the user to start over and lose
-        // the context.
-        await this.sendByResuming(message);
-      } else {
-        this.restoreUndelivered(message);
-        this.error.set('Could not send the follow-up. Try again.');
-      }
-    } catch (error: unknown) {
-      this.restoreUndelivered(message);
-      this.error.set(
-        error instanceof Error
-          ? error.message
-          : 'Could not send the follow-up. Try again.',
-      );
-    } finally {
-      this.submitting.set(false);
-    }
-  }
-
-  /**
-   * Put a message that failed to send back in the box. Without this a queued
-   * follow-up that fails at flush time is gone — the user never retyped it and
-   * never saw it leave, which is the loss this whole change exists to stop.
-   */
-  private restoreUndelivered(message: string): void {
+  private prependToDraft(message: string): void {
     const draft = this.draft().trim();
     this.draft.set(draft ? `${message}\n${draft}` : message);
-  }
-
-  /**
-   * Deliver the follow-up by resuming the CLI-native session. The resumed run
-   * arrives as a fresh agent card (a new `agentId`), which replaces this one —
-   * so the draft is cleared here and this component is on its way out.
-   */
-  private async sendByResuming(message: string): Promise<void> {
-    if (!this.agent().cliSessionId) {
-      this.restoreUndelivered(message);
-      this.error.set('Agent expired and has no session to resume.');
-      return;
-    }
-
-    const resumed = await this.store.resumeAgentWithMessage(
-      this.agent(),
-      message,
-    );
-    if (resumed.ok) {
-      return;
-    }
-    this.restoreUndelivered(message);
-    this.error.set(
-      resumed.error
-        ? `Could not resume the session: ${resumed.error}`
-        : 'Could not resume the session. Try again.',
-    );
   }
 }

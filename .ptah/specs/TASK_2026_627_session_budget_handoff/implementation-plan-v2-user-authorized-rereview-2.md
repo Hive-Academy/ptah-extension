@@ -1,0 +1,15 @@
+## Verdict
+
+**APPROVED — 8/10.** The three scoped revisions are implementable and close the prior review's gaps. The user-start gate remains explicit (`implementation-plan-v2-user-authorized.md:61-71,246-260`), and the draft restoration writes to the composer without sending (`:378-388`). This is a plan review; implementation and runtime behavior remain unverified, which keeps the score below 9–10.
+
+## Resolution check
+
+| Item | Resolved? | Evidence and impact |
+| --- | --- | --- |
+| Returned draft with no composer | Yes | The proposed `peekDraft` changes no state, and `acknowledgeDraft` follows a successful composer write (`implementation-plan-v2-user-authorized.md:357-368,378-382`). The effect reads the optional input reference and retries on mount; S20 covers compact-to-full recovery, a throwing write, and duplicate views (`:439`). The current template omits the input in compact view (`libs/frontend/chat/src/lib/components/templates/chat-view.component.html:4-18,254-258`), while the view uses an optional reference (`chat-view.component.ts:638,1316`), so the proposed gate addresses the actual loss path. |
+| R5 queued-message copy | Yes | The plan specifies the exact banner and waiting copy, “Your queued message will be sent in the new session,” for a non-empty input captured by the user's accepted click (`implementation-plan-v2-user-authorized.md:383-386,519-521`). The current action obtains that text from `queuedContent` when the user selects Continue (`libs/frontend/chat/src/lib/services/session-budget-actions.service.ts:214-245`); the plan transfers it only after that click (`implementation-plan-v2-user-authorized.md:194-208`). The copy makes the eventual send clear. |
+| R6 post-result conversion | Yes | `parkLimitHandoverIfIdle` is specified to call `armAtTerminal(key, true, rec.messageQueue)`, sharing the agent-op conversion and queue move (`implementation-plan-v2-user-authorized.md:65-69,251-255,276-286`). S16 explicitly tests the post-result case and asserts that `complete` is not called (`:435`). The existing post-result hook calls the lifecycle manager after observing the budget (`libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:1812-1834`), and the existing lifecycle method delegates to `armAtTerminal` (`libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts:539-549`), so the proposed wiring fits that entry path. |
+
+## New findings
+
+None within the scoped round-2 edits. The silent-loss and compact-view action are covered by peek, mounted-input write, then acknowledgement (`implementation-plan-v2-user-authorized.md:357-368,378-382,439`). A non-empty composer is appended to rather than overwritten (`:387-388`); a throwing write leaves the draft unacknowledged (`:382,439`). The post-result dependency path still parks for a user click and does not call `complete` (`:280-286,435`), and the plan identifies no new start or send action beyond the user's begin and previously sent queued message (`:61-75,194-208,383-386`). No tests or builds were run for this document review.

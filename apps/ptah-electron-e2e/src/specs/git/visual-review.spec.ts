@@ -1068,23 +1068,16 @@ for (const theme of ['dark', 'light'] as const) {
         await prepareCanvasWithSessions(ui, [session], {
           supportsPaging: false,
         });
-        await cap.step('card', async () => {
+        await cap.step('turn-summary-chip', async () => {
           await sessionRowButton(mainWindow, session.name).click();
-          const card = mainWindow.locator('[data-testid="change-set-card"]');
-          await expect(card).toBeVisible({ timeout: 30_000 });
+          const chip = mainWindow.locator('[data-testid="chat-turn-summary"]');
+          await expect(chip).toBeVisible({ timeout: 30_000 });
           await waitSettled(mainWindow, 800);
-          await cap.shot('chat-card-window');
-          await cap.shot('chat-card', card);
-          await card.locator('button').nth(1).focus();
-          await mainWindow.keyboard.press('Tab');
-          await cap.shot('chat-card-focus-row', card);
-          await card.locator('[data-testid="change-set-review"]').focus();
-          await mainWindow.keyboard.press('Shift+Tab');
-          await mainWindow.keyboard.press('Tab');
-          await cap.shot('chat-card-focus-review', card);
+          await cap.shot('chat-turn-summary-window');
+          await cap.shot('chat-turn-summary-collapsed', chip);
+          await chip.locator('[data-testid="turn-summary-chip-toggle"]').focus();
           await mainWindow.keyboard.press('Enter');
-          await mainWindow.waitForTimeout(1500);
-          await cap.shot('chat-card-after-review-click');
+          await cap.shot('chat-turn-summary-expanded', chip);
         });
         cap.finish();
         console.log(

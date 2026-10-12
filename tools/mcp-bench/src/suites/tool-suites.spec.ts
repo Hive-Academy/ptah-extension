@@ -183,6 +183,33 @@ describe('result parsers', () => {
     ).toEqual([`${'x'.repeat(20_000)}:42`, 'libs/a.ts:3', 'libs/a.ts:12']);
   });
 
+  it.each([
+    ['C:/w/a.ts:12', ['c:/w/a.ts:12']],
+    ['a:b:1', ['a:b:1']],
+    ['x:1a:2', ['x:1a:2']],
+    ["a.ts:3'", []],
+    ['a.ts:3"', []],
+    ['|a:1|', ['a:1']],
+    ['`a.ts:4`', ['a.ts:4']],
+    ['::1', ['::1']],
+    [':1', []],
+    ['a::1', ['a::1']],
+    ['a:1:2:3', ['a:1', ':2:3']],
+    ['a.ts:007 ', ['a.ts:007']],
+    ['a:1\nb:2\tc:3', ['a:1', 'b:2', 'c:3']],
+    ['a:1b', []],
+    ['a:1:b:2', ['a:1', ':b:2']],
+    ['x:12:', ['x:12']],
+    ['a:1|b:2`c:3', ['a:1', 'b:2', 'c:3']],
+    ["'a:1' a:2", ['a:2']],
+    ['a:1:2x:3', ['a:1', ':2x:3']],
+  ])(
+    'parses text locations in %j like the original regex',
+    (text, expected) => {
+      expect(parseTextLocations(text, ROOT).ranked).toEqual(expected);
+    },
+  );
+
   it('finds declaration names in a structure result', () => {
     expect(
       namesPresent('{"functions":[["name"],["load"]]}', ['load', 'save'])

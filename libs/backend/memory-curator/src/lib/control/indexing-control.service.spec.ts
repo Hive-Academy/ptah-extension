@@ -181,6 +181,12 @@ function buildService(
   const memoryCurator = makeMemoryCurator();
   const fs = makeFakeFs(fsOptions);
   const logger = makeLogger();
+  const workspace = {
+    getConfiguration: jest.fn(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled' ? true : fallback,
+    ),
+  };
   const webviewManager = makeWebviewManager();
   const vecDiagnostic = {
     ok: false,
@@ -216,6 +222,7 @@ function buildService(
   child.register(MEMORY_TOKENS.EMBEDDER_STATUS, { useValue: embedderStatus });
   child.register(MEMORY_TOKENS.MEMORY_CURATOR, { useValue: memoryCurator });
   child.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: fs });
+  child.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { useValue: workspace });
   child.register(TOKENS.LOGGER, { useValue: logger });
   child.register(TOKENS.WEBVIEW_MANAGER, { useValue: webviewManager });
   child.register(MEMORY_TOKENS.INDEXING_CONTROL, {
@@ -226,7 +233,15 @@ function buildService(
     MEMORY_TOKENS.INDEXING_CONTROL,
   );
 
-  return { service, sqliteConn, memoryCurator, fs, logger, webviewManager };
+  return {
+    service,
+    sqliteConn,
+    memoryCurator,
+    fs,
+    logger,
+    webviewManager,
+    workspace,
+  };
 }
 
 // ============================================================================
@@ -234,6 +249,19 @@ function buildService(
 // ============================================================================
 
 describe('IndexingControlService state machine', () => {
+  it('does not start memory indexing while the master switch is paused', async () => {
+    const fakeDb = makeFakeDb();
+    const { service, workspace } = buildService(fakeDb, {
+      headContent: `${VALID_SHA_A}\n`,
+    });
+    (workspace.getConfiguration as jest.Mock).mockReturnValue(false);
+    const deps = makeRunDeps();
+
+    await service.start('memory', ROOT, deps);
+
+    expect(deps.runMemory).not.toHaveBeenCalled();
+  });
+
   it('never-indexed → start() → completes → indexed state is written', async () => {
     const rows = new Map<string, Record<string, unknown>>();
     const fakeDb = makeFakeDb(rows);

@@ -6,6 +6,7 @@ import { SurfaceRendererComponent } from '@ptah-extension/declarative-dashboard'
 import type { TurnSourceSnapshot } from '@ptah-extension/shared';
 import { PtahUiLiveWindow } from '../../services/ptah-ui-live-window';
 import { PtahUiBlockComponent } from './ptah-ui-block.component';
+import { PtahUiDisplayChipComponent } from './ptah-ui-display-chip.component';
 import { PtahUiMessageTextComponent } from './ptah-ui-message-text.component';
 
 const BODY = 'title Release checklist\nstats\n  Reviewers | 2\n  Risk | low\n';
@@ -159,6 +160,68 @@ describe('PtahUiMessageTextComponent', () => {
     expect(native().querySelector('markdown')?.textContent).toContain(
       'Second version.',
     );
+  });
+
+  describe('display fences (target === "display")', () => {
+    const DISPLAY = '```ptah-ui display release\n' + BODY + '```\n';
+    const chips = (): PtahUiDisplayChipComponent[] =>
+      fixture.debugElement
+        .queryAll(By.directive(PtahUiDisplayChipComponent))
+        .map((debug) => debug.componentInstance as PtahUiDisplayChipComponent);
+
+    it('renders a display chip instead of a block, keyed ui:<ordinal>', async () => {
+      await show('Intro.\n\n' + DISPLAY);
+
+      expect(tracks()).toEqual(['md:0', 'ui:0']);
+      expect(blocks()).toHaveLength(0);
+      expect(chips()).toHaveLength(1);
+      expect(chips()[0].ordinal()).toBe(0);
+      expect(chips()[0].raw()).toBe(DISPLAY);
+      expect(chips()[0].messageId()).toBe('m1');
+      expect(chips()[0].nodeId()).toBe('text-1');
+      expect(native().querySelector('ptah-surface-renderer')).toBeNull();
+    });
+
+    it('renders a display fence without an id as a chip too (displayId is optional)', async () => {
+      await show('```ptah-ui display\n' + BODY + '```\n');
+
+      expect(chips()).toHaveLength(1);
+      expect(blocks()).toHaveLength(0);
+    });
+
+    it('shares one ordinal sequence with inline fences; an absent target stays inline', async () => {
+      await show(CLOSED + 'Between.\n\n' + DISPLAY + 'After.\n');
+
+      expect(tracks()).toEqual(['md:0', 'ui:0', 'md:1', 'ui:1', 'md:2']);
+      expect(blocks().map((block) => block.ordinal())).toEqual([0]);
+      expect(chips().map((chip) => chip.ordinal())).toEqual([1]);
+    });
+
+    it('keeps an open display fence as code, then mounts one chip on close', async () => {
+      await show('Intro.\n\n```ptah-ui display release\ntitle Release checklist\n');
+
+      expect(chips()).toHaveLength(0);
+      expect(native().querySelector('markdown code')?.textContent).toContain(
+        'title Release checklist',
+      );
+
+      await show('Intro.\n\n' + DISPLAY);
+      expect(chips()).toHaveLength(1);
+    });
+
+    it('keeps the same chip instance while more text streams after it', async () => {
+      await show(DISPLAY);
+      const chip = chips()[0];
+
+      let text = DISPLAY;
+      for (let chunk = 1; chunk <= 20; chunk += 1) {
+        text += `chunk ${chunk} `;
+        await show(text);
+      }
+
+      expect(chips()).toEqual([chip]);
+      expect(tracks()).toEqual(['ui:0', 'md:0']);
+    });
   });
 
   it('renders agent HTML in markdown parts only through the markdown path', async () => {

@@ -10,6 +10,7 @@ import {
   MemoryListQuarantinedParamsSchema,
   MemoryPurgeBySubjectPatternParamsSchema,
   MemoryRestoreQuarantinedParamsSchema,
+  MemorySetTriggersParamsSchema,
 } from './memory-rpc.schema';
 
 describe('MemoryPurgeBySubjectPatternParamsSchema', () => {
@@ -260,5 +261,36 @@ describe('MemoryListQuarantinedParamsSchema', () => {
     expect(MemoryListQuarantinedParamsSchema.safeParse(params).success).toBe(
       false,
     );
+  });
+});
+
+describe('MemorySetTriggersParamsSchema — enabled (TASK_2026_620 B-P)', () => {
+  it('accepts the pause payload { triggers: {}, enabled }', () => {
+    const result = MemorySetTriggersParamsSchema.safeParse({
+      triggers: {},
+      enabled: false,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ triggers: {}, enabled: false });
+    }
+  });
+
+  it('accepts a payload without enabled and leaves it undefined', () => {
+    const result = MemorySetTriggersParamsSchema.safeParse({
+      triggers: { bootScan: true },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.enabled).toBeUndefined();
+    }
+  });
+
+  it.each(['false', 0, 1, null])('rejects a non-boolean enabled (%p)', (v) => {
+    const result = MemorySetTriggersParamsSchema.safeParse({
+      triggers: {},
+      enabled: v,
+    });
+    expect(result.success).toBe(false);
   });
 });

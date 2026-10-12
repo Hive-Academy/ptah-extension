@@ -18,6 +18,7 @@ import type {
   SDKMessage,
   OutputFormat,
 } from '../types/sdk-types/claude-sdk.types';
+import type { ModelDispatchRoute } from '../curator-llm-adapter/model-dispatch-provenance';
 import type {
   OneShotAuthOverride,
   OneShotToolAccess,
@@ -91,6 +92,13 @@ export interface InternalQueryConfig {
   lane?: string;
 
   auth?: OneShotAuthOverride;
+
+  /**
+   * Provider already chosen by the caller, plus which product component
+   * this is. The runner replaces the model with the concrete SDK id.
+   * Omitted by callers that are not recorded.
+   */
+  dispatch?: ModelDispatchRoute;
 
   /**
    * Which tools the model may call. Omitted means `'claude-code'`: the Claude

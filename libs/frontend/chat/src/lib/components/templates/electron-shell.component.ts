@@ -57,7 +57,10 @@ import {
   ElectronResizeHandleComponent,
   ThemeToggleComponent,
 } from '@ptah-extension/chat-ui';
-import { NotificationCenterComponent } from '@ptah-extension/notification-center';
+import {
+  NotificationAnnouncerComponent,
+  NotificationCenterComponent,
+} from '@ptah-extension/notification-center';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
@@ -76,6 +79,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     ThemeToggleComponent,
     LucideAngularModule,
     NotificationCenterComponent,
+    NotificationAnnouncerComponent,
   ],
   providers: [
     {
@@ -255,6 +259,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
           />
           <ptah-theme-toggle />
           <ptah-notification-center />
+          <ptah-notification-announcer />
         </div>
       </div>
 

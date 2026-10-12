@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { SPARK_HEIGHT, sparklineGeometry } from '../charts/sparkline-geometry';
 import { DashboardStatComponent, type StatNode } from './dashboard-stat.component';
 
 describe('DashboardStatComponent', () => {
@@ -86,6 +87,75 @@ describe('DashboardStatComponent', () => {
       expect(Array.from(element.querySelectorAll('button')).every(button => button.getAttribute('data-apps-focus-key')?.startsWith('surface:stat:'))).toBe(true);
     } finally { element.remove(); }
   });
+  describe('dashboard-catalog/4 trend pill (R4.3)', () => {
+    const pill = (element: HTMLElement) => element.querySelector<HTMLElement>('[data-testid="stat-trend"]');
+    it('renders no pill and no sparkline without trend or spark', () => {
+      const { element } = setup();
+      expect(pill(element)).toBeNull();
+      expect(element.querySelector('ptah-dashboard-sparkline')).toBeNull();
+    });
+    it('states direction with an arrow and words, never colour alone', () => {
+      const { fixture, element } = setup({ ...node, trend: { direction: 'up', amount: 4.2, percent: true } });
+      const up = pill(element)!;
+      expect(up.textContent).toBe('Trend up 4.2%');
+      const arrow = up.querySelector('svg')!;
+      expect(arrow.getAttribute('aria-hidden')).toBe('true');
+      const upPath = arrow.querySelector('path')!.getAttribute('d');
+      fixture.componentRef.setInput('node', { ...node, trend: { direction: 'down', amount: 3, percent: false } });
+      fixture.detectChanges();
+      expect(pill(element)!.textContent).toBe('Trend down 3');
+      expect(pill(element)!.querySelector('path')!.getAttribute('d')).not.toBe(upPath);
+    });
+    it('maps good to success, bad to error and no polarity to neutral, with the polarity in text', () => {
+      const { fixture, element } = setup();
+      const cases = [['good', 'dp-trend--good', 'Trend up 1, good'], ['bad', 'dp-trend--bad', 'Trend up 1, bad'],
+        [undefined, 'dp-trend--neutral', 'Trend up 1']] as const;
+      for (const [polarity, toneClass, text] of cases) {
+        fixture.componentRef.setInput('node', { ...node,
+          trend: { direction: 'up', amount: 1, percent: false, ...(polarity ? { polarity } : {}) } });
+        fixture.detectChanges();
+        expect(pill(element)!.className).toBe(`dp-trend ${toneClass}`);
+        expect(pill(element)!.textContent).toBe(text);
+      }
+      expect(element.querySelector('[style]')).toBeNull();
+    });
+  });
+
+  describe('dashboard-catalog/4 sparkline (R4.4)', () => {
+    const svg = (element: HTMLElement) => element.querySelector<SVGSVGElement>('[data-testid="stat-spark"]')!;
+    const barClasses = (element: HTMLElement) => Array.from(svg(element).querySelectorAll('rect')).map(rect => rect.getAttribute('class'));
+    it('is one labelled img listing every point, with only the latest bar highlighted in primary', () => {
+      const { element } = setup({ ...node, spark: [2, 3, 2, 4, 3, 5, 7] });
+      expect(svg(element).getAttribute('role')).toBe('img');
+      expect(svg(element).getAttribute('aria-label')).toBe(`${node.title?.text} trend, 7 points: 2, 3, 2, 4, 3, 5, 7; latest 7`);
+      const classes = barClasses(element);
+      expect(classes).toHaveLength(7);
+      expect(classes.slice(0, 6).every(name => name === 'dp-spark-bar')).toBe(true);
+      expect(classes[6]).toBe('dp-spark-bar dp-spark-bar--latest');
+      expect(element.querySelector('img, style, [style]')).toBeNull();
+    });
+    it('draws the latest bar in the error fill for a failing (bad polarity) series', () => {
+      const { element } = setup({ ...node, spark: [40, 40, 38],
+        trend: { direction: 'down', amount: 2, percent: false, polarity: 'bad' } });
+      expect(barClasses(element)).toEqual(['dp-spark-bar', 'dp-spark-bar', 'dp-spark-bar dp-spark-bar--failing']);
+    });
+    it('keeps every bar visible and inside the 30-unit box for zero, negative and extreme points', () => {
+      for (const points of [[0, 0], [-5, 3, -1], [Number.MAX_VALUE, -Number.MAX_VALUE], [1, 1, 1]]) {
+        const geometry = sparklineGeometry(points);
+        expect(geometry.bars).toHaveLength(points.length);
+        for (const bar of geometry.bars) {
+          expect(Number.isFinite(bar.height) && Number.isFinite(bar.y)).toBe(true);
+          expect(bar.height).toBeGreaterThanOrEqual(4);
+          expect(bar.y + bar.height).toBeCloseTo(SPARK_HEIGHT);
+          expect(bar.y).toBeGreaterThanOrEqual(0);
+        }
+        expect(geometry.bars.filter(bar => bar.latest).map(bar => bar.index)).toEqual([points.length - 1]);
+      }
+      const [low, high] = sparklineGeometry([1, 10]).bars;
+      expect(high!.height).toBeGreaterThan(low!.height);
+    });
+  });
+
   it('assigns unique expansion ids to stat instances sharing a node id', () => {
     const first = setup(); const second = setup();
     const ids = [first, second].map(({ element }) => element.querySelector('[aria-controls]')!.getAttribute('aria-controls'));

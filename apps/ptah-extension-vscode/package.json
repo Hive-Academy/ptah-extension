@@ -35,6 +35,7 @@
     "multi-agent"
   ],
   "activationEvents": [
+    "onWebviewPanel:ptah-angular-spa",
     "onView:ptah.main",
     "onCommand:ptah.openFullPanel",
     "onCommand:ptah.toggleChat",
@@ -302,7 +303,7 @@
           "type": "number",
           "default": 5,
           "minimum": 1,
-          "maximum": 20,
+          "maximum": 100,
           "description": "Maximum number of concurrent CLI agent processes."
         },
         "ptah.agentOrchestration.sdkIdleReleaseMs": {

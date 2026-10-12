@@ -92,6 +92,7 @@ export class CliWorkspaceWatchHostProcess implements WorkspaceWatchHostProcess {
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       // The parent's flags (`--inspect`, loaders) are not the host's.
       execArgv: [],
+      windowsHide: true,
     });
     this.child.unref();
     (

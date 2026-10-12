@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_621_3d5c
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Stop retention from deleting unprocessed observations and find why extraction
   stopped
 depends_on: []
 created: '2026-10-06T19:57:15.833Z'
-updated: '2026-10-06T22:07:12.451Z'
+updated: '2026-10-10T18:17:25.226Z'
 description: >-
   Extraction stopped 2026-09-24..10-01; 59,614 observations unprocessed;
   retention deletes unprocessed rows at 14 days (first deletions ~2026-10-08).

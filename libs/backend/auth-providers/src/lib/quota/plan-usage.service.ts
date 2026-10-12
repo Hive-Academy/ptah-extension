@@ -5,11 +5,8 @@
  *
  * ## Dispatch
  *
- * A plain record of reader functions keyed by normalised provider id:
- * `anthropic` (Claude `/usage` through the session probe) and `openai-codex`
- * (the App Server account read). OpenCode (`opencode`, `opencode-go`,
- * `opencode-zen`) has no proactive source and answers `no-usage-source`
- * (Req 2.6, 2.8); every other provider answers `provider-unsupported`.
+ * A plain record of reader functions keyed by normalised provider id.
+ * Account quota and optional local accounting are read independently.
  *
  * ## Credentials
  *
@@ -38,7 +35,8 @@
  * `staleSince` = the first failure. Its windows keep their original
  * observation time and are given to the ledger with `{stale:true}`, which
  * never lets them clear live evidence. Eligibility and configuration
- * statuses replace the cached reading and carry no windows. With no open
+ * statuses replace the cached reading; they carry only ledger windows with
+ * exhaustion evidence, or none for an owner that cannot be on a plan. With no open
  * Claude session the stream-event evidence is returned as is (Req 2.2).
  *
  * One owner's failure never touches another owner's cache or snapshot.
@@ -58,6 +56,7 @@ import type {
   PlanSecret,
 } from './plan-credential.source';
 import { normaliseOwnerProviderId } from './provider-owner.resolver';
+import { snapshotWindowsForStatus } from './plan-snapshot-windows';
 import {
   createClaudePlanUsageReader,
   type ClaudePlanUsageProbe,
@@ -69,6 +68,8 @@ import {
 import { createAntigravityPlanUsageReader } from './readers/antigravity-plan-usage.reader';
 import { createOllamaCloudPlanUsageReader } from './readers/ollama-cloud-plan-usage.reader';
 import { createOpenCodeLocalUsageReader } from './readers/opencode-local-usage.reader';
+import { createOpenCodeGoPlanUsageReader } from './readers/opencode-go-plan-usage.reader';
+import { createGrokAccountPlanUsageReader } from './readers/grok-account-plan-usage.reader';
 import { createGrokSessionUsageReader } from './readers/grok-session-usage.reader';
 import type {
   PlanOwnerTarget,
@@ -82,16 +83,19 @@ export const PLAN_USAGE_CACHE_TTL_MS = 30_000;
 export const PLAN_USAGE_MAX_OWNERS = 64;
 
 /** Providers that have an owner but no source reporting its limits. */
-const NO_USAGE_SOURCE_PROVIDERS: ReadonlySet<string> = new Set([
-]);
+const NO_USAGE_SOURCE_PROVIDERS: ReadonlySet<string> = new Set([]);
 
-/** The owner cannot be read at all; such a snapshot carries no windows. */
+/**
+ * The owner cannot be read at all; such a snapshot never has an established
+ * window set. Its windows follow `snapshotWindowsForStatus`.
+ */
 const ELIGIBILITY_STATUSES: ReadonlySet<ProviderAccountUsageStatus> = new Set([
   'unsupported-auth',
   'unsupported-config',
   'provider-unsupported',
   'cli-unavailable',
   'cli-version-unsupported',
+  'no-usage-source',
 ]);
 
 /** The ledger surface the service reads and feeds. */
@@ -127,6 +131,7 @@ interface Flight {
 @injectable()
 export class PlanUsageService {
   private readonly readers: Readonly<Record<string, PlanUsageReader>>;
+  private readonly localReaders: Readonly<Record<string, PlanUsageReader>>;
   private readonly cache = new Map<string, CachedReading>();
   private readonly failingSince = new Map<string, number>();
   private readonly flights = new Map<string, Flight>();
@@ -150,8 +155,12 @@ export class PlanUsageService {
       'ollama-cloud': createOllamaCloudPlanUsageReader(logger, now),
       antigravity: createAntigravityPlanUsageReader(logger, now),
       opencode: createOpenCodeLocalUsageReader(logger, now),
-      'opencode-go': createOpenCodeLocalUsageReader(logger, now),
+      'opencode-go': createOpenCodeGoPlanUsageReader(now),
       'opencode-zen': createOpenCodeLocalUsageReader(logger, now),
+      grok: createGrokAccountPlanUsageReader(now),
+    };
+    this.localReaders = {
+      'opencode-go': createOpenCodeLocalUsageReader(logger, now),
       grok: createGrokSessionUsageReader(logger, now),
     };
   }
@@ -254,7 +263,7 @@ export class PlanUsageService {
     if (!reader) return this.settle(owner, statusOnly('provider-unsupported'));
 
     let credential: PlanSecret | undefined;
-    if (target.credentialRef) {
+    if (target.credentialRef && providerId !== 'grok') {
       const resolution = await this.credentials.resolve(target.credentialRef);
       if (resolution.kind === 'unavailable') {
         return this.settle(owner, statusOnly(resolution.status));
@@ -264,12 +273,49 @@ export class PlanUsageService {
 
     let reading: PlanUsageReading;
     try {
-      reading = await reader({
+      const request = {
         target,
         refresh,
         signal,
         ...(credential && { credential }),
-      });
+      };
+      const localReader = this.localReaders[providerId];
+      if (localReader) {
+        const [account, local] = await Promise.allSettled([
+          providerId === 'grok' && owner.identityKind === 'credential'
+            ? Promise.resolve(statusOnly('no-usage-source'))
+            : reader(request),
+          providerId === 'grok' && !target.cliSessionId
+            ? Promise.resolve(statusOnly('no-usage-source'))
+            : localReader(request),
+        ]);
+        reading = mergeLocalUsage(
+          account.status === 'fulfilled'
+            ? account.value
+            : statusOnly('service-unavailable'),
+          local.status === 'fulfilled'
+            ? local.value
+            : statusOnly('service-unavailable'),
+          providerId === 'grok' && owner.identityKind === 'credential',
+        );
+        if (
+          providerId === 'grok' &&
+          !target.cliSessionId &&
+          reading.status === 'no-usage-source'
+        ) {
+          reading = { ...reading, unavailableReason: 'no-open-session' };
+        }
+      } else {
+        reading = await reader(request);
+      }
+      if (providerId === 'opencode' || providerId === 'opencode-zen') {
+        reading = {
+          ...reading,
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          windows: [],
+        };
+      }
     } catch (error: unknown) {
       if (signal.aborted) throw abortError();
       // The error text may quote a response body; only its kind is kept.
@@ -304,7 +350,15 @@ export class PlanUsageService {
       for (const window of staleFrom.windows) {
         this.ledger.recordWindowEvidence(owner, window, { stale: true });
       }
-      return this.assemble(owner, { ...staleFrom, status: 'stale' }, since);
+      return this.assemble(
+        owner,
+        {
+          ...staleFrom,
+          status: 'stale',
+          ...(reading.localUsage && { localUsage: reading.localUsage }),
+        },
+        since,
+      );
     }
     this.failingSince.delete(key);
     // No open session says nothing about the owner; the next read retries.
@@ -351,11 +405,15 @@ export class PlanUsageService {
       ...(reading.fetchedAt !== undefined && { fetchedAt: reading.fetchedAt }),
       ...(staleSince !== undefined && { staleSince }),
       windowSetEstablished: !ineligible && reading.windowSetEstablished,
-      windows: ineligible ? [] : (evidence?.windows ?? []),
+      windows: snapshotWindowsForStatus(
+        reading.status,
+        evidence?.windows ?? [],
+      ),
       ownerEvidence: evidence?.ownerEvidence ?? [],
       ...(evidence?.cooldown && { cooldown: evidence.cooldown }),
       ...(reading.account && { account: reading.account }),
       ...(reading.activity && { activity: reading.activity }),
+      ...(reading.localUsage && { localUsage: reading.localUsage }),
       ...(reading.unavailableReason && {
         unavailableReason: reading.unavailableReason,
       }),
@@ -373,6 +431,21 @@ function isTransientFailure(reading: PlanUsageReading): boolean {
     reading.status === 'service-unavailable' &&
     reading.unavailableReason !== 'no-open-session'
   );
+}
+
+/** Keep account windows and local accounting independent. */
+function mergeLocalUsage(
+  account: PlanUsageReading,
+  local: PlanUsageReading,
+  localOnly: boolean,
+): PlanUsageReading {
+  if (!local.localUsage) return account;
+  return {
+    ...account,
+    status: localOnly ? 'available' : account.status,
+    fetchedAt: account.fetchedAt ?? local.fetchedAt,
+    localUsage: local.localUsage,
+  };
 }
 
 function statusOnly(status: ProviderAccountUsageStatus): PlanUsageReading {

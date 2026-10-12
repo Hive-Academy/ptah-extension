@@ -652,6 +652,16 @@ export interface TabState {
   sessionBudget?: SessionBudgetState | null;
 
   /**
+   * The budget stage the backend observed on a live (provisional) snapshot
+   * during the current turn. Advisory and display only: it never blocks a
+   * send, and it counts only while the tab is streaming and `sessionBudget`
+   * is non-null. Cleared at the turn's result, when the budget is disabled,
+   * and whenever `sessionBudget` is reset for a new or rebound session.
+   * `null`/absent means no live stage is shown.
+   */
+  liveBudgetStage?: 'handoff' | 'limit' | null;
+
+  /**
    * Live model stats from current session (updated after each turn completion).
    * Includes context window size for percentage calculation and model name.
    * Used by SessionStatsSummaryComponent for the context badge only; it is not

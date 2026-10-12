@@ -4,6 +4,7 @@ import {
   createExecutionChatMessage,
   MessageId,
   type PermissionRequest,
+  SESSION_HANDOVER_HELD,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
@@ -228,6 +229,7 @@ export class MessageDispatchService {
    */
   async sendQueuedMessage(tabId: string, content: string): Promise<void> {
     let queuedOptions: SendMessageOptions | undefined;
+    let queuedContent = content;
     try {
       const tab = this.tabManager.tabs().find((t) => t.id === tabId);
       const sessionId = tab?.claudeSessionId;
@@ -243,28 +245,74 @@ export class MessageDispatchService {
         this.tabManager.setQueuedContent(tabId, content);
         return;
       }
+      queuedContent = tab?.queuedContent ?? content;
       queuedOptions = tab?.queuedOptions ?? undefined;
+      // The composer becomes active while this request is in flight. Clearing
+      // first makes any text entered during the await a distinct new draft.
       this.tabManager.clearQueuedContentAndOptions(tabId);
       const outcome =
         await this.messageSender.continueExistingSessionForQueueFlush(
-          content,
+          queuedContent,
           sessionId,
           { ...queuedOptions, tabId },
         );
       if (outcome && !outcome.success) {
-        this.restoreFailedQueue(tabId, content, queuedOptions);
-        if (outcome.errorCode !== 'SESSION_BUDGET_REACHED') {
+        if (outcome.errorCode !== SESSION_HANDOVER_HELD) {
+          this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
+        }
+        if (
+          outcome.errorCode !== 'SESSION_BUDGET_REACHED' &&
+          outcome.errorCode !== SESSION_HANDOVER_HELD
+        ) {
           this.showSendFailure(tabId, outcome.error);
         }
       }
     } catch (error) {
+      this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
       console.error('[ChatStore] sendQueuedMessage failed:', error);
-      this.restoreFailedQueue(tabId, content, queuedOptions);
       this.showSendFailure(
         tabId,
         error instanceof Error ? error.message : undefined,
       );
     }
+  }
+
+  /**
+   * A compose action can append a new prompt while an earlier terminal-turn
+   * flush is in flight. Keep both prompts if that flush is refused or fails.
+   */
+  private restoreQueuedMessage(
+    tabId: string,
+    content: string,
+    options: SendMessageOptions | undefined,
+  ): void {
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab || tab.queuedContent === content) return;
+
+    const newerContent = tab.queuedContent?.trim();
+    if (!newerContent) {
+      if (options) {
+        this.tabManager.setQueuedContentAndOptions(tabId, content, options);
+      } else {
+        this.tabManager.setQueuedContent(tabId, content);
+      }
+      return;
+    }
+
+    const newerOptions = tab.queuedOptions;
+    this.tabManager.setQueuedContentAndOptions(
+      tabId,
+      `${content}\n${newerContent}`,
+      {
+        ...newerOptions,
+        ...options,
+        files: [...(options?.files ?? []), ...(newerOptions?.files ?? [])],
+        images: [
+          ...(options?.images ?? []),
+          ...(newerOptions?.images ?? []),
+        ],
+      },
+    );
   }
 
   /**
@@ -289,32 +337,6 @@ export class MessageDispatchService {
       );
     }
     return tabId === this.tabManager.activeTabId();
-  }
-
-  private restoreFailedQueue(
-    tabId: string,
-    content: string,
-    options?: SendMessageOptions,
-  ): void {
-    const current = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    const newer = current?.queuedContent;
-    const newerOptions = current?.queuedOptions;
-    // Restore before newer arrivals, preserving attachments from both. No retry
-    // is dispatched here: delivery requires another explicit flush action.
-    this.tabManager.setQueuedContentAndOptions(
-      tabId,
-      newer
-        ? `${content}
-${newer}`
-        : content,
-      {
-        ...options,
-        ...newerOptions,
-        tabId,
-        files: [...(options?.files ?? []), ...(newerOptions?.files ?? [])],
-        images: [...(options?.images ?? []), ...(newerOptions?.images ?? [])],
-      },
-    );
   }
 
   private showSendFailure(tabId: string, error?: string): void {

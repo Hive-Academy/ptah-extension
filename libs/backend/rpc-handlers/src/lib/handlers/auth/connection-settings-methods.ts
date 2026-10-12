@@ -21,6 +21,7 @@ import {
   AuthCheckConnectionSchema,
   AuthSettingsSchema,
 } from '../auth-rpc.schema';
+import type { AuthSettingsInput } from '../auth-rpc.schema';
 import { autoMapProviderTiers } from './provider-tier-auto-map';
 
 export interface ConnectionSettingsMethodsDeps {
@@ -80,15 +81,7 @@ export class ConnectionSettingsMethods {
    * auth:saveSettings - Save authentication settings
    */
   registerSaveSettings(): void {
-    const {
-      logger,
-      sentryService,
-      sdkAdapter,
-      scopeResolver,
-      authSecretsService,
-      providerModels,
-      connectionChecks,
-    } = this.deps;
+    const { logger, sentryService, sdkAdapter, scopeResolver } = this.deps;
     this.deps.rpcHandler.registerMethod<
       unknown,
       { success: boolean; error?: string }
@@ -118,62 +111,30 @@ export class ConnectionSettingsMethods {
         const validated = AuthSettingsSchema.parse(params);
         const applyTo: 'global' | 'app' | 'workspace' =
           validated.applyTo ?? 'global';
-        await scopeResolver.write(
-          'authMethod',
-          validated.authMethod,
-          applyTo,
-          true,
-        );
-        await scopeResolver.clearMoreSpecific('authMethod', applyTo, true);
-        if (validated.anthropicApiKey !== undefined) {
-          if (validated.anthropicApiKey.trim()) {
-            await authSecretsService.setCredential(
-              'apiKey',
-              validated.anthropicApiKey,
+        if (applyTo === 'workspace') {
+          // A workspace-scoped save affects only the active workspace: end
+          // its sessions and re-configure auth for it. `reset()` would end
+          // every workspace's sessions in this process.
+          const workspacePath = scopeResolver.getActivePath();
+          if (!workspacePath) {
+            throw new RpcUserError(
+              'Open a workspace to save settings for it.',
+              'INVALID_PARAMS',
             );
-          } else {
-            await authSecretsService.deleteCredential('apiKey');
           }
-          connectionChecks.clear(ANTHROPIC_DIRECT_PROVIDER_ID);
-        }
-        if (validated.providerApiKey !== undefined) {
-          const targetProviderId =
-            validated.anthropicProviderId ??
-            scopeResolver.read<string>('anthropicProviderId', true) ??
-            DEFAULT_PROVIDER_ID;
-
-          if (validated.providerApiKey.trim()) {
-            await authSecretsService.setProviderKey(
-              targetProviderId,
-              validated.providerApiKey,
-            );
-          } else {
-            await authSecretsService.deleteProviderKey(targetProviderId);
-          }
-          connectionChecks.clear(targetProviderId);
-          providerModels.clearCache(targetProviderId);
-        }
-        if (validated.anthropicProviderId !== undefined) {
-          await scopeResolver.write(
-            'anthropicProviderId',
-            validated.anthropicProviderId,
-            applyTo,
-            true,
+          logger.info(
+            'RPC: auth:saveSettings applying a workspace-scoped change...',
           );
-          await scopeResolver.clearMoreSpecific(
-            'anthropicProviderId',
-            applyTo,
-            true,
+          await sdkAdapter.applyWorkspaceAuthChange(workspacePath, () =>
+            this.writeAuthSettings(validated, applyTo),
           );
-          await autoMapProviderTiers(
-            providerModels,
-            logger,
-            validated.anthropicProviderId,
-          );
+          logger.info('RPC: auth:saveSettings workspace change applied');
+        } else {
+          await this.writeAuthSettings(validated, applyTo);
+          logger.info('RPC: auth:saveSettings triggering adapter reset...');
+          await sdkAdapter.reset();
+          logger.info('RPC: auth:saveSettings adapter reset completed');
         }
-        logger.info('RPC: auth:saveSettings triggering adapter reset...');
-        await sdkAdapter.reset();
-        logger.info('RPC: auth:saveSettings adapter reset completed');
 
         this.deps.invalidateAuthStatusCache();
         logger.info('RPC: auth:saveSettings completed successfully');
@@ -190,6 +151,73 @@ export class ConnectionSettingsMethods {
         throw error;
       }
     });
+  }
+
+  /** The settings and secret writes of `auth:saveSettings`, at `applyTo`. */
+  private async writeAuthSettings(
+    validated: AuthSettingsInput,
+    applyTo: 'global' | 'app' | 'workspace',
+  ): Promise<void> {
+    const {
+      logger,
+      scopeResolver,
+      authSecretsService,
+      providerModels,
+      connectionChecks,
+    } = this.deps;
+    await scopeResolver.write(
+      'authMethod',
+      validated.authMethod,
+      applyTo,
+      true,
+    );
+    await scopeResolver.clearMoreSpecific('authMethod', applyTo, true);
+    if (validated.anthropicApiKey !== undefined) {
+      if (validated.anthropicApiKey.trim()) {
+        await authSecretsService.setCredential(
+          'apiKey',
+          validated.anthropicApiKey,
+        );
+      } else {
+        await authSecretsService.deleteCredential('apiKey');
+      }
+      connectionChecks.clear(ANTHROPIC_DIRECT_PROVIDER_ID);
+    }
+    if (validated.providerApiKey !== undefined) {
+      const targetProviderId =
+        validated.anthropicProviderId ??
+        scopeResolver.read<string>('anthropicProviderId', true) ??
+        DEFAULT_PROVIDER_ID;
+
+      if (validated.providerApiKey.trim()) {
+        await authSecretsService.setProviderKey(
+          targetProviderId,
+          validated.providerApiKey,
+        );
+      } else {
+        await authSecretsService.deleteProviderKey(targetProviderId);
+      }
+      connectionChecks.clear(targetProviderId);
+      providerModels.clearCache(targetProviderId);
+    }
+    if (validated.anthropicProviderId !== undefined) {
+      await scopeResolver.write(
+        'anthropicProviderId',
+        validated.anthropicProviderId,
+        applyTo,
+        true,
+      );
+      await scopeResolver.clearMoreSpecific(
+        'anthropicProviderId',
+        applyTo,
+        true,
+      );
+      await autoMapProviderTiers(
+        providerModels,
+        logger,
+        validated.anthropicProviderId,
+      );
+    }
   }
 
   /**

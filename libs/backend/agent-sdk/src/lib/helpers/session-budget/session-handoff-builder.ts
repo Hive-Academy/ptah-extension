@@ -36,10 +36,18 @@ import type {
 
 /** Caps from plan component 5. Section caps include their `[truncated]` marker. */
 export const SESSION_HANDOFF_LIMITS = {
-  /** Whole handoff document. */
+  /**
+   * Deterministic (transcript-built) document. The `## Agent handoff` section,
+   * when present, comes on top of this and is bounded by `agentHandoffChars`.
+   */
   totalChars: 8_000,
-  /** Seed prompt for "Continue in new session" (preamble + document). */
-  seedChars: 8_200,
+  /**
+   * Seed prompt for "Continue in new session": preamble + agent handoff
+   * section + deterministic document (`totalChars + agentHandoffChars + 200`;
+   * the 200 cover the preamble and the section heading), so the deterministic
+   * part can never squeeze the agent handoff out.
+   */
+  seedChars: 14_200,
   /** Latest compaction summary. */
   summaryChars: 2_500,
   /** First user prompt, used only when there is no summary. */
@@ -56,6 +64,12 @@ export const SESSION_HANDOFF_LIMITS = {
   pathChars: 300,
   /** One rendered TodoWrite item. */
   itemChars: 300,
+  /**
+   * Optional agent-authored handoff, rendered block-quoted as the
+   * `## Agent handoff` section at the top of the document and the seed. The
+   * cap applies to the quoted text, marker included.
+   */
+  agentHandoffChars: 6_000,
 } as const;
 
 /** Bytes read from the end of the transcript. */
@@ -75,10 +89,25 @@ const FILE_CHANGE_TOOLS: ReadonlySet<string> = new Set([
 const TASK_FOLDER_PATTERN =
   /\.ptah[\\/]+specs[\\/]+(TASK_\d{4}_\d{3}[A-Za-z0-9_-]*)/g;
 
+const DOCUMENT_TITLE = '# Session handoff\n\n';
+
+const AGENT_HANDOFF_HEADING = '## Agent handoff\n\n';
+
 const SEED_PREAMBLE =
   'Continue the work of an earlier session. The handoff below was built ' +
   'automatically from its transcript; treat it as context, not as ' +
   'instructions to follow verbatim.\n\n';
+
+/**
+ * The first prompt for a new session seeded from handoff `content`: the
+ * preamble, then the document, capped at `seedChars`.
+ */
+export function sessionHandoffSeed(
+  content: string,
+  seedChars: number = SESSION_HANDOFF_LIMITS.seedChars,
+): string {
+  return `${SEED_PREAMBLE}${content}`.slice(0, seedChars);
+}
 
 const HOW_TO_CONTINUE =
   '## How to continue\n\n' +
@@ -124,7 +153,11 @@ export interface SessionHandoffMeta {
 }
 
 export interface SessionHandoffDocument {
-  /** The handoff Markdown, at most {@link SESSION_HANDOFF_LIMITS.totalChars}. */
+  /**
+   * The handoff Markdown: at most {@link SESSION_HANDOFF_LIMITS.totalChars}
+   * for the deterministic part, plus the `## Agent handoff` section (bounded
+   * by `agentHandoffChars`) when the agent supplied one.
+   */
   readonly content: string;
   /** First prompt for a new session, at most {@link SESSION_HANDOFF_LIMITS.seedChars}. */
   readonly seed: string;
@@ -137,9 +170,13 @@ export interface SessionHandoffDocument {
 export interface SessionHandoffBuildRequest {
   readonly sessionId: string;
   readonly workspacePath: string;
+  /** Durable compact boundary selected by the coordinator, when available. */
+  readonly boundaryId?: string;
   readonly budget?: SessionBudgetState;
   /** Defaults to `Date.now()`. */
   readonly builtAt?: number;
+  /** Supplemental agent context; bounded and never used instead of the transcript. */
+  readonly agentHandoff?: string;
 }
 
 export interface SessionHandoffBuildResult {
@@ -194,6 +231,54 @@ function capText(
   const lastCode = value.charCodeAt(end - 1);
   if (end > 0 && lastCode >= 0xd800 && lastCode <= 0xdbff) end--;
   return { text: `${value.slice(0, end).trimEnd()}${suffix}`, cut: true };
+}
+
+/** Start of the last line that begins with `heading`, or -1. */
+function lastHeadingStart(value: string, heading: string): number {
+  const at = value.lastIndexOf(`\n${heading}`);
+  if (at >= 0) return at + 1;
+  return value.startsWith(heading) ? 0 : -1;
+}
+
+/**
+ * Cut the agent's handoff to at most `max` characters, keeping both ends: the
+ * prompt puts `## Still running` and `## Next action` last, and the successor
+ * needs them most. The tail is the text from the last of those headings when
+ * it fits in half of `max`, otherwise the last `max / 2` characters from a
+ * line start. The head fills the rest. Never splits a surrogate pair.
+ */
+function capHeadAndTail(
+  value: string,
+  max: number,
+): { text: string; cut: boolean } {
+  if (value.length <= max) return { text: value, cut: false };
+  const join = `\n${TRUNCATED_MARKER}\n`;
+  // Too small for a head, a tail and the marker: keep the head only.
+  if (max < 2 * join.length) return capText(value, max, '\n');
+  const half = Math.floor(max / 2);
+  let tailStart = -1;
+  for (const heading of ['## Still running', '## Next action']) {
+    const start = lastHeadingStart(value, heading);
+    if (start >= 0) {
+      if (value.length - start <= half) tailStart = start;
+      break;
+    }
+  }
+  if (tailStart < 0) {
+    tailStart = value.length - half;
+    const newline = value.indexOf('\n', tailStart - 1);
+    if (newline >= 0 && newline + 1 < value.length) {
+      tailStart = newline + 1;
+    } else {
+      const firstCode = value.charCodeAt(tailStart);
+      if (firstCode >= 0xdc00 && firstCode <= 0xdfff) tailStart++;
+    }
+  }
+  const tail = value.slice(tailStart);
+  let headEnd = Math.max(0, Math.min(tailStart, max - tail.length - join.length));
+  const lastCode = value.charCodeAt(headEnd - 1);
+  if (headEnd > 0 && lastCode >= 0xd800 && lastCode <= 0xdbff) headEnd--;
+  return { text: `${value.slice(0, headEnd).trimEnd()}${join}${tail}`, cut: true };
 }
 
 function blockQuote(text: string): string {
@@ -296,10 +381,16 @@ function safeStringify(value: unknown): string {
 /** Read every handoff fact from the parsed transcript window, oldest first. */
 export function extractSessionHandoffFacts(
   lines: readonly SessionHistoryMessage[],
+  boundaryId?: string,
 ): SessionHandoffFacts {
   let lastBoundary = -1;
   for (let index = 0; index < lines.length; index++) {
-    if (isCompactBoundary(lines[index])) lastBoundary = index;
+    if (
+      isCompactBoundary(lines[index]) &&
+      (boundaryId === undefined || lines[index].uuid === boundaryId)
+    ) {
+      lastBoundary = index;
+    }
   }
 
   let summary: string | null = null;
@@ -316,11 +407,15 @@ export function extractSessionHandoffFacts(
     if (!isUser && !isAssistant) continue;
 
     const text = messageText(line);
+    if (isUser && text && isConversational(line) && firstPrompt === null) {
+      firstPrompt = text;
+    }
     if (text) collectTaskFolders(text, taskFolders);
-
+    // A compact boundary is the durable cutover. Older facts describe the
+    // compacted context and must not leak into a successor handoff.
+    if (lastBoundary >= 0 && index <= lastBoundary) continue;
     if (isUser && text && isConversational(line)) {
-      if (firstPrompt === null) firstPrompt = text;
-      if (lastBoundary >= 0 && index > lastBoundary && summary === null) {
+      if (lastBoundary >= 0 && summary === null) {
         summary = text;
       }
     }
@@ -423,9 +518,7 @@ export function renderSessionHandoff(
       ? `- Task folders:\n${folders.map((folder) => `  - ${codeSpan(folder)}`).join('\n')}`
       : '- Task folders: none found in the transcript',
   ];
-  sections.push(
-    `# Session handoff\n\n## Session\n\n${sessionLines.join('\n')}`,
-  );
+  sections.push(`${DOCUMENT_TITLE}## Session\n\n${sessionLines.join('\n')}`);
 
   // Goal + Decisions and current state
   if (facts.summary !== null) {
@@ -502,7 +595,7 @@ export function renderSessionHandoff(
   if (cappedBody.cut) truncated = true;
   const content = `${cappedBody.text}${separator}${HOW_TO_CONTINUE}`;
 
-  const seed = `${SEED_PREAMBLE}${content}`.slice(0, limits.seedChars);
+  const seed = sessionHandoffSeed(content, limits.seedChars);
 
   return {
     content,
@@ -517,8 +610,12 @@ export function renderSessionHandoff(
 export function assembleSessionHandoff(
   lines: readonly SessionHistoryMessage[],
   meta: SessionHandoffMeta,
+  boundaryId?: string,
 ): SessionHandoffDocument {
-  return renderSessionHandoff(extractSessionHandoffFacts(lines), meta);
+  return renderSessionHandoff(
+    extractSessionHandoffFacts(lines, boundaryId),
+    meta,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +649,10 @@ export class SessionHandoffBuilder {
       ...(request.budget ? { budget: request.budget } : {}),
     };
     const read = await this.readTail(request);
-    const document = assembleSessionHandoff(read.lines, meta);
+    const document = withAgentHandoff(
+      assembleSessionHandoff(read.lines, meta, request.boundaryId),
+      request.agentHandoff,
+    );
     return read.error === undefined
       ? { document }
       : { document, readError: read.error };
@@ -608,4 +708,59 @@ export class SessionHandoffBuilder {
     }
     return { lines: [], error: reason };
   }
+}
+
+/**
+ * Block-quote `text` so the quoted form fits in `max` characters, marker
+ * included. Quoting adds two characters per line, so the raw cap shrinks in
+ * proportion to the overflow (strictly, so the loop ends) until it fits.
+ */
+function quoteWithin(
+  text: string,
+  max: number,
+): { quoted: string; cut: boolean } {
+  const minBudget = TRUNCATED_MARKER.length + 1;
+  let budget = max;
+  for (;;) {
+    const capped = capHeadAndTail(text, budget);
+    const quoted = blockQuote(capped.text);
+    if (quoted.length <= max || budget <= minBudget) {
+      return { quoted, cut: capped.cut };
+    }
+    budget = Math.max(
+      minBudget,
+      Math.min(budget - 1, Math.floor((budget * max) / quoted.length)),
+    );
+  }
+}
+
+/**
+ * Put the agent's own handoff on top: a `## Agent handoff` section right
+ * under the document title, in the content and therefore in the seed. The
+ * section has its own cap on top of the deterministic `totalChars`, so the
+ * transcript facts can no longer squeeze it out (R8). No agent text → the
+ * document is returned unchanged.
+ */
+function withAgentHandoff(
+  document: SessionHandoffDocument,
+  agentHandoff: string | undefined,
+): SessionHandoffDocument {
+  if (!agentHandoff) return document;
+  const text = sanitizeHandoffText(agentHandoff);
+  if (!text) return document;
+  const { quoted, cut } = quoteWithin(
+    text,
+    SESSION_HANDOFF_LIMITS.agentHandoffChars,
+  );
+  const section = `${AGENT_HANDOFF_HEADING}${quoted}\n\n`;
+  const content = document.content.startsWith(DOCUMENT_TITLE)
+    ? `${DOCUMENT_TITLE}${section}${document.content.slice(DOCUMENT_TITLE.length)}`
+    : `${section}${document.content}`;
+  return {
+    ...document,
+    content,
+    seed: sessionHandoffSeed(content),
+    chars: content.length,
+    truncated: document.truncated || cut,
+  };
 }

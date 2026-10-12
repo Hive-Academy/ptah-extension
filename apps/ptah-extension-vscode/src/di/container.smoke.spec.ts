@@ -203,14 +203,6 @@ describe('VS Code DI — shared RPC handler resolution', () => {
       instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
-    if (token === SetupRpcHandlers) {
-      const ms = (
-        instance as unknown as {
-          modelSettings: { selectedModel: { get: () => unknown } };
-        }
-      ).modelSettings;
-      expect(typeof ms.selectedModel.get).toBe('function');
-    }
   });
 });
 

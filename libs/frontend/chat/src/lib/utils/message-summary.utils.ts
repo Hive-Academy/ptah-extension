@@ -40,6 +40,35 @@ function truncateAtWordBoundary(text: string, maxLength: number): string {
   return truncated + '...';
 }
 
+/** A `ptah-ui` fence through its closing line, or through the end of streamed text. */
+const PTAH_UI_FENCE =
+  /^```ptah-ui(?:[ \t]+(\S+)[^\n]*)?(?:\r?\n|(?![\s\S]))([\s\S]*?)(?:^```[ \t\r]*$|(?![\s\S]))/gm;
+
+/**
+ * A ptah-ui fence is rendered as structured UI below the collapsed header, so
+ * its transport syntax must not become the message preview. When only fences
+ * remain, prefer the display title (the grammar allows `title` only as the
+ * first body line); keep a stable label for untitled displays.
+ */
+function summaryText(text: string): string {
+  let fenced = false;
+  let displayTitle: string | undefined;
+  const prose = text.replace(
+    PTAH_UI_FENCE,
+    (_fence, kind: string | undefined, body: string) => {
+      fenced = true;
+      if (displayTitle === undefined && kind === 'display') {
+        const first = body.split(/\r?\n/).find((line) => line.trim() !== '');
+        displayTitle = first && /^title[ \t]+(.+?)[ \t]*$/.exec(first)?.[1];
+      }
+      return ' ';
+    },
+  );
+  const collapsed = prose.replace(/(?<!`)`([^`]+)`(?!`)/g, '$1').replace(/\s+/g, ' ').trim();
+  if (!fenced || collapsed) return collapsed;
+  return displayTitle ? `Display: ${displayTitle}` : 'Display';
+}
+
 /** Known tool input keys that contain file paths */
 const FILE_PATH_KEYS = ['file_path', 'notebook_path', 'filePath'] as const;
 
@@ -56,7 +85,7 @@ function walkNode(
   state: { rawText: string; files: Set<string>; toolCount: number },
 ): void {
   if (node.type === 'text' && !state.rawText && node.content) {
-    state.rawText = node.content.replace(/\s+/g, ' ').trim();
+    state.rawText = node.content.trim();
   }
 
   if (node.type === 'tool') {
@@ -99,7 +128,7 @@ export function extractMessageSummary(
     walkNode(rootNode, state);
   }
 
-  const rawText = state.rawText;
+  const rawText = summaryText(state.rawText);
 
   return {
     title: rawText ? truncateAtWordBoundary(rawText, 80) : 'Assistant response',

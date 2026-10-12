@@ -42,6 +42,7 @@ import {
   EmbedderRpcHandlers,
   EditorRpcHandlers,
   EnhancedPromptsRpcHandlers,
+  LanePlanLimitsRpcHandlers,
   FilePickerRpcHandlers,
   FileSystemRpcHandlers,
   FileViewRpcHandlers,
@@ -65,6 +66,7 @@ import {
   PtahCliRpcHandlers,
   QualityRpcHandlers,
   SessionBudgetRpcHandlers,
+  SessionHandoverRpcHandlers,
   SessionOrganizationRpcHandlers,
   SessionRpcHandlers,
   SettingsRpcHandlers,
@@ -305,6 +307,12 @@ export const RPC_HANDLER_MANIFEST = [
     handler: SessionBudgetRpcHandlers,
   },
   {
+    key: 'sessionHandover',
+    methods: SessionHandoverRpcHandlers.METHODS,
+    requires: [],
+    handler: SessionHandoverRpcHandlers,
+  },
+  {
     key: 'settings',
     methods: SettingsRpcHandlers.METHODS,
     requires: [],
@@ -464,6 +472,15 @@ export const RPC_HANDLER_MANIFEST = [
     methods: DiagnosticsConsentRpcHandlers.METHODS,
     requires: ['goVetDiagnostics'],
     handler: DiagnosticsConsentRpcHandlers,
+  },
+  {
+    // Read-only lane plan-limit rows for the `$limits` host source (R10.1,
+    // D13). Electron-only: VS Code and the CLI leave the capability off, so
+    // the read is excluded there rather than answering "unavailable".
+    key: 'lanePlanLimits',
+    methods: LanePlanLimitsRpcHandlers.METHODS,
+    requires: ['lanePlanLimits'],
+    handler: LanePlanLimitsRpcHandlers,
   },
 
   // --- host-owned (unification pending) -------------------------------------

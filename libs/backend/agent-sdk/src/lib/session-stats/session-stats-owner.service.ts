@@ -9,6 +9,10 @@
  * - for each query run, keyed by the registry `SessionRecord.token` of the
  *   query that produced it, the LATEST cumulative SDK result. A newer result
  *   for the same run REPLACES the stored one; it is never added;
+ * - per run, the in-turn ESTIMATE published live since its last result. Only
+ *   the live snapshot ({@link SessionStatsOwnerService.publishLive},
+ *   `provisional: true`) includes it; the authoritative snapshot never does,
+ *   and always carries a higher revision than any live one before it;
  * - the set of canonical subagent identities that belong to the session;
  * - a generation (owner identity), an epoch (latest prepared run) and a
  *   revision, all monotonic within this process.
@@ -104,11 +108,16 @@ const SavedCostStateSchema = z.object({
  * Validate the raw payload of a transcript `cost-state` entry. Returns `null`
  * when it is absent or malformed.
  */
-export function parseSavedCostState(raw: {
-  readonly totalCostUSD?: unknown;
-  readonly modelUsage?: unknown;
-  readonly hasUnknownModelCost?: unknown;
-} | null | undefined): SavedCostState | null {
+export function parseSavedCostState(
+  raw:
+    | {
+        readonly totalCostUSD?: unknown;
+        readonly modelUsage?: unknown;
+        readonly hasUnknownModelCost?: unknown;
+      }
+    | null
+    | undefined,
+): SavedCostState | null {
   if (!raw) return null;
   const parsed = SavedCostStateSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -346,6 +355,28 @@ interface RunState {
   rejectionReported: boolean;
   /** Sum of the per-turn `duration_ms` of the results this run accepted. */
   durationMs: number;
+  /**
+   * The in-turn estimate published live since the run's last result, or
+   * `null` when there is none. Only {@link SessionStatsOwnerService.publishLive}
+   * reads it: the authoritative snapshot never includes an estimate.
+   */
+  provisional: readonly RunModelUsage[] | null;
+}
+
+/**
+ * A per-stream observer of one owner. Signals run synchronously inside the
+ * owner call that raised them; a throwing watcher is swallowed and never
+ * breaks that call.
+ */
+export interface OwnerWatcher {
+  /** A new subagent identity was recorded ({@link SessionStatsOwnerService.recordAgent}). */
+  onAgentRecorded(): void;
+  /**
+   * The owner was released. `settled` is its final authoritative snapshot
+   * (every estimate cleared), or `null` while its prefix read was pending.
+   * Called after the owner is gone, at most once.
+   */
+  onReleased(settled: SessionStatsEntry | null): void;
 }
 
 interface OwnerState {
@@ -365,6 +396,11 @@ interface OwnerState {
   readonly runs: Map<string, RunState>;
   /** Canonical subagent ids. */
   readonly agentIds: Set<string>;
+  /**
+   * Per-stream observers. Dropped without notification when the owner is
+   * replaced ({@link SessionStatsOwnerService.startNew}) or cleared.
+   */
+  readonly watchers: Set<OwnerWatcher>;
   revision: number;
   /** The immutable snapshot for `revision`, built on first request. */
   published: SessionStatsEntry | null;
@@ -414,9 +450,10 @@ export class SessionStatsOwnerService {
     // epoch can no longer release this owner.
     state.epoch = ++this.epochCounter;
     const lease = { generation: state.generation, epoch: state.epoch };
-    const candidate = state.pending
-      ? ((await state.pending)?.savedCostState ?? null)
-      : await readOrNull(loaders.loadSavedCostState);
+    const candidate =
+      state.pending !== null
+        ? ((await state.pending)?.savedCostState ?? null)
+        : await readOrNull(loaders.loadSavedCostState);
     return { ...lease, candidate };
   }
 
@@ -443,7 +480,11 @@ export class SessionStatsOwnerService {
    * Move a provisional key's owner to the canonical session id once the SDK
    * reports it. Moved, never cloned; only the named generation moves.
    */
-  rebind(provisionalKey: string, canonicalId: string, generation: number): void {
+  rebind(
+    provisionalKey: string,
+    canonicalId: string,
+    generation: number,
+  ): void {
     if (provisionalKey === canonicalId) return;
     const state = this.currentState(provisionalKey, generation);
     if (!state) return;
@@ -548,7 +589,8 @@ export class SessionStatsOwnerService {
   /**
    * Record a subagent identity for a session this owner tracks. Aliases
    * (`agent-<id>`, `<id>`) collapse to one; stop hooks and replays never
-   * remove an identity. Returns whether the count changed.
+   * remove an identity. Returns whether the count changed; on a change every
+   * watcher of the owner is told, after the mutation.
    */
   recordAgent(sessionId: string, agentId: string): boolean {
     const state = this.states.get(sessionId);
@@ -556,7 +598,78 @@ export class SessionStatsOwnerService {
     if (!state || id === null || state.agentIds.has(id)) return false;
     state.agentIds.add(id);
     this.touch(state);
+    notifyWatchers(state.watchers, (watcher) => watcher.onAgentRecorded());
     return true;
+  }
+
+  /**
+   * Publish a run's in-turn estimate and return the LIVE snapshot: the
+   * authoritative figures plus every run's current estimate, marked
+   * `provisional: true`. The live snapshot is never cached and never returned
+   * by {@link snapshot}, so resume and the budget never see an estimate.
+   *
+   * `estimate` rows that fail the result validation rules are dropped, not
+   * the estimate. With valid rows the run's estimate is replaced and the
+   * revision advances. With `null` (or no valid row) nothing changes: the
+   * live snapshot is rebuilt when some run of this owner still holds an
+   * estimate, otherwise the cached authoritative snapshot is returned as is.
+   *
+   * `null` when the generation is not current or the prefix read is in
+   * flight (the same rule as {@link snapshot}).
+   */
+  publishLive(
+    sessionKey: string,
+    generation: number,
+    runToken: string,
+    estimate: readonly RunModelUsage[] | null,
+  ): SessionStatsEntry | null {
+    const state = this.currentState(sessionKey, generation);
+    if (!state || state.pending !== null) return null;
+    const rows = estimate?.filter(isValidModelUsage) ?? [];
+    if (rows.length > 0) {
+      runFor(state, runToken).provisional = rows;
+      this.touch(state);
+      return this.build(sessionKey, state, true);
+    }
+    return hasEstimate(state)
+      ? this.build(sessionKey, state, true)
+      : this.publish(sessionKey, state);
+  }
+
+  /**
+   * Drop a run's live estimate at a result boundary, BEFORE the result is
+   * offered: the revision advances, so every authoritative snapshot built
+   * afterwards supersedes every live snapshot published before. Never creates
+   * a run or an owner.
+   */
+  clearProvisional(
+    sessionKey: string,
+    generation: number,
+    runToken: string,
+  ): void {
+    const state = this.currentState(sessionKey, generation);
+    const run = state?.runs.get(runToken);
+    if (!state || !run || run.provisional === null) return;
+    run.provisional = null;
+    this.touch(state);
+  }
+
+  /**
+   * Attach a watcher to the current owner. The returned detach function
+   * removes it from THAT owner, wherever it is keyed after a
+   * {@link rebind}. `null` when the generation is not current.
+   */
+  watch(
+    sessionKey: string,
+    generation: number,
+    watcher: OwnerWatcher,
+  ): (() => void) | null {
+    const state = this.currentState(sessionKey, generation);
+    if (!state) return null;
+    state.watchers.add(watcher);
+    return () => {
+      state.watchers.delete(watcher);
+    };
   }
 
   /**
@@ -584,18 +697,40 @@ export class SessionStatsOwnerService {
    * canonical id. Whatever owner occupies a key is never released by key
    * alone. A replacement owner, or a newer run prepared on the same owner
    * since the capture, survives an older teardown.
+   *
+   * A successful release settles first: every live estimate is cleared (the
+   * revision advances when one existed) and the final authoritative snapshot
+   * is handed to each watcher, after the owner is gone. A release that
+   * returns `false` notifies nobody.
    */
   release(lease: OwnerLease): boolean {
     for (const [key, state] of this.states) {
       if (state.generation !== lease.generation) continue;
       if (state.epoch !== lease.epoch) return false;
+      // No live snapshot exists while the prefix read is pending
+      // (`publishLive` returns `null` then), so there is nothing to settle.
+      let settled: SessionStatsEntry | null = null;
+      if (state.pending === null) {
+        let cleared = false;
+        for (const run of state.runs.values()) {
+          if (run.provisional !== null) {
+            run.provisional = null;
+            cleared = true;
+          }
+        }
+        if (cleared) this.touch(state);
+        settled = this.publish(key, state);
+      }
       this.states.delete(key);
+      const watchers = [...state.watchers];
+      state.watchers.clear();
+      notifyWatchers(watchers, (watcher) => watcher.onReleased(settled));
       return true;
     }
     return false;
   }
 
-  /** Release every owner (backend disposal). */
+  /** Release every owner (backend disposal). Notifies no watcher. */
   clearAll(): void {
     this.states.clear();
   }
@@ -639,6 +774,7 @@ export class SessionStatsOwnerService {
       pending: null,
       runs: new Map(),
       agentIds: new Set(),
+      watchers: new Set(),
       revision: 0,
       published: null,
     };
@@ -649,10 +785,26 @@ export class SessionStatsOwnerService {
     state.published = null;
   }
 
+  /** The authoritative snapshot for the current revision, cached. */
   private publish(sessionId: string, state: OwnerState): SessionStatsEntry {
     if (state.published && state.published.sessionId === sessionId) {
       return state.published;
     }
+    const snapshot = this.build(sessionId, state, false);
+    state.published = snapshot;
+    return snapshot;
+  }
+
+  /**
+   * Build an immutable snapshot of the owner. `live` adds every run's
+   * estimate as one more contribution and marks the result
+   * `provisional: true`; without it the estimates are ignored entirely.
+   */
+  private build(
+    sessionId: string,
+    state: OwnerState,
+    live: boolean,
+  ): SessionStatsEntry {
     const contributions: SessionStatsReadEntry[] = [
       state.prefix === null
         ? failedSessionStats(sessionId)
@@ -669,6 +821,11 @@ export class SessionStatsOwnerService {
             sessionId,
             subtractRunBase(run.current, run.base ?? null),
           ),
+        );
+      }
+      if (live && run.provisional !== null && run.provisional.length > 0) {
+        contributions.push(
+          runContribution(sessionId, estimateResult(run.provisional)),
         );
       }
     }
@@ -695,10 +852,59 @@ export class SessionStatsOwnerService {
           ? null
           : state.prefixDurationMs + runDurationMs,
       revision: state.revision,
+      ...(live && { provisional: true }),
     });
-    state.published = snapshot;
     return snapshot;
   }
+}
+
+/**
+ * Call `signal` on each watcher of a copy of `watchers`, so a watcher that
+ * detaches itself does not disturb the iteration.
+ */
+function notifyWatchers(
+  watchers: Iterable<OwnerWatcher>,
+  signal: (watcher: OwnerWatcher) => void,
+): void {
+  for (const watcher of [...watchers]) {
+    try {
+      signal(watcher);
+    } catch (error: unknown) {
+      // degradation-audit: reported - the watcher logs its own failure.
+      // Deliberately absorbed: `release` sits on the Stop path and
+      // `recordAgent` on the hook path; an observer must never break either,
+      // nor starve the watchers after it. The owner logs nothing by contract.
+      void error;
+    }
+  }
+}
+
+function hasEstimate(state: OwnerState): boolean {
+  for (const run of state.runs.values()) {
+    if (run.provisional !== null && run.provisional.length > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * A run's estimate as a result-shaped contribution. Estimates are priced from
+ * the rate card, so the total is the sum of the rows, unknown when any row is.
+ */
+function estimateResult(rows: readonly RunModelUsage[]): RunUsageResult {
+  let total = 0;
+  let allPriced = true;
+  for (const row of rows) {
+    if (row.costUSD === null) {
+      allPriced = false;
+    } else {
+      total += row.costUSD;
+    }
+  }
+  return {
+    models: rows,
+    totalCost: allPriced ? total : null,
+    costSource: 'unreported',
+  };
 }
 
 function createRun(candidate: SavedCostState | null): RunState {
@@ -709,6 +915,7 @@ function createRun(candidate: SavedCostState | null): RunState {
     incomplete: false,
     rejectionReported: false,
     durationMs: 0,
+    provisional: null,
   };
 }
 
@@ -875,15 +1082,18 @@ function isValidResult(result: RunUsageResult): boolean {
   if (result.totalCost !== null && !isFiniteNonNegative(result.totalCost)) {
     return false;
   }
-  return result.models.every(
-    (m) =>
-      typeof m.model === 'string' &&
-      m.model.trim().length > 0 &&
-      isFiniteNonNegative(m.inputTokens) &&
-      isFiniteNonNegative(m.outputTokens) &&
-      isFiniteNonNegative(m.cacheRead) &&
-      isFiniteNonNegative(m.cacheCreation) &&
-      (m.costUSD === null || isFiniteNonNegative(m.costUSD)),
+  return result.models.every(isValidModelUsage);
+}
+
+function isValidModelUsage(m: RunModelUsage): boolean {
+  return (
+    typeof m.model === 'string' &&
+    m.model.trim().length > 0 &&
+    isFiniteNonNegative(m.inputTokens) &&
+    isFiniteNonNegative(m.outputTokens) &&
+    isFiniteNonNegative(m.cacheRead) &&
+    isFiniteNonNegative(m.cacheCreation) &&
+    (m.costUSD === null || isFiniteNonNegative(m.costUSD))
   );
 }
 

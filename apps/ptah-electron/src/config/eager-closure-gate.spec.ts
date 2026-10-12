@@ -7,6 +7,7 @@ const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
 const GATE_PATH = join(REPO_ROOT, 'scripts', 'eager-closure-gate.js');
 const eagerClosureGate = require(GATE_PATH) as {
   assertNoForbiddenEager(stats: ChunkStats): void;
+  assertNoUnlistedEagerGrowth(head: ChunkStats, base: ChunkStats): void;
 };
 
 interface ChunkStats {
@@ -81,6 +82,87 @@ describe('eager-closure bundle gate', () => {
         }),
       ),
     ).not.toThrow();
+  });
+
+  it.each([
+    'libs/shared/src/mcp-apps-contracts/ptah-ui-agents-source.ts',
+    'libs/frontend/chat-ui/src/display-panel.ts',
+    'libs/frontend/chat-ui/src/lib/organisms/display-panel/display-panel.component.ts',
+    'libs/frontend/chat/src/lib/components/organisms/display-dock/display-dock.component.ts',
+  ])('fails closed when eager main.js lists %s', (input) => {
+    expect(() =>
+      eagerClosureGate.assertNoForbiddenEager(
+        stats({ 'main.js': { inputs: { [input]: {} } } }),
+      ),
+    ).toThrow(`forbidden eager input(s): ${input}`);
+  });
+
+  it('passes an eager main.js that lists ptah-ui-display-dock.ts and no display-panel input', () => {
+    const head = stats({
+      'main.js': {
+        inputs: {
+          'libs/frontend/chat-ui/src/lib/services/ptah-ui-display-dock.ts': {},
+        },
+        imports: [{ path: 'display-panel.js', kind: 'dynamic-import' }],
+      },
+      'display-panel.js': {
+        inputs: {
+          'libs/frontend/chat-ui/src/lib/organisms/display-panel/display-surfaces.ts':
+            {},
+        },
+      },
+    });
+    expect(() => eagerClosureGate.assertNoForbiddenEager(head)).not.toThrow();
+    expect(() =>
+      eagerClosureGate.assertNoUnlistedEagerGrowth(
+        head,
+        stats({ 'main.js': { inputs: {} } }),
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-display-candidates.ts',
+    'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-agent-facts.ts',
+    'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-ptah-ui-host-sources.ts',
+    'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-display-feed.ts',
+    'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turn-summaries.ts',
+    'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turn-recap-loader.ts',
+    'libs/frontend/chat/src/lib/services/display-dock/display-dock.state.ts',
+    'libs/frontend/chat-ui/src/lib/services/ptah-ui-host-sources.ts',
+    'libs/frontend/chat-ui/src/lib/services/ptah-ui-display-dock.ts',
+    'libs/frontend/chat-ui/src/lib/atoms/copy-text-button.component.ts',
+    'libs/frontend/chat-ui/src/lib/utils/tool-language.utils.ts',
+  ])('allows listed eager growth input %s', (input) => {
+    const head = stats({ 'main.js': { inputs: { [input]: {} } } });
+    expect(() => eagerClosureGate.assertNoForbiddenEager(head)).not.toThrow();
+    expect(() =>
+      eagerClosureGate.assertNoUnlistedEagerGrowth(
+        head,
+        stats({ 'main.js': { inputs: {} } }),
+      ),
+    ).not.toThrow();
+  });
+
+  it('does not allow a display-panel input as eager growth', () => {
+    const input =
+      'libs/frontend/chat-ui/src/lib/organisms/display-panel/display-surfaces.ts';
+    expect(() =>
+      eagerClosureGate.assertNoUnlistedEagerGrowth(
+        stats({ 'main.js': { inputs: { [input]: {} } } }),
+        stats({ 'main.js': { inputs: {} } }),
+      ),
+    ).toThrow(`unlisted eager input growth: ${input}`);
+  });
+
+  it('does not allow an unlisted sibling of the allowed atoms as eager growth', () => {
+    const input = 'libs/frontend/chat-ui/src/lib/atoms/other-new.component.ts';
+    expect(() =>
+      eagerClosureGate.assertNoUnlistedEagerGrowth(
+        stats({ 'main.js': { inputs: { [input]: {} } } }),
+        stats({ 'main.js': { inputs: {} } }),
+      ),
+    ).toThrow(`unlisted eager input growth: ${input}`);
   });
 
   it('throws for unlisted eager growth when invoked with --base', () => {

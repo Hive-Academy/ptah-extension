@@ -131,6 +131,7 @@ export class CliPlatformCommands
     return new Promise<AuthCommandResult>((resolve) => {
       const child = spawn(file, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       });
 
       let settled = false;

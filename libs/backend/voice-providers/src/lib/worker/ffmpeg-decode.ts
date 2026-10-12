@@ -87,7 +87,11 @@ export class FfmpegDecode {
             '--',
             outPath,
           ],
-          { stdio: ['ignore', 'ignore', 'pipe'], shell: false },
+          {
+            stdio: ['ignore', 'ignore', 'pipe'],
+            shell: false,
+            windowsHide: true,
+          },
         );
         let stderr = '';
         proc.stderr?.on('data', (d) => {

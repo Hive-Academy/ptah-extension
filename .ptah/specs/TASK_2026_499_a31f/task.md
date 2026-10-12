@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: devops
 title: Move the web product to ESM and upgrade to NestJS 12
 description: >-
@@ -8,6 +8,7 @@ description: >-
   consumers of ESM packages via require(esm), this repo couples the moves to
   satisfy TypeScript compilation, Jest test constraints, and sanitize-html
   2.17.7, whose fix was unreachable while compiling to CommonJS.
+updated: '2026-10-10T18:17:32.455Z'
 ---
 
 # ESM + NestJS 12

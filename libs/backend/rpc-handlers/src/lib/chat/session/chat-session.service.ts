@@ -38,6 +38,7 @@ import {
   McpOAuthOverrideResolver,
   createMcpOAuthTokenStore,
   type AgentProcessManager,
+  type SuccessorSessionQueuedInput,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -55,6 +56,7 @@ import {
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
   type SessionBudgetService,
+  SessionHandoverCoordinator,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -79,7 +81,11 @@ import type {
   McpHttpServerOverride,
   PermissionLevel,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  SESSION_HANDOVER_HELD,
+  selectHistoryPage,
+} from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
@@ -137,6 +143,8 @@ export interface AgentChildSessionStartParams {
   readonly prompt: string;
   readonly sessionName: string;
   readonly model?: string;
+  readonly effort?: NonNullable<ChatStartParams['options']>['effort'];
+  readonly permissionLevel?: PermissionLevel;
 }
 
 /** What {@link ChatSessionService.launchSdkSession} needs from its two callers. */
@@ -252,6 +260,8 @@ export class ChatSessionService {
      */
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
     private readonly sessionBudget: ChatSessionBudget | null = null,
+    @inject(SessionHandoverCoordinator, { isOptional: true })
+    private readonly handoverCoordinator: SessionHandoverCoordinator | null = null,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -485,6 +495,25 @@ export class ChatSessionService {
     };
   }
 
+  private holdForHandover(
+    sessionId: SessionId,
+    prompt: string,
+    files: readonly string[] = [],
+    images: readonly { data: string; mediaType: string }[] = [],
+  ): ChatContinueResult | null {
+    const admission = this.handoverCoordinator?.admitOrHold(sessionId, {
+      content: prompt,
+      ...(files.length > 0 ? { files } : {}),
+      ...(images.length > 0 ? { images } : {}),
+      admission: 'require-idle',
+    });
+    if (!admission?.held) return null;
+    return {
+      success: false,
+      error: SESSION_HANDOVER_HELD,
+    };
+  }
+
   /**
    * Refuse to spawn an SDK session when the resolved workspace path is
    * unsafe (filesystem root, the Ptah install dir, app storage). This
@@ -659,8 +688,16 @@ export class ChatSessionService {
   async startAgentChildSession(
     params: AgentChildSessionStartParams,
   ): Promise<ChatStartResult> {
-    const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
-      params;
+    const {
+      tabId,
+      workspaceRoot,
+      worktreePath,
+      prompt,
+      sessionName,
+      model,
+      effort,
+      permissionLevel,
+    } = params;
     try {
       // Prompts, provider profile and output style are resolved for the root,
       // so the root needs the same authorization as the worktree.
@@ -705,10 +742,13 @@ export class ChatSessionService {
         projectPath: worktreePath,
         prompt,
         name: sessionName,
-        options: model ? { model } : undefined,
+        options:
+          model || effort
+            ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
+            : undefined,
         mcpServerRunning,
         mcpServersOverride: undefined,
-        permissionLevel: 'auto-edit',
+        permissionLevel: permissionLevel ?? 'auto-edit',
         surfaceMode: undefined,
       });
 
@@ -725,6 +765,59 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     }
+  }
+
+  /** Start a replacement tab with its seed; FIFO delivery follows UI binding. */
+  async startHandoverSuccessor(params: {
+    readonly tabId: string;
+    readonly workspaceRoot: string;
+    readonly worktreePath: string;
+    readonly seed: string;
+    readonly model?: string;
+    readonly effort?: NonNullable<ChatStartParams['options']>['effort'];
+    readonly permissionLevel?: PermissionLevel;
+  }): Promise<ChatStartResult> {
+    const started = await this.startAgentChildSession({
+      tabId: params.tabId,
+      workspaceRoot: params.workspaceRoot,
+      worktreePath: params.worktreePath,
+      prompt: params.seed,
+      sessionName: 'Session handover',
+      model: params.model,
+      effort: params.effort,
+      permissionLevel: params.permissionLevel,
+    });
+    return started;
+  }
+
+  /** Enqueue the coordinator-detached FIFO in the successor after it is bound. */
+  async deliverHandoverInputs(
+    tabId: string,
+    inputs: readonly SuccessorSessionQueuedInput[],
+  ): Promise<{ readonly delivered: boolean; readonly error?: string }> {
+    try {
+      await this.sdkAdapter.enqueueTransferInputs(
+        tabId as SessionId,
+        inputs.map((input) => ({
+          content: input.content,
+          ...(input.files ? { files: input.files } : {}),
+          ...(input.images ? { images: input.images } : {}),
+          ...(input.origin ? { origin: input.origin } : {}),
+        })),
+      );
+      return { delivered: true };
+    } catch (error: unknown) {
+      return {
+        delivered: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /** Stop an unacknowledged replacement so it cannot outlive its source. */
+  stopHandoverSuccessor(tabId: string): Promise<void> {
+    this.sdkAdapter.endSession(tabId as SessionId);
+    return Promise.resolve();
   }
 
   /**
@@ -764,8 +857,9 @@ export class ChatSessionService {
     );
     // Resolve an isolated per-workspace provider profile so a session in
     // workspace A runs against A's provider even when a different workspace's
-    // provider is currently the process-global active one. `undefined` → the
-    // session rides the global auth env (unchanged single-provider behavior).
+    // provider is currently the process-global active one. `undefined` only
+    // when the shared auth env serves this same provider; a mismatch throws
+    // AuthRequiredError, which each caller result-shapes as AUTH_REQUIRED.
     const providerProfile =
       await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
         workspaceId,
@@ -828,6 +922,15 @@ export class ChatSessionService {
         tabId,
         sessionName: name,
       });
+      if (!BUDGET_EXEMPT_PROMPTS.has(prompt.trim())) {
+        const held = this.holdForHandover(
+          sessionId,
+          prompt,
+          params.files ?? [],
+          params.images ?? [],
+        );
+        if (held) return held;
+      }
       const ptahCliResult = await this.ptahCli.handleContinue(params);
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
@@ -922,6 +1025,13 @@ export class ChatSessionService {
           workspacePath,
         );
       if (!justResumed && hasStopIntent(prompt)) {
+        const held = this.holdForHandover(
+          sessionId,
+          prompt,
+          params.files ?? [],
+          params.images ?? [],
+        );
+        if (held) return held;
         const autopilotEnabled = this.configManager.getWithDefault<boolean>(
           'autopilot.enabled',
           false,
@@ -1439,23 +1549,26 @@ export class ChatSessionService {
     const currentModel =
       params.model || this.modelSettings.selectedModel.get() || 'default';
 
-    // Same per-workspace isolation as chat:start — the resumed turn must run
-    // against the session's own workspace provider, not whichever provider is
-    // globally active after a workspace switch.
-    const providerProfile =
-      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-        workspacePath,
-        currentModel,
+    try {
+      // Same per-workspace isolation as chat:start — the resumed turn must run
+      // against the session's own workspace provider, not whichever provider
+      // is globally active after a workspace switch. Throws AuthRequiredError
+      // (→ AUTH_REQUIRED below) rather than resume on another provider.
+      const providerProfile =
+        await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+          workspacePath,
+          currentModel,
+        );
+
+      // Re-resolved for the resumed turn rather than carried over from the
+      // original start: the provider or the style may have changed since, and
+      // Req 5.6 forbids caching the decision across sessions.
+      const outputStyle = await this.outputStyleActivation.resolveSessionFields(
+        {
+          workspaceRoot: workspacePath,
+        },
       );
 
-    // Re-resolved for the resumed turn rather than carried over from the
-    // original start: the provider or the style may have changed since, and
-    // Req 5.6 forbids caching the decision across sessions.
-    const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-      workspaceRoot: workspacePath,
-    });
-
-    try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
         model: currentModel,
@@ -1497,6 +1610,7 @@ export class ChatSessionService {
           success: false,
           sessionId: sessionId as SessionId,
           error: message,
+          ...this.authErrorFields(resumeError),
         },
       };
     }

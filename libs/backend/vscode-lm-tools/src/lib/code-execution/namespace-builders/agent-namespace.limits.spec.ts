@@ -59,7 +59,8 @@ function lookupService(): {
     async () => CLOUD_OWNER,
   );
   const owners: LookupArgs[1] = {
-    ownerForLane: () => undefined,
+    resolveOwnerForLane: async () => undefined,
+    lastLaneOwner: () => undefined,
     ownerForPtahCliKey,
   };
   const snapshots: LookupArgs[2] = {

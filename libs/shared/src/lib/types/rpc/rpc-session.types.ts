@@ -420,6 +420,13 @@ export interface SessionStatsEntry {
    * snapshots published by the same attached backend; never persisted.
    */
   readonly revision?: number;
+  /**
+   * `true` only on a `session:stats-live` snapshot that includes an in-turn
+   * estimate; a later snapshot with a higher revision replaces it. Absent on
+   * every authoritative snapshot, including authoritative snapshots sent on
+   * `session:stats-live`.
+   */
+  readonly provisional?: boolean;
   /** Session duration in ms when the backend knows it; absent otherwise. */
   readonly durationMs?: number | null;
   /** Latest valid main-session context frame after the last compaction. */

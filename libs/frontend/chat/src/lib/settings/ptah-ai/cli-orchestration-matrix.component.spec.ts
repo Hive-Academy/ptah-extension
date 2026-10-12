@@ -1040,7 +1040,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(classes).not.toContain('checkbox-xs');
     });
 
-    it('V36-7: instance actions stay on one line: Tiers and Test inline, Edit and Delete behind "More actions for {name}"', () => {
+    it('V36-7: narrow actions move Tiers and Test into More actions', () => {
       const actions = q<HTMLButtonElement>(
         '[data-testid="cli-matrix-tiers-glm-1"]',
       )?.parentElement;
@@ -1059,6 +1059,14 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(
         q('[data-testid="cli-matrix-more-menu"]')?.getAttribute('aria-label'),
       ).toBe('More actions for Glm');
+      const tiers = q<HTMLButtonElement>(
+        '[data-testid="cli-matrix-more-tiers-glm-1"]',
+      );
+      const test = q<HTMLButtonElement>(
+        '[data-testid="cli-matrix-more-test-glm-1"]',
+      );
+      expect(tiers?.getAttribute('aria-label')).toBe('Tiers for Glm');
+      expect(test?.getAttribute('aria-label')).toBe('Test Glm');
       // Visual re-check N1: the items stack in a column inside the panel (the actions line is whitespace-nowrap).
       const menuClasses =
         q('[data-testid="cli-matrix-more-menu"]')?.className.split(/\s+/) ?? [];
@@ -1079,6 +1087,11 @@ describe('CliOrchestrationMatrixComponent', () => {
           ?.closest('dialog')
           ?.hasAttribute('open'),
       ).toBe(true);
+      more('glm-1');
+      q<HTMLButtonElement>(
+        '[data-testid="cli-matrix-more-test-glm-1"]',
+      )?.click();
+      expect(state.testCliConnection).toHaveBeenCalledWith('glm-1');
     });
 
     it('fold round 2: narrow layout shows one tier summary badge with the full list as title and spoken text', () => {
@@ -1109,7 +1122,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       ).toBe('1 tier model');
     });
 
-    it('fold round 2: the narrow status and provider stay on one line; the provider truncates with its full title', () => {
+    it('fold round 2: the narrow status and provider stay on one line with an accessible provider name', () => {
       const inline = row('codex')?.querySelector(
         '[data-testid="cli-matrix-narrow-inline"]',
       ) as HTMLElement;
@@ -1117,8 +1130,8 @@ describe('CliOrchestrationMatrixComponent', () => {
       const provider = inline.querySelector(
         ':scope > span:last-child',
       ) as HTMLElement;
-      expect(provider.className).toContain('truncate');
       expect(provider.getAttribute('title')).toBe('OpenAI Codex');
+      expect(provider.textContent?.trim()).toBe('Provider: OpenAI Codex');
     });
 
     it('V36-2: helper text is 12 px: subtitle, version, provider subline', () => {

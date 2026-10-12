@@ -29,6 +29,7 @@ import {
   createExecutionChatMessage,
   type AgentSessionOpenedPayload,
   type SessionStatsEntry,
+  type SessionStatsLiveContext,
   type SessionBudgetState,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
@@ -39,6 +40,7 @@ import {
   insertTabAfter,
 } from './tab-workspace-partition.service';
 import { LiveModelStatsPayload } from './tab-state.types';
+import { contextFillStats, liveContextStats } from './live-context-stats';
 import {
   SessionStatsRevisionFloor,
   isValidSessionStatsSnapshot,
@@ -608,6 +610,17 @@ export class TabManagerService {
   }
 
   /**
+   * Every tab bound to `sessionId` in a background workspace — the plural of
+   * `findTabBySessionIdAcrossWorkspaces` (which stops at the first match), for
+   * session-wide fan-out; pair it with `findTabsBySessionId`. Pure lookup.
+   */
+  findBackgroundTabsBySessionId(sessionId: string): readonly TabState[] {
+    return this.workspacePartition
+      .findBackgroundTabIds((t) => t.claudeSessionId === sessionId)
+      .flatMap((id) => this.findTabByIdAcrossWorkspaces(id)?.tab ?? []);
+  }
+
+  /**
    * Find a tab by its global tab id with workspace context, across the active
    * workspace AND every background partition.
    *
@@ -958,7 +971,7 @@ export class TabManagerService {
     if (!tabId) return 'invalid';
     if (this.locateTabInPanel(tabId)) return 'exists';
 
-    const parent = this.locateTabInPanel(payload.parentTabId);
+    const parent = this.locateAgentSessionParent(payload);
     if (!parent) return 'parent-absent';
 
     const sessionId =
@@ -968,9 +981,7 @@ export class TabManagerService {
     const tab = this.buildAgentSessionTab(tabId, payload, sessionId);
 
     if (parent.workspacePath === null) {
-      this._tabs.update((tabs) =>
-        insertTabAfter(tabs, tab, payload.parentTabId),
-      );
+      this._tabs.update((tabs) => insertTabAfter(tabs, tab, parent.tabId));
       const activePath = this.workspacePartition.activeWorkspacePath;
       if (sessionId && activePath) {
         this.workspacePartition.registerSessionForWorkspace(
@@ -985,10 +996,31 @@ export class TabManagerService {
     return this.workspacePartition.addTabToWorkspace(
       parent.workspacePath,
       tab,
-      payload.parentTabId,
+      parent.tabId,
     )
       ? 'adopted'
       : 'parent-absent';
+  }
+
+  /**
+   * Find the parent tab of an agent session. The spawner identifies the
+   * parent by its MCP caller id, which is the tab id for a new chat but the
+   * SDK session id for a resumed one — so a miss by id falls back to a tab
+   * bound to `parentTabId` or `parentSessionId` as its session.
+   */
+  private locateAgentSessionParent(
+    payload: AgentSessionOpenedPayload,
+  ): { tabId: string; workspacePath: string | null } | null {
+    const byId = this.locateTabInPanel(payload.parentTabId);
+    if (byId) return { tabId: payload.parentTabId, ...byId };
+
+    for (const sessionId of [payload.parentTabId, payload.parentSessionId]) {
+      if (!sessionId) continue;
+      const tab = this.findTabBySessionId(sessionId);
+      const located = tab ? this.locateTabInPanel(tab.id) : null;
+      if (tab && located) return { tabId: tab.id, ...located };
+    }
+    return null;
   }
 
   /**
@@ -1238,6 +1270,7 @@ export class TabManagerService {
       queuedOptions: null,
       sessionStats: null,
       sessionBudget: null,
+      liveBudgetStage: null,
       liveModelStats: null,
       hasLiveSession: false,
       compactionCount: 0,
@@ -2112,7 +2145,7 @@ export class TabManagerService {
   ): void {
     const tab = this.tabs().find((candidate) => candidate.id === tabId);
     this.updateTabInternal(tabId, {
-      liveModelStats: this.postCompactionContextStats(
+      liveModelStats: contextFillStats(
         tab?.liveModelStats,
         postTokens,
       ),
@@ -2134,7 +2167,7 @@ export class TabManagerService {
     },
   ): void {
     const tab = this.tabs().find((candidate) => candidate.id === tabId);
-    const liveModelStats = this.postCompactionContextStats(
+    const liveModelStats = contextFillStats(
       tab?.liveModelStats,
       payload.postCompactionContextTokens,
     );
@@ -2156,44 +2189,6 @@ export class TabManagerService {
     });
   }
 
-  private postCompactionContextStats(
-    priorLiveStats: LiveModelStatsPayload | null | undefined,
-    postTokens: number | undefined,
-  ): LiveModelStatsPayload | null {
-    if (
-      typeof postTokens !== 'number' ||
-      !Number.isFinite(postTokens) ||
-      postTokens <= 0 ||
-      priorLiveStats == null ||
-      priorLiveStats.model.length === 0
-    ) {
-      return null;
-    }
-    const capacity = priorLiveStats.contextCapacity;
-    const contextWindow =
-      capacity &&
-      capacity.model === priorLiveStats.model &&
-      (capacity.source === 'sdk-native' ||
-        (capacity.source === 'provider-catalog' &&
-          typeof capacity.providerId === 'string' &&
-          capacity.providerId.length > 0)) &&
-      typeof capacity.tokens === 'number' &&
-      Number.isFinite(capacity.tokens) &&
-      capacity.tokens > 0
-        ? capacity.tokens
-        : 0;
-    return {
-      model: priorLiveStats.model,
-      contextKnown: true,
-      contextCapacity: capacity,
-      contextUsed: postTokens,
-      contextWindow,
-      contextPercent:
-        contextWindow > 0
-          ? Math.round((postTokens / contextWindow) * 1000) / 10
-          : 0,
-    };
-  }
 
   /**
    * Persist the SDK `Stop` hook snapshot onto the tab. Captures background
@@ -2246,19 +2241,38 @@ export class TabManagerService {
    * delayed history read must not regress the panel.
    *
    * `budget` is the session budget computed from this snapshot. It installs in
-    * the same update and is dropped with it; `undefined` preserves the last
-    * budget while `null` explicitly clears it.
+   * the same update and is dropped with it; `undefined` preserves the last
+   * budget while `null` explicitly clears it.
+   *
+   * `context` is a `session:stats-live` estimate's context-window reading
+   * (TASK_2026_626). It is applied in the same update, so a rejected snapshot
+   * carries no fill with it, and only when the snapshot is provisional and
+   * the tab already shows a reading for the same model (see
+   * {@link liveContextStats}). An authoritative snapshot never writes the
+   * fill; otherwise the fill is left as it is.
+   *
+   * @returns whether the snapshot was admitted.
    */
   installSessionStats(
     tabId: string,
     snapshot: SessionStatsEntry,
     budget?: SessionBudgetState | null,
-  ): void {
-    if (!this.acceptSessionStats(tabId, snapshot)) return;
+    context?: SessionStatsLiveContext,
+  ): boolean {
+    if (!this.acceptSessionStats(tabId, snapshot)) return false;
+    const liveModelStats =
+      snapshot.provisional === true && context
+        ? liveContextStats(
+            this.findTabByIdAcrossWorkspaces(tabId)?.tab.liveModelStats,
+            context,
+          )
+        : null;
     this.updateTabInternal(tabId, {
       sessionStats: snapshot,
       ...budgetPatch(snapshot, budget),
+      ...(liveModelStats && { liveModelStats }),
     });
+    return true;
   }
 
   /**
@@ -2273,18 +2287,43 @@ export class TabManagerService {
     this.updateTabInternal(tabId, { sessionBudget: budget });
   }
 
-  /** Clear a tab's budget only when it still belongs to the expected session. */
+  /**
+   * Clear a tab's budget, and the live stage that only counts beside it, only
+   * when the tab still belongs to the expected session.
+   */
   clearSessionBudget(tabId: string, sessionId: string): void {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab || tab.claudeSessionId !== sessionId) return;
-    this.updateTabInternal(tabId, { sessionBudget: null });
+    this.updateTabInternal(tabId, {
+      sessionBudget: null,
+      liveBudgetStage: null,
+    });
+  }
+
+  /**
+   * Set or clear the display-only live budget stage a `session:stats-live`
+   * payload carried. Dropped when it names another session than the tab is
+   * bound to, and skipped when the stage is unchanged so a stream of live
+   * payloads does not rewrite the tab. Never touches `sessionBudget`.
+   */
+  setLiveBudgetStage(
+    tabId: string,
+    sessionId: string,
+    stage: 'handoff' | 'limit' | null,
+  ): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab || tab.claudeSessionId !== sessionId) return;
+    if ((tab.liveBudgetStage ?? null) === stage) return;
+    this.updateTabInternal(tabId, { liveBudgetStage: stage });
   }
 
   /**
    * Drop the budget state from every open tab in every workspace. Called when
    * the user saves `sessionBudget.enabled = false`: sends already go through,
    * so a limit banner must not wait for the next stats snapshot to go away.
-   * A rotation advisory, if any, comes back with that snapshot.
+   * A rotation advisory, if any, comes back with that snapshot. The live
+   * stage is cleared with it (D25): it is display-only and means nothing
+   * without a budget.
    */
   clearSessionBudgets(): void {
     const tabIds = [
@@ -2296,7 +2335,10 @@ export class TabManagerService {
       ),
     ];
     for (const tabId of tabIds) {
-      this.updateTabInternal(tabId, { sessionBudget: null });
+      this.updateTabInternal(tabId, {
+        sessionBudget: null,
+        liveBudgetStage: null,
+      });
     }
   }
 
@@ -2430,6 +2472,7 @@ export class TabManagerService {
       queuedContent: null,
       sessionStats: null,
       sessionBudget: null,
+      liveBudgetStage: null,
       liveModelStats: null,
       compactionCount: 0,
     });
@@ -2527,7 +2570,9 @@ export class TabManagerService {
       name: payload.name,
       titleOrigin: 'history',
       claudeSessionId: payload.sessionId,
-      ...(previousSessionId !== payload.sessionId ? { sessionBudget: null } : {}),
+      ...(previousSessionId !== payload.sessionId
+        ? { sessionBudget: null, liveBudgetStage: null }
+        : {}),
       // A resume installs a fresh SDK query. Its revisions do NOT restart —
       // the backend floor is per session id (TASK_2026_371) — but this tab may
       // be adopting a session it never streamed, so it starts with no recorded

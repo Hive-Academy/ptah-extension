@@ -623,16 +623,45 @@ function captureShutdownHandles(
 }
 
 /**
+ * Whether background learning is fully paused: both `memory.enabled` and
+ * `skillSynthesis.enabled` are `false` (TASK_2026_620, row M15). Both default
+ * to `true`, so an unset key never pauses anything.
+ */
+export function isBackgroundLearningPaused(
+  workspace: Pick<IWorkspaceProvider, 'getConfiguration'>,
+): boolean {
+  const off = (key: string): boolean =>
+    workspace.getConfiguration<boolean>('ptah', key, true) === false;
+  return off('memory.enabled') && off('skillSynthesis.enabled');
+}
+
+/**
  * Pre-warm the embedder + reranker.
  *
  * Invoked by {@link BootCoordinator} once the warmup barrier opens — the window
  * has finished loading AND the memory curator exists. Fire-and-forget and
  * non-fatal; the coordinator owns the 3-second idle delay.
+ *
+ * Memory and skills share this embedder, so the warmup runs while EITHER switch
+ * is on and is skipped only when both are paused. No re-warm on resume: the
+ * embedder lazy-loads on its first `embed`, so a both-paused boot costs one
+ * cold start later.
  */
-async function runEmbedderWarmup(
+export async function runEmbedderWarmup(
   container: DependencyContainer,
 ): Promise<void> {
   try {
+    const workspace = container.resolve<IWorkspaceProvider>(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+    );
+    if (isBackgroundLearningPaused(workspace)) {
+      container
+        .resolve<Logger>(TOKENS.LOGGER)
+        .info(
+          '[Ptah Electron] Embedder warmup skipped — memory and skills are both paused',
+        );
+      return;
+    }
     const embedderClient = container.resolve<EmbedderWorkerClient>(
       PERSISTENCE_TOKENS.EMBEDDER,
     );

@@ -2,10 +2,15 @@
  * ProviderAccountCardComponent — the 16 design states of design §4 (F61) over
  * a fake `PlanLimitsStore`, plus selection order, the provider effect, Refresh,
  * the empty snapshot, and one pass through the REAL store with a fake RPC.
+ *
+ * TASK_2026_631 list redesign: one `li` per owner, compact reason rows for
+ * owners without windows, per-state bar classes with the 90% tick, per-provider
+ * accents, and local usage stacked below the identity (never beside the name).
  */
 import { LOCALE_ID, signal, type WritableSignal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
+  AppStateManager,
   AuthStateService,
   ClaudeRpcService,
   PlanLimitsStore,
@@ -88,6 +93,8 @@ interface FakeStore {
 describe('ProviderAccountCardComponent', () => {
   let store: FakeStore;
   let providerId: WritableSignal<string>;
+  /** Compact-row inline actions navigate through app state (revise-2). */
+  let appState: { setCurrentView: jest.Mock; openSettingsTab: jest.Mock };
   let fixture: ComponentFixture<ProviderAccountCardComponent>;
 
   function render(
@@ -102,6 +109,7 @@ describe('ProviderAccountCardComponent', () => {
       load: jest.fn().mockResolvedValue(undefined),
     };
     providerId = signal('anthropic');
+    appState = { setCurrentView: jest.fn(), openSettingsTab: jest.fn() };
     TestBed.configureTestingModule({
       imports: [ProviderAccountCardComponent],
       providers: [
@@ -110,6 +118,7 @@ describe('ProviderAccountCardComponent', () => {
           provide: AuthStateService,
           useValue: { persistedProviderId: providerId },
         },
+        { provide: AppStateManager, useValue: appState },
         ...(locale ? [{ provide: LOCALE_ID, useValue: locale }] : []),
       ],
     });
@@ -186,17 +195,24 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(five)).toContain(
       `Resets ${formatRelative(resetAt, NOW)} (${abs(resetAt)})`,
     );
-    const meter = five.querySelector('[data-testid="window-radial-progress"]');
+    const meter = five.querySelector('[data-testid="window-progress"]');
     expect(meter?.getAttribute('aria-valuenow')).toBe('94');
     expect(meter?.getAttribute('aria-label')).toBe('5-hour session plan usage');
     expect(
       el.querySelector('[data-testid="provider-account-section"]')?.className,
     ).toContain('surface-2');
-    expect(meter?.className).toContain('radial-progress');
-    expect(meter?.className).toContain('text-warning');
-    expect(meter?.style.getPropertyValue('--value')).toBe('94');
+    expect(meter?.className).toContain('rounded');
+    expect((meter?.firstElementChild as HTMLElement)?.style.width).toBe('94%');
+    expect(meter?.firstElementChild?.classList.contains('bg-warning')).toBe(
+      true,
+    );
 
     expect(chipsIn(opus, 'state-chip')).toEqual(['■ Limit reached']);
+    expect(
+      opus
+        .querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild?.classList.contains('bg-error'),
+    ).toBe(true);
     expect(textOf(opus)).toContain(
       `Limit reached — resets ${at(NOW + 45 * HOUR)}`,
     );
@@ -269,10 +285,7 @@ describe('ProviderAccountCardComponent', () => {
       rows(el).map((r) => textOf(r.querySelector('.text-\\[13px\\]'))),
     ).toEqual(['5-hour session', 'Weekly']);
     expect(chipsIn(el, 'state-chip')).toEqual([]);
-    expect(chipsIn(el, 'source-chip')).toEqual([
-      'Provider API',
-      'Provider API',
-    ]);
+    expect(chipsIn(el, 'source-chip')).toEqual(['Provider API']);
     expect(textOf(el)).toContain('Lifetime tokens: 9007199254740993');
     expect(textOf(el)).toContain(
       'Activity is not remaining messages, credits, or billing.',
@@ -335,11 +348,11 @@ describe('ProviderAccountCardComponent', () => {
         }),
       ),
     );
-    expect(textOf(el)).toContain('No usage source');
+    expect(textOf(el)).toContain('○ No usage source');
     expect(el.querySelector('[role="progressbar"]')).toBeNull();
     expect(textOf(el)).not.toContain('%');
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
-      'No usage source',
+      '○ No usage source',
     );
   });
 
@@ -364,7 +377,107 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(stat)).toContain('Local usage: tokens & estimated cost');
     expect(textOf(stat)).toContain('1,234 tokens · $5.67');
     expect(stat?.querySelector('.radial-progress')).toBeNull();
-    expect(el.querySelector('[data-testid="window-radial-progress"]')).toBeNull();
+    expect(el.querySelector('[data-testid="window-progress"]')).toBeNull();
+  });
+
+  it('labels the local usage range "last N days", with the exact range in the tooltip (revise-2)', () => {
+    const el = render(
+      snapshotOf(
+        owner('opencode', 'OpenCode local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 1234,
+            estimatedCostUsd: 5.67,
+            observedAt: NOW,
+            source: 'local-cli',
+            range: '2025-12-31T22:00:00.000Z – 2026-01-30T22:00:00.000Z',
+          },
+        }),
+        owner('codex', 'Codex local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 10,
+            estimatedCostUsd: 0.1,
+            observedAt: NOW,
+            source: 'local-cli',
+            range: '2026-01-30T22:00:00.000Z - 2025-12-31T22:00:00.000Z',
+          },
+        }),
+        owner('grok', 'Grok local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 99,
+            estimatedCostUsd: 1.23,
+            observedAt: NOW,
+            source: 'local-cli',
+            range: 'since install',
+          },
+        }),
+      ),
+    );
+    const ranges = Array.from(
+      el.querySelectorAll<HTMLElement>('[data-testid="local-usage-range"]'),
+    );
+    // a 30-day CLI range (the reader's en-dash form) reads "last 30 days";
+    // a backwards or unparseable range falls back to the raw string, and
+    // the exact range stays in the tooltip
+    expect(ranges.map((r) => textOf(r))).toEqual([
+      'Range: last 30 days',
+      'Range: 2026-01-30T22:00:00.000Z - 2025-12-31T22:00:00.000Z',
+      'Range: since install',
+    ]);
+    expect(ranges[0]?.getAttribute('title')).toBe(
+      '2025-12-31T22:00:00.000Z – 2026-01-30T22:00:00.000Z',
+    );
+    expect(ranges[2]?.getAttribute('title')).toBe('since install');
+  });
+
+  it('offers inline actions on compact rows, wired only to existing navigation (revise-2)', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          status: 'service-unavailable',
+          unavailableReason: 'no-open-session',
+          windowSetEstablished: false,
+        }),
+        owner('ollama-cloud', 'Ollama Cloud', {
+          status: 'unsupported-config',
+          windowSetEstablished: false,
+        }),
+        owner('grok', 'Grok account', {
+          status: 'unsupported-auth',
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    const buttons = Array.from(
+      el.querySelectorAll<HTMLButtonElement>('[data-testid="compact-action"]'),
+    );
+    // only the no-open-session reason and the missing Ollama Cloud key
+    // carry an action; every other compact row (the API-key owner) keeps none
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual([
+      'Go to chat',
+      'Add key',
+    ]);
+    expect(buttons[0]?.getAttribute('aria-label')).toMatch(
+      /^Go to chat for Claude account/,
+    );
+    buttons[0]?.click();
+    expect(appState.setCurrentView).toHaveBeenCalledWith('chat');
+    buttons[1]?.click();
+    expect(appState.openSettingsTab).toHaveBeenCalledWith(
+      'providers',
+      'ollama-cloud',
+    );
   });
 
   it('6. OpenCode: no usage source plus a recorded limit hit with a known reset', () => {
@@ -500,7 +613,7 @@ describe('ProviderAccountCardComponent', () => {
       ),
     );
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
-      'Cached data',
+      '◷ Cached data',
     );
     expect(textOf(el)).toContain(
       `Showing cached account data; refresh failed at ${abs(NOW - 47 * MIN)}.`,
@@ -605,12 +718,123 @@ describe('ProviderAccountCardComponent', () => {
       ),
     );
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
-      'API key — no plan limits',
+      '– API key — no plan limits',
     );
-    expect(textOf(el)).toContain(
-      'No plan windows: this account signs in with an API key',
-    );
+    expect(textOf(el)).toContain('No plan limits (API key)');
     expect(rows(el)).toHaveLength(0);
+  });
+
+  it('does not claim local usage for an owner without a source', () => {
+    const el = render(
+      snapshotOf(
+        owner('grok', 'Grok account', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    expect(textOf(el)).toContain('No usage source available');
+    expect(textOf(el)).not.toContain('Local usage only');
+  });
+
+  it('shows local-only notice when an owner has local accounting', () => {
+    const el = render(
+      snapshotOf(
+        owner('grok', 'Grok account', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 1234,
+            estimatedCostUsd: 5.67,
+            observedAt: NOW,
+            source: 'local-cli',
+          },
+        }),
+      ),
+    );
+    expect(textOf(el)).toContain('Local usage only');
+  });
+
+  it('distinguishes Ollama Cloud key failure, missing key and local usage', () => {
+    const cases = [
+      ['unsupported-auth', 'API key rejected — check the key'],
+      ['unsupported-config', 'No API key configured'],
+      ['no-usage-source', 'No usage source available'],
+    ] as const;
+    const el = render(
+      snapshotOf(
+        ...cases.map(([status], i) =>
+          owner(
+            'ollama-cloud',
+            'Ollama Cloud account',
+            { status },
+            `0123456789abcde${i}`,
+          ),
+        ),
+      ),
+    );
+    cases.forEach(([, expected], i) =>
+      expect(textOf(sections(el)[i])).toContain(expected),
+    );
+  });
+
+  it('shows distinct unknown-owner reasons and a short key suffix', () => {
+    const cases = [
+      ['missing-account-email', 'Signed in · account email not shared'],
+      ['codex-not-read', 'Account not read yet'],
+      ['unrouted-daemon', 'Local Ollama daemon'],
+      ['missing-api-key', 'No API key configured'],
+      ['unresolved-route', 'Account identity unavailable'],
+    ] as const;
+    const el = render(
+      snapshotOf(
+        ...cases.map(([reason], i) =>
+          owner('ollama-cloud', 'Ollama account unknown', {
+            unknownReason: reason,
+            owner: {
+              key: `ollama-cloud#unknown:0123456789abcde${i}`,
+              providerId: 'ollama-cloud',
+              identityKind: 'unknown',
+              label: 'Ollama account unknown',
+            },
+          }),
+        ),
+      ),
+    );
+    cases.forEach(([, expected], i) => {
+      expect(textOf(sections(el)[i])).toContain(expected);
+      expect(textOf(sections(el)[i])).toContain(
+        `Ollama account unknown · cde${i}`,
+      );
+    });
+  });
+
+  it('shows the used amount visibly when a window has no percentage', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({
+              key: 'other:tokens',
+              label: 'Tokens',
+              used: { kind: 'amount', amount: 42, limit: 1000, unit: 'tokens' },
+            }),
+          ],
+        }),
+      ),
+    );
+    const value = el.querySelector('[data-testid="window-value"]');
+    expect(value?.textContent).toContain('42');
+    expect(value?.textContent).not.toContain('—');
+  });
+
+  it('shows a clear empty state when a successful read has no windows', () => {
+    const el = render(snapshotOf(owner('opencode', 'OpenCode account')));
+    expect(textOf(el)).toContain('No plan limits reported');
+    expect(rows(el)).toHaveLength(0);
+    expect(el.querySelector('section')?.className).not.toContain('h-full');
   });
 
   it('16. service-unavailable: raw status name and sentence; other failure statuses name themselves', () => {
@@ -622,9 +846,10 @@ describe('ProviderAccountCardComponent', () => {
         owner('codex-x', 'Codex CLI', { status: 'cli-version-unsupported' }),
       ),
     );
+    // every status badge leads with a glyph (revise-2 M3)
     expect(chipsIn(el, 'status-chip')).toEqual([
-      'Usage unavailable',
-      'CLI update needed',
+      '○ Usage unavailable',
+      '! CLI update needed',
     ]);
     expect(textOf(el)).toContain('Usage unavailable');
     expect(textOf(el)).toContain('Usage cannot be read');
@@ -641,9 +866,9 @@ describe('ProviderAccountCardComponent', () => {
       ),
     );
     expect(chipsIn(el, 'status-chip')).toEqual([
-      'No usage source',
-      'No usage source',
-      'CLI unavailable',
+      '○ No API key configured',
+      '○ No usage source',
+      '! CLI unavailable',
     ]);
     expect(textOf(el)).toContain(
       'Usage cannot be read: the provider CLI was not found.',
@@ -651,22 +876,316 @@ describe('ProviderAccountCardComponent', () => {
     expect(rows(el)).toHaveLength(0);
   });
 
-  it('16b. the header wraps at narrow width: the status chip never truncates or overlaps the title', () => {
+  it('16b. narrow rows keep the full owner name: the local stat stacks below the identity, never beside it', () => {
     const el = render(
       snapshotOf(
-        owner('antigravity', 'Claude account', {
-          status: 'service-unavailable',
+        owner('opencode', 'OpenCode local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage: tokens & estimated cost',
+            tokens: 1234,
+            estimatedCostUsd: 5.67,
+            observedAt: NOW,
+            source: 'local-cli',
+          },
         }),
       ),
     );
-    const header = el.querySelector(
+    const [section] = sections(el);
+    const identity = section.querySelector(
       '[data-testid="section-header"]',
     ) as HTMLElement;
-    expect(header.className).toContain('flex-wrap');
-    expect(header.firstElementChild?.className).toContain('min-w-0');
+    const stat = section.querySelector(
+      '[data-testid="local-usage-stat"]',
+    ) as HTMLElement;
+    // The stat is its own grid area of the row, a sibling of the identity —
+    // it can never squeeze the name column (the prototype's narrow defect).
+    expect(stat.parentElement).toBe(section);
+    expect(stat.closest('[data-testid="section-header"]')).toBeNull();
+    expect(identity.className).toContain('min-w-0');
+    expect(
+      identity.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(
       el.querySelector('[data-testid="status-chip"]')?.className,
-    ).toContain('whitespace-nowrap');
+    ).toContain('whitespace-normal');
+  });
+
+  // ---- TASK_2026_631: provider list layout ----
+
+  it('renders one full-width list row per owner', () => {
+    const el = render(
+      snapshotOf(
+        owner('openai-codex', 'Codex account'),
+        owner('anthropic', 'Claude account'),
+      ),
+    );
+    const items = Array.from(el.querySelectorAll('li'));
+    expect(items).toHaveLength(2);
+    // every owner section lives in its own li, in list order
+    expect(sections(el).map((s) => s.closest('li'))).toEqual(items);
+    expect(Array.from(el.querySelector('ul')?.children ?? [])).toEqual(items);
+  });
+
+  it('renders a compact one-line reason row for an owner without windows', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          status: 'unsupported-auth',
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    const [section] = sections(el);
+    expect(section.classList.contains('owner-row--compact')).toBe(true);
+    expect(section.querySelector('.wins')).toBeNull();
+    const reason = section.querySelector('[data-testid="compact-reason"]');
+    // the reason occupies the mid grid area, never an auto-placed cell
+    expect(reason?.classList.contains('mid')).toBe(true);
+    expect(textOf(reason)).toBe('No plan limits (API key)');
+    expect(section.querySelector('button[type="button"]')).not.toBeNull();
+  });
+
+  it('colours each window bar by state and ticks the 90% near-limit mark', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 3 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 4 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - 40 * MIN,
+              observedAt: NOW - 10 * MIN,
+            }),
+            win({
+              key: 'weekly',
+              kind: 'weekly',
+              label: 'Weekly',
+              used: { kind: 'percent', percent: 94 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 5 * 24 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - HOUR,
+            }),
+            win({
+              key: 'weekly_model:opus',
+              kind: 'weekly_model',
+              label: 'Weekly · Opus',
+              used: { kind: 'percent', percent: 100 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 45 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - HOUR,
+              exhaustion: {
+                observedAt: NOW - 10 * MIN,
+                source: 'error-derived',
+              },
+            }),
+            win({ key: 'other:unread', label: 'Unread' }),
+          ],
+        }),
+      ),
+    );
+    const [ok, near, limit, unknown] = rows(el);
+    const fill = (row: HTMLElement) =>
+      row.querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild as HTMLElement;
+    expect(fill(ok)?.classList.contains('bg-success')).toBe(true);
+    expect(fill(ok)?.classList.contains('bg-base-content')).toBe(false);
+    expect(fill(near)?.classList.contains('bg-warning')).toBe(true);
+    expect(fill(limit)?.classList.contains('bg-error')).toBe(true);
+    expect(ok.querySelector<HTMLElement>('.bar-tick')?.style.left).toBe('90%');
+    expect(near.querySelector<HTMLElement>('.bar-tick')?.style.left).toBe(
+      '90%',
+    );
+    // unknown keeps a neutral hatched track, never an empty 0% bar
+    expect(unknown.querySelector('[role="progressbar"]')).toBeNull();
+    const track = unknown.querySelector('[data-testid="window-unknown-bar"]');
+    expect(track).not.toBeNull();
+    expect(track?.getAttribute('aria-hidden')).toBe('true');
+    expect(unknown.querySelector('.bar-tick')).toBeNull();
+  });
+
+  it('carries a decorative per-provider accent with a generic fallback', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account'),
+        owner('claude-cli', 'Claude CLI'),
+        owner('openai-codex', 'Codex account'),
+        owner('opencode', 'OpenCode account'),
+        owner('opencode-go', 'OpenCode Go'),
+        owner('antigravity', 'Antigravity account'),
+        owner('ollama-cloud', 'Ollama Cloud account'),
+        owner('github-copilot', 'Copilot account'),
+        owner('openrouter', 'OpenRouter account'),
+        owner('moonshot', 'Moonshot account'),
+        owner('z-ai', 'Z AI account'),
+        owner('grok', 'Grok account'),
+        owner('some-provider', 'Some provider'),
+      ),
+    );
+    const accents = sections(el).map((s) =>
+      s.style.getPropertyValue('--accent'),
+    );
+    expect(accents).toEqual([
+      '#d97757', // Claude (anthropic, claude-cli)
+      '#d97757',
+      '#10a37f', // Codex
+      '#3b82f6', // OpenCode (opencode, -go, -zen)
+      '#3b82f6',
+      '#8b5cf6', // Antigravity
+      '#9ca3af', // Ollama (ollama, -cloud)
+      '#8957e5', // Copilot
+      '#6d28d9', // OpenRouter
+      '#4f46e5', // Moonshot
+      '#0ea5e9', // Z.ai
+      '#71717a', // Grok (xAI monochrome)
+      'oklch(var(--bcm, var(--bc)))', // any other id
+    ]);
+  });
+
+  it('pins the near-limit boundary: 89% is still ok, 90% turns warning', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 89 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 4 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - 40 * MIN,
+              observedAt: NOW - 10 * MIN,
+            }),
+            win({
+              key: 'weekly',
+              kind: 'weekly',
+              label: 'Weekly',
+              used: { kind: 'percent', percent: 90 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 5 * 24 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - HOUR,
+              observedAt: NOW - 5 * MIN,
+            }),
+          ],
+        }),
+      ),
+    );
+    const [at89, at90] = rows(el);
+    expect(chipsIn(at89, 'state-chip')).toEqual([]);
+    expect(
+      at89
+        .querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild?.classList.contains('bg-success'),
+    ).toBe(true);
+    expect(chipsIn(at90, 'state-chip')).toEqual(['▲ Near limit']);
+    expect(
+      at90
+        .querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild?.classList.contains('bg-warning'),
+    ).toBe(true);
+  });
+
+  it('keeps a neutral fill for aged, estimate-only and not-confirmed windows, never a healthy green', () => {
+    const el = render(
+      snapshotOf(
+        owner('openai-codex', 'Codex account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 97 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 4 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - 50 * MIN,
+              observedAt: NOW - 22 * MIN,
+            }),
+          ],
+        }),
+        owner('opencode', 'OpenCode account', {
+          windows: [
+            win({
+              key: 'monthly',
+              kind: 'monthly',
+              label: 'Monthly',
+              used: { kind: 'percent', percent: 40 },
+              usedSource: 'estimated',
+              resetsAt: NOW + 10 * 24 * HOUR,
+              resetSource: 'estimated',
+              lastResetAt: NOW - HOUR,
+            }),
+          ],
+        }),
+        owner('antigravity', 'Antigravity account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 57 },
+              usedSource: 'provider-unofficial',
+              resetsAt: NOW + 5 * HOUR,
+              resetSource: 'estimated',
+            }),
+          ],
+        }),
+      ),
+    );
+    const fill = (row: HTMLElement) =>
+      row.querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild as HTMLElement;
+    const [aged, estimated, unconfirmed] = sections(el).map(
+      (s) => s.querySelector('[data-testid="window-row"]') as HTMLElement,
+    );
+    // a stale 97% must not read as healthy green (revise-1 S1), and the
+    // neutral fill is the muted 45% tier, not full-strength base-content
+    // (revise-2 M1)
+    expect(chipsIn(aged, 'state-chip')).toEqual(['◷ Aged']);
+    expect(fill(aged)?.classList.contains('bg-base-content/45')).toBe(true);
+    expect(fill(aged)?.classList.contains('bg-base-content')).toBe(false);
+    expect(fill(aged)?.classList.contains('bg-success')).toBe(false);
+    expect(chipsIn(estimated, 'state-chip')).toEqual(['~ Estimate only']);
+    expect(fill(estimated)?.classList.contains('bg-base-content/45')).toBe(
+      true,
+    );
+    expect(fill(estimated)?.classList.contains('bg-success')).toBe(false);
+    expect(chipsIn(unconfirmed, 'state-chip')).toEqual(['? Not confirmed']);
+    expect(fill(unconfirmed)?.classList.contains('bg-base-content/45')).toBe(
+      true,
+    );
+    expect(fill(unconfirmed)?.classList.contains('bg-success')).toBe(false);
+  });
+
+  it('keeps the warning tone on a stale owner without windows (compact row)', () => {
+    const el = render(
+      snapshotOf(
+        owner('openai-codex', 'Codex account', {
+          status: 'stale',
+          staleSince: NOW - 47 * MIN,
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    const reason = el.querySelector('[data-testid="compact-reason"]');
+    expect(reason?.getAttribute('role')).toBe('status');
+    expect(reason?.classList.contains('border-warning')).toBe(true);
+    expect(textOf(reason)).toContain('Showing cached account data');
+    expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
+      '◷ Cached data',
+    );
   });
 
   // ---- ledger-only and informational evidence ----
@@ -779,7 +1298,7 @@ describe('ProviderAccountCardComponent', () => {
         owner('anthropic', 'Claude account', {}, 'fedcba9876543210'),
       ),
     );
-    const headings = Array.from(el.querySelectorAll('h4')).map(textOf);
+    const headings = Array.from(el.querySelectorAll('h5')).map(textOf);
     expect(headings).toEqual([
       'Claude account · cdef',
       'Claude account · 3210',
@@ -904,9 +1423,12 @@ describe('ProviderAccountCardComponent', () => {
       expect(line?.className).not.toMatch(
         /border-(warning|error)|text-(warning|error)/,
       );
-      expect(line?.nextElementSibling?.getAttribute('data-testid')).toBe(
-        'provider-account-section',
-      );
+      expect(line?.nextElementSibling?.tagName).toBe('UL');
+      expect(
+        line?.nextElementSibling?.querySelector(
+          '[data-testid="provider-account-section"]',
+        ),
+      ).not.toBeNull();
       expect(sections(el)).toHaveLength(2);
     });
 
@@ -958,6 +1480,7 @@ describe('ProviderAccountCardComponent', () => {
         imports: [ProviderAccountCardComponent],
         providers: [
           { provide: ClaudeRpcService, useValue: rpc },
+        { provide: AppStateManager, useValue: appState },
           {
             provide: AuthStateService,
             useValue: { persistedProviderId: signal('anthropic') },
@@ -1010,6 +1533,7 @@ describe('ProviderAccountCardComponent', () => {
       imports: [ProviderAccountCardComponent],
       providers: [
         { provide: ClaudeRpcService, useValue: rpc },
+        { provide: AppStateManager, useValue: appState },
         {
           provide: AuthStateService,
           useValue: { persistedProviderId: selected },

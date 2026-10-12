@@ -1,11 +1,12 @@
 ---
-status: in_review
+status: done
 type: devops
 title: Offline maintenance script to drain the observation queue backlog
 description: >-
   171,524 processed observation_queue rows holding 878 MB of a 1.2 GB database
   cannot drain through runtime retention on a contended host. Provide a bounded
   offline drain to be run with the app closed.
+updated: '2026-10-10T18:18:03.525Z'
 ---
 
 Runtime retention is now correct but yields only 50 rows per run under sustained

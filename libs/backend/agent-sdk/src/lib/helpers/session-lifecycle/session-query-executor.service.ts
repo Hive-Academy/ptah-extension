@@ -157,7 +157,7 @@ export type CompactionCoordinatorSink = Pick<
 /** The subagent budget monitor surface the executor drives (TASK_2026_597 28b). */
 export type SubagentBudgetSink = Pick<
   SubagentBudgetMonitor,
-  'observe' | 'release' | 'currentSessionId'
+  'observe' | 'recordTaskStarted' | 'release' | 'currentSessionId'
 >;
 
 /** True when an assistant message carries at least one `tool_use` block. */
@@ -257,6 +257,13 @@ class CompactionSessionTap {
             postTokens: post_tokens,
           }),
         );
+      } else if (message.subtype === 'task_started' && message.tool_use_id) {
+        this.recordTaskStarted(
+          message,
+          message.tool_use_id,
+          message.task_id,
+          message.subagent_type,
+        );
       }
     } else if (message.type === 'result') {
       this.onTurnEnd(sessionId);
@@ -276,12 +283,8 @@ class CompactionSessionTap {
   private feedSubagentMonitor(message: SDKMessage): void {
     const monitor = this.subagentMonitor;
     if (!monitor) return;
-    const id =
-      'session_id' in message && typeof message.session_id === 'string'
-        ? message.session_id
-        : this.sessionId;
+    const id = this.monitorSessionId(message);
     if (!id) return;
-    this.subagentIds.add(id);
     const cacheTtl = this.subagentCacheTtl;
     // The executor runs observe() now; a synchronous throw becomes a rejection.
     new Promise<void>((resolve) =>
@@ -289,6 +292,47 @@ class CompactionSessionTap {
     ).catch((error: unknown) =>
       this.warn('Subagent budget monitor failed', 'subagent-budget', error),
     );
+  }
+
+  /**
+   * The SDK's `task_started` gives the task id a subagent stop needs, keyed
+   * by the spawning tool_use id. Recorded under the same session id as the
+   * subagent's messages. Non-agent tasks go through too; the monitor never
+   * matches their tool_use id to a subagent.
+   */
+  private recordTaskStarted(
+    message: SDKMessage,
+    toolUseId: string,
+    taskId: string,
+    subagentType: string | undefined,
+  ): void {
+    const monitor = this.subagentMonitor;
+    if (!monitor) return;
+    const id = this.monitorSessionId(message);
+    if (!id) return;
+    try {
+      monitor.recordTaskStarted(id, toolUseId, taskId, subagentType);
+    } catch (error: unknown) {
+      this.warn(
+        'Subagent budget monitor failed to record a task start',
+        'subagent-task-started',
+        error,
+      );
+    }
+  }
+
+  /**
+   * The session id the dispatcher and registry use for a message: its own
+   * `session_id`, else the run's bound id. Tracked for release at session end.
+   */
+  private monitorSessionId(message: SDKMessage): string | null {
+    const id =
+      'session_id' in message && typeof message.session_id === 'string'
+        ? message.session_id
+        : this.sessionId;
+    if (!id) return null;
+    this.subagentIds.add(id);
+    return id;
   }
 
   /**
@@ -543,13 +587,11 @@ export class SessionQueryExecutor {
     // `result`; see the `slash-command-interceptor.ts` header for why that was
     // believed to be required and why it is not (TASK_2026_472).
     if (initialContent) {
-      const sdkUserMessage = await this.messageFactory.createUserMessage({
+      rec.messageQueue.push({
         content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
-        sessionId,
         files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
       });
-      rec.messageQueue.push(sdkUserMessage);
       this.logger.info(
         `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
       );

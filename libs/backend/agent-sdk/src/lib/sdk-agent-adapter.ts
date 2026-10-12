@@ -25,6 +25,8 @@ import {
   type PermissionLevel,
   type SessionBudgetState,
   type SessionStatsEntry,
+  type LiveStatsCallback,
+  type SessionStatsLivePayload,
   blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
@@ -38,6 +40,7 @@ import { AuthRequiredError } from './errors';
 import { getActiveProviderId } from './helpers';
 import { SessionMetadataStore } from './session-metadata-store';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
+import type { QueuedSessionInput } from './helpers/session-handoff/session-handover-coordinator.service';
 import type {
   OwnerLease,
   RunPreparation,
@@ -160,6 +163,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private resetChain: Promise<void> | null = null;
 
+  /**
+   * Workspace-scoped auth changes in flight ({@link applyWorkspaceAuthChange}).
+   * While above zero the `configChanged` handler stands down: the change it
+   * would react to (a saved key fires the `ptah.auth.*` secret watcher) is
+   * already being applied to the one workspace it belongs to, and the
+   * handler's `disposeAllSessions()` would end every other workspace's chats.
+   */
+  private workspaceAuthChanges = 0;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -178,6 +190,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   /** An `observe` throw is WARNed once per adapter, never per result. */
   private budgetObserveWarned = false;
+
+  /** An `observeLive` throw is WARNed once per adapter, never per estimate. */
+  private budgetObserveLiveWarned = false;
 
   /** Disposer of the idle-eviction budget release; called in `dispose()`. */
   private readonly stopEvictionRelease: () => void;
@@ -252,7 +267,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET)
     private readonly sessionBudget: Pick<
       SessionBudgetService,
-      'observe' | 'recordCompaction' | 'release' | 'clearAll'
+      | 'observe'
+      | 'observeLive'
+      | 'recordCompaction'
+      | 'release'
+      | 'clearAll'
+      | 'canSend'
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
@@ -264,7 +284,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
       this.handleWorkspaceChanged();
     });
-    this.events.onConfigChanged(async () => {
+    this.events.onConfigChanged(async (event) => {
+      if (this.workspaceAuthChanges > 0) {
+        this.logger.info(
+          '[SdkAgentAdapter] Config change during a workspace-scoped auth save — applied to that workspace only',
+          { key: event?.key },
+        );
+        return;
+      }
       this.logger.info(
         '[SdkAgentAdapter] Config change detected, re-initializing...',
       );
@@ -701,6 +728,60 @@ export class SdkAgentAdapter implements IAgentAdapter {
     await this.initialize();
   }
 
+  /**
+   * Apply an auth change saved for ONE workspace (`auth:saveSettings` with
+   * `applyTo: 'workspace'`). Unlike {@link reset}, which disposes the whole
+   * adapter and so ends every session in the process, this ends only the
+   * sessions of `workspacePath` and re-configures auth for the active
+   * workspace — the same per-workspace path a workspace switch takes.
+   *
+   * `write` performs the settings and secret writes. It runs inside the
+   * window in which the `configChanged` handler stands down, so a secret
+   * change it fires cannot tear down every other workspace's sessions.
+   */
+  async applyWorkspaceAuthChange(
+    workspacePath: string,
+    write: () => Promise<void>,
+  ): Promise<void> {
+    this.workspaceAuthChanges += 1;
+    try {
+      await write();
+      await this.endSessionsForWorkspace(workspacePath);
+      // Like `doReset`, never let an in-flight pass (started before the write)
+      // answer this one.
+      const running = this.initInFlight;
+      if (running !== null) {
+        // degradation-audit: optional-capability - the result of a pass that
+        // predates the write is discarded; a fresh pass follows regardless.
+        await running.catch(() => false);
+      }
+      this.cliDetector.clearCache();
+      this.modelService.invalidateForAuthChange();
+      await this.initialize();
+    } finally {
+      this.workspaceAuthChanges -= 1;
+    }
+  }
+
+  /**
+   * End every live session of one workspace with the same accounting the
+   * single-session `endSession` does (pending activity, stats owners, budget),
+   * captured before the teardown awaits while the records still exist.
+   */
+  private async endSessionsForWorkspace(workspacePath: string): Promise<void> {
+    const ids = this.sessionLifecycle.getSessionIdsForWorkspace(workspacePath);
+    const leases: OwnerLease[] = [];
+    const budgetKeys: string[] = [];
+    for (const id of ids) {
+      this.flushPendingUserActivityFor(id as SessionId);
+      leases.push(...this.captureStatsLeases(id as SessionId));
+      budgetKeys.push(...this.sessionKeys(id as SessionId));
+    }
+    await this.sessionLifecycle.disposeSessionsForWorkspace(workspacePath);
+    this.releaseStatsOwners(leases);
+    this.releaseBudget(budgetKeys);
+  }
+
   async startChatSession(
     config: AISessionConfig & {
       tabId: string;
@@ -841,6 +922,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         trackingId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1004,6 +1086,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionId,
           this.callbacks.getResultStats(),
         ),
+        onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
@@ -1150,6 +1233,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1366,6 +1450,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.callbacks.setResultStats(callback);
   }
 
+  /**
+   * Provisional in-turn snapshots. Passed to every stream through
+   * `wrapLiveStatsForBudget`, never `wrapResultStatsForActivity`: a live
+   * estimate is not a result, so it must not notify activity nor reach the
+   * budget's authoritative `observe`.
+   */
+  setLiveStatsCallback(callback: LiveStatsCallback): void {
+    this.callbacks.setLiveStats(callback);
+  }
+
   setCompactionStartCallback(callback: CompactionStartCallback): void {
     this.callbacks.setCompactionStart(callback);
   }
@@ -1398,18 +1492,45 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
   }
 
+  async enqueueTransferInputs(
+    sessionId: SessionId,
+    inputs: readonly QueuedSessionInput[],
+  ): Promise<void> {
+    return this.sessionLifecycle.enqueueTransferInputs(sessionId, inputs);
+  }
+
   async executeSlashCommand(
     sessionId: SessionId,
     command: string,
-    config: SlashCommandConfig & { tabId?: string },
+    config: SlashCommandConfig & {
+      tabId?: string;
+      providerProfile?: ProviderProfile;
+    },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
 
+    // Same per-session provider pinning as start/resume: the relaunch runs on
+    // the profile's isolated auth env, model and cli.js when one is supplied.
+    const { providerProfile } = config;
+    const sessionConfig =
+      providerProfile && config.sessionConfig
+        ? {
+            ...config.sessionConfig,
+            model: providerProfile.model,
+            ...(providerProfile.reasoningEffort
+              ? { effort: providerProfile.reasoningEffort }
+              : {}),
+          }
+        : config.sessionConfig;
+
     this.logger.info(
       `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,
-      { command: command.substring(0, 50) },
+      {
+        command: command.substring(0, 50),
+        providerId: providerProfile?.providerId,
+      },
     );
 
     // The re-query resumes the same transcript: same owner, new run. Its
@@ -1430,14 +1551,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionId,
       command,
       {
-        sessionConfig: config.sessionConfig,
+        sessionConfig,
         mcpServerRunning: config.mcpServerRunning,
         enhancedPromptsContent: config.enhancedPromptsContent,
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
         pathToClaudeCodeExecutable:
-          this.runtimeState.getCliJsPath() || undefined,
+          (providerProfile?.cliJsPath ?? this.runtimeState.getCliJsPath()) ||
+          undefined,
+        authEnvOverride: providerProfile?.authEnv,
         beforeRelaunch: async () => {
           prepared.run = await this.prepareStatsForRun(
             sessionId,
@@ -1472,6 +1595,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
@@ -1702,6 +1826,53 @@ export class SdkAgentAdapter implements IAgentAdapter {
         // `null` is the explicit no-state marker.
         inner(budget === undefined ? stats : { ...stats, budget });
       }
+      // R2: the result lands after the turn terminal, so a blocking limit it
+      // made authoritative parks the limit handover here (the user's click
+      // starts it). Nothing else is armed after a result.
+      if (budget?.blocked === true) {
+        try {
+          this.sessionLifecycle.parkLimitHandoverIfIdle(sessionId);
+        } catch (error: unknown) {
+          this.logger.warn(
+            `[SdkAgentAdapter] Could not park the budget limit handover for ${sessionId}`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }
+    };
+  }
+
+  /**
+   * Feed each in-turn estimate to the budget's display-only stage
+   * (`observeLive`, never `observe`), then the host callback with that stage
+   * as `liveBudgetStage`: omitted when the budget reports no change
+   * (`undefined`), set for `null` (clear) or a stage. Installed even without a
+   * host callback so every host feeds the budget. The live stage never arms
+   * or starts a handover (D17, D22); a budget throw is WARNed once, omits the
+   * field and never withholds the payload from the host.
+   */
+  private wrapLiveStatsForBudget(
+    inner: LiveStatsCallback | undefined,
+  ): LiveStatsCallback {
+    return (payload) => {
+      let liveBudgetStage: SessionStatsLivePayload['liveBudgetStage'];
+      try {
+        liveBudgetStage = this.sessionBudget.observeLive(payload.sessionStats);
+      } catch (error: unknown) {
+        if (!this.budgetObserveLiveWarned) {
+          this.budgetObserveLiveWarned = true;
+          this.logger.warn(
+            '[SdkAgentAdapter] Session budget live observe failed; the estimate is published without it',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }
+      // Returned so the publisher still sees an async host failure.
+      return inner?.(
+        liveBudgetStage === undefined
+          ? payload
+          : { ...payload, liveBudgetStage },
+      );
     };
   }
 
@@ -1750,7 +1921,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private releaseTurnOnResult(sessionId: SessionId): () => void {
     return () => {
-      this.sessionLifecycle.markTurnEnded(sessionId);
+      this.sessionLifecycle.onTurnTerminal(sessionId);
     };
   }
 }

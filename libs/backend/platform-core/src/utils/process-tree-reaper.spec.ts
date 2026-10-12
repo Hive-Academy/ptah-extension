@@ -47,6 +47,8 @@ describe('killProcessTree', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'C:\\Windows\\System32\\taskkill.exe',
       ['/pid', '4242', '/T', '/F'],
+      // A GUI parent (Electron main) would otherwise flash a console window.
+      { windowsHide: true },
       expect.any(Function),
     );
   });
@@ -64,6 +66,7 @@ describe('killProcessTree', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'taskkill',
       ['/pid', '4242', '/T', '/F'],
+      { windowsHide: true },
       expect.any(Function),
     );
   });

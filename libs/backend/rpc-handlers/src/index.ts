@@ -54,6 +54,7 @@ export {
   TasksRpcHandlers,
   SessionOrganizationRpcHandlers,
   SessionBudgetRpcHandlers,
+  LanePlanLimitsRpcHandlers,
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,
   EditorRpcHandlers,

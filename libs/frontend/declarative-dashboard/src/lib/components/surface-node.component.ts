@@ -18,12 +18,14 @@ import type {
 } from '../surface-interaction';
 import type { SurfaceComponentViewState } from '../surface-view-state';
 import type {
+  AvatarNode,
   DisplayNode,
   InputNode,
   LayoutNode,
   SurfaceNode,
 } from '../view-model/view-model.types';
 import { DashboardAlertComponent, type AlertNode } from './dashboard-alert.component';
+import { DashboardAvatarComponent } from './dashboard-avatar.component';
 import { DashboardBadgeComponent, type BadgeNode } from './dashboard-badge.component';
 import { DashboardDividerComponent, type DividerNode } from './dashboard-divider.component';
 import { DashboardProgressComponent, type ProgressNode } from './dashboard-progress.component';
@@ -36,7 +38,7 @@ import { DashboardTableComponent } from './dashboard-table.component';
 import { SurfaceCheckboxInputComponent, type CheckboxInputNode } from './surface-checkbox-input.component';
 import { SurfaceChoiceInputComponent, type ChoiceInputNode } from './surface-choice-input.component';
 import { NO_DRAFTS, type SurfaceDrafts } from './surface-input-messages';
-import { SurfaceLayoutComponent } from './surface-layout.component';
+import { SurfaceLayoutComponent, type SurfaceLayoutWidth } from './surface-layout.component';
 import {
   SurfaceTextInputComponent,
   type SurfaceDraftWrite,
@@ -63,12 +65,16 @@ const NO_INTERACTION: SurfaceInteractionState = {
   submitDisabled: false,
 };
 
-/** The 19 catalog kinds this node renders; anything else is `@default`. */
+/**
+ * The kinds this node renders: the 19 `/3` kinds plus the `/4` `accordion`
+ * and `avatar`; anything else is `@default` and reports `renderFailed`.
+ */
 export const SURFACE_NODE_KINDS: ReadonlySet<string> = new Set([
-  'section', 'stack', 'grid', 'card',
+  'section', 'stack', 'grid', 'card', 'accordion',
   'text', 'select', 'radio-group', 'checkbox',
   'stat', 'table', 'list', 'line-chart', 'bar-chart',
   'alert', 'badge', 'progress', 'radial-progress', 'divider', 'text-block',
+  'avatar',
 ]);
 
 function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
@@ -76,7 +82,7 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
 }
 
 /**
- * Recursive node: `@switch` over the 19 kinds. Layouts get their children
+ * Recursive node: `@switch` over `SURFACE_NODE_KINDS`. Layouts get their children
  * through this component's `child` template, so the layout never imports this
  * component (R5). v1 display children are rendered the same way. An unknown
  * kind renders nothing and emits `renderFailed`. Every output is forwarded
@@ -101,11 +107,12 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
     DashboardRadialProgressComponent,
     DashboardDividerComponent,
     DashboardTextBlockComponent,
+    DashboardAvatarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-template #child let-child>
-      <ptah-surface-node [node]="child" [surfaceId]="surfaceId()" [componentStates]="componentStates()"
+      <ptah-surface-node [node]="child" [surfaceId]="surfaceId()" [layoutWidth]="layoutWidth()" [componentStates]="componentStates()"
         [drafts]="drafts()" [interaction]="interaction()"
         (componentViewStateChange)="componentViewStateChange.emit($event)"
         (selectionChange)="selectionChange.emit($event)" (inputCommit)="inputCommit.emit($event)"
@@ -115,8 +122,9 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
     <ng-template #layoutView>
       @if (layoutNode(); as layout) {
         <ptah-surface-layout [node]="layout" [childTemplate]="child" [surfaceId]="surfaceId()"
+          [layoutWidth]="layoutWidth()" [expanded]="componentState().expanded"
           [actionStates]="interaction().actions" [submitDisabled]="interaction().submitDisabled"
-          (actionInvoke)="actionInvoke.emit($event)" />
+          (actionInvoke)="actionInvoke.emit($event)" (expandedChange)="writeExpanded($event)" />
       }
     </ng-template>
     <ng-template #choiceView>
@@ -150,6 +158,7 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
       @case ('stack') { <ng-container [ngTemplateOutlet]="layoutView" /> }
       @case ('grid') { <ng-container [ngTemplateOutlet]="layoutView" /> }
       @case ('card') { <ng-container [ngTemplateOutlet]="layoutView" /> }
+      @case ('accordion') { <ng-container [ngTemplateOutlet]="layoutView" /> }
       @case ('text') {
         @if (textNode(); as text) {
           <ptah-surface-text-input [node]="text" [surfaceId]="surfaceId()" [drafts]="drafts()"
@@ -225,6 +234,11 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
           <ptah-dashboard-text-block [node]="textBlock" />
         }
       }
+      @case ('avatar') {
+        @if (avatarNode(); as avatar) {
+          <ptah-dashboard-avatar [node]="avatar" />
+        }
+      }
       @default {}
     }
   `,
@@ -232,6 +246,7 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
 export class SurfaceNodeComponent {
   public readonly node: InputSignal<SurfaceNode> = input.required<SurfaceNode>();
   public readonly surfaceId = input('');
+  public readonly layoutWidth = input<SurfaceLayoutWidth>('viewport');
   /** `SurfaceViewState.components` of the whole surface. */
   public readonly componentStates = input<ComponentStates>(NO_COMPONENT_STATES);
   /** `SurfaceViewState.drafts` of the whole surface. */
@@ -246,7 +261,8 @@ export class SurfaceNodeComponent {
 
   public readonly layoutNode = computed((): LayoutNode | null => {
     const node = this.node();
-    return node.kind === 'section' || node.kind === 'stack' || node.kind === 'grid' || node.kind === 'card' ? node : null;
+    return node.kind === 'section' || node.kind === 'stack' || node.kind === 'grid' || node.kind === 'card'
+      || node.kind === 'accordion' ? node : null;
   });
   public readonly textNode = computed((): TextInputNode | null => {
     const node = this.node();
@@ -300,6 +316,10 @@ export class SurfaceNodeComponent {
     const node = this.node();
     return node.kind === 'text-block' ? node : null;
   });
+  public readonly avatarNode: Signal<AvatarNode | null> = computed((): AvatarNode | null => {
+    const node = this.node();
+    return node.kind === 'avatar' ? node : null;
+  });
   /** v1 display children only; layouts render theirs through the layout component. */
   public readonly displayChildNodes = computed((): readonly DisplayNode[] => {
     const node = this.node();
@@ -321,6 +341,11 @@ export class SurfaceNodeComponent {
 
   public writeComponentState(state: SurfaceComponentViewState): void {
     this.componentViewStateChange.emit({ componentId: this.node().id, state });
+  }
+
+  /** Layout expansion lives in the same per-id record as a stat's or chart's, so it survives a re-render (R9.4). */
+  public writeExpanded(expanded: boolean): void {
+    this.writeComponentState({ ...this.componentState(), expanded });
   }
 }
 

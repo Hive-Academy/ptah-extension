@@ -1,6 +1,6 @@
 import { Component, Input, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, WorkspaceScopeService } from '@ptah-extension/core';
 import { rpcError, rpcSuccess } from '@ptah-extension/core/testing';
 import { Download, RotateCw } from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
@@ -385,6 +385,17 @@ describe('SystemPromptDrawerComponent', () => {
 
       expect(call).toHaveBeenCalledWith('enhancedPrompts:download', { workspacePath: '.' });
       expect(element.querySelector('[data-testid="system-prompt-drawer-error"]')).toBeNull();
+    });
+
+    it('sends the active workspace root, not ".", when the host tracks one', async () => {
+      await render();
+      TestBed.inject(WorkspaceScopeService).switchTo('/ws/project-a');
+
+      element.querySelector<HTMLButtonElement>('[data-testid="system-prompt-download-button"]')?.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(call).toHaveBeenCalledWith('enhancedPrompts:download', { workspacePath: '/ws/project-a' });
     });
   });
 

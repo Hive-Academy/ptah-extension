@@ -616,4 +616,159 @@ describe('SkillDrainService — gates', () => {
       expect(queue.reapStale).toHaveBeenCalledWith(60_000, expect.any(Number));
     });
   });
+
+  /**
+   * TASK_2026_620 B-P (S6) — gate 1 is re-read PER ITEM inside the tick.
+   *
+   * A nightly (40) or weekly (400) tick that already passed gate 1 must stop
+   * the moment the master switch flips off mid-run — the tray write, the Thoth
+   * toggle or an external edit of `~/.ptah/settings.json`, none of which the
+   * tick can be told about. The item being processed finishes; everything not
+   * yet claimed stays `queued`, which is what "pause must lose nothing" means
+   * here: the rows are still eligible, and the next tick after a resume
+   * drains them under that tier's own caps.
+   */
+  describe('gate 1 re-read, per item (B-P S6)', () => {
+    const WS = 'D:/repo';
+
+    function embeddingRow(i: number): SkillQueueRow {
+      return {
+        id: `row-${i}`,
+        sessionId: `s-${i}`,
+        workspaceRoot: WS,
+        transcriptPath: null,
+        source: 'session-end',
+        stage: 'embedding',
+        dependsOn: null,
+        status: 'queued',
+        turnCount: 6,
+        attemptCount: 0,
+        enqueuedAt: 1_770_000_000_000 + i,
+        notBefore: 0,
+        claimedBy: null,
+        claimedAt: null,
+        finishedAt: null,
+        lane: null,
+        reason: null,
+        lastError: null,
+        candidateId: null,
+        payload: {},
+      };
+    }
+
+    /**
+     * A stub serving two queued `embedding` rows (a FREE stage — no budget or
+     * network interplay) from one workspace, plus a drain over a MUTABLE
+     * settings map, so a handler can flip the switch mid-tick exactly the way
+     * a concurrent write would.
+     */
+    function setup(onFirstItem?: () => void) {
+      const rows = [embeddingRow(1), embeddingRow(2)];
+      const parts = {
+        reapStale: jest.fn(() => 0),
+        listEligibleWorkspaces: jest.fn(() => [WS]),
+        listEligible: jest.fn(() => rows),
+        markWorkspaceDrained: jest.fn(),
+        tryClaim: jest.fn((id: string) => {
+          const row = rows.find((r) => r.id === id);
+          return row ? { ...row, status: 'claimed' as const } : null;
+        }),
+        touchClaim: jest.fn(() => true),
+        mergePayload: jest.fn(),
+        requeue: jest.fn(() => true),
+        markDone: jest.fn(),
+        markFailed: jest.fn(),
+        markUnscored: jest.fn(),
+        markSkipped: jest.fn(),
+      };
+      // The map is closed over by reference: a mutation between two items is
+      // exactly the external edit the per-item re-read exists for.
+      const settings: DrainSettings = {
+        [SKILL_DRAIN_KEYS.maxItemsPerRun]: 4,
+        [SKILL_DRAIN_KEYS.perWorkspaceBatch]: 2,
+      };
+      const drain = makeDrain({
+        queue: parts as unknown as SkillQueueStore,
+        budget: makeBudgetStub(0).store,
+        settings,
+      });
+      let dispatched = 0;
+      drain.registerStageHandler('embedding', async () => {
+        dispatched += 1;
+        if (dispatched === 1) onFirstItem?.();
+        return { outcome: 'done' as const };
+      });
+      return { queue: parts, drain, settings, dispatches: () => dispatched };
+    }
+
+    it('breaks with paused-mid-run, not skipped, when the switch flips off after item 1', async () => {
+      const { queue, drain, settings, dispatches } = setup(() => {
+        settings[SKILL_DRAIN_KEYS.enabled] = false;
+      });
+
+      const summary = await drain.drain({
+        tier: 'nightly',
+        signal: liveSignal(),
+        onBattery: false,
+      });
+
+      // The in-flight item finished; no further unit started.
+      expect(summary).toMatchObject({
+        skipped: false,
+        reason: 'paused-mid-run',
+        claimed: 1,
+        done: 1,
+      });
+      expect(queue.tryClaim).toHaveBeenCalledTimes(1);
+      expect(dispatches()).toBe(1);
+      // LOSE NOTHING: the unclaimed row was not answered at all — no terminal
+      // `skipped`, no `unscored`, no failure. It is still eligible.
+      expect(queue.markSkipped).not.toHaveBeenCalled();
+      expect(queue.markUnscored).not.toHaveBeenCalled();
+      expect(queue.markFailed).not.toHaveBeenCalled();
+    });
+
+    it('the unclaimed rows drain on the next tick after a resume', async () => {
+      const { queue, drain, settings } = setup(() => {
+        settings[SKILL_DRAIN_KEYS.enabled] = false;
+      });
+
+      const paused = await drain.drain({
+        tier: 'nightly',
+        signal: liveSignal(),
+        onBattery: false,
+      });
+      expect(paused.reason).toBe('paused-mid-run');
+      expect(queue.markDone).toHaveBeenCalledTimes(1);
+
+      // The external resume: the map flips back, no event fires. The stub is
+      // stateless and serves BOTH rows to every tick, so this tick claims the
+      // held-back row-2 plus row-1 again — the load-bearing half is that
+      // row-2 drains at all, and that nothing was terminally answered while
+      // it was held back.
+      settings[SKILL_DRAIN_KEYS.enabled] = true;
+      const resumed = await drain.drain({
+        tier: 'nightly',
+        signal: liveSignal(),
+        onBattery: false,
+      });
+
+      expect(resumed).toMatchObject({ skipped: false, claimed: 2, done: 2 });
+      expect(queue.markDone).toHaveBeenCalledTimes(3);
+      expect(queue.markSkipped).not.toHaveBeenCalled();
+    });
+
+    it('NEGATIVE CONTROL — the same tick drains both rows when nothing flips', async () => {
+      const { queue, drain, settings } = setup();
+      const summary = await drain.drain({
+        tier: 'nightly',
+        signal: liveSignal(),
+        onBattery: false,
+      });
+      expect(summary).toMatchObject({ claimed: 2, done: 2 });
+      expect(summary.reason).toBeUndefined();
+      expect(queue.markDone).toHaveBeenCalledTimes(2);
+      expect(settings[SKILL_DRAIN_KEYS.enabled]).toBeUndefined();
+    });
+  });
 });

@@ -108,7 +108,8 @@ const FOCUS =
     <div
       role="dialog"
       [attr.aria-labelledby]="titleId()"
-      class="surface-3 w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 rounded-xl p-3 text-left text-xs"
+      class="surface-3 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl p-3 text-left text-xs"
+      [style.width.rem]="instanceModel() ? 24 : 17"
       data-testid="cli-matrix-popover"
       [attr.data-field]="field()"
       [attr.data-row]="row().id"
@@ -323,10 +324,13 @@ export class CliModelEffortPopoverComponent implements OnInit {
   /** #45 (moved from the retired instance cards, Batch 34): the instance's model count, once the list has loaded. */
   protected readonly instanceModelCount = computed(() => {
     const row = this.instanceModel();
-    return row
+    const count = row
       ? (this.state.cliAgents().data?.find((agent) => agent.id === row.id)
           ?.modelCount ?? null)
       : null;
+    // The host counts static models only; a provider that lists models at runtime (Ollama Cloud) reports 0 while
+    // the picker above loads its real list, so 0 is "unknown" here and the picker's own count stands.
+    return count === 0 ? null : count;
   });
 
   protected readonly catalogueStatus = computed(

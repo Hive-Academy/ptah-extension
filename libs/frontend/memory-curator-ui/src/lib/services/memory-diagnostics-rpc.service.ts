@@ -16,6 +16,18 @@ const DIAGNOSTICS_RPC_TIMEOUTS = {
   WRITE_MS: 8_000,
 } as const;
 
+/**
+ * The host refused a manual run because the Memory switch is paused
+ * (`RpcUserErrorCode` `'PAUSED'`). Thrown as its own type so callers can show a
+ * paused notice instead of a failure.
+ */
+export class MemoryPausedError extends Error {
+  public constructor(message = 'Memory is paused') {
+    super(message);
+    this.name = 'MemoryPausedError';
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class MemoryDiagnosticsRpcService {
   private readonly rpc = inject(ClaudeRpcService);
@@ -46,6 +58,9 @@ export class MemoryDiagnosticsRpcService {
 
     if (result.isSuccess() && result.data) {
       return result.data;
+    }
+    if (result.errorCode === 'PAUSED') {
+      throw new MemoryPausedError(result.error || undefined);
     }
     throw new Error(result.error || 'memory:runNow failed');
   }

@@ -105,6 +105,10 @@ function makeWorkspace(
   return {
     getConfiguration: <T>(_section: string, key: string, fallback?: T) =>
       key in settings ? (settings[key] as T) : (fallback as T),
+    // B-P: `SkillSynthesisService.start()` subscribes to
+    // `skillSynthesis.enabled`; a plain `jest.fn()` stands in for the
+    // `IDisposable` it returns.
+    onDidChangeConfiguration: jest.fn(),
   } as unknown as IWorkspaceProvider;
 }
 

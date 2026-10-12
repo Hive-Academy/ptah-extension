@@ -25,6 +25,9 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'fileEditor',
   'commandExecution',
   'appUpdater',
+  // `agent:getLanePlanLimits` serves the desktop display panel only; the
+  // headless hosts have no renderer to show per-lane plan limits (R10.9).
+  'lanePlanLimits',
 ] as const;
 
 /**

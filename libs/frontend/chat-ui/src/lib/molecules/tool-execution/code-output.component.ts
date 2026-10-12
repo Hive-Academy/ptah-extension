@@ -5,17 +5,26 @@ import {
   Component,
   input,
   computed,
+  viewChild,
+  ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { fenceCodeBlock } from './code-fence';
+import type { ExecutionNode } from '@ptah-extension/shared';
+import { CopyTextButtonComponent } from '../../atoms/copy-text-button.component';
 import {
-  type ExecutionNode,
-  isReadToolInput,
-  isWriteToolInput,
-  isEditToolInput,
-} from '@ptah-extension/shared';
+  detectToolLanguage,
+  getLanguageLabel,
+} from '../../utils/tool-language.utils';
+
+/** Rows visible inside the collapsed 9.6em limit (10px text, 1.4 line height). */
+const COLLAPSED_ROWS = 6;
+/** Approximate characters per wrapped row at the panel's width. */
+const WRAP_CHARS = 100;
+
+let nextBlockId = 0;
 
 /**
  * CodeOutputComponent - Syntax-highlighted code output with content processing
@@ -25,9 +34,14 @@ import {
  *
  * Features:
  * - Process tool output (strip system reminders, line numbers, MCP format)
- * - Detect syntax highlighting language from file extension or tool type
+ * - Detect syntax highlighting language (`tool-language.utils`) and label it
  * - Wrap content in markdown code blocks
  * - Render with ngx-markdown
+ * - Height-limited to 9.6em with a fade; "Show full output" / "Show less"
+ *   lifts the limit to the `max-h-48` scroll; Escape inside the expanded
+ *   block collapses it and returns focus to the toggle; "Copy output" copies
+ *   the stripped text
+ * - Code wraps (`pre-wrap`, `overflow-wrap: anywhere`); no horizontal scroll
  *
  * Processing Pipeline:
  * 1. Extract MCP content: [{type: "text", text: "..."}] → "..."
@@ -39,10 +53,39 @@ import {
 @Component({
   selector: 'ptah-code-output',
   standalone: true,
-  imports: [SurfaceMarkdownPipe, MarkdownModule],
+  imports: [SurfaceMarkdownPipe, MarkdownModule, CopyTextButtonComponent],
+  host: { '(keydown.escape)': 'collapseOnEscape($event)' },
   template: `
+    <div class="flex items-center gap-1 mb-0.5">
+      <span
+        class="badge badge-ghost badge-xs text-[10px] text-base-content-muted"
+        data-testid="code-output-language"
+        >{{ languageLabel() }}</span
+      >
+      <span class="flex-1"></span>
+      @if (collapsible()) {
+        <button
+          #expandToggle
+          type="button"
+          class="btn btn-ghost btn-xs h-7 min-h-0 px-2 text-[10px] font-normal"
+          [attr.aria-expanded]="expanded()"
+          [attr.aria-controls]="blockId"
+          (click)="toggleExpanded()"
+        >
+          {{ expanded() ? 'Show less' : 'Show full output' }}
+        </button>
+      }
+      <ptah-copy-text-button [text]="plainOutput()" label="Copy output" />
+    </div>
     <div
-      class="bg-base-300/50 rounded max-h-48 overflow-y-auto overflow-x-auto"
+      [id]="blockId"
+      tabindex="0"
+      role="region"
+      [attr.aria-label]="blockLabel()"
+      class="code-output-block bg-base-300/50 rounded text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+      [class.max-h-48]="!clipped()"
+      [class.overflow-y-auto]="!clipped()"
+      [class.is-clipped]="clipped()"
     >
       <markdown
         [data]="formattedOutput() | surfaceMarkdown: surfaceActive()"
@@ -52,11 +95,30 @@ import {
   `,
   styles: [
     `
+      .code-output-block.is-clipped {
+        max-height: 9.6em;
+        overflow-y: hidden;
+        -webkit-mask-image: linear-gradient(
+          to bottom,
+          #000 calc(100% - 2.4em),
+          transparent
+        );
+        mask-image: linear-gradient(
+          to bottom,
+          #000 calc(100% - 2.4em),
+          transparent
+        );
+      }
       :host ::ng-deep .tool-output-markdown {
         pre {
           margin: 0;
           padding: 0.5rem;
           background: transparent !important;
+        }
+        pre,
+        code {
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
         }
         code {
           font-size: 10px;
@@ -75,33 +137,9 @@ export class CodeOutputComponent {
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
 
   readonly node = input.required<ExecutionNode>();
-  private readonly languageMap: Record<string, string> = {
-    '.ts': 'typescript',
-    '.tsx': 'tsx',
-    '.js': 'javascript',
-    '.jsx': 'jsx',
-    '.json': 'json',
-    '.html': 'html',
-    '.css': 'css',
-    '.scss': 'scss',
-    '.py': 'python',
-    '.java': 'java',
-    '.go': 'go',
-    '.rs': 'rust',
-    '.md': 'markdown',
-    '.yaml': 'yaml',
-    '.yml': 'yaml',
-    '.xml': 'xml',
-    '.sql': 'sql',
-    '.sh': 'bash',
-    '.bash': 'bash',
-    '.zsh': 'bash',
-  };
 
-  /**
-   * Computed formatted output
-   */
-  readonly formattedOutput = computed(() => {
+  /** Tool output after MCP extraction and reminder, ANSI and `N→` stripping. */
+  readonly plainOutput = computed(() => {
     const node = this.node();
     if (!node) return '';
 
@@ -113,57 +151,78 @@ export class CodeOutputComponent {
     str = this.extractMCPContent(str);
     str = this.stripSystemReminders(str);
     str = this.stripAnsiCodes(str);
-    str = this.stripLineNumbers(str);
+    return this.stripLineNumbers(str);
+  });
 
-    const language = this.detectLanguage();
+  /** Highlight language id, from `tool-language.utils`. */
+  readonly language = computed(() => detectToolLanguage(this.node()));
+
+  protected readonly languageLabel = computed(() =>
+    getLanguageLabel(this.language()),
+  );
+
+  /**
+   * Computed formatted output
+   */
+  readonly formattedOutput = computed(() => {
+    const str = this.plainOutput();
+    if (!str) return '';
+
+    const language = this.language();
     if (language === 'markdown') return str;
     return fenceCodeBlock(str, language);
   });
 
   /**
-   * Detect language from file extension or tool type
+   * Whether the output is taller than the collapsed limit. Estimated from
+   * wrapped rows (no layout measurement, so no observer per tool row). Every
+   * language wraps, so each line counts `max(1, ceil(length / WRAP_CHARS))`.
+   * Line terminators are CRLF, CR or LF, so a `\r` never adds to a line's
+   * length. A block that is not collapsible is never clipped (it keeps
+   * `max-h-48`).
    */
-  private detectLanguage(): string {
-    const node = this.node();
-    if (!node) return 'text';
+  protected readonly collapsible = computed(() => {
+    const lines = this.plainOutput().split(/\r\n|\r|\n/);
+    let rows = 0;
+    for (const line of lines) {
+      rows += Math.max(1, Math.ceil(line.length / WRAP_CHARS));
+      if (rows > COLLAPSED_ROWS) return true;
+    }
+    return false;
+  });
 
-    const toolName = node.toolName;
-    const toolInput = node.toolInput;
-    const output = node.toolOutput;
-    let language = 'text';
-    if (toolName?.startsWith('mcp__')) {
-      return 'markdown';
-    }
-    if (
-      isReadToolInput(toolInput) ||
-      isWriteToolInput(toolInput) ||
-      isEditToolInput(toolInput)
-    ) {
-      language = this.getLanguageFromPath(toolInput.file_path);
-    } else if (toolName === 'Bash') {
-      language = 'bash';
-    } else if (toolName === 'Grep' || toolName === 'Glob') {
-      language = 'text';
-    }
-    const str = typeof output === 'string' ? output : '';
-    const trimmed = str.trim();
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      try {
-        const parsed: unknown = JSON.parse(trimmed);
-        if (parsed !== null && typeof parsed === 'object') {
-          language = 'json';
-        }
-      } catch {
-        // Starting with { or [ does not make the whole output one JSON
-        // document: JSONL transcripts, a `[NX] ...` log line and truncated
-        // streams all land here. This runs inside the `formattedOutput`
-        // computed, so an escaping throw re-fires on every change detection —
-        // it spammed the console with "Unexpected non-whitespace character
-        // after JSON". Not JSON: keep the language detected from the tool.
-      }
-    }
+  /** "Show full output" state; the block starts height-limited. */
+  protected readonly expanded = signal(false);
 
-    return language;
+  protected readonly clipped = computed(
+    () => this.collapsible() && !this.expanded(),
+  );
+
+  private readonly blockNumber = nextBlockId++;
+  protected readonly blockId = `ptah-code-output-${this.blockNumber}`;
+  protected readonly blockLabel = computed(
+    () => `${this.node().toolName || 'Tool'} output ${this.blockNumber}`,
+  );
+
+  private readonly expandToggle =
+    viewChild<ElementRef<HTMLButtonElement>>('expandToggle');
+
+  protected toggleExpanded(): void {
+    this.expanded.update((expanded) => !expanded);
+  }
+
+  /**
+   * Escape inside the expanded block: collapse, return focus to the toggle and
+   * stop the event so an enclosing expandable does not also collapse. While
+   * collapsed the event is left alone and bubbles.
+   */
+  protected collapseOnEscape(event: Event): void {
+    const toggle = this.expandToggle();
+    if (!this.expanded() || toggle === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.expanded.set(false);
+    toggle.nativeElement.focus();
   }
 
   /**
@@ -232,14 +291,5 @@ export class CodeOutputComponent {
     } catch {
       return content;
     }
-  }
-
-  /**
-   * Get language from file extension
-   */
-  private getLanguageFromPath(filePath: string): string {
-    const normalized = filePath.replace(/\\/g, '/');
-    const ext = '.' + normalized.split('.').pop()?.toLowerCase();
-    return this.languageMap[ext] || 'text';
   }
 }

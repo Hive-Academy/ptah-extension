@@ -9,7 +9,11 @@ import {
   AgentMonitorStore,
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  FILE_LINK_OPENER,
+  VSCodeService,
+} from '@ptah-extension/core';
 import {
   createMockRpcService,
   provideSurfaceActiveTesting,
@@ -49,6 +53,7 @@ describe('agent card unified output regressions', () => {
           useValue: { tick: signal(0), agentsById: signal(new Map()) },
         },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
         {
           provide: VSCodeService,
           useValue: { config: signal({ panelId: '' }), postMessage: jest.fn() },

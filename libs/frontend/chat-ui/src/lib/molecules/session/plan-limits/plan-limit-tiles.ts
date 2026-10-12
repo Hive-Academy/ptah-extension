@@ -98,7 +98,7 @@ export function sessionPlan(
   // The suffixed owner label ("Claude account · a1b2") so two owners of one
   // provider are told apart in the tile captions.
   const suffix = ownerKeySuffix(snapshot.owner.key);
-  const captionLead = `${snapshot.owner.label} plan limit`;
+  const captionLead = snapshot.owner.label;
   const captionTail = suffix === null ? undefined : `· ${suffix}`;
   const caption: TileCaption = {
     caption: captionTail ? `${captionLead} ${captionTail}` : captionLead,
@@ -106,9 +106,7 @@ export function sessionPlan(
     ...(captionTail && { captionTail }),
   };
   const tiles: PlanLimitTileModel[] = [
-    ...(snapshot.localUsage
-      ? [localUsageTile(snapshot, caption, ctx)]
-      : []),
+    ...(snapshot.localUsage ? [localUsageTile(snapshot, caption, ctx)] : []),
     ...statusTiles(snapshot, result.windows.length, caption, ctx),
     ...result.windows.map((entry) => windowTile(snapshot, entry, caption, ctx)),
     ...limits.ownerEvidence.map((evidence) =>
@@ -145,7 +143,9 @@ function localUsageTile(
     resetLine: usage.range ? `Range: ${usage.range}` : 'Local CLI accounting',
     tone: 'neutral',
     sourceChips: ['Local CLI'],
-    detailLines: [`Observed ${formatLocalAbsolute(usage.observedAt, ctx.now, ctx.time)}. This is not a plan percentage or reset.`],
+    detailLines: [
+      `Observed ${formatLocalAbsolute(usage.observedAt, ctx.now, ctx.time)}. This is not a plan percentage or reset.`,
+    ],
   };
 }
 
@@ -223,8 +223,8 @@ function unavailableTile(
     id,
     kind: 'status',
     label,
-    captionLead: 'plan limit',
-    caption: 'plan limit',
+    captionLead: 'unknown account',
+    caption: 'unknown account',
     value: 'Unavailable',
     resetLine,
     tone: 'neutral',

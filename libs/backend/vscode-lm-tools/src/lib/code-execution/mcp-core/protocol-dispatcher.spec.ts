@@ -3359,6 +3359,29 @@ describe('protocol-handlers › ptah_agent_spawn shared schema', () => {
     startedAt: '2026-09-13T00:00:00Z',
   };
 
+  it('accepts boolean force but does not forward it to the spawn API', async () => {
+    const spawn = jest.fn().mockResolvedValue(spawned);
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'Review', force: true }),
+      spawnDeps(spawn),
+    );
+
+    expect(agentToolResult(res).isError).toBeUndefined();
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn.mock.calls[0]?.[0]).not.toHaveProperty('force');
+  });
+
+  it('rejects a non-boolean force before spawning', async () => {
+    const spawn = jest.fn();
+    const res = await handleMCPRequest(
+      spawnRequest({ task: 'Review', force: 'true' }),
+      spawnDeps(spawn),
+    );
+
+    expect(agentToolResult(res).isError).toBe(true);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it('forwards role and renders how it was delivered', async () => {
     const spawn = jest.fn().mockResolvedValue({
       ...spawned,

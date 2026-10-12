@@ -64,9 +64,25 @@
           ></div>
         }
       </div>
-      <!-- Change-set cards of the turn this message ends. `when` adds no
-           per-item observer and keeps the card chunk lazy. -->
-      @if (changeSetAnchors().get(slot.id); as changeSets) {
+      @if (display.enabled) {
+        <!-- Electron: the turn summary chip of the turn this message ends
+             replaces the change-set card and the tests row (decisions #5,
+             #10). `when` adds no per-item observer and keeps the chip chunk
+             lazy. -->
+        @if (display.summaries.chips().get(slot.id); as summary) {
+          @defer (when summary) {
+            <div class="pl-11 pr-2 pb-3" data-testid="chat-turn-summary">
+              <ptah-turn-summary-chip
+                [summary]="summary.model"
+                [openable]="display.summaries.openable"
+                (open)="display.summaries.open(summary.turnKey)"
+              />
+            </div>
+          }
+        }
+      } @else if (changeSetAnchors().get(slot.id); as changeSets) {
+        <!-- VS Code: change-set cards of the turn this message ends. `when`
+             adds no per-item observer and keeps the card chunk lazy. -->
         @defer (when changeSets.length > 0) {
           @for (changeSet of changeSets; track changeSetKey(changeSet)) {
             <!-- pl-11 lines the card up with the assistant bubble column
@@ -74,7 +90,7 @@
             <div class="pl-11 pr-2 pb-3" data-testid="chat-change-set">
               <ptah-change-set-card
                 [changeSet]="changeSet"
-                [host]="changeSetHost()"
+                host="vscode"
                 [reconciled]="changeSetMarks(changeSet).reconciled"
                 [conflicted]="changeSetMarks(changeSet).conflicted"
                 (review)="onChangeSetReview(changeSet)"
@@ -101,22 +117,25 @@
           }
         }
       }
-      <!-- Tests row of the turn this message ends: one row per finalized turn
-           that ran test commands, Electron only (see `turnTestsAnchors`).
-           `when` adds no per-item observer and keeps the row chunk lazy. -->
-      @if (turnTestsAnchors().get(slot.id); as tests) {
-        @defer (when tests.runs.length > 0) {
-          <div class="px-2 pb-3" data-testid="chat-turn-tests">
-            <ptah-turn-tests-row
-              [runs]="tests.runs"
-              [incomplete]="tests.incomplete"
-            />
-          </div>
-        }
-      }
     }
   </div>
 </div>
+
+@if (display.enabled) {
+  <!-- Headless display sync of this tab (component 5): segments the display
+       candidates and publishes surfaces to the dock. Mounted here so it sits
+       under this transcript's PTAH_UI_HOST_SOURCES provider (decisions #72,
+       #81). Loaded with the first candidate and kept mounted after, so a
+       session without displays later publishes an empty panel. -->
+  @defer (when display.candidates().length > 0) {
+    <ptah-display-surface-sync
+      class="hidden"
+      [tabId]="tabId()"
+      [candidates]="display.candidates()"
+      [snapshots]="ptahUiSnapshots()"
+    />
+  }
+}
 
 @if (vm().streamingCount === 0 && vm().isStreaming) {
   <div

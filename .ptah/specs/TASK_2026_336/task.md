@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_336
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   The execution-tree reuse check has no state-identity guard, so a resumed tab
@@ -39,6 +39,7 @@ labels:
   - latent
 executor: frontend-developer
 estimate: S
+updated: '2026-10-10T18:19:11.865Z'
 ---
 
 # No state-identity guard on the execution-tree reuse check

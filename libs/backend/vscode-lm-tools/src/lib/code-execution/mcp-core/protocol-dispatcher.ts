@@ -234,19 +234,32 @@ import {
 import {
   formatSpawnLimitBlock,
   spawnRequestTarget,
+  type AgentLimitTarget,
 } from './agent-limit.formatter';
+import {
+  formatSpawnRefusal,
+  rowsWithSpawnModel,
+  spawnGateVerdict,
+} from './agent-spawn-limit-gate';
 
 /**
  * Lane limits for the agent tool text: for `rows` when given (the list
- * tool), else for a fresh roster (the spawn tool, after `agent.spawn` settled).
- * Enrichment only: any failure yields `undefined`, never a changed outcome.
+ * tool), else for a fresh roster (the spawn tool). A named spawn passes its
+ * target and model, so the lookup resolves the owner that model runs on.
+ * Any failure yields `undefined`: no gate and no limit text, never a changed
+ * outcome.
  */
 async function lookupAgentLimits(
   ptahAPI: PtahAPI,
   rows?: readonly CliDetectionResult[],
+  spawn?: { readonly target: AgentLimitTarget; readonly model?: string },
 ) {
   try {
-    return await ptahAPI.agent.limits?.(rows ?? (await ptahAPI.agent.list()));
+    if (!ptahAPI.agent.limits) return undefined;
+    const listed = rows ?? (await ptahAPI.agent.list());
+    return await ptahAPI.agent.limits(
+      spawn ? rowsWithSpawnModel(listed, spawn.target, spawn.model) : listed,
+    );
   } catch {
     // degradation-audit: optional-capability - limit fields only enrich the
     // tool result; LaneLimitLookupService logs its own lane failures, and the
@@ -1160,6 +1173,32 @@ async function handleIndividualTool(
           effort: spawnArgs.effort,
         });
 
+        // A named lane is checked before the spawn; an auto-detected one
+        // keeps the lookup after `agent.spawn` settled.
+        const target = spawnRequestTarget(spawnArgs);
+        const preLimits = target
+          ? await lookupAgentLimits(ptahAPI, undefined, {
+              target,
+              model: spawnArgs.model,
+            })
+          : undefined;
+        const now = Date.now();
+        const verdict = preLimits
+          ? spawnGateVerdict(preLimits, target, now)
+          : undefined;
+        if (preLimits && verdict?.kind === 'blocked' && !spawnArgs.force) {
+          logger.info('[MCP] ptah_agent_spawn refused at limit', 'CodeExecutionMCP', {
+            cli: verdict.limit.row.cli,
+            ptahCliId: verdict.limit.row.ptahCliId,
+            reason: verdict.block.kind,
+          });
+          return toolErrorResponse(
+            request,
+            `Error: ${formatSpawnRefusal(preLimits, verdict, now)}`,
+          );
+        }
+        const forced = verdict?.kind === 'blocked' && spawnArgs.force === true;
+
         let result: Awaited<ReturnType<PtahAPI['agent']['spawn']>>;
         try {
           result = await ptahAPI.agent.spawn({
@@ -1189,9 +1228,9 @@ async function handleIndividualTool(
           }
           // The lane the request named, so a failed spawn shows the same
           // `Limit state` a successful spawn on that lane would (design §5.2).
-          const limits = await lookupAgentLimits(ptahAPI);
+          const limits = target ? preLimits : await lookupAgentLimits(ptahAPI);
           const limitBlock = limits
-            ? `\n\n${formatSpawnLimitBlock(limits, spawnRequestTarget(spawnArgs), true)}`
+            ? `\n\n${formatSpawnLimitBlock(limits, target, true, undefined, { forced })}`
             : '';
           if (error instanceof AgentRoleError) {
             return toolErrorResponse(
@@ -1213,12 +1252,15 @@ async function handleIndividualTool(
           role: result.role,
         });
 
-        const limits = await lookupAgentLimits(ptahAPI);
+        const limits = target ? preLimits : await lookupAgentLimits(ptahAPI);
         return await createToolSuccessResponse(
           request,
           formatAgentSpawn(
             result,
-            { modelTier: ptahCliId ? (modelTier ?? 'sonnet') : undefined },
+            {
+              modelTier: ptahCliId ? (modelTier ?? 'sonnet') : undefined,
+              forced,
+            },
             limits,
           ),
           deps,

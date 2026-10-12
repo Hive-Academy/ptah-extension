@@ -1,14 +1,20 @@
 ---
 id: TASK_2026_540_0940
-status: in_review
+status: done
 type: FEATURE
-title: Apply the TASK_2026_492 navigation sets - move configuration surfaces to one global menu
+title: >-
+  Apply the TASK_2026_492 navigation sets - move configuration surfaces to one
+  global menu
 depends_on:
   - TASK_2026_492_0bcc
   - TASK_2026_524_1125
-created: "2026-09-23T16:22:26.310Z"
-updated: "2026-09-23T16:22:26.310Z"
-description: "Build Revision 5 step 2 - move Thoth, Setup hub, Marketplace and Settings out of the Electron tab row into one global configuration menu, un-partition their view state, and apply the code-workspace navigation set. Spaces stay a later task."
+created: '2026-09-23T16:22:26.310Z'
+updated: '2026-10-10T18:17:30.877Z'
+description: >-
+  Build Revision 5 step 2 - move Thoth, Setup hub, Marketplace and Settings out
+  of the Electron tab row into one global configuration menu, un-partition their
+  view state, and apply the code-workspace navigation set. Spaces stay a later
+  task.
 estimate: M
 labels:
   - shell-navigation

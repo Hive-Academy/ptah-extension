@@ -27,6 +27,10 @@ export function makeWorkspace(settings: DrainSettings): IWorkspaceProvider {
   return {
     getConfiguration: <T>(_section: string, key: string, fallback?: T) =>
       key in settings ? (settings[key] as T) : (fallback as T),
+    // B-P: the synthesis service (which some specs hand this workspace to as
+    // well) subscribes to `skillSynthesis.enabled`; a plain `jest.fn()` stands
+    // in for the `IDisposable` it returns.
+    onDidChangeConfiguration: jest.fn(),
   } as unknown as IWorkspaceProvider;
 }
 

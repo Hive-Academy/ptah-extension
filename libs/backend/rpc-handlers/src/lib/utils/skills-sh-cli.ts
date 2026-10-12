@@ -106,6 +106,7 @@ export function runSkillsCli(
     const child = crossSpawn('npx', ['skills', ...args], {
       cwd: cwd || undefined,
       detached: process.platform !== 'win32',
+      windowsHide: true,
       env: {
         ...process.env,
         FORCE_COLOR: '0',

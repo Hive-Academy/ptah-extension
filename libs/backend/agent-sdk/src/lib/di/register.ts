@@ -103,14 +103,30 @@ import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SessionBudgetConfigProvider } from '../helpers/session-budget/session-budget-config.provider';
 import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff-builder';
+import {
+  SESSION_SUCCESSOR_HOST,
+  SessionHandoverCoordinator,
+} from '../helpers/session-handoff/session-handover-coordinator.service';
 import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
-import { SessionBudgetService } from '../helpers/session-budget/session-budget.service';
+import {
+  SessionBudgetService,
+  type SessionBudgetSessionControl,
+} from '../helpers/session-budget/session-budget.service';
 import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-advisor';
+import { MainThreadNoticeQueue } from '../helpers/main-thread-notice-queue';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import {
+  MODEL_DISPATCH_PROVENANCE_TAP,
+  type ModelDispatchProvenanceTap,
+} from '../curator-llm-adapter/model-dispatch-provenance';
 import { SDK_TOKENS } from './tokens';
+
+const noOpModelDispatchProvenanceTap: ModelDispatchProvenanceTap = {
+  onModelDispatched: () => undefined,
+};
 
 /**
  * Register all agent-sdk services in DI container
@@ -134,6 +150,12 @@ export function registerSdkServices(
   logger: Logger,
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
+  // Product hosts do not consume model-dispatch provenance. Benchmark record
+  // mode replaces this default with its collector after the container boots.
+  container.registerInstance(
+    MODEL_DISPATCH_PROVENANCE_TAP,
+    noOpModelDispatchProvenanceTap,
+  );
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
@@ -250,6 +272,11 @@ export function registerSdkServices(
     { useClass: PostToolUseCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  // One shared queue: producers post host notices and the PostToolUse hook
+  // handler drains them. Registered first so the handler never gets an
+  // auto-constructed private instance.
+  container.registerSingleton(MainThreadNoticeQueue);
 
   container.register(
     SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
@@ -462,12 +489,16 @@ export function registerSdkServices(
   // monitor, and the monitor needs the dispatcher, which injects the manager.
   // The dispatcher is resolved on first use, after the manager exists, so
   // constructing the manager does not recurse.
+  // The handoff goes to the main-thread notice queue, not into the parent's
+  // input stream: the stopped subagent's own `Agent` tool result is the next
+  // main-thread PostToolUse, which drains the queue into its context.
   container.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, {
     useFactory: instanceCachingFactory((c) => {
       const dispatcher = () =>
         c.resolve<SubagentMessageDispatcher>(
           SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
         );
+      const notices = c.resolve(MainThreadNoticeQueue);
       return new SubagentBudgetMonitor(
         c.resolve<Logger>(TOKENS.LOGGER),
         c.resolve<CompactionConfigProvider>(
@@ -476,8 +507,10 @@ export function registerSdkServices(
         {
           stopSubagent: (sessionId, taskId) =>
             dispatcher().stopSubagent(sessionId, taskId),
-          pushParentMessage: (sessionId, content) =>
-            dispatcher().pushParentMessage(sessionId, content),
+          pushParentMessage: (sessionId, content) => {
+            notices.post(sessionId, content);
+            return Promise.resolve();
+          },
         },
         c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
       );
@@ -737,17 +770,73 @@ export function registerSdkServices(
   // injects the service.
   container.registerSingleton(SessionBudgetConfigProvider);
   container.registerSingleton(SessionHandoffBuilder);
+  container.register(SessionHandoverCoordinator, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new SessionHandoverCoordinator(
+          c.resolve(SessionHandoffBuilder),
+          c.resolve(SessionHandoffWriter),
+          // Resolved on first use: the reader pulls in the model resolver,
+          // which a host may register after the spawner that injects this.
+          {
+            readHistoryForCuration: (...args) =>
+              c
+                .resolve<SessionHistoryReaderService>(
+                  SDK_TOKENS.SDK_SESSION_HISTORY_READER,
+                )
+                .readHistoryForCuration(...args),
+          },
+          () =>
+            c.isRegistered(SESSION_SUCCESSOR_HOST, true)
+              ? c.resolve(SESSION_SUCCESSOR_HOST)
+              : null,
+          c.resolve<Logger>(TOKENS.LOGGER),
+        ),
+    ),
+  });
   container.registerSingleton(SessionRotationAdvisor);
   container.register(SessionHandoffWriter, {
     useFactory: instanceCachingFactory(
       (c) => new SessionHandoffWriter(c.resolve<Logger>(TOKENS.LOGGER)),
     ),
   });
-  container.register(
-    SDK_TOKENS.SDK_SESSION_BUDGET,
-    { useClass: SessionBudgetService },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // The lifecycle manager reads the budget at turn-end and the budget applies
+  // compact windows through lifecycle. Resolve the latter only when budget work
+  // needs it, matching the lazy factory used for other reciprocal SDK services.
+  container.register(SDK_TOKENS.SDK_SESSION_BUDGET, {
+    useFactory: instanceCachingFactory((c) => {
+      const lifecycle: SessionBudgetSessionControl = {
+        applySessionAutoCompactWindow: (...args) =>
+          c
+            .resolve<SessionLifecycleManager>(
+              SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+            )
+            .applySessionAutoCompactWindow(...args),
+        getSessionWorkspace: (...args) =>
+          c
+            .resolve<SessionLifecycleManager>(
+              SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+            )
+            .getSessionWorkspace(...args),
+        find: (...args) =>
+          c
+            .resolve<SessionLifecycleManager>(
+              SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+            )
+            .find(...args),
+      };
+      return new SessionBudgetService(
+        c.resolve<Logger>(TOKENS.LOGGER),
+        c.resolve(SessionBudgetConfigProvider),
+        c.resolve(SDK_TOKENS.SDK_SESSION_STATS_OWNER),
+        lifecycle,
+        c.resolve(SessionHandoffBuilder),
+        c.resolve(SessionHandoffWriter),
+        c.resolve(SessionRotationAdvisor),
+        c.resolve(MainThreadNoticeQueue),
+      );
+    }),
+  });
 
   container.register(
     SDK_TOKENS.SDK_AGENT_ADAPTER,

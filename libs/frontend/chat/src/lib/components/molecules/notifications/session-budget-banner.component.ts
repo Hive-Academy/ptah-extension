@@ -2,33 +2,43 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  effect,
-  inject,
   input,
   output,
   signal,
-  untracked,
 } from '@angular/core';
 import type {
   SessionBudgetHandoffReadStatus,
   SessionBudgetState,
-  SessionBudgetWindowReason,
+  SessionHandoverState,
 } from '@ptah-extension/shared';
 import {
   ArrowRightLeft,
-  Gauge,
   LucideAngularModule,
   OctagonAlert,
   RefreshCw,
   type LucideIconData,
 } from 'lucide-angular';
-import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
 import type { SessionBudgetUsageSample } from '../../../services/session-budget-actions.service';
+import {
+  budgetAmount,
+  displayBudgetStage,
+  formatPercent,
+  formatTokens,
+  formatUsd,
+  isCostMeasure,
+  waitingLine,
+} from './session-budget-format';
 
 /** Stages that show a banner. `unknown` and `normal` show none. */
-type BannerStage = 'rotation' | 'tighten' | 'handoff' | 'limit';
+type BannerStage =
+  | 'handoff'
+  | 'limit'
+  | 'agent-request'
+  | 'handover-waiting'
+  | 'handover-progress'
+  | 'handover-failed';
 
-/** Meter and border tone. Tighten warns; handoff and the limit are errors. */
+/** Meter and border tone. */
 type BannerTone = 'warning' | 'error' | 'info';
 
 interface BodyPart {
@@ -36,12 +46,13 @@ interface BodyPart {
   readonly text: string;
 }
 
-interface BudgetStats {
-  readonly usedLabel: string;
-  readonly used: string;
-  readonly limit: string;
-  readonly percent: string;
-  readonly compactions: string;
+/** One figure of the stats row. */
+interface BudgetStat {
+  readonly label: string;
+  readonly value: string;
+  readonly testId: string;
+  /** A literal Tailwind min-width class. */
+  readonly width: string;
 }
 
 interface BudgetMeter {
@@ -55,21 +66,6 @@ interface BudgetSpark {
   readonly label: string;
 }
 
-/**
- * Why the tighten step did not lower auto-compact, in the user's words.
- * `restore-failed` comes with `applied: true` and never reaches this lookup.
- */
-const WINDOW_REASON_TEXT: Readonly<
-  Record<
-    Exclude<SessionBudgetWindowReason, 'disabled' | 'restore-failed'>,
-    string
-  >
-> = {
-  'env-override': 'CLAUDE_CODE_AUTO_COMPACT_WINDOW is set',
-  'already-lower': 'it is already at or below <target>',
-  'not-honoured': 'this model ignored the lower auto-compact setting',
-  failed: 'the change was rejected',
-};
 
 /** Why the handoff was built without the transcript, in the user's words. */
 const READ_STATUS_TEXT: Readonly<
@@ -85,6 +81,12 @@ const READ_STATUS_TEXT: Readonly<
 const COMPACT_NOTE =
   "/compact frees context but does not reset this session's budget";
 
+/** While a handover waits or is only requested, sends still reach the source. */
+const SENDS_STAY = 'Messages you send now go to this session.';
+
+const CONTINUE_OR_KEEP =
+  'Continue in a new session that starts from the handoff, or keep working here.';
+
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
@@ -96,10 +98,13 @@ const FOCUS =
  * session. The handoff preview is plain text in a `<pre>` (text
  * interpolation, never HTML).
  *
- * Stages: tighten and handoff are `role="status"`, limit is `role="alert"`.
- * A dismissed tighten or handoff stage stays hidden until a higher stage.
- * There is no per-turn usage series on `SessionBudgetState`, so the card
- * shows a meter and the current figures only.
+ * The notification starts at the handoff stage (the higher of the
+ * authoritative and the live stage, so it also shows while a turn streams)
+ * and may transition into handover progress or failure. A dismissed handoff
+ * stays hidden until the limit stage escalates it. A pending handover (an
+ * agent's request, a parked one, or one waiting for running work) is always
+ * shown, whatever the budget stage. Nothing here starts a handover on its own
+ * (D22): every handover begins with a button the user pressed. No timers.
  */
 @Component({
   selector: 'ptah-session-budget-banner',
@@ -127,11 +132,22 @@ const FOCUS =
             data-testid="session-budget-icon"
           />
           <div class="min-w-0 flex-1">
-            <div
-              class="font-semibold leading-5"
-              data-testid="session-budget-title"
-            >
-              {{ title() }}
+            <div class="flex flex-wrap items-center gap-x-1.5">
+              <div
+                class="font-semibold leading-5"
+                data-testid="session-budget-title"
+              >
+                {{ title() }}
+              </div>
+              @if (estimate()) {
+                <span
+                  class="badge badge-ghost badge-xs"
+                  title="Estimated from the running turn; the figures are from the last completed turn"
+                  data-testid="session-budget-estimate"
+                >
+                  estimate
+                </span>
+              }
             </div>
             @if (meter(); as meter) {
               <progress
@@ -175,58 +191,21 @@ const FOCUS =
                 aria-label="Session budget"
                 data-testid="session-budget-stats"
               >
-                <div class="min-w-[4.5rem]">
-                  <dt
-                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
-                  >
-                    {{ stats.usedLabel }}
-                  </dt>
-                  <dd
-                    class="font-medium tabular-nums"
-                    data-testid="session-budget-used"
-                  >
-                    {{ stats.used }}
-                  </dd>
-                </div>
-                <div class="min-w-[4.5rem]">
-                  <dt
-                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
-                  >
-                    Budget
-                  </dt>
-                  <dd
-                    class="font-medium tabular-nums"
-                    data-testid="session-budget-limit"
-                  >
-                    {{ stats.limit }}
-                  </dd>
-                </div>
-                <div class="min-w-[3.5rem]">
-                  <dt
-                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
-                  >
-                    Percent
-                  </dt>
-                  <dd
-                    class="font-medium tabular-nums"
-                    data-testid="session-budget-percent"
-                  >
-                    {{ stats.percent }}
-                  </dd>
-                </div>
-                <div class="min-w-[4.5rem]">
-                  <dt
-                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
-                  >
-                    Compactions
-                  </dt>
-                  <dd
-                    class="font-medium tabular-nums"
-                    data-testid="session-budget-compactions"
-                  >
-                    {{ stats.compactions }}
-                  </dd>
-                </div>
+                @for (row of stats; track row.testId) {
+                  <div class="{{ row.width }}">
+                    <dt
+                      class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                    >
+                      {{ row.label }}
+                    </dt>
+                    <dd
+                      class="font-medium tabular-nums"
+                      [attr.data-testid]="row.testId"
+                    >
+                      {{ row.value }}
+                    </dd>
+                  </div>
+                }
               </dl>
             }
           </div>
@@ -263,78 +242,128 @@ const FOCUS =
             {{ readLine }}
           </p>
         }
+        @if (queuedMessageCarried() && current !== 'handover-failed') {
+          <p
+            class="mt-0.5 px-2.5 text-base-content-muted"
+            data-testid="session-budget-queued-carried"
+          >
+            Your queued message will be sent in the new session.
+          </p>
+        }
 
         <div class="flex flex-wrap items-center gap-1 px-2.5 pb-2 pt-1.5">
-          @if (current === 'rotation') {
-            <button
-              type="button"
-              class="btn btn-xs btn-primary {{ focus }}"
-              aria-label="Rotate session: start a new session from a handoff"
-              [disabled]="busy()"
-              (click)="rotate.emit()"
-            >
-              Rotate session
-            </button>
-            <button
-              type="button"
-              class="btn btn-xs btn-outline {{ focus }}"
-              aria-label="Keep this session and hide this suggestion"
-              (click)="keepSession()"
-            >
-              Keep this session
-            </button>
-          } @else if (current === 'tighten') {
-            <button
-              type="button"
-              class="btn btn-xs btn-primary {{ focus }}"
-              aria-label="Compact this session"
-              [disabled]="busy() || compacting()"
-              (click)="compact.emit()"
-            >
-              Compact
-            </button>
-            <button
-              type="button"
-              class="btn btn-xs btn-outline {{ focus }}"
-              aria-label="Dismiss"
-              [disabled]="busy()"
-              (click)="dismiss.emit()"
-            >
-              Dismiss
-            </button>
-            @if (windowApplied()) {
+          @if (current === 'handover-progress') {
+            <span class="px-1 text-base-content-muted" data-testid="session-handover-progress">
+              {{ handoverProgress() }}
+            </span>
+            @if (handoverCancellable()) {
               <button
                 type="button"
                 class="btn btn-xs btn-outline {{ focus }}"
                 [disabled]="busy()"
-                (click)="restoreWindow.emit()"
+                (click)="cancelHandover.emit()"
               >
-                Restore auto-compact
+                Cancel (keep working)
               </button>
             }
-          } @else {
+          } @else if (current === 'handover-failed') {
             <button
               type="button"
               class="btn btn-xs btn-primary {{ focus }}"
-              [attr.aria-label]="
-                current === 'limit'
-                  ? 'Continue in new session'
-                  : 'Start new session from handoff'
-              "
               [disabled]="busy()"
               (click)="continueInNewSession.emit()"
             >
-              New session
+              Retry
             </button>
-            @if (current === 'handoff') {
+            @if (handover()?.lostInputTexts?.length) {
               <button
                 type="button"
                 class="btn btn-xs btn-outline {{ focus }}"
-                aria-label="Compact this session"
-                [disabled]="busy() || compacting()"
-                (click)="compact.emit()"
+                [disabled]="busy()"
+                (click)="putLostInputsBack()"
               >
-                Compact
+                Put back in composer
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-xs btn-outline {{ focus }}"
+              [disabled]="busy()"
+              (click)="cancelHandover.emit()"
+            >
+              Keep working
+            </button>
+          } @else if (current === 'handover-waiting') {
+            <button
+              type="button"
+              class="btn btn-xs btn-primary {{ focus }}"
+              aria-label="Continue in a new session now, without waiting for the running work"
+              [disabled]="busy()"
+              (click)="continueNowAnyway.emit()"
+            >
+              Continue now anyway
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-outline {{ focus }}"
+              aria-label="Cancel the handover and keep working in this session"
+              [disabled]="busy()"
+              (click)="cancelHandover.emit()"
+            >
+              Cancel
+            </button>
+          } @else if (current === 'agent-request') {
+            <button
+              type="button"
+              class="btn btn-xs btn-primary {{ focus }}"
+              aria-label="Approve the agent's request to continue in a new session"
+              [disabled]="busy()"
+              (click)="approveAgentRequest.emit()"
+            >
+              Approve
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-outline {{ focus }}"
+              aria-label="Decline the agent's request and keep working in this session"
+              [disabled]="busy()"
+              (click)="cancelHandover.emit()"
+            >
+              Cancel
+            </button>
+          } @else {
+            @if (turnRunning()) {
+              <button
+                type="button"
+                class="btn btn-xs btn-outline {{ focus }}"
+                [attr.aria-label]="
+                  wrapUpRequested()
+                    ? 'The agent was already asked to wrap up at this stage'
+                    : 'Ask the agent to wrap up its current turn'
+                "
+                [disabled]="busy() || wrapUpRequested()"
+                (click)="requestWrapUp.emit()"
+              >
+                {{ wrapUpRequested() ? 'Wrap-up requested' : 'Ask agent to wrap up' }}
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-xs btn-primary {{ focus }}"
+              [attr.aria-label]="current === 'limit' ? 'Continue in new session' : 'Start new session from handoff'"
+              [disabled]="busy()"
+              (click)="continueInNewSession.emit()"
+            >
+              {{ current === 'limit' ? 'New session' : 'Continue in new session' }}
+            </button>
+            @if (parkedHandover()) {
+              <button
+                type="button"
+                class="btn btn-xs btn-outline {{ focus }}"
+                [disabled]="busy()"
+                (click)="cancelHandover.emit()"
+              >
+                Cancel handover
               </button>
             }
             <button
@@ -346,7 +375,7 @@ const FOCUS =
             >
               {{ previewOpen() ? 'Hide handoff' : 'Preview handoff' }}
             </button>
-            @if (current === 'limit') {
+            @if (budget()?.stage === 'limit') {
               <button
                 type="button"
                 class="btn btn-xs btn-outline {{ focus }}"
@@ -355,7 +384,7 @@ const FOCUS =
               >
                 Allow 20% more
               </button>
-            } @else {
+            } @else if (current === 'handoff' && budget()?.stage === 'handoff' && !parkedHandover()) {
               <button
                 type="button"
                 class="btn btn-xs btn-outline {{ focus }}"
@@ -404,8 +433,11 @@ const FOCUS =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionBudgetBannerComponent {
-  /** The tab's budget state; `null` or a stage below tighten renders nothing. */
+  /** The tab's budget state; only handoff and limit render a notification. */
   readonly budget = input<SessionBudgetState | null>(null);
+
+  /** Coordinator lifecycle companion to the budget snapshot. */
+  readonly handover = input<SessionHandoverState | null>(null);
 
   /** Handoff text from `preview-handoff`; `null` while it loads. */
   readonly preview = input<string | null>(null);
@@ -422,69 +454,154 @@ export class SessionBudgetBannerComponent {
   /** Per-session usage samples. Fewer than two points hides the sparkline. */
   readonly usage = input<readonly SessionBudgetUsageSample[]>([]);
 
-  /** True while this session's compaction is in flight. Disables Compact. */
+  /** True while the backend compacts this session. */
   readonly compacting = input(false);
 
-  /** "Dismiss" (tighten and handoff). */
+  /** True while the agent produces a turn; offers "Ask agent to wrap up". */
+  readonly turnRunning = input(false);
+
+  /**
+   * The live (estimated) stage of the running turn, already limited to a
+   * streaming tab with a budget. The banner shows the higher of it and the
+   * authoritative stage, marked "estimate" when the live stage is higher.
+   */
+  readonly liveStage = input<'handoff' | 'limit' | null>(null);
+
+  /** True once "Ask agent to wrap up" was accepted at this stage in this turn. */
+  readonly wrapUpRequested = input(false);
+
+  /** True while the accepted handover carries the composer's queued message (R5). */
+  readonly queuedMessageCarried = input(false);
+
+  /** Hide the handoff notification until the limit stage escalates it. */
   readonly dismiss = output<void>();
   /** "Allow 20% more" (limit). */
   readonly extend = output<void>();
-  /** "Restore auto-compact" (tighten, only when the window was applied). */
+  /** Retained action channel for the host-side auto-compact policy. */
   readonly restoreWindow = output<void>();
+  /** Ask the parent to compact the current session. */
+  readonly compact = output<void>();
   /** The preview was opened; the parent loads the handoff text. */
   readonly previewRequested = output<void>();
   /** "New session" (handoff and limit). */
   readonly continueInNewSession = output<void>();
-  /** "Rotate session" (rotation advisory). */
+  /** Cancel a pending or failed handover, or decline an agent's request, and keep the source session. */
+  readonly cancelHandover = output<void>();
+  /** "Ask agent to wrap up" while a turn runs at handoff or limit. */
+  readonly requestWrapUp = output<void>();
+  /** "Continue now anyway": start without waiting for the running work. */
+  readonly continueNowAnyway = output<void>();
+  /** "Approve" an agent's request to continue in a new session. */
+  readonly approveAgentRequest = output<void>();
+  /** Restore source inputs which could not be returned after the source ended. */
+  readonly restoreLostInputs = output<readonly string[]>();
+  /** Retained action channel for the footer rotation advisory. */
   readonly rotate = output<void>();
-  /** "Compact" on tighten and handoff. The parent sends `/compact`. */
-  readonly compact = output<void>();
 
   /** Shared focus ring, interpolated into every button class. */
   protected readonly focus = FOCUS;
 
   protected readonly previewOpen = signal(false);
 
-  /** Kept rotation keys live in a root store; this banner is rebuilt on tab switches. */
-  private readonly rotationKeep = inject(SessionRotationKeepService);
-
-  constructor() {
-    // Forget a session's kept keys once its rotation advisory is gone, so a
-    // later crossing shows the banner again.
-    effect(() => {
+  /**
+   * The budget stage to show: the higher of the authoritative stage and the
+   * live estimate (the parent passes the live stage only while the turn runs
+   * and the tab has a budget). `null` without a budget.
+   */
+  private readonly displayStage = computed<SessionBudgetState['stage'] | null>(
+    () => {
       const budget = this.budget();
-      if (!budget || budget.rotation) return;
-      untracked(() => this.rotationKeep.forgetSession(budget.sessionId));
-    });
-  }
+      return budget ? displayBudgetStage(budget.stage, this.liveStage()) : null;
+    },
+  );
+
+  /**
+   * True while the coordinator still accepts a cancel of the running
+   * handover. Of the progress phases only `writing-handoff` is cancellable
+   * (the coordinator's `CANCELLABLE_PHASES`); once the successor starts, a
+   * cancel is refused, so the button is not offered.
+   */
+  protected readonly handoverCancellable = computed(
+    () => this.handover()?.phase === 'writing-handoff',
+  );
+
+  /** True when the shown handoff or limit stage comes from the live estimate. */
+  protected readonly estimate = computed(() => {
+    const stage = this.stage();
+    if (stage !== 'handoff' && stage !== 'limit') return false;
+    const budget = this.budget();
+    return !!budget && this.displayStage() !== budget.stage;
+  });
 
   /** The stage to show, or `null` for none. */
   protected readonly stage = computed<BannerStage | null>(() => {
-    const budget = this.budget();
-    if (!budget) return null;
-    const { stage } = budget;
+    const handover = this.handover();
+    if (handover?.phase === 'failed') return 'handover-failed';
     if (
-      budget.rotation &&
-      stage !== 'handoff' &&
-      stage !== 'limit' &&
-      !this.rotationKeep.isKept(budget.sessionId, budget.rotation.threshold)
+      handover &&
+      ['writing-handoff', 'starting-successor', 'successor-confirmed', 'closing'].includes(handover.phase)
     ) {
-      return 'rotation';
+      return 'handover-progress';
     }
-    if (stage !== 'tighten' && stage !== 'handoff' && stage !== 'limit') {
+    // A pending handover is shown whatever the budget says: a compact, an
+    // extension or a dismissal must not leave it waiting unseen while the
+    // coordinator still holds (or is about to hold) the source (627 6F S2).
+    if (handover?.phase === 'waiting-for-turn-end') return 'handover-waiting';
+    if (this.agentRequest()) return 'agent-request';
+    const display = this.displayStage();
+    if (this.parkedHandover()) {
+      return display === 'limit' ? 'limit' : 'handoff';
+    }
+    if (display !== 'handoff' && display !== 'limit') return null;
+    if (display === 'handoff' && this.budget()?.dismissedStage === 'handoff') {
       return null;
     }
-    if (stage !== 'limit' && budget.dismissedStage === stage) return null;
-    return stage;
+    return display;
   });
 
-  /** Tighten warns; handoff and the limit are errors. Rotation stays info. */
+  /**
+   * An agent's request to continue in a new session (D23), parked until the
+   * user approves (the normal begin, work gate included) or cancels.
+   */
+  private readonly agentRequest = computed(() => {
+    const handover = this.handover();
+    return (
+      handover?.phase === 'awaiting-confirmation' &&
+      handover.requestedBy === 'agent'
+    );
+  });
+
+  /**
+   * A handover the coordinator parked for the user's click (the blocking
+   * limit, P9). "New session" confirms it; "Cancel handover" releases it.
+   */
+  protected readonly parkedHandover = computed(() => {
+    const handover = this.handover();
+    return (
+      handover?.phase === 'awaiting-confirmation' &&
+      handover.requestedBy !== 'agent'
+    );
+  });
+
+  /**
+   * The work a waiting handover names. Only while the phase is
+   * `waiting-for-turn-end`: a cancelled or failed state can carry a stale
+   * `waitingFor` (627-L2), and only that phase shows this line.
+   */
+  private readonly waitingCopy = computed(() =>
+    waitingLine(this.handover()?.waitingFor, this.turnRunning()),
+  );
+
   protected readonly tone = computed<BannerTone>(() => {
     switch (this.stage()) {
-      case 'tighten':
+      case 'handover-progress':
+      case 'handover-waiting':
+        return 'info';
+      case 'agent-request':
         return 'warning';
       case 'handoff':
       case 'limit':
+      case 'handover-failed':
         return 'error';
       default:
         return 'info';
@@ -493,39 +610,51 @@ export class SessionBudgetBannerComponent {
 
   protected readonly stageIcon = computed<LucideIconData>(() => {
     switch (this.stage()) {
-      case 'tighten':
-        return Gauge;
       case 'handoff':
+      case 'agent-request':
         return ArrowRightLeft;
       case 'limit':
+      case 'handover-failed':
         return OctagonAlert;
       default:
         return RefreshCw;
     }
   });
 
-  protected readonly windowApplied = computed(
-    () => this.budget()?.window?.applied === true,
-  );
-
   /** Current figures. No usage series exists on the budget state. */
-  protected readonly stats = computed<BudgetStats | null>(() => {
+  protected readonly stats = computed<readonly BudgetStat[] | null>(() => {
     const budget = this.budget();
     if (!budget || !this.stage()) return null;
-    const cost = this.isCost(budget);
+    const cost = isCostMeasure(budget);
     const prefix = budget.lowerBound ? '≥ ' : '';
-    return {
-      usedLabel: cost
-        ? 'Cost'
-        : budget.measure === 'weighted-fallback'
-          ? 'Used (est.)'
-          : 'Used',
-      used: `${prefix}${cost ? this.usd(budget.used) : this.tokens(budget.used)}`,
-      limit: cost ? this.usd(budget.limit) : this.tokens(budget.limit),
-      percent:
-        budget.percent === null ? '—' : this.formatPercent(budget.percent),
-      compactions: String(budget.compactions),
-    };
+    const wide = 'min-w-[4.5rem]';
+    return [
+      {
+        label: this.usedLabel(budget),
+        value: `${prefix}${cost ? formatUsd(budget.used) : formatTokens(budget.used)}`,
+        testId: 'session-budget-used',
+        width: wide,
+      },
+      {
+        label: 'Budget',
+        value: cost ? formatUsd(budget.limit) : formatTokens(budget.limit),
+        testId: 'session-budget-limit',
+        width: wide,
+      },
+      {
+        label: 'Percent',
+        value:
+          budget.percent === null ? '—' : formatPercent(budget.percent),
+        testId: 'session-budget-percent',
+        width: 'min-w-[3.5rem]',
+      },
+      {
+        label: 'Compactions',
+        value: String(budget.compactions),
+        testId: 'session-budget-compactions',
+        width: wide,
+      },
+    ];
   });
 
   /** Inline sparkline. Hidden until two samples exist. */
@@ -555,7 +684,7 @@ export class SessionBudgetBannerComponent {
     const budget = this.budget();
     if (!budget || !this.stage() || budget.percent === null) return null;
     const value = Math.max(0, Math.min(100, budget.percent));
-    const shown = this.formatPercent(budget.percent);
+    const shown = formatPercent(budget.percent);
     return {
       value,
       label:
@@ -567,28 +696,43 @@ export class SessionBudgetBannerComponent {
 
   protected readonly title = computed(() => {
     switch (this.stage()) {
-      case 'rotation':
-        return 'This session is getting large';
-      case 'tighten':
-        return "Half of this session's budget is used";
       case 'handoff':
-        return 'Time to hand off this session';
+        return 'This session is near its budget';
+      case 'agent-request':
+        return 'The agent asks to continue in a new session';
+      case 'handover-waiting':
+        return 'Waiting to continue in a new session';
       case 'limit':
         return 'This session reached its budget';
+      case 'handover-progress':
+        return 'Continuing in a new session…';
+      case 'handover-failed':
+        return 'Could not continue in a new session';
       default:
         return '';
     }
   });
 
   protected readonly body = computed(() => {
-    const budget = this.budget();
     const stage = this.stage();
-    if (!budget || !stage) return '';
-    if (stage === 'rotation' && budget.rotation) {
-      return `The context is about ${this.tokens(budget.rotation.contextTokens)} tokens. A new session that starts from a handoff keeps the goal and decisions and answers faster. Rotate to start a new session from the handoff, or keep this one.`;
+    if (stage === 'handover-progress') return this.handoverProgress();
+    if (stage === 'handover-failed') {
+      return this.handover()?.error ?? 'The handover did not complete. Your queued message remains in this composer.';
     }
-    if (stage === 'tighten') return this.tightenBody(budget);
-    if (stage === 'handoff') return this.handoffBody(budget);
+    if (stage === 'handover-waiting') {
+      return `${this.waitingCopy()} ${SENDS_STAY}`;
+    }
+    if (stage === 'agent-request') {
+      return `Approve to continue in a new session that starts from the handoff, or cancel to keep working here. ${SENDS_STAY}`;
+    }
+    const budget = this.budget();
+    if (stage === 'handoff') {
+      if (!budget) return CONTINUE_OR_KEEP;
+      return this.estimate()
+        ? `The running turn is estimated to have reached the handoff point; the figures are from the last completed turn. ${CONTINUE_OR_KEEP}`
+        : `This session has used ${budgetAmount(budget)}. ${CONTINUE_OR_KEEP}`;
+    }
+    if (!budget || !stage) return '';
     return this.limitBody(budget);
   });
 
@@ -623,99 +767,62 @@ export class SessionBudgetBannerComponent {
     return READ_STATUS_TEXT[readStatus];
   });
 
-  protected keepSession(): void {
-    const budget = this.budget();
-    if (!budget?.rotation) return;
-    this.rotationKeep.keep(budget.sessionId, budget.rotation.threshold);
-  }
-
   protected togglePreview(): void {
     const open = !this.previewOpen();
     this.previewOpen.set(open);
     if (open) this.previewRequested.emit();
   }
 
-  private tightenBody(budget: SessionBudgetState): string {
-    const window = budget.window;
-    if (!window || window.reason === 'disabled') {
-      return `Run /compact or start a fresh session for unrelated work to slow the spend. ${COMPACT_NOTE}.`;
+  protected readonly handoverProgress = computed(() => {
+    switch (this.handover()?.phase) {
+      case 'writing-handoff':
+        return 'Writing the handoff…';
+      case 'starting-successor':
+        return 'Starting the new session…';
+      case 'successor-confirmed':
+        return 'Switching to the successor session…';
+      case 'closing':
+        return 'Finishing the handover…';
+      default:
+        return 'Preparing the handover…';
     }
-    const target = this.tokens(window.target);
-    if (window.applied && window.reason === 'restore-failed') {
-      return `Ptah could not restore auto-compact; it stays at ${target} tokens for this session. Try Restore auto-compact again.`;
-    }
-    if (window.applied) {
-      return `Ptah lowered auto-compact to ${target} tokens for this session. If the context is already above that, the next request compacts first. More compactions bring the handoff step sooner.`;
-    }
-    // `restore-failed` is only sent with `applied: true` (handled above).
-    const reasonKey =
-      window.reason === undefined || window.reason === 'restore-failed'
-        ? 'failed'
-        : window.reason;
-    const reason = WINDOW_REASON_TEXT[reasonKey].replace('<target>', target);
-    return `Ptah could not lower auto-compact here (${reason}). Use /compact or start a fresh session to slow the spend. ${COMPACT_NOTE}.`;
-  }
+  });
 
-  private handoffBody(budget: SessionBudgetState): string {
-    const parts: string[] = [];
-    if (budget.compactions > 0) {
-      parts.push(
-        `This session has compacted ${budget.compactions} ${budget.compactions === 1 ? 'time' : 'times'}, and each compaction loses detail.`,
-      );
-    }
-    if (budget.handoff && !budget.handoff.writeError) {
-      parts.push(
-        'Ptah saved a handoff with the goal, decisions, changed files, open items and next step.',
-      );
-    }
-    if (parts.length === 0) {
-      parts.push(
-        `This session is using ${this.tokens(budget.used)} of its ${this.tokens(budget.limit)} token budget.`,
-      );
-    }
-    parts.push('At 100% new messages in this session pause.');
-    return parts.join(' ');
+  protected putLostInputsBack(): void {
+    const texts = this.handover()?.lostInputTexts;
+    if (texts?.length) this.restoreLostInputs.emit(texts);
   }
 
   private limitBody(budget: SessionBudgetState): string {
-    const pause = budget.blocked
-      ? `New messages here are paused after the current turn (one queued message may still run). /clear still works. ${COMPACT_NOTE}; at the limit only a bare /compact is allowed.`
-      : 'New messages are not paused (blocking is off in settings).';
+    const pause = this.pauseLine(budget);
     const handoff = budget.handoff;
     if (!handoff) return pause;
     const context = this.contextTokens();
     const instead =
       context !== null && context > 0
-        ? ` instead of ${this.tokens(context)}`
+        ? ` instead of ${formatTokens(context)}`
         : '';
-    const handoffLine = `Continue in a new session that starts with only the handoff (about ${this.tokens(Math.ceil(handoff.chars / 4))} tokens${instead}).`;
-    return budget.blocked
+    const handoffLine = `Continue in a new session that starts with only the handoff (about ${formatTokens(Math.ceil(handoff.chars / 4))} tokens${instead}).`;
+    return budget.blocked || this.estimate()
       ? `${pause} ${handoffLine}`
       : `${handoffLine} ${pause}`;
   }
 
-  private isCost(budget: SessionBudgetState): boolean {
-    return budget.measure === 'cost' || budget.measure === 'cost-lower-bound';
+  /**
+   * Whether sends are paused. A live estimate comes before the authoritative
+   * stage (and so `blocked`) catches up: it states the estimate instead.
+   */
+  private pauseLine(budget: SessionBudgetState): string {
+    if (this.estimate()) {
+      return "The running turn is estimated to have reached this session's budget; the figures are from the last completed turn.";
+    }
+    return budget.blocked
+      ? `Limit reached — new turns are held until you continue (one queued message may still run). /clear still works. ${COMPACT_NOTE}; at the limit only a bare /compact is allowed.`
+      : 'New messages are not paused (blocking is off in settings).';
   }
 
-  /** `50%`, `100.2%`. */
-  private formatPercent(percent: number): string {
-    const rounded = Math.round(percent * 10) / 10;
-    return Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
-  }
-
-  /** Same scale as the stats chip: `14.1M`, `950.0k`, `812`. */
-  private tokens(count: number | null): string {
-    if (count === null) return '—';
-    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-    if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
-    return String(count);
-  }
-
-  /** Same scale as the stats chip: `$8.96`, `$0.0042`. */
-  private usd(amount: number | null): string {
-    if (amount === null) return '—';
-    if (Number.isInteger(amount)) return `$${amount}`;
-    return amount < 0.01 ? `$${amount.toFixed(4)}` : `$${amount.toFixed(2)}`;
+  private usedLabel(budget: SessionBudgetState): string {
+    if (isCostMeasure(budget)) return 'Cost';
+    return budget.measure === 'weighted-fallback' ? 'Used (est.)' : 'Used';
   }
 }

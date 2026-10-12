@@ -1114,7 +1114,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
    */
   handleSlashTriggered(): void {
-    console.log('ChatInputComponent.handleSlashTriggered called');
+    // Intentionally empty: handleQueryChanged already holds the latest query.
   }
 
   /**
@@ -1502,6 +1502,20 @@ export class ChatInputComponent implements OnInit, OnDestroy {
 
     this._currentMessage.set(content);
     // `field-sizing: content` sizes the box to the restored value.
+    this.textareaRef()?.nativeElement.focus();
+  }
+
+  /**
+   * Put a handover draft (the user's own composer text, returned on Cancel or
+   * failure) back in the composer. Unlike {@link restoreContentToInput} it
+   * never drops the draft: an empty composer gets the text, a non-empty one
+   * keeps its text and gets the draft after a blank line. It never sends and
+   * never touches the tab's queued content.
+   */
+  restoreDraftToInput(text: string): void {
+    if (!text.trim()) return;
+    const current = this._currentMessage();
+    this._currentMessage.set(current.trim() ? `${current}\n\n${text}` : text);
     this.textareaRef()?.nativeElement.focus();
   }
 

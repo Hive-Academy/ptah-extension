@@ -1,0 +1,14 @@
+# Batch 4b cross-side review — REVISE
+
+## Defects
+
+1. **A settled URL can erase the last restorable route.** `libs/frontend/core/src/lib/routing/surface-route-persistence.ts:49-65` writes every `urlAfterRedirects` without checking the shared parser. For example, after `/settings` has been saved, navigating to `/settings?time=12:30` writes a URL with a colon in the query. `parseWebviewRouteState` rejects it (`libs/shared/src/lib/types/webview-route-state.ts:126-159`), so reload loses the last valid route and falls back to the host/default surface. The same happens for a fragment containing `:`, an auxiliary outlet URL such as `/chat(aux:help)`, or a URL longer than 2048 characters. Because `setState` merges by replacing `ptahRoute`, the earlier good value is lost. Either persist only parser-accepted records or define a contract that accepts every Router-serialized URL the app can settle on. Add a regression that navigates from a valid saved route to a rejected one and verifies restore still has a valid route.
+
+2. **An overlong host seed makes even an ordinary route unrestorable.** `libs/frontend/core/src/lib/routing/surface-route-persistence.ts:36-65` stores the raw `start(seed)` argument on each write, but the shared parser caps `seed` at 64 characters (`libs/shared/src/lib/types/webview-route-state.ts:172-176`). If a host supplies an `initialView` longer than 64 characters, `start(seed)` can write `{ route: '/settings', seed: <that value> }`; the entire record is rejected on reload. A later valid navigation also replaces any previously valid record with another rejected one. Validate the complete record before writing, or normalize the seed under an explicit contract that preserves D5 precedence. Cover this case in the persistence spec.
+
+## Notes
+
+- `navigateToUrl` catches parse and navigation errors and rejects non-surface first segments before navigation. Its shared result mapper matches `navigateToSurface`; the `UrlSerializer` deviation is sound because `Router.parseUrl` substitutes `/` on parse errors. Extracting `firstPrimaryPath` preserves `surfaceOf` behavior.
+- Persistence starts one `NavigationEnd` subscription, unsubscribes on destroy, keeps the first seed, checks connectivity, uses `urlAfterRedirects`, and catches synchronous `setState` failures. These behaviors match section 6 and the 4b test plan.
+- The Thoth test route now redirects `/thoth` to `/thoth/memory`, as specified. A repeat `navigateToSurface('thoth')` from `/thoth/memory` returns `navigated` rather than `already-there`; inspected callers use the landed result or ignore it, and no inspected assertion requires `already-there` specifically for Thoth. This merits a regression when the production redirect arrives in 4e.
+- No tests, lint, typecheck, Nx, or build commands were run, as requested. Review is based on source and diff inspection.

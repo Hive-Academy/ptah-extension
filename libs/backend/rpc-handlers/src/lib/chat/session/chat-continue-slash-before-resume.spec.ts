@@ -579,6 +579,11 @@ describe('Apps MCP tool profile threading', () => {
           resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
         } as never,
         { streamEventsToWebview: jest.fn() } as never,
+        {
+          resolveProviderProfileForWorkspace: jest
+            .fn()
+            .mockResolvedValue(undefined),
+        } as never,
       );
       const h = makeHarness(NO_RECORD);
       h.routeFollowUpSlashCommand.mockImplementation(

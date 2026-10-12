@@ -27,6 +27,7 @@ import type {
   ResultStatsPayload,
   SessionBudgetState,
   SessionStatsEntry,
+  SessionStatsLivePayload,
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
@@ -61,6 +62,7 @@ function buildHarness(options: {
 
   const sdkAdapter = {
     setResultStatsCallback: jest.fn(),
+    setLiveStatsCallback: jest.fn(),
     setSessionIdResolvedCallback: jest.fn((cb: SessionIdResolvedCallback) => {
       captured = cb;
     }),
@@ -241,6 +243,7 @@ describe('wireSdkCallbacks — re-persist only what actually changed', () => {
         TOKENS.AGENT_ADAPTER,
         {
           setResultStatsCallback: jest.fn(),
+          setLiveStatsCallback: jest.fn(),
           setSessionIdResolvedCallback: jest.fn(
             (cb: SessionIdResolvedCallback) => {
               captured = cb;
@@ -452,6 +455,7 @@ describe('wireSdkCallbacks — the remap is unscoped by construction', () => {
         TOKENS.AGENT_ADAPTER,
         {
           setResultStatsCallback: jest.fn(),
+          setLiveStatsCallback: jest.fn(),
           setSessionIdResolvedCallback: jest.fn(
             (cb: SessionIdResolvedCallback) => {
               captured = cb;
@@ -514,6 +518,7 @@ describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)'
           onResult = cb;
         },
       ),
+      setLiveStatsCallback: jest.fn(),
       setSessionIdResolvedCallback: jest.fn(),
       setCompactionStartCallback: jest.fn(),
     };
@@ -621,6 +626,106 @@ describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)'
 });
 
 /**
+ * TASK_2026_626 — the throttled in-turn estimate rides `session:stats-live`,
+ * fire-and-forget: no retry (a retried estimate is stale) and no throw.
+ */
+describe('wireSdkCallbacks — live session stats broadcast (TASK_2026_626)', () => {
+  function wireLiveStats(broadcastMessage: jest.Mock) {
+    let onLive: ((payload: SessionStatsLivePayload) => void) | undefined;
+    const logger = createMockLogger();
+    const sdkAdapter = {
+      setResultStatsCallback: jest.fn(),
+      setLiveStatsCallback: jest.fn(
+        (cb: (payload: SessionStatsLivePayload) => void) => {
+          onLive = cb;
+        },
+      ),
+      setSessionIdResolvedCallback: jest.fn(),
+      setCompactionStartCallback: jest.fn(),
+    };
+    const registry = new Map<symbol, unknown>([
+      [TOKENS.AGENT_ADAPTER, sdkAdapter],
+      [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
+    ]);
+    wireSdkCallbacks(
+      {
+        isRegistered: (token: symbol) => registry.has(token),
+        resolve: (token: symbol) => registry.get(token),
+      } as unknown as DependencyContainer,
+      {
+        logger: logger as unknown as Logger,
+        platform: 'electron',
+      },
+    );
+    if (!onLive) throw new Error('setLiveStatsCallback was never wired');
+    return { onLive, logger, sdkAdapter };
+  }
+
+  const livePayload: SessionStatsLivePayload = {
+    sessionId: REAL_SESSION_ID as SessionStatsLivePayload['sessionId'],
+    sessionStats: {
+      sessionId: REAL_SESSION_ID,
+      model: 'm',
+      totalCost: 1.25,
+      knownCost: 1.25,
+      tokens: { input: 10, output: 20, cacheRead: 30, cacheCreation: 40 },
+      tokenCount: 100,
+      messageCount: 2,
+      agentSessionCount: 1,
+      status: 'ok',
+      scope: 'session',
+      revision: 3,
+      provisional: true,
+    },
+    context: { model: 'm', contextTokens: 12_345 },
+  };
+
+  const flushMicrotasks = () =>
+    new Promise<void>((resolve) => setImmediate(resolve));
+
+  it('broadcasts session:stats-live exactly once with the payload unchanged', async () => {
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    const { onLive, sdkAdapter } = wireLiveStats(broadcastMessage);
+
+    onLive(livePayload);
+    await flushMicrotasks();
+
+    expect(broadcastMessage).toHaveBeenCalledTimes(1);
+    expect(broadcastMessage).toHaveBeenCalledWith(
+      'session:stats-live',
+      livePayload,
+    );
+    expect(broadcastMessage.mock.calls[0][1]).toBe(livePayload);
+    // The wiring after the live callback still ran.
+    expect(sdkAdapter.setSessionIdResolvedCallback).toHaveBeenCalledTimes(1);
+    expect(sdkAdapter.setCompactionStartCallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry or throw when the broadcast rejects', async () => {
+    const broadcastMessage = jest
+      .fn()
+      .mockRejectedValue(new TypeError('webview disposed: secret detail'));
+    const { onLive, logger } = wireLiveStats(broadcastMessage);
+
+    expect(() => onLive(livePayload)).not.toThrow();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(broadcastMessage).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining(REAL_SESSION_ID),
+      { errorName: 'TypeError' },
+    );
+    const logged = JSON.stringify(logger.debug.mock.calls);
+    expect(logged).not.toContain('secret detail');
+    expect(logger.info).not.toHaveBeenCalledWith(
+      expect.stringContaining('Live session stats'),
+      expect.anything(),
+    );
+  });
+});
+
+/**
  * TASK_2026_580 — the `git:worktreeChanged` (created) broadcast names the
  * session that created the worktree, and uses the hook's own path before the
  * platform resolver.
@@ -636,6 +741,7 @@ describe('wireSdkCallbacks — worktree created broadcast (TASK_2026_580)', () =
     let onCreated: ((data: CreatedData) => Promise<void>) | undefined;
     const sdkAdapter = {
       setResultStatsCallback: jest.fn(),
+      setLiveStatsCallback: jest.fn(),
       setSessionIdResolvedCallback: jest.fn(),
       setCompactionStartCallback: jest.fn(),
       setWorktreeCreatedCallback: jest.fn(

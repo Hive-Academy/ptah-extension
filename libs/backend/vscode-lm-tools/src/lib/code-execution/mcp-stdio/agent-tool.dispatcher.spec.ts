@@ -71,6 +71,28 @@ function createHarness(): {
 }
 
 describe('AgentToolDispatcher — agent_spawn schema', () => {
+  it('accepts boolean force without forwarding it to the spawn API', async () => {
+    const { dispatcher, spawn } = createHarness();
+    const response = await dispatcher.dispatch('agent_spawn', request, {
+      task: 'Do the thing',
+      force: true,
+    });
+
+    expect(toolResult(response).isError).toBeUndefined();
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn.mock.calls[0]?.[0]).not.toHaveProperty('force');
+  });
+
+  it('rejects a non-boolean force before spawning', async () => {
+    const { dispatcher, spawn } = createHarness();
+    const response = await dispatcher.dispatch('agent_spawn', request, {
+      task: 'Do the thing',
+      force: 'true',
+    });
+
+    expect(toolResult(response).isError).toBe(true);
+    expect(spawn).not.toHaveBeenCalled();
+  });
   it.each([...SYSTEM_CLI_TYPES])('accepts cli: %s', async (cli) => {
     const { dispatcher, spawn } = createHarness();
 

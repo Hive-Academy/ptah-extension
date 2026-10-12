@@ -56,6 +56,7 @@ export class BrowserLaunchingOAuthUrlOpener implements IOAuthUrlOpener {
       const child = this.spawner(command, args, {
         detached: true,
         stdio: 'ignore',
+        windowsHide: true,
       });
       this.browserProcesses.add(child);
       const release = (): void => {

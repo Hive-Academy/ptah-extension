@@ -373,12 +373,20 @@ describe('AgentSpawnEnvironment', () => {
   });
 
   describe('maxConcurrentAgents()', () => {
-    it('clamps a configured value above the maximum down to 20', () => {
+    it('clamps a configured value above the maximum down to 100', () => {
       const { environment } = makeEnvironment({
         config: { maxConcurrentAgents: 200 },
       });
 
-      expect(environment.maxConcurrentAgents()).toBe(20);
+      expect(environment.maxConcurrentAgents()).toBe(100);
+    });
+
+    it('preserves a configured value up to the maximum (previous cap of 20 no longer applies)', () => {
+      const { environment } = makeEnvironment({
+        config: { maxConcurrentAgents: 60 },
+      });
+
+      expect(environment.maxConcurrentAgents()).toBe(60);
     });
 
     it.each([0, -5])(
@@ -413,7 +421,7 @@ describe('AgentSpawnEnvironment', () => {
         MIN_CONCURRENT_AGENTS,
         DEFAULT_CONCURRENT_AGENTS,
         MAX_CONCURRENT_AGENTS,
-      ]).toEqual([1, 5, 20]);
+      ]).toEqual([1, 5, 100]);
     });
   });
 

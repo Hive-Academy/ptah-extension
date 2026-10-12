@@ -199,10 +199,6 @@ import type {
         </div>
       </section>
     }
-
-    <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{
-      store.announcement()
-    }}</span>
   `,
   styles: `
     .notification-row {
