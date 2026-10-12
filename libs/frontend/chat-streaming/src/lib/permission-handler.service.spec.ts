@@ -459,6 +459,38 @@ describe('PermissionHandlerService', () => {
       tabSignals.activeTabStreamingState.set(emptyStreamingState());
       expect(service.unmatchedPermissions()).toEqual([req]);
     });
+
+    it('does not flag a permission routed only to another live tab', () => {
+      tabSignals.tabs.set([{ id: 'tab-1' }, { id: 'tab-child' }]);
+      const req = makePermissionRequest({ toolUseId: 'tool-child' });
+      service.handlePermissionRequest(req);
+      tabSignals.activeTabStreamingState.set(emptyStreamingState());
+
+      service.attachPromptTargets(req.id, ['tab-child']);
+      expect(service.unmatchedPermissions()).toEqual([]);
+
+      service.attachPromptTargets(req.id, ['tab-child', 'tab-1']);
+      expect(service.unmatchedPermissions()).toEqual([req]);
+    });
+
+    it('shows fallback when the only target tab closes during pop-out', () => {
+      tabSignals.tabs.set([{ id: 'tab-1' }, { id: 'tab-source' }]);
+      const req = makePermissionRequest({ toolUseId: 'tool-popout' });
+      service.handlePermissionRequest(req);
+      service.attachPromptTargets(req.id, ['tab-source']);
+      expect(service.unmatchedPermissions()).toEqual([]);
+
+      tabSignals.tabs.set([{ id: 'tab-1' }]);
+      expect(service.unmatchedPermissions()).toEqual([req]);
+    });
+
+    it('keeps genuine surface-only prompts out of the fallback', () => {
+      const req = makePermissionRequest({ toolUseId: 'tool-surface' });
+      service.handlePermissionRequest(req);
+      service.attachPromptTargets(req.id, ['surface-harness-1']);
+
+      expect(service.unmatchedPermissions()).toEqual([]);
+    });
   });
 
   describe('AskUserQuestion', () => {

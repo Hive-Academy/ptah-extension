@@ -30,6 +30,8 @@ export interface ChildChatSessionStartInput {
   readonly descriptor: AgentSessionOpenedPayload;
   readonly sessionName: string;
   readonly model?: string;
+  /** Parent permission level captured while the parent was active. */
+  readonly permissionLevel?: PermissionLevel;
 }
 
 /** Resource ownership inherited by a replacement session, never by copying. */
