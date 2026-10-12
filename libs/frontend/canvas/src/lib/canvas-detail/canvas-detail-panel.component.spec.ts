@@ -2,22 +2,38 @@ import {
   ChangeDetectionStrategy,
   Component,
   input,
+  output,
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasDetailService } from './canvas-detail.service';
 import { CanvasDetailPanelComponent } from './canvas-detail-panel.component';
-import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
+import { CanvasLaneTabsComponent } from './canvas-lane-tabs.component';
+import { CanvasLaneViewComponent } from './canvas-lane-view.component';
 
 @Component({
-  selector: 'ptah-canvas-detail-transcript',
+  selector: 'ptah-canvas-lane-view',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '<div data-testid="transcript">{{ tabId() }}</div>',
 })
 class TranscriptStub {
   readonly tabId = input.required<string>();
+  readonly sessionId = input<string | null>(null);
+  readonly laneKey = input('orchestrator');
+}
+
+@Component({
+  selector: 'ptah-canvas-lane-tabs',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class TabsStub {
+  readonly sessionId = input<string | null>(null);
+  readonly laneKey = input('orchestrator');
+  readonly laneSelected = output<string>();
 }
 
 describe('CanvasDetailPanelComponent', () => {
@@ -32,12 +48,15 @@ describe('CanvasDetailPanelComponent', () => {
       imports: [CanvasDetailPanelComponent],
       providers: [
         { provide: TabManagerService, useValue: { tabs } },
-        { provide: CanvasDetailService, useValue: { laneKey, close } },
+        {
+          provide: CanvasDetailService,
+          useValue: { laneKey, close, selectLane: jest.fn() },
+        },
       ],
     });
     TestBed.overrideComponent(CanvasDetailPanelComponent, {
-      remove: { imports: [CanvasDetailTranscriptComponent] },
-      add: { imports: [TranscriptStub] },
+      remove: { imports: [CanvasLaneTabsComponent, CanvasLaneViewComponent] },
+      add: { imports: [TabsStub, TranscriptStub] },
     });
   });
 

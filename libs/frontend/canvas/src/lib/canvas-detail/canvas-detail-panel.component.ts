@@ -9,13 +9,18 @@ import {
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasDetailService } from './canvas-detail.service';
-import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
 import { CanvasSessionDetailsComponent } from './canvas-session-details.component';
+import { CanvasLaneTabsComponent } from './canvas-lane-tabs.component';
+import { CanvasLaneViewComponent } from './canvas-lane-view.component';
 
 @Component({
   selector: 'ptah-canvas-detail-panel',
   standalone: true,
-  imports: [CanvasDetailTranscriptComponent, CanvasSessionDetailsComponent],
+  imports: [
+    CanvasLaneTabsComponent,
+    CanvasLaneViewComponent,
+    CanvasSessionDetailsComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0' },
   template: `
@@ -44,14 +49,18 @@ import { CanvasSessionDetailsComponent } from './canvas-session-details.componen
             aria-label="Session lanes"
             class="border-b border-base-300 min-h-9"
           >
-            <ng-content select="[ptahCanvasLaneTabs]" />
+            <ptah-canvas-lane-tabs
+              [sessionId]="sessionId()"
+              [laneKey]="detail.laneKey()"
+              (laneSelected)="detail.selectLane($event)"
+            />
           </nav>
           <div class="flex-1 min-h-0 overflow-hidden">
-            @if (detail.laneKey() === 'orchestrator') {
-              <ptah-canvas-detail-transcript [tabId]="tabId()" />
-            } @else {
-              <ng-content select="[ptahCanvasLaneView]" />
-            }
+            <ptah-canvas-lane-view
+              [tabId]="tabId()"
+              [sessionId]="sessionId()"
+              [laneKey]="detail.laneKey()"
+            />
           </div>
         </div>
         <ptah-canvas-session-details
@@ -94,6 +103,7 @@ export class CanvasDetailPanelComponent {
       `Tab ${this.tabId().slice(0, 8)}`,
   );
   readonly status = computed(() => this.tab()?.status ?? 'Unknown');
+  readonly sessionId = computed(() => this.tab()?.claudeSessionId ?? null);
 
   constructor() {
     afterNextRender(() =>
