@@ -312,18 +312,26 @@ export class PtahUiBlockComponent implements OnInit {
   );
 
   /**
+   * This block's turn index, kept in its own computed: streaming writes
+   * re-run it, but an unchanged number stops propagation to `agentsSource`.
+   */
+  private readonly agentsTurnIndex = computed((): number | null => {
+    if (!this.usesAgents()) return null;
+    const host = this.hostSources;
+    return host === null ? null : host.turnIndexOf(this.messageId());
+  });
+
+  /**
    * The adapter's `$agents` signal for this block's turn, created only for a
    * block that names `$agents`. `null` (rendered "unavailable") without host
    * sources, without an adapter, or for a message outside every turn.
    */
   private readonly agentsSource = computed(
     (): Signal<PtahUiAgentsInput> | null => {
-      if (!this.usesAgents()) return null;
+      const turnIndex = this.agentsTurnIndex();
       const host = this.hostSources;
       const sources = this.liveSources;
-      if (host === null || sources === null) return null;
-      const turnIndex = host.turnIndexOf(this.messageId());
-      if (turnIndex === null) return null;
+      if (turnIndex === null || host === null || sources === null) return null;
       return untracked(() => sources.agentsInput(host, turnIndex));
     },
   );
