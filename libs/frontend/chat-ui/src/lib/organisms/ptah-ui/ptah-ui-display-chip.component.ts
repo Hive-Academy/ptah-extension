@@ -58,7 +58,7 @@ const UNTITLED = 'Display';
 /** Per-state copy; the badge classes stay literal in the template for Tailwind. */
 const CHIP_COPY: Readonly<Record<DisplayChipState, DisplayChipCopy>> = {
   applied: {
-    badge: 'Live',
+    badge: 'In display',
     tone: 'info',
     note: null,
     action: 'Open in display',
@@ -121,7 +121,7 @@ let nextChipInstance = 0;
  * `messageId:nodeId:ordinal`. The chip only reads it (O(1)).
  *
  * - `applied` / `superseded` / `evicted`: a collapsible chip with the title
- *   (or "Display") and the state ("Live", "Updated later", "No longer in
+ *   (or "Display") and the state ("In display", "Updated later", "No longer in
  *   display"). Expanded: description, the state note, and "Open in display"
  *   ("Open latest" when superseded), which opens the surface in the dock. An
  *   evicted chip stays a plain chip with no action (R1.12).

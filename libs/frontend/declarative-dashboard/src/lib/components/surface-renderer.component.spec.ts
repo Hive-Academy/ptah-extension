@@ -15,6 +15,7 @@ import { buildSurfaceViewModel } from '../view-model/surface-view-model';
 import { SURFACE_TEXT_COMMIT_DEBOUNCE_MS } from './surface-text-input.component';
 import {
   SURFACE_VIEW_MODEL_BUILDER,
+  DISPLAY_TEXT_MIX,
   SurfaceRendererComponent,
   type SurfaceViewModelBuilder,
 } from './surface-renderer.component';
@@ -34,6 +35,10 @@ const submit = { id: 'send', action: 'surface.submit' as const, label: { text: '
 const form = (children: readonly SurfaceComponent[] = [reason]) =>
   surface([{ id: 'form', kind: 'section', title: { text: 'Form' }, actions: [submit], children }]);
 const TOO_LONG = 'x'.repeat(SURFACE_LIMITS.maxStringLength + 1);
+
+it('pins semantic text at 65% base-content so tone labels remain readable on their tints', () => {
+  expect(DISPLAY_TEXT_MIX).toBe('65%');
+});
 /** The default form surface with its root title text replaced. */
 const withTitle = (text: string): SurfaceRenderable => {
   const v2 = form() as Extract<SurfaceRenderable, { contract: 'dashboard-spec/2' }>;

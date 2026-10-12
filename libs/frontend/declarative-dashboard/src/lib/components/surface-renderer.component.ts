@@ -50,6 +50,8 @@ export const SURFACE_VIEW_MODEL_BUILDER = new InjectionToken<SurfaceViewModelBui
 });
 
 const EMPTY_VIEW_STATE: SurfaceViewState = { components: {}, drafts: {} };
+/** Semantic text's base-content share: AA on every 16% semantic tint. */
+export const DISPLAY_TEXT_MIX = '65%';
 const NO_LOCAL_OVERLAYS: ReadonlyMap<string, SurfaceDataValue> = new Map();
 const NO_INTERACTION: SurfaceInteractionState = {
   selection: null,
@@ -88,7 +90,8 @@ const CONTAINER_ROOT_CLASS = 'dp-grid dp-grid--stats dp-cols-3 dp-gap-small text
  */
 const DISPLAY_TOKEN_STYLES = `
   :host {
-    --dp-text-mix: 35%;
+    /* 65% base-content keeps every semantic label AA on its 16% status tint. */
+    --dp-text-mix: ${DISPLAY_TEXT_MIX};
     --dp-fill-mix: 0%;
     --dp-dock: oklch(var(--b1));
     --dp-card: oklch(var(--b2));
@@ -116,7 +119,6 @@ const DISPLAY_TOKEN_STYLES = `
     --dp-n-tint: oklch(var(--b3));
   }
   :host-context([data-theme='anubis-light']) {
-    --dp-text-mix: 50%;
     --dp-fill-mix: 25%;
     --dp-dock: oklch(var(--b2));
     --dp-card: oklch(var(--b1));

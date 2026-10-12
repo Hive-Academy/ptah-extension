@@ -169,13 +169,13 @@ describe('PtahUiDisplayChipComponent', () => {
       expect(dock.lookups).toContainEqual([TAB, 'm1:text-1:2']);
     });
 
-    it('shows one collapsed line: icon, title and the "Live" state', () => {
+    it('shows one collapsed line: icon, title and the "In display" state', () => {
       expect(chip()?.getAttribute('data-state')).toBe('applied');
       expect(
         native().querySelector('[data-testid="ptah-ui-display-chip-title"]')
           ?.textContent,
       ).toBe('Release checklist');
-      expect(stateText()).toBe('Live');
+      expect(stateText()).toBe('In display');
       expect(toggle().querySelector('lucide-angular')).not.toBeNull();
     });
 
@@ -348,7 +348,7 @@ describe('PtahUiDisplayChipComponent', () => {
 
     dock.set(APPLIED);
     await settle();
-    expect(stateText()).toBe('Live');
+    expect(stateText()).toBe('In display');
     const instance = fixture.debugElement.query(
       By.directive(PtahUiDisplayChipComponent),
     ).componentInstance;
