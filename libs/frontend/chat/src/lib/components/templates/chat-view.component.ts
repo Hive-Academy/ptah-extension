@@ -86,7 +86,15 @@ import type {
   LocalTimeOptions,
   SubagentRecord,
   MessageAnchorHint,
+  SessionHandoverPhase,
 } from '@ptah-extension/shared';
+
+/** Handover phases after which nothing is pending; they wait for an idle tab. */
+const ENDED_HANDOVER_PHASES: ReadonlySet<SessionHandoverPhase> = new Set([
+  'closed',
+  'failed',
+  'cancelled',
+]);
 
 /** Product names of the lane CLIs, for runs that carry no display name. */
 const CLI_LABELS: Readonly<Record<CliType, string>> = {
@@ -932,18 +940,41 @@ export class ChatViewComponent implements OnDestroy {
   readonly resolvedSessionBudget = this._budgetActions.budget;
   /** Per-session samples for the budget sparkline. */
   protected readonly budgetUsage = this._budgetActions.usage;
-  /** Stored immediately from stats, rendered only after this tab is idle. */
+  /**
+   * Stored immediately from stats. Shown once this tab is idle, or while it
+   * streams when the handover is still pending (see `showSessionBudgetBanner`).
+   */
   protected readonly resolvedHandover = computed(() =>
     this._handoverClient.stateFor(this.resolvedSessionId()),
   );
+  /** The live budget stage; counts only while this tab streams with a budget. */
+  protected readonly budgetLiveStage = this._budgetActions.liveStage;
+  protected readonly budgetTurnRunning = this._budgetActions.turnRunning;
+  protected readonly budgetWrapUpRequested = this._budgetActions.wrapUpRequested;
+  protected readonly budgetQueuedMessageCarried =
+    this._budgetActions.queuedMessageCarried;
+  /**
+   * An idle tab shows any budget or handover notice. A streaming tab shows the
+   * banner only when it needs a click mid-turn (Decision 7): the display stage
+   * is `handoff`/`limit` (wrap-up, continue), or a handover is still pending,
+   * including an agent request that arrives mid-turn (Approve/Cancel). Other
+   * stats received while generating wait for the terminal turn_state.
+   */
   protected readonly showSessionBudgetBanner = computed(() => {
     const tab = this.resolvedActiveTab();
     const tabId = this.resolvedTabId();
-    const hasNotice = this.resolvedSessionBudget() !== null || this.resolvedHandover() !== null;
+    const handover = this.resolvedHandover();
+    const hasNotice = this.resolvedSessionBudget() !== null || handover !== null;
+    const stage = this._budgetActions.displayStage();
+    const showWhileStreaming =
+      tab?.status === 'streaming' &&
+      (stage === 'handoff' ||
+        stage === 'limit' ||
+        (handover !== null && !ENDED_HANDOVER_PHASES.has(handover.phase)));
     return (
       hasNotice &&
       this.mainPanelShowing() &&
-      tab?.status === 'loaded' &&
+      (tab?.status === 'loaded' || showWhileStreaming) &&
       tabId !== null &&
       tabId === this._tabManager.activeTabId()
     );
@@ -1193,6 +1224,15 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
+    // Handover draft return (D24, S20): reads the handover state and the
+    // composer, so a compact → full switch re-runs it with a mounted input.
+    effect(() => {
+      this.resolvedHandover();
+      const chatInput = this.chatInputRef();
+      if (!chatInput) return;
+      untracked(() => this.applyHandoverDraft(chatInput));
+    });
+
     effect(() => {
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');
@@ -1308,6 +1348,38 @@ export class ChatViewComponent implements OnDestroy {
 
   protected onBudgetCancelHandover(): Promise<void> {
     return this._budgetActions.cancelHandover();
+  }
+
+  protected onBudgetRequestWrapUp(): Promise<void> {
+    return this._budgetActions.requestWrapUp();
+  }
+
+  protected onBudgetContinueNowAnyway(): Promise<void> {
+    return this._budgetActions.continueNowAnyway();
+  }
+
+  /** Approving an agent request is the user's own begin (D23). */
+  protected onBudgetApproveAgentRequest(): Promise<void> {
+    return this._budgetActions.continueInNewSession();
+  }
+
+  /**
+   * Put a cancelled or failed handover's returned draft (D24) into this view's
+   * composer, once per operation. Without a mounted composer (compact view)
+   * nothing happens and the draft stays unacknowledged; the effect re-runs when
+   * the composer mounts. A throwing write skips the acknowledgement, so the
+   * draft stays recoverable. Never routed through restoreInputs or the send path.
+   */
+  private applyHandoverDraft(chatInput: ChatInputComponent): void {
+    const draft = this._handoverClient.peekDraft(this.resolvedSessionId());
+    if (!draft) return;
+    try {
+      chatInput.restoreDraftToInput(draft.text);
+    } catch (err) {
+      console.warn('[ChatView] Failed to restore the handover draft:', err);
+      return;
+    }
+    this._handoverClient.acknowledgeDraft(draft.operationId);
   }
 
   /** Put bounded lost handover inputs back into this source view's composer. */
