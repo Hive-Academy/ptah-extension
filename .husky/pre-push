@@ -34,7 +34,7 @@ if [ "${PTAH_PREPUSH_PARANOID:-0}" = "1" ]; then
 else
   npx nx run ptah-electron:validate-deps
   if [ $? -ne 0 ]; then
-    echo "❌ Build gate failed — a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
+    echo "❌ Build gate failed — electron main bundle failed to compile OR a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
     echo "   Set PTAH_PREPUSH_PARANOID=1 to also run the full affected build."
     exit 1
   fi
