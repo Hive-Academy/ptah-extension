@@ -1,0 +1,696 @@
+{
+ "contrast": {
+  "anubis": {
+   "text": [
+    {
+     "label": "name h5 (real)",
+     "ratio": 13.89,
+     "fs": "14px",
+     "need": 4.5
+    },
+    {
+     "label": "subtitle",
+     "ratio": 5.65,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "status chip badge (real)",
+     "ratio": 13.89,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "source chip",
+     "ratio": 5.65,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "compact reason (real)",
+     "ratio": 5.65,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "compact reason warning box",
+     "ratio": 13.89,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "warn badge Cached data",
+     "ratio": 6.61,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "window name",
+     "ratio": 13.89,
+     "fs": "13px",
+     "need": 4.5
+    },
+    {
+     "label": "window value",
+     "ratio": 13.89,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "reset text (muted)",
+     "ratio": 5.65,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ▲ Near limit",
+     "ratio": 11.25,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ■ Limit reached",
+     "ratio": 12.45,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ◷ Aged",
+     "ratio": 13.89,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ? Not confirmed",
+     "ratio": 13.89,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ? Unknown",
+     "ratio": 13.89,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "local usage label",
+     "ratio": 5.65,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "local caption",
+     "ratio": 5.65,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "refresh button glyph",
+     "ratio": 13.89,
+     "fs": "11px",
+     "need": 4.5
+    }
+   ],
+   "bars": [
+    {
+     "name": "5-hour plan usage",
+     "fillVsSection": 5.25,
+     "fillVsTrack": 4.06,
+     "trackVsSection": 1.29,
+     "cls": "bg-success"
+    },
+    {
+     "name": "Weekly plan usage",
+     "fillVsSection": 6.18,
+     "fillVsTrack": 4.78,
+     "trackVsSection": 1.29,
+     "cls": "bg-warning"
+    },
+    {
+     "name": "Opus weekly plan usage",
+     "fillVsSection": 3.59,
+     "fillVsTrack": 2.77,
+     "trackVsSection": 1.29,
+     "cls": "bg-error"
+    },
+    {
+     "name": "Sonnet weekly plan usage",
+     "fillVsSection": 13.89,
+     "fillVsTrack": 10.73,
+     "trackVsSection": 1.29,
+     "cls": "bg-base-content"
+    },
+    {
+     "name": "Design plan usage",
+     "fillVsSection": 13.89,
+     "fillVsTrack": 10.73,
+     "trackVsSection": 1.29,
+     "cls": "bg-base-content"
+    }
+   ],
+   "accent": [
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 5.55
+    },
+    {
+     "accent": "rgb(59, 130, 246)",
+     "ratio": 4.71
+    },
+    {
+     "accent": "rgb(139, 92, 246)",
+     "ratio": 4.09
+    },
+    {
+     "accent": "rgb(113, 113, 122)",
+     "ratio": 3.58
+    },
+    {
+     "accent": "rgb(156, 163, 175)",
+     "ratio": 6.82
+    },
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 5.55
+    },
+    {
+     "accent": "rgb(16, 163, 127)",
+     "ratio": 5.42
+    },
+    {
+     "accent": "rgb(59, 130, 246)",
+     "ratio": 4.71
+    },
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 5.55
+    }
+   ]
+  },
+  "anubis-light": {
+   "text": [
+    {
+     "label": "name h5 (real)",
+     "ratio": 14.21,
+     "fs": "14px",
+     "need": 4.5
+    },
+    {
+     "label": "subtitle",
+     "ratio": 5.39,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "status chip badge (real)",
+     "ratio": 14.21,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "source chip",
+     "ratio": 5.39,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "compact reason (real)",
+     "ratio": 5.39,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "compact reason warning box",
+     "ratio": 14.21,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "warn badge Cached data",
+     "ratio": 5.66,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "window name",
+     "ratio": 14.21,
+     "fs": "13px",
+     "need": 4.5
+    },
+    {
+     "label": "window value",
+     "ratio": 14.21,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "reset text (muted)",
+     "ratio": 5.39,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ▲ Near limit",
+     "ratio": 12.58,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ■ Limit reached",
+     "ratio": 11.5,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ◷ Aged",
+     "ratio": 14.21,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ? Not confirmed",
+     "ratio": 14.21,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ? Unknown",
+     "ratio": 14.21,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "local usage label",
+     "ratio": 5.39,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "local caption",
+     "ratio": 5.39,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "refresh button glyph",
+     "ratio": 14.21,
+     "fs": "11px",
+     "need": 4.5
+    }
+   ],
+   "bars": [
+    {
+     "name": "5-hour plan usage",
+     "fillVsSection": 2.12,
+     "fillVsTrack": 1.73,
+     "trackVsSection": 1.22,
+     "cls": "bg-success"
+    },
+    {
+     "name": "Weekly plan usage",
+     "fillVsSection": 2.2,
+     "fillVsTrack": 1.8,
+     "trackVsSection": 1.22,
+     "cls": "bg-warning"
+    },
+    {
+     "name": "Opus weekly plan usage",
+     "fillVsSection": 3.19,
+     "fillVsTrack": 2.61,
+     "trackVsSection": 1.22,
+     "cls": "bg-error"
+    },
+    {
+     "name": "Sonnet weekly plan usage",
+     "fillVsSection": 14.21,
+     "fillVsTrack": 11.63,
+     "trackVsSection": 1.22,
+     "cls": "bg-base-content"
+    },
+    {
+     "name": "Design plan usage",
+     "fillVsSection": 14.21,
+     "fillVsTrack": 11.63,
+     "trackVsSection": 1.22,
+     "cls": "bg-base-content"
+    }
+   ],
+   "accent": [
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 2.61
+    },
+    {
+     "accent": "rgb(59, 130, 246)",
+     "ratio": 3.08
+    },
+    {
+     "accent": "rgb(139, 92, 246)",
+     "ratio": 3.55
+    },
+    {
+     "accent": "rgb(113, 113, 122)",
+     "ratio": 4.05
+    },
+    {
+     "accent": "rgb(156, 163, 175)",
+     "ratio": 2.13
+    },
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 2.61
+    },
+    {
+     "accent": "rgb(16, 163, 127)",
+     "ratio": 2.68
+    },
+    {
+     "accent": "rgb(59, 130, 246)",
+     "ratio": 3.08
+    },
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 2.61
+    }
+   ]
+  },
+  "retro": {
+   "text": [
+    {
+     "label": "name h5 (real)",
+     "ratio": 10.79,
+     "fs": "14px",
+     "need": 4.5
+    },
+    {
+     "label": "subtitle",
+     "ratio": 5.75,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "status chip badge (real)",
+     "ratio": 10.79,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "source chip",
+     "ratio": 5.75,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "compact reason (real)",
+     "ratio": 5.75,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "compact reason warning box",
+     "ratio": 10.79,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "warn badge Cached data",
+     "ratio": 6.3,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "window name",
+     "ratio": 10.79,
+     "fs": "13px",
+     "need": 4.5
+    },
+    {
+     "label": "window value",
+     "ratio": 10.79,
+     "fs": "12px",
+     "need": 4.5
+    },
+    {
+     "label": "reset text (muted)",
+     "ratio": 5.75,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ▲ Near limit",
+     "ratio": 9.59,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ■ Limit reached",
+     "ratio": 9.34,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ◷ Aged",
+     "ratio": 10.79,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ? Not confirmed",
+     "ratio": 10.79,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "state chip ? Unknown",
+     "ratio": 10.79,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "local usage label",
+     "ratio": 5.75,
+     "fs": "10px",
+     "need": 4.5
+    },
+    {
+     "label": "local caption",
+     "ratio": 5.75,
+     "fs": "11px",
+     "need": 4.5
+    },
+    {
+     "label": "refresh button glyph",
+     "ratio": 10.79,
+     "fs": "11px",
+     "need": 4.5
+    }
+   ],
+   "bars": [
+    {
+     "name": "5-hour plan usage",
+     "fillVsSection": 2.32,
+     "fillVsTrack": 1.93,
+     "trackVsSection": 1.2,
+     "cls": "bg-success"
+    },
+    {
+     "name": "Weekly plan usage",
+     "fillVsSection": 2.24,
+     "fillVsTrack": 1.87,
+     "trackVsSection": 1.2,
+     "cls": "bg-warning"
+    },
+    {
+     "name": "Opus weekly plan usage",
+     "fillVsSection": 2.42,
+     "fillVsTrack": 2.02,
+     "trackVsSection": 1.2,
+     "cls": "bg-error"
+    },
+    {
+     "name": "Sonnet weekly plan usage",
+     "fillVsSection": 10.79,
+     "fillVsTrack": 9,
+     "trackVsSection": 1.2,
+     "cls": "bg-base-content"
+    },
+    {
+     "name": "Design plan usage",
+     "fillVsSection": 10.79,
+     "fillVsTrack": 9,
+     "trackVsSection": 1.2,
+     "cls": "bg-base-content"
+    }
+   ],
+   "accent": [
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 2.2
+    },
+    {
+     "accent": "rgb(59, 130, 246)",
+     "ratio": 2.59
+    },
+    {
+     "accent": "rgb(139, 92, 246)",
+     "ratio": 2.98
+    },
+    {
+     "accent": "rgb(113, 113, 122)",
+     "ratio": 3.4
+    },
+    {
+     "accent": "rgb(156, 163, 175)",
+     "ratio": 1.79
+    },
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 2.2
+    },
+    {
+     "accent": "rgb(16, 163, 127)",
+     "ratio": 2.25
+    },
+    {
+     "accent": "rgb(59, 130, 246)",
+     "ratio": 2.59
+    },
+    {
+     "accent": "rgb(217, 119, 87)",
+     "ratio": 2.2
+    }
+   ]
+  }
+ },
+ "axe": {
+  "anubis": [],
+  "anubis-light": [],
+  "retro": []
+ },
+ "a11y": {
+  "ulChildrenAreLi": true,
+  "liCount": 9,
+  "ulRole": null,
+  "listStyle": "none",
+  "headings": [
+   "H3:No skills selected for this pr",
+   "H3:Session Analytics",
+   "H4:Provider accounts & plan limit",
+   "H5:Claude identity unavailable (n",
+   "H5:OpenCode CLI login · 81da",
+   "H5:Antigravity account · 5ff1",
+   "H5:Provider CLI login · 26e8",
+   "H5:Ollama Cloud (owner unknown) (",
+   "H5:Claude Max · ada@example.test ",
+   "H5:OpenAI Codex · grace@example.t",
+   "H5:OpenCode Zen · key 9c1f",
+   "H5:Anthropic via a-very-long-cust",
+   "H3:You are working in the current",
+   "H3:Ptah is open source"
+  ],
+  "sections": [
+   "Claude identity unavailable (no email) · d525 usage",
+   "OpenCode CLI login · 81da usage",
+   "Antigravity account · 5ff1 usage",
+   "Provider CLI login · 26e8 usage"
+  ],
+  "progress": [
+   [
+    "5-hour plan usage",
+    "42",
+    "42% used"
+   ],
+   [
+    "Weekly plan usage",
+    "92",
+    "92% used, near limit"
+   ],
+   [
+    "Opus weekly plan usage",
+    "100",
+    "100% used, limit reached"
+   ],
+   [
+    "Sonnet weekly plan usage",
+    "97",
+    "97% used, aged data"
+   ],
+   [
+    "Design plan usage",
+    "57",
+    "57% used, not confirmed"
+   ],
+   [
+    "5-hour plan usage",
+    "12",
+    "12% used"
+   ],
+   [
+    "Weekly plan usage",
+    "89",
+    "89% used"
+   ]
+  ],
+  "btn": [
+   [
+    "Refresh Claude identity unavailable (no ",
+    "24x24"
+   ],
+   [
+    "Refresh OpenCode CLI login · 81da usage",
+    "24x24"
+   ],
+   [
+    "Refresh Antigravity account · 5ff1 usage",
+    "24x24"
+   ],
+   [
+    "Refresh Provider CLI login · 26e8 usage",
+    "24x24"
+   ],
+   [
+    "Refresh Ollama Cloud (owner unknown) (ke",
+    "24x24"
+   ],
+   [
+    "Refresh Claude Max · ada@example.test · ",
+    "24x24"
+   ],
+   [
+    "Refresh OpenAI Codex · grace@example.tes",
+    "24x24"
+   ],
+   [
+    "Refresh OpenCode Zen · key 9c1f usage",
+    "24x24"
+   ],
+   [
+    "Refresh Anthropic via a-very-long-custom",
+    "24x24"
+   ]
+  ]
+ },
+ "focus": {
+  "first": {
+   "label": "Refresh Claude identity unavailable (no email) · d525 usage",
+   "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+   "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0",
+   "matchesFocusVisible": true
+  },
+  "order": [
+   "Refresh OpenCode CLI login · 81da usage",
+   "Refresh Antigravity account · 5ff1 usage",
+   "Refresh Provider CLI login · 26e8 usage",
+   "Refresh Ollama Cloud (owner unknown) (ke",
+   "Refresh Claude Max · ada@example.test · ",
+   "Refresh OpenAI Codex · grace@example.tes",
+   "Refresh OpenCode Zen · key 9c1f usage",
+   "Refresh Anthropic via a-very-long-custom",
+   "View details for session: You are workin",
+   "Dismiss the Ptah Builders card",
+   "BUTTON",
+   "Toggle Git panel"
+  ],
+  "lightFirst": "solid 2px oklch(0.48 0.12 70) | rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0"
+ }
+}

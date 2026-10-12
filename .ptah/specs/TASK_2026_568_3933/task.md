@@ -5,12 +5,16 @@ type: RESEARCH
 title: 'Classify and quarantine remaining event, task and worktree sediment'
 depends_on: []
 created: '2026-09-26T20:53:48.820Z'
-updated: '2026-09-26T20:53:48.820Z'
+updated: '2026-10-12T19:41:51.738Z'
 description: 'SQL predicate rules R1-R3 caught durable rows and were dropped; about 2,500 sediment events remain active. Research a safer classifier (content-level, reviewed) that feeds the existing reversible quarantine'
 labels:
   - memory-curator
+  - P3
 relates_to:
   - TASK_2026_563_2939
+  - TASK_2026_572_07c4
+  - TASK_2026_577_cbfb
+parent: TASK_2026_636_0add
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

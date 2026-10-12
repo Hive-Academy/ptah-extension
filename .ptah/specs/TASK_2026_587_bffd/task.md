@@ -3,15 +3,15 @@ id: TASK_2026_587_bffd
 status: backlog
 type: FEATURE
 title: 'Thoth Overview (Health, Needs your attention, Recent outcomes) and a durable, bounded activity ledger'
-depends_on:
-  - TASK_2026_586_2b3e
+depends_on: []
 created: "2026-10-01T00:00:00.000Z"
-updated: "2026-10-01T00:00:00.000Z"
+updated: '2026-10-12T19:41:51.738Z'
 description: 'Phase 6 of the Thoth rework. Open Thoth on one Overview with Health, Needs your attention and Recent outcomes, backed by a durable, newest-first, cross-subsystem activity ledger with ULID ids and bounded retention. Tabs become task pages and diagnostics move under Advanced.'
 estimate: L
-parent: TASK_2026_439_1310
+parent: TASK_2026_637_e30b
 labels:
   - TASK_2026_439_1310
+  - P2
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

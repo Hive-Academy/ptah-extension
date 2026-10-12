@@ -100,3 +100,7 @@ Existing memory follow-ups from TASK_2026_563 stay open: 565, 566, 567, 568, 569
 - Phase 6 — TASK_2026_587_bffd (backlog): Thoth Overview and the durable activity ledger. Depends on phase 4.
 
 The umbrella stays `in_progress` until phases 4-6 are merged, each with its reachability proof.
+
+## Triage 2026-10-12
+
+Closed as done. Phases 1-5 shipped (440, 443, 461, 586, 620; 588 was cancelled and replaced by 620). The phase table row for phase 5 above is stale. The only open phase, 6 (TASK_2026_587), and the bench follow-up TASK_2026_624 moved to the epics TASK_2026_637_e30b (Thoth UI) and TASK_2026_636_0add (memory quality). The curation follow-ups 577 and 579 moved to TASK_2026_636_0add and TASK_2026_635_5ea5.
