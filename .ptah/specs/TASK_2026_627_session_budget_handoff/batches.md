@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 15/20
+Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 19/20
 
 Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
 completion below; see "Phase 4" at the end of this file.
@@ -1452,7 +1452,7 @@ other rows stay as recorded.
   `tab-restore-sanitize.spec.ts` case; the wrap-up key is cleared on any failed `runAction`, including
   the `WRAP_UP_UNAVAILABLE` refusal (nothing was accepted, so no request counts for that stage).
 
-## Batch 16: Banner copy and buttons; composer draft write (F2-part) — PENDING
+## Batch 16: Banner copy and buttons; composer draft write (F2-part) — COMPLETE (2aa55a4b3)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
@@ -1462,7 +1462,7 @@ other rows stay as recorded.
 - Tasks: 2 | Depends on: Batch 15
 - Phase: 4 | Phase review: as Batch 9
 
-### Task 16.1: `ChatInputComponent.restoreDraftToInput` — PENDING
+### Task 16.1: `ChatInputComponent.restoreDraftToInput` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\molecules\chat-input\chat-input.component.ts`
   and `chat-input.component.spec.ts`
@@ -1470,7 +1470,7 @@ other rows stay as recorded.
 - Quality requirements: empty composer → the text; non-empty → `current + '\n\n' + text`; never
   sends, never touches `queuedContent`; focuses the composer (R3: only on the user's Cancel/failure).
 
-### Task 16.2: `SessionBudgetBannerComponent` — display stage, wrap-up, continue now, agent request — PENDING
+### Task 16.2: `SessionBudgetBannerComponent` — display stage, wrap-up, continue now, agent request — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\molecules\notifications\session-budget-banner.component.ts`
   and `session-budget-banner.component.spec.ts`
@@ -1492,6 +1492,27 @@ other rows stay as recorded.
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.spec.ts libs/frontend/chat/src/lib/components/molecules/notifications/session-budget-banner.component.spec.ts --coverage=false --maxWorkers=2`
   (mapper if needed); then `npx nx typecheck @ptah-extension/chat --parallel=1`; then
   `npx nx lint @ptah-extension/chat --parallel=1`.
+- Accepted by team-leader (commit 2aa55a4b3, report `batch-16-report.md`): the two specs 2 suites /
+  150 passed; typecheck chat clean; lint chat 0 errors, no warning in the banner or
+  `session-budget-format.ts`, the pre-existing `max-lines` on `chat-input.component.ts` only.
+  Verified on disk: `restoreDraftToInput` writes only `_currentMessage` (empty or whitespace
+  composer → text, else `current + '\n\n' + text`), ignores an empty draft, focuses the textarea,
+  never calls the send/queue path and never touches `queuedContent`/`queueRestoreContent`; no
+  `budget-auto` remains in the banner or its spec; no timers or observers.
+- Deviation verdicts:
+  1. Inputs `wrapUpRequested`, `queuedMessageCarried` — ACCEPTED. The banner is a dumb component;
+     "disabled after one click per stage" and the R5 line (plan :383-386) need the service's flags
+     as inputs. Batch 17 binds them.
+  2. New `session-budget-format.ts` (pure formatters and the waiting line) — ACCEPTED. Keeps the
+     banner under the `max-lines` rule without behaviour change; same lib, same folder.
+  3. Limit title without "; new messages paused" — ACCEPTED as a cosmetic copy gap. The blocking
+     body already states the pause ("Limit reached — new turns are held …"). Optional copy fix in
+     Batch 17 or the Phase 4 review.
+  4. "Cancel (keep working)" in every progress phase — ACCEPTED, unchanged from HEAD. The state
+     table names `writing-handoff` only; in `starting-successor`/`successor-confirmed`/`closing` the
+     coordinator refuses the cancel (`CANCELLABLE_PHASES`,
+     `session-handover-coordinator.service.ts:173-179, 367`), so the button is a no-op there, not a
+     behaviour break. Flagged for the Phase 4 code-logic review (hide it outside `writing-handoff`).
 
 ## Batch 17: Chat view — banner while streaming, bindings, draft effect (F2-part) — PENDING
 
