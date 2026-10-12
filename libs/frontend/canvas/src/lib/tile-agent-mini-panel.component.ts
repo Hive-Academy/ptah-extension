@@ -16,12 +16,8 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, ShieldAlert } from 'lucide-angular';
-import {
-  AgentMonitorStore,
-  type MonitoredAgent,
-} from '@ptah-extension/chat-streaming';
-import { VSCodeService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { type MonitoredAgent } from '@ptah-extension/chat-streaming';
+import { AgentPermissionResponder } from '@ptah-extension/chat';
 import type { AgentPermissionRequest } from '@ptah-extension/shared';
 
 @Component({
@@ -118,27 +114,14 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
 })
 export class TileAgentMiniPanelComponent {
   readonly agents = input.required<MonitoredAgent[]>();
-  private readonly vscode = inject(VSCodeService);
-  private readonly agentStore = inject(AgentMonitorStore);
+  private readonly responder = inject(AgentPermissionResponder);
   readonly ShieldAlertIcon = ShieldAlert;
 
   allowPermission(agentId: string, perm: AgentPermissionRequest): void {
-    this.vscode.postMessage({
-      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
-      payload: { requestId: perm.requestId, decision: 'allow' },
-    });
-    this.agentStore.clearPermission(agentId);
+    this.responder.respondLane(agentId, perm.requestId, 'allow');
   }
 
   denyPermission(agentId: string, perm: AgentPermissionRequest): void {
-    this.vscode.postMessage({
-      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
-      payload: {
-        requestId: perm.requestId,
-        decision: 'deny',
-        reason: 'User denied',
-      },
-    });
-    this.agentStore.clearPermission(agentId);
+    this.responder.respondLane(agentId, perm.requestId, 'deny', 'User denied');
   }
 }

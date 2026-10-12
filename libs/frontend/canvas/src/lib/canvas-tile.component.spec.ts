@@ -50,6 +50,7 @@ import {
   SESSION_FOCUSED,
   SESSION_FORCED_CARD,
   SESSION_CARD_ACTIONS,
+  HIDE_AGENT_SIDEBAR,
 } from '@ptah-extension/chat';
 import {
   EffortStateService,
@@ -1285,6 +1286,15 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     fixture.componentRef.setInput('autoCard', false);
     fixture.detectChanges();
     expect(forcedCard()).toBe(false);
+  });
+
+  it('hides the agent sidebar only inside the tile injector', () => {
+    const fixture = mountFocused(false);
+    const injector = fixture.componentInstance.childInjector();
+    if (!injector) throw new Error('Tile child injector was not created');
+
+    expect(injector.get(HIDE_AGENT_SIDEBAR)).toBe(true);
+    expect(TestBed.inject(HIDE_AGENT_SIDEBAR, false)).toBe(false);
   });
 
   it('focuses its tile for both forced-card actions', () => {

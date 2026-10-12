@@ -26,6 +26,7 @@ import {
   SESSION_FOCUSED,
   SESSION_FORCED_CARD,
   SESSION_CARD_ACTIONS,
+  HIDE_AGENT_SIDEBAR,
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import {
@@ -637,6 +638,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
           { provide: SESSION_VISIBLE, useValue: this.visible },
           { provide: SESSION_FOCUSED, useValue: this.focused },
           { provide: SESSION_FORCED_CARD, useValue: this.autoCard },
+          { provide: HIDE_AGENT_SIDEBAR, useValue: true },
           {
             provide: SESSION_CARD_ACTIONS,
             useValue: {
