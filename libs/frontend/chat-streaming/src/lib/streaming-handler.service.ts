@@ -467,6 +467,9 @@ export class StreamingHandlerService {
       return { tabId: targetTab.id, compactionSessionId: event.sessionId };
     }
     if (result.compactionComplete && result.replacementState) {
+      // The queued state is the pre-compaction one; drop it so no frame can
+      // publish it over the replacement (the flush guard is the backstop).
+      this.batchedUpdate.clearPendingUpdates(targetTab.id);
       this.tabManager.setStreamingState(targetTab.id, result.replacementState);
       return {
         tabId: targetTab.id,
@@ -522,13 +525,19 @@ export class StreamingHandlerService {
     if (!lookup) return false;
 
     const { tab } = lookup;
+    // A state queued before the tab left the active workspace may hold
+    // changes the partition copy lacks, and shares its event Maps, so the
+    // flush guard would not drop it. Accumulate onto it, then empty the queue
+    // below before the direct write: the queued object's old scalars must
+    // never drain over this write later.
+    const base =
+      this.batchedUpdate.queuedState(tab.id) ?? tab.streamingState;
     // This is the background half of the `processEventForTab` ephemeral-state
     // rule: store-only events still run, but their scratch state is not saved.
     const ephemeralState =
-      !tab.streamingState &&
+      !base &&
       StreamingHandlerService.STORE_ONLY_EVENT_TYPES.has(event.eventType);
-    let state: StreamingState =
-      tab.streamingState ?? createEmptyStreamingState();
+    let state: StreamingState = base ?? createEmptyStreamingState();
 
     const ctx: AccumulatorContext = {
       sessionManager: this.sessionManager,
@@ -543,6 +552,10 @@ export class StreamingHandlerService {
       state = result.replacementState;
     }
     if (ephemeralState) return true;
+
+    // Anything queued is merged into `state` (or replaced by compaction):
+    // drop it so a later drain cannot republish it over this write.
+    this.batchedUpdate.clearPendingUpdates(tab.id);
 
     // Streaming state only. A cron- or gateway-triggered turn that starts on a
     // backgrounded tab gets its spinner and `status` from the backend

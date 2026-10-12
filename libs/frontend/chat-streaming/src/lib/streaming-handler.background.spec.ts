@@ -96,6 +96,8 @@ describe('StreamingHandlerService — background routing', () => {
   let process: jest.Mock<AccumulatorResult, unknown[]>;
   let scheduleUpdate: jest.Mock;
   let flushSync: jest.Mock;
+  let clearPendingUpdates: jest.Mock;
+  let queuedState: jest.Mock;
   let markTabStreaming: jest.Mock;
   let isTabStreaming: jest.Mock<boolean, [string]>;
   let turnStateApply: jest.Mock;
@@ -111,6 +113,7 @@ describe('StreamingHandlerService — background routing', () => {
     process = jest.fn().mockReturnValue({} as AccumulatorResult);
     scheduleUpdate = jest.fn();
     flushSync = jest.fn();
+    clearPendingUpdates = jest.fn();
     markTabStreaming = jest.fn();
     isTabStreaming = jest.fn<boolean, [string]>().mockReturnValue(false);
     turnStateApply = jest.fn();
@@ -143,9 +146,12 @@ describe('StreamingHandlerService — background routing', () => {
       clearNodeMaps: jest.fn(),
     } as unknown as SessionManager;
 
+    queuedState = jest.fn().mockReturnValue(undefined);
     const batchedUpdate = {
       scheduleUpdate,
       flushSync,
+      clearPendingUpdates,
+      queuedState,
     } as unknown as BatchedUpdateService;
 
     const accumulatorCore = { process } as unknown as StreamingAccumulatorCore;
@@ -309,6 +315,32 @@ describe('StreamingHandlerService — background routing', () => {
 
       const updates = updateBackgroundTab.mock.calls[0][1];
       expect(updates.streamingState).toBe(replacement);
+      // A state queued before the tab went to the background is older.
+      expect(clearPendingUpdates).toHaveBeenCalledWith(BG_TAB_ID);
+    });
+
+    it('accumulates onto a state queued before the move and empties the queue before the write', () => {
+      const partitionCopy = createEmptyStreamingState();
+      // Queued pre-switch: shares the Maps, newer in scalars.
+      const queued = { ...partitionCopy, currentMessageId: 'msg-pre' };
+      queuedState.mockImplementation((id: string) =>
+        id === BG_TAB_ID ? queued : undefined,
+      );
+      findTabBySessionIdAcrossWorkspaces.mockReturnValue({
+        tab: makeTab({ streamingState: partitionCopy }),
+        workspacePath: '/ws/bg',
+      });
+
+      service.processStreamEvent(textDelta());
+
+      expect(process.mock.calls[0][0]).toBe(queued);
+      expect(clearPendingUpdates).toHaveBeenCalledWith(BG_TAB_ID);
+      expect(clearPendingUpdates.mock.invocationCallOrder[0]).toBeLessThan(
+        updateBackgroundTab.mock.invocationCallOrder[0],
+      );
+      expect(updateBackgroundTab).toHaveBeenCalledWith(BG_TAB_ID, {
+        streamingState: queued,
+      });
     });
 
     it('does NOT emit the No-target-tab warn on the background path', () => {

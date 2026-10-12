@@ -13,6 +13,10 @@
  *   - handleAgentSummaryChunk: warns + drops chunk when no tab streamingState
  *   - handleAgentSummaryChunk: appends to agentSummaryAccumulators by agentId
  *   - handleAgentSummaryChunk: stores contentBlocks when present
+ *   - handleAgentSummaryChunk: N chunks publish once per frame through the
+ *     real BatchedUpdateService; blocks append in place; a state already
+ *     queued is the one mutated (never an older snapshot over it); hidden
+ *     document / non-visible tab defer the publish
  *   - handleSessionIdResolved: direct tabId routing
  *   - handleSessionIdResolved: falls back to streaming/draft active tab
  *   - handleSessionIdResolved: warns when no tab found
@@ -30,9 +34,11 @@ import {
   AuthStateService,
   VSCodeService,
 } from '@ptah-extension/core';
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { ChatLifecycleService } from './chat-lifecycle.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  BatchedUpdateService,
   SessionManager,
   StreamingHandlerService,
   TurnStateApplier,
@@ -56,6 +62,9 @@ function makeStreamingState(
 ): StreamingState {
   return {
     currentMessageId: null,
+    // The containers the flush guard compares; a fresh state has new ones.
+    events: new Map(),
+    eventsByMessage: new Map(),
     agentSummaryAccumulators: new Map<string, string>(),
     agentContentBlocksMap: new Map<
       string,
@@ -107,8 +116,30 @@ describe('ChatLifecycleService', () => {
   let clearCompactionStateMock: jest.Mock;
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
+  // The real BatchedUpdateService runs; its frame is driven by hand.
+  let rafCallbacks: FrameRequestCallback[];
+  let originalRaf: typeof requestAnimationFrame;
+  let originalCancel: typeof cancelAnimationFrame;
+
+  function runRaf(): void {
+    const snapshot = rafCallbacks.slice();
+    rafCallbacks.length = 0;
+    snapshot.forEach((cb) => cb(performance.now()));
+  }
 
   beforeEach(() => {
+    rafCallbacks = [];
+    originalRaf = globalThis.requestAnimationFrame;
+    originalCancel = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback): number => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    }) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = ((id: number): void => {
+      if (id > 0 && id <= rafCallbacks.length) {
+        rafCallbacks[id - 1] = () => undefined;
+      }
+    }) as typeof cancelAnimationFrame;
     tabs = [makeTab()];
     setStreamingStateMock = jest.fn(
       (id: string, state: StreamingState | null) => {
@@ -179,6 +210,8 @@ describe('ChatLifecycleService', () => {
         findTabBySessionIdAcrossWorkspacesMock,
       activeTab: activeTabMock,
       activeTabId: activeTabIdMock,
+      // No canvas tiles: the active tab is the only flushable one.
+      visibleTabIds: () => new Set<string>(),
       markTabIdle: markTabIdleMock,
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
     } as unknown as TabManagerService;
@@ -228,12 +261,15 @@ describe('ChatLifecycleService', () => {
         // The real reconciler is exercised; its applier (which would pull the
         // whole chat-streaming write path into this spec) is not.
         { provide: TurnStateApplier, useValue: { apply: jest.fn() } },
+        provideSurfaceActiveTesting(),
       ],
     });
     service = TestBed.inject(ChatLifecycleService);
   });
 
   afterEach(() => {
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCancel;
     warn.mockRestore();
     error.mockRestore();
     TestBed.resetTestingModule();
@@ -354,6 +390,9 @@ describe('ChatLifecycleService', () => {
         sessionId: SESS_1,
       });
       expect(state.agentSummaryAccumulators.get('agent-1')).toBe('prev next');
+      // Published on the next frame, not per chunk.
+      expect(setStreamingStateMock).not.toHaveBeenCalled();
+      runRaf();
       expect(setStreamingStateMock).toHaveBeenCalledWith(
         'tab-1',
         expect.any(Object),
@@ -400,10 +439,314 @@ describe('ChatLifecycleService', () => {
       });
 
       expect(state.agentSummaryAccumulators.get('agent-9')).toBe('bg delta');
+      // Direct, not batched: nothing is left queued for the background tab.
       expect(setStreamingStateMock).toHaveBeenCalledWith(
         'bg-tab',
         expect.any(Object),
       );
+      expect(TestBed.inject(BatchedUpdateService).queuedState('bg-tab')).toBe(
+        undefined,
+      );
+    });
+
+    it('publishes N chunks in one frame as ONE setStreamingState', () => {
+      const state = makeStreamingState();
+      tabs = [makeTab({ streamingState: state })];
+      for (const [i, text] of ['a', 'b', 'c'].entries()) {
+        service.handleAgentSummaryChunk({
+          toolUseId: 't1',
+          summaryDelta: text,
+          agentId: 'agent-1',
+          sessionId: SESS_1,
+          contentBlocks: [{ type: 'text', text: `${text}${i}` }],
+        });
+      }
+      expect(setStreamingStateMock).not.toHaveBeenCalled();
+
+      runRaf();
+
+      expect(setStreamingStateMock).toHaveBeenCalledTimes(1);
+      const published = setStreamingStateMock.mock.calls[0][1] as StreamingState;
+      expect(published).not.toBe(state);
+      expect(published.agentSummaryAccumulators.get('agent-1')).toBe('abc');
+      expect(published.agentContentBlocksMap.get('agent-1')).toEqual([
+        { type: 'text', text: 'a0' },
+        { type: 'text', text: 'b1' },
+        { type: 'text', text: 'c2' },
+      ]);
+    });
+
+    it('appends blocks in place instead of reallocating the array per chunk', () => {
+      const state = makeStreamingState();
+      tabs = [makeTab({ streamingState: state })];
+      service.handleAgentSummaryChunk({
+        toolUseId: 't1',
+        summaryDelta: '',
+        agentId: 'agent-1',
+        sessionId: SESS_1,
+        contentBlocks: [{ type: 'text', text: 'one' }],
+      });
+      const blocks = state.agentContentBlocksMap.get('agent-1');
+      service.handleAgentSummaryChunk({
+        toolUseId: 't1',
+        summaryDelta: '',
+        agentId: 'agent-1',
+        sessionId: SESS_1,
+        contentBlocks: [{ type: 'text', text: 'two' }],
+      });
+      expect(state.agentContentBlocksMap.get('agent-1')).toBe(blocks);
+      expect(blocks).toHaveLength(2);
+    });
+
+    it('never schedules an older state over the one already queued', () => {
+      // The tab still holds its last-published snapshot; the streaming path
+      // has since queued a newer one (a different object) for the next frame.
+      // Like a flush copy, the two share their containers.
+      const published = makeStreamingState({ currentMessageId: 'm-old' });
+      tabs = [makeTab({ streamingState: published })];
+      const batched = TestBed.inject(BatchedUpdateService);
+      const queued = { ...published, currentMessageId: 'm-new' };
+      batched.scheduleUpdate('tab-1', queued);
+
+      service.handleAgentSummaryChunk({
+        toolUseId: 't1',
+        summaryDelta: 'sum',
+        agentId: 'agent-1',
+        sessionId: SESS_1,
+      });
+
+      expect(batched.queuedState('tab-1')).toBe(queued);
+      runRaf();
+      expect(setStreamingStateMock).toHaveBeenCalledTimes(1);
+      const flushed = setStreamingStateMock.mock.calls[0][1] as StreamingState;
+      expect(flushed.currentMessageId).toBe('m-new');
+      expect(flushed.agentSummaryAccumulators.get('agent-1')).toBe('sum');
+    });
+
+    it('defers a non-visible tab: no publish until it can be seen', () => {
+      const state = makeStreamingState();
+      tabs = [
+        makeTab({ id: 'tab-active', claudeSessionId: SESS_OTHER }),
+        makeTab({ id: 'tab-hidden', streamingState: state }),
+      ];
+      service.handleAgentSummaryChunk({
+        toolUseId: 't1',
+        summaryDelta: 'x',
+        agentId: 'agent-1',
+        sessionId: SESS_1,
+      });
+      runRaf();
+      expect(setStreamingStateMock).not.toHaveBeenCalled();
+      expect(
+        TestBed.inject(BatchedUpdateService).queuedState('tab-hidden'),
+      ).toBe(state);
+    });
+
+    it('defers while the document is hidden and publishes once it is visible', () => {
+      let visibility: DocumentVisibilityState = 'hidden';
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => visibility,
+      });
+      try {
+        const state = makeStreamingState();
+        tabs = [makeTab({ streamingState: state })];
+        service.handleAgentSummaryChunk({
+          toolUseId: 't1',
+          summaryDelta: 'h1',
+          agentId: 'agent-1',
+          sessionId: SESS_1,
+        });
+        service.handleAgentSummaryChunk({
+          toolUseId: 't1',
+          summaryDelta: 'h2',
+          agentId: 'agent-1',
+          sessionId: SESS_1,
+        });
+        runRaf();
+        expect(setStreamingStateMock).not.toHaveBeenCalled();
+
+        visibility = 'visible';
+        document.dispatchEvent(new Event('visibilitychange'));
+        runRaf();
+
+        expect(setStreamingStateMock).toHaveBeenCalledTimes(1);
+        const flushed = setStreamingStateMock.mock
+          .calls[0][1] as StreamingState;
+        expect(flushed.agentSummaryAccumulators.get('agent-1')).toBe('h1h2');
+      } finally {
+        // Drop the own-property override; the prototype getter returns.
+        delete (document as { visibilityState?: unknown }).visibilityState;
+      }
+    });
+
+    it('skips an empty chunk: no text and no blocks schedules nothing', () => {
+      tabs = [makeTab({ streamingState: makeStreamingState() })];
+      service.handleAgentSummaryChunk({
+        toolUseId: 't1',
+        summaryDelta: '',
+        agentId: 'agent-1',
+        sessionId: SESS_1,
+        contentBlocks: [],
+      });
+      expect(
+        TestBed.inject(BatchedUpdateService).queuedState('tab-1'),
+      ).toBeUndefined();
+      runRaf();
+      expect(setStreamingStateMock).not.toHaveBeenCalled();
+    });
+
+    it('a compaction replacement in the same frame survives the flush', () => {
+      const preCompaction = makeStreamingState();
+      tabs = [makeTab({ streamingState: preCompaction })];
+      service.handleAgentSummaryChunk({
+        toolUseId: 't1',
+        summaryDelta: 'before compaction',
+        agentId: 'agent-1',
+        sessionId: SESS_1,
+      });
+      // Compaction installs a fresh state directly, around the queue.
+      const replacement = makeStreamingState();
+      setStreamingStateMock('tab-1', replacement);
+      setStreamingStateMock.mockClear();
+
+      runRaf();
+
+      expect(setStreamingStateMock).not.toHaveBeenCalled();
+      expect(tabs[0].streamingState).toBe(replacement);
+    });
+
+    describe('tab moved to a background workspace with a queued summary', () => {
+      let background: TabState | null;
+
+      function moveToBackground(): void {
+        background = tabs[0];
+        tabs = [makeTab({ id: 'tab-other', claudeSessionId: SESS_OTHER })];
+      }
+
+      beforeEach(() => {
+        background = null;
+        findTabByIdAcrossWorkspacesMock.mockImplementation((id: string) => {
+          const tab =
+            tabs.find((t) => t.id === id) ??
+            (background?.id === id ? background : undefined);
+          return tab ? { tab, workspacePath: '/ws' } : null;
+        });
+        tabs = [makeTab({ streamingState: makeStreamingState() })];
+        service.handleAgentSummaryChunk({
+          toolUseId: 't1',
+          summaryDelta: 'queued',
+          agentId: 'agent-1',
+          sessionId: SESS_1,
+        });
+        moveToBackground();
+        runRaf(); // tab-1 is no longer active: the entry is deferred
+      });
+
+      it('a background replacement survives the return to the workspace', () => {
+        const replacement = makeStreamingState();
+        background = { ...(background as TabState), streamingState: replacement };
+        // Return: tab-1 is active again and the deferred entry drains.
+        tabs = [background];
+        background = null;
+        document.dispatchEvent(new Event('visibilitychange'));
+        runRaf();
+
+        expect(setStreamingStateMock).not.toHaveBeenCalled();
+        expect(tabs[0].streamingState).toBe(replacement);
+        expect(
+          TestBed.inject(BatchedUpdateService).queuedState('tab-1'),
+        ).toBeUndefined();
+      });
+
+      it('a full flushSync while backgrounded does not write the old state', () => {
+        const replacement = makeStreamingState();
+        background = { ...(background as TabState), streamingState: replacement };
+        TestBed.inject(BatchedUpdateService).flushSync();
+        expect(setStreamingStateMock).not.toHaveBeenCalled();
+      });
+
+      describe('then a background summary chunk and a background message_start', () => {
+        let queued: StreamingState;
+
+        beforeEach(() => {
+          const batched = TestBed.inject(BatchedUpdateService);
+          queued = batched.queuedState('tab-1') as StreamingState;
+          // The partition holds an earlier published copy: same Maps, and
+          // older scalars than the deferred entry, which active-path events
+          // kept mutating before the switch.
+          background = {
+            ...(background as TabState),
+            streamingState: { ...queued },
+          };
+          queued.currentMessageId = 'msg-pre';
+          // Writes land in the background partition while it is away.
+          setStreamingStateMock.mockImplementation(
+            (id: string, state: StreamingState | null) => {
+              if (background?.id === id) {
+                background = { ...background, streamingState: state };
+              } else {
+                tabs = tabs.map((t) =>
+                  t.id === id ? { ...t, streamingState: state } : t,
+                );
+              }
+            },
+          );
+          findTabBySessionIdAcrossWorkspacesMock.mockImplementation(
+            (sid: string) => {
+              const tab =
+                tabs.find((t) => t.claudeSessionId === sid) ??
+                (background?.claudeSessionId === sid ? background : undefined);
+              return tab ? { tab, workspacePath: '/ws' } : null;
+            },
+          );
+
+          service.handleAgentSummaryChunk({
+            toolUseId: 't2',
+            summaryDelta: ' bg',
+            agentId: 'agent-1',
+            sessionId: SESS_1,
+          });
+
+          // The summary write carries the queued (pre-switch) scalar and
+          // leaves nothing queued to drain later.
+          const written = background?.streamingState as StreamingState;
+          expect(written.currentMessageId).toBe('msg-pre');
+          expect(written.agentSummaryAccumulators.get('agent-1')).toBe(
+            'queued bg',
+          );
+          expect(batched.queuedState('tab-1')).toBeUndefined();
+
+          // A background `message_start`: the stream path mutates the
+          // partition's current object in place.
+          (written as { currentMessageId: string | null }).currentMessageId =
+            'msg-new';
+          setStreamingStateMock.mockClear();
+        });
+
+        it('the newer message id survives the return to the workspace', () => {
+          tabs = [background as TabState];
+          background = null;
+          document.dispatchEvent(new Event('visibilitychange'));
+          runRaf();
+
+          expect(setStreamingStateMock).not.toHaveBeenCalled();
+          const state = tabs[0].streamingState as StreamingState;
+          expect(state.currentMessageId).toBe('msg-new');
+          expect(state.agentSummaryAccumulators.get('agent-1')).toBe(
+            'queued bg',
+          );
+        });
+
+        it('the newer message id survives a forced flushSync', () => {
+          TestBed.inject(BatchedUpdateService).flushSync();
+
+          expect(setStreamingStateMock).not.toHaveBeenCalled();
+          expect(
+            (background?.streamingState as StreamingState).currentMessageId,
+          ).toBe('msg-new');
+        });
+      });
     });
   });
 

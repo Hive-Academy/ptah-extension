@@ -187,9 +187,37 @@ export class BatchedUpdateService {
         this.pendingFlush.add(tabId);
         continue;
       }
+      if (this.isSuperseded(tabId, state)) continue;
       this.tabManager.setStreamingState(tabId, { ...state });
     }
     this.pendingTabUpdates.clear();
+  }
+
+  /**
+   * Whether a direct writer has installed a NEWER state for this tab since
+   * `queued` was queued, so publishing `queued` would roll the tab back.
+   *
+   * Every batched writer mutates and queues the tab's current state, which
+   * shares its event containers with whatever the tab holds (a flush copy is
+   * `{ ...state }`). A different `events` or `eventsByMessage` container means
+   * the tab now holds a fresh state written around the queue — a compaction
+   * replacement, a resume, a background-partition write while the tab was in
+   * another workspace — and the queued one is older. A tab with no state, or
+   * none found, is not judged here: that is the first write, or a close /
+   * finalize path that clears the queue itself.
+   *
+   * `messageRevisions` is deliberately not compared: `bumpRevisions` creates it
+   * lazily on the live object, so its presence can differ without any writer
+   * having replaced the state.
+   */
+  private isSuperseded(tabId: string, queued: StreamingState): boolean {
+    const current =
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState;
+    if (!current) return false;
+    return (
+      current.events !== queued.events ||
+      current.eventsByMessage !== queued.eventsByMessage
+    );
   }
 
   private drainDeferred(): void {
@@ -292,6 +320,19 @@ export class BatchedUpdateService {
       }
     }
     this.flushPendingUpdates(true);
+  }
+
+  /**
+   * The state already queued for this tab — pending for the next frame or
+   * deferred until the tab can be seen — or `undefined` when nothing is
+   * queued. `scheduleUpdate` replaces the queued entry wholesale, so a writer
+   * that schedules outside the streaming path must mutate THIS object when it
+   * exists; scheduling any other snapshot would drop what the queued one holds.
+   */
+  queuedState(tabId: string): StreamingState | undefined {
+    return (
+      this.pendingTabUpdates.get(tabId) ?? this.deferredTabUpdates.get(tabId)
+    );
   }
 
   hasPendingUpdates(tabId: string): boolean {
