@@ -119,7 +119,7 @@ describe('getLanguageLabel', () => {
     expect(getLanguageLabel('typescript')).toBe('TypeScript');
     expect(getLanguageLabel('bash')).toBe('Bash');
     expect(getLanguageLabel('json')).toBe('JSON');
-    expect(getLanguageLabel('text')).toBe('Plain text');
+    expect(getLanguageLabel('text')).toBe('Text');
   });
 
   it('returns an unmapped id unchanged', () => {

@@ -4,7 +4,23 @@ import { provideMarkdown } from 'ngx-markdown';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import { Clipboard } from '@angular/cdk/clipboard';
 import { VSCodeService } from '@ptah-extension/core';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { provideMarkdownRendering } from '@ptah-extension/markdown';
 import { CodeOutputComponent } from './code-output.component';
+
+function node(partial: Partial<ExecutionNode>): ExecutionNode {
+  return {
+    id: 'n1',
+    type: 'tool',
+    status: 'complete',
+    content: null,
+    children: [],
+    startTime: 0,
+    isCollapsed: false,
+    ...partial,
+  };
+}
 
 /**
  * These cases pin language detection and code-fence containment, including
@@ -12,18 +28,6 @@ import { CodeOutputComponent } from './code-output.component';
  */
 describe('CodeOutputComponent — output language detection', () => {
   let fixture: ComponentFixture<CodeOutputComponent>;
-
-  function node(partial: Partial<ExecutionNode>): ExecutionNode {
-    return {
-      id: 'n1',
-      type: 'tool',
-      status: 'complete',
-      content: null,
-      children: [],
-      startTime: 0,
-      ...partial,
-    } as ExecutionNode;
-  }
 
   function outputFor(partial: Partial<ExecutionNode>): string {
     fixture.componentRef.setInput('node', node(partial));
@@ -131,18 +135,6 @@ describe.each([true, false])(
     let fixture: ComponentFixture<CodeOutputComponent>;
     let copyMock: jest.Mock<boolean, [string]>;
 
-    function node(partial: Partial<ExecutionNode>): ExecutionNode {
-      return {
-        id: 'n1',
-        type: 'tool',
-        status: 'complete',
-        content: null,
-        children: [],
-        startTime: 0,
-        ...partial,
-      } as ExecutionNode;
-    }
-
     function render(partial: Partial<ExecutionNode>): HTMLElement {
       fixture.componentRef.setInput('node', node(partial));
       fixture.detectChanges();
@@ -177,7 +169,7 @@ describe.each([true, false])(
         'TypeScript',
       ],
       [{ toolName: 'Bash', toolOutput: '{"ok":true}' }, 'JSON'],
-      [{ toolName: 'Grep', toolOutput: 'a.ts:1' }, 'Plain text'],
+      [{ toolName: 'Grep', toolOutput: lines(8) }, 'Text'],
     ] as const)('labels the language (%#)', (partial, label) => {
       const host = render(partial);
       expect(
@@ -185,6 +177,99 @@ describe.each([true, false])(
           .querySelector('[data-testid="code-output-language"]')
           ?.textContent?.trim(),
       ).toBe(label);
+    });
+
+    it.each([
+      [{ toolName: 'Bash', toolOutput: 'ok' }, 'Result'],
+      [
+        {
+          toolName: 'Read',
+          toolInput: { file_path: '/src/app.ts' },
+          toolOutput: 'x',
+        },
+        'Content',
+      ],
+      [{ toolName: 'Grep', toolOutput: lines(8) }, 'Matches'],
+      [{ toolName: 'Bash', toolOutput: 'boom', status: 'error' }, 'Error'],
+    ] as const)(
+      'names the content in the header row (%#)',
+      (partial, label) => {
+        const host = render(partial);
+        expect(
+          host
+            .querySelector('[data-testid="code-output-label"]')
+            ?.textContent?.trim(),
+        ).toBe(label);
+        expect(host.textContent).not.toMatch(/\bOutput\b/);
+      },
+    );
+
+    it('counts the output lines in the header row', () => {
+      const host = render({ toolName: 'Bash', toolOutput: 'a\nb\nc\n' });
+      expect(
+        host
+          .querySelector('[data-testid="code-output-lines"]')
+          ?.textContent?.trim(),
+      ).toBe('3 lines');
+    });
+
+    it('gives short plain text no label row, only a floating Copy in the tab order', () => {
+      const host = render({ toolName: 'mcp__srv__ping', toolOutput: 'pong' });
+
+      expect(
+        host.querySelector('[data-testid="code-output-header"]'),
+      ).toBeNull();
+      expect(
+        host.querySelector('[data-testid="code-output-label"]'),
+      ).toBeNull();
+      const floating = host.querySelector(
+        '[data-testid="code-output-floating-copy"]',
+      ) as HTMLElement;
+      expect(floating).not.toBeNull();
+      expect(floating.className).toContain(
+        'group-focus-within/output:opacity-100',
+      );
+      expect(floating.className).toContain('group-hover/output:opacity-100');
+      const copy = floating.querySelector('button') as HTMLButtonElement;
+      expect(copy.getAttribute('aria-label')).toBe('Copy output');
+      expect(copy.disabled).toBe(false);
+      expect(copy.tabIndex).toBe(0);
+    });
+
+    it.each([
+      [
+        'expandable plain text',
+        { toolName: 'mcp__srv__ping', toolOutput: lines(8) },
+      ],
+      ['a non-text language', { toolName: 'Bash', toolOutput: 'ok' }],
+    ] as const)('keeps the label row for %s', (_case, partial) => {
+      const host = render(partial);
+      expect(
+        host.querySelector('[data-testid="code-output-header"]'),
+      ).not.toBeNull();
+      expect(
+        host.querySelector('[data-testid="code-output-floating-copy"]'),
+      ).toBeNull();
+    });
+
+    it('renders a failed call as the error block with readable text', () => {
+      const host = render({
+        toolName: 'Bash',
+        toolOutput: 'error TS2322',
+        status: 'error',
+      });
+      const block = host.querySelector('[role="region"]') as HTMLElement;
+      expect(block.classList).toContain('bg-error/10');
+      expect(block.classList).toContain('text-base-content');
+      expect(block.classList).not.toContain('bg-base-300/50');
+    });
+
+    it('uses an 11px floor for the block text', () => {
+      const block = render({
+        toolName: 'Bash',
+        toolOutput: 'ok',
+      }).querySelector('[role="region"]') as HTMLElement;
+      expect(block.classList).toContain('text-[11px]');
     });
 
     it('makes the block focusable with an aria-label naming the tool', () => {
@@ -196,11 +281,37 @@ describe.each([true, false])(
       expect(block.getAttribute('aria-label')).toMatch(/^Bash output \d+$/);
     });
 
-    it('keeps short output in the max-h-48 scroll with no toggle', () => {
+    it('says "failed" in the region label of a failed call', () => {
+      const block = render({
+        toolName: 'PowerShell',
+        toolOutput: 'boom',
+        status: 'error',
+      }).querySelector('[role="region"]') as HTMLElement;
+      expect(block.getAttribute('aria-label')).toMatch(
+        /^PowerShell output \d+, failed$/,
+      );
+    });
+
+    it('does not style the output as a failure while a permission is pending', () => {
+      fixture.componentRef.setInput('awaitingPermission', true);
+      const host = render({
+        toolName: 'Bash',
+        toolOutput: 'needs approval',
+        status: 'error',
+      });
+      const block = host.querySelector('[role="region"]') as HTMLElement;
+      expect(block.classList).not.toContain('bg-error/10');
+      expect(block.classList).toContain('bg-base-300/50');
+      expect(block.getAttribute('aria-label')).toMatch(/^Bash output \d+$/);
+      const label = host.querySelector('[data-testid="code-output-label"]');
+      expect(label?.textContent).not.toBe('Error');
+    });
+
+    it('keeps short output in the max-h-96 scroll with no toggle', () => {
       const host = render({ toolName: 'Bash', toolOutput: lines(6) });
       const block = host.querySelector('[role="region"]') as HTMLElement;
       expect(host.querySelector('button[aria-expanded]')).toBeNull();
-      expect(block.classList).toContain('max-h-48');
+      expect(block.classList).toContain('max-h-96');
       expect(block.classList).toContain('overflow-y-auto');
       expect(block.classList).not.toContain('is-clipped');
     });
@@ -217,7 +328,7 @@ describe.each([true, false])(
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.getAttribute('aria-controls')).toBe(block.id);
       expect(block.classList).toContain('is-clipped');
-      expect(block.classList).not.toContain('max-h-48');
+      expect(block.classList).not.toContain('max-h-96');
       // Clipped text stays in the document for assistive technology.
       expect(block.textContent).toContain('line 20');
 
@@ -226,7 +337,7 @@ describe.each([true, false])(
       expect(toggle.textContent?.trim()).toBe('Show less');
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
       expect(block.classList).not.toContain('is-clipped');
-      expect(block.classList).toContain('max-h-48');
+      expect(block.classList).toContain('max-h-96');
       expect(block.classList).toContain('overflow-y-auto');
 
       toggle.click();
@@ -294,7 +405,7 @@ describe.each([true, false])(
         host.querySelector('button[aria-expanded]') as HTMLButtonElement
       ).click();
       fixture.detectChanges();
-      expect(block.classList).toContain('max-h-48');
+      expect(block.classList).toContain('max-h-96');
       expect(block.classList).not.toContain('overflow-x-auto');
     });
 
@@ -386,3 +497,104 @@ describe.each([true, false])(
     });
   },
 );
+
+/**
+ * Regression (blank output): the app's markdown preset wraps each fence in a
+ * language header and, from 15 lines, a <details> "Collapse" summary. Inside
+ * the 9.6em limit those bars pushed the first code row under the fade. They
+ * must stay hidden, leaving one language label: the component's own row.
+ */
+describe('CodeOutputComponent — inner code-block chrome (full markdown preset)', () => {
+  let fixture: ComponentFixture<CodeOutputComponent>;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [CodeOutputComponent],
+      providers: [
+        provideSurfaceActiveTesting(),
+        provideMarkdownRendering({ extensions: 'full' }),
+        { provide: Clipboard, useValue: { copy: jest.fn() } },
+        { provide: VSCodeService, useValue: { isElectron: false } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(CodeOutputComponent);
+  });
+
+  async function render(toolOutput: string): Promise<HTMLElement> {
+    fixture.componentRef.setInput(
+      'node',
+      node({ toolName: 'PowerShell', toolOutput }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  /**
+   * jest-preset-angular strips component `styles`, so the hiding rule cannot
+   * be observed through getComputedStyle. Both halves of the contract are
+   * pinned instead: the renderer emits the chrome under
+   * `.tool-output-markdown`, and the shared stylesheet
+   * (`tool-output-markdown.styles.ts`, used by code-output and
+   * tool-input-display) hides exactly that selector. This is the one pin.
+   */
+  const source = readFileSync(
+    join(__dirname, 'tool-output-markdown.styles.ts'),
+    'utf-8',
+  );
+
+  // Defect 4: the pipe's containment root has an inline overflow-x: auto,
+  // which made it a second scroller inside the block.
+  it('lifts the containment root overflow so the block is the only scroller', async () => {
+    const host = await render('row 0');
+
+    expect(
+      host.querySelector('.tool-output-markdown .ptah-markdown-root'),
+    ).not.toBeNull();
+    expect(source).toMatch(
+      /\.tool-output-markdown \.ptah-markdown-root \{\s*overflow: visible !important;/,
+    );
+  });
+
+  it('hides the inner header and Collapse summary in its stylesheet', () => {
+    expect(source).toMatch(
+      /\.tool-output-markdown \.code-block-header,\s*:host ::ng-deep \.tool-output-markdown \.code-block-toggle \{\s*display: none;/,
+    );
+  });
+
+  it.each([3, 20])(
+    'renders the inner chrome where that rule applies, for %i lines',
+    async (count) => {
+      const output = Array.from({ length: count }, (_, i) => `row ${i}`).join(
+        '\n',
+      );
+      const host = await render(output);
+
+      expect(
+        host.querySelector('.tool-output-markdown .code-block-header'),
+      ).not.toBeNull();
+      if (count >= 15) {
+        expect(
+          host.querySelector('.tool-output-markdown .code-block-toggle'),
+        ).not.toBeNull();
+      }
+      // The code itself is in the block. Short plain text has no label row;
+      // long output has one, and its label is the only one.
+      expect(host.querySelector('pre code')?.textContent).toContain('row 0');
+      expect(host.textContent).not.toContain('Output');
+      if (count <= 6) {
+        expect(
+          host.querySelector('[data-testid="code-output-label"]'),
+        ).toBeNull();
+        return;
+      }
+      expect(
+        host.querySelector('[data-testid="code-output-label"]')?.textContent,
+      ).toBe('Result');
+      expect(
+        host.querySelectorAll('[data-testid="code-output-language"]'),
+      ).toHaveLength(1);
+    },
+  );
+});

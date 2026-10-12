@@ -13,6 +13,8 @@ import {
   ToolInputDisplayComponent,
   ToolOutputDisplayComponent,
   PermissionRequestCardComponent,
+  isPtahMcpToolName,
+  toolStatusPresentation,
 } from '@ptah-extension/chat-ui';
 import type {
   ExecutionNode,
@@ -21,13 +23,22 @@ import type {
 } from '@ptah-extension/shared';
 
 /**
- * ToolCallItemComponent - Compact tool execution display (REFACTORED)
+ * ToolCallItemComponent - One tool call as a quiet log line with a status rail
  *
  * Complexity Level: 2 (Molecule orchestrator)
- * Patterns: Composition-based architecture (REDUCED from 702 lines to ~80 lines)
+ * Patterns: Composition of header, input and output molecules
  *
  * Features:
  * - Compose ToolCallHeaderComponent, ToolInputDisplayComponent, ToolOutputDisplayComponent
+ * - No card box or separator; a 3px left rail carries the state colour from
+ *   `toolStatusPresentation` (success, error, pulsing info while running,
+ *   warning when interrupted or awaiting permission, info when resumed,
+ *   neutral while pending). The header reads the same state out in words
+ * - A pending permission request outranks the status (it can arrive with
+ *   `status: 'error'`): warning rail, "Awaiting permission"
+ * - Ptah MCP calls keep a status-coloured rail (state outranks identity, a
+ *   deviation from Direction C's gold rail); the header's gold "Ptah" chip
+ *   and the expanded body's gold left border carry the identity
  * - Manage collapse state (default: collapsed)
  * - Toggle collapse on header click
  * - Escape inside the expanded item collapses it and refocuses the header
@@ -43,16 +54,12 @@ import type {
  *
  * Composition Hierarchy:
  * ToolCallItemComponent (this component)
- *   ├─ ToolCallHeaderComponent
- *   │    ├─ ToolIconComponent (icon + color)
- *   │    ├─ DurationBadgeComponent (duration display)
- *   │    └─ CopyTextButtonComponent ("Copy command")
- *   ├─ ToolInputDisplayComponent
- *   │    └─ ExpandableContentComponent (large content expand/collapse)
+ *   ├─ ToolCallHeaderComponent (tool name, primary, chips, duration)
+ *   ├─ ToolInputDisplayComponent (Command / Content / Prompt, Arguments)
  *   └─ ToolOutputDisplayComponent
  *        ├─ TodoListDisplayComponent (TodoWrite specialized display)
- *        ├─ CodeOutputComponent (syntax-highlighted code)
- *        └─ ErrorAlertComponent (error display)
+ *        ├─ DiffDisplayComponent (Edit diff)
+ *        └─ CodeOutputComponent (Result / Error block)
  */
 @Component({
   selector: 'ptah-tool-call-item',
@@ -65,30 +72,38 @@ import type {
     PermissionRequestCardComponent,
   ],
   template: `
-    <div [class]="containerClass()">
+    <div class="relative pl-2.5 my-0.5">
+      <!-- Status rail: colour only; the header names the status in words -->
+      <span
+        [class]="railClass()"
+        aria-hidden="true"
+        data-testid="tool-rail"
+      ></span>
+
       <!-- Header (clickable to toggle) -->
       <ptah-tool-call-header
         #headerRef
         [node]="node()"
         [isCollapsed]="isCollapsed()"
+        [awaitingPermission]="awaitingPermission()"
         (toggleClicked)="toggleCollapse()"
       />
 
       <!-- Collapsible content -->
       @if (!isCollapsed()) {
-        <div
-          class="px-2 pb-2 pt-0 border-t border-base-300/30"
-          [attr.id]="'tool-' + node().id"
-        >
-          <!-- Input parameters -->
+        <div [class]="bodyClass()" [attr.id]="'tool-' + node().id">
+          <!-- Input: Command / Content / Prompt, Arguments -->
           <ptah-tool-input-display [node]="node()" />
 
-          <!-- Output section -->
-          <ptah-tool-output-display [node]="node()" />
+          <!-- Output: Result / Diff / Tasks / Error -->
+          <ptah-tool-output-display
+            [node]="node()"
+            [awaitingPermission]="awaitingPermission()"
+          />
 
           <!-- Permission request section (if tool requires permission) -->
           @if (permission()) {
-            <div class="mt-2 pt-2 border-t border-base-300/30">
+            <div class="pt-1.5 border-t border-surface-border">
               <ptah-permission-request-card
                 [request]="permission()!"
                 (responded)="handlePermissionResponse($event)"
@@ -100,13 +115,6 @@ import type {
           <ng-content />
         </div>
       }
-    </div>
-
-    <!-- Separator between tool cards -->
-    <div
-      class="flex items-center gap-2 my-1.5 px-1 before:flex-1 before:border-t before:border-base-300/40 after:flex-1 after:border-t after:border-base-300/40"
-    >
-      <div class="w-1 h-1 rounded-full bg-base-300/60"></div>
     </div>
   `,
   // `.ptah-gold-border` is defined once globally in
@@ -120,16 +128,31 @@ export class ToolCallItemComponent {
 
   private readonly headerRef = viewChild<ToolCallHeaderComponent>('headerRef');
 
+  /** A permission request for this call is waiting on the user. */
+  protected readonly awaitingPermission = computed(() => !!this.permission());
+
   /**
-   * Dynamic container class: gold border for Ptah MCP tools, default otherwise
+   * Rail colour from `toolStatusPresentation` (shared with the header's
+   * label), as one class string: a `[class.x]` binding cannot carry the
+   * `motion-reduce:` variant. Existing tokens only.
    */
-  readonly containerClass = computed(() => {
-    const toolName = this.node().toolName || '';
-    const base = 'bg-surface-1 rounded my-0.5 border border-surface-border';
-    if (toolName.startsWith('mcp__ptah')) {
-      return base + ' ptah-gold-border';
-    }
-    return base;
+  readonly railClass = computed(() => {
+    const { railClass } = toolStatusPresentation(this.node().status, {
+      command: false,
+      awaitingPermission: this.awaitingPermission(),
+    });
+    return `absolute left-0 top-1 bottom-1 w-[3px] rounded-full ${railClass}`;
+  });
+
+  /**
+   * Expanded body: no box. Ptah MCP calls get a gold left border
+   * (`.ptah-gold-border`, keyed off the theme-aware `--ptah-gold`).
+   */
+  readonly bodyClass = computed(() => {
+    const base = 'pb-1.5 space-y-1.5';
+    return isPtahMcpToolName(this.node().toolName || '')
+      ? `${base} ml-1 pl-2 border-l ptah-gold-border`
+      : `${base} pl-1`;
   });
 
   /**

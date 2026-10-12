@@ -55,7 +55,7 @@ const LANGUAGE_LABELS: Readonly<Record<string, string>> = {
   xml: 'XML',
   sql: 'SQL',
   bash: 'Bash',
-  text: 'Plain text',
+  text: 'Text',
 };
 
 /** The tool facts language detection reads. */

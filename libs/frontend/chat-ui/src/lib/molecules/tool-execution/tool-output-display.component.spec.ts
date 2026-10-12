@@ -69,7 +69,7 @@ describe('ToolOutputDisplayComponent — retention marker', () => {
       const host = render({ toolOutput: 'ok\n' });
 
       expect(marker(host)).toBeNull();
-      expect(host.textContent).toContain('Output');
+      expect(host.querySelector('ptah-code-output')).not.toBeNull();
       expect(host.textContent).not.toMatch(/truncated|could not be preserved/i);
     });
 
@@ -305,7 +305,159 @@ describe.each([true, false])(
       expect(host.querySelector('ptah-diff-display')).toBeNull();
     });
 
-    it('keeps the retention notice and the error alert', () => {
+    // Regression: "Output" heading, then a language badge in a second row.
+    it('has no generic "Output" heading; the code output names its content', () => {
+      const host = render({ toolOutput: 'ok' });
+
+      expect(host.textContent).not.toMatch(/\bOutput\b/);
+      expect(
+        host.querySelector('[data-testid="code-output-label"]')?.textContent,
+      ).toBe('Result');
+    });
+
+    it('labels the todo list "Tasks" and the diff "Diff", with no "Output" heading', () => {
+      let host = render({
+        toolName: 'TodoWrite',
+        toolInput: {
+          todos: [
+            { content: 'Ship it', status: 'pending', activeForm: 'Shipping' },
+          ],
+        },
+        toolOutput: 'ok',
+      });
+      expect(host.textContent).toContain('Tasks');
+      expect(host.textContent).not.toMatch(/\bOutput\b/);
+
+      host = render(edit);
+      expect(
+        host.querySelector('[data-testid="diff-label"]')?.textContent,
+      ).toBe('Diff');
+      expect(host.textContent).not.toMatch(/\bOutput\b/);
+    });
+
+    it("shows a failed command's error once: the output block, no second alert", async () => {
+      const host = render({
+        status: 'error',
+        toolOutput: 'npm ERR! missing script: lint',
+        error: 'npm ERR! missing script: lint',
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="tool-error"]')).toBeNull();
+      expect(host.textContent?.match(/missing script/g)).toHaveLength(1);
+    });
+
+    it('renders an error with no output as one readable "Error" block', () => {
+      const host = render({ status: 'error', error: 'Permission denied' });
+      const block = host.querySelector(
+        '[data-testid="tool-error"]',
+      ) as HTMLElement;
+
+      expect(block.textContent).toContain('Error');
+      expect(block.textContent).toContain('Permission denied');
+      expect(block.querySelector('.bg-error\\/10')?.classList).toContain(
+        'text-base-content',
+      );
+      expect(host.querySelector('.alert-error')).toBeNull();
+    });
+
+    it('keeps the Error block when the output only mentions the error incidentally', () => {
+      const host = render({
+        status: 'error',
+        toolOutput:
+          'Permission denied was mentioned in the log, then retry succeeded',
+        error: 'Permission denied',
+      });
+
+      const block = host.querySelector('[data-testid="tool-error"]');
+      expect(block?.textContent).toContain('Permission denied');
+    });
+
+    it('treats ANSI-coloured output and error as the same displayed message', () => {
+      const host = render({
+        status: 'error',
+        toolOutput: 'Compiling...\n\x1b[31mError: build failed\x1b[0m\n',
+        error: '\x1b[1mError: build failed\x1b[0m',
+      });
+
+      expect(host.querySelector('[data-testid="tool-error"]')).toBeNull();
+    });
+
+    it('keeps the Error block when the output holds the error only mid-line', () => {
+      const host = render({
+        status: 'error',
+        toolOutput: 'warning: Error: build failed',
+        error: 'Error: build failed',
+      });
+
+      expect(host.querySelector('[data-testid="tool-error"]')).not.toBeNull();
+    });
+
+    // Regression: markdown output is sanitised, so the matching text can vanish.
+    it('keeps the Error block for markdown (MCP) output that holds the same text', async () => {
+      const host = render({
+        toolName: 'mcp__server__run',
+        status: 'error',
+        toolOutput: '<script>fatal</script>',
+        error: '<script>fatal</script>',
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const block = host.querySelector('[data-testid="tool-error"]');
+      expect(block).not.toBeNull();
+      expect(block?.textContent).toContain('<script>fatal</script>');
+    });
+
+    it('keeps the Error block for a .md Read whose output equals the error', () => {
+      const host = render({
+        toolName: 'Read',
+        toolInput: { file_path: '/repo/README.md' },
+        status: 'error',
+        toolOutput: 'File not found',
+        error: 'File not found',
+      });
+
+      expect(host.querySelector('[data-testid="tool-error"]')).not.toBeNull();
+    });
+
+    it('forwards a pending permission: the output is not styled as a failure', () => {
+      fixture.componentRef.setInput('awaitingPermission', true);
+      const host = render({ status: 'error', toolOutput: 'needs approval' });
+
+      const region = host.querySelector(
+        'ptah-code-output [role="region"]',
+      ) as HTMLElement;
+      expect(region.classList).not.toContain('bg-error/10');
+      expect(region.classList).toContain('bg-base-300/50');
+      expect(region.getAttribute('aria-label')).not.toContain('failed');
+    });
+
+    it('styles the same output as a failure once no permission is pending', () => {
+      const host = render({ status: 'error', toolOutput: 'needs approval' });
+
+      const region = host.querySelector(
+        'ptah-code-output [role="region"]',
+      ) as HTMLElement;
+      expect(region.classList).toContain('bg-error/10');
+    });
+
+    it('shows a whitespace-only error as an Error block with a stated message', () => {
+      const host = render({
+        status: 'error',
+        toolOutput: 'some output',
+        error: '   \n ',
+      });
+
+      const block = host.querySelector('[data-testid="tool-error"]');
+      expect(block).not.toBeNull();
+      expect(block?.textContent).toContain(
+        'The tool reported an error without a message.',
+      );
+    });
+
+    it('keeps the retention notice and the error block', () => {
       const host = render({
         toolOutput: 'partial',
         retention: {
@@ -317,9 +469,9 @@ describe.each([true, false])(
       });
 
       expect(host.textContent).toContain('Output truncated');
-      expect(host.querySelector('ptah-error-alert')?.textContent).toContain(
-        'exit code 2',
-      );
+      expect(
+        host.querySelector('[data-testid="tool-error"]')?.textContent,
+      ).toContain('exit code 2');
     });
 
     it('never carries a horizontal-scroll class, in any state', () => {

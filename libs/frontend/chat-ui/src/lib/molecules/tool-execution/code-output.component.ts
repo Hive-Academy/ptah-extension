@@ -18,11 +18,18 @@ import {
   detectToolLanguage,
   getLanguageLabel,
 } from '../../utils/tool-language.utils';
+import { countLines } from '../../utils/tool-target.utils';
+import { toolStatusPresentation } from '../../utils/tool-status.utils';
+import {
+  exceedsWrappedRows,
+  toolOutputPlainText,
+} from '../../utils/tool-text.utils';
+import { TOOL_OUTPUT_MARKDOWN_STYLES } from './tool-output-markdown.styles';
 
-/** Rows visible inside the collapsed 9.6em limit (10px text, 1.4 line height). */
+/** Rows visible inside the collapsed 9.6em limit (11px text, 1.4 line height). */
 const COLLAPSED_ROWS = 6;
-/** Approximate characters per wrapped row at the panel's width. */
-const WRAP_CHARS = 100;
+/** Languages read as plain text: short output in them gets no label row. */
+const TEXT_LANGUAGES: ReadonlySet<string> = new Set(['text', 'markdown']);
 
 let nextBlockId = 0;
 
@@ -33,22 +40,28 @@ let nextBlockId = 0;
  * Patterns: Content processing + markdown rendering
  *
  * Features:
- * - Process tool output (strip system reminders, line numbers, MCP format)
- * - Detect syntax highlighting language (`tool-language.utils`) and label it
+ * - Process tool output (`toolOutputPlainText`: MCP format, system
+ *   reminders, ANSI codes, line numbers)
+ * - One header row, only when the block is expandable or has a non-text
+ *   language: a label naming the content ("Result", "Content", "Matches",
+ *   "Error"), the language label (`tool-language.utils`), the line count, the
+ *   expand toggle and "Copy output". Short plain text has no row, only a
+ *   floating "Copy output" (shown on hover / focus-within, always tabbable)
  * - Wrap content in markdown code blocks
- * - Render with ngx-markdown
+ * - Render with ngx-markdown; the code block's own header and "Collapse"
+ *   summary are hidden, so nothing repeats the label or eats the limit
  * - Height-limited to 9.6em with a fade; "Show full output" / "Show less"
- *   lifts the limit to the `max-h-48` scroll; Escape inside the expanded
+ *   lifts the limit to the `max-h-96` scroll; Escape inside the expanded
  *   block collapses it and returns focus to the toggle; "Copy output" copies
  *   the stripped text
+ * - A failed call's output is the error block (`bg-error/10`, text in
+ *   `text-base-content`); there is no second alert for the same text
  * - Code wraps (`pre-wrap`, `overflow-wrap: anywhere`); no horizontal scroll
  *
  * Processing Pipeline:
- * 1. Extract MCP content: [{type: "text", text: "..."}] → "..."
- * 2. Strip <system-reminder> tags
- * 3. Strip Claude CLI line number prefixes (   N→content)
- * 4. Detect language from file extension or tool type
- * 5. Wrap in markdown code blocks for syntax highlighting
+ * 1. `toolOutputPlainText` (MCP extraction and stripping, `tool-text.utils`)
+ * 2. Detect language from file extension or tool type
+ * 3. Wrap in markdown code blocks for syntax highlighting
  */
 @Component({
   selector: 'ptah-code-output',
@@ -56,45 +69,72 @@ let nextBlockId = 0;
   imports: [SurfaceMarkdownPipe, MarkdownModule, CopyTextButtonComponent],
   host: { '(keydown.escape)': 'collapseOnEscape($event)' },
   template: `
-    <div class="flex items-center gap-1 mb-0.5">
-      <span
-        class="badge badge-ghost badge-xs text-[10px] text-base-content-muted"
-        data-testid="code-output-language"
-        >{{ languageLabel() }}</span
-      >
-      <span class="flex-1"></span>
-      @if (collapsible()) {
-        <button
-          #expandToggle
-          type="button"
-          class="btn btn-ghost btn-xs h-7 min-h-0 px-2 text-[10px] font-normal"
-          [attr.aria-expanded]="expanded()"
-          [attr.aria-controls]="blockId"
-          (click)="toggleExpanded()"
+    <div class="relative group/output">
+      @if (showHeaderRow()) {
+        <div
+          class="flex items-center gap-2 min-h-7 text-[11px] text-base-content-muted"
+          data-testid="code-output-header"
         >
-          {{ expanded() ? 'Show less' : 'Show full output' }}
-        </button>
+          <span
+            class="font-medium"
+            [class.text-base-content]="failed()"
+            data-testid="code-output-label"
+            >{{ sectionLabel() }}</span
+          >
+          <span data-testid="code-output-language">{{ languageLabel() }}</span>
+          <span data-testid="code-output-lines"
+            >{{ lineCount() }} line{{ lineCount() === 1 ? '' : 's' }}</span
+          >
+          <span class="flex-1"></span>
+          @if (collapsible()) {
+            <button
+              #expandToggle
+              type="button"
+              class="btn btn-ghost btn-xs h-7 min-h-0 px-2 text-[11px] font-normal"
+              [attr.aria-expanded]="expanded()"
+              [attr.aria-controls]="blockId"
+              (click)="toggleExpanded()"
+            >
+              {{ expanded() ? 'Show less' : 'Show full output' }}
+            </button>
+          }
+          <ptah-copy-text-button [text]="plainOutput()" label="Copy output" />
+        </div>
+      } @else {
+        <!-- Short plain text: no label row, only a floating Copy. Always in
+             the DOM and the tab order; shown on hover or keyboard focus. -->
+        <span
+          class="absolute top-0 right-0 z-10 opacity-0 group-hover/output:opacity-100 group-focus-within/output:opacity-100"
+          data-testid="code-output-floating-copy"
+        >
+          <ptah-copy-text-button [text]="plainOutput()" label="Copy output" />
+        </span>
       }
-      <ptah-copy-text-button [text]="plainOutput()" label="Copy output" />
-    </div>
-    <div
-      [id]="blockId"
-      tabindex="0"
-      role="region"
-      [attr.aria-label]="blockLabel()"
-      class="code-output-block bg-base-300/50 rounded text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-      [class.max-h-48]="!clipped()"
-      [class.overflow-y-auto]="!clipped()"
-      [class.is-clipped]="clipped()"
-    >
-      <markdown
-        [data]="formattedOutput() | surfaceMarkdown: surfaceActive()"
-        class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
-      />
+      <div
+        [id]="blockId"
+        tabindex="0"
+        role="region"
+        [attr.aria-label]="blockLabel()"
+        class="code-output-block rounded text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        [class.bg-base-300/50]="!failed()"
+        [class.bg-error/10]="failed()"
+        [class.text-base-content]="failed()"
+        [class.max-h-96]="!clipped()"
+        [class.overflow-y-auto]="!clipped()"
+        [class.is-clipped]="clipped()"
+      >
+        <markdown
+          [data]="formattedOutput() | surfaceMarkdown: surfaceActive()"
+          class="tool-output-markdown prose prose-xs prose-invert max-w-none"
+        />
+      </div>
     </div>
   `,
   styles: [
     `
+      .code-output-block {
+        overflow-x: hidden;
+      }
       .code-output-block.is-clipped {
         max-height: 9.6em;
         overflow-y: hidden;
@@ -109,27 +149,8 @@ let nextBlockId = 0;
           transparent
         );
       }
-      :host ::ng-deep .tool-output-markdown {
-        pre {
-          margin: 0;
-          padding: 0.5rem;
-          background: transparent !important;
-        }
-        pre,
-        code {
-          white-space: pre-wrap;
-          overflow-wrap: anywhere;
-        }
-        code {
-          font-size: 10px;
-          line-height: 1.4;
-        }
-        p {
-          margin: 0.25rem 0;
-          font-size: 10px;
-        }
-      }
     `,
+    TOOL_OUTPUT_MARKDOWN_STYLES,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -138,21 +159,10 @@ export class CodeOutputComponent {
 
   readonly node = input.required<ExecutionNode>();
 
-  /** Tool output after MCP extraction and reminder, ANSI and `N→` stripping. */
-  readonly plainOutput = computed(() => {
-    const node = this.node();
-    if (!node) return '';
-
-    const output = node.toolOutput;
-    if (!output) return '';
-
-    let str =
-      typeof output === 'string' ? output : JSON.stringify(output, null, 2);
-    str = this.extractMCPContent(str);
-    str = this.stripSystemReminders(str);
-    str = this.stripAnsiCodes(str);
-    return this.stripLineNumbers(str);
-  });
+  /** Tool output as displayed (`toolOutputPlainText`). */
+  readonly plainOutput = computed(() =>
+    toolOutputPlainText(this.node()?.toolOutput),
+  );
 
   /** Highlight language id, from `tool-language.utils`. */
   readonly language = computed(() => detectToolLanguage(this.node()));
@@ -160,6 +170,34 @@ export class CodeOutputComponent {
   protected readonly languageLabel = computed(() =>
     getLanguageLabel(this.language()),
   );
+
+  /** A permission request for this call is waiting on the user. */
+  readonly awaitingPermission = input(false);
+
+  /**
+   * A failed call: its output is the error text. From
+   * `toolStatusPresentation`, so a pending permission (which can arrive with
+   * `status: 'error'`) is not styled as a failure, matching rail and header.
+   */
+  protected readonly failed = computed(
+    () =>
+      toolStatusPresentation(this.node().status, {
+        command: false,
+        awaitingPermission: this.awaitingPermission(),
+      }).failed,
+  );
+
+  /** The label that names what the block holds. */
+  protected readonly sectionLabel = computed(() => {
+    if (this.failed()) return 'Error';
+    const toolName = this.node().toolName;
+    if (toolName === 'Read') return 'Content';
+    if (toolName === 'Grep' || toolName === 'Glob') return 'Matches';
+    return 'Result';
+  });
+
+  /** Lines in the stripped output (CRLF, CR or LF; a trailing one adds none). */
+  protected readonly lineCount = computed(() => countLines(this.plainOutput()));
 
   /**
    * Computed formatted output
@@ -174,22 +212,22 @@ export class CodeOutputComponent {
   });
 
   /**
-   * Whether the output is taller than the collapsed limit. Estimated from
-   * wrapped rows (no layout measurement, so no observer per tool row). Every
-   * language wraps, so each line counts `max(1, ceil(length / WRAP_CHARS))`.
-   * Line terminators are CRLF, CR or LF, so a `\r` never adds to a line's
-   * length. A block that is not collapsible is never clipped (it keeps
-   * `max-h-48`).
+   * Whether the output is taller than the collapsed limit
+   * (`exceedsWrappedRows`; estimated, so no observer per tool row). A block
+   * that is not collapsible is never clipped (it keeps `max-h-96`).
    */
-  protected readonly collapsible = computed(() => {
-    const lines = this.plainOutput().split(/\r\n|\r|\n/);
-    let rows = 0;
-    for (const line of lines) {
-      rows += Math.max(1, Math.ceil(line.length / WRAP_CHARS));
-      if (rows > COLLAPSED_ROWS) return true;
-    }
-    return false;
-  });
+  protected readonly collapsible = computed(() =>
+    exceedsWrappedRows(this.plainOutput(), COLLAPSED_ROWS),
+  );
+
+  /**
+   * The label row shows only when it carries something: an expand toggle or
+   * a code language. Markdown (an MCP or agent text result) renders as prose,
+   * so it counts as text here, as Direction A labels it.
+   */
+  protected readonly showHeaderRow = computed(
+    () => this.collapsible() || !TEXT_LANGUAGES.has(this.language()),
+  );
 
   /** "Show full output" state; the block starts height-limited. */
   protected readonly expanded = signal(false);
@@ -200,9 +238,11 @@ export class CodeOutputComponent {
 
   private readonly blockNumber = nextBlockId++;
   protected readonly blockId = `ptah-code-output-${this.blockNumber}`;
-  protected readonly blockLabel = computed(
-    () => `${this.node().toolName || 'Tool'} output ${this.blockNumber}`,
-  );
+  /** The region's spoken name; a failed call says so ("Bash output 3, failed"). */
+  protected readonly blockLabel = computed(() => {
+    const label = `${this.node().toolName || 'Tool'} output ${this.blockNumber}`;
+    return this.failed() ? `${label}, failed` : label;
+  });
 
   private readonly expandToggle =
     viewChild<ElementRef<HTMLButtonElement>>('expandToggle');
@@ -223,73 +263,5 @@ export class CodeOutputComponent {
     event.stopPropagation();
     this.expanded.set(false);
     toggle.nativeElement.focus();
-  }
-
-  /**
-   * Strip ANSI escape codes (color/style sequences) from CLI output
-   * CLI tools like nx output colored text with sequences like \x1b[32m
-   * These render as garbled text in the webview if not stripped
-   */
-  private stripAnsiCodes(content: string): string {
-    // eslint-disable-next-line no-control-regex
-    return content.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-  }
-
-  /**
-   * Strip <system-reminder> tags from content
-   * Claude CLI adds these tags to tool results but they should not be displayed
-   */
-  private stripSystemReminders(content: string): string {
-    return content
-      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-      .trim();
-  }
-
-  /**
-   * Strip Claude CLI line number prefixes from Read tool output
-   * Claude CLI formats Read output as "     N→content" where N is the line number
-   * We strip these for cleaner display in the UI
-   */
-  private stripLineNumbers(content: string): string {
-    return content
-      .split('\n')
-      .map((line) => {
-        const match = line.match(/^\s*\d+→(.*)$/);
-        return match ? match[1] : line;
-      })
-      .join('\n');
-  }
-
-  /**
-   * Extract text content from MCP-style content blocks
-   * MCP responses often come as: [{type: "text", text: "..."}]
-   * This extracts just the text for cleaner display
-   */
-  private extractMCPContent(content: string): string {
-    const trimmed = content.trim();
-    if (!trimmed.startsWith('[')) return content;
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (!Array.isArray(parsed)) return content;
-      const isMCPContent = parsed.every(
-        (item: unknown) =>
-          typeof item === 'object' &&
-          item !== null &&
-          'type' in item &&
-          (item as { type: string }).type === 'text' &&
-          'text' in item,
-      );
-
-      if (isMCPContent) {
-        return parsed
-          .map((item: { type: string; text: string }) => item.text)
-          .join('\n');
-      }
-
-      return content;
-    } catch {
-      return content;
-    }
   }
 }

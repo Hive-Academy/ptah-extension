@@ -67,8 +67,7 @@ describe('ToolInputDisplayComponent — retention marker', () => {
     async (filePath) => {
       const content =
         'a'.repeat(201) + '\n```html\n<div class="fixed">x</div>\n```';
-      fixture.componentInstance.isInputCollapsed.set(false);
-      fixture.componentInstance.isContentExpanded.set(true);
+      fixture.componentInstance.isPreviewExpanded.set(true);
       const host = render({
         toolName: 'Write',
         toolInput: filePath ? { file_path: filePath, content } : { content },
@@ -83,10 +82,12 @@ describe('ToolInputDisplayComponent — retention marker', () => {
 
   describe('no retention field', () => {
     it('renders no marker and leaves the input section untouched', () => {
-      const host = render({ toolInput: { command: 'ls -la' } });
+      const host = render({ toolInput: { command: 'ls -la', timeout: 1000 } });
 
       expect(marker(host)).toBeNull();
-      expect(host.querySelector('button')?.textContent).toContain('Input');
+      expect(
+        host.querySelector('[data-testid="input-preview-label"]')?.textContent,
+      ).toContain('Command');
       expect(host.textContent).not.toMatch(/truncated|could not be preserved/i);
     });
 
@@ -114,7 +115,7 @@ describe('ToolInputDisplayComponent — retention marker', () => {
       expect(el?.textContent).toContain((8192).toLocaleString());
     });
 
-    it('renders OUTSIDE the hasNonTrivialInput guard — no toolInput, marker still shown', () => {
+    it('renders OUTSIDE the hasInput guard — no toolInput, marker still shown', () => {
       // A fold that preserved nothing leaves no parameters to display, so the
       // guard is false. That is exactly the case the marker exists for.
       const host = render({ retention: retention() });
@@ -211,16 +212,16 @@ describe('ToolInputDisplayComponent — retention marker', () => {
       }
     });
 
-    it('is visible without expanding the collapsed Input section', () => {
-      // The Input body starts collapsed; the marker must not be trapped inside
-      // it, or the user who never expands never learns the payload was cut.
+    it('is visible beside the input sections, with nothing to expand first', () => {
+      // The marker must not be trapped inside a collapsed block, or the user
+      // who never expands never learns the payload was cut.
       const host = render({
         toolInput: { command: 'ls' },
         retention: retention(),
       });
 
-      expect(fixture.componentInstance.isInputCollapsed()).toBe(true);
       expect(marker(host)).not.toBeNull();
+      expect(marker(host)?.closest('[data-testid="input-preview"]')).toBeNull();
     });
   });
 });
@@ -230,7 +231,7 @@ const HORIZONTAL_SCROLL =
   '.overflow-x-auto, .overflow-x-scroll, .whitespace-nowrap';
 
 describe.each([true, false])(
-  'ToolInputDisplayComponent — full command, Write preview and wrapping (isElectron=%s)',
+  'ToolInputDisplayComponent — Command, Content, Prompt, Arguments (isElectron=%s)',
   (isElectron) => {
     let fixture: ComponentFixture<ToolInputDisplayComponent>;
     let copyMock: jest.Mock<boolean, [string]>;
@@ -248,10 +249,8 @@ describe.each([true, false])(
       } as ExecutionNode;
     }
 
-    /** Renders with the Input section open. */
-    function renderOpen(partial: Partial<ExecutionNode>): HTMLElement {
+    function render(partial: Partial<ExecutionNode>): HTMLElement {
       fixture.componentRef.setInput('node', node(partial));
-      fixture.componentInstance.isInputCollapsed.set(false);
       fixture.detectChanges();
       return fixture.nativeElement as HTMLElement;
     }
@@ -268,16 +267,33 @@ describe.each([true, false])(
       };
     }
 
+    function previewLabel(host: HTMLElement): string | undefined {
+      return host
+        .querySelector('[data-testid="input-preview-label"]')
+        ?.textContent?.trim();
+    }
+
     function previewToggle(host: HTMLElement): HTMLButtonElement | null {
       return host.querySelector<HTMLButtonElement>(
-        '[data-testid="write-preview"] button[aria-expanded]',
+        '[data-testid="input-preview"] button[aria-expanded]',
       );
     }
 
     function previewBlock(host: HTMLElement): HTMLElement {
       return host.querySelector(
-        '[data-testid="write-preview"] [role="region"]',
+        '[data-testid="input-preview"] [role="region"]',
       ) as HTMLElement;
+    }
+
+    function args(host: HTMLElement): string[][] {
+      const keys = host.querySelectorAll('[data-testid="tool-input-arg-key"]');
+      const values = host.querySelectorAll(
+        '[data-testid="tool-input-arg-value"]',
+      );
+      return Array.from(keys).map((key, i) => [
+        key.textContent?.trim() ?? '',
+        values[i]?.textContent?.trim() ?? '',
+      ]);
     }
 
     function escape(target: HTMLElement): KeyboardEvent {
@@ -306,90 +322,171 @@ describe.each([true, false])(
       fixture = TestBed.createComponent(ToolInputDisplayComponent);
     });
 
-    it('exposes the Input toggle state with aria-expanded', () => {
-      fixture.componentRef.setInput(
-        'node',
-        node({ toolInput: { command: 'ls' } }),
-      );
-      fixture.detectChanges();
-      const toggle = (fixture.nativeElement as HTMLElement).querySelector(
-        'button',
+    it('has no generic "Input" heading or toggle', () => {
+      const host = render({ toolInput: { command: 'ls', timeout: 1000 } });
+
+      expect(host.textContent).not.toMatch(/\bInput\b/);
+      expect(
+        host.querySelector('button[aria-controls^="ptah-tool-input-"]'),
+      ).toBeNull();
+    });
+
+    // Regression: the description and command each showed twice. The header
+    // shows the description; the body shows the command once; chips take
+    // the background flag and the timeout.
+    it.each(['Bash', 'PowerShell'])(
+      'shows the %s command once as "$ command", without the description or chip params',
+      (toolName) => {
+        const host = render({
+          toolName,
+          toolInput: {
+            command: 'npx nx test chat-ui',
+            description: 'Run the tests',
+            run_in_background: true,
+            timeout: 120000,
+          },
+        });
+        const command = host.querySelector('[data-testid="input-command"]');
+
+        expect(previewLabel(host)).toBe('Command');
+        expect(command?.textContent).toBe('$ npx nx test chat-ui');
+        expect(host.textContent?.match(/npx nx test chat-ui/g)).toHaveLength(1);
+        expect(host.textContent).not.toContain('Run the tests');
+        expect(args(host)).toEqual([]);
+        expect(host.textContent).not.toContain('Arguments');
+      },
+    );
+
+    it('copies the exact command with "Copy command"', () => {
+      const host = render({ toolInput: { command: 'git status --short' } });
+      const copy = host.querySelector(
+        'button[aria-label="Copy command"]',
       ) as HTMLButtonElement;
 
-      expect(toggle.getAttribute('aria-expanded')).toBe('false');
-      toggle.click();
+      copy.click();
+      expect(copyMock).toHaveBeenCalledWith('git status --short');
+    });
+
+    it.each([
+      [
+        'WebFetch',
+        { url: 'https://example.com', prompt: 'Summarise' },
+        'https://example.com',
+      ],
+      [
+        'Agent',
+        { description: 'Review it', prompt: 'Go', subagent_type: 'x' },
+        'Review it',
+      ],
+    ] as const)(
+      'shows the %s prompt as a muted "Prompt" paragraph and leaves the header target out',
+      (toolName, toolInput, shown) => {
+        const host = render({ toolName, toolInput });
+        const prompt = host.querySelector('[data-testid="input-prompt"]');
+
+        expect(previewLabel(host)).toBe('Prompt');
+        expect(prompt?.textContent).toBe(toolInput.prompt);
+        expect(prompt?.classList).toContain('text-base-content-muted');
+        expect(host.textContent).not.toContain(shown);
+        expect(args(host)).toEqual([]);
+      },
+    );
+
+    it('lists only the arguments shown nowhere else, as key/value rows', () => {
+      const host = render({
+        toolName: 'mcp__orchestrator__spawn',
+        toolInput: { __summary: 'Spawn a lane', name: 'lane-1', retries: 3 },
+      });
+      const list = host.querySelector('[data-testid="tool-input-args"]');
+
+      expect(host.textContent).toContain('Arguments');
+      expect(args(host)).toEqual([['name', 'lane-1']]);
+      expect(list?.getAttribute('aria-labelledby')).toBeTruthy();
+      expect(
+        host.querySelector('[data-testid="tool-input-arg-key"]')?.classList,
+      ).toContain('text-base-content-muted');
+      expect(
+        host.querySelector('[data-testid="tool-input-arg-value"]')?.classList,
+      ).toContain('text-base-content');
+    });
+
+    it('leaves the Grep pattern and chip params out of the arguments', () => {
+      const host = render({
+        toolName: 'Grep',
+        toolInput: { pattern: 'needle', path: 'src', glob: '*.ts' },
+      });
+
+      expect(host.textContent?.trim()).toBe('');
+    });
+
+    it('cuts a value over 120 characters, with "more" to show the rest', () => {
+      const value = 'd'.repeat(150);
+      const host = render({
+        toolName: 'mcp__x__tool',
+        toolInput: { query_text: value },
+      });
+      const more = host.querySelector(
+        '[data-testid="tool-input-arg-value"] button',
+      ) as HTMLButtonElement;
+
+      expect(host.textContent).toContain('d'.repeat(120) + '…');
+      expect(host.textContent).not.toContain('d'.repeat(121));
+      expect(more.getAttribute('aria-expanded')).toBe('false');
+
+      more.click();
       fixture.detectChanges();
-      expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    });
-
-    it('shows the full Bash command, never cut to 60 characters (R7.2)', () => {
-      const command =
-        'npx nx test @ptah-extension/chat-ui ' + '--flag '.repeat(20).trim();
-      const host = renderOpen({ toolInput: { command } });
-
-      expect(host.textContent).toContain(command);
-      expect(host.textContent).not.toContain('...');
-    });
-
-    it('keeps the 60-character rule for other parameters', () => {
-      const description = 'd'.repeat(80);
-      const host = renderOpen({ toolInput: { command: 'ls', description } });
-
-      expect(host.textContent).toContain('d'.repeat(60) + '...');
-      expect(host.textContent).not.toContain('d'.repeat(61));
-    });
-
-    it('shows short Write content in full (R7.7)', () => {
-      const content = 'w'.repeat(150);
-      const host = renderOpen(write(content));
-
-      expect(host.textContent).toContain(content);
-      expect(host.querySelector('[data-testid="write-preview"]')).toBeNull();
+      expect(host.textContent).toContain(value);
+      expect(more.getAttribute('aria-expanded')).toBe('true');
+      expect(more.textContent?.trim()).toBe('less');
     });
 
     it.each([
       ['Edit', { file_path: '/a.ts', old_string: 'a', new_string: 'b' }],
       ['TodoWrite', { todos: [] }],
-      ['Read', { file_path: '/a.ts' }],
-    ] as const)('hides the trivial %s input', (toolName, toolInput) => {
-      fixture.componentRef.setInput('node', node({ toolName, toolInput }));
-      fixture.detectChanges();
+      ['Read', { file_path: '/a.ts', offset: 1, limit: 20 }],
+      ['Glob', { pattern: '**/*.ts' }],
+      ['WebSearch', { query: 'signals' }],
+      ['mcp__orchestrator__ListAgents', {}],
+    ] as const)(
+      'renders nothing for %s when every fact is elsewhere',
+      (toolName, toolInput) => {
+        const host = render({ toolName, toolInput });
 
-      expect((fixture.nativeElement as HTMLElement).textContent?.trim()).toBe(
-        '',
-      );
-    });
+        expect(host.textContent?.trim()).toBe('');
+      },
+    );
 
-    it('renders the Write preview with a language label, line count, copy and a labelled focusable block', () => {
-      const content = lines(30);
-      const host = renderOpen(write(content));
+    it('renders the Write content with its language label, copy and a labelled focusable block', () => {
+      const host = render(write(lines(3)));
+      const block = previewBlock(host);
 
+      expect(previewLabel(host)).toBe('Content');
       expect(
         host
-          .querySelector('[data-testid="write-preview-language"]')
+          .querySelector('[data-testid="input-preview-language"]')
           ?.textContent?.trim(),
       ).toBe('TypeScript');
-      expect(
-        host
-          .querySelector('[data-testid="write-preview-lines"]')
-          ?.textContent?.replace(/\s+/g, ' ')
-          .trim(),
-      ).toBe('30 lines');
-
-      const block = previewBlock(host);
       expect(block.getAttribute('tabindex')).toBe('0');
-      expect(block.getAttribute('aria-label')).toBe('Write content: source.ts');
-
-      const copy = host.querySelector(
-        '[data-testid="write-preview"] button[aria-label="Copy content"]',
-      ) as HTMLButtonElement;
-      copy.click();
-      expect(copyMock).toHaveBeenCalledWith(content);
+      expect(block.getAttribute('aria-label')).toBe('Content: source.ts');
+      expect(
+        host.querySelector('button[aria-label="Copy content"]'),
+      ).not.toBeNull();
+      expect(args(host)).toEqual([]);
     });
 
-    it('limits a long preview, then toggles "Show all N lines" with aria-expanded', async () => {
-      const host = renderOpen(write(lines(30)));
+    it('shows short Write content in full (R7.7), with no toggle', async () => {
+      const content = 'w'.repeat(150);
+      const host = render(write(content));
       await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.textContent).toContain(content);
+      expect(previewToggle(host)).toBeNull();
+      expect(previewBlock(host).classList).toContain('max-h-96');
+    });
+
+    it('limits a long preview, then toggles "Show all N lines" with aria-expanded', () => {
+      const host = render(write(lines(30)));
       const toggle = previewToggle(host) as HTMLButtonElement;
       const block = previewBlock(host);
 
@@ -397,8 +494,7 @@ describe.each([true, false])(
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.getAttribute('aria-controls')).toBe(block.id);
       expect(block.classList).toContain('is-clipped');
-      // Clipped text stays in the accessibility tree.
-      expect(block.textContent).toContain('const line29 = 29;');
+      expect(block.style.maxHeight).toBe('15.4em');
 
       toggle.click();
       fixture.detectChanges();
@@ -409,47 +505,34 @@ describe.each([true, false])(
       expect(block.classList).toContain('overflow-y-auto');
     });
 
-    it('shows no toggle for a preview that fits the limit', () => {
-      const content = Array.from({ length: 3 }, () => 'y'.repeat(80)).join(
-        '\n',
-      );
-      const host = renderOpen(write(content));
+    it('limits a prompt to 6 rows', () => {
+      const host = render({
+        toolName: 'Agent',
+        toolInput: { description: 'd', prompt: lines(8) },
+      });
 
-      expect(previewToggle(host)).toBeNull();
-      expect(previewBlock(host).classList).toContain('max-h-96');
-      expect(previewBlock(host).classList).not.toContain('is-clipped');
+      expect(previewToggle(host)?.textContent?.trim()).toBe('Show all 8 lines');
+      expect(previewBlock(host).style.maxHeight).toBe('8.4em');
     });
 
     it('never carries a horizontal-scroll class, in any state', () => {
-      fixture.componentRef.setInput(
-        'node',
-        node(write(lines(30) + '\n' + 'z'.repeat(500))),
-      );
-      fixture.detectChanges();
-      const host = fixture.nativeElement as HTMLElement;
-      expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
-
-      fixture.componentInstance.isInputCollapsed.set(false);
-      fixture.detectChanges();
-      expect(previewBlock(host).classList).toContain('is-clipped');
+      let host = render(write(lines(30)));
       expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
 
       previewToggle(host)?.click();
       fixture.detectChanges();
-      expect(previewBlock(host).classList).not.toContain('is-clipped');
       expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
 
-      fixture.componentRef.setInput(
-        'node',
-        node({ toolInput: { command: 'echo ' + 'q'.repeat(300) } }),
-      );
-      fixture.detectChanges();
+      host = render({ toolInput: { command: 'echo ' + 'q'.repeat(300) } });
       expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
+      expect(
+        host.querySelector('[data-testid="input-command"]')?.classList,
+      ).toContain('whitespace-pre-wrap');
     });
 
     // Decision #120(a): Escape collapses the expanded preview and stops there.
     it('collapses the preview on Escape while expanded, focuses the toggle and stops the event', () => {
-      const host = renderOpen(write(lines(30)));
+      const host = render(write(lines(30)));
       const toggle = previewToggle(host) as HTMLButtonElement;
       toggle.click();
       fixture.detectChanges();
@@ -467,7 +550,7 @@ describe.each([true, false])(
     });
 
     it('lets Escape bubble while the preview is collapsed', () => {
-      const host = renderOpen(write(lines(30)));
+      const host = render(write(lines(30)));
       const block = previewBlock(host);
       const outer = jest.fn();
       host.parentElement?.addEventListener('keydown', outer);
@@ -481,77 +564,37 @@ describe.each([true, false])(
       expect(block.classList).toContain('is-clipped');
     });
 
-    it('keeps the retention notice', () => {
-      fixture.componentRef.setInput(
-        'node',
-        node({
-          retention: {
-            droppedChars: 10,
-            capped: ['toolInput'],
-            foldFailed: false,
-          },
-        }),
-      );
-      fixture.detectChanges();
-
-      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-        'Input truncated',
-      );
-    });
-
     // Batch 28F.1: CRLF, CR and LF all end a line; `\r` never widens a row and
     // a trailing terminator is not an extra line.
     const crlfLines = (count: number): string =>
       Array.from({ length: count }, () => 'w'.repeat(100) + '\r\n').join('');
 
-    function lineCountText(host: HTMLElement): string | undefined {
-      return host
-        .querySelector('[data-testid="write-preview-lines"]')
-        ?.textContent?.replace(/\s+/g, ' ')
-        .trim();
-    }
-
-    it('shows no toggle for 11 CRLF-terminated lines of 100 characters and counts 11 lines', () => {
-      const host = renderOpen(write(crlfLines(11)));
+    it('shows no toggle for 11 CRLF-terminated lines of 100 characters', () => {
+      const host = render(write(crlfLines(11)));
 
       expect(previewToggle(host)).toBeNull();
-      expect(host.textContent).not.toContain('Show all');
       expect(previewBlock(host).classList).not.toContain('is-clipped');
       expect(previewBlock(host).classList).toContain('max-h-96');
-      expect(lineCountText(host)).toBe('11 lines');
     });
 
-    it('shows the toggle for 12 CRLF-terminated lines of 100 characters', () => {
-      const host = renderOpen(write(crlfLines(12)));
+    it('shows "Show all 12 lines" for 12 CRLF-terminated lines of 100 characters', () => {
+      const host = render(write(crlfLines(12)));
 
       expect(previewToggle(host)?.textContent?.trim()).toBe(
         'Show all 12 lines',
       );
       expect(previewBlock(host).classList).toContain('is-clipped');
-      expect(lineCountText(host)).toBe('12 lines');
-    });
-
-    it('reports "Show all 11 lines" for 11 CRLF-terminated longer lines', () => {
-      const content = Array.from(
-        { length: 11 },
-        () => 'v'.repeat(150) + '\r\n',
-      ).join('');
-      const host = renderOpen(write(content));
-
-      expect(previewToggle(host)?.textContent?.trim()).toBe(
-        'Show all 11 lines',
-      );
-      expect(lineCountText(host)).toBe('11 lines');
     });
 
     it('counts lines separated by a lone CR', () => {
-      const content = Array.from({ length: 5 }, () => 'r'.repeat(60)).join(
+      const content = Array.from({ length: 12 }, () => 'r'.repeat(60)).join(
         '\r',
       );
-      const host = renderOpen(write(content));
+      const host = render(write(content));
 
-      expect(lineCountText(host)).toBe('5 lines');
-      expect(previewToggle(host)).toBeNull();
+      expect(previewToggle(host)?.textContent?.trim()).toBe(
+        'Show all 12 lines',
+      );
     });
   },
 );
