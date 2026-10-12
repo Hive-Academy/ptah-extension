@@ -51,8 +51,11 @@ export function isOutputTruncationNotice(line: string): boolean {
 }
 
 /**
- * Front-truncate a stdout/stderr buffer to `max`, snapping to a line boundary
- * where one is available, and state at the head how much was lost.
+ * Front-truncate a stdout/stderr buffer to `max` now (no slack), snapping to a
+ * line boundary where one is available, and state at the head how much was
+ * lost. Used where a buffer arrives whole (a restored card), so it states its
+ * truncation from the moment it appears. Live output goes through
+ * {@link appendToBuffer}, which trims with slack.
  *
  * The notice is stripped and re-issued on every call rather than being
  * truncated along with the rest of the buffer. That keeps two properties the
@@ -62,17 +65,98 @@ export function isOutputTruncationNotice(line: string): boolean {
  * call happened to remove.
  */
 export function capBuffer(str: string, max: number): string {
-  const match = BUFFER_TRUNCATION_NOTICE.exec(str);
-  const alreadyDropped = match ? Number(match[1]) : 0;
-  const body = match ? str.slice(match[0].length) : str;
-
+  const { dropped, body } = splitBufferNotice(str);
   if (body.length <= max) return str;
+  const cutAt = frontCutIndex(body, max);
+  return bufferTruncationNotice(dropped + cutAt) + body.slice(cutAt);
+}
 
+/**
+ * How far past `max` a live buffer may grow before it is trimmed back to
+ * `max`. Trimming on every delta once a buffer reached the cap allocated a
+ * fresh ~`max`-sized string per delta; with this slack one trim is amortized
+ * over `max` characters of new output, and the retained buffer stays between
+ * `max` and twice `max`.
+ */
+const BUFFER_TRIM_FACTOR = 2;
+
+/** Split a buffer into its head notice's cumulative count and the body. */
+function splitBufferNotice(str: string): { dropped: number; body: string } {
+  const match = BUFFER_TRUNCATION_NOTICE.exec(str);
+  return match
+    ? { dropped: Number(match[1]), body: str.slice(match[0].length) }
+    : { dropped: 0, body: str };
+}
+
+/**
+ * Number of leading characters to drop so at most `max` remain, snapped
+ * forward to the next line boundary when there is one.
+ */
+function frontCutIndex(body: string, max: number): number {
   const excess = body.length - max;
   const newlineIndex = body.indexOf('\n', excess);
-  const cutAt = newlineIndex > -1 ? newlineIndex + 1 : excess;
+  return newlineIndex > -1 ? newlineIndex + 1 : excess;
+}
 
-  return bufferTruncationNotice(alreadyDropped + cutAt) + body.slice(cutAt);
+/** Result of {@link trimPendingOutput}. */
+export interface PendingBufferTrim {
+  /** The raw text that is kept. Never carries a notice. */
+  readonly kept: string;
+  /** Characters removed from the front of the raw text by this trim. */
+  readonly dropped: number;
+}
+
+/**
+ * Bound raw output that is waiting for its frame (a hidden window does not
+ * run frames). Past twice `max` the front is removed down to `max`, and the
+ * caller adds `dropped` to its own count. No notice is written here: only
+ * {@link appendToBuffer} writes one, at the head of the applied buffer.
+ */
+export function trimPendingOutput(raw: string, max: number): PendingBufferTrim {
+  if (raw.length <= BUFFER_TRIM_FACTOR * max) return { kept: raw, dropped: 0 };
+  const cutAt = frontCutIndex(raw, max);
+  return { kept: raw.slice(cutAt), dropped: cutAt };
+}
+
+/**
+ * Apply pending raw output to a live buffer in one ordered fold:
+ * the buffer without its head notice, then the pending text, then at most one
+ * trim. The notice is written last, always at index 0, and carries the
+ * buffer's earlier count plus `pendingDropped` plus this trim.
+ *
+ * Returns `current` (same reference) when there is nothing to apply.
+ */
+export function appendToBuffer(
+  current: string,
+  pending: string,
+  pendingDropped: number,
+  max: number,
+): string {
+  if (pending.length === 0 && pendingDropped === 0) return current;
+  // Cheap path: no trim is due and no count changes, so the notice (if any)
+  // stays as it is and the regex never runs.
+  if (
+    pendingDropped === 0 &&
+    current.length + pending.length <= BUFFER_TRIM_FACTOR * max
+  ) {
+    return current + pending;
+  }
+
+  const split = splitBufferNotice(current);
+  // Bytes dropped from the queue sit between the applied body and the kept
+  // pending text, so a kept body would leave a hole the head notice does not
+  // describe. Drop the body with them: the loss stays at the head.
+  let body = pendingDropped > 0 ? pending : split.body + pending;
+  let dropped =
+    split.dropped +
+    pendingDropped +
+    (pendingDropped > 0 ? split.body.length : 0);
+  if (body.length > BUFFER_TRIM_FACTOR * max) {
+    const cutAt = frontCutIndex(body, max);
+    body = body.slice(cutAt);
+    dropped += cutAt;
+  }
+  return dropped > 0 ? bufferTruncationNotice(dropped) + body : body;
 }
 
 // ============================================================================

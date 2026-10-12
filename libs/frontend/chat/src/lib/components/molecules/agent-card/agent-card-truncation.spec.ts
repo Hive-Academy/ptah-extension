@@ -105,7 +105,9 @@ describe('agent card — what a trimmed card shows', () => {
     } as unknown as AgentProcessInfo);
   }
 
+  // Output is applied once per frame; read the applied state.
   function agentOf(agentId: string) {
+    store.flushPendingOutput();
     const agent = store.agents().find((a) => a.agentId === agentId);
     if (!agent) throw new Error(`missing agent ${agentId}`);
     return agent;
@@ -180,6 +182,9 @@ describe('agent card — what a trimmed card shows', () => {
   });
 
   describe('the stdout byte cap (defect 3)', () => {
+    // A live buffer is trimmed only once it passes twice the 50 KB cap.
+    const OVER_TWICE_CAP_CHUNKS = 110; // 110 x 1000 chars
+
     function pushStdout(agentId: string, chunks: number): void {
       const chunk = `${'x'.repeat(999)}\n`;
       for (let i = 0; i < chunks; i++) {
@@ -192,7 +197,7 @@ describe('agent card — what a trimmed card shows', () => {
 
     it('renders a truncation notice at the head of the output', () => {
       spawn('noisy', 'ptah-cli');
-      pushStdout('noisy', 80);
+      pushStdout('noisy', OVER_TWICE_CAP_CHUNKS);
 
       const rendered = parseAgentOutput(agentOf('noisy').stdout);
 
@@ -209,7 +214,7 @@ describe('agent card — what a trimmed card shows', () => {
 
     it('the dropped output really is gone — the notice is not decoration', () => {
       spawn('noisy', 'ptah-cli');
-      pushStdout('noisy', 80);
+      pushStdout('noisy', OVER_TWICE_CAP_CHUNKS);
 
       // Proves the notice is reporting a real loss, so a user reading the card
       // knows the head of the transcript is missing rather than empty.
@@ -219,7 +224,7 @@ describe('agent card — what a trimmed card shows', () => {
     it('the notice on stderr is informational, not an error', () => {
       spawn('noisy', 'ptah-cli');
       const chunk = `${'e'.repeat(999)}\n`;
-      for (let i = 0; i < 80; i++) {
+      for (let i = 0; i < OVER_TWICE_CAP_CHUNKS; i++) {
         store.onAgentOutput({
           agentId: 'noisy',
           stderrDelta: chunk,

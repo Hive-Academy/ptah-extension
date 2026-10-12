@@ -39,8 +39,6 @@ import type {
   TokenBreakdown,
 } from '@ptah-extension/shared';
 import {
-  addCliUsage,
-  hasReportedCliCacheTokens,
   calculateMessageCost,
   computeSubagentCacheState,
   findModelPricing,
@@ -51,11 +49,18 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { BackgroundAgentStore } from './background-agent.store';
 import { agentVisibleInSession, knownSessionId } from './session-scope';
 import {
+  MAX_AGENT_SEGMENTS,
   MAX_FRONTEND_BUFFER,
   capBuffer,
   capSegments,
   capStreamEventsInPlace,
+  trimPendingOutput,
 } from './agent-output-retention';
+import {
+  type PendingAgentOutput,
+  appendMergingProse,
+  applyPendingOutput,
+} from './agent-output-frame';
 
 /**
  * TODO: remove once the shared agent lifecycle events (AgentStartEvent,
@@ -669,6 +674,23 @@ export class AgentMonitorStore implements OnDestroy {
     return map;
   });
 
+  /**
+   * Output deltas waiting for the next frame, keyed by agentId. Applied by
+   * {@link flushPendingOutput}; cleared on destroy.
+   */
+  private readonly _pendingOutput = new Map<string, PendingAgentOutput>();
+  /**
+   * Characters removed from the front of queued stdout/stderr since the last
+   * flush, per agent and per stream. Kept out of `MonitoredAgent`; each stream
+   * folds only its own count into its own head notice at the flush.
+   */
+  private readonly _pendingDropped = new Map<
+    string,
+    { stdout: number; stderr: number }
+  >();
+  /** The one frame scheduled for the queue, or null. */
+  private _outputFrame: number | null = null;
+
   private readonly _panelOpen = signal(false);
   /** Tracks whether the user explicitly closed the panel (prevents auto-reopen) */
   private _userExplicitlyClosed = false;
@@ -1015,6 +1037,11 @@ export class AgentMonitorStore implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopTick();
+    // Apply queued output before teardown so the last deltas are not lost;
+    // the flush also cancels the scheduled frame.
+    this.flushPendingOutput();
+    this._pendingOutput.clear();
+    this._pendingDropped.clear();
     this._pendingPermissionBuffer.clear();
     this._subagentRequestUsage.clear();
     this._pendingBackgroundIdentity.clear();
@@ -1135,7 +1162,7 @@ export class AgentMonitorStore implements OnDestroy {
     const wf = readWorkflowFields(info);
     const parentSessionId = knownSessionId(info.parentSessionId);
 
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       const existingIndex = list.findIndex((a) => a.agentId === info.agentId);
       if (existingIndex !== -1) {
         const existing = list[existingIndex];
@@ -1273,98 +1300,150 @@ export class AgentMonitorStore implements OnDestroy {
     this.syncTick();
   }
 
+  /**
+   * Queue one output delta. Deltas are applied once per animation frame for
+   * all agents together (one `_agents` write per frame instead of one per
+   * delta per agent). Every other writer flushes the queue first, so output
+   * never lands after an exit, a reset or a removal. Output for an agent the
+   * store does not hold is dropped at the flush, as before.
+   */
   onAgentOutput(delta: AgentOutputDelta): void {
+    let pending = this._pendingOutput.get(delta.agentId);
+    if (!pending) {
+      pending = {
+        stdout: '',
+        stderr: '',
+        segments: [],
+        segmentChars: 0,
+        usages: [],
+        streamEvents: [],
+        streamDeltas: 0,
+      };
+      this._pendingOutput.set(delta.agentId, pending);
+    }
+
+    if (delta.stdoutDelta) {
+      pending.stdout = this.boundPendingText(
+        delta.agentId,
+        'stdout',
+        pending.stdout + delta.stdoutDelta,
+      );
+    }
+    if (delta.stderrDelta) {
+      pending.stderr = this.boundPendingText(
+        delta.agentId,
+        'stderr',
+        pending.stderr + delta.stderrDelta,
+      );
+    }
+    if (delta.segments && delta.segments.length > 0) {
+      // Usage is kept apart from the merged segments: the text merge keeps
+      // only the earlier segment's fields, so a merged-away segment's usage
+      // would otherwise be lost before it is folded.
+      for (const segment of delta.segments) {
+        if (segment.usage) pending.usages.push(segment.usage);
+        pending.segmentChars += segment.content.length;
+      }
+      appendMergingProse(pending.segments, delta.segments);
+    }
+    if (delta.streamEvents && delta.streamEvents.length > 0) {
+      for (const ev of delta.streamEvents) pending.streamEvents.push(ev);
+      pending.streamDeltas++;
+    }
+
+    // A hidden window runs no frames. Structured items are applied early once
+    // a queue reaches a cap, so the store's own caps bound them. Adjacent
+    // prose merges into one queued segment, so content size and the usage
+    // report count are bounded separately from the segment count.
+    if (
+      pending.segments.length > MAX_AGENT_SEGMENTS ||
+      pending.streamEvents.length > MAX_AGENT_SEGMENTS ||
+      pending.usages.length > MAX_AGENT_SEGMENTS ||
+      pending.segmentChars > MAX_FRONTEND_BUFFER
+    ) {
+      this.flushPendingOutput();
+      return;
+    }
+    this.scheduleOutputFrame();
+  }
+
+  /**
+   * Apply every queued output delta now, in one `_agents` write. Called by the
+   * frame callback and by every other writer before it writes. Public so a
+   * caller (or a test) that needs the applied state synchronously can ask for
+   * it.
+   */
+  flushPendingOutput(): void {
+    if (this._outputFrame !== null) {
+      cancelAnimationFrame(this._outputFrame);
+      this._outputFrame = null;
+    }
+    if (this._pendingOutput.size === 0) return;
+    const pendingById = new Map(this._pendingOutput);
+    const droppedById = new Map(this._pendingDropped);
+    this._pendingOutput.clear();
+    this._pendingDropped.clear();
+
     this._agents.update((list) => {
-      let foundIndex = -1;
+      let next: MonitoredAgent[] | null = null;
       for (let i = 0; i < list.length; i++) {
-        if (list[i].agentId === delta.agentId) {
-          foundIndex = i;
-          break;
-        }
-      }
-      if (foundIndex === -1) return list;
-
-      const agent = list[foundIndex];
-      let updated: MonitoredAgent = { ...agent };
-
-      if (delta.stdoutDelta) {
-        updated.stdout = capBuffer(
-          updated.stdout + delta.stdoutDelta,
-          MAX_FRONTEND_BUFFER,
+        const pending = pendingById.get(list[i].agentId);
+        if (!pending) continue;
+        next ??= [...list];
+        next[i] = applyPendingOutput(
+          list[i],
+          pending,
+          droppedById.get(list[i].agentId),
         );
       }
-      if (delta.stderrDelta) {
-        updated.stderr = capBuffer(
-          updated.stderr + delta.stderrDelta,
-          MAX_FRONTEND_BUFFER,
-        );
-      }
-      if (delta.segments && delta.segments.length > 0) {
-        // Fold usage from the raw incoming segments first: the text merge
-        // below keeps only the earlier segment's fields, and `capSegments`
-        // may drop usage-bearing segments, so neither may see usage first.
-        let usageTotals = agent.usageTotals ?? null;
-        // A restored card's usage reads "unknown" (null) by design (Req 8.4):
-        // folding the first live segment of a re-opened run would publish a
-        // partial run total as known. Stay null while the card is restored and
-        // nothing is known yet; a card that somehow holds a total still folds.
-        if (!(agent.restored === true && agent.usageTotals === null)) {
-          for (const segment of delta.segments) {
-            usageTotals = addCliUsage(usageTotals, segment.usage);
-          }
-        }
-        updated.usageTotals = usageTotals;
-        if (hasReportedCliCacheTokens(usageTotals)) {
-          updated = { ...updated, cacheReported: true };
-        }
-        const existing = updated.segments;
-        const incoming = delta.segments;
-        const lastIdx = existing.length - 1;
-        const lastType = lastIdx >= 0 ? existing[lastIdx].type : null;
-        const firstIncomingType = incoming[0].type;
-        if (
-          lastIdx >= 0 &&
-          (lastType === 'text' || lastType === 'thinking') &&
-          lastType === firstIncomingType
-        ) {
-          const merged = [
-            ...existing.slice(0, lastIdx),
-            {
-              ...existing[lastIdx],
-              content: existing[lastIdx].content + incoming[0].content,
-            },
-            ...incoming.slice(1),
-          ];
-          updated.segments = merged;
-        } else {
-          updated.segments = [...existing, ...incoming];
-        }
-        // The copy above is unavoidable (the array identity is what tells the
-        // card's `@for` to re-diff), but the cap is what stops it from being a
-        // copy of an unbounded array on every token. `capSegments` folds the
-        // prose it drops and marks what it could not fold — this used to be a
-        // bare `slice(-MAX)` that silently deleted a long agent's opening plan.
-        updated.segments = capSegments(updated.segments);
-      }
-      if (delta.streamEvents && delta.streamEvents.length > 0) {
-        // Append in place — streamEvents shares its reference across deltas, so
-        // this is O(new events) with no whole-array copy. The bumped
-        // streamRevision is what drives the agent card to recompute.
-        for (const ev of delta.streamEvents) {
-          updated.streamEvents.push(ev);
-        }
-        capStreamEventsInPlace(updated.streamEvents);
-        updated.streamRevision = agent.streamRevision + 1;
-      }
-
-      const next = [...list];
-      next[foundIndex] = updated;
-      return next;
+      return next ?? list;
     });
   }
 
+  private scheduleOutputFrame(): void {
+    if (this._outputFrame !== null) return;
+    this._outputFrame = requestAnimationFrame(() => {
+      this._outputFrame = null;
+      this.flushPendingOutput();
+    });
+  }
+
+  /**
+   * Keep queued raw text within twice the buffer cap. What is removed is added
+   * to the agent's private per-stream count; the notice is written only when
+   * the frame applies the text (see `appendToBuffer`).
+   */
+  private boundPendingText(
+    agentId: string,
+    stream: 'stdout' | 'stderr',
+    raw: string,
+  ): string {
+    const { kept, dropped } = trimPendingOutput(raw, MAX_FRONTEND_BUFFER);
+    if (dropped > 0) {
+      const counts = this._pendingDropped.get(agentId) ?? {
+        stdout: 0,
+        stderr: 0,
+      };
+      counts[stream] += dropped;
+      this._pendingDropped.set(agentId, counts);
+    }
+    return kept;
+  }
+
+  /**
+   * Every `_agents` writer except the output flush goes through here, so
+   * queued output is applied before the write and keeps its order relative to
+   * exits, resets, permission requests and removals.
+   */
+  private updateAgents(
+    fn: (list: readonly MonitoredAgent[]) => readonly MonitoredAgent[],
+  ): void {
+    this.flushPendingOutput();
+    this._agents.update(fn);
+  }
+
   onAgentExited(info: AgentProcessInfo): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       let foundIndex = -1;
       for (let i = 0; i < list.length; i++) {
         if (list[i].agentId === info.agentId) {
@@ -1421,7 +1500,7 @@ export class AgentMonitorStore implements OnDestroy {
    * evicted, and inventing one here would resurrect an agent nobody can see.
    */
   onAgentExpired(agentId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       const index = list.findIndex((a) => a.agentId === agentId);
       if (index === -1) return list;
       if (list[index].continuationExpired === true) return list;
@@ -1458,7 +1537,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   /** Handle incoming permission request from CLI agent (Copilot SDK or Ptah CLI) */
   onPermissionRequest(request: AgentPermissionRequest): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       let foundIndex = -1;
       for (let i = 0; i < list.length; i++) {
         if (list[i].agentId === request.agentId) {
@@ -1492,7 +1571,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   /** Remove a specific permission from the queue by requestId (after user responds). */
   clearPermission(agentId: string, requestId?: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       let foundIndex = -1;
       for (let i = 0; i < list.length; i++) {
         if (list[i].agentId === agentId) {
@@ -1515,7 +1594,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   toggleAgentExpanded(agentId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       let foundIndex = -1;
       for (let i = 0; i < list.length; i++) {
         if (list[i].agentId === agentId) {
@@ -1592,7 +1671,7 @@ export class AgentMonitorStore implements OnDestroy {
     if (cliSessions.length === 0) return;
     const parentSessionId = knownSessionId(rawParentSessionId);
 
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       let next: MonitoredAgent[] = list.filter((a) => {
         if (parentSessionId === undefined) return true;
         if (a.parentSessionId !== parentSessionId) return true;
@@ -1686,7 +1765,7 @@ export class AgentMonitorStore implements OnDestroy {
       readonly done: boolean;
     },
   ): void {
-    this._agents.update((list) =>
+    this.updateAgents((list) =>
       list.map((agent) => {
         if (
           agent.agentId !== agentId ||
@@ -1727,7 +1806,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   resetCliOutputHistory(sessionId: string, agentId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       const index = list.findIndex(
         (a) => a.agentId === agentId && a.parentSessionId === sessionId,
       );
@@ -1752,7 +1831,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Running agents are preserved (they'll complete in the background).
    */
   clearSessionAgents(sessionId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       const next = list.filter(
         (a) => !(a.parentSessionId === sessionId && a.status !== 'running'),
       );
@@ -1768,7 +1847,7 @@ export class AgentMonitorStore implements OnDestroy {
    * were retained for the life of the webview.
    */
   forceClearSessionAgents(sessionId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       const next = list.filter((a) => a.parentSessionId !== sessionId);
       return next.length === list.length ? list : next;
     });
@@ -1831,7 +1910,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   removeAgent(agentId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       const next = list.filter((a) => a.agentId !== agentId);
       return next.length === list.length ? list : next;
     });
@@ -1850,7 +1929,7 @@ export class AgentMonitorStore implements OnDestroy {
    * in every session, and steer/stop fall back to the active tab.
    */
   resolveParentSessionId(tabId: string, realSessionId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       let changed = false;
       const next = list.map((a) => {
         if (a.parentSessionId === tabId) {
@@ -1880,7 +1959,7 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   clearCompleted(): void {
-    this._agents.update((list) => list.filter((a) => a.status === 'running'));
+    this.updateAgents((list) => list.filter((a) => a.status === 'running'));
     if (this._agents().length === 0) {
       this._userExplicitlyClosed = false;
     }
@@ -1894,7 +1973,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Reference-equality optimisation avoids unnecessary signal notifications.
    */
   clearCompletedInSession(sessionId: string): void {
-    this._agents.update((list) => {
+    this.updateAgents((list) => {
       const next = list.filter(
         (a) => !(a.parentSessionId === sessionId && a.status !== 'running'),
       );
