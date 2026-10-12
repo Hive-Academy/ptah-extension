@@ -1,7 +1,17 @@
 // Sum main-thread time by category from a Chrome trace written by probe.js.
 // Usage: node analyze.js <trace.json>
+// Only a .json file in the perf output folder (PTAH_PERF_OUT or ./out) is read.
 const fs = require('node:fs');
-const raw = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const path = require('node:path');
+const outDir = path.resolve(
+  process.env.PTAH_PERF_OUT ?? path.join(__dirname, 'out'),
+);
+const traceFile = path.join(outDir, path.basename(process.argv[2] ?? ''));
+if (path.extname(traceFile) !== '.json' || !fs.existsSync(traceFile)) {
+  console.error(`analyze.js: no trace file ${traceFile}`);
+  process.exit(1);
+}
+const raw = JSON.parse(fs.readFileSync(traceFile, 'utf8'));
 const events = Array.isArray(raw) ? raw : raw.traceEvents;
 
 const threadNames = new Map();

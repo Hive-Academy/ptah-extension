@@ -34,4 +34,7 @@ const { chromium } = require('playwright-core');
     ),
   );
   await b.close();
-})();
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

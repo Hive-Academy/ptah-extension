@@ -86,7 +86,7 @@ fs.mkdirSync(outDir, { recursive: true });
       SECS,
     );
     await b.stopTracing();
-    const out = execFileSync('node', [
+    const out = execFileSync(process.execPath, [
       path.join(__dirname, 'analyze.js'),
       file,
     ]).toString();

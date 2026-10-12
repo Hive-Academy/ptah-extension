@@ -1,6 +1,7 @@
 // Token-free check of CLI-agent output handling: post a fake agent and bursts
-// of agent-monitor:output messages into the renderer (each postMessage is its
-// own task, like real IPC) and measure main-thread cost and slow frames.
+// of agent-monitor:output messages into the renderer (each message is
+// dispatched in its own task, like the preload does for real IPC) and measure
+// main-thread cost and slow frames.
 // The fake card lives only in renderer memory; a reload clears it.
 // Usage: node agent-output-burst.js [rounds=20] [perRound=100] [bytes=200]
 const { chromium } = require('playwright-core');
@@ -29,19 +30,20 @@ const [rounds = 20, perRound = 100, bytes = 200] = process.argv
 
   const agentId = `perf-burst-${Date.now()}`;
   await page.evaluate((id) => {
-    window.postMessage(
-      {
-        type: 'agent-monitor:spawned',
-        payload: {
-          agentId: id,
-          cli: 'gemini',
-          task: 'perf burst (synthetic, tools/perf/agent-output-burst.js)',
-          workingDirectory: '/tmp',
-          startedAt: new Date().toISOString(),
-          status: 'running',
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'agent-monitor:spawned',
+          payload: {
+            agentId: id,
+            cli: 'gemini',
+            task: 'perf burst (synthetic, tools/perf/agent-output-burst.js)',
+            workingDirectory: '/tmp',
+            startedAt: new Date().toISOString(),
+            status: 'running',
+          },
         },
-      },
-      '*',
+      }),
     );
   }, agentId);
   await page.waitForTimeout(1000);
@@ -63,17 +65,20 @@ const [rounds = 20, perRound = 100, bytes = 200] = process.argv
       const t0 = performance.now();
       for (let i = 0; i < rounds; i++) {
         for (let j = 0; j < perRound; j++) {
-          window.postMessage(
-            {
-              type: 'agent-monitor:output',
-              payload: {
-                agentId: id,
-                stdoutDelta: line,
-                stderrDelta: '',
-                timestamp: Date.now(),
-              },
-            },
-            '*',
+          setTimeout(() =>
+            window.dispatchEvent(
+              new MessageEvent('message', {
+                data: {
+                  type: 'agent-monitor:output',
+                  payload: {
+                    agentId: id,
+                    stdoutDelta: line,
+                    stderrDelta: '',
+                    timestamp: Date.now(),
+                  },
+                },
+              }),
+            ),
           );
         }
         await new Promise((res) => setTimeout(res, 50));
@@ -94,20 +99,21 @@ const [rounds = 20, perRound = 100, bytes = 200] = process.argv
   const after = await metrics();
 
   await page.evaluate((id) => {
-    window.postMessage(
-      {
-        type: 'agent-monitor:exited',
-        payload: {
-          agentId: id,
-          cli: 'gemini',
-          task: 'perf burst',
-          workingDirectory: '/tmp',
-          startedAt: new Date().toISOString(),
-          status: 'completed',
-          exitCode: 0,
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'agent-monitor:exited',
+          payload: {
+            agentId: id,
+            cli: 'gemini',
+            task: 'perf burst',
+            workingDirectory: '/tmp',
+            startedAt: new Date().toISOString(),
+            status: 'completed',
+            exitCode: 0,
+          },
         },
-      },
-      '*',
+      }),
     );
   }, agentId);
 
