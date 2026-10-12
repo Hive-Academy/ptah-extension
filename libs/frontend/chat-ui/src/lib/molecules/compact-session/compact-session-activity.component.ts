@@ -32,6 +32,7 @@ import {
   type SplitHandleOrientation,
 } from '../../atoms/split-handle.component';
 import { ToolIconComponent } from '../../atoms/tool-icon.component';
+import { CompactSessionCalloutComponent } from './compact-session-callout.component';
 import type {
   CompactSemanticMark,
   CompactSemanticMarkKind,
@@ -40,7 +41,6 @@ import type {
 } from './compact-session-summary';
 import type {
   CompactCallout,
-  CompactErrorCallout,
   CompactLaneSummary,
   CompactPermissionCallout,
 } from './compact-lane.types';
@@ -90,6 +90,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
     MarkdownBlockComponent,
     SplitHandleComponent,
     ToolIconComponent,
+    CompactSessionCalloutComponent,
   ],
   host: {
     class: 'block h-full min-h-0 overflow-hidden',
@@ -769,62 +770,16 @@ const FALLBACK_RECAP_HEIGHT = 180;
             (laneSelected)="laneSelected.emit($event)"
           />
 
-          @if (permissionCallout(); as permission) {
-            <div
-              class="flex h-20 min-w-0 shrink-0 flex-col gap-1.5 rounded border border-warning/30 bg-warning/10 p-2 text-xs"
-              role="group"
-              aria-label="Permission request"
-              data-testid="cs-callout-permission"
-            >
-              <span class="truncate" [title]="permission.text">{{
-                permission.text
-              }}</span>
-              <div class="flex gap-1.5">
-                <button
-                  type="button"
-                  class="btn btn-xs btn-success"
-                  (click)="allow.emit(permission)"
-                >
-                  Allow
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-error btn-outline"
-                  (click)="deny.emit(permission)"
-                >
-                  Deny
-                </button>
-              </div>
-            </div>
-          } @else if (errorCallout(); as error) {
-            <div
-              class="flex h-20 min-w-0 shrink-0 flex-col gap-1.5 rounded border border-error/30 bg-error/10 p-2 text-xs"
-              role="group"
-              aria-label="Session error"
-              data-testid="cs-callout-error"
-            >
-              <span class="truncate text-error" [title]="error.text">{{
-                error.text
-              }}</span>
-              <div class="flex gap-1.5">
-                @if (error.canRetry) {
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-outline"
-                    (click)="retry.emit()"
-                  >
-                    Retry
-                  </button>
-                }
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost"
-                  (click)="showOutput.emit()"
-                >
-                  Show output
-                </button>
-              </div>
-            </div>
+          @if (callout()) {
+            <ptah-compact-session-callout
+              [callout]="callout()"
+              (allow)="allow.emit($event)"
+              (deny)="deny.emit($event)"
+              (answer)="answer.emit()"
+              (openRequest)="openRequest.emit($event)"
+              (retry)="retry.emit()"
+              (showOutput)="showOutput.emit()"
+            />
           }
         </div>
       }
@@ -872,6 +827,8 @@ export class CompactSessionActivityComponent {
 
   readonly allow = output<CompactPermissionCallout>();
   readonly deny = output<CompactPermissionCallout>();
+  readonly answer = output<void>();
+  readonly openRequest = output<CompactPermissionCallout>();
   readonly showOutput = output<void>();
   readonly retry = output<void>();
   /** Emits the lane key (`CompactLaneRow.id`) of the selected row. */
@@ -886,16 +843,6 @@ export class CompactSessionActivityComponent {
   readonly nowActivity = computed(
     () => stripMarkdownToPlainText(this.summary().content.text) || '—',
   );
-
-  readonly permissionCallout = computed<CompactPermissionCallout | null>(() => {
-    const callout = this.callout();
-    return callout?.kind === 'permission' ? callout : null;
-  });
-
-  readonly errorCallout = computed<CompactErrorCallout | null>(() => {
-    const callout = this.callout();
-    return callout?.kind === 'error' ? callout : null;
-  });
 
   readonly sessionElapsedLabel = computed(() => {
     const elapsed = this.elapsed();

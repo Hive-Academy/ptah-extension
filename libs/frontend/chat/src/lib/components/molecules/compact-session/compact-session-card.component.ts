@@ -40,7 +40,7 @@ import {
   SESSION_CARD_ACTIONS,
   SESSION_FORCED_CARD,
 } from '../../../tokens/session-context.token';
-import { buildLaneSummary } from './compact-lane-rows';
+import { buildLaneSummary, laneKey } from './compact-lane-rows';
 
 /**
  * Minimum interval between two live-stream samples of a card summary. Stream
@@ -91,6 +91,8 @@ function sameMetrics(a: CompactSummaryMetrics, b: CompactSummaryMetrics) {
         (openFullView)="openFullView()"
         (allow)="respond($event, 'allow')"
         (deny)="respond($event, 'deny')"
+        (answer)="openFullView()"
+        (openRequest)="openRequest($event)"
         (showOutput)="openFullView()"
         (laneSelected)="openLane($event)"
       />
@@ -148,29 +150,54 @@ export class CompactSessionCardComponent {
     ),
   );
   readonly callout = computed<CompactCallout>(() => {
-    const sessionRequest = this.sessionPermissions()[0];
-    if (sessionRequest) {
-      return {
-        kind: 'permission',
-        source: 'session',
-        requestId: sessionRequest.id,
-        tabId: this.tabId(),
-        text: sessionRequest.description || sessionRequest.toolName,
-      };
-    }
-    const agent = this.agentStore
-      .agentsOwnedBySession(this.sessionIdentity())
-      .find((candidate) => candidate.permissionQueue.length > 0);
-    const request = agent?.permissionQueue[0];
-    if (agent && request) {
-      return {
-        kind: 'permission',
-        source: 'cli',
-        requestId: request.requestId,
-        agentId: agent.agentId,
-        tabId: null,
-        text: request.description || request.toolName,
-      };
+    const pending: {
+      timestamp: number;
+      callout: Exclude<CompactCallout, null>;
+    }[] = [
+      ...this.sessionPermissions().map((request) => ({
+        timestamp: request.timestamp,
+        callout: {
+          kind: 'permission' as const,
+          source: 'session' as const,
+          requestId: request.id,
+          tabId: this.tabId(),
+          text: request.description || request.toolName,
+        },
+      })),
+      ...this.sessionQuestions().map((request) => ({
+        timestamp: request.timestamp,
+        callout: {
+          kind: 'question' as const,
+          text:
+            request.questions.map((item) => item.question).join('; ') ||
+            'Question requires an answer',
+        },
+      })),
+      ...this.agentStore
+        .agentsOwnedBySession(this.sessionIdentity())
+        .flatMap((agent) =>
+          agent.permissionQueue.map((request) => ({
+            timestamp: request.timestamp,
+            callout: {
+              kind: 'permission' as const,
+              source: 'cli' as const,
+              requestId: request.requestId,
+              agentId: agent.agentId,
+              tabId: null,
+              text: request.description || request.toolName,
+            },
+          })),
+        ),
+    ];
+    if (pending.length > 0) {
+      // Permission wins a timestamp tie; otherwise show the oldest request.
+      pending.sort(
+        (a, b) =>
+          a.timestamp - b.timestamp ||
+          Number(b.callout.kind === 'permission') -
+            Number(a.callout.kind === 'permission'),
+      );
+      return { ...pending[0].callout, moreCount: pending.length - 1 };
     }
     const reason = this.terminalReason();
     if (reason && this.summary().status.tone === 'error') {
@@ -317,6 +344,14 @@ export class CompactSessionCardComponent {
         decision,
         decision === 'deny' ? 'User denied' : undefined,
       );
+    }
+  }
+
+  openRequest(callout: CompactPermissionCallout): void {
+    if (callout.source === 'cli' && callout.agentId) {
+      this.openLane(laneKey('cli', callout.agentId));
+    } else {
+      this.openFullView();
     }
   }
 

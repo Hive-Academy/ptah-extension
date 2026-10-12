@@ -1274,6 +1274,41 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     expect(denied).toHaveBeenCalledWith(permission);
   });
 
+  it('shows question text and remaining count and emits Answer', () => {
+    const fixture = renderBoard({
+      callout: { kind: 'question', text: 'Choose a target?', moreCount: 2 },
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    const answered = jest.fn();
+    fixture.componentInstance.answer.subscribe(answered);
+
+    expect(
+      root.querySelector('[data-testid="cs-callout-question"]')?.textContent,
+    ).toContain('Choose a target?');
+    expect(
+      root.querySelector('[data-testid="cs-callout-question"]')?.textContent,
+    ).toContain('+2 more');
+    expect(
+      root.querySelector('[data-testid="cs-callout-question"]')?.className,
+    ).toContain('h-20');
+    buttonByText(root, 'Answer')?.click();
+    expect(answered).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Open on a permission and emits the selected request', () => {
+    const request: CompactPermissionCallout = { ...permission, moreCount: 1 };
+    const fixture = renderBoard({ callout: request });
+    const root = fixture.nativeElement as HTMLElement;
+    const opened = jest.fn();
+    fixture.componentInstance.openRequest.subscribe(opened);
+
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
+    ).toContain('+1 more');
+    buttonByText(root, 'Open')?.click();
+    expect(opened).toHaveBeenCalledWith(request);
+  });
+
   it('shows an error callout with Show output, and Retry only when a retry exists', () => {
     const fixture = renderBoard({
       lanes: laneSummary([lane()], 0, { running: 1 }),

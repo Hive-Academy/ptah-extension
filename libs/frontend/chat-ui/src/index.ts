@@ -56,6 +56,7 @@ export type {
   CompactLaneStatus,
   CompactLaneSummary,
   CompactPermissionCallout,
+  CompactQuestionCallout,
 } from './lib/molecules/compact-session/compact-lane.types';
 export {
   summarizeFinalized,

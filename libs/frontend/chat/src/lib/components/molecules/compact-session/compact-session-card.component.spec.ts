@@ -536,6 +536,80 @@ describe(CompactSessionCardComponent.name, () => {
     );
   });
 
+  it('selects the oldest waiting request across queues and opens its lane', () => {
+    const openLane = jest.fn();
+    const openSession = jest.fn();
+    TestBed.overrideProvider(SESSION_CARD_ACTIONS, {
+      useValue: { openLane, openSession },
+    });
+    permissions.set([permission({ timestamp: 30 })]);
+    questions.set([question({ timestamp: 20 })]);
+    agents.set([
+      lane({
+        permissionQueue: [
+          {
+            requestId: 'cli-oldest',
+            agentId: 'agent-1',
+            kind: 'shell',
+            toolName: 'Bash',
+            toolArgs: '{}',
+            description: 'Oldest CLI',
+            timestamp: 10,
+            timeoutAt: 0,
+          },
+        ],
+      }),
+    ]);
+    const fixture = render();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
+    ).toContain('Oldest CLI');
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
+    ).toContain('+2 more');
+    (
+      root.querySelector(
+        '[data-testid="cs-callout-permission"] button:last-child',
+      ) as HTMLButtonElement
+    ).click();
+    expect(openLane).toHaveBeenCalledWith('cli:agent-1');
+    expect(openSession).not.toHaveBeenCalled();
+  });
+
+  it('routes the oldest session permission Open and question Answer to the Orchestrator', () => {
+    const openSession = jest.fn();
+    TestBed.overrideProvider(SESSION_FORCED_CARD, { useValue: signal(true) });
+    TestBed.overrideProvider(SESSION_CARD_ACTIONS, {
+      useValue: { openSession, openLane: jest.fn() },
+    });
+    permissions.set([permission({ timestamp: 1 })]);
+    questions.set([question({ timestamp: 2 })]);
+    const fixture = render();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
+    ).toContain('+1 more');
+    (
+      root.querySelector(
+        '[data-testid="cs-callout-permission"] button:last-child',
+      ) as HTMLButtonElement
+    ).click();
+    expect(openSession).toHaveBeenCalledTimes(1);
+
+    permissions.set([]);
+    fixture.detectChanges();
+    expect(
+      root.querySelector('[data-testid="cs-callout-question"]')?.textContent,
+    ).toContain('Choose a deployment target');
+    (
+      root.querySelector(
+        '[data-testid="cs-callout-question"] button',
+      ) as HTMLButtonElement
+    ).click();
+    expect(openSession).toHaveBeenCalledTimes(2);
+  });
+
   it('renders a newly routed blocking prompt within one animation frame', async () => {
     const value = tab();
     const fixture = render(value);

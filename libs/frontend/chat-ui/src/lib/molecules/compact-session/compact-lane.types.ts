@@ -39,6 +39,13 @@ export interface CompactPermissionCallout {
   /** Tab that answers the request (the deciding tab for the answer). */
   readonly tabId: string | null;
   readonly text: string;
+  readonly moreCount?: number;
+}
+
+export interface CompactQuestionCallout {
+  readonly kind: 'question';
+  readonly text: string;
+  readonly moreCount?: number;
 }
 
 export interface CompactErrorCallout {
@@ -49,4 +56,7 @@ export interface CompactErrorCallout {
 }
 
 export type CompactCallout =
-  CompactPermissionCallout | CompactErrorCallout | null;
+  | CompactPermissionCallout
+  | CompactQuestionCallout
+  | CompactErrorCallout
+  | null;
