@@ -400,6 +400,8 @@ Not fixed silently; the defaults chosen are recorded and the architect may overr
 
 - File: `<root>\libs\frontend\canvas\src\lib\canvas-needs-you-queue.component.ts`
 - Implementation: closes the popover, opens the detail on the session, on the lane when the requester is a lane (AC 6.5).
+- Also (orchestrator addition): the card's question callout (`AskUserQuestion`) gets an "Answer" button that opens the detail on the Orchestrator tab of that session, where the normal question form renders. It goes through `SESSION_CARD_ACTIONS.openSession()`. Outside the canvas (token absent) it uses the card's `expandToFull`. No inline question form on the card or in the queue (task-description.md:80).
+- Also (orchestrator addition, user follow-up): the card's permission callout keeps inline Allow/Deny (B2c) and gets an "Open" action for long commands, file edits or options that exist only in the full permission UI. "Open" opens the detail on the session (Orchestrator tab) for a session permission, or on the lane tab for a CLI-lane permission, through `SESSION_CARD_ACTIONS` (`openSession()` / `openLane(laneKey)`). Outside the canvas it uses `expandToFull`. With several pending requests, the callout shows the oldest one plus "+N more".
 - Acceptance (batch): AC 4.2-4.5, 4.7-4.9, 6.5. Tests: `x/y/w/h` of all tiles equal before/after open and close; 6 sessions → transcript host count 1; Esc / same-card click close; arrows wrap; tile close removes the detail element.
 - Verify: Jest on the changed specs, then `nx test` + `nx typecheck` + `nx lint` `@ptah-extension/canvas` (one at a time).
 
