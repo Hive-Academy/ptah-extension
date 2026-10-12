@@ -40,7 +40,7 @@ import { readCompleteGestureNodes } from './canvas-gesture-observation';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { TabManagerService } from '@ptah-extension/chat';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
-import { isAutoCardTile } from './canvas-live-budget';
+import { canvasGridItems } from './canvas-grid-items';
 
 /** Which gesture just ended, latched before Gridstack's `change` fires. */
 type GestureKind = 'drag' | 'resize';
@@ -61,9 +61,6 @@ interface LayoutMeasurements {
   readonly width: number;
   readonly height: number;
 }
-
-/** Fallback item geometry for a grid that has not been measured yet. */
-const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
 
 /**
  * CanvasWorkspaceGridComponent — one Gridstack container per workspace.
@@ -128,13 +125,8 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
             data-testid="canvas-tile"
             [tabId]="item.tabId"
             [visible]="active()"
-            [focused]="canvasStore.focusedTabId() === item.tabId"
-            [autoCard]="
-              isAutoCardTile(
-                items().length,
-                canvasStore.focusedTabId() === item.tabId
-              )
-            "
+            [focused]="effectiveFocusedTabId() === item.tabId"
+            [autoCard]="item.autoCard"
             [widthIntent]="item.width"
             [rowBreakBefore]="item.rowBreakBefore"
             [firstInOrder]="item.firstInOrder"
@@ -326,51 +318,44 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   });
 
   private readonly creationOptions = new Map<string, GridStackWidget>();
+  private readonly previousAutoCards = new Map<string, boolean>();
+  private lastFocusedTabId: string | null = null;
+
+  /** A grid without explicit focus still keeps its most recent tile live. */
+  protected readonly effectiveFocusedTabId = computed(() => {
+    const tiles = this.tiles();
+    const layoutFocus = this.layoutFocusTabId();
+    if (layoutFocus && tiles.some((tile) => tile.tabId === layoutFocus)) {
+      return layoutFocus;
+    }
+    const focus = this.canvasStore.focusedTabIdFor(this.workspacePath());
+    if (focus && tiles.some((tile) => tile.tabId === focus)) {
+      this.lastFocusedTabId = focus;
+      return focus;
+    }
+    if (
+      this.lastFocusedTabId &&
+      tiles.some((tile) => tile.tabId === this.lastFocusedTabId)
+    ) {
+      return this.lastFocusedTabId;
+    }
+    return firstTileIdByOrder(tiles) ?? null;
+  });
 
   /** Template view-model: derived geometry keyed by tabId, never by index. */
   protected readonly items = computed(() => {
-    const derived = new Map(this.layout().tiles.map((t) => [t.tabId, t]));
-    const liveIds = new Set(this.tiles().map((tile) => tile.tabId));
-    for (const tabId of this.creationOptions.keys()) {
-      if (!liveIds.has(tabId)) this.creationOptions.delete(tabId);
-    }
-    const frozen = this.locked() || this.layoutFocusTabId() !== null;
-    const noMove = frozen || this.isSingleton();
-    const compactIds = this.compactTabIds();
-    const firstId = firstTileIdByOrder(this.tiles());
-    return this.tiles().map((tile) => {
-      const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
-      // Compact tiles resize too, but only in height (south handle, CSS-gated).
-      const noResize = frozen;
-      let options = this.creationOptions.get(tile.tabId);
-      if (!options) {
-        options = {
-          x: position.x,
-          y: position.y,
-          w: position.w,
-          h: position.h,
-          id: tile.tabId,
-          noMove,
-          noResize,
-        };
-        this.creationOptions.set(tile.tabId, options);
-        this.metrics.increment('creationOptionWrites', 1, false);
-      } else {
-        options.noMove = noMove;
-        options.noResize = noResize;
-      }
-      return {
-        tabId: tile.tabId,
-        width: tile.width,
-        rowBreakBefore: tile.rowBreakBefore,
-        firstInOrder: tile.tabId === firstId,
-        compact: compactIds.has(tile.tabId),
-        options,
-      };
-    });
+    return canvasGridItems(
+      this.tiles(),
+      this.layout().tiles,
+      this.creationOptions,
+      this.compactTabIds(),
+      this.effectiveFocusedTabId(),
+      this.previousAutoCards,
+      this.active(),
+      this.locked() || this.layoutFocusTabId() !== null,
+      () => this.metrics.increment('creationOptionWrites', 1, false),
+    );
   });
-
-  protected readonly isAutoCardTile = isAutoCardTile;
 
   /**
    * True for the synchronous window in which this component is writing derived

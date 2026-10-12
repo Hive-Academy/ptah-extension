@@ -290,6 +290,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     const tabManagerMock = {
       onTabClosed: jest.fn(() => () => undefined),
       tabs: tabsSignal,
+      getWorkspaceTabs: jest.fn(() => []),
       activeTabId: signal<string | null>(null),
       activeWorkspacePath$: signal<string | null>(WORKSPACE),
       switchTab: jest.fn(),
@@ -456,6 +457,61 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('projection', () => {
+    const autoCards = () =>
+      fixture.debugElement
+        .queryAll(By.directive(CanvasTileStub))
+        .map((debug) => {
+          const tile = debug.componentInstance as CanvasTileStub;
+          return [tile.tabId, tile.autoCard] as const;
+        });
+
+    it('keeps the first tile live when no tab is focused', () => {
+      mount(['t1', 't2', 't3']);
+      expect(autoCards()).toEqual([
+        ['t1', false],
+        ['t2', true],
+        ['t3', true],
+      ]);
+    });
+
+    it('keeps its last focused tile live when focus names a tab outside the grid', () => {
+      mount(['t1', 't2', 't3']);
+      store.focusTile('t2');
+      flush();
+      store.focusTile('other-tab');
+      flush();
+      expect(autoCards()).toEqual([
+        ['t1', true],
+        ['t2', false],
+        ['t3', true],
+      ]);
+    });
+
+    it('keeps a layout-focused tile live even when another tile has tab focus', () => {
+      mount(['t1', 't2', 't3']);
+      store.focusTile('t1');
+      store.toggleLayoutFocus(WORKSPACE, 't3');
+      flush();
+      expect(autoCards()).toEqual([
+        ['t1', true],
+        ['t2', true],
+        ['t3', false],
+      ]);
+    });
+
+    it('preserves auto-card bindings while its workspace is hidden', () => {
+      mount(['t1', 't2', 't3']);
+      store.focusTile('t2');
+      flush();
+      const before = autoCards();
+      fixture.componentRef.setInput('visible', false);
+      store.switchWorkspaceTiles('/other', [
+        { id: 'other', claudeSessionId: null, name: 'other' },
+      ]);
+      flush();
+      expect(autoCards()).toEqual(before);
+    });
+
     it.each([1, 2, 3])(
       'binds auto-card by focus for %i tiles without moving nodes or writing view mode',
       (count) => {

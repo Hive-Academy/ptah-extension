@@ -5,6 +5,7 @@ import {
   computed,
   signal,
   inject,
+  DestroyRef,
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { SessionId } from '@ptah-extension/shared';
@@ -87,6 +88,12 @@ export class CanvasStore {
   private readonly tabManager = inject(TabManagerService);
   private readonly persistence = inject(CanvasLayoutPersistenceService);
   private readonly agentMonitor = inject(AgentMonitorStore);
+  private readonly destroyRef = inject(DestroyRef);
+  private hiddenStatusInterval: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    this.destroyRef.onDestroy(() => this.stopHiddenStatusInterval());
+  }
 
   /**
    * Maximum number of tiles the orchestra canvas allows simultaneously.
@@ -149,14 +156,15 @@ export class CanvasStore {
   readonly canAddTile = computed(
     () => this.tiles().length < CanvasStore.MAX_TILES,
   );
-  readonly runningSessionCount = computed(() => {
+  private readonly hiddenStatusTick = signal(0);
+  private readonly runningSnapshot = computed(() => {
+    this.hiddenStatusTick();
     // Running sessions in hidden workspaces still count toward the canvas cap.
-    // `tabs()` holds only the active workspace; hidden workspace tabs come from
-    // the partition snapshot, which is not a signal, so their status is read
-    // again whenever a tile, agent, active tab or workspace change re-runs this.
     const activeTabs = this.tabManager.tabs();
-    const activePath = this._activeWorkspacePath();
+    const activePath =
+      this.tabManager.activeWorkspacePath$() ?? IMPLICIT_WORKSPACE_PATH;
     const byId = new Map<string, TabState>();
+    let hiddenRunning = false;
     for (const [path, tiles] of this._workspaceTiles()) {
       const workspaceTabs =
         path === activePath
@@ -164,11 +172,19 @@ export class CanvasStore {
           : this.tabManager.getWorkspaceTabs(path);
       for (const tile of tiles) {
         const tab = workspaceTabs.find((t) => t.id === tile.tabId);
-        if (tab) byId.set(tab.id, tab);
+        if (tab) {
+          byId.set(tab.id, tab);
+          if (
+            path !== activePath &&
+            (tab.status === 'streaming' || tab.status === 'resuming')
+          ) {
+            hiddenRunning = true;
+          }
+        }
       }
     }
     const canvasTabs = [...byId.values()];
-    return countRunningSessions(
+    const count = countRunningSessions(
       canvasTabs,
       (key) =>
         canvasTabs.some(
@@ -179,10 +195,30 @@ export class CanvasStore {
       this.agentMonitor.agents(),
       [...this.agentMonitor.subagents().values()],
     );
+    // Hidden workspace tabs are not signals, so a hidden turn that ends never
+    // re-runs this. Poll only while the cap is reached because of them. This
+    // lives here, not in an effect: the store can be created inside a reactive
+    // context, where an effect cannot be created.
+    if (count >= MAX_RUNNING_SESSIONS && hiddenRunning) {
+      this.hiddenStatusInterval ??= setInterval(() => {
+        this.hiddenStatusTick.update((tick) => tick + 1);
+        this.runningSnapshot();
+      }, 1000);
+    } else {
+      this.stopHiddenStatusInterval();
+    }
+    return { count, hiddenRunning };
   });
+  readonly runningSessionCount = computed(() => this.runningSnapshot().count);
   readonly canStartRunningSession = computed(
     () => this.runningSessionCount() < MAX_RUNNING_SESSIONS,
   );
+
+  private stopHiddenStatusInterval(): void {
+    if (this.hiddenStatusInterval === null) return;
+    clearInterval(this.hiddenStatusInterval);
+    this.hiddenStatusInterval = null;
+  }
 
   /**
    * Reactive tile list for an arbitrary workspace path — used by each hidden
@@ -206,6 +242,10 @@ export class CanvasStore {
   /** Transient layout-focus tile for a workspace; never persisted. */
   layoutFocusTabIdFor(path: string): string | null {
     return this._workspaceLayoutFocus().get(path) ?? null;
+  }
+
+  focusedTabIdFor(path: string): string | null {
+    return this._workspaceFocusedTabId().get(path) ?? null;
   }
 
   setLayoutLocked(locked: boolean): void {

@@ -16,6 +16,7 @@ import {
   createEnvironmentInjector,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
+import { CanvasStore } from './canvas.store';
 import {
   ChatViewComponent,
   TabManagerService,
@@ -23,6 +24,7 @@ import {
   SESSION_VISIBLE,
   SESSION_FOCUSED,
   SESSION_FORCED_CARD,
+  SESSION_CARD_ACTIONS,
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import {
@@ -435,6 +437,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    * The workspace grid always binds it explicitly.
    */
   readonly focused = input<boolean>(true);
+  /** Force the summary card while this tile is outside the live budget. */
   readonly autoCard = input<boolean>(false);
 
   /**
@@ -494,6 +497,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   protected readonly maxCompactHeight = MAX_COMPACT_TILE_HEIGHT_UNITS;
 
   private readonly tabManager = inject(TabManagerService);
+  private readonly canvasStore = inject(CanvasStore, { optional: true });
   private readonly effortState = inject(EffortStateService);
   private readonly modelState = inject(ModelStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
@@ -622,6 +626,14 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
           { provide: SESSION_VISIBLE, useValue: this.visible },
           { provide: SESSION_FOCUSED, useValue: this.focused },
           { provide: SESSION_FORCED_CARD, useValue: this.autoCard },
+          {
+            provide: SESSION_CARD_ACTIONS,
+            useValue: {
+              openSession: () => this.openCardSession(),
+              // B7a adds lane detail; until then opening a lane focuses its tile.
+              openLane: (_laneKey: string) => this.openCardSession(),
+            },
+          },
           { provide: SURFACE_ACTIVE, useValue: this.tileSurfaceActive },
         ],
         this.parentEnvInjector,
@@ -632,6 +644,11 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.tabManager.unregisterVisibleTab(this.tabId());
     this.childInjector()?.destroy();
+  }
+
+  private openCardSession(): void {
+    if (this.canvasStore) this.canvasStore.focusTile(this.tabId());
+    else this.focusRequested.emit(this.tabId());
   }
 
   /**

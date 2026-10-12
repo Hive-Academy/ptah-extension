@@ -42,11 +42,13 @@ import { TestBed } from '@angular/core/testing';
 import { inject, signal } from '@angular/core';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { CanvasTileComponent } from './canvas-tile.component';
+import { CanvasStore } from './canvas.store';
 import {
   SendToMessagingComponent,
   TabManagerService,
   SESSION_FOCUSED,
   SESSION_FORCED_CARD,
+  SESSION_CARD_ACTIONS,
 } from '@ptah-extension/chat';
 import {
   EffortStateService,
@@ -1152,6 +1154,7 @@ describe('CanvasTileComponent SURFACE_ACTIVE for tile content', () => {
 });
 
 describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
+  const focusTile = jest.fn();
   /** Stands in for ChatViewComponent: a SESSION_FOCUSED consumer. */
   @Component({
     selector: 'ptah-test-focus-probe',
@@ -1178,6 +1181,7 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     TestBed.configureTestingModule({
       imports: [CanvasTileComponent],
       providers: [
+        { provide: CanvasStore, useValue: { focusTile } },
         { provide: TabManagerService, useValue: tabManager },
         { provide: SURFACE_ACTIVE, useValue: canvasActive },
         {
@@ -1276,5 +1280,17 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     fixture.componentRef.setInput('autoCard', false);
     fixture.detectChanges();
     expect(forcedCard()).toBe(false);
+  });
+
+  it('focuses its tile for both forced-card actions', () => {
+    focusTile.mockClear();
+    const fixture = mountFocused(false);
+    const injector = fixture.componentInstance.childInjector();
+    if (!injector) throw new Error('Tile child injector was not created');
+    const actions = injector.get(SESSION_CARD_ACTIONS);
+    actions.openSession();
+    actions.openLane('cli:lane-1');
+    expect(focusTile).toHaveBeenNthCalledWith(1, 'tile-1');
+    expect(focusTile).toHaveBeenNthCalledWith(2, 'tile-1');
   });
 });

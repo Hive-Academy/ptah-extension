@@ -70,9 +70,11 @@ describe('CanvasStore', () => {
   };
 
   let getWorkspaceTabs: jest.Mock;
+  let activeWorkspacePath: ReturnType<typeof signal<string | null>>;
 
   beforeEach(() => {
     getWorkspaceTabs = jest.fn(() => []);
+    activeWorkspacePath = signal<string | null>(null);
     tabs = signal([]);
     agents = signal([]);
     subagents = signal(new Map());
@@ -98,7 +100,7 @@ describe('CanvasStore', () => {
             tabs,
             getWorkspaceTabs,
             activeTabId: signal<string | null>(null),
-            activeWorkspacePath$: signal<string | null>(null),
+            activeWorkspacePath$: activeWorkspacePath,
             createTab: jest.fn(() => `tab-${tabs().length + 1}`),
             openSessionTab: jest.fn((id: string) => `tab-${id}`),
             switchTab: jest.fn(),
@@ -111,6 +113,7 @@ describe('CanvasStore', () => {
   });
 
   const hydrate = (path: string, ids: readonly string[]): void => {
+    activeWorkspacePath.set(path);
     tabs.set(
       ids.map((id) => ({
         id,
@@ -169,15 +172,89 @@ describe('CanvasStore', () => {
     );
     // `tabs()` holds only the active workspace, like the real TabManagerService.
     tabs.set(streaming(first));
+    activeWorkspacePath.set('/ws/a');
     store.hydrateWorkspace('/ws/a', first);
     expect(store.runningSessionCount()).toBe(5);
     tabs.set(streaming(second));
+    activeWorkspacePath.set('/ws/b');
     store.hydrateWorkspace('/ws/b', second);
     expect(store.runningSessionCount()).toBe(9);
     expect(store.canStartRunningSession()).toBe(false);
     tabs.set(streaming(first));
+    activeWorkspacePath.set('/ws/a');
     store.hydrateWorkspace('/ws/a', first);
     expect(store.canStartRunningSession()).toBe(false);
+  });
+
+  it('rechecks hidden tab status at the cap and stops polling when a slot opens', () => {
+    jest.useFakeTimers();
+    try {
+      const first = Array.from({ length: 5 }, (_, i) => `a-${i}`);
+      const second = Array.from({ length: 4 }, (_, i) => `b-${i}`);
+      const streaming = (ids: readonly string[]) =>
+        ids.map((id) => ({
+          id,
+          name: id,
+          claudeSessionId: null,
+          status: 'streaming' as const,
+        }));
+      let hiddenTabs = streaming(first).map((tab) => ({
+        ...tab,
+        status: 'streaming' as 'streaming' | 'loaded',
+      }));
+      getWorkspaceTabs.mockImplementation((path: string) =>
+        path === '/ws/a' ? hiddenTabs : [],
+      );
+      activeWorkspacePath.set('/ws/a');
+      tabs.set(streaming(first));
+      store.hydrateWorkspace('/ws/a', first);
+      activeWorkspacePath.set('/ws/b');
+      tabs.set(streaming(second));
+      store.hydrateWorkspace('/ws/b', second);
+      expect(store.canStartRunningSession()).toBe(false);
+      TestBed.flushEffects();
+      expect(jest.getTimerCount()).toBe(1);
+      hiddenTabs = hiddenTabs.map((tab, index) =>
+        index === 0 ? { ...tab, status: 'loaded' } : tab,
+      );
+      jest.advanceTimersByTime(1000);
+      expect(store.canStartRunningSession()).toBe(true);
+      TestBed.flushEffects();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('uses the tab manager active path during a workspace switch', () => {
+    const first = [
+      {
+        id: 'a',
+        name: 'a',
+        claudeSessionId: null,
+        status: 'streaming' as const,
+      },
+    ];
+    const second = [
+      {
+        id: 'b',
+        name: 'b',
+        claudeSessionId: null,
+        status: 'streaming' as const,
+      },
+    ];
+    tabs.set(first);
+    activeWorkspacePath.set('/ws/a');
+    store.hydrateWorkspace('/ws/a', ['a']);
+    getWorkspaceTabs.mockImplementation((path: string) =>
+      path === '/ws/a' ? first : second,
+    );
+    tabs.set(second);
+    activeWorkspacePath.set('/ws/b');
+    store.hydrateWorkspace('/ws/b', ['b']);
+    tabs.set(first);
+    activeWorkspacePath.set('/ws/a');
+    expect(store.runningSessionCount()).toBe(2);
   });
 
   it('adoptTab of an already-tiled tab adds no second tile (agent re-adoption, TASK_2026_612)', () => {
