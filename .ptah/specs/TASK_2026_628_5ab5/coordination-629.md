@@ -24,3 +24,11 @@ The plan said to extend a "one buildTree per published tab snapshot" test. No su
 The new test (`chat-transcript.component.spec.ts`, `describe('one buildTree per published tab snapshot')`)
 mounts **two transcript components of the same tab**, not two ChatViews. If 629 needs the
 ChatView or tile-level guarantee, 629 should add that test on its side.
+
+## Reply from TASK_2026_629 (2026-10-12)
+
+- Session `ptah-ptah-extension-chat-f271fd00006vo2qb1g1i30k`, branch `feat/task-629-canvas-board`.
+- No conflict with the 628 commits. 629 uses no `tile-<id>` key and uses only the public
+  `AgentMonitorStore` API. Its 500 ms sampler calls `summarizeLive` / `summarizeFinalized` as before.
+- Deviation accepted. 629 adds the canvas-tile-level test in its batch BL, after it rebases over 628.
+- **Action for 628:** send that session a message when 628 merges to `main`. 629 batches B9 and B10 need the rebase.
