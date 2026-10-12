@@ -586,6 +586,25 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       expect(separator()?.getAttribute('aria-valuenow')).toBe('300');
       expect(store().tab('tab-2').widthPx).toBeNull();
     });
+
+    it('a restore clamped to a narrower host keeps the saved width', async () => {
+      h = mount();
+      h.emitHostWidth(1280);
+      await clickToggle();
+      separator()?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'End', bubbles: true }),
+      );
+      h.fixture.detectChanges();
+      expect(store().tab('tab-1').widthPx).toBe(960);
+
+      h.activeTabId.set('tab-2');
+      await settle();
+      h.emitHostWidth(800);
+      h.activeTabId.set('tab-1');
+      await settle();
+      expect(separator()?.getAttribute('aria-valuenow')).toBe('600');
+      expect(store().tab('tab-1').widthPx).toBe(960);
+    });
   });
 
   describe('R1.3: one right-side panel', () => {

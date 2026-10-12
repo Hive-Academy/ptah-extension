@@ -605,6 +605,7 @@ export class ChatViewComponent implements OnDestroy {
     } else {
       this.panelResizeService.setCustomWidth(next, host);
     }
+    this.storeDockWidth();
   }
 
   private resizeHandleEl: HTMLElement | null = null;
@@ -628,12 +629,13 @@ export class ChatViewComponent implements OnDestroy {
     this._latestResizeEvent = null;
     if (!event || this._hostRight === null) return;
     const newWidth = this._hostRight - event.clientX;
-    this.ngZone.run(() =>
+    this.ngZone.run(() => {
       this.panelResizeService.setCustomWidth(
         newWidth,
         this.hostEl.nativeElement.clientWidth,
-      ),
-    );
+      );
+      this.storeDockWidth();
+    });
   };
 
   private readonly onResizeEnd = (event: PointerEvent): void => {
@@ -688,6 +690,7 @@ export class ChatViewComponent implements OnDestroy {
   /** Double-click the handle to fall back to the responsive default width. */
   onResizeReset(): void {
     this.panelResizeService.resetWidth();
+    this.storeDockWidth();
   }
 
   ngOnDestroy(): void {
@@ -705,12 +708,13 @@ export class ChatViewComponent implements OnDestroy {
     const startWidth = this._startWidth;
     this._cancelResizeFrame();
     if (cancel && startWidth !== null) {
-      this.ngZone.run(() =>
+      this.ngZone.run(() => {
         this.panelResizeService.setCustomWidth(
           startWidth,
           this.hostEl.nativeElement.clientWidth,
-        ),
-      );
+        );
+        this.storeDockWidth();
+      });
     } else {
       this._applyResize();
     }
@@ -1384,9 +1388,9 @@ export class ChatViewComponent implements OnDestroy {
 
   /**
    * Electron: the dock width is kept per chat tab (R1.5). A tab switch
-   * restores the tab's width into `PanelResizeService`; a width change is
-   * stored for the current tab. The store write reads the key untracked, so a
-   * switch never copies the old tab's width into the new one.
+   * restores the tab's width into `PanelResizeService`. Only a user resize
+   * stores a width (`storeDockWidth`): a restore clamped to a narrow host
+   * never overwrites the tab's saved width.
    */
   private syncDockWidthPerTab(): void {
     const dock = this.displayDock;
@@ -1406,10 +1410,14 @@ export class ChatViewComponent implements OnDestroy {
         }
       });
     });
-    effect(() => {
-      const width = this.panelResizeService.customWidth();
-      untracked(() => dock.setWidth(this.panelKey(), width));
-    });
+  }
+
+  /** Stores the current width for this tab after a user resize (R1.5). */
+  private storeDockWidth(): void {
+    this.displayDock?.setWidth(
+      untracked(this.panelKey),
+      this.panelResizeService.customWidth(),
+    );
   }
 
   /**
