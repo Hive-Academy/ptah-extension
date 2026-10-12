@@ -742,8 +742,14 @@ export class MessageSenderService {
         this.tabManager.installSessionBudget(activeTabId, refusalBudget);
       }
       if (!result.success || authFailed || result.data?.success === false) {
-        // A budget refusal is an expected state with its own UI, not an error.
-        if (!budgetReached) {
+        // A budget refusal or a handover hold is an expected outcome the
+        // banner explains, not a failure (R9). Everything else stays an error.
+        if (!authFailed && (budgetReached || handoverHeld)) {
+          console.info(
+            '[MessageSender] Continue held by the session budget or handover:',
+            result.data?.error ?? result.error,
+          );
+        } else {
           console.error(
             '[MessageSender] Failed to continue chat:',
             result.data?.error ?? result.error,

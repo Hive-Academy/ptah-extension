@@ -188,7 +188,10 @@ export function sessionStartReply(
     if ('successor' in result) {
       return {
         isError: false,
-        text: 'Successor handover accepted. The replacement will bind and focus before this session closes.',
+        text:
+          'Successor handover requested. It waits for the user to approve it in the session ' +
+          'banner; nothing changes until then. Keep working normally. If the user cancels, ' +
+          'this session continues.',
       };
     }
     const child = result.child;

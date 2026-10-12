@@ -79,7 +79,7 @@ import {
   RpcResult,
 } from '@ptah-extension/core';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
-import { SessionId } from '@ptah-extension/shared';
+import { ENDED_HANDOVER_PHASES, SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
   CliType,
@@ -170,13 +170,6 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
  * full-surface overlay instead of a side-by-side column.
  */
 export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
-
-/** A non-negative finite token count, or null. */
-function finiteToken(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? value
-    : null;
-}
 
 @Component({
   selector: 'ptah-chat-view',
@@ -939,18 +932,41 @@ export class ChatViewComponent implements OnDestroy {
   readonly resolvedSessionBudget = this._budgetActions.budget;
   /** Per-session samples for the budget sparkline. */
   protected readonly budgetUsage = this._budgetActions.usage;
-  /** Stored immediately from stats, rendered only after this tab is idle. */
+  /**
+   * Stored immediately from stats. Shown once this tab is idle, or while it
+   * streams when the handover is still pending (see `showSessionBudgetBanner`).
+   */
   protected readonly resolvedHandover = computed(() =>
     this._handoverClient.stateFor(this.resolvedSessionId()),
   );
+  /** The live budget stage; counts only while this tab streams with a budget. */
+  protected readonly budgetLiveStage = this._budgetActions.liveStage;
+  protected readonly budgetTurnRunning = this._budgetActions.turnRunning;
+  protected readonly budgetWrapUpRequested = this._budgetActions.wrapUpRequested;
+  protected readonly budgetQueuedMessageCarried =
+    this._budgetActions.queuedMessageCarried;
+  /**
+   * An idle tab shows any budget or handover notice. A streaming tab shows the
+   * banner only when it needs a click mid-turn (Decision 7): the display stage
+   * is `handoff`/`limit` (wrap-up, continue), or a handover is still pending,
+   * including an agent request that arrives mid-turn (Approve/Cancel). Other
+   * stats received while generating wait for the terminal turn_state.
+   */
   protected readonly showSessionBudgetBanner = computed(() => {
     const tab = this.resolvedActiveTab();
     const tabId = this.resolvedTabId();
-    const hasNotice = this.resolvedSessionBudget() !== null || this.resolvedHandover() !== null;
+    const handover = this.resolvedHandover();
+    const hasNotice = this.resolvedSessionBudget() !== null || handover !== null;
+    const stage = this._budgetActions.displayStage();
+    const showWhileStreaming =
+      tab?.status === 'streaming' &&
+      (stage === 'handoff' ||
+        stage === 'limit' ||
+        (handover !== null && !ENDED_HANDOVER_PHASES.has(handover.phase)));
     return (
       hasNotice &&
       this.mainPanelShowing() &&
-      tab?.status === 'loaded' &&
+      (tab?.status === 'loaded' || showWhileStreaming) &&
       tabId !== null &&
       tabId === this._tabManager.activeTabId()
     );
@@ -995,26 +1011,18 @@ export class ChatViewComponent implements OnDestroy {
   );
 
   /**
-   * Last completed compaction for this conversation. The notice uses it
-   * after the in-flight flag drops. The marker itself stays the summary chip.
+   * The finished-compaction chip: hidden while a run is in flight (the
+   * notice card shows then) and once the user sent a message after it.
    */
-  protected readonly compactionCompleted = computed(
-    () =>
-      !this.resolvedIsCompacting() && this.resolvedCompactionMarker() !== null,
-  );
-
-  /** Before-tokens: the start event while compacting, the result after. */
-  protected readonly compactionPreTokens = computed((): number | null => {
-    if (this.resolvedIsCompacting()) {
-      return finiteToken(this.compactionFlight()?.preTokens);
-    }
-    return this.compactionTokenPair().pre;
+  protected readonly visibleCompactionMarker = computed(() => {
+    if (this.resolvedIsCompacting()) return null;
+    const marker = this.resolvedCompactionMarker();
+    if (!marker) return null;
+    const answered = this.resolvedMessages().some(
+      (m) => m.role === 'user' && m.timestamp > marker.completedAt,
+    );
+    return answered ? null : marker;
   });
-
-  /** After-tokens from the completion marker. Absent while a run is in flight. */
-  protected readonly compactionPostTokens = computed((): number | null =>
-    this.resolvedIsCompacting() ? null : this.compactionTokenPair().post,
-  );
 
   /** Same tab scope as the banner above — the two must never disagree. */
   readonly resolvedCompactionMarker = computed(() => {
@@ -1208,6 +1216,15 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
+    // Handover draft return (D24, S20): reads the handover state and the
+    // composer, so a compact → full switch re-runs it with a mounted input.
+    effect(() => {
+      this.resolvedHandover();
+      const chatInput = this.chatInputRef();
+      if (!chatInput) return;
+      untracked(() => this.applyHandoverDraft(chatInput));
+    });
+
     effect(() => {
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');
@@ -1325,6 +1342,40 @@ export class ChatViewComponent implements OnDestroy {
     return this._budgetActions.cancelHandover();
   }
 
+  protected onBudgetRequestWrapUp(): Promise<void> {
+    return this._budgetActions.requestWrapUp();
+  }
+
+  protected onBudgetContinueNowAnyway(): Promise<void> {
+    return this._budgetActions.continueNowAnyway();
+  }
+
+  /** Approving an agent request is the user's own begin (D23). */
+  protected onBudgetApproveAgentRequest(): Promise<void> {
+    return this._budgetActions.continueInNewSession();
+  }
+
+  /**
+   * Put a cancelled or failed handover's returned draft (D24) into this view's
+   * composer, once per operation. Without a mounted composer (compact view)
+   * nothing happens and the draft stays unacknowledged; the effect re-runs when
+   * the composer mounts. A throwing write skips the acknowledgement, so the
+   * draft stays recoverable. Never routed through restoreInputs or the send path.
+   */
+  private applyHandoverDraft(chatInput: ChatInputComponent): void {
+    const draft = this._handoverClient.peekDraft(this.resolvedSessionId());
+    if (!draft) return;
+    try {
+      chatInput.restoreDraftToInput(draft.text);
+    } catch (err) {
+      // degradation-audit: reported - logged below; skipping the
+      // acknowledgement keeps the draft recoverable for the next attempt.
+      console.warn('[ChatView] Failed to restore the handover draft:', err);
+      return;
+    }
+    this._handoverClient.acknowledgeDraft(draft.operationId);
+  }
+
   /** Put bounded lost handover inputs back into this source view's composer. */
   protected onRestoreLostHandoverInputs(texts: readonly string[]): void {
     const content = texts.filter(Boolean).join('\n\n');
@@ -1338,28 +1389,6 @@ export class ChatViewComponent implements OnDestroy {
   /** Banner "Compact": the composer's `/compact` send, not a budget RPC. */
   protected onBudgetCompact(): Promise<void> {
     return this._budgetActions.compact();
-  }
-
-  /** In-flight compaction record for this tile, including the start sample. */
-  private compactionFlight(): { preTokens: number | null } | null {
-    const rawTabId = this.resolvedTabId();
-    if (!rawTabId) return null;
-    const tabId = TabId.safeParse(rawTabId);
-    if (!tabId) return null;
-    const convId = this._tabSessionBinding.conversationFor?.(tabId);
-    if (!convId) return null;
-    return this._conversationRegistry.compactionStateFor?.(convId) ?? null;
-  }
-
-  /** Before/after pair already carried on the completion marker. */
-  private compactionTokenPair(): { pre: number | null; post: number | null } {
-    const marker = this.resolvedCompactionMarker();
-    if (!marker) return { pre: null, post: null };
-    const measured = marker.measurement;
-    return {
-      pre: finiteToken(measured?.preTokens) ?? finiteToken(marker.preTokens),
-      post: finiteToken(measured?.postTokens) ?? finiteToken(marker.postTokens),
-    };
   }
 
   /**

@@ -84,6 +84,7 @@ const NON_PERSISTED_TAB_KEYS: ReadonlySet<string> = new Set([
   'attachedBinding',
   'lastTurnStateRevision',
   'lastTurnStateSessionId',
+  'liveBudgetStage',
 ]);
 
 /**
@@ -118,6 +119,8 @@ export function projectTabForPersist(tab: TabState): TabState {
     attachedBinding: null,
     lastTurnStateRevision: undefined,
     lastTurnStateSessionId: undefined,
+    // A live budget stage belongs to the turn that produced it.
+    liveBudgetStage: null,
   };
 }
 
@@ -284,6 +287,10 @@ export function sanitizeRestoredTab(tab: TabState): TabState {
     // reconciler's first `turn_state` must never be dropped as a replay.
     lastTurnStateRevision: undefined,
     lastTurnStateSessionId: undefined,
+    // The live stage was an estimate for a turn that ended with the old
+    // process; an older blob may still carry one, so it must not flash at the
+    // start of the next turn.
+    liveBudgetStage: null,
   };
 }
 

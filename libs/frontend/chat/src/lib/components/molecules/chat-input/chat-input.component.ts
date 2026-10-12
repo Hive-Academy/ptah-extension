@@ -1505,6 +1505,20 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     this.textareaRef()?.nativeElement.focus();
   }
 
+  /**
+   * Put a handover draft (the user's own composer text, returned on Cancel or
+   * failure) back in the composer. Unlike {@link restoreContentToInput} it
+   * never drops the draft: an empty composer gets the text, a non-empty one
+   * keeps its text and gets the draft after a blank line. It never sends and
+   * never touches the tab's queued content.
+   */
+  restoreDraftToInput(text: string): void {
+    if (!text.trim()) return;
+    const current = this._currentMessage();
+    this._currentMessage.set(current.trim() ? `${current}\n\n${text}` : text);
+    this.textareaRef()?.nativeElement.focus();
+  }
+
   constructor() {
     effect(() => {
       const restoreData = this.chatStore.queueRestoreContent();

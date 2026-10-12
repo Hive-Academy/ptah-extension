@@ -89,19 +89,20 @@ export class SessionHandoverRpcHandlers {
         if (!params || !this.coordinator) {
           return { accepted: false, error: 'unavailable' };
         }
-        const begin = this.coordinator.begin(
+        const continueNow = params.continueNow === true;
+        this.logger.info('[SessionHandoverRpcHandlers] user began a successor handover', {
+          sourceSessionId: params.sourceSessionId,
+          continueNow,
+        });
+        // The composer text is the user's draft: the coordinator keeps it on
+        // the operation and delivers it after the held inputs (never held here).
+        return this.coordinator.begin(
           params.sourceSessionId,
           'successor',
           this.turnState?.get(params.sourceSessionId)?.phase === 'generating',
           params.handoff,
+          { continueNow, queuedInput: params.queuedInput },
         );
-        if (begin.accepted && params.queuedInput) {
-          this.coordinator.admitOrHold(params.sourceSessionId, {
-            content: params.queuedInput,
-            admission: 'require-idle',
-          });
-        }
-        return begin;
       },
     );
     this.rpcHandler.registerMethod<unknown, CancelSessionHandoverResult>(

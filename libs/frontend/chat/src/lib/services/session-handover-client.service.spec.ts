@@ -112,4 +112,86 @@ describe('SessionHandoverClientService', () => {
     expect(tabManager.rebindTabSession).not.toHaveBeenCalled();
     expect(rpc.call).not.toHaveBeenCalled();
   });
+
+  // TASK_2026_627 S20 (D24): a returned draft is peeked, then acknowledged.
+  describe('draft bookkeeping', () => {
+    it.each(['cancelled', 'failed'] as const)(
+      'peekDraft returns the draft of a %s handover and changes nothing',
+      (phase) => {
+        service.record(
+          SOURCE_SESSION,
+          handover({ phase, draftText: 'my unsent message' }),
+        );
+
+        const first = service.peekDraft(SOURCE_SESSION);
+        const second = service.peekDraft(SOURCE_SESSION);
+
+        expect(first).toEqual({
+          operationId: 'handover-1',
+          text: 'my unsent message',
+        });
+        expect(second).toEqual(first);
+        expect(rpc.call).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      'waiting-for-turn-end',
+      'awaiting-confirmation',
+      'starting-successor',
+      'closed',
+    ] as const)('peekDraft ignores a draft on a %s state', (phase) => {
+      service.record(
+        SOURCE_SESSION,
+        handover({ phase, draftText: 'my unsent message' }),
+      );
+
+      expect(service.peekDraft(SOURCE_SESSION)).toBeNull();
+    });
+
+    it('peekDraft returns null without a non-empty string draft', () => {
+      expect(service.peekDraft(SOURCE_SESSION)).toBeNull();
+      expect(service.peekDraft(null)).toBeNull();
+
+      service.record(SOURCE_SESSION, handover({ phase: 'cancelled' }));
+      expect(service.peekDraft(SOURCE_SESSION)).toBeNull();
+
+      service.record(
+        SOURCE_SESSION,
+        handover({ phase: 'cancelled', revision: 4, draftText: '   ' }),
+      );
+      expect(service.peekDraft(SOURCE_SESSION)).toBeNull();
+
+      // The boundary guard does not check `draftText`; a non-string is ignored.
+      service.record(SOURCE_SESSION, {
+        ...handover({ phase: 'failed', revision: 5 }),
+        draftText: 42,
+      });
+      expect(service.peekDraft(SOURCE_SESSION)).toBeNull();
+    });
+
+    it('acknowledgeDraft hides that operation only', () => {
+      service.record(
+        SOURCE_SESSION,
+        handover({ phase: 'cancelled', draftText: 'first draft' }),
+      );
+
+      service.acknowledgeDraft('handover-1');
+      expect(service.peekDraft(SOURCE_SESSION)).toBeNull();
+
+      service.record(
+        SOURCE_SESSION,
+        handover({
+          operationId: 'handover-2',
+          phase: 'failed',
+          revision: 9,
+          draftText: 'second draft',
+        }),
+      );
+      expect(service.peekDraft(SOURCE_SESSION)).toEqual({
+        operationId: 'handover-2',
+        text: 'second draft',
+      });
+    });
+  });
 });

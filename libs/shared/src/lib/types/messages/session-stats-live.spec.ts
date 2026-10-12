@@ -143,4 +143,88 @@ describe('session:stats-live contract', () => {
       expect(parsed).not.toHaveProperty('context');
     });
   });
+
+  // S14 (TASK_2026_627): absent = no change, null = clear, a value = set.
+  describe('liveBudgetStage', () => {
+    it.each([
+      ['handoff', 'handoff'],
+      ['limit', 'limit'],
+      ['null (clear)', null],
+    ])('keeps %s on a provisional snapshot', (_label, liveBudgetStage) => {
+      const input = payload({ liveBudgetStage });
+      const parsed = parseSessionStatsLivePayload(input);
+      expect(parsed).toEqual({
+        sessionId,
+        sessionStats: input.sessionStats,
+        context: { model: 'claude-sonnet-4-5', contextTokens: 4200 },
+        liveBudgetStage,
+      });
+    });
+
+    it('keeps the stage when the context is dropped', () => {
+      const parsed = parseSessionStatsLivePayload(
+        payload({ context: 'ctx', liveBudgetStage: 'limit' }),
+      );
+      expect(parsed).not.toHaveProperty('context');
+      expect(parsed?.liveBudgetStage).toBe('limit');
+    });
+
+    it('has no key when the field is absent (no change)', () => {
+      const parsed = parseSessionStatsLivePayload(payload());
+      expect(parsed).not.toBeNull();
+      expect(parsed).not.toHaveProperty('liveBudgetStage');
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['unknown stage', 'warning'],
+      ['ok stage', 'ok'],
+      ['empty string', ''],
+      ['uppercase', 'LIMIT'],
+      ['number', 1],
+      ['boolean', false],
+      ['object', { stage: 'limit' }],
+    ])(
+      'drops only the field for %s on a provisional snapshot',
+      (_label, liveBudgetStage) => {
+        const input = payload({ liveBudgetStage });
+        const parsed = parseSessionStatsLivePayload(input);
+        expect(parsed).not.toBeNull();
+        expect(parsed?.sessionStats).toBe(input.sessionStats);
+        expect(parsed?.context).toEqual({
+          model: 'claude-sonnet-4-5',
+          contextTokens: 4200,
+        });
+        expect(parsed).not.toHaveProperty('liveBudgetStage');
+      },
+    );
+
+    it.each([
+      ['handoff', 'handoff'],
+      ['limit', 'limit'],
+      ['null', null],
+    ])(
+      'drops %s on a non-provisional snapshot and keeps the payload',
+      (_label, liveBudgetStage) => {
+        const sessionStats = stats();
+        delete (sessionStats as Record<string, unknown>)['provisional'];
+        const parsed = parseSessionStatsLivePayload(
+          payload({ sessionStats, liveBudgetStage }),
+        );
+        expect(parsed).toEqual({ sessionId, sessionStats });
+        expect(parsed).not.toHaveProperty('liveBudgetStage');
+      },
+    );
+
+    it('does not rescue a rejected envelope', () => {
+      expect(
+        parseSessionStatsLivePayload(
+          payload({
+            sessionStats: stats({ provisional: false }),
+            liveBudgetStage: 'limit',
+          }),
+        ),
+      ).toBeNull();
+    });
+  });
 });

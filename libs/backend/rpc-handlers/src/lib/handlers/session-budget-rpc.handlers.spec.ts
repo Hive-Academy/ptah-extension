@@ -104,13 +104,14 @@ describe('SessionBudgetRpcHandlers', () => {
     expect([...SessionBudgetRpcHandlers.METHODS]).toEqual([METHOD]);
   });
 
-  it('validates the five banner actions', () => {
+  it('validates the six banner actions', () => {
     expect([...SESSION_BUDGET_ACTIONS]).toEqual([
       'dismiss',
       'extend',
       'restore-window',
       'write-handoff',
       'preview-handoff',
+      'request-wrap-up',
     ]);
   });
 
@@ -175,6 +176,27 @@ describe('SessionBudgetRpcHandlers', () => {
       await expect(
         call(fakes, { sessionId: SESSION_ID, action: 'restore-window' }),
       ).resolves.toEqual(failure);
+    });
+
+    it('forwards request-wrap-up and returns WRAP_UP_UNAVAILABLE as-is', async () => {
+      const fakes = createFakes();
+      const refusal: SessionBudgetActionResult = {
+        success: false,
+        state: { ...STATE, stage: 'handoff', blocked: false },
+        error: 'The agent is not working on a turn at the handoff or limit stage',
+        errorCode: 'WRAP_UP_UNAVAILABLE',
+      };
+      fakes.budget.act.mockResolvedValueOnce(refusal);
+      build(fakes, { withService: true });
+
+      await expect(
+        call(fakes, { sessionId: SESSION_ID, action: 'request-wrap-up' }),
+      ).resolves.toEqual(refusal);
+      expect(fakes.budget.act).toHaveBeenCalledTimes(1);
+      expect(fakes.budget.act).toHaveBeenCalledWith(
+        SESSION_ID,
+        'request-wrap-up',
+      );
     });
 
     it.each([

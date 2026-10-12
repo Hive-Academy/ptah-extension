@@ -65,13 +65,8 @@
 
       <!-- Compaction Notification Banner -->
       <div class="px-2">
-        <ptah-compaction-notification
-          [isCompacting]="resolvedIsCompacting()"
-          [completed]="compactionCompleted()"
-          [preTokens]="compactionPreTokens()"
-          [postTokens]="compactionPostTokens()"
-        />
-        @if (resolvedCompactionMarker(); as m) {
+        <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
+        @if (visibleCompactionMarker(); as m) {
           <ptah-compaction-marker
             [summary]="m.summary"
             [boundaryId]="m.boundaryId"
@@ -150,6 +145,10 @@
           [busy]="budgetActionBusy()"
           [usage]="budgetUsage()"
           [compacting]="resolvedIsCompacting()"
+          [turnRunning]="budgetTurnRunning()"
+          [liveStage]="budgetLiveStage()"
+          [wrapUpRequested]="budgetWrapUpRequested()"
+          [queuedMessageCarried]="budgetQueuedMessageCarried()"
           (compact)="onBudgetCompact()"
           (dismiss)="onBudgetAction('dismiss')"
           (extend)="onBudgetAction('extend')"
@@ -157,6 +156,9 @@
           (previewRequested)="onBudgetPreview()"
           (continueInNewSession)="onBudgetContinue()"
           (cancelHandover)="onBudgetCancelHandover()"
+          (requestWrapUp)="onBudgetRequestWrapUp()"
+          (continueNowAnyway)="onBudgetContinueNowAnyway()"
+          (approveAgentRequest)="onBudgetApproveAgentRequest()"
           (restoreLostInputs)="onRestoreLostHandoverInputs($event)"
           (rotate)="onBudgetRotate()"
         />

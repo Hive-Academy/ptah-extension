@@ -13,6 +13,7 @@ import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookSessionId } from './hook-session-resolver';
 import type { ToolOutputCapper } from './compaction/tool-output-capper';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
+import { MainThreadNoticeQueue } from './main-thread-notice-queue';
 
 /**
  * Upper bound for one output cap. The SDK's hook timeout defaults to 60 s; a
@@ -64,7 +65,44 @@ export class PostToolUseHookHandler {
     private readonly callbackRegistry: PostToolUseCallbackRegistry,
     @inject(SDK_TOKENS.SDK_TOOL_OUTPUT_CAPPER)
     private readonly capper?: ToolOutputCapper,
+    /** Absent in callers that construct the handler without one: no notices. */
+    @inject(MainThreadNoticeQueue)
+    private readonly noticeQueue?: MainThreadNoticeQueue,
   ) {}
+
+  /**
+   * Drains the session's pending host notices for a main-thread tool result.
+   * A subagent's tool result (`agent_id` set) never drains the queue, so the
+   * notice waits for the main agent. A failure loses the notice for this tool
+   * call only and never breaks the hook.
+   */
+  private takeMainThreadNotice(
+    input: PostToolUseHookInput,
+    sessionId: string | undefined,
+  ): string | undefined {
+    const queue = this.noticeQueue;
+    if (!queue || input.agent_id) {
+      return undefined;
+    }
+    try {
+      const resolvedSessionId = resolveHookSessionId(
+        input.session_id,
+        sessionId,
+      );
+      return resolvedSessionId ? queue.take(resolvedSessionId) : undefined;
+    } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged below; the hook
+      // must never break a tool result, so only this notice is dropped.
+      this.logger.debug(
+        '[PostToolUseHookHandler] could not attach the pending notice, skipping it',
+        {
+          error: error instanceof Error ? error.message : String(error),
+          toolName: input.tool_name,
+        },
+      );
+      return undefined;
+    }
+  }
 
   createHooks(
     sessionId: string | undefined,
@@ -88,14 +126,19 @@ export class PostToolUseHookHandler {
                 options?.signal,
               );
               this.fanOut(input, sessionId, cwd);
-              if (cappedOutput === input.tool_response) {
+              const rewritten = cappedOutput !== input.tool_response;
+              const notice = this.takeMainThreadNotice(input, sessionId);
+              if (!rewritten && notice === undefined) {
                 return { continue: true };
               }
               return {
                 continue: true,
                 hookSpecificOutput: {
                   hookEventName: 'PostToolUse',
-                  updatedToolOutput: cappedOutput,
+                  ...(rewritten ? { updatedToolOutput: cappedOutput } : {}),
+                  ...(notice !== undefined
+                    ? { additionalContext: notice }
+                    : {}),
                 },
               };
             },
