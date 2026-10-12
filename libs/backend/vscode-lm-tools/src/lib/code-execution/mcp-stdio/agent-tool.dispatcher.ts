@@ -49,7 +49,13 @@ import {
 import {
   formatSpawnLimitBlock,
   spawnRequestTarget,
+  type AgentLimitTarget,
 } from '../mcp-core/agent-limit.formatter';
+import {
+  formatSpawnRefusal,
+  rowsWithSpawnModel,
+  spawnGateVerdict,
+} from '../mcp-core/agent-spawn-limit-gate';
 import { renderAgentRead } from '../mcp-core/agent-read.view';
 import {
   AGENT_STATUS_REPEAT_WINDOW_MS,
@@ -247,14 +253,20 @@ export class AgentToolDispatcher {
 
   /**
    * Lane limits for the agent tool text: for `rows` when given (the list
-   * tool), else for a fresh roster (the spawn tool, after `agent.spawn`
-   * settled). Enrichment only: any failure yields `undefined`, never a
+   * tool), else for a fresh roster (the spawn tool). A named spawn passes its
+   * target and model, so the lookup resolves the owner that model runs on.
+   * Any failure yields `undefined`: no gate and no limit text, never a
    * changed outcome.
    */
-  private async lookupAgentLimits(rows?: readonly CliDetectionResult[]) {
+  private async lookupAgentLimits(
+    rows?: readonly CliDetectionResult[],
+    spawn?: { readonly target: AgentLimitTarget; readonly model?: string },
+  ) {
     try {
-      return await this.ptahAPI.agent.limits?.(
-        rows ?? (await this.ptahAPI.agent.list()),
+      if (!this.ptahAPI.agent.limits) return undefined;
+      const listed = rows ?? (await this.ptahAPI.agent.list());
+      return await this.ptahAPI.agent.limits(
+        spawn ? rowsWithSpawnModel(listed, spawn.target, spawn.model) : listed,
       );
     } catch {
       // degradation-audit: optional-capability - limit fields only enrich the
@@ -386,6 +398,38 @@ export class AgentToolDispatcher {
       role: p.role,
       effort: p.effort,
     });
+    // A named lane is checked before the spawn; an auto-detected one keeps
+    // the lookup after `agent.spawn` settled.
+    const target = spawnRequestTarget(p);
+    const preLimits = target
+      ? await this.lookupAgentLimits(undefined, { target, model: p.model })
+      : undefined;
+    const now = Date.now();
+    const verdict = preLimits
+      ? spawnGateVerdict(preLimits, target, now)
+      : undefined;
+    if (preLimits && verdict?.kind === 'blocked' && !p.force) {
+      this.logger.info('[McpStdio] agent_spawn refused at limit', {
+        cli: verdict.limit.row.cli,
+        ptahCliId: verdict.limit.row.ptahCliId,
+        reason: verdict.block.kind,
+      });
+      return toolError(
+        request,
+        formatSpawnRefusal(preLimits, verdict, now),
+        'mcp_tool_failed',
+        {
+          tool: 'agent_spawn',
+          state: 'lane_at_limit',
+          lane: target,
+          reason: verdict.block.kind,
+          ...(verdict.block.resetsAt !== undefined
+            ? { resetsAt: new Date(verdict.block.resetsAt).toISOString() }
+            : {}),
+        },
+      );
+    }
+    const forced = verdict?.kind === 'blocked' && p.force === true;
     try {
       const result = await this.ptahAPI.agent.spawn({
         task: p.task,
@@ -403,13 +447,18 @@ export class AgentToolDispatcher {
         role: p.role,
         effort: p.effort,
       });
-      const limits = await this.lookupAgentLimits();
+      const limits = target
+        ? preLimits
+        : await this.lookupAgentLimits();
       return await this.toolSuccess(
         request,
         'agent_spawn',
         formatAgentSpawn(
           result,
-          { modelTier: p.ptahCliId ? (p.modelTier ?? 'sonnet') : undefined },
+          {
+            modelTier: p.ptahCliId ? (p.modelTier ?? 'sonnet') : undefined,
+            forced,
+          },
           limits,
         ),
         {
@@ -428,9 +477,11 @@ export class AgentToolDispatcher {
     } catch (err: unknown) {
       // The lane the request named, so a failed spawn shows the same
       // `Limit state` a successful spawn on that lane would (design §5.2).
-      const limits = await this.lookupAgentLimits();
+      const limits = target
+        ? preLimits
+        : await this.lookupAgentLimits();
       const limitBlock = limits
-        ? `\n\n${formatSpawnLimitBlock(limits, spawnRequestTarget(p), true)}`
+        ? `\n\n${formatSpawnLimitBlock(limits, target, true, undefined, { forced })}`
         : '';
       this.logger.error('[McpStdio] agent_spawn failed', {
         error: errorMessage(err),

@@ -1841,11 +1841,12 @@ export function formatAgentList(
  *
  * Without `limits` the output is the pre-plan-limits text, byte for byte.
  * With `limits` the limit block for the lane the spawn ran on follows the
- * existing fields (design §5.2).
+ * existing fields (design §5.2); `forced` marks a spawn that passed the limit
+ * gate with `force: true`.
  */
 export function formatAgentSpawn(
   result: SpawnAgentResult,
-  options?: { modelTier?: string },
+  options?: { modelTier?: string; forced?: boolean },
   limits?: readonly AgentLimit[],
 ): string {
   try {
@@ -1878,6 +1879,8 @@ export function formatAgentSpawn(
       limits,
       { cli: result.cli, ptahCliId: result.ptahCliId },
       false,
+      undefined,
+      { forced: options?.forced },
     );
     return `${formatted}\n\n${block}`;
   } catch {

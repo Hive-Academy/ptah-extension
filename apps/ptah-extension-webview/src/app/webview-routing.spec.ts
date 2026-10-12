@@ -51,16 +51,23 @@ import {
   VSCodeService,
   isAcceptedInitialView,
   surfaceNavigationLanded,
+  type SurfaceNavigationResult,
 } from '@ptah-extension/core';
 import { settleSurfaceNavigation as settle } from '@ptah-extension/core/testing';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, WEBVIEW_ROUTE_STATE_KEY } from '@ptah-extension/shared';
 
 import { appRoutes } from './app.routes';
 import { electronOnlySurface } from './electron-only-surface.guard';
+import { injectInitialNavigation } from './initial-navigation';
 
 interface HostWindow {
   initialView?: string;
-  ptahConfig?: { initialView?: string };
+  ptahConfig?: { initialView?: string | null; panelId?: string };
+  vscode?: {
+    postMessage: (message: unknown) => void;
+    getState: () => unknown;
+    setState: (state: unknown) => void;
+  };
 }
 
 /**
@@ -151,28 +158,67 @@ function configure(): void {
 }
 
 /**
- * Reproduce what `App.handleInitialView` does, against the real route table.
+ * Run the production boot navigation (`injectInitialNavigation`, which
+ * `App.handleInitialView` delegates to) against the real route table.
  *
  * The component itself is not created here: `app.html` renders the whole chat
  * or Electron shell, which needs Monaco, the VS Code bridge and a live RPC
- * channel. The two lines of `handleInitialView` that carry the behaviour are
- * the host read and `normalizeInitialView` + `navigateToSurface`, and both are
- * exercised verbatim.
+ * channel.
  */
+async function runBoot(): Promise<SurfaceNavigationResult> {
+  const run = TestBed.runInInjectionContext(injectInitialNavigation);
+  const result = await run();
+  await settle();
+  return result;
+}
+
+/** Boot with no saved route; `raw` is the host value the boot will see. */
 async function bootWithInitialView(raw: string | undefined): Promise<void> {
   const hostWindow = window as unknown as HostWindow;
   const rawInitialView =
     hostWindow.initialView ?? hostWindow.ptahConfig?.initialView;
   expect(rawInitialView).toBe(raw);
 
-  const target =
-    TestBed.inject(AppStateManager).normalizeInitialView(rawInitialView);
-  const result =
-    await TestBed.inject(SurfaceRouterService).navigateToSurface(target);
-  // `App.handleInitialView` warns only when the navigation did not land, so a
-  // spec that boots must assert the same thing it does.
-  expect(surfaceNavigationLanded(result)).toBe(true);
-  await settle();
+  // The boot warns only when the navigation did not land, so a spec that
+  // boots must assert the same thing it does.
+  expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+}
+
+/**
+ * Install a host API whose saved state is `saved`, plus the host config. Must
+ * run before anything injects `VSCodeService`, which reads both once.
+ */
+function installHost(
+  saved: Record<string, unknown>,
+  initialView: string | null,
+): { setState: jest.Mock<void, [unknown]> } {
+  const hostWindow = window as unknown as HostWindow;
+  let state: unknown = saved;
+  const setState = jest.fn<void, [unknown]>((next) => {
+    state = next;
+  });
+  hostWindow.vscode = {
+    postMessage: jest.fn(),
+    getState: () => state,
+    setState,
+  };
+  hostWindow.ptahConfig = { initialView, panelId: 'ptah.panel.restore-1' };
+  return { setState };
+}
+
+/** A saved `ptahRoute` record, as `SurfaceRoutePersistence` writes it. */
+function savedRoute(
+  route: string,
+  seed: string | null,
+): Record<string, unknown> {
+  return {
+    [WEBVIEW_ROUTE_STATE_KEY]: {
+      v: 1,
+      route,
+      seed,
+      panelId: 'ptah.panel.restore-1',
+    },
+  };
 }
 
 describe('webview routing composition', () => {
@@ -187,6 +233,7 @@ describe('webview routing composition', () => {
     const hostWindow = window as unknown as HostWindow;
     delete hostWindow.initialView;
     delete hostWindow.ptahConfig;
+    delete hostWindow.vscode;
     localStorage.clear();
     TestBed.resetTestingModule();
     jest.restoreAllMocks();
@@ -330,10 +377,15 @@ describe('webview routing composition', () => {
 
         await bootWithInitialView(id);
 
-        // The bare Marketplace URL is its restore redirect, which lands on the
-        // Overview when nothing is remembered (`MARKETPLACE_ROUTES`).
+        // The bare Marketplace and Thoth URLs are restore redirects, which land
+        // on the Overview (`MARKETPLACE_ROUTES`) and the Memory tab
+        // (`THOTH_ROUTES`) when nothing is remembered.
+        const restoredLanding: Partial<Record<string, string>> = {
+          marketplace: '/marketplace/overview',
+          thoth: '/thoth/memory',
+        };
         expect(TestBed.inject(Router).url).toBe(
-          id === 'marketplace' ? '/marketplace/overview' : `/${id}`,
+          restoredLanding[id] ?? `/${id}`,
         );
       },
     );
@@ -362,6 +414,41 @@ describe('webview routing composition', () => {
       expect(consoleWarn).not.toHaveBeenCalled();
     });
 
+    it('round-trips /chat/<tabId> as the chat surface with nothing in the outlet', async () => {
+      const tabId = '3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e';
+      const router = TestBed.inject(Router);
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+
+      const result = await surfaceRouter.navigateToUrl(`/chat/${tabId}`);
+      await settle();
+
+      expect(surfaceNavigationLanded(result)).toBe(true);
+      expect(router.url).toBe(`/chat/${tabId}`);
+      // `surfaceOf` reads the first segment only, so the tab never changes
+      // which surface is showing.
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
+      expect(surfaceRouter.currentSurface()).toBe('chat');
+
+      // Neither the chat route nor its `:tabId` child carries a component, so
+      // the primary outlet stays empty and the retained chrome shows.
+      const chatSnapshot = router.routerState.snapshot.root.firstChild;
+      expect(chatSnapshot?.routeConfig?.path).toBe('chat');
+      expect(chatSnapshot?.component ?? null).toBeNull();
+      expect(chatSnapshot?.firstChild?.routeConfig?.path).toBe(':tabId');
+      expect(chatSnapshot?.firstChild?.paramMap.get('tabId')).toBe(tabId);
+      expect(chatSnapshot?.firstChild?.component ?? null).toBeNull();
+
+      // And back out: the bare surface root still lands on its empty child.
+      expect(
+        surfaceNavigationLanded(await surfaceRouter.navigateToSurface('chat')),
+      ).toBe(true);
+      await settle();
+      expect(router.url).toBe('/chat');
+      const bareChild = router.routerState.snapshot.root.firstChild?.firstChild;
+      expect(bareChild?.routeConfig?.path).toBe('');
+      expect(history['pushState']).not.toHaveBeenCalled();
+    });
+
     it('prefers window.initialView, the DevTools override, over ptahConfig', async () => {
       const hostWindow = window as unknown as HostWindow;
       hostWindow.ptahConfig = { initialView: 'settings' };
@@ -371,6 +458,196 @@ describe('webview routing composition', () => {
 
       expect(TestBed.inject(Router).url).toBe('/analytics');
     });
+  });
+
+  /**
+   * TASK_2026_524 Batch 4d, decision D5: the saved `ptahRoute` record against
+   * the host deep link and the DevTools override, through the production boot.
+   */
+  describe('boot restore precedence (D5)', () => {
+    const tabId = '3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e';
+
+    function persisted(): unknown {
+      return TestBed.inject(VSCodeService).getState(WEBVIEW_ROUTE_STATE_KEY);
+    }
+
+    it('restores a saved /chat/<tabId> when the host sends no deep link', async () => {
+      installHost(savedRoute(`/chat/${tabId}`, null), null);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe(`/chat/${tabId}`);
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
+      // The boot's own NavigationEnd is persisted, carrying the null seed.
+      expect(persisted()).toEqual({
+        v: 1,
+        route: `/chat/${tabId}`,
+        seed: null,
+        panelId: 'ptah.panel.restore-1',
+      });
+      expect(history['pushState']).not.toHaveBeenCalled();
+    });
+
+    it('restores a saved /thoth/skills when the host repeats the saved seed', async () => {
+      // Electron always sends 'chat'; a value equal to the seed was consumed.
+      installHost(savedRoute('/thoth/skills', 'chat'), 'chat');
+
+      await runBoot();
+
+      expect(TestBed.inject(Router).url).toBe('/thoth/skills');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('thoth');
+      expect(persisted()).toEqual(
+        expect.objectContaining({ route: '/thoth/skills', seed: 'chat' }),
+      );
+    }, 30_000);
+
+    it('lets a new host deep link win over the saved route, and seeds it', async () => {
+      installHost(savedRoute('/thoth/skills', 'chat'), 'settings');
+
+      await runBoot();
+
+      expect(TestBed.inject(Router).url).toBe('/settings');
+      expect(persisted()).toEqual(
+        expect.objectContaining({ route: '/settings', seed: 'settings' }),
+      );
+    });
+
+    it('lets the host win when the saved seed is null', async () => {
+      installHost(savedRoute(`/chat/${tabId}`, null), 'analytics');
+
+      await runBoot();
+
+      expect(TestBed.inject(Router).url).toBe('/analytics');
+    });
+
+    it('lets the DevTools override win over the saved route', async () => {
+      installHost(savedRoute('/thoth/skills', 'chat'), 'chat');
+      (window as unknown as HostWindow).initialView = 'settings';
+
+      await runBoot();
+
+      expect(TestBed.inject(Router).url).toBe('/settings');
+    });
+
+    it.each([
+      [
+        'a route with a scheme',
+        { v: 1, route: 'javascript:alert(1)', seed: null, panelId: '' },
+      ],
+      [
+        'an unknown version',
+        { v: 2, route: '/settings', seed: null, panelId: '' },
+      ],
+      ['a non-object entry', '/settings'],
+    ])(
+      'ignores an invalid saved record (%s) and falls back to chat',
+      async (_label, entry) => {
+        const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+        installHost({ [WEBVIEW_ROUTE_STATE_KEY]: entry }, null);
+
+        expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+        expect(TestBed.inject(Router).url).toBe('/chat');
+        expect(consoleWarn).not.toHaveBeenCalledWith(
+          expect.stringContaining('[App] Restored route'),
+        );
+      },
+    );
+
+    it('falls back to the host view when a saved route does not land', async () => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      // Valid by the shared contract, but not a surface the Router knows.
+      installHost(savedRoute('/command-builder', null), null);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe('/chat');
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('[App] Restored route /command-builder'),
+      );
+    });
+
+    it('falls back to the host view when a saved route settles on another surface', async () => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      // A real surface, so navigateToUrl navigates; the wildcard then sends the
+      // unknown child to /chat, which is not where the host panel belongs.
+      installHost(savedRoute('/settings/obsolete', 'analytics'), 'analytics');
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe('/analytics');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('analytics');
+      expect(persisted()).toEqual(
+        expect.objectContaining({ route: '/analytics', seed: 'analytics' }),
+      );
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[App] Restored route /settings/obsolete settled on /chat; falling back to the host view.',
+      );
+    });
+
+    it('keeps a saved route the Router redirects inside its own surface', async () => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      installHost(savedRoute('/thoth/bogus', null), null);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe('/thoth/memory');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('thoth');
+      expect(consoleWarn).not.toHaveBeenCalledWith(
+        expect.stringContaining('[App] Restored route'),
+      );
+    }, 30_000);
+  });
+
+  /**
+   * TASK_2026_524 Batch 4e2: `/thoth` is the real `THOTH_ROUTES` tree, loaded
+   * through `loadChildren`. No outlet is rendered here, so the shell is never
+   * constructed — what is pinned is where the real table settles.
+   */
+  describe('thoth tab routes (THOTH_ROUTES via loadChildren)', () => {
+    it('redirects a bare /thoth to memory when nothing is remembered', async () => {
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+
+      const result = await surfaceRouter.navigateToSurface('thoth');
+      await settle();
+
+      expect(surfaceNavigationLanded(result)).toBe(true);
+      expect(TestBed.inject(Router).url).toBe('/thoth/memory');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('thoth');
+    }, 30_000);
+
+    it('redirects a bare /thoth to the remembered tab', async () => {
+      const appState = TestBed.inject(AppStateManager);
+      appState.setThothActiveTab('cron');
+
+      await TestBed.inject(SurfaceRouterService).navigateToSurface('thoth');
+      await settle();
+
+      expect(TestBed.inject(Router).url).toBe('/thoth/cron');
+      expect(appState.currentView()).toBe('thoth');
+    }, 30_000);
+
+    it('lands a deep link on its tab', async () => {
+      await TestBed.inject(SurfaceRouterService).navigateToSurface('thoth', [
+        'skills',
+      ]);
+      await settle();
+
+      expect(TestBed.inject(Router).url).toBe('/thoth/skills');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('thoth');
+    }, 30_000);
+
+    it('sends an unknown tab to /thoth/memory and stays on thoth', async () => {
+      const result =
+        await TestBed.inject(SurfaceRouterService).navigateToUrl(
+          '/thoth/bogus',
+        );
+      await settle();
+
+      expect(surfaceNavigationLanded(result)).toBe(true);
+      expect(TestBed.inject(Router).url).toBe('/thoth/memory');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('thoth');
+    }, 30_000);
   });
 
   describe('Electron-only surfaces (canMatch: electronOnlySurface)', () => {
@@ -564,12 +841,20 @@ describe('app.routes', () => {
   });
 
   it('keeps chat component-less, so the outlet renders nothing on chat', () => {
-    // The chat and canvas content area is NOT routed: it stays mounted behind
-    // `[class.hidden]` so `CanvasStore` survives navigation.
+    // The chat and canvas content area is NOT routed: `AppShellComponent`
+    // retains it with `*ptahRetainWhile` (detached, never destroyed) so
+    // `CanvasStore` survives navigation.
+    // Its only children are the bare root and the optional `:tabId`, both
+    // component-less too (TASK_2026_524 Batch 4c).
     const chat = appRoutes.find((route) => route.path === 'chat');
-    expect(chat).toMatchObject({ path: 'chat', children: [] });
+    expect(chat?.children).toEqual([
+      { path: '', children: [] },
+      { path: ':tabId', children: [] },
+    ]);
+    expect(chat?.providers).toHaveLength(1);
     expect(chat?.component).toBeUndefined();
     expect(chat?.loadComponent).toBeUndefined();
+    expect(chat?.loadChildren).toBeUndefined();
   });
 
   it.each(['setup-wizard', 'settings', 'analytics'])(
@@ -581,18 +866,30 @@ describe('app.routes', () => {
     },
   );
 
-  it.each([
-    'harness-builder',
-    'setup-hub',
-    'thoth',
-    'tribunal',
-    'tasks',
-    'apps',
-  ])('defers %s with loadComponent', (path) => {
-    const route = appRoutes.find((candidate) => candidate.path === path);
-    expect(typeof route?.loadComponent).toBe('function');
-    expect(route?.component).toBeUndefined();
-  });
+  it.each(['harness-builder', 'setup-hub', 'tribunal', 'tasks', 'apps'])(
+    'defers %s with loadComponent',
+    (path) => {
+      const route = appRoutes.find((candidate) => candidate.path === path);
+      expect(typeof route?.loadComponent).toBe('function');
+      expect(route?.component).toBeUndefined();
+    },
+  );
+
+  it('defers thoth as a lazily loaded route tree that resolves THOTH_ROUTES', async () => {
+    // Pins the `THOTH_ROUTES` barrel export (TASK_2026_524 Batch 4e2): a
+    // rename would otherwise only surface as a dead surface at runtime. The
+    // `SURFACE_ACTIVE` provider stays on the surface route.
+    const route = routeFor('thoth');
+    expect(route.component).toBeUndefined();
+    expect(route.loadComponent).toBeUndefined();
+    expect(route.providers).toHaveLength(1);
+
+    const loaded = await (route.loadChildren as () => Promise<Routes>)();
+    const module = await import('@ptah-extension/thoth-shell');
+
+    expect(loaded).toBe(module.THOTH_ROUTES);
+    expect(loaded[0]?.component).toBe(module.ThothShellComponent);
+  }, 30_000);
 
   it('defers marketplace as a lazily loaded route tree', async () => {
     // Pins the `MARKETPLACE_ROUTES` barrel export: a rename would otherwise
@@ -626,7 +923,7 @@ describe('app.routes', () => {
     expect(order.indexOf('apps')).toBe(appRoutes.length - 3);
   });
 
-  it.each(['harness-builder', 'setup-hub', 'thoth', 'tasks', 'apps'])(
+  it.each(['harness-builder', 'setup-hub', 'tasks', 'apps'])(
     'resolves %s to a real component class',
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would

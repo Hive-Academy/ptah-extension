@@ -2,9 +2,13 @@
  * Plan-limit text on both `ptah_agent_spawn` transports (TASK_2026_596,
  * Batch 14, F52 transport legs; design §5.2).
  *
- * - The limit lookup runs only after `agent.spawn` settled.
+ * - A named lane is looked up before `agent.spawn`: a lane at its limit, in a
+ *   cooldown or reading a fresh 100 % window is refused unless `force: true`
+ *   (cli-lane-limits). An auto-detected spawn keeps the lookup after
+ *   `agent.spawn` settled.
  * - Success and the role / command-line-too-long failures carry the limit
  *   block of the lane the request named, with the same `Limit state`.
+ * - Without `agent.limits` the text is byte-identical to the pre-limits text.
  * - The protocol transport still re-throws any other error to its generic
  *   handler; the stdio transport still answers `agent_spawn failed`.
  * - A failing lookup never changes the outcome or its text.
@@ -269,7 +273,7 @@ describe.each([
   ['protocol', overHttp],
   ['stdio', overStdio],
 ] as const)('ptah_agent_spawn limit block over %s', (_name, call) => {
-  it('appends the target lane block on success, after the spawn settled', async () => {
+  it('checks a named lane before the spawn and appends its block once', async () => {
     const h = harness(SPAWNED);
     const { text, isError } = await call(h, { task: 'Review', cli: 'codex' });
 
@@ -277,10 +281,61 @@ describe.each([
     expect(text).toContain('## Agent Spawned');
     expect(text).toContain(CODEX_STATE);
     expect(text).toContain('The spawn was still started.');
+    expect(h.list.mock.invocationCallOrder[0]).toBeLessThan(
+      h.spawn.mock.invocationCallOrder[0],
+    );
+    expect(h.limits).toHaveBeenCalledTimes(1);
+    expect(h.limits).toHaveBeenCalledWith([CODEX_ROW, GLM_ROW]);
+  });
+
+  it('keeps the lookup after the spawn settled for an auto-detected lane', async () => {
+    const h = harness(SPAWNED);
+    const { isError } = await call(h, { task: 'Review' });
+
+    expect(isError).toBe(false);
     expect(h.list.mock.invocationCallOrder[0]).toBeGreaterThan(
       h.spawn.mock.invocationCallOrder[0],
     );
-    expect(h.limits).toHaveBeenCalledWith([CODEX_ROW, GLM_ROW]);
+  });
+
+  it('passes the requested model on the target row only', async () => {
+    const h = harness(SPAWNED);
+    await call(h, { task: 'Review', cli: 'codex', model: 'm-1' });
+
+    expect(h.limits).toHaveBeenCalledWith([
+      { ...CODEX_ROW, model: 'm-1' },
+      GLM_ROW,
+    ]);
+  });
+
+  it('keeps the text byte-identical when agent.limits is absent', async () => {
+    const h = harness(SPAWNED);
+    const agent = h.ptahAPI.agent as { limits?: unknown };
+    delete agent.limits;
+    const { text, isError } = await call(h, {
+      task: 'Review',
+      cli: 'codex',
+      force: true,
+    });
+
+    expect(isError).toBe(false);
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(h.list).not.toHaveBeenCalled();
+    expect(text).toBe(formatAgentSpawn(SPAWNED));
+  });
+
+  it('spawns an unknown lane with the one-line note', async () => {
+    const h = harness(ROLE_ERROR);
+    const { text } = await call(h, {
+      task: 'Review',
+      ptahCliId: 'glm-1',
+      role: 'reviewer',
+    });
+
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(text).toContain(
+      '> Note: limit state unknown (limit lookup timed out); attempted without a limit check.',
+    );
   });
 
   it('shows the same Limit state on a role failure as on success', async () => {
@@ -334,29 +389,44 @@ describe.each([
     expect(text).not.toContain('Limit state');
   });
 
-  it('F52: a spawn under an active cooldown still runs and the text says so', async () => {
+  it('refuses a spawn under an active cooldown', async () => {
     const h = harness(SPAWNED);
     h.limits.mockResolvedValue([CODEX_COOLDOWN, GLM_TIMED_OUT]);
     const { text, isError } = await call(h, { task: 'Review', cli: 'codex' });
 
-    expect(h.spawn).toHaveBeenCalledTimes(1);
-    expect(isError).toBe(false);
-    expect(text).toContain('## Agent Spawned');
-    expect(text).toContain('**Cooldown:** retrying after');
-    expect(text).toContain('This is a retry delay, not a plan reset.');
+    expect(h.spawn).not.toHaveBeenCalled();
+    expect(isError).toBe(true);
+    expect(text).toContain('agent_spawn refused:');
+    expect(text).toContain('cooldown');
+    expect(text).toContain('Nothing was spawned');
   });
 
-  it('F52: a spawn under exhaustion still runs and the text says so', async () => {
+  it('refuses an exhausted lane and lists alternatives', async () => {
     const h = harness(SPAWNED);
     h.limits.mockResolvedValue([CODEX_EXHAUSTED, GLM_TIMED_OUT]);
     const { text, isError } = await call(h, { task: 'Review', cli: 'codex' });
 
-    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(h.spawn).not.toHaveBeenCalled();
+    expect(isError).toBe(true);
+    expect(text).toContain('agent_spawn refused:');
+    expect(text).toContain('Nothing was spawned');
+    expect(text).toContain('### Alternatives by limit state');
+  });
+
+  it('allows force past the gate without forwarding it to agent.spawn', async () => {
+    const h = harness(SPAWNED);
+    h.limits.mockResolvedValue([CODEX_EXHAUSTED, GLM_TIMED_OUT]);
+    const { text, isError } = await call(h, {
+      task: 'Review',
+      cli: 'codex',
+      force: true,
+    });
+
     expect(isError).toBe(false);
-    expect(text).toContain('## Agent Spawned');
-    expect(text).toContain('**Limit state:** AT LIMIT');
-    expect(text).toContain('> WARNING:');
-    expect(text).toContain('The spawn was still started.');
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(h.spawn.mock.calls[0]?.[0]).not.toHaveProperty('force');
+    expect(text).toContain('The spawn was forced past the limit gate.');
+    expect(h.limits).toHaveBeenCalledTimes(1);
   });
 
   it('F52: a failed lookup never blocks the spawn', async () => {
@@ -380,7 +450,7 @@ describe.each([
 });
 
 describe('ptah_agent_spawn generic failure', () => {
-  it('protocol: still re-throws to the generic handler, with no lookup', async () => {
+  it('protocol: still re-throws to the generic handler after the pre-spawn lookup', async () => {
     const h = harness(new Error('no slot'));
     const { text, isError } = await overHttp(h, {
       task: 'Review',
@@ -389,8 +459,8 @@ describe('ptah_agent_spawn generic failure', () => {
 
     expect(isError).toBe(true);
     expect(text).toBe('Tool ptah_agent_spawn failed: no slot');
-    expect(h.list).not.toHaveBeenCalled();
-    expect(h.limits).not.toHaveBeenCalled();
+    expect(h.list).toHaveBeenCalledTimes(1);
+    expect(h.limits).toHaveBeenCalledTimes(1);
   });
 
   it('stdio: still answers agent_spawn failed, with the target lane block', async () => {
@@ -412,6 +482,31 @@ describe('ptah_agent_spawn generic failure', () => {
 
     expect(text).toBe('agent_spawn failed: no slot');
   });
+});
+
+it('stdio refusal carries the lane-at-limit machine-readable state', async () => {
+  const h = harness(SPAWNED);
+  h.limits.mockResolvedValue([CODEX_COOLDOWN, GLM_TIMED_OUT]);
+  const dispatcher = new AgentToolDispatcher(h.ptahAPI, quietLogger());
+  const response = await dispatcher.dispatch(
+    'agent_spawn',
+    { jsonrpc: '2.0', id: 'gate', method: 'tools/call' },
+    { task: 'Review', cli: 'codex' },
+  );
+  const result = response?.result as
+    | { structuredContent?: Record<string, unknown> }
+    | undefined;
+
+  expect(result?.structuredContent).toMatchObject({
+    ptah_code: 'mcp_tool_failed',
+    tool: 'agent_spawn',
+    state: 'lane_at_limit',
+    reason: 'cooldown',
+    resetsAt: new Date(
+      CODEX_COOLDOWN.snapshot?.cooldown?.until ?? 0,
+    ).toISOString(),
+  });
+  expect(h.spawn).not.toHaveBeenCalled();
 });
 
 /**

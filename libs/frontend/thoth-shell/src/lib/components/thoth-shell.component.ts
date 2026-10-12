@@ -6,8 +6,17 @@ import {
   OnInit,
   computed,
   inject,
+  signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import {
+  ActivatedRoute,
+  NavigationEnd,
+  PRIMARY_OUTLET,
+  Router,
+} from '@angular/router';
+import { filter } from 'rxjs';
 import {
   ArrowLeft,
   Brain,
@@ -19,7 +28,11 @@ import {
   type LucideIconData,
 } from 'lucide-angular';
 
-import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  SurfaceRouterService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import {
   ThothStatusService,
   type ThothGatewayBadge,
@@ -29,8 +42,22 @@ import { SkillSynthesisTabComponent } from '@ptah-extension/skill-synthesis-ui';
 import { CronSchedulerTabComponent } from '@ptah-extension/cron-scheduler-ui';
 import { MessagingGatewayTabComponent } from '@ptah-extension/messaging-gateway-ui';
 
+/** Tab identifiers for the Thoth hub, in rail order. */
+export const THOTH_TAB_IDS = ['memory', 'skills', 'cron', 'gateway'] as const;
+
 /** Tab identifiers for the Thoth hub. */
-export type ThothActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
+export type ThothActiveTabId = (typeof THOTH_TAB_IDS)[number];
+
+/** Whether `value` names a Thoth tab — the `/thoth/:tab` segment rule. */
+export function isThothTabId(value: unknown): value is ThothActiveTabId {
+  return (
+    typeof value === 'string' &&
+    (THOTH_TAB_IDS as readonly string[]).includes(value)
+  );
+}
+
+/** The surface route id this shell is mounted under (`/thoth/:tab`). */
+const THOTH_SURFACE_PATH = 'thoth';
 
 interface ThothTabSpec {
   readonly id: ThothActiveTabId;
@@ -44,8 +71,14 @@ interface ThothTabSpec {
  * ThothShellComponent — the standalone Thoth page hosting the agentic
  * platform features (Memory, Skills, Schedules, Messaging). Renders a left
  * navigation rail on wide layouts that collapses to a horizontal strip on
- * narrow ones (VS Code sidebar). Tab switching is signal-based and persists
- * across navigations via {@link AppStateManager.thothActiveTab}.
+ * narrow ones (VS Code sidebar).
+ *
+ * The URL decides the tab: the shell is mounted by `THOTH_ROUTES` over a
+ * component-less `:tab` child, and renders the tab body itself from that
+ * param. That is why the template has no `<router-outlet>` — nothing below the
+ * shell has a component to activate. The last settled tab is recorded per
+ * workspace in {@link AppStateManager.thothActiveTab}, which `/thoth`'s
+ * redirect reads.
  */
 @Component({
   selector: 'ptah-thoth-shell',
@@ -210,6 +243,22 @@ export class ThothShellComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);
   private readonly thothStatus = inject(ThothStatusService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly surfaceRouter = inject(SurfaceRouterService);
+
+  /**
+   * The `:tab` the Router last settled on below this shell, or `null` when the
+   * shell is not mounted over a `:tab` child.
+   *
+   * Seeded synchronously from the snapshot, because
+   * `SurfaceRouterService.remountActiveSurface` re-creates the shell on a
+   * workspace switch with no navigation, so no `NavigationEnd` follows it. A
+   * remount then moves it to the incoming workspace's remembered tab.
+   */
+  private readonly routeTab = signal<ThothActiveTabId | null>(
+    this.tabOfRoute(),
+  );
 
   protected readonly RadioTowerIcon = RadioTower;
   protected readonly ArrowLeftIcon = ArrowLeft;
@@ -236,6 +285,45 @@ export class ThothShellComponent implements OnInit {
       view?.removeEventListener('focus', reread);
       doc.removeEventListener('visibilitychange', onVisibility);
     });
+
+    // Tab memory is written at settle time only, never ahead of a navigation
+    // (TASK_2026_317 rule, as `MarketplaceShellComponent` does). A shell built
+    // with the Router idle is a remount for a workspace switch: the URL still
+    // names the OUTGOING workspace's tab. The incoming workspace's remembered
+    // tab wins, and the URL is replaced to match. Recording the seeded tab
+    // instead would overwrite the incoming workspace's memory with it.
+    // Constructed during a navigation instead, the NavigationEnd below records
+    // the tab.
+    const seeded = this.routeTab();
+    if (seeded !== null && this.router.currentNavigation() === null) {
+      const remembered = this.appState.thothActiveTab();
+      if (remembered !== seeded) {
+        this.routeTab.set(remembered);
+        void this.surfaceRouter.navigateToSurface(
+          THOTH_SURFACE_PATH,
+          [remembered],
+          { replaceUrl: true },
+        );
+      }
+    }
+
+    // Subscribed during construction, which happens while the Router is
+    // activating this shell, so the NavigationEnd of the very navigation that
+    // opened Thoth is recorded too.
+    this.router.events
+      .pipe(
+        filter(
+          (event): event is NavigationEnd => event instanceof NavigationEnd,
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe((event) => {
+        if (!this.isThothUrl(event.urlAfterRedirects)) return;
+        const tab = this.tabOfRoute();
+        if (tab === null) return;
+        this.routeTab.set(tab);
+        this.appState.setThothActiveTab(tab);
+      });
   }
 
   public ngOnInit(): void {
@@ -292,22 +380,48 @@ export class ThothShellComponent implements OnInit {
    */
   public readonly visibleTabs = computed(() => this.tabs);
 
-  /** Active tab signal sourced from {@link AppStateManager.thothActiveTab}. */
-  public readonly activeTab = this.appState.thothActiveTab;
+  /**
+   * The tab on screen: the settled `:tab` param. Without a `:tab` child (the
+   * shell created outside `THOTH_ROUTES`) it falls back to the remembered tab
+   * in {@link AppStateManager.thothActiveTab}, which is also what `/thoth`
+   * redirects to.
+   */
+  public readonly activeTab = computed<ThothActiveTabId>(
+    () => this.routeTab() ?? this.appState.thothActiveTab(),
+  );
 
   /**
-   * Switch to a different tab and reload the sidebar tiles, so a count that
-   * changed while the user was on another tab is not left frozen. Re-clicking
-   * the active tab changes nothing and fetches nothing.
+   * Navigate to a different tab and reload the sidebar tiles, so a count that
+   * changed while the user was on another tab is not left frozen. The tab on
+   * screen and its memory follow once the navigation settles. Re-clicking the
+   * active tab changes nothing and fetches nothing.
+   *
+   * The tab switch replaces the URL rather than pushing it (decision D6), so
+   * Back leaves Thoth instead of cycling through its tabs.
    */
   public selectTab(tabId: ThothActiveTabId): void {
     if (tabId === this.activeTab()) return;
-    this.appState.setThothActiveTab(tabId);
+    void this.surfaceRouter.navigateToSurface(THOTH_SURFACE_PATH, [tabId], {
+      replaceUrl: true,
+    });
     void this.thothStatus.refresh();
   }
 
   /** Leave Thoth and return to the chat view. */
   public goBack(): void {
     this.appState.setCurrentView('chat');
+  }
+
+  /** The valid `:tab` param of this shell's child route, if any. */
+  private tabOfRoute(): ThothActiveTabId | null {
+    const tab = this.route.snapshot.firstChild?.paramMap.get('tab');
+    return isThothTabId(tab) ? tab : null;
+  }
+
+  /** Whether a settled URL is under `/thoth`. */
+  private isThothUrl(url: string): boolean {
+    const segments =
+      this.router.parseUrl(url).root.children[PRIMARY_OUTLET]?.segments;
+    return segments?.[0]?.path === THOTH_SURFACE_PATH;
   }
 }

@@ -600,9 +600,9 @@ export function buildCountTokensTool(): MCPToolDefinition {
  * Build the ptah_agent_spawn tool definition
  * Spawn a CLI agent to work on a task in the background
  */
-export function buildAgentSpawnTool(
-  { transport = 'http' }: { transport?: 'http' | 'stdio' } = {},
-): MCPToolDefinition {
+export function buildAgentSpawnTool({
+  transport = 'http',
+}: { transport?: 'http' | 'stdio' } = {}): MCPToolDefinition {
   return {
     name: 'ptah_agent_spawn',
     description:
@@ -734,6 +734,12 @@ export function buildAgentSpawnTool(
             'Reasoning effort for this lane: minimal, low, medium, high, xhigh ' +
             'or max. Wins over the per-CLI setting and the chat effort. A value ' +
             'the chosen CLI does not take is ignored. Omit to use the setting.',
+        },
+        force: {
+          type: 'boolean',
+          description:
+            'Spawn even when ptah_agent_list shows this lane at its plan limit ' +
+            'or in a cooldown. Use only when the limit is known to be wrong.',
         },
       },
       required: ['task'],
@@ -906,7 +912,9 @@ export function buildAgentListTool(): MCPToolDefinition {
     description:
       'List all available agents (CLI and Ptah CLI) that can be spawned. ' +
       'Returns agent type, installation status, and capabilities. ' +
-      'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn.',
+      'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn. ' +
+      'AT LIMIT lanes refuse spawns; an unknown Limit state means the limit ' +
+      'could not be read, not room.',
     inputSchema: {
       type: 'object',
       properties: {},

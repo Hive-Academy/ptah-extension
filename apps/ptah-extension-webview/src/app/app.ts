@@ -13,8 +13,6 @@ import { LucideAngularModule, AlertCircle } from 'lucide-angular';
 import {
   AppStateManager,
   BootStatusService,
-  SurfaceRouterService,
-  surfaceNavigationLanded,
   VSCodeService,
 } from '@ptah-extension/core';
 
@@ -25,6 +23,8 @@ import {
 } from '@ptah-extension/chat';
 import { BootProgressComponent } from '@ptah-extension/chat-ui';
 import { StreamRouter } from '@ptah-extension/chat-routing';
+
+import { injectInitialNavigation } from './initial-navigation';
 
 @Component({
   selector: 'ptah-root',
@@ -53,7 +53,7 @@ export class App implements OnInit, OnDestroy {
    * it did before this service existed.
    */
   public readonly bootStatus = inject(BootStatusService);
-  private readonly surfaceRouter = inject(SurfaceRouterService);
+  private readonly runInitialNavigation = injectInitialNavigation();
   private readonly _streamRouter = inject(StreamRouter);
   public readonly isElectron = signal(this.vscodeService.isElectron);
   private readonly initializationStatus = signal<
@@ -108,43 +108,10 @@ export class App implements OnInit, OnDestroy {
   }
 
   /**
-   * The application's ONE initial navigation.
-   *
-   * `provideRouter` runs with `withDisabledInitialNavigation()`, so nothing has
-   * navigated when this is called — that is deliberate. Without it the Router
-   * resolves the empty URL first and a panel opened on `setup-wizard` paints
-   * chat before it, which is a visible flash on a surface the user is waiting
-   * for.
-   *
-   * **Window augmentation.** The host injects the deep link before Angular
-   * bootstraps: `panel.webview.html` carries `ptahConfig.initialView`, and
-   * `window.initialView` is the DevTools override for the same thing (set it in
-   * the console before bootstrap to force a surface). This is the only place
-   * either is read — `AppStateManager.initializeState` used to read them too,
-   * and the two paths could disagree.
-   *
-   * There is no allow-list here any more. `normalizeInitialView` validates
-   * against `SURFACE_ROUTE_IDS`, the same list `app.routes.ts` is built from,
-   * so an unknown or missing value falls back to `chat` and the route table is
-   * the only thing that has to be kept in step.
+   * The application's ONE initial navigation: the host deep link, the saved
+   * route or `chat`, by decision D5. See `injectInitialNavigation`.
    */
   private async handleInitialView(): Promise<void> {
-    const hostWindow = window as unknown as {
-      initialView?: string;
-      ptahConfig?: { initialView?: string };
-    };
-    const rawInitialView =
-      hostWindow.initialView ?? hostWindow.ptahConfig?.initialView;
-    const targetView = this.appState.normalizeInitialView(rawInitialView);
-
-    const result = await this.surfaceRouter.navigateToSurface(targetView);
-    if (!surfaceNavigationLanded(result)) {
-      // `already-there` is a success, so it is not reported: nothing has
-      // navigated yet under `withDisabledInitialNavigation()`, but a route
-      // whose path equals the Router's starting URL would legitimately skip.
-      console.warn(
-        `Initial navigation to ${targetView} did not land: ${result}`,
-      );
-    }
+    await this.runInitialNavigation();
   }
 }

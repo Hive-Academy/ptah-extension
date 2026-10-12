@@ -153,6 +153,7 @@ function buildHarness(accountInfo: jest.Mock): Harness {
         resolveCodexHomeOwner: jest.fn(),
         ownerForCliStore: jest.fn(),
         ownerForAntigravity: jest.fn(),
+        ownerForOpenCode: jest.fn(),
       }),
     ],
     [

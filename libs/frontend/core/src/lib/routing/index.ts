@@ -22,3 +22,10 @@ export {
 
 export { SURFACE_ACTIVE, surfaceActiveFor } from './surface-active';
 export { SurfaceActiveDirective } from './surface-active.directive';
+export { RetainedViewDirective } from './retained-view.directive';
+export { SurfaceRoutePersistence } from './surface-route-persistence';
+export {
+  resolveBootNavigation,
+  type BootInput,
+  type BootPlan,
+} from './boot-navigation';

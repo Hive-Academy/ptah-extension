@@ -32,6 +32,10 @@ function createResolver(): {
 } {
   const owners = {
     ownerForCodexHome: jest.fn(() => ref('openai-codex', 'account')),
+    resolveCodexHomeOwner: jest.fn(async () =>
+      ref('openai-codex', 'account', 'aaaaaaaaaaaaaaaa'),
+    ),
+    ownerForOpenCode: jest.fn(() => ref('opencode-go', 'cli-store')),
     ownerForCliStore: jest.fn((cli: string) => ref(cli, 'cli-store')),
     ownerForAntigravity: jest.fn(() => ref('antigravity', 'account')),
     ownerForClaudeAccount: jest.fn(() => ref('anthropic', 'account')),
@@ -56,13 +60,63 @@ describe('LaneOwnerResolver', () => {
     expect(owners.ownerForCodexHome).toHaveBeenCalledTimes(1);
   });
 
-  it('gives an opencode lane its CLI credential store', () => {
+  it('gives an opencode lane the OpenCode owner for its model', () => {
     const { resolver, owners } = createResolver();
 
     expect(resolver.ownerForLane('opencode')).toEqual(
-      ref('opencode', 'cli-store'),
+      ref('opencode-go', 'cli-store'),
     );
-    expect(owners.ownerForCliStore).toHaveBeenCalledWith('opencode');
+    expect(owners.ownerForOpenCode).toHaveBeenLastCalledWith(undefined);
+    resolver.ownerForLane('opencode', 'opencode/grok-code');
+    expect(owners.ownerForOpenCode).toHaveBeenLastCalledWith(
+      'opencode/grok-code',
+    );
+    expect(owners.ownerForCliStore).not.toHaveBeenCalled();
+  });
+
+  it('gives a grok lane its CLI credential store so its hits are filed', () => {
+    const { resolver, owners } = createResolver();
+
+    expect(resolver.ownerForLane('grok')).toEqual(ref('grok', 'cli-store'));
+    expect(owners.ownerForCliStore).toHaveBeenCalledWith('grok');
+  });
+
+  it('reads the Codex account before answering a lookup', async () => {
+    const { resolver, owners } = createResolver();
+
+    await expect(resolver.resolveOwnerForLane('codex')).resolves.toEqual(
+      ref('openai-codex', 'account', 'aaaaaaaaaaaaaaaa'),
+    );
+    expect(owners.resolveCodexHomeOwner).toHaveBeenCalledTimes(1);
+    expect(owners.ownerForCodexHome).not.toHaveBeenCalled();
+  });
+
+  it('answers a lookup for other lanes with the spawn rule and its model', async () => {
+    const { resolver, owners } = createResolver();
+
+    await expect(
+      resolver.resolveOwnerForLane('opencode', 'opencode-go/kimi-k2'),
+    ).resolves.toEqual(ref('opencode-go', 'cli-store'));
+    expect(owners.ownerForOpenCode).toHaveBeenCalledWith('opencode-go/kimi-k2');
+    await expect(resolver.resolveOwnerForLane('copilot')).resolves.toBe(
+      undefined,
+    );
+    expect(owners.resolveCodexHomeOwner).not.toHaveBeenCalled();
+  });
+
+  it('answers a lookup with no owner, and logs no detail, when the Codex read rejects', async () => {
+    const { resolver, owners, logger } = createResolver();
+    owners.resolveCodexHomeOwner.mockRejectedValue(
+      new RangeError('secret-bearing message'),
+    );
+
+    await expect(resolver.resolveOwnerForLane('codex')).resolves.toBe(
+      undefined,
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[LaneOwnerResolver] lane owner lookup failed',
+      { cli: 'codex', errorName: 'RangeError' },
+    );
   });
 
   it('gives an antigravity lane its active account owner', () => {
@@ -124,6 +178,53 @@ describe('LaneOwnerResolver', () => {
       'cli-1',
       'ollama-cloud',
     );
+  });
+});
+
+describe('LaneOwnerResolver remembered lane owners', () => {
+  it('returns the last known owner of a lane, keyed by cli and ptahCliId', () => {
+    const { resolver } = createResolver();
+    const first = ref('anthropic', 'account');
+    const second = ref('anthropic', 'account', 'ffffffffffffffff');
+
+    resolver.rememberLaneOwner({ cli: 'ptah-cli', ptahCliId: 'a' }, first);
+    resolver.rememberLaneOwner({ cli: 'ptah-cli', ptahCliId: 'b' }, second);
+
+    expect(resolver.lastLaneOwner({ cli: 'ptah-cli', ptahCliId: 'a' })).toBe(
+      first,
+    );
+    expect(resolver.lastLaneOwner({ cli: 'ptah-cli', ptahCliId: 'b' })).toBe(
+      second,
+    );
+    expect(resolver.lastLaneOwner({ cli: 'ptah-cli' })).toBeUndefined();
+  });
+
+  it('never remembers an unknown owner', () => {
+    const { resolver } = createResolver();
+    const known = ref('anthropic', 'account');
+    const lane = { cli: 'ptah-cli', ptahCliId: 'a' } as const;
+
+    resolver.rememberLaneOwner(lane, ref('anthropic', 'unknown'));
+    expect(resolver.lastLaneOwner(lane)).toBeUndefined();
+    resolver.rememberLaneOwner(lane, known);
+    resolver.rememberLaneOwner(lane, ref('anthropic', 'unknown'));
+    expect(resolver.lastLaneOwner(lane)).toBe(known);
+  });
+
+  it('keeps at most 64 lanes, dropping the least recently written', () => {
+    const { resolver } = createResolver();
+    const lane = (index: number) =>
+      ({ cli: 'ptah-cli', ptahCliId: `agent-${index}` }) as const;
+    for (let index = 0; index < 64; index += 1) {
+      resolver.rememberLaneOwner(lane(index), ref('anthropic', 'account'));
+    }
+    // Re-writing lane 0 makes lane 1 the oldest.
+    resolver.rememberLaneOwner(lane(0), ref('anthropic', 'account'));
+    resolver.rememberLaneOwner(lane(64), ref('anthropic', 'account'));
+
+    expect(resolver.lastLaneOwner(lane(0))).toBeDefined();
+    expect(resolver.lastLaneOwner(lane(1))).toBeUndefined();
+    expect(resolver.lastLaneOwner(lane(64))).toBeDefined();
   });
 });
 

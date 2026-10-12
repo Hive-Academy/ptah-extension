@@ -49,6 +49,7 @@ const CLAUDE_UNKNOWN = ref('anthropic', 'unknown', 'ac');
 const CODEX_A = ref('openai-codex', 'account', 'ca');
 const CODEX_B = ref('openai-codex', 'account', 'cb');
 const OPENCODE = ref('opencode', 'cli-store', 'dc');
+const OPENCODE_GO = ref('opencode-go', 'cli-store', 'dd');
 const ANTIGRAVITY = ref('antigravity', 'cli-store', 'ea');
 const GROK = ref('grok', 'cli-store', 'eb');
 const OLLAMA_KEY = ref('ollama-cloud', 'credential', 'fa');
@@ -89,6 +90,7 @@ function createHarness(active: ActiveAuth): Harness {
     ownerForCodexHome: jest.fn(() => CODEX_A),
     resolveCodexHomeOwner: jest.fn(async () => CODEX_A),
     ownerForCliStore: jest.fn(() => OPENCODE),
+    ownerForOpenCode: jest.fn(() => OPENCODE),
     ownerForAntigravity: jest.fn(() => ANTIGRAVITY),
     ownerForSession: jest.fn(async () => CLAUDE_A),
     detailsFor: jest.fn(() => ({})),
@@ -299,8 +301,28 @@ describe('PlanLimitOwnerDiscoveryService', () => {
       expect.objectContaining({ origin: 'selected-provider' }),
     );
     expect(h.owners.ownerForAntigravity).toHaveBeenCalledTimes(1);
-    expect(h.owners.ownerForCliStore).toHaveBeenCalledWith('opencode');
+    expect(h.owners.ownerForOpenCode).toHaveBeenCalledTimes(1);
+    expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('opencode');
     expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('antigravity');
+  });
+
+  it('lists an installed OpenCode with a Go key once, as the Go subscription the lane bills', async () => {
+    const h = createHarness(CLAUDE_CLI);
+    h.detection.detectAll.mockResolvedValue(detected('opencode'));
+    h.owners.ownerForOpenCode.mockReturnValue(OPENCODE_GO);
+
+    const entries = await h.service.discoverTargets({});
+    const opencodeEntries = entries.filter((entry) =>
+      providerOf(entry).startsWith('opencode'),
+    );
+
+    expect(opencodeEntries).toEqual([
+      expect.objectContaining({
+        kind: 'read',
+        origin: 'cli-store',
+        target: { providerId: 'opencode-go', ownerRef: OPENCODE_GO },
+      }),
+    ]);
   });
 
   it('F81: selected claude-cli is a Claude subscription read through the probe handle, with no credential', async () => {

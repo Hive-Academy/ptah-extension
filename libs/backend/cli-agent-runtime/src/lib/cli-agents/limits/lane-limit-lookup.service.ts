@@ -60,6 +60,8 @@ export interface LaneLimitLookupRow {
    * confirm room.
    */
   readonly modelScope?: string | null;
+  /** The model a spawn asks for; picks the OpenCode owner. */
+  readonly model?: string;
 }
 
 export interface LaneLimitLookupOptions {
@@ -88,7 +90,7 @@ export interface LaneLimitResult<R extends LaneLimitLookupRow> {
 /** The lane owner rules the lookup uses. */
 export type LaneLimitOwnerRules = Pick<
   LaneOwnerResolver,
-  'ownerForLane' | 'ownerForPtahCliKey'
+  'resolveOwnerForLane' | 'ownerForPtahCliKey' | 'lastLaneOwner'
 >;
 /** The snapshot read the lookup uses. */
 export type LaneLimitSnapshots = Pick<PlanUsageService, 'getOwnerSnapshot'>;
@@ -202,17 +204,23 @@ export class LaneLimitLookupService {
 
   /**
    * The lane's owner by its rule: the CLI's own store or account home, or a
-   * Ptah CLI agent's stored Ollama Cloud key. A Ptah CLI Claude lane's owner
-   * comes only from its run's own `accountInfo()` (`row.quotaOwner`).
+   * Ptah CLI agent's stored Ollama Cloud key. Any other Ptah CLI lane (Claude
+   * and the rest) learns its owner only from a run: its own `accountInfo()`
+   * (`row.quotaOwner`), else the last known owner a run of that lane carried.
    */
   private async ownerOf(
     row: LaneLimitLookupRow,
   ): Promise<QuotaOwnerRef | undefined> {
-    if (row.cli !== 'ptah-cli') return this.owners.ownerForLane(row.cli);
+    if (row.cli !== 'ptah-cli') {
+      return this.owners.resolveOwnerForLane(row.cli, row.model);
+    }
     if (row.providerId === 'ollama-cloud' && row.ptahCliId) {
       return this.owners.ownerForPtahCliKey(row.ptahCliId, row.providerId);
     }
-    return undefined;
+    return this.owners.lastLaneOwner({
+      cli: row.cli,
+      ptahCliId: row.ptahCliId,
+    });
   }
 
   private toResult<R extends LaneLimitLookupRow>(

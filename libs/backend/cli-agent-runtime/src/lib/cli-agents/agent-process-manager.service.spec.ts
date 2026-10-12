@@ -348,7 +348,11 @@ function createMockSentryService(): Record<string, jest.Mock> {
 
 /** Lane owner stub: no owner unless a test sets one (TASK_2026_596). */
 interface LaneOwnersStub {
-  ownerForLane: jest.Mock<QuotaOwnerRef | undefined, [string]>;
+  ownerForLane: jest.Mock<QuotaOwnerRef | undefined, [string, string?]>;
+  rememberLaneOwner: jest.Mock<
+    void,
+    [{ cli: string; ptahCliId?: string }, QuotaOwnerRef]
+  >;
 }
 
 /** Plan-limit ledger stub (TASK_2026_596). */
@@ -408,7 +412,10 @@ function createManager(deps: {
     })),
   };
   const laneOwners: LaneOwnersStub = {
-    ownerForLane: jest.fn<QuotaOwnerRef | undefined, [string]>(() => undefined),
+    ownerForLane: jest.fn<QuotaOwnerRef | undefined, [string, string?]>(
+      () => undefined,
+    ),
+    rememberLaneOwner: jest.fn(),
   };
   const planLimits: PlanLimitsStub = {
     recordWindowEvidence: jest.fn(),
@@ -1880,7 +1887,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     const antigravityAccount = owner('antigravity', 'account');
 
     const spawnLane = async (
-      cli: 'codex' | 'antigravity' | 'opencode' | 'ptah-cli',
+      cli: 'codex' | 'antigravity' | 'opencode' | 'grok' | 'ptah-cli',
       model?: string,
     ): Promise<string> =>
       (
@@ -1903,7 +1910,14 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const agentId = await spawnLane('codex', 'claude-sonnet-4-5');
 
-      expect(laneOwners.ownerForLane).toHaveBeenCalledWith('codex');
+      expect(laneOwners.ownerForLane).toHaveBeenCalledWith(
+        'codex',
+        'claude-sonnet-4-5',
+      );
+      expect(laneOwners.rememberLaneOwner).toHaveBeenCalledWith(
+        { cli: 'codex', ptahCliId: undefined },
+        codexAccount,
+      );
       expect(manager.getStatus(agentId)).toHaveProperty(
         'quotaOwner',
         codexAccount,
@@ -2063,6 +2077,53 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         '[AgentProcessManager] Plan-limit ledger write failed',
         expect.objectContaining({ agentId, errorName: 'Error' }),
+      );
+    });
+
+    it('files a Grok free-usage hit under the Grok CLI store owner', async () => {
+      const grokStore = owner('grok', 'cli-store');
+      laneOwners.ownerForLane.mockImplementation((cli) =>
+        cli === 'grok' ? grokStore : undefined,
+      );
+      const agentId = await spawnLane('grok');
+
+      sdkControls.emitOutput('error: subscription:free-usage-exhausted\n');
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(manager.getStatus(agentId)).toMatchObject({
+        failureKind: 'quota',
+      });
+      expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+        grokStore,
+        expect.objectContaining({ source: 'error-derived' }),
+      );
+    });
+
+    it('files an OpenCode free-tier hit under the OpenCode store, not the Go subscription', async () => {
+      const goStore = owner('opencode-go', 'cli-store');
+      const openCodeStore = owner('opencode', 'cli-store');
+      laneOwners.ownerForLane.mockImplementation((_cli, model) =>
+        model === 'opencode/' ? openCodeStore : goStore,
+      );
+      const agentId = await spawnLane('opencode', 'opencode-go/kimi-k2');
+
+      sdkControls.emitOutput('Error: Free usage exceeded\n');
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(laneOwners.ownerForLane).toHaveBeenCalledWith(
+        'opencode',
+        'opencode-go/kimi-k2',
+      );
+      expect(manager.getStatus(agentId)).toHaveProperty('quotaOwner', goStore);
+      expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+        openCodeStore,
+        expect.anything(),
+      );
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalledWith(
+        goStore,
+        expect.anything(),
       );
     });
 
@@ -2271,6 +2332,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
           status: 'running',
           quotaOwner: codexAccount,
         });
+        expect(laneOwners.rememberLaneOwner).toHaveBeenLastCalledWith(
+          { cli: 'codex', ptahCliId: undefined },
+          codexAccount,
+        );
       });
 
       it('never overwrites a known owner', async () => {

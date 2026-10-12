@@ -2370,6 +2370,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_browser_screenshot: 354,
       ptah_harness_list_installed_mcp: 354,
       ptah_project_detect_monorepo: 320,
+      // Limit-state guidance: the main agent reads AT LIMIT and unknown here.
+      ptah_agent_list: 285,
       ptah_browser_status: 272,
       ptah_relevance_rank_files: 267,
       ptah_browser_evaluate: 266,
@@ -2381,7 +2383,6 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       approval_prompt: 224,
       ptah_browser_content: 222,
       ptah_workspace_analyze: 217,
-      ptah_agent_list: 216,
       ptah_browser_click: 194,
       ptah_git_worktree_add: 178,
       ptah_get_dirty_files: 174,

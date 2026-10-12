@@ -37,6 +37,7 @@ import {
   unknownOwnerKey,
   type ClaudeAccountInfo,
 } from './provider-owner.resolver';
+import { resetOpenCodeGoCredentialCacheForTests } from './opencode-go-credential';
 
 jest.mock('node:fs', () => ({ readFileSync: jest.fn(), statSync: jest.fn() }));
 
@@ -494,6 +495,79 @@ describe('ProviderOwnerResolver', () => {
       if (previousGrokHome === undefined) delete process.env['GROK_HOME'];
       else process.env['GROK_HOME'] = previousGrokHome;
     }
+  });
+
+  describe('ownerForOpenCode', () => {
+    const ENV_NAMES = [
+      'XDG_DATA_HOME',
+      'OPENCODE_AUTH_CONTENT',
+      'OPENCODE_API_KEY',
+    ] as const;
+    const GO_AUTH = JSON.stringify({
+      'opencode-go': { type: 'api', key: 'go-key' },
+    });
+    let saved: Record<string, string | undefined>;
+    const dataDir = () => join(resolve('xdg-data'), 'opencode');
+
+    beforeEach(() => {
+      saved = Object.fromEntries(
+        ENV_NAMES.map((name) => [name, process.env[name]]),
+      );
+      for (const name of ENV_NAMES) delete process.env[name];
+      process.env['XDG_DATA_HOME'] = resolve('xdg-data');
+      resetOpenCodeGoCredentialCacheForTests();
+    });
+    afterEach(() => {
+      for (const name of ENV_NAMES) {
+        const value = saved[name];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+
+    it('bills the Go subscription when a Go key exists and no model is named', () => {
+      process.env['OPENCODE_AUTH_CONTENT'] = GO_AUTH;
+      const owner = harness().resolver.ownerForOpenCode();
+      expect(owner.key).toBe(cliStoreOwnerKey('opencode-go', dataDir()));
+      expect(owner.label).toBe('OpenCode CLI login');
+      expectRestorable(owner);
+      expect(JSON.stringify(owner)).not.toContain('go-key');
+    });
+
+    it('bills the Go subscription for an opencode-go model with a Go key', () => {
+      process.env['OPENCODE_AUTH_CONTENT'] = GO_AUTH;
+      expect(
+        harness().resolver.ownerForOpenCode('opencode-go/kimi-k2').key,
+      ).toBe(cliStoreOwnerKey('opencode-go', dataDir()));
+    });
+
+    it('bills the OpenCode store for a Zen or third-party model even with a Go key', () => {
+      process.env['OPENCODE_AUTH_CONTENT'] = GO_AUTH;
+      const { resolver } = harness();
+      const store = cliStoreOwnerKey('opencode', dataDir());
+      expect(resolver.ownerForOpenCode('opencode/grok-code').key).toBe(store);
+      expect(resolver.ownerForOpenCode('anthropic/claude-sonnet').key).toBe(
+        store,
+      );
+    });
+
+    it('bills the OpenCode store when there is no Go key', () => {
+      const { resolver } = harness({ fileContent: '{}' });
+      const store = cliStoreOwnerKey('opencode', dataDir());
+      expect(resolver.ownerForOpenCode().key).toBe(store);
+      expect(resolver.ownerForOpenCode('opencode-go/kimi-k2').key).toBe(store);
+    });
+
+    it('reads the Go key from auth.json in the shared data directory', () => {
+      const h = harness({ fileContent: GO_AUTH });
+      expect(h.resolver.ownerForOpenCode().key).toBe(
+        cliStoreOwnerKey('opencode-go', dataDir()),
+      );
+      expect(h.readFile).toHaveBeenCalledWith(
+        join(dataDir(), 'auth.json'),
+        'utf8',
+      );
+    });
   });
 
   describe('ownerForAntigravity', () => {

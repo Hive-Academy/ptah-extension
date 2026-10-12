@@ -36,6 +36,10 @@ import type {
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
+import {
+  hasOpenCodeGoCredentialSync,
+  openCodeDataDir,
+} from './opencode-go-credential';
 import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import {
   CODEX_PROXY_TOKEN_PLACEHOLDER,
@@ -540,6 +544,27 @@ export class ProviderOwnerResolver {
   }
 
   /**
+   * The owner an OpenCode lane bills. A model with a provider prefix other than
+   * `opencode-go` (Zen, a third-party key) bills the OpenCode store. Otherwise
+   * an OpenCode Go key in that store makes the Go subscription the owner, keyed
+   * by the same directory the Go reader reads; without one the store owns it.
+   */
+  ownerForOpenCode(model?: string): QuotaOwnerRef {
+    const slash = model?.indexOf('/') ?? -1;
+    const provider =
+      model && slash > 0 ? model.slice(0, slash).trim().toLowerCase() : '';
+    if (provider && provider !== 'opencode-go') {
+      return this.ownerForCliStore('opencode');
+    }
+    if (hasOpenCodeGoCredentialSync()) {
+      return quotaOwnerRefFromKey(
+        cliStoreOwnerKey('opencode-go', openCodeDataDir()),
+      );
+    }
+    return this.ownerForCliStore('opencode');
+  }
+
+  /**
    * The Antigravity account billed by its language server when observed; then
    * the active Gemini account file; then its credential-store owner. The
    * language-server reply shape remains provisional.
@@ -642,11 +667,6 @@ function cliStorePath(cli: CliStoreOwner): string {
   if (cli === 'grok') {
     return process.env['GROK_HOME']?.trim() || join(homedir(), '.grok');
   }
-  if (cli === 'opencode') {
-    const dataHome =
-      process.env['XDG_DATA_HOME']?.trim() ||
-      join(homedir(), '.local', 'share');
-    return join(dataHome, 'opencode');
-  }
+  if (cli === 'opencode') return openCodeDataDir();
   return join(homedir(), '.gemini');
 }
