@@ -40,7 +40,9 @@ describe('AgentPermissionResponder', () => {
   });
 
   it('posts the existing protocol and clears only the chosen request', () => {
-    responder.respondLane('agent', 'first', 'deny', 'User denied');
+    expect(responder.respondLane('agent', 'first', 'deny', 'User denied')).toBe(
+      true,
+    );
     expect(postMessage).toHaveBeenCalledWith({
       type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
       payload: { requestId: 'first', decision: 'deny', reason: 'User denied' },
@@ -61,8 +63,10 @@ describe('AgentPermissionResponder', () => {
   });
 
   it('posts and clears a lane request only once across repeated answers', () => {
-    responder.respondLane('agent', 'first', 'allow');
-    responder.respondLane('agent', 'first', 'deny', 'User denied');
+    expect(responder.respondLane('agent', 'first', 'allow')).toBe(true);
+    expect(responder.respondLane('agent', 'first', 'deny', 'User denied')).toBe(
+      false,
+    );
     expect(postMessage).toHaveBeenCalledTimes(1);
     expect(clearPermission).toHaveBeenCalledTimes(1);
   });

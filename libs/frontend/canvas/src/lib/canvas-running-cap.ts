@@ -20,22 +20,27 @@ const TERMINAL_SUBAGENT_STATUSES: readonly SubagentRecord['status'][] = [
  * session and could block the cap for no reason.
  */
 export function countRunningSessions(
-  sessionIds: readonly (string | null)[],
-  isTabTurnInFlight: (sessionId: string) => boolean,
+  tabs: readonly { id: string; claudeSessionId: string | null }[],
+  isTabTurnInFlight: (key: string) => boolean,
   agents: readonly MonitoredAgent[],
   subagents: readonly SubagentRecord[],
 ): number {
   let count = 0;
-  for (const sessionId of new Set(sessionIds)) {
-    if (!sessionId) continue;
+  const sessions = new Map(
+    tabs.map((tab) => [tab.claudeSessionId ?? tab.id, tab.claudeSessionId]),
+  );
+  for (const [key, sessionId] of sessions) {
     if (
-      isTabTurnInFlight(sessionId) ||
+      isTabTurnInFlight(key) ||
       agents.some(
         (agent) =>
-          agent.status === 'running' && agent.parentSessionId === sessionId,
+          sessionId !== null &&
+          agent.status === 'running' &&
+          agent.parentSessionId === sessionId,
       ) ||
       subagents.some(
         (agent) =>
+          sessionId !== null &&
           !TERMINAL_SUBAGENT_STATUSES.includes(agent.status) &&
           agent.parentSessionId === sessionId,
       )

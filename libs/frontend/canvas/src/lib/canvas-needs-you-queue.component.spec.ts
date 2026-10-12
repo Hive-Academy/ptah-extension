@@ -45,7 +45,7 @@ describe('CanvasNeedsYouQueueComponent', () => {
     revision.set(0);
     agents.set([]);
     respondSession.mockClear();
-    respondLane.mockClear();
+    respondLane.mockReset().mockReturnValue(true);
     focusTile.mockClear();
     TestBed.configureTestingModule({
       imports: [CanvasNeedsYouQueueComponent],
@@ -163,5 +163,47 @@ describe('CanvasNeedsYouQueueComponent', () => {
     agents.set([]);
     fixture.detectChanges();
     expect(fixture.componentInstance.answering().size).toBe(0);
+  });
+
+  it('re-enables a re-emitted lane request that was already answered', () => {
+    agents.set([
+      {
+        agentId: 'agent',
+        parentSessionId: 's2',
+        displayName: 'Codex',
+        permissionQueue: [
+          {
+            requestId: 'replayed',
+            toolName: 'bash',
+            description: 'Run',
+            timestamp: 1,
+          },
+        ],
+      } as MonitoredAgent,
+    ]);
+    respondLane.mockReturnValue(false);
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    const allow = fixture.nativeElement.querySelector(
+      'button.btn-success',
+    ) as HTMLButtonElement;
+    allow.click();
+    fixture.detectChanges();
+    expect(respondLane).toHaveBeenCalledWith(
+      'agent',
+      'replayed',
+      'allow',
+      undefined,
+    );
+    expect(fixture.componentInstance.answering().size).toBe(0);
+    expect(allow.disabled).toBe(false);
+    expect(
+      (
+        fixture.nativeElement.querySelector(
+          'button.btn-error',
+        ) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 });

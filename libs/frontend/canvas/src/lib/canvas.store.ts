@@ -150,14 +150,19 @@ export class CanvasStore {
   );
   readonly runningSessionCount = computed(() => {
     const tabs = this.tabManager.tabs();
-    const tileTabIds = new Set(this.tiles().map((tile) => tile.tabId));
+    // Running sessions in hidden workspaces still count toward the canvas cap.
+    const tileTabIds = new Set(
+      [...this._workspaceTiles().values()].flatMap((tiles) =>
+        tiles.map((tile) => tile.tabId),
+      ),
+    );
     const canvasTabs = tabs.filter((tab) => tileTabIds.has(tab.id));
     return countRunningSessions(
-      canvasTabs.map((tab) => tab.claudeSessionId),
-      (sessionId) =>
+      canvasTabs,
+      (key) =>
         canvasTabs.some(
           (tab) =>
-            tab.claudeSessionId === sessionId &&
+            (tab.claudeSessionId ?? tab.id) === key &&
             (tab.status === 'streaming' || tab.status === 'resuming'),
         ),
       this.agentMonitor.agents(),

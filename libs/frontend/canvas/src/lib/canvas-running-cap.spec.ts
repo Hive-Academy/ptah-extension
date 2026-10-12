@@ -8,12 +8,17 @@ const lane = (sessionId: string, status: MonitoredAgent['status']) =>
   ({ parentSessionId: sessionId, status }) as MonitoredAgent;
 const subagent = (sessionId: string, status: SubagentRecord['status']) =>
   ({ parentSessionId: sessionId, status }) as SubagentRecord;
+const tabs = (sessionIds: readonly (string | null)[]) =>
+  sessionIds.map((claudeSessionId, index) => ({
+    id: `tab-${index}`,
+    claudeSessionId,
+  }));
 
 describe('countRunningSessions for canvas tile sessions only', () => {
   it('ignores null, idle, and finished sessions', () => {
     expect(
       countRunningSessions(
-        [null, 'idle', 'done'],
+        tabs([null, 'idle', 'done']),
         () => false,
         [lane('done', 'completed'), lane('done', 'failed')],
         [subagent('done', 'completed'), subagent('done', 'stopped')],
@@ -24,7 +29,7 @@ describe('countRunningSessions for canvas tile sessions only', () => {
   it('counts CLI and background activity, once per distinct canvas session', () => {
     expect(
       countRunningSessions(
-        ['cli', 'background', 'both', 'both', null],
+        tabs(['cli', 'background', 'both', 'both', null]),
         (id) => id === 'both',
         [
           lane('cli', 'running'),
@@ -41,7 +46,7 @@ describe('countRunningSessions for canvas tile sessions only', () => {
     const orphanSubagent = { status: 'running' } as SubagentRecord;
     expect(
       countRunningSessions(
-        ['one', 'two'],
+        tabs(['one', 'two']),
         () => false,
         [orphanLane],
         [orphanSubagent],
@@ -58,7 +63,7 @@ describe('countRunningSessions for canvas tile sessions only', () => {
     ] as const) {
       expect(
         countRunningSessions(
-          ['one'],
+          tabs(['one']),
           () => false,
           [],
           [subagent('one', status)],
@@ -73,12 +78,27 @@ describe('countRunningSessions for canvas tile sessions only', () => {
     ] as const) {
       expect(
         countRunningSessions(
-          ['one'],
+          tabs(['one']),
           () => false,
           [],
           [subagent('one', status)],
         ),
       ).toBe(0);
     }
+  });
+
+  it('counts two fresh streaming tabs and still counts a tab once after binding', () => {
+    const freshTabs = tabs([null, null]);
+    const inFlight = (key: string) =>
+      key === 'tab-0' || key === 'tab-1' || key === 'session-0';
+    expect(countRunningSessions(freshTabs, inFlight, [], [])).toBe(2);
+    expect(
+      countRunningSessions(
+        [{ ...freshTabs[0], claudeSessionId: 'session-0' }, freshTabs[1]],
+        inFlight,
+        [],
+        [],
+      ),
+    ).toBe(2);
   });
 });

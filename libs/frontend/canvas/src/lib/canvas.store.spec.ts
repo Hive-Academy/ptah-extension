@@ -146,6 +146,26 @@ describe('CanvasStore', () => {
     expect(store.runningSessionCount()).toBe(9);
   });
 
+  it('counts running tiles across all workspaces', () => {
+    const first = Array.from({ length: 5 }, (_, i) => `a-${i}`);
+    const second = Array.from({ length: 4 }, (_, i) => `b-${i}`);
+    tabs.set(
+      [...first, ...second].map((id) => ({
+        id,
+        name: id,
+        claudeSessionId: null,
+        status: 'streaming' as const,
+      })),
+    );
+    store.hydrateWorkspace('/ws/a', first);
+    expect(store.runningSessionCount()).toBe(5);
+    store.hydrateWorkspace('/ws/b', second);
+    expect(store.runningSessionCount()).toBe(9);
+    expect(store.canStartRunningSession()).toBe(false);
+    store.hydrateWorkspace('/ws/a', first);
+    expect(store.canStartRunningSession()).toBe(false);
+  });
+
   it('adoptTab of an already-tiled tab adds no second tile (agent re-adoption, TASK_2026_612)', () => {
     hydrate('/ws/a', ['parent']);
 

@@ -159,12 +159,19 @@ export class CanvasNeedsYouQueueComponent {
     this.answering.update((keys) => new Set([...keys, item.key]));
     try {
       if (item.kind === 'lane-permission' && item.agentId) {
-        this.responder.respondLane(
+        const posted = this.responder.respondLane(
           item.agentId,
           item.requestId,
           decision,
           decision === 'deny' ? 'User denied' : undefined,
         );
+        if (!posted) {
+          this.answering.update((keys) => {
+            const next = new Set(keys);
+            next.delete(item.key);
+            return next;
+          });
+        }
       } else if (item.kind === 'permission') {
         const request = this.permissions
           .permissionRequests()

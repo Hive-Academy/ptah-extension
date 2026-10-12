@@ -22,8 +22,8 @@ export class AgentPermissionResponder {
     requestId: string,
     decision: 'allow' | 'deny',
     reason?: string,
-  ): void {
-    if (this.answeredRequestIds.has(requestId)) return;
+  ): boolean {
+    if (this.answeredRequestIds.has(requestId)) return false;
     this.answeredRequestIds.add(requestId);
     try {
       this.vscode.postMessage({
@@ -35,6 +35,7 @@ export class AgentPermissionResponder {
         },
       });
       this.agentStore.clearPermission(agentId, requestId);
+      return true;
     } catch (error) {
       this.answeredRequestIds.delete(requestId);
       throw error;
