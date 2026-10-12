@@ -17,15 +17,27 @@ fi
 # Electron build gate — runs on every push regardless of branch.
 echo "🏗️  Verifying electron main bundle builds + native deps declared..."
 if [ "${PTAH_PREPUSH_PARANOID:-0}" = "1" ]; then
+  # Paranoid mode: the affected build AND the packaged-runtime dependency
+  # gate. `nx affected -t build` covers compilation but does not run
+  # ptah-electron:validate-deps, so a runtime dep missing from
+  # apps/ptah-electron/package.json would pass on build alone.
   npx nx affected -t build --base=origin/main
+  if [ $? -ne 0 ]; then
+    echo "❌ Affected build failed (PTAH_PREPUSH_PARANOID=1) — fix the compile errors above, then push again."
+    exit 1
+  fi
+  npx nx run ptah-electron:validate-deps
+  if [ $? -ne 0 ]; then
+    echo "❌ validate-deps failed — a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
+    exit 1
+  fi
 else
   npx nx run ptah-electron:validate-deps
-fi
-
-if [ $? -ne 0 ]; then
-  echo "❌ Build gate failed — electron main bundle failed to compile OR a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
-  echo "   Set PTAH_PREPUSH_PARANOID=1 to run full affected build instead."
-  exit 1
+  if [ $? -ne 0 ]; then
+    echo "❌ Build gate failed — a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
+    echo "   Set PTAH_PREPUSH_PARANOID=1 to also run the full affected build."
+    exit 1
+  fi
 fi
 
 # Only run full checks if pushing to main or develop

@@ -36,7 +36,7 @@ function Write-Record {
 
 function Get-ProcessSnapshot {
     $snapshot = @{}
-    foreach ($process in @(Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, Name, CommandLine)) {
+    foreach ($process in @(Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, Name, CommandLine, ExecutablePath)) {
         if ($null -eq $process) { continue }
         $pidKey = [int]$process.ProcessId
         $snapshot[$pidKey] = [pscustomobject]@{
@@ -44,6 +44,7 @@ function Get-ProcessSnapshot {
             ParentProcessId = [int]$process.ParentProcessId
             Name = [string]$process.Name
             CommandLine = [string]$process.CommandLine
+            ExecutablePath = [string]$process.ExecutablePath
         }
     }
     return ,$snapshot
@@ -58,6 +59,24 @@ function Test-NameMatch {
     return $false
 }
 
+# True when a process is itself a Ptah host — explicit signals only, never
+# "any electron.exe / Code.exe is Ptah", which misattributed unrelated
+# Electron apps and VS Code terminals:
+#   Ptah.exe     the packaged app;
+#   electron.exe only the dev Electron binary a node_modules install ships
+#                (node_modules\electron\dist\electron.exe);
+#   Code.exe     only a command line that references the ptah extension, e.g.
+#                the dev extension host (--extensionDevelopmentPath=...\ptah-extension);
+#   node.exe     a command line that references ptah (pre-existing rule).
+function Test-PtahProcess {
+    param($Process)
+    if ($Process.Name -ieq 'Ptah.exe') { return $true }
+    if ($Process.Name -ieq 'electron.exe' -and $Process.ExecutablePath -match 'node_modules\\electron\\dist') { return $true }
+    if ($Process.Name -ieq 'Code.exe' -and $Process.CommandLine -match 'ptah') { return $true }
+    if ($Process.Name -ieq 'node.exe' -and $Process.CommandLine -match 'ptah') { return $true }
+    return $false
+}
+
 function Get-Ancestry {
     param($Process, [hashtable]$Current, [hashtable]$History)
     $parts = @()
@@ -69,12 +88,8 @@ function Get-Ancestry {
         if ($visited.ContainsKey($cursorPid)) { break }
         $visited[$cursorPid] = $true
         $parts += ('{0}({1})' -f $cursor.Name, $cursorPid)
-        if ($depth -gt 0) {
-            if ($cursor.Name -in @('electron.exe', 'Ptah.exe', 'Code.exe')) {
-                $ptah = $true
-            } elseif ($cursor.Name -ieq 'node.exe' -and $cursor.CommandLine -match 'ptah') {
-                $ptah = $true
-            }
+        if ($depth -gt 0 -and (Test-PtahProcess $cursor)) {
+            $ptah = $true
         }
         $parentPid = [int]$cursor.ParentProcessId
         if ($parentPid -le 0) { break }
