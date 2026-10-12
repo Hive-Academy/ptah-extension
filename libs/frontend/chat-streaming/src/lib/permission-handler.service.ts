@@ -280,9 +280,15 @@ export class PermissionHandlerService {
     if (sessionPermissions.length === 0) return [];
 
     const toolIdsInTree = this.toolIdsInExecutionTree();
+    const activeTabId = this.tabManager.activeTabId();
+    this._routingTargetRevision();
 
     return sessionPermissions.filter((req) => {
       if (this.hasSurfaceTargets(req.id)) return false;
+      // Routed to other tabs (e.g. a child session): those tabs show the card
+      // inline, so the active tab must not raise a duplicate fallback.
+      const targets = this._promptTargetTabs.get(req.id);
+      if (targets?.length && !targets.includes(activeTabId ?? '')) return false;
       if (!req.toolUseId) return true;
       return !toolIdsInTree.has(req.toolUseId);
     });

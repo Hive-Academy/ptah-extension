@@ -29,6 +29,10 @@ import type {
   SuccessorSessionQueuedInput,
   StartSuccessorSessionInput,
 } from '@ptah-extension/cli-agent-runtime';
+import {
+  SDK_TOKENS,
+  type SessionLifecycleManager,
+} from '@ptah-extension/agent-sdk';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
@@ -46,7 +50,10 @@ interface PendingSuccessorBind {
 
 @injectable()
 export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
-  private readonly pendingSuccessorBinds = new Map<string, PendingSuccessorBind>();
+  private readonly pendingSuccessorBinds = new Map<
+    string,
+    PendingSuccessorBind
+  >();
   private readonly boundSuccessors = new Map<string, string>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -54,12 +61,19 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
     private readonly webviewManager: WebviewManager,
     @inject(CHAT_TOKENS.SESSION)
     private readonly session: ChatSessionService,
+    @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
+    private readonly lifecycle: SessionLifecycleManager | null = null,
   ) {}
 
   async startChildSession(
     input: ChildChatSessionStartInput,
   ): Promise<ChildChatSessionStartOutcome> {
     const uiAnnounced = await this.announce(input);
+    // The child inherits the parent's live permission level, so a parent in
+    // YOLO does not spawn a child that prompts for every out-of-policy call.
+    const permissionLevel = this.lifecycle?.find(
+      input.descriptor.parentTabId,
+    )?.permissionLevel;
 
     let error: string;
     try {
@@ -70,6 +84,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
         prompt: input.prompt,
         sessionName: input.sessionName,
         model: input.model,
+        ...(permissionLevel ? { permissionLevel } : {}),
       });
       if (result.success) {
         return { started: true, uiAnnounced };
@@ -106,7 +121,10 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
         permissionLevel: config.permissionLevel,
       });
       if (!started.success) {
-        return { started: false, error: started.error ?? 'successor start failed' };
+        return {
+          started: false,
+          error: started.error ?? 'successor start failed',
+        };
       }
 
       if (!this.hasInteractiveWebview()) {
@@ -121,7 +139,10 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
       }
 
       await this.stopSuccessor(successorTabId);
-      return { started: false, error: 'successor tab was not bound before timeout' };
+      return {
+        started: false,
+        error: 'successor tab was not bound before timeout',
+      };
     } catch (error: unknown) {
       await this.stopSuccessor(successorTabId);
       return {
@@ -139,7 +160,10 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
     if (!successorTabId) {
       return { delivered: false, error: 'successor was not bound' };
     }
-    const delivered = await this.session.deliverHandoverInputs(successorTabId, inputs);
+    const delivered = await this.session.deliverHandoverInputs(
+      successorTabId,
+      inputs,
+    );
     this.boundSuccessors.delete(operationId);
     if (!delivered.delivered) await this.stopSuccessor(successorTabId);
     return delivered;
