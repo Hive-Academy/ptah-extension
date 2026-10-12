@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 20/20
+Total tasks: 46 | Batches: 21 (Batch 0 to Batch 17, plus fix Batches 5F, 6F and 17F) | Complete: 21/21
 
 Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
 completion below; see "Phase 4" at the end of this file.
@@ -711,6 +711,8 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L25 | Phase 4 style Minor 7: `SESSION_BUDGET_ACTIONS` not checked for exhaustiveness (`session-budget-rpc.schema.ts:16-24`) | Future-proofing | Compile-time check that the union is assignable to the array element type, or derive the union |
 | 627-L26 | Phase 4 style Minor 8: `armAtTerminal(…, true, …)` takes a bare boolean (`session-lifecycle-manager.ts:547-551`) | Readability only | Options object when the coordinator is split (with 627-L7) |
 | 627-L27 | Phase 4 style Minor 9: `restoreDraftToInput` / `restoreContentToInput` overlap (deliberate, D24) | None | Cross-reference in `restoreContentToInput`'s doc comment |
+| 627-L28 | Phase 4 re-review new finding (raised Blocking, downgraded to Minor by the orchestrator): a whitespace-only edit of the queued composer text during the pending begin RPC compares equal after trim and is cleared (`session-budget-actions.service.ts:351-372`) | The successor receives the same text minus trailing whitespace; no user content is lost; the trim comparison predates 17F; fix cap reached | Keep the raw `queuedContent` beside the trimmed RPC value and clear only on an exact raw match; add a pending-RPC whitespace-only edit test |
+| 627-L29 | Phase 4 re-review note: the later progress phases `starting-successor`, `successor-confirmed`, `closing` have no exit action and no coordinator-level timeout if a dependency never resolves (`session-handover-coordinator.service.ts:550-604`) | Pre-existing; Batch 17F neither creates nor resolves it; cancellation was already refused in those phases | Bound the awaited successor, delivery and close calls with a coordinator timeout that fails the op into the Retry / Keep working state |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — COMPLETE (0917b8074)
 
@@ -1658,4 +1660,79 @@ other rows stay as recorded.
 - Pitfalls: no new start path (only `begin` sets `userConfirmed`); captured text still never goes
   through `restoreInputs`/send/queue; composer kept whenever `draftCaptured` is not true; no wrap-up
   change.
-- Phase 4 re-review: pending (scoped to b3d8a8193).
+- Phase 4 re-review: `code-logic-review-phase4-rereview.md`, 6/10 NEEDS_REVISION (see below).
+
+### Phase 4 re-review verdict (scoped to b3d8a8193)
+
+- Both prior logic findings FIXED: Cancel only in `writing-handoff` (F1); composer cleared only on
+  `draftCaptured === true`, `closing` begin keeps the text (F2). Gates G1-G5, D17 (no automatic
+  start) and wrap-up gating (click only, never while idle) PASS. Shared `ENDED_HANDOVER_PHASES` and
+  `displayBudgetStage` PASS.
+- One new finding raised as Blocking: a whitespace-only edit during the pending begin RPC is cleared
+  because both sides compare trimmed text. Orchestrator verdict: DOWNGRADED to Minor. The successor
+  receives the same text minus trailing whitespace, no user content is lost, and the trim
+  comparison predates 17F. Recorded as 627-L28.
+- The reviewer's recovery note on the later progress phases (no exit action, no coordinator-level
+  timeout) is pre-existing and recorded as 627-L29.
+- Fix cap reached (one bounded fix round + one re-review, lean rules). No further fix batch.
+- Phase 4 status: COMPLETE, pending the user's manual Electron check (decision 3).
+
+## Phase 4 completion (Mode 3)
+
+- Scope: code commits `907d9f405..b3d8a8193` (44 files, +4056/-979 under `libs`/`apps`), each
+  followed by its `docs(task-specs)` record commit.
+
+| Batch | Name | Commit |
+| --- | --- | --- |
+| 9 | Coordinator user-only start, lifecycle and adapter result path | `907d9f405` |
+| 10 | Shared live-stage wire field | `f4291b91f` |
+| 11 | Budget service display-only live stage, wrap-up on request, adapter live wiring | `a465ac77f` |
+| 12 | RPC handlers | `1978ec264` |
+| 13 | Agent successor tool asks the user | `f3df2b0fc` |
+| 14 | Frontend tab state carries the live stage | `a106621bf` |
+| 15 | Frontend services: live stage, draft bookkeeping, actions | `5f0ebad4c` |
+| 16 | Banner copy and buttons; composer draft write | `2aa55a4b3` |
+| 17 | Chat view: banner while streaming, bindings, draft effect | `0c0ba7c0a` |
+| 17F | Phase 4 review fix round | `b3d8a8193` |
+
+What changed for the user:
+
+- No session handover starts without a user click (D22). At the handoff stage and at the limit the
+  banner shows, even while a turn is streaming, with "Ask agent to wrap up" (one click per stage)
+  and "Continue in new session".
+- When work is still in flight, the banner waits with "Continue now anyway" and "Cancel"; the
+  agent's successor tool only raises a request the user approves or cancels (D23).
+- The composer text is carried to the new session as a separate draft and is cleared only when the
+  backend confirms it captured it; after Cancel or failure it returns to the composer (D24, D25).
+- Cancel is offered only while the handoff is being written; the later phases show progress only.
+
+Checks:
+
+- Every batch passed its scoped typecheck, lint and tests before its commit (recorded per batch
+  above); 17F: coordinator spec 64/64, actions/banner/chat-view 221/221, `nx typecheck` shared,
+  agent-sdk, `@ptah-extension/chat` succeeded, lint 0 errors.
+- Phase 4 reviews: code-logic `code-logic-review-phase4.md` (5/10, F1/F2 fixed in 17F), code-style
+  `code-style-review-phase4.md` (7/10, Serious 1-2 fixed in 17F), re-review
+  `code-logic-review-phase4-rereview.md` (6/10; its one finding downgraded to Minor, 627-L28).
+- Parity: N/A (BUGFIX; no surface replaced, consolidated, rebuilt or redesigned).
+- Rendered visual evidence: replaced by user decision 3 (manual Electron check below). No prototype
+  (no new surface).
+- Write-path trace: no persisted setting or configuration key changes in Phase 4. The handover draft
+  travels in the begin RPC and the coordinator's in-memory op, not in storage.
+
+Deferred: 627-L21..L27 (Phase 4 style), 627-L28 (whitespace-only concurrent edit), 627-L29 (no
+timeout or exit in the later progress phases), plus the open rows of 627-L1..L20.
+
+Manual Electron check (user, decision 3):
+
+1. The banner shows while a turn is streaming when the session reaches the handoff stage and the
+   limit.
+2. "Ask agent to wrap up" works once per stage and is disabled after the click.
+3. With work in flight, the waiting banner shows "Continue now anyway" and "Cancel".
+4. An agent successor request shows Approve and Cancel, and nothing starts until Approve.
+5. "Cancel (keep working)" appears only while the handoff is being written.
+6. After Cancel or a failure the draft returns to the composer, without stealing focus while a turn
+   streams.
+7. A draft left in the compact view is recovered when switching to the full chat view.
+
+Task status: Phase 4 COMPLETE; `task.md` stays open for the user's manual Electron check.
