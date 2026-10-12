@@ -3,6 +3,7 @@ import { inject, injectable } from 'tsyringe';
 import {
   SDK_TOKENS,
   type SessionHistoryReaderService,
+  type SessionLifecycleManager,
   type SessionMetadataStore,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -43,12 +44,18 @@ export class ChatHistoryReadService {
     private readonly fileSystemProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
+    private readonly sessionLifecycle?: SessionLifecycleManager,
   ) {}
 
   /** The folder this session acts in. See {@link resolveSessionFolder}. */
   resolveSessionFolder(sessionId: SessionId): Promise<string> {
     return resolveSessionFolder({
-      sessionId,
+      // A live session can still be addressed by its tab id (the CLI keeps it
+      // when a turn ends before the SDK reports the real id); metadata is keyed
+      // by the real id.
+      sessionId:
+        this.sessionLifecycle?.find(sessionId)?.realSessionId || sessionId,
       metadataStore: this.sessionMetadataStore,
       workspaceProvider: this.workspaceProvider,
       fileSystemProvider: this.fileSystemProvider,

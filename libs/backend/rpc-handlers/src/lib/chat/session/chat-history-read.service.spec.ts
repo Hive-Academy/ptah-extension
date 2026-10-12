@@ -19,6 +19,7 @@ function makeHarness(
     folders?: string[];
     metadata?: { workspaceId: string; workingDirectory?: string } | null;
     exists?: jest.Mock;
+    lifecycle?: { find: jest.Mock };
   } = {},
 ) {
   const logger = createMockLogger();
@@ -59,6 +60,7 @@ function makeHarness(
       globalStoragePath: '/tmp/ptah-storage',
       workspaceStoragePath: '/tmp/ptah-workspace-storage',
     } as never,
+    options.lifecycle as never,
   );
   return {
     service,
@@ -126,6 +128,24 @@ describe('ChatHistoryReadService', () => {
       SESSION_ID,
       OTHER_PROJECT,
     );
+  });
+
+  it('resolves a live session addressed by its tab id through its real id', async () => {
+    const TAB_ID = 'bdf3aa78-499e-416d-b7de-f0345568f8eb' as SessionId;
+    const lifecycle = {
+      find: jest.fn((id: string) =>
+        id === TAB_ID ? { tabId: TAB_ID, realSessionId: SESSION_ID } : undefined,
+      ),
+    };
+    const harness = makeHarness({ lifecycle });
+    harness.metadataStore.get.mockImplementation(async (id: string) =>
+      id === SESSION_ID ? { workspaceId: WORKSPACE } : null,
+    );
+
+    await expect(harness.service.resolveSessionFolder(TAB_ID)).resolves.toBe(
+      WORKSPACE,
+    );
+    expect(harness.metadataStore.get).toHaveBeenCalledWith(SESSION_ID);
   });
 
   it('rejects a page read for an unknown session', async () => {
