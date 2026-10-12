@@ -72,6 +72,13 @@ import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
+
+@Component({
+  selector: 'ptah-canvas-needs-you-queue',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class NeedsYouQueueStub {}
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
@@ -1023,6 +1030,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
           WorkspaceGridStub,
           EmptyStateStub,
           CanvasLayoutControlsComponent,
+          NeedsYouQueueStub,
           ActivityTickerComponent,
           NativePopoverComponent,
         ],
@@ -1114,9 +1122,20 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     const layoutControls = dock.query(
       By.directive(CanvasLayoutControlsComponent),
     );
+    const queue = dock.query(By.directive(NeedsYouQueueStub));
     const newSessionBtn = dock.query(
       By.css('button[title="Add new session tile"]'),
     );
+    expect(queue).toBeTruthy();
+    expect(
+      layoutControls.nativeElement.compareDocumentPosition(
+        queue.nativeElement,
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      queue.nativeElement.compareDocumentPosition(newSessionBtn.nativeElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     expect(layoutControls).toBeTruthy();
     expect(newSessionBtn).toBeTruthy();

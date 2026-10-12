@@ -34,6 +34,7 @@ import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
 import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
+import { CanvasNeedsYouQueueComponent } from './canvas-needs-you-queue.component';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import type { CanvasLayoutPreset } from './canvas-layout-intent';
@@ -72,6 +73,7 @@ import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
     CanvasWorkspaceGridComponent,
     CanvasEmptyStateComponent,
     CanvasLayoutControlsComponent,
+    CanvasNeedsYouQueueComponent,
     ActivityTickerComponent,
     LucideAngularModule,
     NativePopoverComponent,
@@ -115,6 +117,7 @@ import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
             (lockToggled)="toggleLock()"
             (presetRequested)="applyPreset($event)"
           />
+          <ptah-canvas-needs-you-queue />
           @if (headerMessage()) {
             <span class="text-xs text-warning" role="status">{{
               headerMessage()
