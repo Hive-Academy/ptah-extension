@@ -2,7 +2,8 @@
  * TurnChangeSetStore (TASK_2026_576 Component 19).
  *
  * Pure storage for the per-session list of turn change sets: read, append,
- * remove, nothing else. Each session lives under its OWN key,
+ * remove, nothing else. Each session lives in its own file when the session
+ * blob store is bound (Electron, CLI), otherwise under its OWN key,
  * `ptah.turnChangeSets:<sessionId>`, never inside the all-sessions metadata
  * blob — the rule `session-metadata-store.ts` states for anything that grows
  * per session (TASK_2026_323 blocker B5). A session keeps its most recent
@@ -13,6 +14,7 @@ import { inject, injectable } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
   isAsyncStateStorage,
+  type ISessionBlobStore,
   type IStateStorage,
 } from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
@@ -32,6 +34,9 @@ interface StoredTurnChangeSets {
   readonly changeSets: readonly TurnChangeSet[];
 }
 
+/** Blob name inside the session's folder when the session blob store is bound (PTAH-35). */
+export const TURN_CHANGE_SETS_BLOB = 'turn-change-sets';
+
 export function turnChangeSetsKey(sessionId: string): string {
   return `${TURN_CHANGE_SETS_KEY_PREFIX}${sessionId}`;
 }
@@ -49,6 +54,8 @@ export class TurnChangeSetStore {
     @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
     private readonly storage: IStateStorage,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.SESSION_BLOB_STORE, { isOptional: true })
+    private readonly blobs?: ISessionBlobStore,
   ) {}
 
   /**
@@ -58,9 +65,11 @@ export class TurnChangeSetStore {
    */
   async list(sessionId: string): Promise<TurnChangeSet[]> {
     const key = turnChangeSetsKey(sessionId);
-    const stored = isAsyncStateStorage(this.storage)
-      ? await this.storage.getAsync<unknown>(key)
-      : this.storage.get<unknown>(key);
+    const stored = this.blobs
+      ? await this.blobs.read<unknown>(sessionId, TURN_CHANGE_SETS_BLOB)
+      : isAsyncStateStorage(this.storage)
+        ? await this.storage.getAsync<unknown>(key)
+        : this.storage.get<unknown>(key);
     const { changeSets, dropped } = readChangeSets(stored);
     if (dropped > 0) {
       this.logger.warn(
@@ -86,7 +95,9 @@ export class TurnChangeSetStore {
    */
   remove(sessionId: string): Promise<void> {
     return this.enqueue(sessionId, () =>
-      this.storage.update(turnChangeSetsKey(sessionId), undefined),
+      this.blobs
+        ? this.blobs.remove(sessionId, TURN_CHANGE_SETS_BLOB)
+        : this.storage.update(turnChangeSetsKey(sessionId), undefined),
     );
   }
 
@@ -115,6 +126,10 @@ export class TurnChangeSetStore {
       schemaVersion: SCHEMA_VERSION,
       changeSets,
     };
+    if (this.blobs) {
+      await this.blobs.write(changeSet.sessionId, TURN_CHANGE_SETS_BLOB, value);
+      return;
+    }
     await this.storage.update(turnChangeSetsKey(changeSet.sessionId), value);
   }
 }

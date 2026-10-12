@@ -93,6 +93,14 @@ jobs:
 
       - run: node_modules/.bin/nx affected -t build
 
+      # Electron runtime-dependency gate: every external import in the main
+      # bundle must be declared in apps/ptah-electron/package.json, or the
+      # packaged app crashes with ERR_MODULE_NOT_FOUND. Also runs in pre-push;
+      # here it catches pushes made with --no-verify. No-op unless
+      # ptah-electron is affected.
+      - name: Electron dependency gate (validate-deps)
+        run: node_modules/.bin/nx affected -t validate-deps
+
       - name: Enforce eager-closure bundle gate
         if: hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''
         run: npm run gate:eager-closure

@@ -26,6 +26,8 @@ import {
   SettingsPersistError,
 } from '@ptah-extension/platform-core';
 import type {
+  IFileSystemProvider,
+  IPlatformInfo,
   IWorkspaceProvider,
   IStateStorage,
 } from '@ptah-extension/platform-core';
@@ -70,6 +72,7 @@ import {
 } from '@ptah-extension/shared';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 import { CliModelListService } from '../services/cli-model-list.service';
+import { resolveSessionFolder } from '../chat/session/session-folder';
 
 /** `agent:setConfig` keys that hold one CLI's model id. Written in this order. */
 const CLI_MODEL_KEYS = [
@@ -308,6 +311,10 @@ export class AgentRpcHandlers {
     private readonly runtimeContainer: DependencyContainer,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecrets: IAuthSecretsService,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystemProvider: IFileSystemProvider,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo,
   ) {}
 
   register(): void {
@@ -1098,7 +1105,7 @@ export class AgentRpcHandlers {
         });
 
         let result: SpawnAgentResult;
-        const workspaceRoot = this.workspace.getWorkspaceRoot() ?? '';
+        const workspaceRoot = await this.resumeFolder(params.parentSessionId);
 
         let ptahCliId = params.ptahCliId;
         if (params.cli === 'ptah-cli' && !ptahCliId) {
@@ -1118,6 +1125,7 @@ export class AgentRpcHandlers {
           result = await this.agentProcessManager.spawn({
             cli: params.cli,
             task: params.task,
+            workingDirectory: workspaceRoot,
             resumeSessionId: params.cliSessionId,
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
@@ -1150,6 +1158,31 @@ export class AgentRpcHandlers {
         );
         return { success: false, error: errorMessage };
       }
+    });
+  }
+
+  /**
+   * Where a resumed CLI agent runs: its parent session's own folder, never
+   * the active one, which may be another project's (PTAH-37). An unknown
+   * parent or one whose folder is gone fails the resume.
+   *
+   * Without a parent (the Ptah CLI app's `agent resume`) there is no session
+   * to ask, so the host default stands, as it does for chat:start.
+   */
+  private async resumeFolder(
+    parentSessionId: string | undefined,
+  ): Promise<string> {
+    if (!parentSessionId) {
+      // eslint-disable-next-line no-restricted-properties -- no parent session to ask; the Ptah CLI app's host default (its --cwd) is the folder
+      return this.workspace.getWorkspaceRoot() ?? '';
+    }
+    return resolveSessionFolder({
+      sessionId: parentSessionId,
+      metadataStore: this.sessionMetadataStore,
+      workspaceProvider: this.workspace,
+      fileSystemProvider: this.fileSystemProvider,
+      platformInfo: this.platformInfo,
+      logger: this.logger,
     });
   }
 

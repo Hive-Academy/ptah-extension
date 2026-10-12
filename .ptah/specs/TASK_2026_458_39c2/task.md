@@ -5,16 +5,13 @@ type: BUGFIX
 title: >-
   Let the CLI degrade instead of crash when memory registration fails early
 description: >-
-  Found by the TASK_2026_443_40ec Batch 11 review. The CLI host always enables
-  the memory capability, so registerRpcSurface always resolves MemRpcHandlers,
-  and that resolution is outside the try/catch because the handler is
-  lib-owned. ensureMemoryContractFallbacks stubs the memory-contracts tokens,
-  but MEMORY_SEARCH and MEMORY_STORE come only from Track 1. If Track 1 throws
-  before it registers them, the CLI crashes at boot. The MEMORY_SEARCH
-  injection predates TASK_2026_443, so this is pre-existing, not a regression.
+  Found by the TASK_2026_443_40ec Batch 11 review. The CLI host always enables the memory capability, so registerRpcSurface always resolves MemRpcHandlers, and that resolution is outside the try/catch because the handler is lib-owned. ensureMemoryContractFallbacks stubs the memory-contracts tokens, but MEMORY_SEARCH and MEMORY_STORE come only from Track 1. If Track 1 throws before it registers them, the CLI crashes at boot. The MEMORY_SEARCH injection predates TASK_2026_443, so this is pre-existing, not a regression.
 depends_on: []
 created: 2026-09-16T01:35:00.000Z
-updated: 2026-09-16T01:35:00.000Z
+updated: '2026-10-12T19:41:51.738Z'
+parent: TASK_2026_635_5ea5
+labels:
+  - P1
 ---
 
 ## Description

@@ -58,6 +58,7 @@ import {
   type AgentSessionOpenedPayload,
   type AIMessageOrigin,
   type IAgentAdapter,
+  type PermissionLevel,
   type SessionTurnPhase,
 } from '@ptah-extension/shared';
 import { TOKENS, resolveWorktreePath } from '@ptah-extension/vscode-core';
@@ -142,6 +143,7 @@ type OwnedLookup =
 interface StartGuardPass {
   readonly ok: true;
   readonly caller: SessionId;
+  readonly permissionLevel?: PermissionLevel;
   readonly adapter: IAgentAdapter;
   readonly host: IChildChatSessionHost;
   readonly settings: SessionChildSettings;
@@ -305,6 +307,7 @@ export class SessionSpawnerService implements ISessionSpawner {
     return {
       ok: true,
       caller,
+      permissionLevel: this.lifecycle.find(caller)?.permissionLevel,
       adapter: this.adapter,
       host,
       settings,
@@ -402,6 +405,7 @@ export class SessionSpawnerService implements ISessionSpawner {
         prompt: composeSessionChildPrompt(contract, task),
         descriptor: this.descriptorOf(stored),
         sessionName: label,
+        ...(guard.permissionLevel ? { permissionLevel: guard.permissionLevel } : {}),
         ...(request.model ? { model: request.model } : {}),
       });
       if (!outcome.started) {

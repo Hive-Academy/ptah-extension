@@ -5,12 +5,16 @@ type: BUGFIX
 title: Reduce extract-prompt over-suppression of durable content
 depends_on: []
 created: '2026-09-26T20:53:48.576Z'
-updated: '2026-09-26T20:53:48.576Z'
+updated: '2026-10-12T19:41:51.738Z'
 description: 'New extract prompt returned zero drafts for durable content in session 1359b2b0 (5 losses); single-use share rose 98.0 to 99.2 percent on a 10-session sample. Tune and re-measure on a larger sample'
 labels:
   - memory-curator
+  - P1
 relates_to:
   - TASK_2026_563_2939
+  - TASK_2026_391
+  - TASK_2026_620_a13e
+parent: TASK_2026_635_5ea5
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

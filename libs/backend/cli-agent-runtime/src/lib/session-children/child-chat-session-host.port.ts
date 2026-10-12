@@ -9,7 +9,10 @@
  *
  * Type-only.
  */
-import type { AgentSessionOpenedPayload } from '@ptah-extension/shared';
+import type {
+  AgentSessionOpenedPayload,
+  PermissionLevel,
+} from '@ptah-extension/shared';
 
 export interface ChildChatSessionStartInput {
   /** Backend-minted UUID v4: the child's tab id and MCP routing id. */
@@ -24,6 +27,8 @@ export interface ChildChatSessionStartInput {
   readonly descriptor: AgentSessionOpenedPayload;
   readonly sessionName: string;
   readonly model?: string;
+  /** Parent permission level captured while the parent was active. */
+  readonly permissionLevel?: PermissionLevel;
 }
 
 export type ChildChatSessionStartOutcome =

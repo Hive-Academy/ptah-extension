@@ -130,7 +130,7 @@ function makeHarness(
   const lifecycle = {
     find: jest.fn((id: string) =>
       lifecycleIds.has(id)
-        ? { realSessionId: lifecycleIds.get(id) }
+        ? { realSessionId: lifecycleIds.get(id), permissionLevel: 'yolo' }
         : undefined,
     ),
   };
@@ -294,6 +294,26 @@ afterEach(() => {
 });
 
 describe('SessionSpawnerService.start — guards in order', () => {
+  it('passes the parent permission level captured before worktree provisioning', async () => {
+    const h = makeHarness();
+    h.provisioner.create.mockImplementationOnce(async (root: string, branch: string) => {
+      h.lifecycleIds.delete(PARENT);
+      return {
+        ok: true as const,
+        worktree: {
+          root,
+          branch,
+          worktreePath: resolveWorktreePath(root, branch),
+          baseSha: SHA,
+        },
+      };
+    });
+
+    await h.startChild();
+
+    expect(h.host.startChildSession.mock.calls[0][0].permissionLevel).toBe('yolo');
+  });
+
   it('refuses chat-runtime-unavailable first, even for an unattributed caller', async () => {
     const h = makeHarness();
     const spawner = h.build({ host: null });

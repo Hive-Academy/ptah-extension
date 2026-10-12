@@ -98,4 +98,17 @@ export type { PersistenceDIToken } from './lib/di/tokens';
 
 export { registerPersistenceSqliteServices } from './lib/di/register';
 
+export { SessionStoreDatabase } from './lib/session-store/session-store-database';
+export { SqliteSessionRecordRepository } from './lib/session-store/sqlite-session-record-repository';
+export { FileSessionBlobStore } from './lib/session-store/file-session-blob-store';
+export {
+  resolveSessionStoreDbPath,
+  resolveSessionBlobRoot,
+} from './lib/session-store/session-store-db-path';
+export {
+  registerSessionStoreServices,
+  type RegisteredSessionStore,
+} from './lib/session-store/register-session-store';
+export { SessionStoreGate } from './lib/session-store/session-store-gate';
+
 export { resolvePtahDbPath } from './lib/db-path';

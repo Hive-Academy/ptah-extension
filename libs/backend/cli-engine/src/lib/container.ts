@@ -23,6 +23,8 @@
 import 'reflect-metadata';
 import * as path from 'path';
 import * as os from 'os';
+import { registerSessionStoreServices } from '@ptah-extension/persistence-sqlite';
+import { runCliSessionStoreMigration } from './bootstrap/session-store-migration';
 import {
   container as globalContainer,
   instanceCachingFactory,
@@ -452,6 +454,12 @@ export class CliDIContainer {
     registerVsCodeCorePlatformAgnostic(container, logger, {
       includeLicensingAndAuth: true,
     });
+
+    // One session store for every project, shared with the desktop app and
+    // tagged by host (PTAH-35). Bound before anything resolves the session
+    // metadata store; reads wait until the copy-forward below has run.
+    registerSessionStoreServices(container, logger, { host: 'cli' });
+    void runCliSessionStoreMigration(container, { userDataPath, logger });
 
     // Verbose-only, unlike the desktop hosts. A one-shot `ptah` invocation that
     // blocks the loop for 300 ms has not hung anything a user can perceive —

@@ -100,6 +100,8 @@ function makeHarness() {
       resolve: jest.fn(),
     } as unknown as DependencyContainer,
     authSecrets as unknown as IAuthSecretsService,
+    { exists: jest.fn().mockResolvedValue(true) } as never,
+    { type: 'electron', extensionPath: '/ptah-app' } as never,
   );
   handlers.register();
   const setConfig = async (params: Record<string, unknown>) =>

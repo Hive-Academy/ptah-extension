@@ -78,10 +78,13 @@ export interface RunTurnOptions {
    * Async callable that issues the `chat:start | chat:continue | chat:resume`
    * RPC. The synchronous `{ success: true }` ack is discarded — the real
    * completion arrives via `chat:complete` on the push adapter. If the call
-   * itself rejects, the turn resolves `{ success: false, error }` and listeners
-   * are detached.
+   * itself rejects or acks `{ success: false }`, the turn resolves
+   * `{ success: false, error }` and listeners are detached.
    */
-  readonly rpcCall: () => Promise<{ readonly success: boolean }>;
+  readonly rpcCall: () => Promise<{
+    readonly success: boolean;
+    readonly error?: string;
+  }>;
   /** Optional abort signal. On abort, the turn resolves with `cancelled: true`. */
   readonly abortSignal?: AbortSignal;
   /**
@@ -404,10 +407,9 @@ export class ChatBridge {
       try {
         const ack = await rpcCall();
         if (ack && ack.success === false) {
-          const ackError = (ack as { readonly error?: unknown }).error;
           const errorMessage =
-            typeof ackError === 'string' && ackError.length > 0
-              ? ackError
+            ack.error && ack.error.length > 0
+              ? ack.error
               : 'rpc rejected chat turn (success=false)';
           settle({
             success: false,

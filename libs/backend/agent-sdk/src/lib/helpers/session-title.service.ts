@@ -1,6 +1,4 @@
 import { inject, injectable } from 'tsyringe';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '../di/tokens';
 import { SessionMetadataStore } from '../session-metadata-store';
@@ -34,8 +32,6 @@ export class SessionTitleService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -64,12 +60,12 @@ export class SessionTitleService {
         return false;
       }
 
-      // Pin the project directory so the SDK reads the same transcript Ptah's
-      // metadata is keyed on instead of scanning every project. Omitted when
-      // neither is known, which is the SDK's documented "search all" mode.
+      // Pin the session's own project directory so the SDK reads the same
+      // transcript Ptah's metadata is keyed on. Never the active folder, which
+      // may be another project's (PTAH-37). Omitted when the session has none,
+      // which is the SDK's documented "search all" mode.
       const metadata = await this.metadataStore.get(sessionId);
-      const dir =
-        metadata?.workspaceId ?? this.workspaceProvider.getWorkspaceRoot();
+      const dir = metadata?.workspaceId?.trim() || undefined;
 
       await rename(sessionId, title, dir ? { dir } : undefined);
       this.logger.info('[SessionTitleService] Session title updated', {

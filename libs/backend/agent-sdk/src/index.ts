@@ -54,6 +54,13 @@ export {
   SESSION_METADATA_MIGRATION,
   SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from './lib/session-metadata-store';
+export {
+  LegacySessionStoreMigrator,
+  openReadOnlyJsonStateFile,
+  type LegacySessionKeyMapping,
+  type LegacySessionMigrationResult,
+  type LegacySessionSource,
+} from './lib/session-store-migrator';
 export type {
   SessionMetadata,
   PersistedAgentOutput,
@@ -316,6 +323,10 @@ export type {
   SetCustomProviderEntriesResult,
 } from '@ptah-extension/shared';
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
+export {
+  resolveCodexNativeBinaryPath,
+  withAsarUnpackedTwin,
+} from './lib/detector/codex-native-binary-path';
 export {
   assembleSystemPrompt,
   buildModelIdentityPrompt,

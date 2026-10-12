@@ -64,6 +64,7 @@ interface SdkSessionMetadataStoreLike {
       segments?: readonly CliOutputSegment[];
       streamEvents?: readonly FlatStreamEventUnion[];
     },
+    sessionId?: string,
   ): Promise<void>;
 }
 
@@ -456,15 +457,21 @@ export function persistCliSessionReference(
         persistedOutput &&
         metadataStore.saveAgentOutput
       ) {
-        await metadataStore.saveAgentOutput(info.agentId, {
-          ...(persistedOutput.stdout ? { stdout: persistedOutput.stdout } : {}),
-          ...(persistedOutput.segments?.length
-            ? { segments: persistedOutput.segments }
-            : {}),
-          ...(persistedOutput.streamEvents?.length
-            ? { streamEvents: persistedOutput.streamEvents }
-            : {}),
-        });
+        await metadataStore.saveAgentOutput(
+          info.agentId,
+          {
+            ...(persistedOutput.stdout
+              ? { stdout: persistedOutput.stdout }
+              : {}),
+            ...(persistedOutput.segments?.length
+              ? { segments: persistedOutput.segments }
+              : {}),
+            ...(persistedOutput.streamEvents?.length
+              ? { streamEvents: persistedOutput.streamEvents }
+              : {}),
+          },
+          parentSessionId,
+        );
       }
       await metadataStore.addCliSession(parentSessionId, ref);
     };

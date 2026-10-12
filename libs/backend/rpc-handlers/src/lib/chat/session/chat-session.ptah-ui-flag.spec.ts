@@ -80,6 +80,7 @@ function makeHarness(): Harness {
       readForResume: jest
         .fn()
         .mockResolvedValue({ events: [], resolvedWorkspacePath: WORKSPACE }),
+      resolveSessionFolder: jest.fn().mockResolvedValue(WORKSPACE),
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
@@ -148,10 +149,7 @@ function makeHarness(): Harness {
 
 function flagParams<
   T extends ChatStartParams | ChatContinueParams | ChatResumeParams,
->(
-  params: T,
-  ptahUiFence: boolean | undefined,
-): T {
+>(params: T, ptahUiFence: boolean | undefined): T {
   return ptahUiFence === undefined ? params : { ...params, ptahUiFence };
 }
 

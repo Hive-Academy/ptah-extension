@@ -331,6 +331,15 @@ export class WorkspaceAwareStateStorage
   }
 
   /**
+   * The store used while no workspace is active. Exposed so a one-time copy
+   * of its contents can read it through this live instance instead of opening
+   * a second one on the same folder.
+   */
+  getDefaultStorage(): IStateStorage {
+    return this.defaultStorage;
+  }
+
+  /**
    * Resolve the active storage delegate.
    * Returns the active workspace's storage if set, otherwise the default.
    */

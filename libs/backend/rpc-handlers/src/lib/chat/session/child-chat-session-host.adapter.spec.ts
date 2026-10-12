@@ -115,6 +115,16 @@ describe('ChildChatSessionHostAdapter', () => {
     expect(chatErrorCalls(h)).toHaveLength(0);
   });
 
+  it('uses the captured parent level when its lifecycle record is gone', async () => {
+    const h = makeHarness();
+
+    await h.adapter.startChildSession({ ...input, permissionLevel: 'yolo' });
+
+    expect(h.startAgentChildSession).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionLevel: 'yolo' }),
+    );
+  });
+
   it('still starts when the announcement fails, reporting uiAnnounced: false', async () => {
     const h = makeHarness();
     h.broadcastMessage.mockRejectedValueOnce(new Error('no webview'));

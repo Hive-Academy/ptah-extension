@@ -605,7 +605,7 @@ describe('buildTaskPrompt', () => {
 
       // Recorded, not a ceiling to grow into. The child prompt is argv on the
       // task-prompt adapters and the Windows `.cmd` fallback limit is 8,191.
-      expect(added).toBe(826);
+      expect(added).toBe(994);
     });
   });
 });

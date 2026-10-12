@@ -160,7 +160,9 @@ function makeHarness(resolve: jest.Mock): Harness {
         .fn()
         .mockResolvedValue({ registered: true }),
     } as never,
-    {} as never,
+    {
+      resolveSessionFolder: jest.fn().mockResolvedValue(OPEN_FOLDER),
+    } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),

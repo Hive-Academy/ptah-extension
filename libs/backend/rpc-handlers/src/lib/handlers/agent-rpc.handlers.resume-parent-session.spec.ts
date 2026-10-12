@@ -76,7 +76,17 @@ import { AgentRpcHandlers } from './agent-rpc.handlers';
 const mockReaddir = fs.readdir as unknown as jest.Mock;
 const mockAccess = fs.access as unknown as jest.Mock;
 
+/** The active folder. A resumed agent must never land here. */
 const WORKSPACE = 'D:/ws';
+/** The parent session's own project. */
+const PARENT_PROJECT = '/projects/b';
+const PARENT_SESSION_ID = 'chat-session-uuid';
+const PLATFORM_INFO = {
+  type: 'electron',
+  extensionPath: '/ptah-app',
+  globalStoragePath: '/ptah-storage',
+  workspaceStoragePath: '/ptah-workspace-storage',
+};
 const PTAH_CLI_ID = 'pc-agent-1';
 const CLI_SESSION_ID = 'cli-session-uuid';
 
@@ -90,7 +100,8 @@ interface Harness {
     reserveAgentId: jest.Mock;
     prepareSdkHandleSpawn: jest.Mock;
   };
-  metadataStore: { createChild: jest.Mock };
+  metadataStore: { createChild: jest.Mock; get: jest.Mock };
+  fileSystem: { exists: jest.Mock };
 }
 
 function makeHarness(): Harness {
@@ -123,6 +134,7 @@ function makeHarness(): Harness {
 
   const workspace = {
     getWorkspaceRoot: jest.fn().mockReturnValue(WORKSPACE),
+    getWorkspaceFolders: jest.fn().mockReturnValue([WORKSPACE, PARENT_PROJECT]),
     // getAgentCfg falls back to the supplied default.
     getConfiguration: jest.fn((_s: string, _k: string, d: unknown) => d),
   };
@@ -136,7 +148,15 @@ function makeHarness(): Harness {
   };
 
   const cliDetection = { getAdapter: jest.fn().mockReturnValue(undefined) };
-  const metadataStore = { createChild: jest.fn().mockResolvedValue(undefined) };
+  const metadataStore = {
+    createChild: jest.fn().mockResolvedValue(undefined),
+    get: jest.fn(async (id: string) =>
+      id === PARENT_SESSION_ID
+        ? { sessionId: id, workspaceId: PARENT_PROJECT, name: 'Parent' }
+        : null,
+    ),
+  };
+  const fileSystem = { exists: jest.fn().mockResolvedValue(true) };
 
   const handlers = new AgentRpcHandlers(
     createMockLogger() as unknown as Logger,
@@ -155,10 +175,19 @@ function makeHarness(): Harness {
     {
       hasProviderKey: jest.fn().mockResolvedValue(false),
     } as unknown as IAuthSecretsService,
+    fileSystem as never,
+    PLATFORM_INFO as never,
   );
   handlers.register();
 
-  return { handlers, rpcHandler, registry, processManager, metadataStore };
+  return {
+    handlers,
+    rpcHandler,
+    registry,
+    processManager,
+    metadataStore,
+    fileSystem,
+  };
 }
 
 type ResumeResult = { success: boolean; error?: string };
@@ -265,7 +294,7 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
 
     expect(h.metadataStore.createChild).toHaveBeenCalledWith(
       'resolved-cli-session',
-      WORKSPACE,
+      PARENT_PROJECT,
       'Test CLI Agent',
     );
   });
@@ -296,6 +325,65 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
     expect(
       h.registry.spawnAgent.mock.calls[0][2].parentSessionId,
     ).toBeUndefined();
+  });
+});
+
+describe("AgentRpcHandlers — agent:resumeCliSession runs in the parent session's folder (PTAH-37)", () => {
+  it('resumes a Ptah CLI agent in the parent project, not the active folder', async () => {
+    const h = makeHarness();
+
+    const result = await resume(h, PARENT_SESSION_ID);
+
+    expect(result.success).toBe(true);
+    expect(h.registry.spawnAgent.mock.calls[0][2].workingDirectory).toBe(
+      PARENT_PROJECT,
+    );
+  });
+
+  it('resumes any other CLI in the parent project too', async () => {
+    const h = makeHarness();
+
+    const result = await resumeRaw(h, {
+      cliSessionId: CLI_SESSION_ID,
+      cli: 'codex',
+      task: 'continue the work',
+      parentSessionId: PARENT_SESSION_ID,
+    });
+
+    expect(result.success).toBe(true);
+    expect(h.processManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ workingDirectory: PARENT_PROJECT }),
+    );
+  });
+
+  it('refuses when the parent session is unknown', async () => {
+    const h = makeHarness();
+
+    const result = await resume(h, 'unknown-parent');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Session not found');
+    expect(h.registry.spawnAgent).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the parent's folder is gone", async () => {
+    const h = makeHarness();
+    h.fileSystem.exists.mockResolvedValue(false);
+
+    const result = await resume(h, PARENT_SESSION_ID);
+
+    expect(result.success).toBe(false);
+    expect(h.registry.spawnAgent).not.toHaveBeenCalled();
+  });
+
+  it('keeps the host default when there is no parent session', async () => {
+    const h = makeHarness();
+
+    await resume(h);
+
+    expect(h.registry.spawnAgent.mock.calls[0][2].workingDirectory).toBe(
+      WORKSPACE,
+    );
   });
 });
 
@@ -650,9 +738,9 @@ describe('agent:resumeCliSession — no filesystem gate (TASK_2026_396)', () => 
     });
 
     expect(result.success).toBe(true);
-    expect(
-      h.registry.spawnAgent.mock.calls[0][2].resumeSessionId,
-    ).toBe(CLI_SESSION_ID);
+    expect(h.registry.spawnAgent.mock.calls[0][2].resumeSessionId).toBe(
+      CLI_SESSION_ID,
+    );
     expect(
       h.processManager.spawnFromSdkHandle.mock.calls[0][1].resumeSessionId,
     ).toBe(CLI_SESSION_ID);
@@ -710,14 +798,7 @@ describe('agent:resumeCliSession — no filesystem gate (TASK_2026_396)', () => 
   // `libs/shared/src/lib/types/agent-process.types.ts:62-69`; written here as a
   // literal (not imported) to match the surrounding file's style and avoid a
   // heavy barrel pull.
-  it.each([
-    'codex',
-    'copilot',
-    'cursor',
-    'antigravity',
-    'opencode',
-    'pi',
-  ])(
+  it.each(['codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi'])(
     'passes cliSessionId through as resumeSessionId for cli %s without touching the filesystem',
     async (cli: string) => {
       const h = makeHarness();

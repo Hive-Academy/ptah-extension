@@ -1006,8 +1006,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     workspacePath: string | undefined,
   ): Promise<RunPreparation> {
-    const root = (): string | null => {
-      const found = workspacePath || this.workspaceProvider.getWorkspaceRoot();
+    // The caller's folder, else the session's own project. Never the active
+    // folder: it may be another project's, whose transcript this is not
+    // (PTAH-37).
+    const root = async (): Promise<string | null> => {
+      const found =
+        workspacePath ||
+        (await this.metadataStore.get(sessionId))?.workspaceId?.trim();
       if (!found) {
         this.logger.warn(
           '[SdkAgentAdapter] No workspace to read session history from — session stats will report partial coverage',
@@ -1018,13 +1023,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     };
     return this.statsOwner.prepareRun(sessionId as string, {
       loadPrefix: async (): Promise<SessionStatsPrefix | null> => {
-        const dir = root();
+        const dir = await root();
         return dir
           ? this.historyReader.readSessionUsagePrefix(sessionId as string, dir)
           : null;
       },
       loadSavedCostState: async () => {
-        const dir = root();
+        const dir = await root();
         return dir
           ? this.historyReader.readLastSavedCostState(sessionId as string, dir)
           : null;
