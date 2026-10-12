@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 19/20
+Total tasks: 42 | Batches: 20 (Batch 0 to Batch 17, plus fix Batches 5F and 6F) | Complete: 20/20
 
 Phase 4 (Batches 9-17, the user-authorized handover addendum, D22-D25) was added after the Phase 1-3
 completion below; see "Phase 4" at the end of this file.
@@ -1514,7 +1514,7 @@ other rows stay as recorded.
      `session-handover-coordinator.service.ts:173-179, 367`), so the button is a no-op there, not a
      behaviour break. Flagged for the Phase 4 code-logic review (hide it outside `writing-handoff`).
 
-## Batch 17: Chat view — banner while streaming, bindings, draft effect (F2-part) — PENDING
+## Batch 17: Chat view — banner while streaming, bindings, draft effect (F2-part) — COMPLETE (0c0ba7c0a)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
@@ -1523,7 +1523,7 @@ other rows stay as recorded.
 - Tasks: 1 | Depends on: Batches 15 and 16
 - Phase: 4 (last batch) | Phase review: as Batch 9
 
-### Task 17.1: Visibility, bindings and the draft effect — PENDING
+### Task 17.1: Visibility, bindings and the draft effect — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts`,
   `chat-view.component.html`, `chat-view.component.spec.ts`
@@ -1548,6 +1548,37 @@ other rows stay as recorded.
   (mapper if needed); then `npx nx typecheck @ptah-extension/chat --parallel=1`; then
   `npx nx lint @ptah-extension/chat --parallel=1`.
 - Final grep G1 over `libs` with no exception.
+
+### Batch 17 result
+
+- Commit: 0c0ba7c0a (chat-view .ts/.html/.spec.ts, batch-17-report.md).
+- Team-leader checks (each under `.ptah/tmp-check-lock`, `--skip-nx-cache`): chat-view spec 1 suite,
+  87/87 passed; `nx typecheck @ptah-extension/chat` succeeded (one existing NG8107 warning in
+  `peer-session-send-dialog.component.ts`); `nx lint @ptah-extension/chat` 0 errors, 34 warnings
+  (unchanged from the Batch 16 baseline).
+- G1 over `libs` (non-spec): `coordinator.begin(` only at
+  `libs/backend/rpc-handlers/src/lib/handlers/session-handover-rpc.handlers.ts:99`; other `.begin(`
+  hits are unrelated (turn tracker, read timing, connection recorder, git-ui conflict banner). PASS.
+- Pitfalls verified on disk: the view starts no handover outside a banner output (D17 intact; the
+  new visibility only renders the banner); the draft goes only through `restoreDraftToInput`
+  (`applyHandoverDraft`), never `restoreContentToInput`/`restoreInputs`/send/queue; the effect
+  returns with no composer and skips `acknowledgeDraft` on a throw; `peekDraft` returns only for
+  `cancelled`/`failed` (R3); wrap-up is gated by the service's `wrapUpKey` (turn running and stage
+  ≥ handoff), so no notice while idle.
+- Deviation verdicts:
+  1. `console.warn('[ChatView] …')` instead of a Logger — ACCEPTED. The chat lib has no Logger
+     service; the view and `SessionHandoverClientService` already log this way.
+  2. "Waits for terminal turn_state" case rewritten to a `tighten` budget — ACCEPTED. Decision 7
+     makes an authoritative `limit` show while streaming; the case still pins the wait for stages
+     below handoff, so it is a re-target, not a loosening.
+  3. S20 replaces `chatInputRef` with a writable signal — ACCEPTED. The test template mounts no real
+     `ChatInputComponent` (`NO_ERRORS_SCHEMA`); the real composer write is covered in
+     `chat-input.component.spec.ts` (Batch 16).
+  4. Local `ENDED_HANDOVER_PHASES` duplicate — ACCEPTED, MINOR. The service's set is private and
+     outside this batch; the two three-element sets match. Recorded for the Phase 4 style review
+     (export one shared set) — not fixed here.
+  5. Spec type annotation changed after the executor's last lint — RESOLVED. The team-leader lint
+     run above covers the final file: 0 errors.
 
 ## Phase 4 review (after Batch 17 commits)
 
