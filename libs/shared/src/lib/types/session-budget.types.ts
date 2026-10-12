@@ -37,16 +37,13 @@ export type SessionBudgetMeasure =
  * - `already-lower`: the runtime threshold is already at or below the target.
  * - `not-honoured`: the read-back showed the runtime ignored the window.
  * - `failed`: the apply or the read-back threw or timed out.
- * - `restore-failed`: putting the configured window back failed; the lowered
- *   window is still in force (`applied: true`).
  */
 export type SessionBudgetWindowReason =
   | 'disabled'
   | 'env-override'
   | 'already-lower'
   | 'not-honoured'
-  | 'failed'
-  | 'restore-failed';
+  | 'failed';
 
 /** The per-session auto-compact window override entered at `tighten`. */
 export interface SessionBudgetWindow {
@@ -54,39 +51,8 @@ export interface SessionBudgetWindow {
   readonly target: number;
   /** True when the window is in force in the runtime. */
   readonly applied: boolean;
-  /**
-   * Present when `applied` is false, and with `applied: true` only as
-   * `restore-failed` (the lowered window could not be put back).
-   */
+  /** Present when `applied` is false. */
   readonly reason?: SessionBudgetWindowReason;
-}
-
-/**
- * Why a handoff was built without the session transcript.
- * - `workspace-unknown`: the session's workspace is not known, so no
- *   transcript could be located.
- * - `read-failed`: the transcript could not be read.
- */
-export type SessionBudgetHandoffReadStatus =
-  'workspace-unknown' | 'read-failed';
-
-/** The latest deterministic handoff written for the session. */
-export interface SessionBudgetHandoff {
-  /** Absolute file path under `~/.ptah/handoffs/`; `null` when the write failed. */
-  readonly path: string | null;
-  /** Length of the handoff text in characters. */
-  readonly chars: number;
-  /** True when a section cap cut content. */
-  readonly truncated: boolean;
-  /** Epoch milliseconds of the build. */
-  readonly writtenAt: number;
-  /** Write failure message; the content is still kept in memory. */
-  readonly writeError?: string;
-  /**
-   * Present when the transcript was not read; the handoff then carries no
-   * transcript content and may be incomplete. Absent when the read succeeded.
-   */
-  readonly readStatus?: SessionBudgetHandoffReadStatus;
 }
 
 /**
@@ -114,7 +80,7 @@ export interface SessionBudgetState {
   readonly measure: SessionBudgetMeasure;
   /** Measured amount in the measure's unit; `null` when no figure exists. */
   readonly used: number | null;
-  /** Effective limit in the measure's unit, extensions included. */
+  /** Configured limit in the measure's unit. */
   readonly limit: number;
   /** `used / limit × 100`; `null` when `used` is `null`. */
   readonly percent: number | null;
@@ -124,16 +90,7 @@ export interface SessionBudgetState {
   readonly revision: number | null;
   /** Main-loop compactions seen since the session (or the process) started. */
   readonly compactions: number;
-  /** Times the user allowed 20% more at the limit. */
-  readonly extensions: number;
   readonly window?: SessionBudgetWindow;
-  readonly handoff?: SessionBudgetHandoff;
-  /** Active transfer operation. The UI waits for terminal idle before display. */
-  readonly handover?: import('./session-handover.types').SessionHandoverState;
-  /** True when sends are refused (`limit` with `blockAtLimit`). */
-  readonly blocked: boolean;
-  /** The stage whose banner the user dismissed; it reappears on a higher stage. */
-  readonly dismissedStage?: SessionBudgetStage;
   /** Present while the session-rotation advisory is in force. */
   readonly rotation?: SessionBudgetRotation;
 }
@@ -156,8 +113,6 @@ export interface SessionBudgetConfig {
   readonly handoffAfterCompactions: number;
   /** Auto-compact window applied at `tighten`; `null` = advisory only. */
   readonly tightenWindowTokens: number | null;
-  /** Refuse sends at `limit` until the user acts. */
-  readonly blockAtLimit: boolean;
 }
 
 /** A numeric setting; `integer` settings reject fractions. */
@@ -266,11 +221,6 @@ export const SESSION_BUDGET_SETTINGS = {
     nullable: true,
     default: null,
   },
-  blockAtLimit: {
-    key: 'sessionBudget.blockAtLimit',
-    kind: 'boolean',
-    default: true,
-  },
 } as const satisfies {
   readonly [
     K in keyof SessionBudgetConfig
@@ -290,55 +240,4 @@ export function isSessionBudgetPercentOrderValid(
   handoffPercent: number,
 ): boolean {
   return tightenPercent < handoffPercent;
-}
-
-/**
- * User actions on a session's budget (banner buttons).
- *
- * `request-wrap-up` asks the running turn to wrap up (the user will continue
- * in a new session). It is only ever sent on this explicit user request.
- */
-export type SessionBudgetAction =
-  | 'dismiss'
-  | 'extend'
-  | 'restore-window'
-  | 'write-handoff'
-  | 'preview-handoff'
-  | 'request-wrap-up';
-
-export interface SessionBudgetActionParams {
-  readonly sessionId: string;
-  readonly action: SessionBudgetAction;
-}
-
-/**
- * Machine-readable reason for an unsuccessful budget action.
- *
- * `WRAP_UP_UNAVAILABLE`: `request-wrap-up` was refused because the session has
- * no budget entry, is not at the handoff or limit stage, has no turn running,
- * or the host cannot deliver the notice.
- */
-export type SessionBudgetActionErrorCode =
-  'NO_SESSION_BUDGET_STATE' | 'WRAP_UP_UNAVAILABLE';
-
-export interface SessionBudgetActionResult {
-  readonly success: boolean;
-  /** The session's state after the action. */
-  readonly state?: SessionBudgetState;
-  /** Present for `write-handoff` and `preview-handoff`. */
-  readonly handoff?: {
-    /** The handoff document text. */
-    readonly content: string;
-    /** Written file path; `null` when only the in-memory copy exists. */
-    readonly path: string | null;
-    /**
-     * The backend-built first prompt for "Continue in new session" (at most
-     * 14,200 characters). The webview sends it as-is and never assembles it.
-     */
-    readonly seed: string;
-  };
-  /** Failure text; `'unavailable'` when the host has no budget service. */
-  readonly error?: string;
-  /** Machine-readable failure reason, when one is available. */
-  readonly errorCode?: SessionBudgetActionErrorCode;
 }

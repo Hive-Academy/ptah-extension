@@ -5,13 +5,15 @@ type: RESEARCH
 title: >-
   Measure the memory retention batch timings on the Electron better-sqlite3 binding
 description: >-
-  Closes assumption A2 and risk R7 of TASK_2026_443_40ec. Every phase 2 timing
-  number comes from node:sqlite, because the repository better-sqlite3 binary is
-  built for the Electron ABI. The delete batch size was lowered from 200 to 100
-  on those numbers, so the shipped binding is still unmeasured in the field.
-depends_on: [TASK_2026_443_40ec]
+  Closes assumption A2 and risk R7 of TASK_2026_443_40ec. Every phase 2 timing number comes from node:sqlite, because the repository better-sqlite3 binary is built for the Electron ABI. The delete batch size was lowered from 200 to 100 on those numbers, so the shipped binding is still unmeasured in the field.
+depends_on: []
 created: 2026-09-16T01:00:00.000Z
-updated: 2026-09-16T01:00:00.000Z
+updated: '2026-10-12T19:41:51.738Z'
+parent: TASK_2026_635_5ea5
+labels:
+  - P3
+relates_to:
+  - TASK_2026_481_7b0f
 ---
 
 ## Description

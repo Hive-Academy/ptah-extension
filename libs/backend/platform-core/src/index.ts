@@ -123,6 +123,15 @@ export type {
 } from './interfaces/memory-writer.interface';
 export type { ISessionOrganizationRecorder } from './interfaces/session-organization-recorder.interface';
 export type {
+  ISessionBlobStore,
+  ISessionRecordRepository,
+  ISessionStoreGate,
+  SessionRecord,
+  SessionRecordHost,
+  SessionRecordInput,
+  SessionRecordListOptions,
+} from './interfaces/session-record-repository.interface';
+export type {
   IHttpServerProvider,
   IHttpServerHandle,
   HttpServerRequestHandler,

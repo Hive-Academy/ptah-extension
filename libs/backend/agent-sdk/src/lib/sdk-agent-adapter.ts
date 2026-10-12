@@ -40,7 +40,6 @@ import { AuthRequiredError } from './errors';
 import { getActiveProviderId } from './helpers';
 import { SessionMetadataStore } from './session-metadata-store';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
-import type { QueuedSessionInput } from './helpers/session-handoff/session-handover-coordinator.service';
 import type {
   OwnerLease,
   RunPreparation,
@@ -272,7 +271,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
       | 'recordCompaction'
       | 'release'
       | 'clearAll'
-      | 'canSend'
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
@@ -1008,8 +1006,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     workspacePath: string | undefined,
   ): Promise<RunPreparation> {
-    const root = (): string | null => {
-      const found = workspacePath || this.workspaceProvider.getWorkspaceRoot();
+    // The caller's folder, else the session's own project. Never the active
+    // folder: it may be another project's, whose transcript this is not
+    // (PTAH-37).
+    const root = async (): Promise<string | null> => {
+      const found =
+        workspacePath ||
+        (await this.metadataStore.get(sessionId))?.workspaceId?.trim();
       if (!found) {
         this.logger.warn(
           '[SdkAgentAdapter] No workspace to read session history from — session stats will report partial coverage',
@@ -1020,13 +1023,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     };
     return this.statsOwner.prepareRun(sessionId as string, {
       loadPrefix: async (): Promise<SessionStatsPrefix | null> => {
-        const dir = root();
+        const dir = await root();
         return dir
           ? this.historyReader.readSessionUsagePrefix(sessionId as string, dir)
           : null;
       },
       loadSavedCostState: async () => {
-        const dir = root();
+        const dir = await root();
         return dir
           ? this.historyReader.readLastSavedCostState(sessionId as string, dir)
           : null;
@@ -1487,13 +1490,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
   }
 
-  async enqueueTransferInputs(
-    sessionId: SessionId,
-    inputs: readonly QueuedSessionInput[],
-  ): Promise<void> {
-    return this.sessionLifecycle.enqueueTransferInputs(sessionId, inputs);
-  }
-
   async executeSlashCommand(
     sessionId: SessionId,
     command: string,
@@ -1610,8 +1606,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * Stop (`chat:abort`), `/clear` and the dead-record cleanups before a resume
    * or slash command. The record is torn down but the conversation goes on
    * under the same SDK id, so the session budget is NOT released here: its
-   * stage, blocked state, extensions ("Allow 20% more"), compactions and
-   * dismissals must survive a Stop. Only a real end releases it (`endSession`,
+   * stage and compactions must survive a Stop. Only a real end releases it (`endSession`,
    * a token-matched stream-exit end, dispose).
    */
   async interruptSession(sessionId: SessionId): Promise<void> {
@@ -1821,19 +1816,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
         // `null` is the explicit no-state marker.
         inner(budget === undefined ? stats : { ...stats, budget });
       }
-      // R2: the result lands after the turn terminal, so a blocking limit it
-      // made authoritative parks the limit handover here (the user's click
-      // starts it). Nothing else is armed after a result.
-      if (budget?.blocked === true) {
-        try {
-          this.sessionLifecycle.parkLimitHandoverIfIdle(sessionId);
-        } catch (error: unknown) {
-          this.logger.warn(
-            `[SdkAgentAdapter] Could not park the budget limit handover for ${sessionId}`,
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        }
-      }
     };
   }
 
@@ -1842,9 +1824,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * (`observeLive`, never `observe`), then the host callback with that stage
    * as `liveBudgetStage`: omitted when the budget reports no change
    * (`undefined`), set for `null` (clear) or a stage. Installed even without a
-   * host callback so every host feeds the budget. The live stage never arms
-   * or starts a handover (D17, D22); a budget throw is WARNed once, omits the
-   * field and never withholds the payload from the host.
+   * host callback so every host feeds the budget. A budget throw is WARNed
+   * once, omits the field and never withholds the payload from the host.
    */
   private wrapLiveStatsForBudget(
     inner: LiveStatsCallback | undefined,

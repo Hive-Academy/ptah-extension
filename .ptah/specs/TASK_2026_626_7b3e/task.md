@@ -1,15 +1,16 @@
 ---
 id: TASK_2026_626_7b3e
-status: in_review
+status: done
 type: BUGFIX
 title: Show live session stats while a turn runs
 description: >-
-  The session stats header stays empty until the SDK result message ends the turn, so long
-  orchestration turns with subagents show no tokens or cost. Publish provisional stats during the
-  turn on a throttled session:stats-live channel; SESSION_STATS stays the completion signal.
+  The session stats header stays empty until the SDK result message ends the
+  turn, so long orchestration turns with subagents show no tokens or cost.
+  Publish provisional stats during the turn on a throttled session:stats-live
+  channel; SESSION_STATS stays the completion signal.
 depends_on: []
 created: 2026-10-11T00:00:00.000Z
-updated: 2026-10-11T00:00:00.000Z
+updated: '2026-10-12T18:26:17.216Z'
 ---
 
 ## Description

@@ -54,6 +54,13 @@ export {
   SESSION_METADATA_MIGRATION,
   SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from './lib/session-metadata-store';
+export {
+  LegacySessionStoreMigrator,
+  openReadOnlyJsonStateFile,
+  type LegacySessionKeyMapping,
+  type LegacySessionMigrationResult,
+  type LegacySessionSource,
+} from './lib/session-store-migrator';
 export type {
   SessionMetadata,
   PersistedAgentOutput,
@@ -77,9 +84,8 @@ export type {
 } from './lib/session-stats';
 
 // Session budget (TASK_2026_597 N7): resolved by rpc-handlers through
-// `SDK_TOKENS.SDK_SESSION_BUDGET` for the send gate and the banner actions.
+// `SDK_TOKENS.SDK_SESSION_BUDGET` to publish the advisory state on load.
 export { SessionBudgetService } from './lib/helpers/session-budget/session-budget.service';
-export type { SessionBudgetSendCheck } from './lib/helpers/session-budget/session-budget.service';
 
 export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter';
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
@@ -318,6 +324,10 @@ export type {
 } from '@ptah-extension/shared';
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 export {
+  resolveCodexNativeBinaryPath,
+  withAsarUnpackedTwin,
+} from './lib/detector/codex-native-binary-path';
+export {
   assembleSystemPrompt,
   buildModelIdentityPrompt,
   // The one builder of the output-style FLAG tier. Exported so the CLI-agent
@@ -352,11 +362,6 @@ export {
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
 export { SettingsExportService } from './lib/settings-export.service';
-export {
-  SessionHandoverCoordinator,
-  type QueuedSessionInput,
-  type SessionQueueItem,
-} from './lib/helpers/session-handoff/session-handover-coordinator.service';
 export { SettingsImportService } from './lib/settings-import.service';
 export type { SettingsImportOptions } from './lib/settings-import.service';
 export {

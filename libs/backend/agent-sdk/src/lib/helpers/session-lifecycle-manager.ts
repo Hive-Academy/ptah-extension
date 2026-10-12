@@ -64,11 +64,6 @@ import {
 } from './session-lifecycle/session-query-executor.service';
 import type { IContextUsagePort } from './compaction/context-usage.port';
 import { SessionControl } from './session-lifecycle/session-control.service';
-import {
-  isInProgress,
-  SessionHandoverCoordinator,
-  type QueuedSessionInput,
-} from './session-handoff/session-handover-coordinator.service';
 import { SessionBudgetService } from './session-budget/session-budget.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
@@ -418,8 +413,6 @@ export class SessionLifecycleManager {
     private readonly contextUsagePort: IContextUsagePort | null = null,
     @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { isOptional: true })
     private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
-    @inject(SessionHandoverCoordinator, { isOptional: true })
-    private readonly handoverCoordinator: SessionHandoverCoordinator | null = null,
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
     private readonly sessionBudget: SessionBudgetService | null = null,
   ) {
@@ -428,7 +421,6 @@ export class SessionLifecycleManager {
       this.logger,
       this._registry,
       this.messageFactory,
-      this.handoverCoordinator,
     );
     this._queryExecutor = new SessionQueryExecutor(
       this.logger,
@@ -456,154 +448,20 @@ export class SessionLifecycleManager {
       this.sessionEndRegistry,
       compactionProvider ? () => compactionProvider.getConfig() : null,
       (sessionId) => this.onTurnTerminal(sessionId),
-      (sessionId) =>
-        !this.handoverCoordinator?.admitInterrupt(this.handoverKey(sessionId))
-          .held,
     );
-    this.handoverCoordinator?.attachRuntime({
-      sourceSnapshot: (sourceSessionId) => {
-        const rec = this._registry.find(sourceSessionId);
-        const workspacePath = rec?.config.projectPath;
-        if (!rec || !workspacePath) return undefined;
-        return {
-          sessionId: rec.realSessionId ?? sourceSessionId,
-          tabId: rec.tabId,
-          token: rec.token,
-          workspacePath,
-          successorConfig: {
-            model: rec.currentModel,
-            effort: rec.config.effort,
-            permissionLevel: rec.permissionLevel,
-            workspacePath: rec.config.workspaceId ?? workspacePath,
-          },
-          resourceLease: {
-            worktreePath: workspacePath,
-            inheritedParentIds: [],
-          },
-        };
-      },
-      queueOwnedHandoff: (sourceSessionId, prompt) =>
-        this._streamPump.enqueueOwnedHandoff(
-          sourceSessionId as SessionId,
-          prompt,
-        ),
-      restoreInputs: (sourceSessionId, inputs) => {
-        return this._registry.restoreQueuedInputs(sourceSessionId, inputs);
-      },
-      closeIfTokenMatches: (sourceSessionId, token) =>
-        this.endSessionIfTokenMatches(sourceSessionId as SessionId, token),
-      isOwnedHandoffPendingOrRunning: (sourceSessionId, token) => {
-        const rec = this._registry.find(sourceSessionId);
-        return (
-          !!rec &&
-          rec.token === token &&
-          (rec.turnInFlight ||
-            rec.messageQueue.some(
-              (input) => input.admission === 'owned-handoff',
-            ))
-        );
-      },
-      subagentsInFlight: (sourceSessionId) =>
-        this.subagentsInFlight(sourceSessionId),
-    });
     this._registry.startEvictionSweep();
     this.watchCompactionThreshold();
   }
 
   /**
-   * At a turn's end, before waking a held source queue: park the blocking
-   * limit, or advance a handover the user confirmed. Arms nothing on a stage.
+   * At a turn's end, before waking a held queue: the turn's budget estimate
+   * must not outlive the turn, nor may its pending notices reach the next one.
    */
-  onTurnTerminal(
-    sessionId: SessionId,
-    atBlockingLimit: boolean = this.isAtBlockingLimit(sessionId),
-  ): void {
+  onTurnTerminal(sessionId: SessionId): void {
     const rec = this._registry.find(sessionId as string);
     const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
-    if (rec && this.handoverCoordinator) {
-      this.handoverCoordinator.armAtTerminal(
-        this.handoverKey(sessionId),
-        atBlockingLimit,
-        rec.messageQueue,
-      );
-    }
-    // After the coordinator: the turn's estimate must not outlive the turn,
-    // nor may its pending notices reach the next one.
     this.sessionBudget?.onTurnTerminal(budgetSessionId);
     this._registry.markTurnEnded(sessionId as string);
-  }
-
-  /**
-   * Park the limit handover for an idle source whose blocking limit became
-   * authoritative only on the turn's result, after its terminal. Same path
-   * as the terminal, so a parked agent request converts here too. A no-op
-   * mid-turn (that turn's terminal parks) or below the blocking limit.
-   */
-  parkLimitHandoverIfIdle(sessionId: SessionId): void {
-    const rec = this._registry.find(sessionId as string);
-    if (!rec || rec.turnInFlight || !this.handoverCoordinator) return;
-    if (!this.isAtBlockingLimit(sessionId)) return;
-    this.handoverCoordinator.armAtTerminal(
-      this.handoverKey(sessionId),
-      true,
-      rec.messageQueue,
-    );
-  }
-
-  /**
-   * Running and background subagents of a source, looked up under both its
-   * SDK id and its tab id (records may carry either) and counted once each.
-   */
-  private subagentsInFlight(sourceSessionId: string): number {
-    const rec = this._registry.find(sourceSessionId);
-    const parentIds = new Set(
-      [sourceSessionId, rec?.realSessionId, rec?.tabId].filter(
-        (id): id is string => !!id,
-      ),
-    );
-    const toolCallIds = new Set<string>();
-    for (const parentId of parentIds) {
-      for (const record of this.subagentRegistry.getRunningBySession(
-        parentId,
-      )) {
-        toolCallIds.add(record.toolCallId);
-      }
-      // Only live (`background`, unexpired) records are returned here.
-      for (const record of this.subagentRegistry.getBackgroundAgents(
-        parentId,
-      )) {
-        toolCallIds.add(record.toolCallId);
-      }
-    }
-    return toolCallIds.size;
-  }
-
-  /** Read the current refusal before an interrupt releases the source turn. */
-  private isAtBlockingLimit(sessionId: SessionId): boolean {
-    const rec = this._registry.find(sessionId as string);
-    const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
-    const check = this.sessionBudget?.canSend(budgetSessionId);
-    return check?.ok === false;
-  }
-
-  /**
-   * Use the SDK session id once it is known. An operation started before the
-   * SDK init message remains under its tab id, so continue addressing that
-   * existing operation instead of creating a second handover.
-   */
-  private handoverKey(sessionId: SessionId): string {
-    const rec = this._registry.find(sessionId as string);
-    if (!rec) return sessionId as string;
-
-    const canonicalId = rec.realSessionId ?? rec.tabId;
-    if (
-      canonicalId !== rec.tabId &&
-      isInProgress(this.handoverCoordinator?.snapshotFor(rec.tabId)) &&
-      !this.handoverCoordinator?.snapshotFor(canonicalId)
-    ) {
-      return rec.tabId;
-    }
-    return canonicalId;
   }
 
   /**
@@ -755,14 +613,6 @@ export class SessionLifecycleManager {
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   async endSession(sessionId: SessionId): Promise<void> {
-    const token = this.getSessionToken(sessionId);
-    if (token) {
-      this.handoverCoordinator?.sourceEnded(
-        this.handoverKey(sessionId),
-        token,
-        'session ended',
-      );
-    }
     await this._control.endSession(sessionId);
   }
 
@@ -782,13 +632,6 @@ export class SessionLifecycleManager {
     sessionId: SessionId,
     token: string,
   ): Promise<boolean> {
-    if (this.getSessionToken(sessionId) === token) {
-      this.handoverCoordinator?.sourceEnded(
-        this.handoverKey(sessionId),
-        token,
-        'session ended',
-      );
-    }
     return this._control.endSessionIfTokenMatches(sessionId, token);
   }
 
@@ -796,13 +639,8 @@ export class SessionLifecycleManager {
    * Cleanup all active sessions.
    * Calls cleanupPendingPermissions to prevent unhandled promise rejections,
    * and marks all running subagents as interrupted for each session.
-   * Each session's pending handover is told its source ended first, exactly
-   * as {@link endSession} does for a single session.
    */
   async disposeAllSessions(): Promise<void> {
-    this.notifyHandoverSourcesEnded(
-      Array.from(this._registry.entries(), ([tabId]) => tabId),
-    );
     return this._control.disposeAllSessions();
   }
 
@@ -811,31 +649,9 @@ export class SessionLifecycleManager {
     return this._control.getSessionIdsForWorkspace(workspacePath);
   }
 
-  /**
-   * End only the sessions of one workspace; other workspaces keep running.
-   * Each session's pending handover is told its source ended first, exactly
-   * as {@link endSession} does for a single session.
-   */
+  /** End only the sessions of one workspace; other workspaces keep running. */
   async disposeSessionsForWorkspace(workspacePath: string): Promise<void> {
-    this.notifyHandoverSourcesEnded(
-      this.getSessionIdsForWorkspace(workspacePath),
-    );
     return this._control.disposeSessionsForWorkspace(workspacePath);
-  }
-
-  /** Tell the handover coordinator each registered session is ending. */
-  private notifyHandoverSourcesEnded(tabIds: readonly string[]): void {
-    for (const id of tabIds) {
-      const sessionId = id as SessionId;
-      const token = this.getSessionToken(sessionId);
-      if (token) {
-        this.handoverCoordinator?.sourceEnded(
-          this.handoverKey(sessionId),
-          token,
-          'session ended',
-        );
-      }
-    }
   }
 
   /**
@@ -895,14 +711,6 @@ export class SessionLifecycleManager {
       images,
       options,
     );
-  }
-
-  /** Transfer a coordinator-held FIFO to a successor in one queue operation. */
-  async enqueueTransferInputs(
-    sessionId: SessionId,
-    inputs: readonly QueuedSessionInput[],
-  ): Promise<void> {
-    return this._streamPump.enqueueTransferInputs(sessionId, inputs);
   }
 
   /**
@@ -989,14 +797,13 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Lower one session's auto-compact window (`window`), or restore it
-   * (`null`), and report whether the runtime honoured it. See
-   * `SessionControl.applySessionAutoCompactWindow`.
+   * Lower one session's auto-compact window to `target` and report whether
+   * the runtime honoured it. See `SessionControl.applySessionAutoCompactWindow`.
    */
   async applySessionAutoCompactWindow(
     sessionId: SessionId,
-    window: number | null,
-  ): Promise<SessionBudgetWindow | undefined> {
-    return this._control.applySessionAutoCompactWindow(sessionId, window);
+    target: number,
+  ): Promise<SessionBudgetWindow> {
+    return this._control.applySessionAutoCompactWindow(sessionId, target);
   }
 }

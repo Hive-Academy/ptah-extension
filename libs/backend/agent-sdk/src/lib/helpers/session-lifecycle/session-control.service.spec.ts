@@ -64,7 +64,6 @@ interface Harness {
 function makeHarness(
   getCompactionConfig: (() => CompactionConfig) | null = null,
   onTurnTerminal: ((sessionId: SessionId) => void) | null = null,
-  mayInterrupt: ((sessionId: SessionId) => boolean) | null = null,
 ): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
@@ -99,7 +98,6 @@ function makeHarness(
     sessionEndRegistry,
     getCompactionConfig,
     onTurnTerminal,
-    mayInterrupt,
   );
 
   return {
@@ -124,18 +122,6 @@ describe('SessionControl.interruptCurrentTurn', () => {
     await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
 
     expect(terminal).toHaveBeenCalledWith(KEY_ID);
-  });
-
-  it('refuses an interrupt once handover owns the source', async () => {
-    const h = makeHarness(null, null, () => false);
-    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
-    const interrupt = jest.fn().mockResolvedValue(undefined);
-    rec.query = {
-      interrupt,
-    } as unknown as typeof rec.query;
-
-    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(false);
-    expect(interrupt).not.toHaveBeenCalled();
   });
 });
 
@@ -636,7 +622,7 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
       reason: 'not-honoured',
     });
     // Regression (PR 3 review S-4): the user's compaction.threshold is what
-    // goes back, resolved exactly as restore resolves it.
+    // goes back.
     expect(q.applyFlagSettings.mock.calls.map((c) => c[0])).toEqual([
       { autoCompactWindow: TARGET },
       { autoCompactWindow: 600_000 },
@@ -650,7 +636,7 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
     );
   });
 
-  it('a read-back miss with no configured window sends null back (the runtime decides), as restore does', async () => {
+  it('a read-back miss with no configured window sends null back (the runtime decides)', async () => {
     const h = makeHarness(() => configOf());
     const q = attachQuery(h, { honours: false });
 
@@ -714,14 +700,6 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
       reason: 'failed',
     });
     expect(q.rec.autoCompactOverride).toBe(TARGET);
-
-    // The record and the runtime agree, so restore has something to undo.
-    q.applyFlagSettings.mockClear();
-    await h.control.applySessionAutoCompactWindow(TAB_ID, null);
-    expect(q.applyFlagSettings).toHaveBeenCalledWith({
-      autoCompactWindow: 600_000,
-    });
-    expect(q.rec.autoCompactOverride).toBeNull();
   });
 
   it('a not-honoured put-back that fails keeps the target recorded and is not retried', async () => {
@@ -838,78 +816,6 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
         TARGET,
       ),
     ).resolves.toEqual({ target: TARGET, applied: false, reason: 'failed' });
-  });
-
-  it('restore clears the override and sends the configured window', async () => {
-    const h = makeHarness(() => configOf({ contextTokenThreshold: 600_000 }));
-    const q = attachQuery(h);
-    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
-    q.applyFlagSettings.mockClear();
-
-    const result = await h.control.applySessionAutoCompactWindow(TAB_ID, null);
-
-    expect(result).toBeUndefined();
-    expect(q.applyFlagSettings).toHaveBeenCalledWith({
-      autoCompactWindow: 600_000,
-    });
-    expect(q.rec.autoCompactOverride).toBeNull();
-  });
-
-  it('restore sends null (runtime decides) when no window is configured, never a class default', async () => {
-    const h = makeHarness(() => configOf());
-    const q = attachQuery(h);
-    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
-    q.applyFlagSettings.mockClear();
-
-    await h.control.applySessionAutoCompactWindow(TAB_ID, null);
-
-    expect(q.applyFlagSettings).toHaveBeenCalledWith({
-      autoCompactWindow: null,
-    });
-  });
-
-  it('restore with no override recorded sends nothing', async () => {
-    const h = makeHarness(() => configOf());
-    const q = attachQuery(h);
-
-    await expect(
-      h.control.applySessionAutoCompactWindow(TAB_ID, null),
-    ).resolves.toBeUndefined();
-    expect(q.applyFlagSettings).not.toHaveBeenCalled();
-  });
-
-  it('a failed restore keeps the override and reports restore-failed (the lowered window is still in force)', async () => {
-    const h = makeHarness(() => configOf());
-    const q = attachQuery(h);
-    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
-    q.applyFlagSettings.mockRejectedValueOnce(new Error('control closed'));
-
-    const result = await h.control.applySessionAutoCompactWindow(TAB_ID, null);
-
-    expect(result).toEqual({
-      target: TARGET,
-      applied: true,
-      reason: 'restore-failed',
-    });
-    expect(q.rec.autoCompactOverride).toBe(TARGET);
-  });
-
-  it('a restore with no live query keeps the override and reports restore-failed without sending', async () => {
-    const h = makeHarness(() => configOf());
-    const q = attachQuery(h);
-    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
-    q.applyFlagSettings.mockClear();
-    q.rec.query = null;
-
-    const result = await h.control.applySessionAutoCompactWindow(TAB_ID, null);
-
-    expect(result).toEqual({
-      target: TARGET,
-      applied: true,
-      reason: 'restore-failed',
-    });
-    expect(q.applyFlagSettings).not.toHaveBeenCalled();
-    expect(q.rec.autoCompactOverride).toBe(TARGET);
   });
 
   it('leaves the A1 class defaults null (E2 has not passed)', () => {

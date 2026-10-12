@@ -180,3 +180,7 @@ Install `scip-typescript`, `scip-python` and `scip-go` as global user tools; the
 - The user observed that agents seldom use more than one or two ptah tools despite the prompt rules.
 - A side-by-side test in this session scored native tools 6, ptah 2, equal 1.
 - The user wants fact-based evidence of each important tool's performance, and an intelligent eager/deferred tool split that saves time and context.
+
+## Triage 2026-10-12
+
+Re-scoped to phase 2 only (fix the tools that miss their prompt claims). Phase 1, the benchmark, is covered by TASK_2026_620 (done) and TASK_2026_624. Bench-guided fixes wait for the 624 scored run; an independently reproduced correctness defect can start at once. Parent: TASK_2026_636_0add.

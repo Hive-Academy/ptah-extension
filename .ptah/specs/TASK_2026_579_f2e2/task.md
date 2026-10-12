@@ -5,12 +5,15 @@ type: BUGFIX
 title: 'Fall back to another curator provider when the configured one is rate-limited or unreachable'
 depends_on: []
 created: '2026-09-30T13:53:38.000Z'
-updated: '2026-09-30T13:53:38.000Z'
+updated: '2026-10-12T19:41:51.738Z'
 description: 'The curator resolves one provider. When openai-codex was rate-limited on 2026-09-30, a manual Run now stalled for 202 s and every pass left 23.7K observations unprocessed. Add an ordered fallback list so curation continues on another provider'
 labels:
   - memory-curator
+  - P1
 relates_to:
   - TASK_2026_439_1310
+  - TASK_2026_311
+parent: TASK_2026_635_5ea5
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

@@ -2280,31 +2280,6 @@ export class TabManagerService {
   }
 
   /**
-   * Install the budget state a `SESSION_BUDGET_REACHED` refusal carried, so
-   * the limit banner shows even when no stats broadcast delivered a state for
-   * this session. Dropped when it names another session than the tab is bound
-   * to; it never touches the tab's stats snapshot.
-   */
-  installSessionBudget(tabId: string, budget: SessionBudgetState): void {
-    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    if (!tab || tab.claudeSessionId !== budget.sessionId) return;
-    this.updateTabInternal(tabId, { sessionBudget: budget });
-  }
-
-  /**
-   * Clear a tab's budget, and the live stage that only counts beside it, only
-   * when the tab still belongs to the expected session.
-   */
-  clearSessionBudget(tabId: string, sessionId: string): void {
-    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    if (!tab || tab.claudeSessionId !== sessionId) return;
-    this.updateTabInternal(tabId, {
-      sessionBudget: null,
-      liveBudgetStage: null,
-    });
-  }
-
-  /**
    * Set or clear the display-only live budget stage a `session:stats-live`
    * payload carried. Dropped when it names another session than the tab is
    * bound to, and skipped when the stage is unchanged so a stream of live

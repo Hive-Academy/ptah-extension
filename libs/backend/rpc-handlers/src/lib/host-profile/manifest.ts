@@ -65,8 +65,6 @@ import {
   ProviderRpcHandlers,
   PtahCliRpcHandlers,
   QualityRpcHandlers,
-  SessionBudgetRpcHandlers,
-  SessionHandoverRpcHandlers,
   SessionOrganizationRpcHandlers,
   SessionRpcHandlers,
   SettingsRpcHandlers,
@@ -296,21 +294,6 @@ export const RPC_HANDLER_MANIFEST = [
     methods: SessionOrganizationRpcHandlers.METHODS,
     requires: [],
     handler: SessionOrganizationRpcHandlers,
-  },
-  {
-    // `requires: []` on purpose (TASK_2026_597 N7). The handler injects the
-    // budget service optionally and answers `unavailable` on a host that does
-    // not register it, so every host serves the same method set.
-    key: 'sessionBudget',
-    methods: SessionBudgetRpcHandlers.METHODS,
-    requires: [],
-    handler: SessionBudgetRpcHandlers,
-  },
-  {
-    key: 'sessionHandover',
-    methods: SessionHandoverRpcHandlers.METHODS,
-    requires: [],
-    handler: SessionHandoverRpcHandlers,
   },
   {
     key: 'settings',

@@ -443,11 +443,17 @@ export async function execute(
               tabId,
               command: 'task.submit',
               rpcCall: async () => {
-                const resp = await ctx.transport.call<unknown, unknown>(
-                  rpcMethod,
-                  rpcParams,
-                );
-                return { success: resp.success === true };
+                const resp = await ctx.transport.call<
+                  unknown,
+                  { success?: boolean; error?: string }
+                >(rpcMethod, rpcParams);
+                // The envelope only says the handler ran. A refused turn
+                // (unknown session, budget) is `success: false` in its data
+                // and never emits chat:complete, so it must settle here.
+                if (resp.data?.success === false) {
+                  return { success: false, error: resp.data.error };
+                }
+                return { success: resp.success === true, error: resp.error };
               },
               abortSignal: abortController.signal,
             });

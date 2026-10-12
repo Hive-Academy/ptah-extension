@@ -5,15 +5,13 @@ type: FEATURE
 title: >-
   Report each memory lifecycle preview count on its own
 description: >-
-  Gate 3 minor finding on TASK_2026_443_40ec. readMemoryStorageHealth builds the
-  lifecycle preview all or nothing, so one failed count read makes the whole
-  preview null and the panel says "preview after the first run" even though the
-  other counts were read. Per-field nullability changes the
-  MemoryLifecyclePreviewDto contract and the panel text, so it is a design
-  change rather than a Gate 3 fix.
-depends_on: [TASK_2026_443_40ec]
+  Gate 3 minor finding on TASK_2026_443_40ec. readMemoryStorageHealth builds the lifecycle preview all or nothing, so one failed count read makes the whole preview null and the panel says "preview after the first run" even though the other counts were read. Per-field nullability changes the MemoryLifecyclePreviewDto contract and the panel text, so it is a design change rather than a Gate 3 fix.
+depends_on: []
 created: 2026-09-16T01:10:00.000Z
-updated: 2026-09-16T01:10:00.000Z
+updated: '2026-10-12T19:41:51.738Z'
+parent: TASK_2026_637_e30b
+labels:
+  - P3
 ---
 
 ## Description

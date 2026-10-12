@@ -67,6 +67,7 @@ import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
 import { TurnChangeSetStore } from '../chat/change-set/turn-change-set.store';
 import { resolveResumeWorkingDirectory } from '../chat/session/resume-working-directory';
+import { resolveSessionFolder } from '../chat/session/session-folder';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { SessionMcpStatusRegistry } from '../chat/session/session-mcp-status.registry';
 import type {
@@ -154,6 +155,8 @@ export class SessionRpcHandlers {
     'session:rewindFiles',
     'session:status',
   ] as const satisfies readonly RpcMethodName[];
+
+  private readonly reportedCorruptSessionIds = new Set<string>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -449,13 +452,23 @@ export class SessionRpcHandlers {
             let id: SessionId;
             try {
               id = SessionId.from(s.sessionId);
-            } catch (parseError) {
-              this.logger.error(
-                'RPC: session:list skipping row with corrupt sessionId',
-                parseError instanceof Error
-                  ? parseError
-                  : new Error(String(parseError)),
-              );
+            } catch (parseError: unknown) {
+              // degradation-audit: optional-capability - rows imported from
+              // non-session files before the importer checked ids. Harmless,
+              // so each is reported once, not on every list.
+              if (!this.reportedCorruptSessionIds.has(s.sessionId)) {
+                this.reportedCorruptSessionIds.add(s.sessionId);
+                this.logger.warn(
+                  'RPC: session:list skipping row with an invalid sessionId',
+                  {
+                    sessionId: s.sessionId,
+                    reason:
+                      parseError instanceof Error
+                        ? parseError.message
+                        : String(parseError),
+                  },
+                );
+              }
               return [];
             }
             const livePhase = this.turnState.get(s.sessionId)?.phase;
@@ -1041,7 +1054,7 @@ export class SessionRpcHandlers {
         const cliSessions =
           await this.metadataStore.getCliSessionsForRestore(sessionId);
 
-        this.restoreAgentRecords(cliSessions);
+        await this.restoreAgentRecords(sessionId, cliSessions);
 
         return { cliSessions };
       } catch (error) {
@@ -1080,6 +1093,7 @@ export class SessionRpcHandlers {
           parsed.agentId,
           parsed.cursor,
           parsed.maxBytes,
+          sessionId,
         );
       } catch (error: unknown) {
         this.throwCliOutputPageError(error, parsed.agentId);
@@ -1115,15 +1129,26 @@ export class SessionRpcHandlers {
    * for. The references carry the persisted output; this hands it back.
    *
    * A failure here NEVER costs the caller its cards. The enclosing handler
-   * returns an empty list on any throw, so this keeps its own guard.
+   * returns an empty list on any throw, so this keeps its own guard. A session
+   * whose folder is not open keeps its cards but gets no registry records.
    */
-  private restoreAgentRecords(refs: readonly CliSessionReference[]): void {
+  private async restoreAgentRecords(
+    sessionId: string,
+    refs: readonly CliSessionReference[],
+  ): Promise<void> {
     if (!this.agentProcessManager || refs.length === 0) return;
     try {
-      this.agentProcessManager.restoreAgents(
-        refs,
-        this.workspaceProvider.getWorkspaceRoot() ?? '',
-      );
+      // Filed under the session's own folder, as chat:resume does. The active
+      // folder would put them in another project's agent list (PTAH-37).
+      const folder = await resolveSessionFolder({
+        sessionId,
+        metadataStore: this.metadataStore,
+        workspaceProvider: this.workspaceProvider,
+        fileSystemProvider: this.fileSystemProvider,
+        platformInfo: this.platformInfo,
+        logger: this.logger,
+      });
+      this.agentProcessManager.restoreAgents(refs, folder);
     } catch (error: unknown) {
       this.logger.warn('[RPC] Could not restore agent records', {
         error: error instanceof Error ? error.message : String(error),

@@ -1368,6 +1368,17 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Queue several output deltas and apply them now, in one `_agents` write.
+   * The live message path already coalesces deltas once per animation frame
+   * (Plane PTAH-16), so waiting for another frame here would only add delay.
+   */
+  onAgentOutputBatch(deltas: readonly AgentOutputDelta[]): void {
+    if (deltas.length === 0) return;
+    for (const delta of deltas) this.onAgentOutput(delta);
+    this.flushPendingOutput();
+  }
+
+  /**
    * Apply every queued output delta now, in one `_agents` write. Called by the
    * frame callback and by every other writer before it writes. Public so a
    * caller (or a test) that needs the applied state synchronously can ask for

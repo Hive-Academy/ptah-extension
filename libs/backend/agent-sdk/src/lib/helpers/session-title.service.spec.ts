@@ -9,7 +9,6 @@ const sdkModuleMock = require('@anthropic-ai/claude-agent-sdk') as {
 };
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   createMockLogger,
   type MockLogger,
@@ -23,7 +22,6 @@ const SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001';
 function makeService(
   opts: {
     metadataWorkspaceId?: string | null;
-    workspaceRoot?: string | undefined;
   } = {},
 ): {
   service: SessionTitleService;
@@ -40,18 +38,10 @@ function makeService(
           : { workspaceId: opts.metadataWorkspaceId ?? 'D:/ws/from-metadata' },
       ),
   };
-  const workspaceProvider: Pick<IWorkspaceProvider, 'getWorkspaceRoot'> = {
-    getWorkspaceRoot: jest
-      .fn()
-      .mockReturnValue(
-        'workspaceRoot' in opts ? opts.workspaceRoot : 'D:/ws/from-provider',
-      ),
-  };
 
   const service = new SessionTitleService(
     logger as unknown as Logger,
     metadataStore as unknown as SessionMetadataStore,
-    workspaceProvider as IWorkspaceProvider,
   );
   return { service, logger, metadataStore };
 }
@@ -90,23 +80,8 @@ describe('SessionTitleService.retitle', () => {
     );
   });
 
-  it('falls back to the active workspace root when the session has no metadata', async () => {
+  it('omits `dir` for a session with no metadata, never using the active folder', async () => {
     const { service } = makeService({ metadataWorkspaceId: null });
-
-    await service.retitle(SESSION_ID, 'Title');
-
-    expect(sdkModuleMock.renameSession).toHaveBeenCalledWith(
-      SESSION_ID,
-      'Title',
-      { dir: 'D:/ws/from-provider' },
-    );
-  });
-
-  it("omits `dir` entirely when no directory is known — the SDK's search-all mode", async () => {
-    const { service } = makeService({
-      metadataWorkspaceId: null,
-      workspaceRoot: undefined,
-    });
 
     await service.retitle(SESSION_ID, 'Title');
 

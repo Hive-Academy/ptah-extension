@@ -15,7 +15,7 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, type PermissionLevel } from '@ptah-extension/shared';
 
 import { SdkPermissionHandler } from './sdk-permission-handler';
 import {
@@ -84,12 +84,15 @@ function makeHarness(options: { delivered?: boolean } = {}) {
     registry,
   );
 
-  const callbackFor = (tabId: string): CanUseTool =>
+  const callbackFor = (
+    tabId: string,
+    level: PermissionLevel = 'ask',
+  ): CanUseTool =>
     handler.createCallback(
       tabId as SessionIdParam,
       undefined,
       tabId as TabIdParam,
-      () => 'ask',
+      () => level,
       tabId,
     );
 
@@ -176,6 +179,39 @@ describe('SdkPermissionHandler — unattended session policy', () => {
       expect(result).toEqual({ behavior: 'allow', updatedInput: input });
       expect(h.permissionRequests()).toHaveLength(0);
     });
+  });
+
+  describe('YOLO level', () => {
+    it('allows an out-of-policy call without a prompt', async () => {
+      const h = makeHarness();
+      h.registry.register(CHILD_TAB, makePolicy());
+      const input = { command: 'find libs -type f | wc -l' };
+
+      const result = await invoke(
+        h.callbackFor(CHILD_TAB, 'yolo'),
+        'Bash',
+        input,
+      );
+
+      expect(result).toEqual({ behavior: 'allow', updatedInput: input });
+      expect(h.permissionRequests()).toHaveLength(0);
+    });
+
+    it.each(['AskUserQuestion', 'EnterPlanMode'])(
+      '%s still goes through the policy',
+      async (toolName) => {
+        const h = makeHarness();
+        h.registry.register(CHILD_TAB, makePolicy());
+
+        const result = await invoke(
+          h.callbackFor(CHILD_TAB, 'yolo'),
+          toolName,
+          { questions: [] },
+        );
+
+        expect(result.behavior).toBe('deny');
+      },
+    );
   });
 
   describe('denied at once', () => {

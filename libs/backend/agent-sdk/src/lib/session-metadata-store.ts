@@ -41,7 +41,11 @@ import {
   omitJsonPaths,
   packJsonSequencePage,
   type IAsyncStateStorage,
+  type ISessionBlobStore,
+  type ISessionRecordRepository,
+  type ISessionStoreGate,
   type IStateStorage,
+  type SessionRecordInput,
   type StateStorageArraySplitPlan,
   type StateStorageGetOptions,
   type StateStorageTruncatedItem,
@@ -148,6 +152,28 @@ export interface PersistedAgentOutput {
  * Storage key for session metadata
  */
 const STORAGE_KEY = 'ptah.sessionMetadata';
+
+/**
+ * The part of Electron's WorkspaceAwareStateStorage this store reads. Duck-typed
+ * so VS Code's single workspace storage keeps the old behaviour.
+ */
+interface WorkspaceRoutedStorage {
+  getActiveWorkspacePath(): string | null;
+  getStorageForWorkspace(workspacePath: string): IStateStorage | undefined;
+}
+
+function isWorkspaceRouted(
+  storage: IStateStorage,
+): storage is IStateStorage & WorkspaceRoutedStorage {
+  const candidate = storage as Partial<WorkspaceRoutedStorage>;
+  return (
+    typeof candidate.getActiveWorkspacePath === 'function' &&
+    typeof candidate.getStorageForWorkspace === 'function'
+  );
+}
+
+const normalizeWorkspaceId = (workspaceId: string): string =>
+  workspaceId.replace(/\\/g, '/');
 const SESSION_DETAIL_KEY_PREFIX = 'ptah.session:';
 
 /** Key prefix for per-agent bulk output. One key per agent, written once. */
@@ -245,6 +271,41 @@ export class AgentOutputCursorStaleError extends SdkError {
 
 function agentOutputKey(agentId: string): string {
   return `${AGENT_OUTPUT_KEY_PREFIX}${agentId}`;
+}
+
+/** Blob name of an agent's output inside its session's folder (PTAH-35). */
+export function agentOutputBlobName(agentId: string): string {
+  return `agent-output.${agentId}`;
+}
+
+/** Keys of the per-workspace store this module wrote before PTAH-35. */
+export const LEGACY_SESSION_STORAGE_KEYS = {
+  index: STORAGE_KEY,
+  detailPrefix: SESSION_DETAIL_KEY_PREFIX,
+  agentOutputPrefix: AGENT_OUTPUT_KEY_PREFIX,
+} as const;
+
+/** Lean listing entry: the record without its CLI references. */
+export function sessionIndexEntry(metadata: SessionMetadata): SessionMetadata {
+  const entry: Record<string, unknown> = { ...metadata };
+  delete entry['cliSessions'];
+  return entry as unknown as SessionMetadata;
+}
+
+/** A session as a global-store row. */
+export function toSessionRecordInput(
+  detail: SessionMetadata,
+): SessionRecordInput {
+  return {
+    sessionId: detail.sessionId,
+    workspacePath: detail.workspaceId,
+    name: detail.name,
+    createdAt: detail.createdAt,
+    lastActiveAt: detail.lastActiveAt,
+    isChild: detail.isChildSession === true,
+    summary: sessionIndexEntry(detail) as unknown as Record<string, unknown>,
+    detail: detail as unknown as Record<string, unknown>,
+  };
 }
 
 function parseRecordOutputCursor(
@@ -404,6 +465,72 @@ export class SessionMetadataStore {
    */
   private pendingAll: SessionMetadata[] | null = null;
 
+  /**
+   * Records of sessions whose workspace was not the active one when they were
+   * written (Plane PTAH-32). The storage follows the active workspace, so
+   * writing them would land them in another workspace's store, where neither
+   * list shows them. They wait here, appear in their own workspace's list, and
+   * move into storage on the first read made while that workspace is active.
+   * MP-1 (one session store keyed by project) replaces this.
+   */
+  private readonly strays = new Map<string, SessionMetadata>();
+  private strayRestoreQueued = false;
+
+  /**
+   * True when `workspaceId` is another registered workspace than the active
+   * one. An unregistered or unknown id keeps the old behaviour, so a path
+   * spelled differently can never strand a record in memory.
+   */
+  private isForeignWorkspace(workspaceId: string): boolean {
+    if (this.records) return false;
+    if (!isWorkspaceRouted(this.storage)) return false;
+    const active = this.storage.getActiveWorkspacePath();
+    if (active === null) return false;
+    if (normalizeWorkspaceId(active) === normalizeWorkspaceId(workspaceId)) {
+      return false;
+    }
+    return this.storage.getStorageForWorkspace(workspaceId) !== undefined;
+  }
+
+  /** Adds this workspace's strays to a listing and queues their persistence. */
+  private withStrays(items: SessionMetadata[]): SessionMetadata[] {
+    if (this.strays.size === 0) return items;
+    const local = [...this.strays.values()].filter(
+      (stray) => !this.isForeignWorkspace(stray.workspaceId),
+    );
+    if (local.length === 0) return items;
+    for (const stray of local) {
+      const index = items.findIndex((m) => m.sessionId === stray.sessionId);
+      if (index >= 0) items[index] = stray;
+      else items.push(stray);
+    }
+    this.queueStrayRestore();
+    return items;
+  }
+
+  private queueStrayRestore(): void {
+    if (this.strayRestoreQueued) return;
+    this.strayRestoreQueued = true;
+    void this.enqueueWrite(async () => {
+      this.strayRestoreQueued = false;
+      for (const stray of [...this.strays.values()]) {
+        if (this.isForeignWorkspace(stray.workspaceId)) continue;
+        this.strays.delete(stray.sessionId);
+        try {
+          await this._saveInternal(stray);
+        } catch (error: unknown) {
+          this.strays.set(stray.sessionId, stray);
+          throw error;
+        }
+      }
+    }).catch((error: unknown) => {
+      this.logger.warn(
+        '[SessionMetadataStore] Could not persist metadata kept in memory; will retry on the next read',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    });
+  }
+
   private async readStorage<T>(key: string): Promise<T | undefined> {
     return isAsyncStateStorage(this.storage)
       ? await this.storage.getAsync<T>(key)
@@ -411,9 +538,7 @@ export class SessionMetadataStore {
   }
 
   private indexEntry(metadata: SessionMetadata): SessionMetadata {
-    const entry: Record<string, unknown> = { ...metadata };
-    delete entry['cliSessions'];
-    return entry as unknown as SessionMetadata;
+    return sessionIndexEntry(metadata);
   }
 
   /**
@@ -427,12 +552,47 @@ export class SessionMetadataStore {
     metadataChanged: (payload: SessionMetadataChangedNotification) => void;
   }>();
 
+  /**
+   * One session store for every project (PTAH-35). Bound on Electron and the
+   * CLI; when present, metadata never touches the workspace-routed storage, so
+   * a write lands under the session's own project whatever the UI has open.
+   * Absent on VS Code, which keeps the storage path below.
+   */
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
     private storage: IStateStorage,
     @inject(TOKENS.LOGGER) private logger: Logger,
+    @inject(PLATFORM_TOKENS.SESSION_RECORD_REPOSITORY, { isOptional: true })
+    private readonly records?: ISessionRecordRepository,
+    @inject(PLATFORM_TOKENS.SESSION_BLOB_STORE, { isOptional: true })
+    private readonly blobs?: ISessionBlobStore,
+    @inject(PLATFORM_TOKENS.SESSION_STORE_GATE, { isOptional: true })
+    private readonly gate?: ISessionStoreGate,
   ) {
     LIVE_STORES.add(new WeakRef(this));
+  }
+
+  /**
+   * With the global store, agent output lives in its session's folder, so the
+   * caller must say which session. Without it the output would fall back to
+   * the workspace-routed storage this store exists to leave.
+   */
+  private sessionBlobs(sessionId: string | undefined): {
+    blobs: ISessionBlobStore;
+    sessionId: string;
+  } | null {
+    if (!this.records) return null;
+    if (!this.blobs) {
+      throw new SdkError(
+        'Session blob store is not registered next to the session record repository',
+      );
+    }
+    if (blankToUndefined(sessionId) === undefined) {
+      throw new SdkError(
+        'Agent output needs a session id when the global session store is used',
+      );
+    }
+    return { blobs: this.blobs, sessionId: sessionId as string };
   }
 
   /**
@@ -497,6 +657,17 @@ export class SessionMetadataStore {
         ? { resumableSdkSubagents: existing.resumableSdkSubagents }
         : {}),
     };
+    if (this.isForeignWorkspace(merged.workspaceId)) {
+      if (!this.strays.has(merged.sessionId)) {
+        this.logger.info(
+          '[SessionMetadataStore] Session belongs to an inactive workspace; keeping its metadata in memory until that workspace is active',
+          { sessionId: merged.sessionId, workspaceId: merged.workspaceId },
+        );
+      }
+      this.strays.set(merged.sessionId, merged);
+      return;
+    }
+    this.strays.delete(merged.sessionId);
     const strippedBulkRefCount = countReferencesWithBulk(merged);
     const detail =
       strippedBulkRefCount > 0
@@ -509,7 +680,10 @@ export class SessionMetadataStore {
       );
     }
 
-    if (isAsyncStateStorage(this.storage)) {
+    if (this.records) {
+      // One row per session: nothing to coalesce, so it is written at once.
+      await this.records.upsert(toSessionRecordInput(detail));
+    } else if (isAsyncStateStorage(this.storage)) {
       // Detail first, lean index second. Readers never observe an index entry
       // whose authoritative detail has not reached durable storage.
       await this.storage.update(sessionDetailKey(metadata.sessionId), detail);
@@ -581,6 +755,12 @@ export class SessionMetadataStore {
    * the rejection to.
    */
   async flushForShutdown(): Promise<void> {
+    if (this.strays.size > 0) {
+      this.logger.warn(
+        '[SessionMetadataStore] Shutdown with session metadata still in memory for inactive workspaces — not persisted',
+        { sessionIds: [...this.strays.keys()] },
+      );
+    }
     try {
       await this.flush();
     } catch (error: unknown) {
@@ -595,6 +775,18 @@ export class SessionMetadataStore {
    * Get metadata by session ID
    */
   async get(sessionId: string): Promise<SessionMetadata | null> {
+    const stray = this.strays.get(sessionId);
+    if (stray) return { ...stray };
+    if (this.records) {
+      await this.gate?.whenReady();
+      const record = await this.records.get(sessionId);
+      return record
+        ? omitJsonPaths(
+            record.detail as unknown as SessionMetadata,
+            DETAIL_PROJECTION.omit,
+          )
+        : null;
+    }
     if (isAsyncStateStorage(this.storage)) {
       const detail = await this.storage.getAsync<SessionMetadata>(
         sessionDetailKey(sessionId),
@@ -662,6 +854,13 @@ export class SessionMetadataStore {
     workspaceId: string,
     includeChildren = false,
   ): Promise<SessionMetadata[]> {
+    if (this.records) {
+      await this.gate?.whenReady();
+      const rows = await this.records.listForWorkspace(workspaceId, {
+        includeChildren,
+      });
+      return rows.map((r) => r.summary as unknown as SessionMetadata);
+    }
     const all = await this.getAll();
     const normalizedQuery = workspaceId.replace(/\\/g, '/');
     return all
@@ -681,7 +880,13 @@ export class SessionMetadataStore {
    * flushed. Always a fresh array — `_saveInternal` mutates what it gets back.
    */
   async getAll(): Promise<SessionMetadata[]> {
-    if (this.pendingAll) return [...this.pendingAll];
+    if (this.records) {
+      await this.gate?.whenReady();
+      // Every project of this host, not only the active one.
+      const rows = await this.records.listAll({ includeChildren: true });
+      return rows.map((r) => r.summary as unknown as SessionMetadata);
+    }
+    if (this.pendingAll) return this.withStrays([...this.pendingAll]);
     // Copied, not handed through. `_saveInternal` replaces entries in what it
     // gets back, and `IStateStorage.get` returns the adapter's own cached
     // array (`vscode.Memento` included) — so returning it directly let a
@@ -691,7 +896,7 @@ export class SessionMetadataStore {
       SessionMetadata[] | SessionMetadataIndex
     >(STORAGE_KEY);
     const items = Array.isArray(stored) ? stored : stored?.items;
-    return [...(items ?? [])];
+    return this.withStrays([...(items ?? [])]);
   }
 
   async saveAgentOutput(
@@ -701,8 +906,10 @@ export class SessionMetadataStore {
       segments?: readonly CliOutputSegment[];
       streamEvents?: readonly FlatStreamEventUnion[];
     },
+    sessionId?: string,
   ): Promise<void> {
     if (blankToUndefined(agentId) === undefined) return;
+    const target = this.sessionBlobs(sessionId);
     const stdout = output.stdout ?? '';
     const streamEvents = output.streamEvents ?? [];
     const hasOtherOutput =
@@ -714,7 +921,19 @@ export class SessionMetadataStore {
       : (output.segments ?? []);
     if (segments.length === 0 && streamEvents.length === 0) return;
 
-    if (isAsyncStateStorage(this.storage)) {
+    if (target) {
+      const record: PersistedAgentOutput = {
+        agentId,
+        savedAt: Date.now(),
+        ...(segments.length > 0 ? { segments } : {}),
+        ...(streamEvents.length > 0 ? { streamEvents } : {}),
+      };
+      await target.blobs.write(
+        target.sessionId,
+        agentOutputBlobName(agentId),
+        record,
+      );
+    } else if (isAsyncStateStorage(this.storage)) {
       await this.storage.replaceJsonSequence(
         agentOutputKey(agentId),
         (async function* (): AsyncGenerator<{
@@ -760,6 +979,7 @@ export class SessionMetadataStore {
     agentId: string,
     cursor?: string,
     maxBytes = 128 * 1024,
+    sessionId?: string,
   ): Promise<{
     items: readonly TaggedAgentOutputItem[];
     nextCursor: string | null;
@@ -784,9 +1004,24 @@ export class SessionMetadataStore {
         'Agent output page budget cannot fit the RPC envelope',
       );
     }
-    const page = isAsyncStateStorage(this.storage)
-      ? await this.readSequenceOutputPage(this.storage, agentId, cursor, budget)
-      : await this.readRecordOutputPage(agentId, cursor, budget);
+    const target = this.sessionBlobs(sessionId);
+    const page = target
+      ? await this.readRecordOutputPage(agentId, cursor, budget, () =>
+          target.blobs.read<PersistedAgentOutput>(
+            target.sessionId,
+            agentOutputBlobName(agentId),
+          ),
+        )
+      : isAsyncStateStorage(this.storage)
+        ? await this.readSequenceOutputPage(
+            this.storage,
+            agentId,
+            cursor,
+            budget,
+          )
+        : await this.readRecordOutputPage(agentId, cursor, budget, () =>
+            this.readStorage<PersistedAgentOutput>(agentOutputKey(agentId)),
+          );
     if (rpcOutputPageBytes(page.items, page.nextCursor, page.done) > rpcBytes) {
       throw new SdkError('Agent output page exceeds RPC budget');
     }
@@ -847,9 +1082,10 @@ export class SessionMetadataStore {
     agentId: string,
     cursor: string | undefined,
     budget: AgentOutputPageBudget,
+    load: () => Promise<PersistedAgentOutput | undefined>,
   ): Promise<AgentOutputPage> {
     const key = agentOutputKey(agentId);
-    const output = await this.readStorage<PersistedAgentOutput>(key);
+    const output = await load();
     const outputSegments = output?.segments ?? [];
     const outputEvents = output?.streamEvents ?? [];
     const itemCount = outputSegments.length + outputEvents.length;
@@ -888,8 +1124,13 @@ export class SessionMetadataStore {
   }
 
   /** Drop one agent's bulk output. Silent when there is nothing stored. */
-  async deleteAgentOutput(agentId: string): Promise<void> {
+  async deleteAgentOutput(agentId: string, sessionId?: string): Promise<void> {
     if (blankToUndefined(agentId) === undefined) return;
+    const target = this.sessionBlobs(sessionId);
+    if (target) {
+      await target.blobs.remove(target.sessionId, agentOutputBlobName(agentId));
+      return;
+    }
     await this.storage.update(agentOutputKey(agentId), undefined);
   }
 
@@ -911,12 +1152,22 @@ export class SessionMetadataStore {
    * Update session activity timestamp
    */
   async touch(sessionId: string): Promise<void> {
-    const metadata = await this.get(sessionId);
-    if (metadata) {
-      await this.save({
-        ...metadata,
-        lastActiveAt: Date.now(),
-      });
+    // Read inside the queue: a read taken before it would write back whatever
+    // a queued rename or CLI link changed meanwhile.
+    let workspaceId: string | undefined;
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.debug(
+          `[SessionMetadataStore] touch skipped: no metadata for ${sessionId} in the active workspace`,
+        );
+        return;
+      }
+      workspaceId = metadata.workspaceId;
+      await this._saveInternal({ ...metadata, lastActiveAt: Date.now() });
+    });
+    if (workspaceId !== undefined) {
+      this.emitChange('updated', sessionId, workspaceId);
     }
   }
 
@@ -993,7 +1244,7 @@ export class SessionMetadataStore {
       // once per resume, not once per event.
       if (displacedAgentId !== undefined) {
         await this.flush();
-        await this.deleteAgentOutput(displacedAgentId);
+        await this.deleteAgentOutput(displacedAgentId, sessionId);
         this.logger.info(
           `[SessionMetadataStore] Dropped orphaned output key for re-associated agent ${displacedAgentId}`,
           { cliSessionId: cliSession.cliSessionId },
@@ -1020,6 +1271,20 @@ export class SessionMetadataStore {
    * Public callers must use delete() which wraps this in enqueueWrite().
    */
   private async _deleteInternal(sessionId: string): Promise<void> {
+    this.strays.delete(sessionId);
+    if (this.records) {
+      const removed = await this.get(sessionId);
+      if (!removed) return;
+      // Row first, output second: a failure can leak output, never leave a
+      // live reference to output that is gone.
+      await this.records.delete(sessionId);
+      // Agent output and any other per-session files go with the session.
+      await this.blobs?.removeAll(sessionId);
+      this.logger.info(
+        `[SessionMetadataStore] Deleted metadata for session ${sessionId}`,
+      );
+      return;
+    }
     const all = await this.getAll();
     const removedSummary = all.find((m) => m.sessionId === sessionId);
     const removedDetail = isAsyncStateStorage(this.storage)

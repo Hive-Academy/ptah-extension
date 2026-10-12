@@ -438,7 +438,7 @@ const NATIVE_AGENT_TOOL_POLICY =
  *   to read the mode it was returned rather than to expect one.
  * - **Bytes are argv.** This string is part of the command line on the
  *   task-prompt adapters and is measured against `assertCommandLineWithinLimit`
- *   (8,191 on the Windows `.cmd` fallback). Measured: it adds 826 bytes with
+ *   (8,191 on the Windows `.cmd` fallback). Measured: it adds 994 bytes with
  *   its joining delimiter, pinned by `cli-adapter.utils.spec.ts`. Keep it
  *   short.
  *
@@ -448,6 +448,7 @@ const NATIVE_AGENT_TOOL_POLICY =
  */
 const TWO_WAY_MESSAGING_GUIDANCE =
   'Two-way messaging: you are a spawned agent and the session that spawned you can reach you.\n' +
+  '- These tools come from the `ptah` MCP server and may carry a server prefix (`mcp__ptah__ptah_agent_report`). Match tool names by substring, never by a `ptah_` prefix.\n' +
   '- Report to it with `ptah_agent_report`. It takes no agent id. A `delivered: false` answer carries a reason and is a normal outcome — record it and carry on, do not retry in a loop.\n' +
   '- A message from that session can arrive between your turns. Treat it as an instruction from your caller; where it disagrees with the task text above, the message wins.\n' +
   '- You can spawn agents yourself with `ptah_agent_spawn`. Read `ptah_agent_list` for what exists on this machine: never assume a CLI, a provider or a messaging capability is present. Any name in a document is an illustration, never a guarantee.\n' +
@@ -645,22 +646,7 @@ export async function resolveWindowsCmd(binaryPath: string): Promise<string> {
   return binaryPath;
 }
 
-/**
- * Expand a native-binary candidate into the paths worth probing on disk.
- *
- * Electron packs app code into `app.asar`; `electron-builder`'s `asarUnpack`
- * copies native binaries into the sibling `app.asar.unpacked` tree. A path
- * inside `app.asar` still satisfies `existsSync` through the asar shim but
- * cannot be spawned, so any candidate landing there must also be probed as its
- * unpacked twin. Returns the candidate alone when it is not inside an asar.
- */
-export function withAsarUnpackedTwin(candidate: string): string[] {
-  const unpacked = candidate.replace(
-    /app\.asar(?!\.unpacked)/,
-    'app.asar.unpacked',
-  );
-  return unpacked === candidate ? [candidate] : [candidate, unpacked];
-}
+export { withAsarUnpackedTwin } from '@ptah-extension/agent-sdk';
 
 /**
  * Resolve a Windows `.cmd` npm wrapper to a direct `node <entrypoint>` spawn.

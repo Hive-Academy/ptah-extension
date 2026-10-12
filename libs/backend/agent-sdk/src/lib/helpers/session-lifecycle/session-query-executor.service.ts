@@ -587,11 +587,13 @@ export class SessionQueryExecutor {
     // `result`; see the `slash-command-interceptor.ts` header for why that was
     // believed to be required and why it is not (TASK_2026_472).
     if (initialContent) {
-      rec.messageQueue.push({
+      const sdkUserMessage = await this.messageFactory.createUserMessage({
         content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        sessionId,
         files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
       });
+      rec.messageQueue.push(sdkUserMessage);
       this.logger.info(
         `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
       );

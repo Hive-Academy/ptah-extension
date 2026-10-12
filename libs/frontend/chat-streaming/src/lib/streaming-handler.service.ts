@@ -218,7 +218,7 @@ export class StreamingHandlerService {
         // The applier has synchronously installed the terminal state before
         // this returns to ChatStore. Returning the queue here lets ChatStore
         // start chat:continue in the same event delivery stack, before Angular
-        // can render an idle-only budget/handover banner.
+        // can render an idle-only budget banner.
         const queueFlushes = terminalTargets.flatMap(({ tabId: targetTabId, revision }) => {
           const tab = this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
           if (!tab || tab.lastTurnStateRevision !== event.revision || revision === event.revision) {

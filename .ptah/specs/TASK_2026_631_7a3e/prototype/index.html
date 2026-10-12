@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Session Analytics – Provider usage list (prototype)</title>
+<style>
+/* Theme tokens mirror apps/ptah-extension-webview/tailwind.config.js (anubis, anubis-light).
+   retro = DaisyUI 4 built-in (not overridden in tailwind.config.js) – values approximated, verify. */
+:root,[data-theme=anubis]{
+  --b1:#131317;--b2:#1a1a20;--b3:#242430;--bc:#e8e6e1;--bcm:#a9a7a2;
+  --su:#16a34a;--wa:#f97316;--er:#dc2626;--in:#3b82f6;--pr:#2563eb;
+  --su-t:#4ade80;--wa-t:#fb923c;--er-t:#f87171; /* text-safe glyph tints */
+  --line:rgba(232,230,225,.14);--track:rgba(232,230,225,.12);
+}
+[data-theme=anubis-light]{
+  --b1:#f8f6f5;--b2:#efebe9;--b3:#e8e4e1;--bc:#2a1d33;--bcm:#5e5566;
+  --su:#16a34a;--wa:#ea7a1a;--er:#e11d48;--in:#2b9be3;--pr:#5cdcc6;
+  --su-t:#15803d;--wa-t:#b45309;--er-t:#be123c;
+  --line:rgba(42,29,51,.18);--track:rgba(42,29,51,.12);
+}
+[data-theme=retro]{
+  --b1:#e4d8b4;--b2:#d2c59d;--b3:#c6b386;--bc:#282425;--bcm:#4f4838;
+  --su:#2f8f4e;--wa:#d97706;--er:#c62828;--in:#2563eb;--pr:#ef9995;
+  --su-t:#166534;--wa-t:#92400e;--er-t:#991b1b;
+  --line:rgba(40,36,37,.28);--track:rgba(40,36,37,.16);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--b1);color:var(--bc);font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:16px}
+.toolbar{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;margin-bottom:12px;font-size:12px;color:var(--bcm)}
+.toolbar fieldset{border:0;padding:0;margin:0;display:flex;gap:4px;align-items:center}
+.toolbar legend{float:left;margin-right:8px;padding:0}
+.toolbar button{background:var(--b2);color:var(--bc);border:1px solid var(--line);border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+.toolbar button[aria-pressed=true]{background:var(--bc);color:var(--b1);border-color:var(--bc)}
+button:focus-visible{outline:2px solid var(--in);outline-offset:2px}
+.frame{resize:horizontal;overflow:auto;width:1800px;max-width:100%;min-width:360px;border:1px dashed var(--line);padding:12px;background:var(--b1)}
+.card{background:var(--b2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.card h2{margin:0 0 2px;font-size:15px}
+.card>p.sub{margin:0 0 10px;font-size:12px;color:var(--bcm)}
+ul.rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+li.row{container-type:inline-size;container-name:row}
+.r{--accent:#888;display:grid;grid-template-columns:minmax(14rem,19rem) minmax(0,1fr) auto;gap:10px 18px;align-items:center;
+  background:var(--b1);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:10px 12px}
+.r.compact{padding-block:8px}
+.id{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.mark{flex:none;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-weight:700;font-size:14px;
+  background:color-mix(in oklab,var(--accent) 22%,var(--b1));border:1px solid color-mix(in oklab,var(--accent) 60%,transparent);color:var(--bc)}
+.id h3{margin:0;font-size:14px;line-height:1.25;font-weight:600;overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:4px 6px;margin-top:4px;align-items:center}
+.sub{font-size:11px;color:var(--bcm)}
+.badge,.chip{font-size:11px;line-height:1.4;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--bc);white-space:nowrap}
+.badge{--t:var(--bcm);border-color:color-mix(in oklab,var(--t) 70%,transparent);background:color-mix(in oklab,var(--t) 14%,transparent)}
+.badge i{font-style:normal;color:var(--t);margin-right:3px}
+.badge.ok{--t:var(--su-t)}.badge.warn{--t:var(--wa-t)}.badge.err{--t:var(--er-t)}.badge.info{--t:var(--in)}.badge.mute{--t:var(--bcm)}
+.chip{border-radius:4px;color:var(--bcm);padding:0 5px;font-size:10px}
+.chip.unofficial{border-style:dashed;font-style:italic}
+.wins{display:flex;flex-wrap:wrap;gap:10px 16px;min-width:0}
+.win{flex:1 1 11.5rem;min-width:10.5rem;max-width:22rem}
+.win .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.win .name{font-size:12px;font-weight:600}
+.win .val{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.win .val i{font-style:normal;color:var(--t);margin-right:3px}
+.bar{position:relative;height:8px;border-radius:4px;background:var(--track);margin:5px 0 4px;overflow:hidden}
+.bar>b{display:block;height:100%;border-radius:4px;background:var(--c)}
+.bar::after{content:"";position:absolute;left:90%;top:0;bottom:0;width:1px;background:var(--bc);opacity:.35} /* NEAR_LIMIT_PERCENT = 90 */
+.bar.unknown{background:repeating-linear-gradient(90deg,var(--track) 0 6px,transparent 6px 10px)}
+.bar.unknown::after{display:none}
+.st-ok{--c:var(--su);--t:var(--su-t)}.st-near{--c:var(--wa);--t:var(--wa-t)}.st-limit{--c:var(--er);--t:var(--er-t)}.st-unk{--c:var(--bcm);--t:var(--bcm)}
+.win .rs{font-size:11px;color:var(--bcm);display:flex;flex-wrap:wrap;gap:0 8px}
+.win .rs strong{color:var(--bc);font-weight:600}
+.state{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--t)}
+.reason{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:center;font-size:12px;color:var(--bcm);min-width:0}
+.reason strong{color:var(--bc);font-weight:600}
+.reason a{color:var(--bc);text-decoration:underline;text-underline-offset:2px}
+.right{display:flex;gap:12px;align-items:center;justify-content:flex-end}
+.local{text-align:right;font-size:11px;color:var(--bcm);line-height:1.3}
+.local b{display:block;font-size:13px;color:var(--bc);font-variant-numeric:tabular-nums}
+.refresh{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:var(--b2);color:var(--bc);cursor:pointer;font-size:16px}
+.refresh:hover{background:var(--b3)}
+.refresh.spin span{display:inline-block;animation:sp .8s linear}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.refresh.spin span{animation:none}}
+/* Narrow: header → windows (vertical list) → footer */
+@container row (max-width:640px){
+  .r{grid-template-columns:minmax(0,1fr) auto}
+  .r .id{grid-column:1}
+  .r .right{grid-column:2;grid-row:1;align-self:start}
+  .r .mid{grid-column:1 / -1}
+  .wins{flex-direction:column;gap:10px}
+  .win{max-width:none;min-width:0;flex-basis:auto}
+  .local{text-align:left}
+}
+/* Medium: windows drop below identity, refresh stays top-right */
+@container row (min-width:641px) and (max-width:1100px){
+  .r{grid-template-columns:minmax(0,1fr) auto}
+  .r .mid{grid-column:1 / -1;grid-row:2}
+  .r .right{grid-row:1;grid-column:2}
+  .r.compact .mid{grid-column:1;grid-row:2}
+}
+.contrast{margin-top:14px;font-size:11px;color:var(--bcm)}
+.contrast table{border-collapse:collapse}.contrast td,.contrast th{border:1px solid var(--line);padding:2px 8px;text-align:left}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <fieldset><legend>Theme</legend>
+    <button data-theme-btn="anubis" aria-pressed="true">anubis (dark)</button>
+    <button data-theme-btn="anubis-light" aria-pressed="false">anubis-light</button>
+    <button data-theme-btn="retro" aria-pressed="false">retro</button></fieldset>
+  <fieldset><legend>Width</legend>
+    <button data-w="1800" aria-pressed="true">Wide 1800</button>
+    <button data-w="1000" aria-pressed="false">Medium 1000</button>
+    <button data-w="420" aria-pressed="false">Narrow 420</button>
+    <span>(or drag the frame's bottom-right corner)</span></fieldset>
+</div>
+
+<div class="frame" id="frame">
+  <section class="card" aria-labelledby="pa-h">
+    <h2 id="pa-h">Provider accounts &amp; plan limits</h2>
+    <p class="sub">One row per quota owner. Bars turn orange at ≥ 90% (NEAR_LIMIT_PERCENT) and red at limit; the tick marks 90%. Rows tagged "sample" are state demos (at-limit, near-limit).</p>
+    <ul class="rows" id="rows"></ul>
+  </section>
+</div>
+
+<div class="contrast" id="contrast" aria-live="off"></div>
+
+<script>
+const SRC={api:['Provider API',0],unof:['Provider (unofficial)',1],est:['Estimated',1],ev:['Last recorded evidence',0],cli:['Local CLI',0]};
+const NEAR=90;
+/* sample data shaped like PlanLimitOwnerSnapshot (label=owner.label, id=owner.key suffix) */
+const owners=[
+ {p:'Claude',acc:'#d97757',mark:'C',name:'Claude identity unavailable',id:'d525',badge:['mute','○','Usage unavailable'],
+  reason:'No open session — open a Claude session to read usage.',action:'Open session'},
+ {p:'Claude',acc:'#d97757',mark:'C',name:'Claude account',id:'721c',plan:'Subscription quota',src:['api'],badge:['ok','●','Live'],
+  wins:[['5-hour',6,'in 4h 31m','Today 20:34'],['Weekly',32,'in 4d 0h','Sat 16:03'],['Weekly · Fable',0,'in 4d 0h','Sat 16:03']]},
+ {p:'Claude',acc:'#d97757',mark:'C',name:'Claude account',id:'3b19',plan:'Subscription quota',src:['api'],badge:['err','■','Limit reached'],demo:1,
+  wins:[['5-hour',100,'in 1h 12m','Today 17:15'],['Weekly',92,'in 2d 3h','Wed 19:00'],['Weekly · Fable',54,'in 2d 3h','Wed 19:00']]},
+ {p:'OpenCode',acc:'#3b82f6',mark:'O',name:'OpenCode CLI login',id:'81da',plan:'Local usage only',src:['cli'],badge:['info','◆','Local usage only'],
+  reason:'No plan windows — token and cost are local CLI accounting, not a plan percentage.',
+  local:['322,472,376 tokens · $108.22','local estimate · Range: last 30 days']},
+ {p:'Antigravity',acc:'#8b5cf6',mark:'A',name:'Antigravity account',id:'5ff1',badge:['mute','○','Usage unavailable'],
+  reason:'Open Antigravity to read local quota.',action:'How to refresh'},
+ {p:'Provider CLI',acc:'#4285f4',mark:'G',name:'Provider CLI login',id:'26e8',plan:'API key',badge:['mute','–','No plan limits'],
+  reason:'This account signs in with an API key, which has no subscription limits.'},
+ {p:'Codex',acc:'#10a37f',mark:'X',name:'Codex account',id:'58b5',plan:'Subscription quota',src:['ev'],badge:['mute','◷','No live read'],
+  wins:[['Weekly',9,'in 5d 23h','Sun 15:00']],note:'Last recorded evidence — not read live.'},
+ {p:'Ollama Cloud',acc:'#9ca3af',mark:'L',name:'Ollama Cloud (owner unknown) (key unavailable)',id:'229f',badge:['mute','○','Not configured'],
+  reason:'No API key configured.',action:'Add key'},
+ {p:'Antigravity',acc:'#8b5cf6',mark:'A',name:'Gemini-style estimate',id:'77aa',plan:'Subscription quota',src:['unof','est'],badge:['warn','▲','Near limit'],demo:1,
+  wins:[['Monthly',92,'in 9d 2h','Oct 21 00:00'],['Overage',null,null,null]]}
+];
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const chips=a=>(a||[]).map(k=>`<span class="chip${SRC[k][1]?' unofficial':''}" title="Usage source">${SRC[k][0]}</span>`).join('');
+function win(w,o){
+  const [name,pct,rel,abs]=w;
+  let cls='st-unk',state='',glyph='?',val='Unknown';
+  if(pct!=null){val=pct+'%';
+    if(pct>=100){cls='st-limit';state='Limit reached';glyph='■'}
+    else if(pct>=NEAR){cls='st-near';state='Near limit';glyph='▲'}
+    else{cls='st-ok'}}
+  const bar=pct==null?`<div class="bar unknown" aria-hidden="true"></div>`:
+   `<div class="bar" role="progressbar" aria-label="${esc(name)} plan usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-valuetext="${pct}% used${rel?', resets '+rel:''}"><b style="width:${Math.min(100,pct)}%"></b></div>`;
+  return `<div class="win ${cls}" role="group" aria-label="${esc(name)}">
+    <div class="top"><span class="name">${esc(name)}${state?` <span class="state">${state}</span>`:''}</span>
+      <span class="val">${pct!=null&&cls!=='st-ok'?`<i aria-hidden="true">${glyph}</i>`:''}${val}<span class="sr"> used</span></span></div>
+    ${bar}
+    <div class="rs">${rel?`<strong>Resets ${rel}</strong><span>${abs}</span>`:'<span>Usage unknown · no reset reported</span>'}</div></div>`;
+}
+function row(o){
+  const wins=o.wins&&o.wins.length;
+  const mid=wins?`<div class="mid"><div class="wins">${o.wins.map(w=>win(w,o)).join('')}</div>${o.note?`<p class="sub" style="margin:6px 0 0">${esc(o.note)}</p>`:''}</div>`
+    :`<div class="mid reason"><span>${esc(o.reason)}</span>${o.action?`<a href="#" onclick="return false">${o.action}</a>`:''}</div>`;
+  const right=`<div class="right">${o.local?`<div class="local"><b>${o.local[0]}</b>${o.local[1]}</div>`:''}
+    <button class="refresh" type="button" aria-label="Refresh ${esc(o.name)} ${o.id} usage" title="Refresh usage"><span aria-hidden="true">↻</span></button></div>`;
+  return `<li class="row"><section class="r${wins?'':' compact'}" style="--accent:${o.acc}" aria-labelledby="h-${o.id}">
+    <div class="id"><span class="mark" aria-hidden="true">${o.mark}</span><div style="min-width:0">
+      <h3 id="h-${o.id}">${esc(o.name)} <span class="sub">· ${o.id}</span></h3>
+      <div class="meta">${o.plan?`<span class="sub">${o.plan}</span>`:''}${chips(o.src)}
+        <span class="badge ${o.badge[0]}"><i aria-hidden="true">${o.badge[1]}</i>${o.badge[2]}</span>${o.demo?'<span class="chip">sample</span>':''}</div></div></div>
+    ${mid}${right}</section></li>`;
+}
+document.getElementById('rows').innerHTML=owners.map(row).join('');
+document.addEventListener('click',e=>{const b=e.target.closest('.refresh');if(b){b.classList.remove('spin');void b.offsetWidth;b.classList.add('spin')}});
+
+const frame=document.getElementById('frame');
+document.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{frame.style.width=b.dataset.w+'px';
+  document.querySelectorAll('[data-w]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+document.querySelectorAll('[data-theme-btn]').forEach(b=>b.onclick=()=>{document.documentElement.dataset.theme=b.dataset.themeBtn;
+  document.querySelectorAll('[data-theme-btn]').forEach(x=>x.setAttribute('aria-pressed',x===b));contrast()});
+
+/* live WCAG contrast check for the active theme (AA 4.5:1 text, 3:1 bar/graphics) */
+function lum(c){const m=c.match(/\d+(\.\d+)?/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4});return .2126*m[0]+.7152*m[1]+.0722*m[2]}
+function rgb(v){const t=document.createElement('i');t.style.color=v;document.body.appendChild(t);const c=getComputedStyle(t).color;t.remove();return c}
+function cr(a,b){const x=lum(rgb(a)),y=lum(rgb(b));return ((Math.max(x,y)+.05)/(Math.min(x,y)+.05))}
+function contrast(){
+  const s=getComputedStyle(document.documentElement),g=n=>s.getPropertyValue(n).trim();
+  const pairs=[['text on page','--bc','--b1',4.5],['text on card','--bc','--b2',4.5],['muted on page','--bcm','--b1',4.5],['muted on card','--bcm','--b2',4.5],
+   ['success glyph/bar vs page','--su-t','--b1',3],['warning glyph vs page','--wa-t','--b1',3],['error glyph vs page','--er-t','--b1',3],
+   ['success bar vs track-on-page','--su','--b1',3],['warning bar vs page','--wa','--b1',3],['error bar vs page','--er','--b1',3]];
+  const rows=pairs.map(([n,a,b,min])=>{const r=cr(g(a),g(b));return `<tr><td>${n}</td><td>${r.toFixed(2)}:1</td><td>≥ ${min}</td><td>${r>=min?'pass':'FAIL'}</td></tr>`}).join('');
+  document.getElementById('contrast').innerHTML=`<strong>Measured contrast (${document.documentElement.dataset.theme})</strong><table><tr><th>Pair</th><th>Ratio</th><th>Need</th><th></th></tr>${rows}</table>`;
+}
+contrast();
+</script>
+</body>
+</html>

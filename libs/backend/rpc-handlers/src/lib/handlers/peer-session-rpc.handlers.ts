@@ -29,12 +29,11 @@
 import { inject, injectable } from 'tsyringe';
 import { RpcUserError, TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type {
   PeerSessionDirectory,
   PeerSessionMessenger,
+  SessionMetadataStore,
 } from '@ptah-extension/agent-sdk';
 import type {
   PeerSessionListParams,
@@ -62,8 +61,8 @@ export class PeerSessionRpcHandlers {
     private readonly directory: PeerSessionDirectory,
     @inject(SDK_TOKENS.SDK_PEER_SESSION_MESSENGER)
     private readonly messenger: PeerSessionMessenger,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspace: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly metadataStore: Pick<SessionMetadataStore, 'get'>,
   ) {}
 
   register(): void {
@@ -93,7 +92,9 @@ export class PeerSessionRpcHandlers {
       );
     }
 
-    const currentWorkspace = this.workspace.getWorkspaceRoot();
+    const currentWorkspace = await this.projectFolderOf(
+      parsed.data.excludeSessionId,
+    );
     return this.directory.list({
       ...(currentWorkspace ? { currentWorkspace } : {}),
       ...(parsed.data.excludeSessionId
@@ -116,7 +117,9 @@ export class PeerSessionRpcHandlers {
       );
     }
 
-    const currentWorkspace = this.workspace.getWorkspaceRoot();
+    const currentWorkspace = await this.projectFolderOf(
+      parsed.data.fromSessionId,
+    );
     const result = await this.messenger.send({
       sessionId: parsed.data.sessionId,
       fromSessionId: parsed.data.fromSessionId,
@@ -132,5 +135,31 @@ export class PeerSessionRpcHandlers {
     }
 
     return result;
+  }
+
+  /**
+   * The project folder of the session asking, which is what "current
+   * workspace" means for its peer rows. Not the active folder: with two
+   * projects open, a session in B would see A's peers flagged as its own
+   * (PTAH-37).
+   *
+   * It only sets a row flag, so an unknown id or a failed read gives no
+   * folder (every row is shown as another workspace) rather than an error.
+   */
+  private async projectFolderOf(
+    sessionId: string | undefined,
+  ): Promise<string | undefined> {
+    if (!sessionId) return undefined;
+    try {
+      const metadata = await this.metadataStore.get(sessionId);
+      return metadata?.workspaceId?.trim() || undefined;
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged at warn; the list only loses a row flag
+      this.logger.warn('[peerSession] could not read the asking session', {
+        sessionId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 }

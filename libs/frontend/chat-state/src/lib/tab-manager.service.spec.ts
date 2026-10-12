@@ -836,8 +836,6 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         lowerBound: false,
         revision: 3,
         compactions: 0,
-        extensions: 0,
-        blocked: false,
       };
       service.installSessionStats(tabId, snapshot(3), budget);
 

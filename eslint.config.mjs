@@ -1,3 +1,6 @@
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import nx from '@nx/eslint-plugin';
 
 /**
@@ -24,6 +27,34 @@ export const MESSAGE_LITERAL_SELECTORS = [
     message:
       'Use MESSAGE_TYPES constants instead of string literals for event types. Import from @ptah-extension/shared.',
   },
+];
+
+/**
+ * Session code acts in the session's own folder, never the active one
+ * (PTAH-37, MP-3). With several projects open, `getWorkspaceRoot()` names
+ * whichever folder the user last focused, so a session that reads it runs its
+ * tools, transcript reads and agent spawns in another repo. Resolve the folder
+ * from the session instead (`ChatHistoryReadService.resolveSessionFolder`, or
+ * the session metadata's `workingDirectory ?? workspaceId`).
+ *
+ * The block carries an absolute `basePath` so its root-relative paths match
+ * whether ESLint loaded this config (`nx lint`) or a lib config that spreads
+ * it (ESLint 10 looks up the config next to each file). Code that creates a session rather
+ * than acting for one may disable the rule with a reason. Sites not yet moved
+ * carry `MP-3 pending (PTAH-37)`.
+ */
+const ACTIVE_ROOT_IN_SESSION_CODE = {
+  property: 'getWorkspaceRoot',
+  message:
+    "Session code must use the session's own folder, not the active root (PTAH-37). Resolve it from the session id or its metadata.",
+};
+const SESSION_CODE_FILES = [
+  'libs/backend/rpc-handlers/src/lib/chat/**/*.ts',
+  'libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts',
+  'libs/backend/rpc-handlers/src/lib/handlers/peer-session-rpc.handlers.ts',
+  'libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts',
+  'libs/backend/agent-sdk/src/lib/helpers/session-*.ts',
+  'libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts',
 ];
 
 /**
@@ -538,6 +569,14 @@ export default [
         ...IN_MAIN_RECURSIVE_WATCH_SELECTORS,
         APP_RPC_HANDLER_CLASS_SELECTOR,
       ],
+    },
+  },
+  {
+    basePath: dirname(fileURLToPath(import.meta.url)),
+    files: SESSION_CODE_FILES,
+    ignores: ['**/*.spec.ts'],
+    rules: {
+      'no-restricted-properties': ['error', ACTIVE_ROOT_IN_SESSION_CODE],
     },
   },
   // Last, so they replace the `no-restricted-syntax` options the blocks above
