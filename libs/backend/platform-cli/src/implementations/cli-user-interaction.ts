@@ -80,12 +80,13 @@ export class CliUserInteraction implements IUserInteraction {
             'cmd',
           ),
           ['/c', 'start', '', url],
-          { stdio: 'ignore' },
+          { stdio: 'ignore', windowsHide: true },
         );
       } else if (platform === 'darwin') {
         child = spawn(resolveSystemBinary(['/usr/bin/open'], 'open'), [url], {
           detached: true,
           stdio: 'ignore',
+          windowsHide: true,
         });
       } else {
         child = spawn(
@@ -94,7 +95,7 @@ export class CliUserInteraction implements IUserInteraction {
             'xdg-open',
           ),
           [url],
-          { detached: true, stdio: 'ignore' },
+          { detached: true, stdio: 'ignore', windowsHide: true },
         );
       }
 
@@ -153,6 +154,7 @@ export class CliUserInteraction implements IUserInteraction {
       const child = spawn(command, args, {
         detached: process.platform !== 'win32',
         stdio: ['pipe', 'ignore', 'ignore'],
+        windowsHide: true,
       });
       child.stdin.write(text);
       child.stdin.end();

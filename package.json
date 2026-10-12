@@ -81,7 +81,7 @@
     "electron:package:local-production": "nx package-local-production ptah-electron",
     "electron:backup:production-data": "node apps/ptah-electron/scripts/backup-local-production-data.js",
     "electron:rebuild": "node apps/ptah-electron/scripts/rebuild-native.js",
-    "postinstall": "node apps/ptah-electron/scripts/rebuild-native.js && node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js",
+    "postinstall": "node apps/ptah-electron/scripts/rebuild-native.js && node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js && node scripts/windows-hide-patch/patch-windows-hide-deps.js",
     "cli:build": "nx build ptah-cli",
     "cli:dev": "nx dev ptah-cli",
     "cli:serve": "nx build ptah-cli && node dist/apps/ptah-cli/main.mjs",

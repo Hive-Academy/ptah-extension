@@ -72,6 +72,7 @@ function readShellPath(): string | null {
         encoding: 'utf8',
         timeout: 5000,
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       },
     );
 

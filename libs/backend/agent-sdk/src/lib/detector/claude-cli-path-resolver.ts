@@ -226,6 +226,7 @@ export class ClaudeCliPathResolver {
         detached: !isWindows,
         stdio: 'pipe',
         shell: false,
+        windowsHide: true,
       });
 
       let stdout = '';

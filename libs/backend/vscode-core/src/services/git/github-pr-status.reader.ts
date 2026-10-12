@@ -638,6 +638,7 @@ export class GitHubPrStatusReader {
         cwd,
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       });
     } catch (error: unknown) {
       this.deps.logger?.debug?.('[GitHubPrStatusReader] Failed to spawn gh', {
