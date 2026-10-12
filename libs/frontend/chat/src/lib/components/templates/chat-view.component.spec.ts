@@ -101,6 +101,7 @@ import { PanelResizeService } from '../../services/panel-resize.service';
 import {
   SESSION_CONTEXT,
   SESSION_VISIBLE,
+  SESSION_FORCED_CARD,
 } from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
@@ -178,6 +179,8 @@ function makeHarness(
     renderCompactTemplate?: boolean;
     /** Initial `activeTabViewMode` stub value. Defaults to 'full'. */
     activeTabViewMode?: TabViewMode;
+    /** When set, provide a tile-local signal that forces the compact card. */
+    forcedCard?: boolean;
   } = {},
 ) {
   const {
@@ -191,9 +194,12 @@ function makeHarness(
     renderOverlayTemplate = false,
     renderCompactTemplate = false,
     activeTabViewMode = 'full',
+    forcedCard,
   } = opts;
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
+  const forcedCardSig =
+    forcedCard === undefined ? null : signal<boolean>(forcedCard);
 
   // Writable signals for reactive control from tests
   const sessionIdSig = signal<string | null>(sessionId);
@@ -489,6 +495,14 @@ function makeHarness(
         provide: SESSION_VISIBLE,
         useValue: sessionVisibleSig ? sessionVisibleSig.asReadonly() : null,
       },
+      ...(forcedCardSig
+        ? [
+            {
+              provide: SESSION_FORCED_CARD,
+              useValue: forcedCardSig.asReadonly(),
+            },
+          ]
+        : []),
     ],
   });
 
@@ -542,6 +556,7 @@ function makeHarness(
     sessionIdSig,
     activeTabIdSig,
     sessionVisibleSig,
+    forcedCardSig,
     resumableSubagentsSig,
     isCompactingForTabMock,
     replayingTabIds,
@@ -2257,6 +2272,34 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     expect(fixture.nativeElement.querySelector('ptah-chat-input')).toBeNull();
   });
 
+  it('forces a compact card in full mode and restores the full view when cleared', () => {
+    const { component, fixture, forcedCardSig } = makeHarness({
+      activeTabViewMode: 'full',
+      forcedCard: true,
+      renderCompactTemplate: true,
+    });
+    fixture.detectChanges();
+
+    expect(component.resolvedViewMode()).toBe('full');
+    expect(
+      fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-transcript'),
+    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-sidebar-tab')).toBeNull();
+
+    forcedCardSig!.set(false);
+    fixture.detectChanges();
+    expect(component.resolvedViewMode()).toBe('full');
+    expect(
+      fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
+  });
+
   it('renders the full view (not the compact card) for "full"', () => {
     const { fixture } = makeHarness({
       activeTabViewMode: 'full',
@@ -2267,6 +2310,9 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
   });
 });
 

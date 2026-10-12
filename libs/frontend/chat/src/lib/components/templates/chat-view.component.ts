@@ -76,6 +76,7 @@ import {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
+  SESSION_FORCED_CARD,
 } from '../../tokens/session-context.token';
 import {
   ClaudeRpcService,
@@ -259,6 +260,9 @@ export class ChatViewComponent implements OnDestroy {
   });
   /** Tile surfaces provide their on-screen state; absent → always visible. */
   private readonly _sessionVisible = inject(SESSION_VISIBLE, {
+    optional: true,
+  });
+  private readonly _forcedCard = inject(SESSION_FORCED_CARD, {
     optional: true,
   });
   /** When true, the per-session Agents right sidebar is hidden (e.g. Tribunal
@@ -896,9 +900,6 @@ export class ChatViewComponent implements OnDestroy {
     return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
   });
 
-  /** Exposed for the template's `@if (isCompactViewMode(resolvedViewMode()))` gate. */
-  protected readonly isCompactViewMode = isCompactViewMode;
-
   /**
    * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
    * In compact mode the chat view renders a CompactSessionCard instead of the
@@ -916,6 +917,12 @@ export class ChatViewComponent implements OnDestroy {
     }
     return this._tabManager.activeTabViewMode();
   });
+
+  readonly showCompactCard = computed(
+    () =>
+      (this._forcedCard?.() ?? false) ||
+      isCompactViewMode(this.resolvedViewMode()),
+  );
 
   /**
    * The full TabState for the active tab (for compact card rendering).

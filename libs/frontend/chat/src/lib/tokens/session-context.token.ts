@@ -43,6 +43,11 @@ export const SESSION_FOCUSED = new InjectionToken<Signal<boolean>>(
   'SESSION_FOCUSED',
 );
 
+/** Optional signal that forces a tile to show its compact card without changing its stored view mode. */
+export const SESSION_FORCED_CARD = new InjectionToken<Signal<boolean>>(
+  'SESSION_FORCED_CARD',
+);
+
 /** Optional actions supplied by a canvas tile to the compact session card. */
 export interface SessionCardActions {
   openLane(laneKey: string): void;

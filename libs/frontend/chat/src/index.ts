@@ -32,4 +32,5 @@ export {
   parseLaneKey,
 } from './lib/components/molecules/compact-session/compact-lane-rows';
 export { SESSION_CARD_ACTIONS } from './lib/tokens/session-context.token';
+export { SESSION_FORCED_CARD } from './lib/tokens/session-context.token';
 export type { SessionCardActions } from './lib/tokens/session-context.token';
