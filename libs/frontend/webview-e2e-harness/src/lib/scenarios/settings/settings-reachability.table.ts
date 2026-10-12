@@ -916,27 +916,24 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
   },
   {
     id: '#74',
-    capability: 'Max concurrent agents slider',
+    capability: 'Max concurrent agents number input',
     status: 'present',
     reach: async (page) => {
       await orchestrationTab(page);
-      const slider = page.locator('#agent-max-concurrent');
-      await visibleEnabled(slider);
+      const field = page.locator('#agent-max-concurrent');
+      await visibleEnabled(field);
       const before = getFixtureState(page).calls.length;
-      await slider.fill('5');
+      await field.fill('5');
+      await field.press('Enter');
       await expectCall(page, before, 'agent:setConfig', {
         maxConcurrentAgents: 5,
       });
-      await expect(
-        policyBar(page).locator('[data-testid="policy-max-concurrent-value"]'),
-      ).toHaveText('5');
+      await expect(field).toHaveValue('5');
       await page.locator('[data-testid="settings-toast-undo"]').click();
       await expectCall(page, before, 'agent:setConfig', {
         maxConcurrentAgents: 3,
       });
-      await expect(
-        policyBar(page).locator('[data-testid="policy-max-concurrent-value"]'),
-      ).toHaveText('3');
+      await expect(field).toHaveValue('3');
     },
   },
   {
@@ -1025,9 +1022,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
       await orchestrationTab(page);
       await expect(page.locator('[data-read-loading]')).toHaveCount(0);
       await expect(page.locator('[data-read-error]')).toHaveCount(0);
-      await expect(
-        policyBar(page).locator('[data-testid="policy-max-concurrent-value"]'),
-      ).toHaveText('3');
+      await expect(page.locator('#agent-max-concurrent')).toHaveValue('3');
       let failing = true;
       await throughVariantBoot(
         page,

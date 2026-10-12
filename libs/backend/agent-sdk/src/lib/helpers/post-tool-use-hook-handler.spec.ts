@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
+import { MainThreadNoticeQueue } from './main-thread-notice-queue';
 import {
   POST_TOOL_USE_CAP_TIMEOUT_MS,
   PostToolUseHookHandler,
@@ -252,6 +253,134 @@ describe('PostToolUseHookHandler', () => {
     await fn(input, undefined, { signal: new AbortController().signal });
 
     expect(captured).toEqual([{ exitCode: null, success: false }]);
+  });
+
+  describe('main-thread notices', () => {
+    const baseInput = {
+      hook_event_name: 'PostToolUse',
+      session_id: 'sess-1',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+      tool_response: { stdout: 'out' },
+      tool_use_id: 'tu-1',
+    };
+    const call = (
+      handler: PostToolUseHookHandler,
+      input: Record<string, unknown>,
+    ) =>
+      getHookCallback(handler, 'closure-sess', '/ws')(
+        input as unknown as HookInput,
+        undefined,
+        { signal: new AbortController().signal },
+      ) as Promise<unknown>;
+
+    it('a main-thread tool result returns the pending notice once, then not again', async () => {
+      const logger = makeLogger();
+      const queue = new MainThreadNoticeQueue(logger);
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        undefined,
+        queue,
+      );
+      queue.post('sess-1', 'wrap up now');
+
+      expect(await call(handler, baseInput)).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: 'wrap up now',
+        },
+      });
+      expect(await call(handler, baseInput)).toEqual({ continue: true });
+    });
+
+    it('falls back to the closure session id when the payload has none', async () => {
+      const logger = makeLogger();
+      const queue = new MainThreadNoticeQueue(logger);
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        undefined,
+        queue,
+      );
+      queue.post('closure-sess', 'from closure');
+
+      const result = await call(handler, { ...baseInput, session_id: '' });
+      expect(result).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: 'from closure',
+        },
+      });
+    });
+
+    it('a subagent tool result (agent_id set) leaves the notice pending', async () => {
+      const logger = makeLogger();
+      const queue = new MainThreadNoticeQueue(logger);
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        undefined,
+        queue,
+      );
+      queue.post('sess-1', 'for the main agent');
+
+      expect(
+        await call(handler, { ...baseInput, agent_id: 'agent-7' }),
+      ).toEqual({ continue: true });
+      expect(queue.take('sess-1')).toBe('for the main agent');
+    });
+
+    it('returns the capped output and the notice in one hookSpecificOutput', async () => {
+      const logger = makeLogger();
+      const queue = new MainThreadNoticeQueue(logger);
+      const cap = jest.fn().mockResolvedValue({ stdout: 'capped' });
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        { cap } as never,
+        queue,
+      );
+      queue.post('sess-1', 'notice');
+
+      expect(await call(handler, baseInput)).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          updatedToolOutput: { stdout: 'capped' },
+          additionalContext: 'notice',
+        },
+      });
+    });
+
+    it('a failing queue loses the notice for this call only and logs at debug', async () => {
+      const logger = makeLogger();
+      const queue = {
+        take: jest.fn(() => {
+          throw new Error('broken');
+        }),
+      } as unknown as MainThreadNoticeQueue;
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        undefined,
+        queue,
+      );
+
+      expect(await call(handler, baseInput)).toEqual({ continue: true });
+      expect(logger.debug).toHaveBeenCalledTimes(1);
+    });
+
+    it('without a queue the result is unchanged', async () => {
+      const logger = makeLogger();
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+      );
+      expect(await call(handler, baseInput)).toEqual({ continue: true });
+    });
   });
 
   describe('tool output capper', () => {

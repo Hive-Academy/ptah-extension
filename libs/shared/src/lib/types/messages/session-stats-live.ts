@@ -29,6 +29,23 @@ export interface SessionStatsLiveWire {
   readonly sessionStats: SessionStatsEntry;
   /** Present only when `sessionStats.provisional === true`. */
   readonly context?: SessionStatsLiveContext;
+  /**
+   * Display-only live budget stage. Present only when
+   * `sessionStats.provisional === true`: absent = no change, `null` = clear,
+   * a value = set.
+   */
+  readonly liveBudgetStage?: 'handoff' | 'limit' | null;
+}
+
+type LiveBudgetStage = NonNullable<SessionStatsLiveWire['liveBudgetStage']>;
+
+/** `undefined` when the value is not a valid live stage (field dropped). */
+function parseLiveBudgetStage(
+  value: unknown,
+): LiveBudgetStage | null | undefined {
+  if (value === null) return null;
+  if (value === 'handoff' || value === 'limit') return value;
+  return undefined;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -70,6 +87,11 @@ function parseContext(value: unknown): SessionStatsLiveContext | null {
  * only the `context` is dropped — the result has no `context` key — and the
  * payload is kept: an authoritative snapshot must never replace the context
  * the result path derived from `modelUsage`.
+ *
+ * `liveBudgetStage` follows the same rule: `'handoff'`, `'limit'` or `null`
+ * is kept only on a provisional snapshot. Any other value, or a
+ * non-provisional snapshot, drops only that field (no key in the result), so
+ * the consumer sees "no change" rather than a clear.
  */
 export function parseSessionStatsLivePayload(
   payload: unknown,
@@ -90,10 +112,15 @@ export function parseSessionStatsLivePayload(
 
   // Envelope checked above; the deep shape is validated by the consumer.
   const stats = sessionStats as unknown as SessionStatsEntry;
-  const context =
-    provisional === true ? parseContext(payload['context']) : null;
+  if (provisional !== true) return { sessionId, sessionStats: stats };
 
-  return context
-    ? { sessionId, sessionStats: stats, context }
-    : { sessionId, sessionStats: stats };
+  const context = parseContext(payload['context']);
+  const liveBudgetStage = parseLiveBudgetStage(payload['liveBudgetStage']);
+
+  return {
+    sessionId,
+    sessionStats: stats,
+    ...(context ? { context } : {}),
+    ...(liveBudgetStage === undefined ? {} : { liveBudgetStage }),
+  };
 }

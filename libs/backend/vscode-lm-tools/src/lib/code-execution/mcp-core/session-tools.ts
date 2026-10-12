@@ -61,10 +61,11 @@ export function buildSessionStartTool(): MCPToolDefinition {
     description:
       'Start a child chat session on a NEW git branch in its own worktree. ' +
       'For mode "child" (the default), task and branch are required. Use mode ' +
-      '"successor" to hand this session to a replacement, optionally with ' +
-      'agent-written handoff text; successor accepts no child task/worktree ' +
-      'fields. It opens as a tab and runs unattended: edits in its worktree ' +
-      'and allowlisted Bash commands run without asking; other actions wait a ' +
+      '"successor" to request handing this session to a replacement, ' +
+      'optionally with handoff text; nothing starts until the user approves ' +
+      'in the session banner. Successor accepts no child task/worktree fields. ' +
+      'A child opens as a tab and runs unattended: edits in its worktree and ' +
+      'allowlisted Bash commands run without asking; other actions wait a ' +
       'bounded time for the user, then are denied. Steer it with ' +
       'ptah_session_send. It reports with ptah_agent_report and pushes a ' +
       'completion turn when it settles. Slash-command tasks run as that command. ' +

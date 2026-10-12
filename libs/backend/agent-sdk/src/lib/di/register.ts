@@ -113,6 +113,7 @@ import {
   type SessionBudgetSessionControl,
 } from '../helpers/session-budget/session-budget.service';
 import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-advisor';
+import { MainThreadNoticeQueue } from '../helpers/main-thread-notice-queue';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
@@ -271,6 +272,11 @@ export function registerSdkServices(
     { useClass: PostToolUseCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  // One shared queue: producers post host notices and the PostToolUse hook
+  // handler drains them. Registered first so the handler never gets an
+  // auto-constructed private instance.
+  container.registerSingleton(MainThreadNoticeQueue);
 
   container.register(
     SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
@@ -483,12 +489,16 @@ export function registerSdkServices(
   // monitor, and the monitor needs the dispatcher, which injects the manager.
   // The dispatcher is resolved on first use, after the manager exists, so
   // constructing the manager does not recurse.
+  // The handoff goes to the main-thread notice queue, not into the parent's
+  // input stream: the stopped subagent's own `Agent` tool result is the next
+  // main-thread PostToolUse, which drains the queue into its context.
   container.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, {
     useFactory: instanceCachingFactory((c) => {
       const dispatcher = () =>
         c.resolve<SubagentMessageDispatcher>(
           SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
         );
+      const notices = c.resolve(MainThreadNoticeQueue);
       return new SubagentBudgetMonitor(
         c.resolve<Logger>(TOKENS.LOGGER),
         c.resolve<CompactionConfigProvider>(
@@ -497,8 +507,10 @@ export function registerSdkServices(
         {
           stopSubagent: (sessionId, taskId) =>
             dispatcher().stopSubagent(sessionId, taskId),
-          pushParentMessage: (sessionId, content) =>
-            dispatcher().pushParentMessage(sessionId, content),
+          pushParentMessage: (sessionId, content) => {
+            notices.post(sessionId, content);
+            return Promise.resolve();
+          },
         },
         c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
       );
@@ -778,6 +790,7 @@ export function registerSdkServices(
             c.isRegistered(SESSION_SUCCESSOR_HOST, true)
               ? c.resolve(SESSION_SUCCESSOR_HOST)
               : null,
+          c.resolve<Logger>(TOKENS.LOGGER),
         ),
     ),
   });
@@ -805,6 +818,12 @@ export function registerSdkServices(
               SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
             )
             .getSessionWorkspace(...args),
+        find: (...args) =>
+          c
+            .resolve<SessionLifecycleManager>(
+              SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+            )
+            .find(...args),
       };
       return new SessionBudgetService(
         c.resolve<Logger>(TOKENS.LOGGER),
@@ -814,6 +833,7 @@ export function registerSdkServices(
         c.resolve(SessionHandoffBuilder),
         c.resolve(SessionHandoffWriter),
         c.resolve(SessionRotationAdvisor),
+        c.resolve(MainThreadNoticeQueue),
       );
     }),
   });

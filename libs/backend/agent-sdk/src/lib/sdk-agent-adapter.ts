@@ -26,6 +26,7 @@ import {
   type SessionBudgetState,
   type SessionStatsEntry,
   type LiveStatsCallback,
+  type SessionStatsLivePayload,
   blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
@@ -190,6 +191,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
   /** An `observe` throw is WARNed once per adapter, never per result. */
   private budgetObserveWarned = false;
 
+  /** An `observeLive` throw is WARNed once per adapter, never per estimate. */
+  private budgetObserveLiveWarned = false;
+
   /** Disposer of the idle-eviction budget release; called in `dispose()`. */
   private readonly stopEvictionRelease: () => void;
 
@@ -263,7 +267,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET)
     private readonly sessionBudget: Pick<
       SessionBudgetService,
-      'observe' | 'recordCompaction' | 'release' | 'clearAll' | 'canSend'
+      | 'observe'
+      | 'observeLive'
+      | 'recordCompaction'
+      | 'release'
+      | 'clearAll'
+      | 'canSend'
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
@@ -913,7 +922,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         trackingId,
         this.callbacks.getResultStats(),
       ),
-      onLiveStats: this.callbacks.getLiveStats(),
+      onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1072,7 +1081,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionId,
           this.callbacks.getResultStats(),
         ),
-        onLiveStats: this.callbacks.getLiveStats(),
+        onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
@@ -1219,7 +1228,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
-      onLiveStats: this.callbacks.getLiveStats(),
+      onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1437,9 +1446,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Provisional in-turn snapshots. Passed to every stream as-is, never through
-   * `wrapResultStatsForActivity`: a live estimate is not a result, so it must
-   * not notify activity or feed the session budget.
+   * Provisional in-turn snapshots. Passed to every stream through
+   * `wrapLiveStatsForBudget`, never `wrapResultStatsForActivity`: a live
+   * estimate is not a result, so it must not notify activity nor reach the
+   * budget's authoritative `observe`.
    */
   setLiveStatsCallback(callback: LiveStatsCallback): void {
     this.callbacks.setLiveStats(callback);
@@ -1580,7 +1590,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
-      onLiveStats: this.callbacks.getLiveStats(),
+      onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
@@ -1811,6 +1821,53 @@ export class SdkAgentAdapter implements IAgentAdapter {
         // `null` is the explicit no-state marker.
         inner(budget === undefined ? stats : { ...stats, budget });
       }
+      // R2: the result lands after the turn terminal, so a blocking limit it
+      // made authoritative parks the limit handover here (the user's click
+      // starts it). Nothing else is armed after a result.
+      if (budget?.blocked === true) {
+        try {
+          this.sessionLifecycle.parkLimitHandoverIfIdle(sessionId);
+        } catch (error: unknown) {
+          this.logger.warn(
+            `[SdkAgentAdapter] Could not park the budget limit handover for ${sessionId}`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }
+    };
+  }
+
+  /**
+   * Feed each in-turn estimate to the budget's display-only stage
+   * (`observeLive`, never `observe`), then the host callback with that stage
+   * as `liveBudgetStage`: omitted when the budget reports no change
+   * (`undefined`), set for `null` (clear) or a stage. Installed even without a
+   * host callback so every host feeds the budget. The live stage never arms
+   * or starts a handover (D17, D22); a budget throw is WARNed once, omits the
+   * field and never withholds the payload from the host.
+   */
+  private wrapLiveStatsForBudget(
+    inner: LiveStatsCallback | undefined,
+  ): LiveStatsCallback {
+    return (payload) => {
+      let liveBudgetStage: SessionStatsLivePayload['liveBudgetStage'];
+      try {
+        liveBudgetStage = this.sessionBudget.observeLive(payload.sessionStats);
+      } catch (error: unknown) {
+        if (!this.budgetObserveLiveWarned) {
+          this.budgetObserveLiveWarned = true;
+          this.logger.warn(
+            '[SdkAgentAdapter] Session budget live observe failed; the estimate is published without it',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }
+      // Returned so the publisher still sees an async host failure.
+      return inner?.(
+        liveBudgetStage === undefined
+          ? payload
+          : { ...payload, liveBudgetStage },
+      );
     };
   }
 

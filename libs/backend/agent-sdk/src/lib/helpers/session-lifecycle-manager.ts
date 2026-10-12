@@ -457,9 +457,8 @@ export class SessionLifecycleManager {
       compactionProvider ? () => compactionProvider.getConfig() : null,
       (sessionId) => this.onTurnTerminal(sessionId),
       (sessionId) =>
-        !this.handoverCoordinator?.admitInterrupt(
-          this.handoverKey(sessionId),
-        ).held,
+        !this.handoverCoordinator?.admitInterrupt(this.handoverKey(sessionId))
+          .held,
     );
     this.handoverCoordinator?.attachRuntime({
       sourceSnapshot: (sourceSessionId) => {
@@ -484,7 +483,10 @@ export class SessionLifecycleManager {
         };
       },
       queueOwnedHandoff: (sourceSessionId, prompt) =>
-        this._streamPump.enqueueOwnedHandoff(sourceSessionId as SessionId, prompt),
+        this._streamPump.enqueueOwnedHandoff(
+          sourceSessionId as SessionId,
+          prompt,
+        ),
       restoreInputs: (sourceSessionId, inputs) => {
         return this._registry.restoreQueuedInputs(sourceSessionId, inputs);
       },
@@ -492,35 +494,88 @@ export class SessionLifecycleManager {
         this.endSessionIfTokenMatches(sourceSessionId as SessionId, token),
       isOwnedHandoffPendingOrRunning: (sourceSessionId, token) => {
         const rec = this._registry.find(sourceSessionId);
-        return !!rec && rec.token === token && (
-          rec.turnInFlight ||
-          rec.messageQueue.some(
-            (input) => input.admission === 'owned-handoff',
-          )
+        return (
+          !!rec &&
+          rec.token === token &&
+          (rec.turnInFlight ||
+            rec.messageQueue.some(
+              (input) => input.admission === 'owned-handoff',
+            ))
         );
       },
+      subagentsInFlight: (sourceSessionId) =>
+        this.subagentsInFlight(sourceSessionId),
     });
     this._registry.startEvictionSweep();
     this.watchCompactionThreshold();
   }
 
-  /** Arm a handover before waking a held source queue. */
+  /**
+   * At a turn's end, before waking a held source queue: park the blocking
+   * limit, or advance a handover the user confirmed. Arms nothing on a stage.
+   */
   onTurnTerminal(
     sessionId: SessionId,
     atBlockingLimit: boolean = this.isAtBlockingLimit(sessionId),
   ): void {
     const rec = this._registry.find(sessionId as string);
+    const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
     if (rec && this.handoverCoordinator) {
-      const canonicalId = this.handoverKey(sessionId);
-      const budgetSessionId = rec.realSessionId ?? (sessionId as string);
       this.handoverCoordinator.armAtTerminal(
-        canonicalId,
+        this.handoverKey(sessionId),
         atBlockingLimit,
         rec.messageQueue,
-        this.sessionBudget?.stageFor(budgetSessionId) === 'handoff',
       );
     }
+    // After the coordinator: the turn's estimate must not outlive the turn,
+    // nor may its pending notices reach the next one.
+    this.sessionBudget?.onTurnTerminal(budgetSessionId);
     this._registry.markTurnEnded(sessionId as string);
+  }
+
+  /**
+   * Park the limit handover for an idle source whose blocking limit became
+   * authoritative only on the turn's result, after its terminal. Same path
+   * as the terminal, so a parked agent request converts here too. A no-op
+   * mid-turn (that turn's terminal parks) or below the blocking limit.
+   */
+  parkLimitHandoverIfIdle(sessionId: SessionId): void {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec || rec.turnInFlight || !this.handoverCoordinator) return;
+    if (!this.isAtBlockingLimit(sessionId)) return;
+    this.handoverCoordinator.armAtTerminal(
+      this.handoverKey(sessionId),
+      true,
+      rec.messageQueue,
+    );
+  }
+
+  /**
+   * Running and background subagents of a source, looked up under both its
+   * SDK id and its tab id (records may carry either) and counted once each.
+   */
+  private subagentsInFlight(sourceSessionId: string): number {
+    const rec = this._registry.find(sourceSessionId);
+    const parentIds = new Set(
+      [sourceSessionId, rec?.realSessionId, rec?.tabId].filter(
+        (id): id is string => !!id,
+      ),
+    );
+    const toolCallIds = new Set<string>();
+    for (const parentId of parentIds) {
+      for (const record of this.subagentRegistry.getRunningBySession(
+        parentId,
+      )) {
+        toolCallIds.add(record.toolCallId);
+      }
+      // Only live (`background`, unexpired) records are returned here.
+      for (const record of this.subagentRegistry.getBackgroundAgents(
+        parentId,
+      )) {
+        toolCallIds.add(record.toolCallId);
+      }
+    }
+    return toolCallIds.size;
   }
 
   /** Read the current refusal before an interrupt releases the source turn. */

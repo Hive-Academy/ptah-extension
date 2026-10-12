@@ -4,7 +4,7 @@
  * `session:budgetAction` params arrive from the webview's budget banner. The
  * session id becomes a map key in `SessionBudgetService` and, for the handoff
  * actions, part of a file name under `~/.ptah/handoffs/`, so it must be an SDK
- * session UUID; the action must be one of the five banner actions.
+ * session UUID; the action must be one of the six banner actions.
  */
 import { z } from 'zod';
 import {
@@ -20,6 +20,7 @@ export const SESSION_BUDGET_ACTIONS = [
   'restore-window',
   'write-handoff',
   'preview-handoff',
+  'request-wrap-up',
 ] as const satisfies readonly SessionBudgetAction[];
 
 export const SessionBudgetActionParamsSchema = z.object({

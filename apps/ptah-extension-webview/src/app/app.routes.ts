@@ -63,8 +63,9 @@ import { electronOnlySurface } from './electron-only-surface.guard';
  *   is already in the eager graph.
  * - everything else — `loadComponent`. These replace the five deferred
  *   `LazyViewService` tokens one-for-one, plus `thoth`'s
- *   `@defer (on immediate)` block. `marketplace` is the one `loadChildren`:
- *   its pages are child routes of the lazily loaded tree.
+ *   `@defer (on immediate)` block. `marketplace` and `thoth` are
+ *   `loadChildren`: their pages (Thoth: its tabs) are child routes of the
+ *   lazily loaded tree.
  * - `apps` — `loadComponent`, Electron-only. `canMatch: [electronOnlySurface]`
  *   refuses the match on VS Code before the chunk is requested, and the `**`
  *   fallback lands on `chat`. Nothing eager may import
@@ -79,11 +80,18 @@ export const appRoutes: Routes = [
     // Component-less on purpose — see the note above. `children: []` is the
     // same construct `apps/ptah-landing-page`'s `docs` route uses to declare a
     // reachable path that renders nothing into the outlet.
+    //
+    // The optional `:tabId` makes the active chat tab addressable
+    // (`/chat/<tabId>`). It renders nothing either: `TabManagerService` owns the
+    // active tab and `ChatTabRouteSync` keeps this segment in step with it.
     path: 'chat',
     providers: [
       { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
     ],
-    children: [],
+    children: [
+      { path: '', children: [] },
+      { path: ':tabId', children: [] },
+    ],
   },
   {
     path: 'setup-wizard',
@@ -134,8 +142,11 @@ export const appRoutes: Routes = [
     providers: [
       { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('thoth') },
     ],
-    loadComponent: () =>
-      import('@ptah-extension/thoth-shell').then((m) => m.ThothShellComponent),
+    // A routed tree: the shell over `/thoth/:tab`, with `/thoth` redirecting to
+    // the remembered tab (`THOTH_ROUTES`, TASK_2026_524 Batch 4e). Same chunk
+    // as the former `loadComponent`.
+    loadChildren: () =>
+      import('@ptah-extension/thoth-shell').then((m) => m.THOTH_ROUTES),
   },
   {
     path: 'marketplace',

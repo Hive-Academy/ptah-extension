@@ -53,13 +53,16 @@ import { SessionBudgetConfigProvider } from './session-budget-config.provider';
 import {
   SessionHandoffBuilder,
   assembleSessionHandoff,
+  sessionHandoffSeed,
   type SessionHandoffDocument,
 } from './session-handoff-builder';
 import { SessionHandoffWriter } from './session-handoff-writer';
 import { SessionRotationAdvisor } from '../compaction/session-rotation-advisor';
+import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
 import {
   acceptsSessionBudgetSnapshot,
   evaluateSessionBudget,
+  higherSessionBudgetStage,
   sessionBudgetStageRank,
   type SessionBudgetFigure,
 } from './session-budget-stage';
@@ -67,7 +70,7 @@ import {
 /** Session-control surface the budget needs (the lifecycle manager). */
 export type SessionBudgetSessionControl = Pick<
   SessionLifecycleManager,
-  'applySessionAutoCompactWindow' | 'getSessionWorkspace'
+  'applySessionAutoCompactWindow' | 'getSessionWorkspace' | 'find'
 >;
 
 /** Stats surface the budget reads when it has no state yet. */
@@ -83,12 +86,30 @@ export type SessionBudgetConfigSource = Pick<
 
 export type SessionBudgetHandoffBuilder = Pick<SessionHandoffBuilder, 'build'>;
 
-export type SessionBudgetHandoffWriter = Pick<SessionHandoffWriter, 'write'>;
+export type SessionBudgetHandoffWriter = Pick<
+  SessionHandoffWriter,
+  'write' | 'read'
+>;
 
 export type SessionBudgetRotationAdvisor = Pick<
   SessionRotationAdvisor,
   'evaluate' | 'current' | 'release'
 >;
+
+/**
+ * Notice-queue surface the budget needs: post the user-requested wrap-up,
+ * drop pending notices.
+ */
+export type SessionBudgetNoticeQueue = Pick<
+  MainThreadNoticeQueue,
+  'post' | 'clear'
+>;
+
+/**
+ * The display-only live stage `observeLive` reports (D25): `undefined` keeps
+ * what the webview shows, `null` clears it, a value sets it.
+ */
+export type SessionBudgetLiveStage = 'handoff' | 'limit' | null | undefined;
 
 /** `canSend` verdict; a refusal carries the state that refused it. */
 export type SessionBudgetSendCheck =
@@ -109,6 +130,7 @@ const SEND_OK: SessionBudgetSendCheck = Object.freeze({ ok: true });
  */
 const RELEASED_IDS_CAP = 1024;
 
+const UNKNOWN_RANK = sessionBudgetStageRank('unknown');
 const TIGHTEN_RANK = sessionBudgetStageRank('tighten');
 const HANDOFF_RANK = sessionBudgetStageRank('handoff');
 const LIMIT_RANK = sessionBudgetStageRank('limit');
@@ -131,6 +153,19 @@ interface BudgetEntry {
   usageSeq: number;
   /** Figure and stage; `null` before the first figure or while disabled. */
   figure: SessionBudgetFigure | null;
+  /**
+   * The in-turn estimate's figure (`observeLive`): raises `stageFor` only,
+   * never refuses a send. Cleared at turn end and by a newer authoritative
+   * snapshot.
+   */
+  liveFigure: SessionBudgetFigure | null;
+  /** Highest live stage rank already logged in this turn. */
+  liveLoggedRank: number;
+  /**
+   * Highest stage rank the user asked the agent to wrap up at in this turn.
+   * Reset at turn end, on extend and on a settings change.
+   */
+  wrapUpRequestedRank: number;
   /** Settings the figure was computed with (a change resets the stage). */
   configKey: string | null;
   compactions: number;
@@ -143,6 +178,12 @@ interface BudgetEntry {
   /** `usageSeq` the kept `handoffCopy` was built at. */
   handoffCopySeq: number;
   dismissedStage?: SessionBudgetStage;
+  /**
+   * Session workspace, remembered the first time session control knows it, so
+   * a handoff built after the lifecycle forgot the session (disposal) still
+   * reads the transcript.
+   */
+  workspacePath?: string;
   /** Failure kinds already WARNed for this session. */
   readonly warned: Set<string>;
   /** Tail of the serialised stage-action chain; never rejects. */
@@ -157,6 +198,59 @@ function configKeyOf(config: SessionBudgetConfig): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function budgetAmount(value: number, figure: SessionBudgetFigure): string {
+  if (figure.measure === 'cost' || figure.measure === 'cost-lower-bound') {
+    return `$${value.toFixed(2)}`;
+  }
+  const unit =
+    figure.measure === 'weighted-fallback' ? 'weighted tokens' : 'tokens';
+  return `${Math.round(value).toLocaleString('en-US')} ${unit}`;
+}
+
+/**
+ * The host-authored wrap-up notice, posted only when the user asks for it
+ * (`request-wrap-up`). It tells the agent the user continues in a new session
+ * and, at a blocking limit, that the user does so with "New session"
+ * (627-L19). Ptah starts nothing on its own.
+ */
+function wrapUpNotice(
+  figure: SessionBudgetFigure,
+  atLimit: boolean,
+  blocking: boolean,
+): string {
+  const usage =
+    figure.used === null || figure.percent === null
+      ? ''
+      : ` (about ${budgetAmount(figure.used, figure)} of ${budgetAmount(figure.limit, figure)}, ${Math.floor(figure.percent)}%)`;
+  const ending =
+    'then end the turn with a short summary of where the work stands. ' +
+    'The user will continue in a new session.';
+  if (!atLimit) {
+    return (
+      `[Ptah] The user asked you to wrap up: this session is near its budget${usage}. ` +
+      'Finish the step in progress. Do not start new tasks, subagents or CLI ' +
+      'lanes. Wait for running subagents to return and for running CLI lanes ' +
+      `(ptah_agent_wait / ptah_agent_status), ${ending}`
+    );
+  }
+  const click = blocking
+    ? ' New messages to this session are refused at the limit; the user ' +
+      'will click "New session" to continue.'
+    : '';
+  return (
+    `[Ptah] The user asked you to wrap up: this session reached its budget limit${usage}. ` +
+    `Stop now: do not start or wait for anything new, ${ending}${click}`
+  );
+}
+
+/** Wrap-up rank of a stage: `handoff`, `limit`, or none (`unknown`). */
+function wrapUpRankOf(stage: SessionBudgetStage | undefined): number {
+  if (!stage) return UNKNOWN_RANK;
+  const rank = sessionBudgetStageRank(stage);
+  if (rank >= LIMIT_RANK) return LIMIT_RANK;
+  return rank >= HANDOFF_RANK ? HANDOFF_RANK : UNKNOWN_RANK;
 }
 
 @injectable()
@@ -183,6 +277,9 @@ export class SessionBudgetService {
     private readonly handoffWriter: SessionBudgetHandoffWriter,
     @inject(SessionRotationAdvisor)
     private readonly rotationAdvisor: SessionBudgetRotationAdvisor,
+    /** Absent in callers that construct the service without one: nothing to clear. */
+    @inject(MainThreadNoticeQueue)
+    private readonly noticeQueue?: SessionBudgetNoticeQueue,
   ) {}
 
   /**
@@ -206,6 +303,91 @@ export class SessionBudgetService {
   ): SessionBudgetState | null | undefined {
     if (!snapshot) return undefined;
     return this.accept(snapshot, 'loaded');
+  }
+
+  /**
+   * In-turn estimate (`provisional: true`, TASK_2026_626). Kept apart from
+   * the authoritative figure: it raises `stageFor` for display only. It never
+   * refuses a send, runs a stage action, posts a notice or arms a handover.
+   * Never throws.
+   *
+   * Returns the display stage (D25): `undefined` when the estimate is ignored
+   * (not provisional, untracked or released, older than the authoritative
+   * figure, another measure, or a failure; the retained estimate is
+   * untouched); `null` when the budget is disabled or the accepted estimate
+   * is below `handoff`; otherwise `handoff` or `limit`.
+   */
+  observeLive(snapshot: SessionStatsEntry): SessionBudgetLiveStage {
+    if (snapshot.provisional !== true) return undefined;
+    const sessionId = snapshot.sessionId;
+    try {
+      const config = this.configSource.getConfig();
+      if (!config.enabled) {
+        const stale = this.entries.get(sessionId);
+        if (stale) stale.liveFigure = null;
+        return null;
+      }
+      const entry = this.trackedEntry(sessionId, 'live');
+      if (!entry) return undefined;
+      this.rememberWorkspace(entry);
+      const authoritative = entry.figure?.revision ?? null;
+      if (authoritative !== null && (snapshot.revision ?? -1) < authoritative) {
+        return undefined;
+      }
+      const key = configKeyOf(config);
+      const configChanged = entry.configKey !== null && entry.configKey !== key;
+      const previous = entry.figure
+        ? this.composeState(entry, entry.figure)
+        : null;
+      const figure = evaluateSessionBudget({
+        snapshot,
+        config,
+        previous,
+        compactions: entry.compactions,
+        extensions: entry.extensions,
+        resetStage: configChanged,
+        resetMeasure: configChanged,
+      });
+      if (previous && figure.measure !== previous.measure) {
+        // Risk A3: an unpriced estimate can move a cost budget to another
+        // measure; comparing it with the authoritative figure would mislead.
+        this.logger.debug(
+          `[SessionBudget] Ignored a live estimate measured as ${figure.measure} (authoritative ${previous.measure}) for ${sessionId}`,
+        );
+        return undefined;
+      }
+      const from =
+        entry.liveFigure?.stage ?? previous?.stage ?? ('unknown' as const);
+      entry.liveFigure = figure;
+      this.logLiveStage(entry, from, figure);
+      const rank = wrapUpRankOf(figure.stage);
+      if (rank === LIMIT_RANK) return 'limit';
+      return rank === HANDOFF_RANK ? 'handoff' : null;
+    } catch (error: unknown) {
+      // degradation-audit: reported - an estimate failure leaves the
+      // authoritative path untouched (fail-open) and the display unchanged.
+      this.warnOnce(
+        this.entries.get(sessionId),
+        sessionId,
+        'observe-live',
+        error,
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * Turn end: drop the in-turn estimate, its log and wrap-up ranks and the
+   * session's pending main-thread notices (they would land in the next turn).
+   */
+  onTurnTerminal(sessionId: string): void {
+    const entry = this.entries.get(sessionId);
+    if (entry) {
+      entry.liveFigure = null;
+      entry.liveLoggedRank = UNKNOWN_RANK;
+      entry.wrapUpRequestedRank = UNKNOWN_RANK;
+    }
+    this.noticeQueue?.clear(sessionId);
   }
 
   /**
@@ -245,9 +427,16 @@ export class SessionBudgetService {
     }
   }
 
-  /** Current stage without turning an advisory handoff stage into a refusal. */
+  /**
+   * Current stage without turning an advisory handoff stage into a refusal:
+   * the higher of the authoritative and the in-turn estimate's stage.
+   */
   stageFor(sessionId: string): SessionBudgetStage | undefined {
-    return this.entries.get(sessionId)?.figure?.stage;
+    const entry = this.entries.get(sessionId);
+    const stage = entry?.figure?.stage;
+    const live = entry?.liveFigure?.stage;
+    if (!live) return stage;
+    return stage ? higherSessionBudgetStage(stage, live) : live;
   }
 
   /** A user action from the budget banner. Never throws. */
@@ -269,6 +458,8 @@ export class SessionBudgetService {
           return await this.writeHandoffAction(sessionId, entry);
         case 'preview-handoff':
           return await this.previewHandoff(sessionId, entry);
+        case 'request-wrap-up':
+          return this.requestWrapUp(sessionId, entry);
       }
     } catch (error: unknown) {
       this.logger.error(
@@ -284,12 +475,14 @@ export class SessionBudgetService {
   }
 
   /**
-   * Session end: drop its state, rotation advisory included, and remember the
-   * id so a late result or compaction does not bring the entry back.
+   * Session end: drop its state, rotation advisory and pending main-thread
+   * notices included, and remember the id so a late result or compaction does
+   * not bring the entry back.
    */
   release(sessionId: string): void {
     this.entries.delete(sessionId);
     this.rotationAdvisor.release(sessionId);
+    this.noticeQueue?.clear(sessionId);
     this.released.delete(sessionId);
     this.released.add(sessionId);
     if (this.released.size > RELEASED_IDS_CAP) {
@@ -298,10 +491,11 @@ export class SessionBudgetService {
     }
   }
 
-  /** Disposal: drop every session's state. */
+  /** Disposal: drop every session's state and pending notices. */
   clearAll(): void {
     for (const sessionId of this.entries.keys()) {
       this.rotationAdvisor.release(sessionId);
+      this.noticeQueue?.clear(sessionId);
     }
     this.entries.clear();
     this.released.clear();
@@ -340,6 +534,7 @@ export class SessionBudgetService {
     // A released session without a new owner is a known absence, unlike an
     // observation fault (which `accept` reports as `undefined`).
     if (!entry) return null;
+    this.rememberWorkspace(entry);
     const config = this.configSource.getConfig();
 
     if (!config.enabled) {
@@ -349,6 +544,7 @@ export class SessionBudgetService {
       this.evaluateRotation(snapshot);
       this.storeSnapshot(entry, snapshot);
       entry.figure = null;
+      entry.liveFigure = null;
       entry.configKey = null;
       return this.disabledState(snapshot, config, entry);
     }
@@ -361,6 +557,10 @@ export class SessionBudgetService {
 
     this.evaluateRotation(snapshot);
     this.storeSnapshot(entry, snapshot);
+    // A newer authoritative snapshot replaces the in-turn estimate (626).
+    if ((snapshot.revision ?? -1) > (entry.liveFigure?.revision ?? -1)) {
+      entry.liveFigure = null;
+    }
     return this.applyEvaluation(entry, config, {
       resetStage: false,
       runActions: source === 'live',
@@ -401,6 +601,14 @@ export class SessionBudgetService {
     });
     entry.figure = figure;
     entry.configKey = key;
+    if (options.resetStage || configChanged) {
+      // Extend or new settings: the estimate was measured against the old
+      // limit; the next one re-evaluates, and the user may ask for a wrap-up
+      // again at the new stage.
+      entry.liveFigure = null;
+      entry.liveLoggedRank = UNKNOWN_RANK;
+      entry.wrapUpRequestedRank = UNKNOWN_RANK;
+    }
 
     const rank = sessionBudgetStageRank(figure.stage);
     if (rank < entry.actedRank) {
@@ -632,7 +840,11 @@ export class SessionBudgetService {
     const budget = entry?.figure
       ? this.composeState(entry, entry.figure)
       : undefined;
-    const workspacePath = this.sessionControl.getSessionWorkspace(sessionId);
+    // The live lookup first; after disposal the lifecycle no longer knows the
+    // session, so the workspace remembered on the entry is the fallback.
+    const workspacePath =
+      this.sessionControl.getSessionWorkspace(sessionId) ??
+      entry?.workspacePath;
     if (workspacePath === undefined) {
       this.warnOnce(
         entry,
@@ -671,6 +883,62 @@ export class SessionBudgetService {
   // ---------------------------------------------------------------------------
   // User actions
   // ---------------------------------------------------------------------------
+
+  /**
+   * "Ask agent to wrap up" (plan v2 Decision 1): post the wrap-up notice to
+   * the running turn, only at the `handoff` or `limit` display stage. Once
+   * per stage rank per turn: a repeat succeeds and posts nothing. Refused
+   * with `WRAP_UP_UNAVAILABLE` without a budget entry, below `handoff`, while
+   * no turn runs (the notice would land in the next turn), with the budget
+   * disabled, or when the host has no notice queue.
+   */
+  private requestWrapUp(
+    sessionId: string,
+    entry: BudgetEntry | undefined,
+  ): SessionBudgetActionResult {
+    const figure =
+      entry && this.configSource.getConfig().enabled
+        ? this.displayFigure(entry)
+        : null;
+    const rank = wrapUpRankOf(figure?.stage);
+    if (
+      !entry ||
+      !figure ||
+      rank === UNKNOWN_RANK ||
+      !this.noticeQueue ||
+      this.sessionControl.find(sessionId)?.turnInFlight !== true
+    ) {
+      return {
+        success: false,
+        ...this.stateField(entry),
+        error:
+          'The agent is not working on a turn at the handoff or limit stage',
+        errorCode: 'WRAP_UP_UNAVAILABLE',
+      };
+    }
+    if (rank > entry.wrapUpRequestedRank) {
+      entry.wrapUpRequestedRank = rank;
+      this.logger.info(
+        `[SessionBudget] Wrap-up requested by the user for ${sessionId} at ${figure.stage}`,
+      );
+      this.noticeQueue.post(
+        sessionId,
+        wrapUpNotice(figure, rank === LIMIT_RANK, figure.blocked),
+      );
+    }
+    return { success: true, ...this.stateField(entry) };
+  }
+
+  /** The figure behind `stageFor`: the higher of authoritative and live. */
+  private displayFigure(entry: BudgetEntry): SessionBudgetFigure | null {
+    const { figure, liveFigure } = entry;
+    if (!liveFigure) return figure;
+    if (!figure) return liveFigure;
+    return sessionBudgetStageRank(liveFigure.stage) >
+      sessionBudgetStageRank(figure.stage)
+      ? liveFigure
+      : figure;
+  }
 
   private dismiss(entry: BudgetEntry | undefined): SessionBudgetActionResult {
     if (!entry?.figure) return this.noState();
@@ -755,13 +1023,14 @@ export class SessionBudgetService {
    * The kept handoff when no newer usage (snapshot or extend) was observed
    * since it was built, else one built now (not written). Rotation seeds the
    * new session from this, so a copy older than the usage is never reused.
+   * With no entry (an unknown or released session) only the handoff file on
+   * disk can answer.
    */
   private async previewHandoff(
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<SessionBudgetActionResult> {
-    // No entry: an unknown or released session; no transcript is read.
-    if (!entry) return this.noState();
+    if (!entry) return this.persistedHandoff(sessionId);
     if (entry.handoffCopy && entry.handoffCopySeq === entry.usageSeq) {
       return {
         success: true,
@@ -776,6 +1045,28 @@ export class SessionBudgetService {
       path: null,
     };
     return { success: true, ...this.stateField(entry), handoff: built };
+  }
+
+  /**
+   * The handoff file written at the handoff or limit stage. It outlives the
+   * entry `release` drops when the session ends, so the webview's rotate
+   * fallback for an ended source still gets a seed (TASK_2026_627 6F S1). No
+   * transcript is read and nothing is written; with no file the answer stays
+   * "no state". No `state` field: the session has no budget any more.
+   */
+  private async persistedHandoff(
+    sessionId: string,
+  ): Promise<SessionBudgetActionResult> {
+    const persisted = await this.handoffWriter.read(sessionId);
+    if (!persisted) return this.noState();
+    return {
+      success: true,
+      handoff: {
+        content: persisted.content,
+        seed: sessionHandoffSeed(persisted.content),
+        path: persisted.path,
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -832,10 +1123,13 @@ export class SessionBudgetService {
         snapshot: null,
         usageSeq: 0,
         figure: null,
+        liveFigure: null,
+        liveLoggedRank: UNKNOWN_RANK,
+        wrapUpRequestedRank: UNKNOWN_RANK,
         configKey: null,
         compactions: 0,
         extensions: 0,
-        actedRank: sessionBudgetStageRank('unknown'),
+        actedRank: UNKNOWN_RANK,
         handoffCopy: null,
         handoffCopySeq: 0,
         warned: new Set<string>(),
@@ -844,6 +1138,15 @@ export class SessionBudgetService {
       this.entries.set(sessionId, entry);
     }
     return entry;
+  }
+
+  /** Remember the session workspace the first time session control knows it. */
+  private rememberWorkspace(entry: BudgetEntry): void {
+    if (entry.workspacePath !== undefined) return;
+    const workspacePath = this.sessionControl.getSessionWorkspace(
+      entry.sessionId,
+    );
+    if (workspacePath !== undefined) entry.workspacePath = workspacePath;
   }
 
   /** Store `snapshot`; a different snapshot is newer usage (`usageSeq`). */
@@ -944,6 +1247,25 @@ export class SessionBudgetService {
         compactions: figure.compactions,
         blocked: figure.blocked,
       },
+    );
+  }
+
+  /**
+   * Log the estimate's first arrival at `handoff`, and again at `limit`,
+   * unless the authoritative stage already reached it; once per rank per
+   * turn. Log only: the wrap-up notice is posted on the user's request.
+   */
+  private logLiveStage(
+    entry: BudgetEntry,
+    from: SessionBudgetStage,
+    figure: SessionBudgetFigure,
+  ): void {
+    const rank = wrapUpRankOf(figure.stage);
+    if (rank <= Math.max(entry.liveLoggedRank, entry.actedRank)) return;
+    entry.liveLoggedRank = rank;
+    this.logger.info(
+      `[SessionBudget] Live stage ${from} -> ${figure.stage} for ${entry.sessionId}`,
+      { measure: figure.measure, used: figure.used, percent: figure.percent },
     );
   }
 

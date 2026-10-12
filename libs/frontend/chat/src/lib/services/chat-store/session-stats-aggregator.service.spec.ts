@@ -217,6 +217,7 @@ describe('SessionStatsAggregatorService', () => {
       activeTab: activeTabMock,
       setLiveModelStats: setLiveModelStatsMock,
       installSessionStats: installSessionStatsMock,
+      setLiveBudgetStage: jest.fn(),
     } as unknown as TabManagerService;
     const streamingHandlerMock = {
       handleSessionStats: streamHandleStatsMock,
@@ -1476,6 +1477,65 @@ describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)',
     expect(after?.messages).toBe(before?.messages);
     expect(after?.streamingState).toBe(before?.streamingState);
     expectNoResultPathEffect();
+  });
+
+  // TASK_2026_627 S21 (D25): the display-only live budget stage.
+  describe('liveBudgetStage', () => {
+    const withStage = (
+      live: SessionStatsLiveWire,
+      liveBudgetStage: 'handoff' | 'limit' | null,
+    ): SessionStatsLiveWire => ({ ...live, liveBudgetStage });
+
+    it('a value sets the stage on the bound tab', () => {
+      service.handleLiveSessionStats(withStage(provisional(5), 'handoff'));
+
+      expect(tab()?.liveBudgetStage).toBe('handoff');
+      expectNoResultPathEffect();
+    });
+
+    it('an absent field keeps the shown stage', () => {
+      service.handleLiveSessionStats(withStage(provisional(5), 'limit'));
+
+      service.handleLiveSessionStats(provisional(6));
+
+      expect(tab()?.sessionStats?.revision).toBe(6);
+      expect(tab()?.liveBudgetStage).toBe('limit');
+    });
+
+    it('null clears the shown stage', () => {
+      service.handleLiveSessionStats(withStage(provisional(5), 'handoff'));
+
+      service.handleLiveSessionStats(withStage(authoritative(6), null));
+
+      expect(tab()?.liveBudgetStage).toBeNull();
+    });
+
+    it('a payload the revision floor rejects changes nothing', () => {
+      service.handleLiveSessionStats(withStage(provisional(7), 'handoff'));
+
+      service.handleLiveSessionStats(withStage(provisional(5), 'limit'));
+      expect(tab()?.liveBudgetStage).toBe('handoff');
+
+      service.handleLiveSessionStats(withStage(provisional(6), null));
+      expect(tab()?.liveBudgetStage).toBe('handoff');
+    });
+
+    it('a turn result clears it', () => {
+      service.handleLiveSessionStats(withStage(provisional(5), 'limit'));
+
+      service.handleSessionStats(result(6));
+
+      expect(tab()?.liveBudgetStage).toBeNull();
+    });
+
+    it('a snapshot-only session:stats broadcast does not clear it', () => {
+      service.handleLiveSessionStats(withStage(provisional(5), 'handoff'));
+
+      service.handleSessionStats({ sessionId, sessionStats: snapshot(6) });
+
+      expect(tab()?.sessionStats?.revision).toBe(6);
+      expect(tab()?.liveBudgetStage).toBe('handoff');
+    });
   });
 
   describe('the same session in several tabs across workspaces (review finding 1)', () => {
