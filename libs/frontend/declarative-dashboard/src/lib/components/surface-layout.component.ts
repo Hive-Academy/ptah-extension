@@ -59,9 +59,11 @@ export const SURFACE_CONTAINER_GRID_STYLES = `
 `;
 
 /** Container-mode card bodies own their available inline size. Compact items
- * share tracks; every other child deliberately spans the full body width. */
+ * share tracks; every other child deliberately spans the full body width.
+ * The query container wraps the grid: a container cannot match its own query. */
 export const SURFACE_CONTAINER_BODY_STYLES = `
-  .dp-container-body { container-type: inline-size; container-name: dp-body; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: min(100%, 16rem); }
+  .dp-container-query { container-type: inline-size; container-name: dp-body; min-width: min(100%, 16rem); }
+  .dp-container-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; }
   .dp-container-body-child { grid-column: 1 / -1; min-width: 0; }
   @container dp-body (min-width: 16rem) {
     .dp-container-body { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
@@ -137,12 +139,14 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
       }
     </ng-template>
     <ng-template #responsiveChildren>
-      <div class="dp-container-body">
-        @for (child of node().children; track $index + ':' + child.id) {
-          <div class="dp-container-body-child" [class.dp-container-body-child--compact]="child.kind === 'stat' || child.kind === 'avatar'">
-            <ng-container [ngTemplateOutlet]="childTemplate()" [ngTemplateOutletContext]="{ $implicit: child, index: $index }" />
-          </div>
-        }
+      <div class="dp-container-query">
+        <div class="dp-container-body">
+          @for (child of node().children; track $index + ':' + child.id) {
+            <div class="dp-container-body-child" [class.dp-container-body-child--compact]="child.kind === 'stat' || child.kind === 'avatar'">
+              <ng-container [ngTemplateOutlet]="childTemplate()" [ngTemplateOutletContext]="{ $implicit: child, index: $index }" />
+            </div>
+          }
+        </div>
       </div>
     </ng-template>
     <ng-template #submit>

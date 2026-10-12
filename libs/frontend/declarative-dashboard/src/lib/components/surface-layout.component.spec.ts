@@ -106,7 +106,9 @@ describe('SurfaceLayoutComponent', () => {
     const body = element.querySelector('.dp-container-body')!;
     expect(body).not.toBeNull();
     expect(body.querySelectorAll('.dp-container-body-child--compact')).toHaveLength(3);
-    expect(SURFACE_CONTAINER_BODY_STYLES).toContain('container-type: inline-size');
+    expect(body.parentElement?.classList.contains('dp-container-query')).toBe(true);
+    expect(SURFACE_CONTAINER_BODY_STYLES).toMatch(/\.dp-container-query \{ container-type: inline-size; container-name: dp-body;/);
+    expect(SURFACE_CONTAINER_BODY_STYLES).not.toMatch(/\.dp-container-body \{[^}]*container-type/);
     expect(SURFACE_CONTAINER_BODY_STYLES).toContain('minmax(min(100%, 8rem), 1fr)');
     host.width.set('viewport'); rerender();
     expect(element.querySelector('.dp-container-body')).toBeNull();

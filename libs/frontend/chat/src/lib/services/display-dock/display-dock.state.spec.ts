@@ -261,6 +261,22 @@ describe('DisplayDockState', () => {
       });
     });
 
+    it('switches an open, unpinned dock from Agents to Displays; a pinned one stays', () => {
+      store.open(TAB_A);
+      store.selectTab(TAB_A, 'agents');
+      store.requestAutoOpen(TAB_A, 'u1', 'id:stats');
+      expect(store.tab(TAB_A)).toMatchObject({
+        open: true,
+        activeTab: 'displays',
+        selection: { kind: 'surface', surfaceKey: 'id:stats' },
+      });
+
+      store.selectTab(TAB_A, 'agents');
+      store.setPinned(TAB_A, true);
+      store.requestAutoOpen(TAB_A, 'u1', 'id:other');
+      expect(store.tab(TAB_A).activeTab).toBe('agents');
+    });
+
     it('R1.8: open, user close, second block same turn stays closed with 1 new, next turn opens', () => {
       store.requestAutoOpen(TAB_A, 'u1', 'id:first');
       expect(store.tab(TAB_A).open).toBe(true);

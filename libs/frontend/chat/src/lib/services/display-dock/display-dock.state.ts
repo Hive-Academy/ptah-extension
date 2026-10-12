@@ -335,8 +335,9 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
   /**
    * D12. A closed dock opens on the Displays tab with the surface selected,
    * unless the user closed it in this turn: then it stays closed and
-   * `newCount` grows (R1.8). An open, unpinned dock selects the surface; a
-   * pinned one does not move (R1.6). Focus is never moved (R1.7).
+   * `newCount` grows (R1.8). An open, unpinned dock shows the Displays tab
+   * with the surface selected; a pinned one does not move (R1.6). Focus is
+   * never moved (R1.7).
    */
   requestAutoOpen(tabId: string, turnKey: string, surfaceKey: string): void {
     this.update(tabId, (state) => {
@@ -344,7 +345,11 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
       if (state.open) {
         return state.pinned
           ? live
-          : { ...live, selection: { kind: 'surface', surfaceKey } };
+          : {
+              ...live,
+              activeTab: 'displays',
+              selection: { kind: 'surface', surfaceKey },
+            };
       }
       if (state.userClosedTurnKey === turnKey) {
         return { ...live, newCount: state.newCount + 1 };
