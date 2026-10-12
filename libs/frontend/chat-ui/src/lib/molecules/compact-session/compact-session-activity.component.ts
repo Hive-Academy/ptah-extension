@@ -15,6 +15,10 @@ import {
 import { LucideAngularModule, CheckCircle, XCircle } from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { CompactSessionStatsComponent } from './compact-session-stats.component';
+import {
+  CompactSessionLanesComponent,
+  formatBoardDuration,
+} from './compact-session-lanes.component';
 import { stripMarkdownToPlainText } from './compact-plain-text';
 import {
   feedKindLabel,
@@ -37,64 +41,11 @@ import type {
 import type {
   CompactCallout,
   CompactErrorCallout,
-  CompactLaneKind,
-  CompactLaneRow,
-  CompactLaneStatus,
   CompactLaneSummary,
   CompactPermissionCallout,
 } from './compact-lane.types';
 
 export type FeedFilter = 'all' | 'error' | 'warn';
-
-const LANE_KIND_ICON: Readonly<Record<CompactLaneKind, string>> = {
-  subagent: '◇',
-  cli: '›_',
-  background: '≋',
-};
-
-const LANE_KIND_LABEL: Readonly<Record<CompactLaneKind, string>> = {
-  subagent: 'Sub-agent',
-  cli: 'CLI lane',
-  background: 'Background',
-};
-
-const LANE_STATUS_TEXT_BASE = 'inline-flex items-center gap-1 text-[11px]';
-const LANE_STATUS_TEXT_CLASS: Readonly<Record<CompactLaneStatus, string>> = {
-  waiting: `${LANE_STATUS_TEXT_BASE} text-warning`,
-  error: `${LANE_STATUS_TEXT_BASE} text-error`,
-  running: `${LANE_STATUS_TEXT_BASE} text-info`,
-  done: `${LANE_STATUS_TEXT_BASE} text-success`,
-  stopped: `${LANE_STATUS_TEXT_BASE} text-base-content-muted`,
-};
-
-const LANE_STATUS_DOT_BASE = 'inline-block h-1.5 w-1.5 shrink-0 rounded-full';
-const LANE_STATUS_DOT_CLASS: Readonly<Record<CompactLaneStatus, string>> = {
-  waiting: `${LANE_STATUS_DOT_BASE} bg-warning`,
-  error: `${LANE_STATUS_DOT_BASE} bg-error`,
-  running: `${LANE_STATUS_DOT_BASE} bg-info`,
-  done: `${LANE_STATUS_DOT_BASE} bg-success`,
-  stopped: `${LANE_STATUS_DOT_BASE} bg-base-content/40`,
-};
-
-/** Summary line order and wording; zero counts are left out. */
-const LANE_SUMMARY_ORDER: readonly (readonly [CompactLaneStatus, string])[] = [
-  ['running', 'running'],
-  ['waiting', 'waiting'],
-  ['error', 'failed'],
-  ['done', 'done'],
-  ['stopped', 'stopped'],
-];
-
-/** `12s`, `3m 05s`, `1h 02m`; negative spans read as `0s`. */
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
-  if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
-  return `${seconds}s`;
-}
 
 interface PaneSize {
   readonly width: number;
@@ -134,6 +85,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
   standalone: true,
   imports: [
     CompactSessionStatsComponent,
+    CompactSessionLanesComponent,
     LucideAngularModule,
     MarkdownBlockComponent,
     SplitHandleComponent,
@@ -404,14 +356,6 @@ const FALLBACK_RECAP_HEIGHT = 180;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
-      .cs-lane-row {
-        display: grid;
-        grid-template-columns: 18px minmax(0, 1fr) 72px 76px 54px;
-        align-items: center;
-        gap: 6px;
-        width: 100%;
-        text-align: left;
-      }
       .cs-lanes {
         min-height: 7.5rem;
       }
@@ -469,12 +413,12 @@ const FALLBACK_RECAP_HEIGHT = 180;
 
       @if (boardLayout()) {
         <div
-          class="flex min-w-0 items-center gap-1.5 border-b border-base-content/10 px-3 font-mono text-[10px] text-base-content-muted"
+          class="flex min-w-0 items-center gap-1.5 border-b border-base-content/10 px-3 font-mono text-[11px] text-base-content-muted"
           data-zone="sub"
         >
           <span class="truncate" title="Branch">{{ branch() ?? '—' }}</span>
           <span aria-hidden="true">·</span>
-          <span class="truncate" title="Model">{{
+          <span class="truncate text-secondary" title="Model">{{
             summary().metrics.model ?? '—'
           }}</span>
           <span aria-hidden="true">·</span>
@@ -815,20 +759,19 @@ const FALLBACK_RECAP_HEIGHT = 180;
 
       @if (lanes(); as laneData) {
         <div
-          class="cs-lanes flex min-w-0 flex-col gap-1 overflow-hidden border-t border-base-content/10 px-3 py-1.5"
+          class="cs-lanes flex min-w-0 flex-col gap-0.5 overflow-hidden border-t border-base-content/10 px-3 py-1"
           data-zone="lanes"
         >
-          <div
-            class="flex shrink-0 items-center justify-between gap-2 text-[11px] text-base-content-muted"
-            data-testid="cs-lanes-summary"
-          >
-            <span class="cs-zone-label">Lanes</span>
-            <span class="truncate">{{ laneSummaryLine() }}</span>
-          </div>
+          <ptah-compact-session-lanes
+            [lanes]="laneData"
+            [now]="now()"
+            [showRows]="callout() === null"
+            (laneSelected)="laneSelected.emit($event)"
+          />
 
           @if (permissionCallout(); as permission) {
             <div
-              class="flex min-w-0 flex-col gap-1.5 rounded border border-warning/30 bg-warning/10 p-2 text-xs"
+              class="flex h-20 min-w-0 shrink-0 flex-col gap-1.5 rounded border border-warning/30 bg-warning/10 p-2 text-xs"
               role="group"
               aria-label="Permission request"
               data-testid="cs-callout-permission"
@@ -855,7 +798,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
             </div>
           } @else if (errorCallout(); as error) {
             <div
-              class="flex min-w-0 flex-col gap-1.5 rounded border border-error/30 bg-error/10 p-2 text-xs"
+              class="flex h-20 min-w-0 shrink-0 flex-col gap-1.5 rounded border border-error/30 bg-error/10 p-2 text-xs"
               role="group"
               aria-label="Session error"
               data-testid="cs-callout-error"
@@ -882,56 +825,6 @@ const FALLBACK_RECAP_HEIGHT = 180;
                 </button>
               </div>
             </div>
-          } @else {
-            <ul class="m-0 grid list-none gap-px p-0" aria-label="Lanes">
-              @for (row of laneData.rows.slice(0, 3); track row.id) {
-                <li>
-                  <button
-                    type="button"
-                    class="cs-lane-row rounded px-1 py-0.5 text-xs hover:bg-base-300/40 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
-                    [attr.data-lane-id]="row.id"
-                    [attr.aria-label]="
-                      'Open ' + row.name + ' output, ' + row.status
-                    "
-                    (click)="laneSelected.emit(row.id)"
-                  >
-                    <span class="text-base-content-muted" aria-hidden="true">{{
-                      laneKindIcon[row.kind]
-                    }}</span>
-                    <span class="truncate">{{ row.name }}</span>
-                    <span
-                      class="truncate text-[10px] text-base-content-muted"
-                      >{{ laneKindLabel[row.kind] }}</span
-                    >
-                    <span [class]="laneStatusTextClass[row.status]">
-                      <span
-                        [class]="laneStatusDotClass[row.status]"
-                        aria-hidden="true"
-                      ></span>
-                      {{ row.status }}
-                    </span>
-                    <span
-                      class="text-right text-[11px] tabular-nums text-base-content-muted"
-                      >{{ laneElapsedLabel(row) }}</span
-                    >
-                  </button>
-                </li>
-              } @empty {
-                <li
-                  class="px-1 py-0.5 text-xs text-base-content-muted"
-                  data-testid="cs-lanes-placeholder"
-                >
-                  —
-                </li>
-              }
-            </ul>
-            @if (remainingLanes() > 0) {
-              <span
-                class="shrink-0 text-[11px] text-base-content-muted"
-                data-testid="cs-lanes-more"
-                >+{{ remainingLanes() }} more lanes</span
-              >
-            }
           }
         </div>
       }
@@ -942,7 +835,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
       >
         <ptah-compact-session-stats
           class="min-w-0 flex-1"
-          [metrics]="summary().metrics"
+          [metrics]="boardLayout() ? boardMetrics() : summary().metrics"
         />
         @if (boardLayout() && contextPercent() !== null) {
           <span
@@ -984,23 +877,15 @@ export class CompactSessionActivityComponent {
   /** Emits the lane key (`CompactLaneRow.id`) of the selected row. */
   readonly laneSelected = output<string>();
 
-  protected readonly laneKindIcon = LANE_KIND_ICON;
-  protected readonly laneKindLabel = LANE_KIND_LABEL;
-  protected readonly laneStatusTextClass = LANE_STATUS_TEXT_CLASS;
-  protected readonly laneStatusDotClass = LANE_STATUS_DOT_CLASS;
-
   readonly boardLayout = computed(() => this.lanes() !== null);
+  readonly boardMetrics = computed(() => ({
+    ...this.summary().metrics,
+    model: null,
+  }));
 
   readonly nowActivity = computed(
     () => stripMarkdownToPlainText(this.summary().content.text) || '—',
   );
-
-  readonly remainingLanes = computed(() => {
-    const lanes = this.lanes();
-    return lanes
-      ? Math.max(0, lanes.total - Math.min(lanes.rows.length, 3))
-      : 0;
-  });
 
   readonly permissionCallout = computed<CompactPermissionCallout | null>(() => {
     const callout = this.callout();
@@ -1012,25 +897,10 @@ export class CompactSessionActivityComponent {
     return callout?.kind === 'error' ? callout : null;
   });
 
-  readonly laneSummaryLine = computed(() => {
-    const lanes = this.lanes();
-    if (!lanes || lanes.total === 0) return 'No lanes';
-    const parts = LANE_SUMMARY_ORDER.filter(
-      ([status]) => lanes.counts[status] > 0,
-    ).map(([status, label]) => `${lanes.counts[status]} ${label}`);
-    return parts.length > 0 ? parts.join(' · ') : `${lanes.total} lanes`;
-  });
-
   readonly sessionElapsedLabel = computed(() => {
     const elapsed = this.elapsed();
-    return elapsed === null ? '—' : formatElapsed(elapsed);
+    return elapsed === null ? '\u2014' : formatBoardDuration(elapsed);
   });
-
-  protected laneElapsedLabel(row: CompactLaneRow): string {
-    if (row.startedAt === null) return '—';
-    const end = row.endedAt ?? (this.now() > 0 ? this.now() : null);
-    return end === null ? '—' : formatElapsed(end - row.startedAt);
-  }
 
   protected readonly CheckIcon = CheckCircle;
   protected readonly XIcon = XCircle;

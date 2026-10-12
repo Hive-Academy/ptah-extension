@@ -135,7 +135,7 @@ describe(CompactSessionActivityComponent.name, () => {
     const emitted = jest.fn();
     fixture.componentInstance.openFullView.subscribe(emitted);
 
-    fixture.nativeElement
+    (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[data-zone="recap"] button')
       ?.click();
     expect(emitted).toHaveBeenCalledTimes(1);
@@ -1175,7 +1175,9 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
       el.textContent?.trim(),
     );
   const laneButtons = (root: HTMLElement) => [
-    ...root.querySelectorAll<HTMLButtonElement>('[data-zone="lanes"] [data-lane-id]'),
+    ...root.querySelectorAll<HTMLButtonElement>(
+      '[data-zone="lanes"] [data-lane-id]',
+    ),
   ];
   const buttonByText = (root: HTMLElement, text: string) =>
     [...root.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -1210,7 +1212,8 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
   });
 
   it('shows placeholders when a zone has no data', () => {
-    const root = renderBoard({ metricsModel: null }).nativeElement as HTMLElement;
+    const root = renderBoard({ metricsModel: null })
+      .nativeElement as HTMLElement;
 
     expect(subLineParts(root)).toEqual(['—', '·', '—', '·', '—']);
     expect(
@@ -1233,92 +1236,12 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
       '·',
       '2m 05s',
     ]);
-  });
-
-  it('renders the lane rows with kind, status and elapsed time', () => {
-    const root = renderBoard({
-      lanes: laneSummary(
-        [
-          lane({ id: 'cli:a1', status: 'waiting' }),
-          lane({
-            id: 'subagent:t1',
-            name: 'reviewer',
-            kind: 'subagent',
-            status: 'done',
-            startedAt: NOW - 30_000,
-            endedAt: NOW - 18_000,
-          }),
-          lane({
-            id: 'background:b1',
-            name: 'watch',
-            kind: 'background',
-            startedAt: null,
-          }),
-        ],
-        0,
-        { waiting: 1, done: 1, running: 1 },
-      ),
-    }).nativeElement as HTMLElement;
-
-    const rows = laneButtons(root);
-    expect(rows.map((row) => row.getAttribute('data-lane-id'))).toEqual([
-      'cli:a1',
-      'subagent:t1',
-      'background:b1',
-    ]);
-    expect(rows[0].textContent).toContain('CLI lane');
-    expect(rows[0].textContent).toContain('waiting');
-    expect(rows[0].textContent).toContain('1m 05s');
-    expect(rows[1].textContent).toContain('Sub-agent');
-    expect(rows[1].textContent).toContain('12s');
-    expect(rows[2].textContent).toContain('Background');
-    expect(rows[2].textContent).toContain('—');
+    expect(zone(root, 'sub')?.className).toContain('text-[11px]');
     expect(
-      root.querySelector('[data-testid="cs-lanes-summary"]')?.textContent,
-    ).toContain('1 running · 1 waiting · 1 done');
-  });
-
-  it('shows "+N more lanes" for lanes beyond the shown rows', () => {
-    const rows = [
-      lane({ id: 'cli:1' }),
-      lane({ id: 'cli:2' }),
-      lane({ id: 'cli:3' }),
-    ];
-    const root = renderBoard({
-      lanes: laneSummary(rows, 4, { running: 7 }),
-    }).nativeElement as HTMLElement;
-
-    expect(laneButtons(root)).toHaveLength(3);
-    expect(
-      root.querySelector('[data-testid="cs-lanes-more"]')?.textContent?.trim(),
-    ).toBe('+4 more lanes');
-  });
-
-  it('caps an oversized lane input at three rows', () => {
-    const root = renderBoard({
-      lanes: laneSummary([
-        lane({ id: 'cli:1' }),
-        lane({ id: 'cli:2' }),
-        lane({ id: 'cli:3' }),
-        lane({ id: 'cli:4' }),
-      ], 0, { running: 4 }),
-    }).nativeElement as HTMLElement;
-
-    expect(laneButtons(root)).toHaveLength(3);
-    expect(root.querySelector('[data-testid="cs-lanes-more"]')?.textContent?.trim())
-      .toBe('+1 more lanes');
-  });
-
-  it('emits the lane key when a lane row is selected', () => {
-    const fixture = renderBoard({
-      lanes: laneSummary([lane({ id: 'cli:a1' })], 0, { running: 1 }),
-    });
-    const selected = jest.fn();
-    fixture.componentInstance.laneSelected.subscribe(selected);
-
-    laneButtons(fixture.nativeElement)[0].click();
-
-    expect(selected).toHaveBeenCalledWith('cli:a1');
+      zone(root, 'sub')?.querySelector('[title="Model"]')?.className,
+    ).toContain('text-secondary');
+    expect(root.querySelectorAll('[title="sonnet"]')).toHaveLength(0);
+    expect(zone(root, 'metrics')?.textContent).not.toContain('sonnet');
   });
 
   it('replaces the lane rows with a permission callout and keeps the summary line', () => {
@@ -1340,6 +1263,9 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     expect(
       root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
     ).toContain('codex asks to run npm test');
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.className,
+    ).toContain('h-20');
 
     buttonByText(root, 'Allow')?.click();
     buttonByText(root, 'Deny')?.click();
@@ -1390,6 +1316,8 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     fixture.detectChanges();
 
     expect(laneButtons(root)).toHaveLength(1);
-    expect(root.querySelector('[data-testid="cs-callout-permission"]')).toBeNull();
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]'),
+    ).toBeNull();
   });
 });
