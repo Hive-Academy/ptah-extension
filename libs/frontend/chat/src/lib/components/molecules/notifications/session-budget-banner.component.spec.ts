@@ -43,11 +43,25 @@ describe('SessionBudgetBannerComponent', () => {
         readonly percent: number | null;
       }[];
       busy?: boolean;
+      turnRunning?: boolean;
+      liveStage?: 'handoff' | 'limit' | null;
+      wrapUpRequested?: boolean;
+      queuedMessageCarried?: boolean;
     } = {},
   ): HTMLElement {
     TestBed.configureTestingModule({ imports: [SessionBudgetBannerComponent] });
     fixture = TestBed.createComponent(SessionBudgetBannerComponent);
     fixture.componentRef.setInput('budget', budget);
+    for (const key of [
+      'turnRunning',
+      'liveStage',
+      'wrapUpRequested',
+      'queuedMessageCarried',
+    ] as const) {
+      if (extra[key] !== undefined) {
+        fixture.componentRef.setInput(key, extra[key]);
+      }
+    }
     if (extra.handover !== undefined) {
       fixture.componentRef.setInput('handover', extra.handover);
     }
@@ -119,10 +133,11 @@ describe('SessionBudgetBannerComponent', () => {
 
     expect(root.querySelectorAll('[data-testid="session-budget-banner"]')).toHaveLength(1);
     expect(text(root, 'session-budget-title')).toBe(
-      'Preparing to continue in a new session…',
+      'This session is near its budget',
     );
     expect(text(root, 'session-budget-percent')).toBe('80%');
-    expect(button(root, 'Continue now')).toBeInstanceOf(HTMLButtonElement);
+    expect(button(root, 'Continue in new session')).toBeInstanceOf(HTMLButtonElement);
+    expect(root.querySelector('[data-testid="session-budget-estimate"]')).toBeNull();
   });
 
   it('updates the handoff notification in place at the limit', () => {
@@ -169,19 +184,186 @@ describe('SessionBudgetBannerComponent', () => {
     expect(text(root, 'session-budget-title')).toBe('This session reached its budget');
   });
 
-  it('uses Continue now only while automatic handover has not armed', () => {
+  function buttons(root: HTMLElement): (string | undefined)[] {
+    return Array.from(root.querySelectorAll('button')).map((item) =>
+      item.textContent?.trim(),
+    );
+  }
+
+  it('an idle handoff offers Continue in new session, Preview and Dismiss, no wrap-up', () => {
     const root = render({ ...BASE, stage: 'handoff', handoff: HANDOFF });
     const continueInNewSession = jest.fn();
+    const dismiss = jest.fn();
     fixture.componentInstance.continueInNewSession.subscribe(continueInNewSession);
+    fixture.componentInstance.dismiss.subscribe(dismiss);
 
-    button(root, 'Continue now').click();
+    expect(buttons(root)).toEqual([
+      'Continue in new session',
+      'Preview handoff',
+      'Dismiss',
+    ]);
+    button(root, 'Continue in new session').click();
+    button(root, 'Dismiss').click();
 
     expect(continueInNewSession).toHaveBeenCalledTimes(1);
-    expect(root.querySelectorAll('button')).toHaveLength(1);
+    expect(dismiss).toHaveBeenCalledTimes(1);
   });
 
-  // TASK_2026_627 Component 9: the waiting copy names the work in flight.
-  describe('automatic handover waiting at the handoff stage', () => {
+  // TASK_2026_627 D22/S13: the user may ask the running agent to wrap up.
+  describe('Ask agent to wrap up (S13)', () => {
+    const HANDOFF_BUDGET: SessionBudgetState = {
+      ...BASE,
+      stage: 'handoff',
+      used: 40_000_000,
+      percent: 80,
+      handoff: HANDOFF,
+    };
+
+    it('is offered while a turn runs at handoff and emits once', () => {
+      const root = render(HANDOFF_BUDGET, { turnRunning: true });
+      const requestWrapUp = jest.fn();
+      fixture.componentInstance.requestWrapUp.subscribe(requestWrapUp);
+
+      expect(buttons(root)).toEqual([
+        'Ask agent to wrap up',
+        'Continue in new session',
+        'Preview handoff',
+        'Dismiss',
+      ]);
+      const wrapUp = button(root, 'Ask agent to wrap up');
+      expect(wrapUp.getAttribute('aria-label')).toBe(
+        'Ask the agent to wrap up its current turn',
+      );
+      wrapUp.click();
+
+      expect(requestWrapUp).toHaveBeenCalledTimes(1);
+    });
+
+    it('is disabled once requested at this stage', () => {
+      const root = render(HANDOFF_BUDGET, { turnRunning: true });
+      const requestWrapUp = jest.fn();
+      fixture.componentInstance.requestWrapUp.subscribe(requestWrapUp);
+      button(root, 'Ask agent to wrap up').click();
+
+      fixture.componentRef.setInput('wrapUpRequested', true);
+      fixture.detectChanges();
+
+      const requested = button(root, 'Wrap-up requested');
+      expect(requested.disabled).toBe(true);
+      expect(requested.getAttribute('aria-label')).toBe(
+        'The agent was already asked to wrap up at this stage',
+      );
+      requested.click();
+      expect(requestWrapUp).toHaveBeenCalledTimes(1);
+    });
+
+    it('is offered at the limit while a turn runs', () => {
+      const root = render(
+        { ...HANDOFF_BUDGET, stage: 'limit', blocked: true, percent: 100.2 },
+        { turnRunning: true },
+      );
+
+      expect(buttons(root)).toEqual([
+        'Ask agent to wrap up',
+        'New session',
+        'Preview handoff',
+        'Allow 20% more',
+      ]);
+    });
+
+    it('is hidden while idle', () => {
+      const root = render(HANDOFF_BUDGET, { turnRunning: false });
+
+      expect(buttons(root)).not.toContain('Ask agent to wrap up');
+    });
+
+    it('busy disables it', () => {
+      const root = render(HANDOFF_BUDGET, { turnRunning: true, busy: true });
+
+      expect(button(root, 'Ask agent to wrap up').disabled).toBe(true);
+    });
+  });
+
+  // TASK_2026_627 D25/S13: a live estimate shows the banner while streaming.
+  describe('live stage (S13)', () => {
+    it('shows the handoff while streaming at a live handoff, marked estimate', () => {
+      const root = render(
+        { ...BASE, stage: 'normal', percent: 70 },
+        { liveStage: 'handoff', turnRunning: true },
+      );
+
+      expect(banner(root)).not.toBeNull();
+      expect(text(root, 'session-budget-title')).toBe(
+        'This session is near its budget',
+      );
+      expect(text(root, 'session-budget-estimate')).toBe('estimate');
+      expect(text(root, 'session-budget-body')).toBe(
+        'The running turn is estimated to have reached the handoff point; the figures are from the last completed turn. Continue in a new session that starts from the handoff, or keep working here.',
+      );
+      expect(text(root, 'session-budget-percent')).toBe('70%');
+      expect(buttons(root)).toEqual([
+        'Ask agent to wrap up',
+        'Continue in new session',
+        'Preview handoff',
+      ]);
+    });
+
+    it('a live limit above an authoritative handoff shows the limit, no Allow 20% more', () => {
+      const root = render(
+        { ...BASE, stage: 'handoff', percent: 85, handoff: HANDOFF },
+        { liveStage: 'limit', turnRunning: true },
+      );
+
+      expect(banner(root)?.getAttribute('role')).toBe('alert');
+      expect(text(root, 'session-budget-title')).toBe(
+        'This session reached its budget',
+      );
+      expect(text(root, 'session-budget-estimate')).toBe('estimate');
+      expect(text(root, 'session-budget-body')).toContain(
+        "The running turn is estimated to have reached this session's budget",
+      );
+      expect(text(root, 'session-budget-body')).not.toContain('not paused');
+      expect(buttons(root)).toEqual([
+        'Ask agent to wrap up',
+        'New session',
+        'Preview handoff',
+      ]);
+    });
+
+    it('a live limit escalates a dismissed handoff', () => {
+      const root = render(
+        { ...BASE, stage: 'handoff', handoff: HANDOFF, dismissedStage: 'handoff' },
+        { liveStage: 'limit', turnRunning: true },
+      );
+
+      expect(text(root, 'session-budget-title')).toBe(
+        'This session reached its budget',
+      );
+    });
+
+    it('a live stage below the authoritative one is not an estimate', () => {
+      const root = render(
+        { ...BASE, stage: 'limit', blocked: true, handoff: HANDOFF },
+        { liveStage: 'handoff', turnRunning: true },
+      );
+
+      expect(text(root, 'session-budget-title')).toBe(
+        'This session reached its budget',
+      );
+      expect(root.querySelector('[data-testid="session-budget-estimate"]')).toBeNull();
+      expect(button(root, 'Allow 20% more')).toBeInstanceOf(HTMLButtonElement);
+    });
+
+    it('a live stage without a budget shows nothing', () => {
+      const root = render(null, { liveStage: 'limit', turnRunning: true });
+
+      expect(banner(root)).toBeNull();
+    });
+  });
+
+  // TASK_2026_627 D22/S13/S22: after the user's click the handover waits for
+  // the work in flight; Continue now anyway and Cancel are always offered.
+  describe('handover waiting for work in flight', () => {
     const HANDOFF_BUDGET: SessionBudgetState = {
       ...BASE,
       stage: 'handoff',
@@ -192,60 +374,107 @@ describe('SessionBudgetBannerComponent', () => {
     const WAITING: SessionHandoverState = {
       operationId: 'handover-1',
       sourceSessionId: BASE.sessionId,
-      reason: 'budget-auto',
+      reason: 'successor',
       phase: 'waiting-for-turn-end',
       revision: 2,
       heldInputCount: 0,
       waitingFor: { subagents: 2, lanes: 1 },
     };
-    const PLAIN_COPY =
-      'Waiting for handover to start at 40.0M of 50.0M tokens. You can continue now if needed.';
+    const SENDS_STAY = 'Messages you send now go to this session.';
+    const HANDOFF_COPY =
+      'This session has used 40.0M of 50.0M tokens. Continue in a new session that starts from the handoff, or keep working here.';
 
-    function buttons(root: HTMLElement): (string | undefined)[] {
-      return Array.from(root.querySelectorAll('button')).map((item) =>
-        item.textContent?.trim(),
-      );
-    }
-
-    it('shows the subagent and lane counts and keeps Continue now', () => {
+    it('shows the subagent and lane counts with Continue now anyway and Cancel', () => {
       const root = render(HANDOFF_BUDGET, { handover: WAITING });
+      const continueNowAnyway = jest.fn();
       const continueInNewSession = jest.fn();
+      const cancel = jest.fn();
+      fixture.componentInstance.continueNowAnyway.subscribe(continueNowAnyway);
       fixture.componentInstance.continueInNewSession.subscribe(continueInNewSession);
+      fixture.componentInstance.cancelHandover.subscribe(cancel);
+
+      expect(text(root, 'session-budget-title')).toBe(
+        'Waiting to continue in a new session',
+      );
+      expect(text(root, 'session-budget-body')).toBe(
+        `Waiting for 2 subagents, 1 lane. ${SENDS_STAY}`,
+      );
+      expect(buttons(root)).toEqual(['Continue now anyway', 'Cancel']);
+      expect(
+        button(root, 'Continue now anyway').getAttribute('aria-label'),
+      ).toBe('Continue in a new session now, without waiting for the running work');
+      expect(button(root, 'Cancel').getAttribute('aria-label')).toBe(
+        'Cancel the handover and keep working in this session',
+      );
+      button(root, 'Continue now anyway').click();
+      button(root, 'Cancel').click();
+
+      expect(continueNowAnyway).toHaveBeenCalledTimes(1);
+      expect(continueInNewSession).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('names the running turn first', () => {
+      const root = render(HANDOFF_BUDGET, {
+        handover: WAITING,
+        turnRunning: true,
+      });
 
       expect(text(root, 'session-budget-body')).toBe(
-        'Waiting for 2 subagents and 1 CLI lane before continuing in a new session.',
+        `Waiting for the turn to end, 2 subagents, 1 lane. ${SENDS_STAY}`,
       );
-      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
-      const continueNow = button(root, 'Continue now');
-      expect(continueNow.getAttribute('aria-label')).toBe(
-        'Start new session from handoff',
+      expect(buttons(root)).toEqual(['Continue now anyway', 'Cancel']);
+    });
+
+    // S22: an unknown lane count is never shown as 0.
+    it('(S22) unknown lanes read "lane status unknown", never 0', () => {
+      const root = render(HANDOFF_BUDGET, {
+        handover: { ...WAITING, waitingFor: { subagents: 0, lanes: null } },
+      });
+
+      expect(text(root, 'session-budget-body')).toBe(
+        `Waiting for running work, lane status unknown. ${SENDS_STAY}`,
       );
-      continueNow.click();
-      expect(continueInNewSession).toHaveBeenCalledTimes(1);
+      expect(text(root, 'session-budget-body')).not.toContain('0');
+      expect(buttons(root)).toEqual(['Continue now anyway', 'Cancel']);
+    });
+
+    it('(S22) unknown lanes with subagents and a running turn', () => {
+      const root = render(HANDOFF_BUDGET, {
+        handover: { ...WAITING, waitingFor: { subagents: 3, lanes: null } },
+        turnRunning: true,
+      });
+
+      expect(text(root, 'session-budget-body')).toBe(
+        `Waiting for the turn to end, 3 subagents, lane status unknown. ${SENDS_STAY}`,
+      );
     });
 
     it.each([
-      ['a negative count', { subagents: -1, lanes: 1 }],
-      ['a fractional count', { subagents: 1.5, lanes: 0 }],
-      ['an infinite count', { subagents: Infinity, lanes: 0 }],
-      ['NaN', { subagents: Number.NaN, lanes: 1 }],
-      ['a non-number', { subagents: '2' as unknown as number, lanes: 1 }],
-      ['nothing in flight', { subagents: 0, lanes: 0 }],
-    ])('(a) falls back to the plain copy for %s', (_what, waitingFor) => {
+      ['a negative subagent count', { subagents: -1, lanes: 1 }, 'Waiting for 1 lane.'],
+      ['a fractional subagent count', { subagents: 1.5, lanes: 0 }, 'Waiting for the turn to end.'],
+      ['an infinite subagent count', { subagents: Infinity, lanes: 0 }, 'Waiting for the turn to end.'],
+      ['a NaN subagent count', { subagents: Number.NaN, lanes: 1 }, 'Waiting for 1 lane.'],
+      ['a non-number subagent count', { subagents: '2' as unknown as number, lanes: 1 }, 'Waiting for 1 lane.'],
+      ['nothing in flight', { subagents: 0, lanes: 0 }, 'Waiting for the turn to end.'],
+      ['an invalid lane count', { subagents: 1, lanes: -2 }, 'Waiting for 1 subagent, lane status unknown.'],
+    ])('(a) leaves out %s', (_what, waitingFor, expected) => {
       const root = render(HANDOFF_BUDGET, {
         handover: { ...WAITING, waitingFor },
       });
 
-      expect(text(root, 'session-budget-body')).toBe(PLAIN_COPY);
-      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+      expect(text(root, 'session-budget-body')).toBe(`${expected} ${SENDS_STAY}`);
+      expect(buttons(root)).toEqual(['Continue now anyway', 'Cancel']);
     });
 
-    it('falls back to the plain copy without waitingFor', () => {
+    it('without waitingFor waits for the turn to end', () => {
       const root = render(HANDOFF_BUDGET, {
         handover: { ...WAITING, waitingFor: undefined },
       });
 
-      expect(text(root, 'session-budget-body')).toBe(PLAIN_COPY);
+      expect(text(root, 'session-budget-body')).toBe(
+        `Waiting for the turn to end. ${SENDS_STAY}`,
+      );
     });
 
     it.each(['cancelled', 'armed'] as const)(
@@ -255,7 +484,10 @@ describe('SessionBudgetBannerComponent', () => {
           handover: { ...WAITING, phase, revision: 3 },
         });
 
-        expect(text(root, 'session-budget-body')).toBe(PLAIN_COPY);
+        expect(text(root, 'session-budget-title')).toBe(
+          'This session is near its budget',
+        );
+        expect(text(root, 'session-budget-body')).toBe(HANDOFF_COPY);
         expect(text(root, 'session-budget-body')).not.toContain('subagent');
       },
     );
@@ -269,7 +501,7 @@ describe('SessionBudgetBannerComponent', () => {
       expect(text(root, 'session-budget-body')).toBe('handover unavailable');
     });
 
-    it('(c) awaiting confirmation after the wait limit offers Continue now and Cancel', () => {
+    it('(c) a parked handover at the handoff stage offers Continue in new session and Cancel handover', () => {
       const root = render(HANDOFF_BUDGET, {
         handover: { ...WAITING, phase: 'awaiting-confirmation', revision: 4, waitingFor: undefined },
       });
@@ -278,25 +510,31 @@ describe('SessionBudgetBannerComponent', () => {
       fixture.componentInstance.continueInNewSession.subscribe(continueInNewSession);
       fixture.componentInstance.cancelHandover.subscribe(cancel);
 
-      expect(text(root, 'session-budget-title')).toBe('Preparing to continue in a new session…');
-      expect(text(root, 'session-budget-body')).toBe(
-        'Work is still running in this session. Continue now in a new session, or cancel to keep working here.',
-      );
-      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
-      button(root, 'Continue now').click();
-      button(root, 'Cancel (keep working)').click();
+      expect(text(root, 'session-budget-title')).toBe('This session is near its budget');
+      expect(text(root, 'session-budget-body')).toBe(HANDOFF_COPY);
+      expect(buttons(root)).toEqual([
+        'Continue in new session',
+        'Cancel handover',
+        'Preview handoff',
+      ]);
+      button(root, 'Continue in new session').click();
+      button(root, 'Cancel handover').click();
       expect(continueInNewSession).toHaveBeenCalledTimes(1);
       expect(cancel).toHaveBeenCalledTimes(1);
     });
 
-    it('(c) a dismissed handoff still shows a handover awaiting confirmation', () => {
+    it('(c) a dismissed handoff still shows a parked handover', () => {
       const root = render(
         { ...HANDOFF_BUDGET, dismissedStage: 'handoff' },
         { handover: { ...WAITING, phase: 'awaiting-confirmation', revision: 4 } },
       );
 
       expect(banner(root)).not.toBeNull();
-      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+      expect(buttons(root)).toEqual([
+        'Continue in new session',
+        'Cancel handover',
+        'Preview handoff',
+      ]);
     });
 
     // 627 6F M3: the coordinator moves a `budget-limit` op from `armed` to
@@ -344,7 +582,7 @@ describe('SessionBudgetBannerComponent', () => {
     // 627 6F S2: a compact or an extension drops the budget below the handoff
     // stage while the coordinator still holds the handover.
     it.each(['normal', 'tighten', 'unknown'] as const)(
-      '(S2) awaiting confirmation stays visible at the %s stage with Continue now and Cancel',
+      '(S2) a parked handover stays visible at the %s stage with Continue in new session and Cancel handover',
       (stage) => {
         const root = render(
           { ...HANDOFF_BUDGET, stage, used: 10_000_000, percent: 20 },
@@ -356,9 +594,13 @@ describe('SessionBudgetBannerComponent', () => {
         fixture.componentInstance.cancelHandover.subscribe(cancel);
 
         expect(banner(root)).not.toBeNull();
-        expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
-        button(root, 'Continue now').click();
-        button(root, 'Cancel (keep working)').click();
+        expect(buttons(root)).toEqual([
+          'Continue in new session',
+          'Cancel handover',
+          'Preview handoff',
+        ]);
+        button(root, 'Continue in new session').click();
+        button(root, 'Cancel handover').click();
         expect(continueInNewSession).toHaveBeenCalledTimes(1);
         expect(cancel).toHaveBeenCalledTimes(1);
       },
@@ -371,9 +613,9 @@ describe('SessionBudgetBannerComponent', () => {
 
       expect(banner(root)).not.toBeNull();
       expect(text(root, 'session-budget-body')).toBe(
-        'Waiting for the handover to start. You can continue now if needed.',
+        `Waiting for the turn to end. ${SENDS_STAY}`,
       );
-      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+      expect(buttons(root)).toEqual(['Continue now anyway', 'Cancel']);
     });
 
     it('(S2) a dismissed handoff still shows a handover waiting for running work', () => {
@@ -383,7 +625,7 @@ describe('SessionBudgetBannerComponent', () => {
       );
 
       expect(banner(root)).not.toBeNull();
-      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+      expect(buttons(root)).toEqual(['Continue now anyway', 'Cancel']);
     });
 
     it('(S2) a cancelled handover below the handoff stage shows nothing', () => {
@@ -393,6 +635,147 @@ describe('SessionBudgetBannerComponent', () => {
       );
 
       expect(banner(root)).toBeNull();
+    });
+
+    it('busy disables Continue now anyway and Cancel', () => {
+      const root = render(HANDOFF_BUDGET, { handover: WAITING, busy: true });
+
+      expect(
+        Array.from(root.querySelectorAll('button')).every((item) => item.disabled),
+      ).toBe(true);
+    });
+  });
+
+  // TASK_2026_627 D23/S18: an agent's successor request waits for the user.
+  describe('agent request (S18)', () => {
+    const AGENT_REQUEST: SessionHandoverState = {
+      operationId: 'handover-agent',
+      sourceSessionId: BASE.sessionId,
+      reason: 'successor',
+      phase: 'awaiting-confirmation',
+      revision: 1,
+      heldInputCount: 0,
+      requestedBy: 'agent',
+    };
+
+    it('shows the agent copy with Approve and Cancel', () => {
+      const root = render(
+        { ...BASE, stage: 'normal' },
+        { handover: AGENT_REQUEST, turnRunning: true },
+      );
+      const approve = jest.fn();
+      const cancel = jest.fn();
+      const continueInNewSession = jest.fn();
+      fixture.componentInstance.approveAgentRequest.subscribe(approve);
+      fixture.componentInstance.cancelHandover.subscribe(cancel);
+      fixture.componentInstance.continueInNewSession.subscribe(continueInNewSession);
+
+      expect(text(root, 'session-budget-title')).toBe(
+        'The agent asks to continue in a new session',
+      );
+      expect(text(root, 'session-budget-body')).toBe(
+        'Approve to continue in a new session that starts from the handoff, or cancel to keep working here. Messages you send now go to this session.',
+      );
+      expect(buttons(root)).toEqual(['Approve', 'Cancel']);
+      expect(button(root, 'Approve').getAttribute('aria-label')).toBe(
+        "Approve the agent's request to continue in a new session",
+      );
+      expect(button(root, 'Cancel').getAttribute('aria-label')).toBe(
+        "Decline the agent's request and keep working in this session",
+      );
+      button(root, 'Approve').click();
+      button(root, 'Cancel').click();
+
+      expect(approve).toHaveBeenCalledTimes(1);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(continueInNewSession).not.toHaveBeenCalled();
+    });
+
+    it('shows without a budget and over a dismissed handoff', () => {
+      const root = render(null, { handover: AGENT_REQUEST });
+      expect(buttons(root)).toEqual(['Approve', 'Cancel']);
+
+      TestBed.resetTestingModule();
+      const dismissed = render(
+        { ...BASE, stage: 'handoff', handoff: HANDOFF, dismissedStage: 'handoff' },
+        { handover: AGENT_REQUEST },
+      );
+      expect(buttons(dismissed)).toEqual(['Approve', 'Cancel']);
+    });
+
+    it('once approved and waiting, shows the waiting copy instead', () => {
+      const root = render(
+        { ...BASE, stage: 'normal' },
+        {
+          handover: {
+            ...AGENT_REQUEST,
+            phase: 'waiting-for-turn-end',
+            requestedBy: undefined,
+            revision: 2,
+            waitingFor: { subagents: 1, lanes: 0 },
+          },
+        },
+      );
+
+      expect(text(root, 'session-budget-title')).toBe(
+        'Waiting to continue in a new session',
+      );
+      expect(buttons(root)).toEqual(['Continue now anyway', 'Cancel']);
+    });
+
+    it('busy disables Approve and Cancel', () => {
+      const root = render(null, { handover: AGENT_REQUEST, busy: true });
+
+      expect(
+        Array.from(root.querySelectorAll('button')).every((item) => item.disabled),
+      ).toBe(true);
+    });
+  });
+
+  // TASK_2026_627 R5: the composer's queued message rides with the handover.
+  describe('queued message carried (R5)', () => {
+    const WAITING: SessionHandoverState = {
+      operationId: 'handover-1',
+      sourceSessionId: BASE.sessionId,
+      reason: 'successor',
+      phase: 'waiting-for-turn-end',
+      revision: 2,
+      heldInputCount: 0,
+    };
+    const COPY = 'Your queued message will be sent in the new session.';
+
+    it('says so while the handover waits', () => {
+      const root = render(null, { handover: WAITING, queuedMessageCarried: true });
+
+      expect(text(root, 'session-budget-queued-carried')).toBe(COPY);
+    });
+
+    it('says so while the handover writes the handoff', () => {
+      const root = render(null, {
+        handover: { ...WAITING, phase: 'writing-handoff' },
+        queuedMessageCarried: true,
+      });
+
+      expect(text(root, 'session-budget-queued-carried')).toBe(COPY);
+    });
+
+    it('says nothing when the flag is off', () => {
+      const root = render(null, { handover: WAITING });
+
+      expect(
+        root.querySelector('[data-testid="session-budget-queued-carried"]'),
+      ).toBeNull();
+    });
+
+    it('says nothing once the handover failed', () => {
+      const root = render(null, {
+        handover: { ...WAITING, phase: 'failed', error: 'boom' },
+        queuedMessageCarried: true,
+      });
+
+      expect(
+        root.querySelector('[data-testid="session-budget-queued-carried"]'),
+      ).toBeNull();
     });
   });
 
@@ -489,7 +872,7 @@ describe('SessionBudgetBannerComponent', () => {
     });
 
     expect(text(root, 'session-budget-body')).toContain(
-      'Waiting for handover to start at \u2265 $4.20 of $10 of cost.',
+      'This session has used \u2265 $4.20 of $10 of cost.',
     );
     expect(text(root, 'session-budget-used')).toBe('\u2265 $4.20');
   });
@@ -741,7 +1124,7 @@ describe('SessionBudgetBannerComponent', () => {
     expect(banner(root)).toBeNull();
   });
 
-  it('status role, percent text, saved handoff, one Continue now button', () => {
+  it('status role, percent text, saved handoff, Continue in new session, Preview and Dismiss', () => {
     const root = render({
       ...BASE,
       stage: 'handoff',
@@ -756,10 +1139,13 @@ describe('SessionBudgetBannerComponent', () => {
     expect(banner(root)?.classList).toContain('border-error');
     expect(text(root, 'session-budget-percent')).toBe('80%');
     expect(text(root, 'session-budget-body')).toBe(
-      'Waiting for handover to start at 40.0M of 50.0M tokens. You can continue now if needed.',
+      'This session has used 40.0M of 50.0M tokens. Continue in a new session that starts from the handoff, or keep working here.',
     );
+    expect(text(root, 'session-budget-body')).not.toContain('Preparing');
     expect(Array.from(root.querySelectorAll('button')).map((item) => item.textContent?.trim())).toEqual([
-      'Continue now',
+      'Continue in new session',
+      'Preview handoff',
+      'Dismiss',
     ]);
   });
 
@@ -772,7 +1158,7 @@ describe('SessionBudgetBannerComponent', () => {
     });
 
     expect(text(root, 'session-budget-body')).toContain(
-      'Waiting for handover to start at 40.0M of 50.0M tokens.',
+      'This session has used 40.0M of 50.0M tokens.',
     );
     expect(text(root, 'session-budget-write-error')).toContain('EACCES');
   });
