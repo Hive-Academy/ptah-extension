@@ -85,6 +85,12 @@ jobs:
           npm ci || npm install --no-audit --no-fund
           npm install @rollup/rollup-linux-x64-gnu --no-save --force
 
+      # The node_modules cache is keyed on package-lock.json only, so a cache hit
+      # skips postinstall. Re-apply the Windows console-hide dependency patches
+      # (idempotent) so a release never ships unpatched SDKs (TASK_2026_625).
+      - name: Patch dependencies to hide Windows console windows
+        run: node scripts/windows-hide-patch/patch-windows-hide-deps.js
+
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
