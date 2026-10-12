@@ -22,6 +22,7 @@ import {
   SESSION_CONTEXT,
   SESSION_VISIBLE,
   SESSION_FOCUSED,
+  SESSION_FORCED_CARD,
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import {
@@ -434,6 +435,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    * The workspace grid always binds it explicitly.
    */
   readonly focused = input<boolean>(true);
+  readonly autoCard = input<boolean>(false);
 
   /**
    * Whether this tile's workspace grid is on-screen. Drives visibility-based
@@ -619,6 +621,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
           { provide: SESSION_CONTEXT, useValue: tabIdSignal },
           { provide: SESSION_VISIBLE, useValue: this.visible },
           { provide: SESSION_FOCUSED, useValue: this.focused },
+          { provide: SESSION_FORCED_CARD, useValue: this.autoCard },
           { provide: SURFACE_ACTIVE, useValue: this.tileSurfaceActive },
         ],
         this.parentEnvInjector,

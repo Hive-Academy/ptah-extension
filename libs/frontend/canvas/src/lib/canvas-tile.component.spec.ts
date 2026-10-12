@@ -46,6 +46,7 @@ import {
   SendToMessagingComponent,
   TabManagerService,
   SESSION_FOCUSED,
+  SESSION_FORCED_CARD,
 } from '@ptah-extension/chat';
 import {
   EffortStateService,
@@ -1100,7 +1101,8 @@ describe('CanvasTileComponent SURFACE_ACTIVE for tile content', () => {
 
   const tileSurfaceActive = (
     fixture: ReturnType<typeof TestBed.createComponent<CanvasTileComponent>>,
-  ): boolean => fixture.componentInstance.childInjector()!.get(SURFACE_ACTIVE)();
+  ): boolean =>
+    fixture.componentInstance.childInjector()!.get(SURFACE_ACTIVE)();
 
   it('provides canvas activity AND tile visibility to the tile content', () => {
     const fixture = mount(true);
@@ -1227,7 +1229,8 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
       fixture.componentInstance.childInjector()!.get(SESSION_FOCUSED)();
 
     expect(
-      fixture.nativeElement.querySelector('[data-test="focus-probe"]')
+      fixture.nativeElement
+        .querySelector('[data-test="focus-probe"]')
         ?.textContent?.trim(),
     ).toBe('false');
     expect(tileFocused()).toBe(false);
@@ -1238,7 +1241,8 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     fixture.detectChanges();
     expect(tileFocused()).toBe(true);
     expect(
-      fixture.nativeElement.querySelector('[data-test="focus-probe"]')
+      fixture.nativeElement
+        .querySelector('[data-test="focus-probe"]')
         ?.textContent?.trim(),
     ).toBe('true');
     expect(host.classList.contains('tile-unfocused')).toBe(false);
@@ -1249,12 +1253,28 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     expect(
-      fixture.nativeElement.querySelector('[data-test="focus-probe"]')
+      fixture.nativeElement
+        .querySelector('[data-test="focus-probe"]')
         ?.textContent?.trim(),
     ).toBe('true');
-    expect(fixture.componentInstance.childInjector()!.get(SESSION_FOCUSED)()).toBe(
-      true,
-    );
+    expect(
+      fixture.componentInstance.childInjector()!.get(SESSION_FOCUSED)(),
+    ).toBe(true);
     expect(host.classList.contains('tile-unfocused')).toBe(false);
+  });
+
+  it('provides the auto-card input as a live signal to tile content', () => {
+    const fixture = mountFocused(false);
+    const injector = fixture.componentInstance.childInjector();
+    if (!injector) throw new Error('Tile child injector was not created');
+    const forcedCard = injector.get(SESSION_FORCED_CARD);
+
+    expect(forcedCard()).toBe(false);
+    fixture.componentRef.setInput('autoCard', true);
+    fixture.detectChanges();
+    expect(forcedCard()).toBe(true);
+    fixture.componentRef.setInput('autoCard', false);
+    fixture.detectChanges();
+    expect(forcedCard()).toBe(false);
   });
 });

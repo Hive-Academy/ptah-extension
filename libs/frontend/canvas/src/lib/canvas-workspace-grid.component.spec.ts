@@ -456,6 +456,37 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('projection', () => {
+    it.each([1, 2, 3])(
+      'binds auto-card by focus for %i tiles without moving nodes or writing view mode',
+      (count) => {
+        const ids = ['t1', 't2', 't3'].slice(0, count);
+        mount(ids);
+        const tileBindings = () =>
+          fixture.debugElement
+            .queryAll(By.directive(CanvasTileStub))
+            .map((debug) => {
+              const tile = debug.componentInstance as CanvasTileStub;
+              return [tile.tabId, tile.autoCard] as const;
+            });
+
+        store.focusTile('t1');
+        flush();
+        expect(tileBindings()).toEqual(
+          ids.map((id) => [id, count > 2 && id !== 't1']),
+        );
+        const before = engineGeometry();
+        const storedModes = tabsSignal().map((tab) => tab.viewMode);
+
+        store.focusTile(ids[count - 1]);
+        flush();
+        expect(tileBindings()).toEqual(
+          ids.map((id) => [id, count > 2 && id !== ids[count - 1]]),
+        );
+        expect(engineGeometry()).toEqual(before);
+        expect(tabsSignal().map((tab) => tab.viewMode)).toEqual(storedModes);
+      },
+    );
+
     it('writes derived geometry keyed by tabId into the grid', () => {
       mount(['t1', 't2', 't3']);
 
@@ -1917,6 +1948,7 @@ describe('CanvasWorkspaceGridComponent', () => {
 class CanvasTileStub {
   @Input() tabId = '';
   @Input() focused = false;
+  @Input() autoCard = false;
   @Input() visible = true;
   @Input() widthIntent: unknown;
   @Input() rowBreakBefore = false;

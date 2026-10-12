@@ -40,6 +40,7 @@ import { readCompleteGestureNodes } from './canvas-gesture-observation';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { TabManagerService } from '@ptah-extension/chat';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
+import { isAutoCardTile } from './canvas-live-budget';
 
 /** Which gesture just ended, latched before Gridstack's `change` fires. */
 type GestureKind = 'drag' | 'resize';
@@ -128,6 +129,12 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
             [tabId]="item.tabId"
             [visible]="active()"
             [focused]="canvasStore.focusedTabId() === item.tabId"
+            [autoCard]="
+              isAutoCardTile(
+                items().length,
+                canvasStore.focusedTabId() === item.tabId
+              )
+            "
             [widthIntent]="item.width"
             [rowBreakBefore]="item.rowBreakBefore"
             [firstInOrder]="item.firstInOrder"
@@ -362,6 +369,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       };
     });
   });
+
+  protected readonly isAutoCardTile = isAutoCardTile;
 
   /**
    * True for the synchronous window in which this component is writing derived
