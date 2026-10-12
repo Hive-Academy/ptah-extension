@@ -11,7 +11,7 @@ task's `decisions.md`. Evidence paths are relative to the repository root.
 | 2 | Accessibility landmarks | #151, #159(a) | Done in PR #704. Code-output blocks now have instance-specific region names, and turn-summary details has a distinct landmark name. |
 | 3 | Shared `ptah-file-path-link` wraps long paths instead of truncating | #128 | `design-spec.md:140` wants wrapping. Shared atom, so check every consumer. |
 | 4 | Move the dock wiring out of `chat-view.component.ts` into a `chat-view-dock.ts` helper | #113(a), #133(b) | `chat-view.component.ts` is 1,886+ lines. Behaviour-preserving. |
-| 5 | Forget a closed chat tab's dock state | #115 | Done in PR #704. `DisplayDockState.forgetTab` is called before the chat tab closes. |
+| 5 | Forget a closed chat tab's dock state | #115 | Done in PR #704. `ChatViewComponent` calls `DisplayDockState.forgetTab` when a tab leaves the tab list and no workspace still holds it (covers every close path). |
 | 6 | Width-aware row estimate for code output (only if needed) | #121(a), #154(c) | Today a vertical-scroll `max-h-48` fallback is accepted. Do only if users report it. |
 | 7 | CLI lanes report real context use | #16, #28 | `$agents` shows `context` "unavailable" for CLI lanes today. Needs the lane to report a known limit. |
 | 8 | Item counts and totals on the expanded display chip | #63 | Needs a user or designer decision first. |
