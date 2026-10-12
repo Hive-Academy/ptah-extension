@@ -610,6 +610,41 @@ describe('ptah interact', () => {
       await promise;
     });
 
+    it('settles task.submit when the handler refuses the turn in its data', async () => {
+      const h = makeHarness();
+      // The handler ran (envelope success) but refused the turn; no
+      // chat:complete or chat:error follows such a refusal.
+      h.scripted.set('chat:start', {
+        success: true,
+        data: { success: false, error: 'Session not found: tab-1' },
+      });
+      const promise = execute({}, baseGlobals, h.hooks);
+      await flushAsync();
+      await h.findLine(
+        (m) =>
+          isJsonRpcNotification(m) &&
+          (m as { method: string }).method === 'session.ready',
+      );
+
+      h.send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'task.submit',
+        params: { task: 'hello' },
+      });
+
+      const resp = await h.findLine(
+        (m) => isJsonRpcSuccessResponse(m) && m.id === 1,
+      );
+      expect(isJsonRpcSuccessResponse(resp) && resp.result).toMatchObject({
+        complete: false,
+        error: 'Session not found: tab-1',
+      });
+
+      h.stdin.end();
+      await promise;
+    });
+
     it('blocks concurrent task.submit with -32603 turn already in flight', async () => {
       const h = makeHarness();
       const promise = execute({}, baseGlobals, h.hooks);
