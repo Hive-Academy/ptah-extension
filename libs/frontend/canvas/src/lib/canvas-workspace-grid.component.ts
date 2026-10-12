@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import {
   GridStackOptions,
+  type GridStack,
   type GridStackNode,
   type GridStackWidget,
 } from 'gridstack';
@@ -41,6 +42,13 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { TabManagerService } from '@ptah-extension/chat';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { canvasGridItems } from './canvas-grid-items';
+import {
+  geometryDriftCount,
+  nodesNeedingLayout,
+  pinLiveNodes,
+  restorePinnedNodes,
+  staleGridNodes,
+} from './canvas-grid-release';
 import { canvasDetailGeometry } from './canvas-detail-geometry';
 import {
   canvasDetailStyles,
@@ -724,47 +732,26 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       : this.layout();
     this.metrics.increment('applyChecks');
     const viewFingerprint = this.viewFingerprint();
-    if (positioned.length === 0) {
-      this._geometryDeferred = false;
-      this._appliedViewFingerprint = viewFingerprint;
-      this._lastAppliedMeasurements = measurements;
-      return;
-    }
     const grid = this.gridComp()?.grid;
     if (!grid) return;
-
-    const derived = new Map(positioned.map((tile) => [tile.tabId, tile]));
-    // Compact tiles outside layout focus drag within compact bounds.
-    const bounded = (tabId: string) =>
-      this.compactTabIds().has(tabId) && this.layoutFocusTabId() !== tabId;
-    const changed: Array<{
-      node: GridStackNode & { el: HTMLElement };
-      target: { x: number; y: number; w: number; h: number };
-    }> = [];
-    for (const node of grid.engine.nodes) {
-      if (typeof node.id !== 'string' || !node.el) continue;
-      const target = derived.get(node.id);
-      if (!target) continue;
-      // Bounds count as a change too: a tile created (or restored) at its
-      // target geometry must still get its drag bounds before the first drag.
-      // minH and maxH are always written together, so maxH stands for both.
-      if (
-        node.x !== target.x ||
-        node.y !== target.y ||
-        node.w !== target.w ||
-        node.h !== target.h ||
-        node.maxH !== compactResizeBounds(bounded(node.id)).maxH
-      ) {
-        changed.push({
-          node: node as GridStackNode & { el: HTMLElement },
-          target,
-        });
-      }
-    }
-
+    const liveIds = new Set(this.tiles().map((tile) => tile.tabId));
     this._applyingLayout = true;
     const restoreStatic = this.locked();
+    const pinned = pinLiveNodes(grid.engine.nodes, liveIds);
     try {
+      if (this._gesture === null) this.releaseStaleNodes(grid, liveIds);
+      if (positioned.length === 0) {
+        this._geometryDeferred = false;
+        this._appliedViewFingerprint = viewFingerprint;
+        this._lastAppliedMeasurements = measurements;
+        return;
+      }
+      const derived = new Map(positioned.map((tile) => [tile.tabId, tile]));
+      // Compact tiles outside layout focus drag within compact bounds.
+      const bounded = (tabId: string) =>
+        this.compactTabIds().has(tabId) && this.layoutFocusTabId() !== tabId;
+      const changed = nodesNeedingLayout(grid.engine.nodes, derived, bounded);
+
       // Gridstack may ignore programmatic updates while static. Suspend static
       // mode only inside the guarded authoritative write, then restore it in
       // `finally` before re-applying per-node interaction state.
@@ -791,11 +778,16 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       } else if (grid.getCellHeight() !== cellHeight) {
         grid.cellHeight(cellHeight);
       }
+      this.metrics.increment(
+        'geometryDrift',
+        geometryDriftCount(grid.engine.nodes, derived),
+      );
       this._geometryDeferred = false;
       this._appliedViewFingerprint = viewFingerprint;
       this._lastAppliedMeasurements = measurements;
       if (!restoreStatic) this.applyNodeInteractionState(grid);
     } finally {
+      restorePinnedNodes(pinned);
       try {
         if (restoreStatic) {
           grid.setStatic(true);
@@ -808,6 +800,17 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         // signal write from inside the computed callback.
         this.metrics.publish();
       }
+    }
+  }
+
+  private releaseStaleNodes(
+    grid: GridStack,
+    liveIds: ReadonlySet<string>,
+  ): void {
+    for (const node of staleGridNodes(grid.engine.nodes, liveIds)) {
+      if (node.el) grid.removeWidget(node.el, false, false);
+      else grid.engine.removeNode(node, false, false);
+      this.metrics.increment('releasedNodes');
     }
   }
 
@@ -869,5 +872,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   ngOnDestroy(): void {
     this._gesture = null;
     this._gestureStopped = false;
+    this.creationOptions.clear();
   }
 }

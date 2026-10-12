@@ -6,6 +6,8 @@ export interface CanvasRenderMetrics {
   readonly applyChecks: number;
   readonly applyPasses: number;
   readonly gridUpdates: number;
+  readonly releasedNodes: number;
+  readonly geometryDrift: number;
   readonly changeCallbacks: number;
   readonly acceptedGestures: number;
   readonly rejectedGestures: number;
@@ -20,6 +22,8 @@ const EMPTY_METRICS: CanvasRenderMetrics = {
   applyChecks: 0,
   applyPasses: 0,
   gridUpdates: 0,
+  releasedNodes: 0,
+  geometryDrift: 0,
   changeCallbacks: 0,
   acceptedGestures: 0,
   rejectedGestures: 0,
@@ -37,11 +41,7 @@ export class CanvasRenderMetricsService {
     return this.counters;
   }
 
-  increment(
-    metric: CanvasRenderMetric,
-    amount = 1,
-    publish = true,
-  ): void {
+  increment(metric: CanvasRenderMetric, amount = 1, publish = true): void {
     if (!Number.isFinite(amount) || amount <= 0) return;
     this.counters = {
       ...this.counters,

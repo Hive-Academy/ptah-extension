@@ -113,6 +113,7 @@ interface FakeNode {
   y?: number;
   w?: number;
   h?: number;
+  locked?: boolean;
   el?: HTMLElement;
 }
 
@@ -124,6 +125,7 @@ interface FakeGrid {
   readonly onResize: jest.Mock;
   readonly update: jest.Mock;
   readonly load: jest.Mock;
+  readonly removeWidget: jest.Mock;
   readonly batchUpdate: jest.Mock;
   readonly movable: jest.Mock;
   readonly resizable: jest.Mock;
@@ -177,6 +179,13 @@ function createFakeGrid(): FakeGrid {
           if (node) Object.assign(node, item);
         }
         grid.batchUpdate(false);
+      },
+    ),
+    removeWidget: jest.fn(
+      (el: HTMLElement, _removeDOM: boolean, _triggerEvent: boolean) => {
+        const index = engine.nodes.findIndex((node) => node.el === el);
+        if (index >= 0) engine.nodes.splice(index, 1);
+        delete (el as HTMLElement & { gridstackNode?: FakeNode }).gridstackNode;
       },
     ),
     batchUpdate: jest.fn((flag: boolean) => {
@@ -440,6 +449,137 @@ describe('CanvasWorkspaceGridComponent', () => {
     flush();
   };
 
+  describe('stale Gridstack node release', () => {
+    const componentState = () =>
+      fixture.componentInstance as unknown as {
+        applyAuthoritativeGeometry(
+          force?: boolean,
+          frozen?: { width: number; height: number },
+        ): void;
+        creationOptions: Map<string, unknown>;
+        _gesture: unknown;
+      };
+    const apply = (frozen?: { width: number; height: number }) =>
+      componentState().applyAuthoritativeGeometry(true, frozen);
+    const counters = () =>
+      TestBed.inject(CanvasRenderMetricsService).snapshot();
+
+    it('removes a closed middle tile before load and restores live locks', () => {
+      mount(['t1', 't2', 't3']);
+      const closed = nodeOf('t2');
+      nodeOf('t1').locked = false;
+      nodeOf('t3').locked = true;
+      const order: string[] = [];
+      grid.removeWidget.mockImplementation((el: HTMLElement) => {
+        order.push('remove');
+        grid.engine.nodes.splice(
+          grid.engine.nodes.findIndex((node) => node.el === el),
+          1,
+        );
+        delete (el as HTMLElement & { gridstackNode?: FakeNode }).gridstackNode;
+      });
+      const originalLoad = grid.load.getMockImplementation();
+      if (!originalLoad) throw new Error('Missing fake load');
+      grid.load.mockImplementation((...args: unknown[]) => {
+        order.push('load');
+        return originalLoad(...args);
+      });
+      store.removeTileOnly('t2');
+      flush();
+      apply();
+      expect(grid.removeWidget).toHaveBeenCalledWith(closed.el, false, false);
+      expect(order[0]).toBe('remove');
+      expect(order).toContain('load');
+      expect(grid.engine.nodes.map((node) => node.id)).toEqual(['t1', 't3']);
+      expect(
+        (closed.el as HTMLElement & { gridstackNode?: FakeNode }).gridstackNode,
+      ).toBeUndefined();
+      expect(componentState().creationOptions.has('t2')).toBe(false);
+      expect(nodeOf('t1').locked).toBe(false);
+      expect(nodeOf('t3').locked).toBe(true);
+      expect(counters().releasedNodes).toBe(1);
+      expect(counters().geometryDrift).toBe(0);
+    });
+
+    it('releases an unknown id and a node with no id', () => {
+      mount(['t1']);
+      const ghost = document.createElement('div');
+      grid.engine.nodes.push(
+        { id: 'ghost', el: ghost },
+        { el: document.createElement('div') },
+      );
+      apply();
+      expect(grid.removeWidget).toHaveBeenCalledTimes(2);
+      expect(grid.engine.nodes.map((node) => node.id)).toEqual(['t1']);
+      expect(counters().geometryDrift).toBe(0);
+    });
+
+    it('defers release during a forced apply with an active gesture', () => {
+      mount(['t1']);
+      const stale = {
+        id: 'ghost',
+        el: document.createElement('div'),
+        x: 0,
+        y: 9,
+        w: 6,
+        h: 6,
+      };
+      grid.engine.nodes.push(stale);
+      componentState()._gesture = {};
+      apply();
+      expect(grid.removeWidget).not.toHaveBeenCalled();
+      expect(stale.y).toBe(9);
+      componentState()._gesture = null;
+      apply();
+      expect(grid.removeWidget).toHaveBeenCalledWith(stale.el, false, false);
+    });
+
+    it.each([
+      { width: 0, height: 900 },
+      { width: 900, height: 0 },
+    ])('releases only stale nodes at zero measurement %j', (measurement) => {
+      mount(['t1']);
+      const live = nodeOf('t1');
+      const stale = { id: 'ghost', el: document.createElement('div') };
+      grid.engine.nodes.push(stale);
+      apply(measurement);
+      expect(grid.removeWidget).toHaveBeenCalledWith(stale.el, false, false);
+      expect(grid.engine.nodes).toContain(live);
+      expect(counters().geometryDrift).toBe(0);
+    });
+
+    it('releases every node when the intent tile set is empty', () => {
+      mount(['t1']);
+      store.removeTileOnly('t1');
+      flush();
+      apply();
+      expect(grid.engine.nodes).toHaveLength(0);
+      expect(componentState().creationOptions.size).toBe(0);
+      expect(counters().geometryDrift).toBe(0);
+    });
+
+    it('restores locked flags when load throws', () => {
+      mount(['t1', 't2']);
+      nodeOf('t1').locked = false;
+      nodeOf('t2').locked = true;
+      nodeOf('t1').x = 9;
+      grid.load.mockImplementationOnce(() => {
+        throw new Error('load failed');
+      });
+      expect(() => apply()).toThrow('load failed');
+      expect(nodeOf('t1').locked).toBe(false);
+      expect(nodeOf('t2').locked).toBe(true);
+    });
+
+    it('clears creation options on destroy without destroying the wrapper grid', () => {
+      mount(['t1']);
+      expect(componentState().creationOptions.size).toBe(1);
+      fixture.destroy();
+      expect(componentState().creationOptions.size).toBe(0);
+      expect(grid.removeWidget).not.toHaveBeenCalled();
+    });
+  });
+
   describe('grid options', () => {
     it('runs with gravity on, edge resize handles and a header drag handle', () => {
       mount(['t1']);
@@ -555,7 +695,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       ]);
     });
 
-    it('skips a node whose tabId has no derived entry instead of zeroing it', () => {
+    it('releases a node whose tabId has no derived entry', () => {
       mount(['t1']);
       grid.load.mockClear();
 
@@ -570,8 +710,12 @@ describe('CanvasWorkspaceGridComponent', () => {
       measure(TWO_COLUMN_WIDTH);
       flush();
 
-      const ghost = grid.engine.nodes.find((n) => n.id === 'ghost');
-      expect(ghost).toEqual(expect.objectContaining({ x: 9, y: 9, w: 3 }));
+      expect(grid.engine.nodes.some((n) => n.id === 'ghost')).toBe(false);
+      expect(grid.removeWidget).toHaveBeenCalledWith(
+        expect.any(HTMLElement),
+        false,
+        false,
+      );
     });
   });
 
@@ -1177,7 +1321,6 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(engineGeometry()).toEqual([
         ['t1', 0, 0, 6, 6],
         ['t2', 6, 0, 6, 6],
-        [42, 8, 0, 4, 6],
       ]);
     });
   });
