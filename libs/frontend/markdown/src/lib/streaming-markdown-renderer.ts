@@ -85,6 +85,9 @@ export class StreamingMarkdownRenderer {
     try {
       return sanitizeFullMarkdownHtml(this.marked.parse(markdown, { async: false }));
     } catch {
+      // degradation-audit: reported — a second failure at the same boundary
+      // returns `failed`, which the caller logs once before it streams the
+      // rest as plain text until the settled render replaces it.
       return null;
     }
   }
