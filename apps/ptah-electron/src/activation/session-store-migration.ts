@@ -143,7 +143,15 @@ export async function runSessionStoreMigration(
         try {
           await storage.whenReady();
         } catch (error: unknown) {
-          await storage.dispose().catch(() => undefined);
+          await storage.dispose().catch((disposeError: unknown) => {
+            logger.warn('[Electron] Could not close a legacy session store', {
+              sourcePath: dir,
+              error:
+                disposeError instanceof Error
+                  ? disposeError.message
+                  : String(disposeError),
+            });
+          });
           throw error;
         }
         return { storage, dispose: () => storage.dispose() };
