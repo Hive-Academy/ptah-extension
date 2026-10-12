@@ -193,7 +193,7 @@ describe.each([true, false])(
         toolOutput: 'ok',
       }).querySelector('[role="region"]') as HTMLElement;
       expect(block.getAttribute('tabindex')).toBe('0');
-      expect(block.getAttribute('aria-label')).toBe('Bash output');
+      expect(block.getAttribute('aria-label')).toMatch(/^Bash output \d+$/);
     });
 
     it('keeps short output in the max-h-48 scroll with no toggle', () => {

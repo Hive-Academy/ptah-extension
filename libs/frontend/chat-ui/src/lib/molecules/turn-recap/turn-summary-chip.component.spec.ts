@@ -220,7 +220,8 @@ describe('TurnSummaryChipComponent', () => {
       const region = native().querySelector('[role="region"]') as HTMLElement;
       expect(toggle().getAttribute('aria-expanded')).toBe('false');
       expect(toggle().getAttribute('aria-controls')).toBe(region.id);
-      expect(region.getAttribute('aria-labelledby')).toBe(toggle().id);
+      expect(region.getAttribute('aria-label')).toMatch(/^Turn summary: .* details$/);
+      expect(region.hasAttribute('aria-labelledby')).toBe(false);
       expect(region.hasAttribute('inert')).toBe(true);
 
       expand();

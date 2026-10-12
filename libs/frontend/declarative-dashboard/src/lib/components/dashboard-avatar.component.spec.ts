@@ -13,7 +13,7 @@ describe('DashboardAvatarComponent', () => {
   }
   const disc = (element: HTMLElement) => element.querySelector<HTMLElement>('[data-testid="avatar-initials"]')!;
 
-  it('shows initials in a decorative disc and the name and subtitle as text (R4.8)', () => {
+  it('shows initials in a decorative disc and the name and subtitle as text (R4.5)', () => {
     const { element } = setup();
     expect(disc(element).textContent).toBe('CE');
     expect(disc(element).getAttribute('aria-hidden')).toBe('true');
@@ -27,7 +27,7 @@ describe('DashboardAvatarComponent', () => {
     expect(disc(element).textContent).toBe('Pl');
   });
 
-  it('never renders an image, link, style or control; hostile text stays literal (R4.7)', () => {
+  it('never renders an image, link, style or control; hostile text stays literal (R4.5)', () => {
     const hostile = '<img src=x onerror=alert(1)> https://evil.example/a.png';
     const { element } = setup({ id: 'agent', kind: 'avatar', name: hostile, subtitle: '<script>x</script>', selectable: true });
     expect(element.querySelectorAll('img, svg image, script, style, [style], a, button, [src], [href]')).toHaveLength(0);

@@ -22,6 +22,7 @@ describe('extractMessageSummary', () => {
 
   it.each([
     ['keeps plain prose', 'The recap   is\nready.', 'The recap is ready.'],
+    ['strips inline-code delimiters from the collapsed title', 'Updated `sub` package.', 'Updated sub package.'],
     [
       'keeps prose before a display fence',
       'The recap is ready.\n' + display('title Recap\ngrid 2\n  card Changes'),

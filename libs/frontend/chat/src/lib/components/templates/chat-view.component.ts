@@ -1230,6 +1230,27 @@ export class ChatViewComponent implements OnDestroy {
     });
     this.observeHostWidth();
 
+    // A closed chat tab's dock state is released, whichever path closed it
+    // (tab bar, shortcut, canvas, tribunal); the view's own key is never a tab.
+    // `tabs()` lists only the active workspace, so a tab that left it is
+    // forgotten only when no workspace still holds it.
+    const dock = this.displayDock;
+    if (dock !== null) {
+      const openIds = (): ReadonlySet<TabId> =>
+        new Set(this._tabManager.tabs().map((tab) => tab.id));
+      let openTabIds = untracked(openIds);
+      effect(() => {
+        const current = openIds();
+        for (const tabId of openTabIds)
+          if (!current.has(tabId))
+            untracked(() => {
+              if (!this._tabManager.findTabByIdAcrossWorkspaces(tabId))
+                dock.forgetTab(tabId);
+            });
+        openTabIds = current;
+      });
+    }
+
     afterRenderEffect(() => {
       const panelOpen = this.panelOpen();
       const sidebarTab = this.agentSidebarTab();

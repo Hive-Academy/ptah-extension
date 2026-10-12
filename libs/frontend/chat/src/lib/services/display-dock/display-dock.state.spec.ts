@@ -364,6 +364,11 @@ describe('DisplayDockState', () => {
   });
 
   describe('summaries', () => {
+    it('does not open the dock when summaries arrive (R1.10)', () => {
+      store.setSummaries(TAB_A, new Map([['u1', summary('first')]]));
+      expect(store.tab(TAB_A).open).toBe(false);
+    });
+
     it('shows the selected turn, else the latest, and drops a stale turn key', () => {
       const first = summary('first');
       const second = summary('second');

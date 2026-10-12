@@ -13,7 +13,7 @@ import { join } from 'path';
 import type { SurfaceActionInvoke, SurfaceActionUiState } from '../surface-interaction';
 import { buildSurfaceViewModel } from '../view-model/surface-view-model';
 import type { LayoutNode } from '../view-model/view-model.types';
-import { SURFACE_CONTAINER_GRID_STYLES, SurfaceLayoutComponent, type SurfaceLayoutWidth } from './surface-layout.component';
+import { SURFACE_CONTAINER_BODY_STYLES, SURFACE_CONTAINER_GRID_STYLES, SurfaceLayoutComponent, type SurfaceLayoutWidth } from './surface-layout.component';
 
 const markup = '<img src=x onerror=alert(1)><script>alert(2)</script>';
 const submit: SurfaceAction = { id: 'send', action: 'surface.submit', label: { text: 'Submit rollback request' } };
@@ -98,6 +98,18 @@ describe('SurfaceLayoutComponent', () => {
     expect(card.querySelector('h3')?.textContent).toBe('Card');
     host.node.set(layout({ id: 'c2', kind: 'card', children: stats(1) })); rerender();
     expect(element.querySelector('.card h3')).toBeNull();
+  });
+
+  it('uses an own-width responsive body for compact card children only in container mode', () => {
+    const component: SurfaceComponent = { id: 'card', kind: 'card', children: [...stats(2), { id: 'agent', kind: 'avatar', name: 'Planner' }] };
+    const { element, host, rerender } = setup(component, { width: 'container', catalog: SURFACE_CATALOG_VERSION_4 });
+    const body = element.querySelector('.dp-container-body')!;
+    expect(body).not.toBeNull();
+    expect(body.querySelectorAll('.dp-container-body-child--compact')).toHaveLength(3);
+    expect(SURFACE_CONTAINER_BODY_STYLES).toContain('container-type: inline-size');
+    expect(SURFACE_CONTAINER_BODY_STYLES).toContain('minmax(min(100%, 8rem), 1fr)');
+    host.width.set('viewport'); rerender();
+    expect(element.querySelector('.dp-container-body')).toBeNull();
   });
 
   it('caps the grid at four columns and collapses to one column below sm', () => {
@@ -344,7 +356,7 @@ describe('SurfaceLayoutComponent', () => {
       // jsdom has no layout and the Jest transform strips component styles: assert the rules are attached in
       // source, to the layout and to the renderer root (which is the `dp` container); V1 is the visual check.
       const layoutSource = readFileSync(join(__dirname, 'surface-layout.component.ts'), 'utf8');
-      expect(layoutSource).toMatch(/styles: \[SURFACE_CONTAINER_GRID_STYLES, COLLAPSE_STYLES\]/);
+      expect(layoutSource).toMatch(/styles: \[SURFACE_CONTAINER_GRID_STYLES, SURFACE_CONTAINER_BODY_STYLES, COLLAPSE_STYLES\]/);
       const rendererSource = readFileSync(join(__dirname, 'surface-renderer.component.ts'), 'utf8');
       expect(rendererSource).toMatch(/styles: \[DISPLAY_TOKEN_STYLES, SURFACE_CONTAINER_GRID_STYLES\]/);
       expect(rendererSource).toContain(':host(.dp-root) { display: block; min-width: 0; container-type: inline-size; container-name: dp; }');

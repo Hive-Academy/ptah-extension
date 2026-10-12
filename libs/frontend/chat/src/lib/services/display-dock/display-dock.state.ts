@@ -132,6 +132,13 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     return this.tab(tabId).statuses.get(fenceKey) ?? null;
   }
 
+  /** Releases all display and seen-fence state when its chat tab is closed. */
+  forgetTab(tabId: string): void {
+    this.seen.delete(tabId);
+    const tabs = new Map(this.tabs());
+    if (tabs.delete(tabId)) this.tabs.set(tabs);
+  }
+
   openSurface(tabId: string, surfaceKey: string): void {
     this.update(tabId, (state) => ({
       ...openedState(state, 'displays'),

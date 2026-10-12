@@ -170,6 +170,7 @@ interface Harness {
   fixture: ComponentFixture<ChatViewComponent>;
   agents: ReturnType<typeof signal<MonitoredAgent[]>>;
   activeTabId: ReturnType<typeof signal<string | null>>;
+  openTabs: ReturnType<typeof signal<{ id: string }[]>>;
   panelOpenRequest: ReturnType<
     typeof signal<{ seq: number; tabId: string | null }>
   >;
@@ -190,6 +191,7 @@ function mount(
   } = options;
   const agents = signal<MonitoredAgent[]>([]);
   const activeTabId = signal<string | null>('tab-1');
+  const openTabs = signal<{ id: string }[]>([]);
   const panelOpenRequest = signal<{ seq: number; tabId: string | null }>({
     seq: 0,
     tabId: null,
@@ -211,7 +213,7 @@ function mount(
     activeTabHasLiveSession: signal(true).asReadonly(),
     pendingSessionLoad: signal<string | null>(null).asReadonly(),
     visibleTabIds: signal<ReadonlySet<string>>(new Set()).asReadonly(),
-    tabs: signal([]).asReadonly(),
+    tabs: openTabs.asReadonly(),
     streamingTabIds: signal<Set<string>>(new Set()).asReadonly(),
     closedTab: signal(null).asReadonly(),
     onTabClosed: jest.fn(() => () => undefined),
@@ -373,6 +375,7 @@ function mount(
     fixture,
     agents,
     activeTabId,
+    openTabs,
     panelOpenRequest,
     emitHostWidth(width: number): void {
       const entry = {
@@ -435,6 +438,31 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       expect(state).toBeInstanceOf(DisplayDockState);
       expect(injector.get(PTAH_UI_DISPLAY_DOCK)).toBe(state);
       expect(injector.get(PTAH_UI_DISPLAY_DOCK_SYNC)).toBe(state);
+    });
+
+    it('releases the dock state of a closed tab, whichever path closed it (TASK_2026_630 #5)', async () => {
+      h = mount();
+      h.openTabs.set([{ id: 'tab-1' }, { id: 'tab-2' }]);
+      await settle();
+      store().openSurface('tab-1', 'surface-a');
+      store().openSurface('tab-2', 'surface-b');
+      h.openTabs.set([{ id: 'tab-1' }]);
+      await settle();
+      expect(store().tab('tab-2').open).toBe(false);
+      expect(store().tab('tab-2').selection).toBeNull();
+      expect(store().tab('tab-1').open).toBe(true);
+    });
+
+    it('keeps the dock state of a tab that only left the active workspace', async () => {
+      h = mount();
+      const tabManager = h.fixture.debugElement.injector.get(TabManagerService);
+      h.openTabs.set([{ id: 'tab-1' }, { id: 'tab-2' }]);
+      await settle();
+      store().openSurface('tab-2', 'surface-b');
+      (tabManager.findTabByIdAcrossWorkspaces as jest.Mock).mockReturnValue({ id: 'tab-2' });
+      h.openTabs.set([]);
+      await settle();
+      expect(store().tab('tab-2').open).toBe(true);
     });
 
     it('VS Code: no store, no Display toggle and no dock (R1.14)', async () => {

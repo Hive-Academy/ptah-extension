@@ -64,7 +64,7 @@ function summaryText(text: string): string {
       return ' ';
     },
   );
-  const collapsed = prose.replace(/\s+/g, ' ').trim();
+  const collapsed = prose.replace(/(?<!`)`([^`]+)`(?!`)/g, '$1').replace(/\s+/g, ' ').trim();
   if (!fenced || collapsed) return collapsed;
   return displayTitle ? `Display: ${displayTitle}` : 'Display';
 }

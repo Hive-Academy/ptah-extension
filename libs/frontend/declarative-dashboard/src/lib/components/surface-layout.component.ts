@@ -58,6 +58,17 @@ export const SURFACE_CONTAINER_GRID_STYLES = `
   }
 `;
 
+/** Container-mode card bodies own their available inline size. Compact items
+ * share tracks; every other child deliberately spans the full body width. */
+export const SURFACE_CONTAINER_BODY_STYLES = `
+  .dp-container-body { container-type: inline-size; container-name: dp-body; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: min(100%, 16rem); }
+  .dp-container-body-child { grid-column: 1 / -1; min-width: 0; }
+  @container dp-body (min-width: 16rem) {
+    .dp-container-body { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
+    .dp-container-body-child--compact { grid-column: auto; }
+  }
+`;
+
 /**
  * One collapse pattern for `accordion` and the container-mode `section`
  * (design section 7): the hidden body is `inert` and `visibility:hidden`.
@@ -117,13 +128,22 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
   standalone: true,
   imports: [NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [SURFACE_CONTAINER_GRID_STYLES, COLLAPSE_STYLES],
+  styles: [SURFACE_CONTAINER_GRID_STYLES, SURFACE_CONTAINER_BODY_STYLES, COLLAPSE_STYLES],
   template: `
     <ng-template #children>
       <!-- Position plus id: duplicate ids stay distinct, and a swapped id gets a fresh view. -->
       @for (child of node().children; track $index + ':' + child.id) {
         <ng-container [ngTemplateOutlet]="childTemplate()" [ngTemplateOutletContext]="{ $implicit: child, index: $index }" />
       }
+    </ng-template>
+    <ng-template #responsiveChildren>
+      <div class="dp-container-body">
+        @for (child of node().children; track $index + ':' + child.id) {
+          <div class="dp-container-body-child" [class.dp-container-body-child--compact]="child.kind === 'stat' || child.kind === 'avatar'">
+            <ng-container [ngTemplateOutlet]="childTemplate()" [ngTemplateOutletContext]="{ $implicit: child, index: $index }" />
+          </div>
+        }
+      </div>
     </ng-template>
     <ng-template #submit>
       @for (action of submitActions(); track $index + ':' + action.id) {
@@ -158,7 +178,11 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
         <div [id]="regionId" class="dp-collapse" [attr.data-open]="open()" [attr.inert]="open() ? null : ''">
           <div class="dp-collapse-inner">
             <div class="flex flex-col gap-3 px-3 pb-3">
-              <div [class]="containerClass()"><ng-container [ngTemplateOutlet]="children" /></div>
+              @if (layoutWidth() === 'container') {
+                <ng-container [ngTemplateOutlet]="responsiveChildren" />
+              } @else {
+                <div [class]="containerClass()"><ng-container [ngTemplateOutlet]="children" /></div>
+              }
               <ng-container [ngTemplateOutlet]="submit" />
             </div>
           </div>
@@ -183,7 +207,11 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
         <div class="card card-bordered bg-base-100 flex flex-col gap-3 p-4 text-base-content">
           @if (title(); as title) { <h3 class="text-sm font-semibold">{{ title }}</h3> }
           @if (description(); as description) { <p class="text-sm text-base-content-muted">{{ description }}</p> }
-          <div class="flex flex-col gap-3"><ng-container [ngTemplateOutlet]="children" /></div>
+          @if (layoutWidth() === 'container') {
+            <ng-container [ngTemplateOutlet]="responsiveChildren" />
+          } @else {
+            <div class="flex flex-col gap-3"><ng-container [ngTemplateOutlet]="children" /></div>
+          }
           <ng-container [ngTemplateOutlet]="submit" />
         </div>
       }

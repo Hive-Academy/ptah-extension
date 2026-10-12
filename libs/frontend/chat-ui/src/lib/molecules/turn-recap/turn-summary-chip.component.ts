@@ -176,7 +176,7 @@ function isStatusWord(value: string): boolean {
       <div
         [id]="regionId"
         role="region"
-        [attr.aria-labelledby]="toggleId"
+        [attr.aria-label]="detailsLabel()"
         class="dp-collapse"
         [attr.data-open]="expanded()"
         [attr.inert]="expanded() ? null : ''"
@@ -337,6 +337,11 @@ export class TurnSummaryChipComponent {
       parts.length === 0 ? 'Turn summary' : `Turn summary: ${parts.join(', ')}`;
     return this.summary().incomplete ? `${label} (incomplete)` : label;
   });
+
+  /** Distinguishes the expandable details landmark from the summary section. */
+  protected readonly detailsLabel = computed(
+    () => `${this.ariaLabel()} details`,
+  );
 
   protected readonly miniCards = computed((): readonly ChipMiniCard[] => {
     const { files, lines, tokens, cost, duration, tests } = this.summary();

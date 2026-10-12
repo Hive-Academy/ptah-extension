@@ -198,11 +198,11 @@ export class CodeOutputComponent {
     () => this.collapsible() && !this.expanded(),
   );
 
+  private readonly blockNumber = nextBlockId++;
+  protected readonly blockId = `ptah-code-output-${this.blockNumber}`;
   protected readonly blockLabel = computed(
-    () => `${this.node().toolName || 'Tool'} output`,
+    () => `${this.node().toolName || 'Tool'} output ${this.blockNumber}`,
   );
-
-  protected readonly blockId = `ptah-code-output-${nextBlockId++}`;
 
   private readonly expandToggle =
     viewChild<ElementRef<HTMLButtonElement>>('expandToggle');

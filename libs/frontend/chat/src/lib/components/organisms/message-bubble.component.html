@@ -62,12 +62,12 @@
             }
             @if (summary.toolCount > 0) {
               <span class="badge badge-ghost badge-xs text-[9px] flex-shrink-0">
-                {{ summary.toolCount }} tools
+                {{ summary.toolCount }} {{ summary.toolCount === 1 ? 'tool' : 'tools' }}
               </span>
             }
             @if (summary.filesChanged > 0) {
               <span class="badge badge-ghost badge-xs text-[9px] flex-shrink-0">
-                {{ summary.filesChanged }} files
+                {{ summary.filesChanged }} {{ summary.filesChanged === 1 ? 'file' : 'files' }}
               </span>
             }
           </button>
