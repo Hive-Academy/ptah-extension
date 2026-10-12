@@ -150,6 +150,79 @@ describe('TabManagerService — agent session adoption (TASK_2026_584)', () => {
     expect(service.findTabByIdAcrossWorkspaces(CHILD_TAB)).toBeNull();
   });
 
+  // A resumed parent chat is identified by its SDK session id, not its tab id.
+  describe('parent identified by its session id (resumed chat)', () => {
+    const PARENT_SESSION = '44444444-4444-4444-8444-444444444444';
+
+    it('finds the parent by claudeSessionId in the active tab set', () => {
+      service.switchWorkspace(WS_A);
+      const parent = service.createTab('parent');
+      const last = service.createTab('last');
+      service.attachSession(parent, PARENT_SESSION);
+
+      expect(
+        service.adoptAgentSessionTab(payload(PARENT_SESSION), 'live'),
+      ).toBe('adopted');
+      expect(service.tabs().map((t) => t.id)).toEqual([
+        parent,
+        CHILD_TAB,
+        last,
+      ]);
+    });
+
+    it('finds the parent by parentSessionId when parentTabId matches nothing', () => {
+      const parent = service.createTab('parent');
+      service.attachSession(parent, PARENT_SESSION);
+
+      expect(
+        service.adoptAgentSessionTab(
+          payload('55555555-5555-4555-8555-555555555555', {
+            parentSessionId: PARENT_SESSION,
+          }),
+          'live',
+        ),
+      ).toBe('adopted');
+      expect(service.tabs().map((t) => t.id)).toEqual([parent, CHILD_TAB]);
+    });
+
+    it('finds the parent by claudeSessionId in a background partition', () => {
+      service.switchWorkspace(WS_A);
+      const parent = service.createTab('parent');
+      const sibling = service.createTab('sibling');
+      service.attachSession(parent, PARENT_SESSION);
+      service.switchWorkspace(WS_B);
+      const activeB = service.createTab('b');
+
+      expect(
+        service.adoptAgentSessionTab(payload(PARENT_SESSION), 'live'),
+      ).toBe('adopted');
+      expect(service.tabs().map((t) => t.id)).toEqual([activeB]);
+      expect(service.getWorkspaceTabs(WS_A).map((t) => t.id)).toEqual([
+        parent,
+        CHILD_TAB,
+        sibling,
+      ]);
+    });
+
+    it('still reports parent-absent when no tab matches by id or session', () => {
+      service.switchWorkspace(WS_A);
+      const unrelated = service.createTab('unrelated');
+      service.attachSession(unrelated, PARENT_SESSION);
+      const before = service.tabs();
+
+      expect(
+        service.adoptAgentSessionTab(
+          payload('66666666-6666-4666-8666-666666666666', {
+            parentSessionId: '77777777-7777-4777-8777-777777777777',
+          }),
+          'live',
+        ),
+      ).toBe('parent-absent');
+      expect(service.tabs()).toBe(before);
+      expect(service.findTabByIdAcrossWorkspaces(CHILD_TAB)).toBeNull();
+    });
+  });
+
   it('rejects a child tab id that is not a tab id', () => {
     service.switchWorkspace(WS_A);
     const parent = service.createTab('parent');

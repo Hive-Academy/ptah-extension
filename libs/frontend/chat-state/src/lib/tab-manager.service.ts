@@ -971,7 +971,7 @@ export class TabManagerService {
     if (!tabId) return 'invalid';
     if (this.locateTabInPanel(tabId)) return 'exists';
 
-    const parent = this.locateTabInPanel(payload.parentTabId);
+    const parent = this.locateAgentSessionParent(payload);
     if (!parent) return 'parent-absent';
 
     const sessionId =
@@ -981,9 +981,7 @@ export class TabManagerService {
     const tab = this.buildAgentSessionTab(tabId, payload, sessionId);
 
     if (parent.workspacePath === null) {
-      this._tabs.update((tabs) =>
-        insertTabAfter(tabs, tab, payload.parentTabId),
-      );
+      this._tabs.update((tabs) => insertTabAfter(tabs, tab, parent.tabId));
       const activePath = this.workspacePartition.activeWorkspacePath;
       if (sessionId && activePath) {
         this.workspacePartition.registerSessionForWorkspace(
@@ -998,10 +996,31 @@ export class TabManagerService {
     return this.workspacePartition.addTabToWorkspace(
       parent.workspacePath,
       tab,
-      payload.parentTabId,
+      parent.tabId,
     )
       ? 'adopted'
       : 'parent-absent';
+  }
+
+  /**
+   * Find the parent tab of an agent session. The spawner identifies the
+   * parent by its MCP caller id, which is the tab id for a new chat but the
+   * SDK session id for a resumed one — so a miss by id falls back to a tab
+   * bound to `parentTabId` or `parentSessionId` as its session.
+   */
+  private locateAgentSessionParent(
+    payload: AgentSessionOpenedPayload,
+  ): { tabId: string; workspacePath: string | null } | null {
+    const byId = this.locateTabInPanel(payload.parentTabId);
+    if (byId) return { tabId: payload.parentTabId, ...byId };
+
+    for (const sessionId of [payload.parentTabId, payload.parentSessionId]) {
+      if (!sessionId) continue;
+      const tab = this.findTabBySessionId(sessionId);
+      const located = tab ? this.locateTabInPanel(tab.id) : null;
+      if (tab && located) return { tabId: tab.id, ...located };
+    }
+    return null;
   }
 
   /**
