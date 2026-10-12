@@ -1013,4 +1013,76 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       expect(ids).toEqual([]);
     });
   });
+
+  // TASK_2026_628 Batch 5: an update that changes nothing publishes nothing;
+  // every real change (including any status change) still publishes.
+  describe('no-op updates (updateTabInternal)', () => {
+    it('keeps tabs() and skips the save when every updated value is unchanged', () => {
+      const tabId = service.createTab('streaming');
+      const state = createEmptyStreamingState();
+      service.setStreamingStateAndCurrentMessage(tabId, state, 'msg-1');
+      const before = service.tabs();
+      const save = jest
+        .spyOn(service, 'saveTabState')
+        .mockImplementation(() => undefined);
+
+      service.setStreamingStateAndCurrentMessage(tabId, state, 'msg-1');
+      service.setStreamingState(tabId, state);
+
+      expect(service.tabs()).toBe(before);
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('publishes a new array and tab with a bumped lastActivityAt on a new streamingState', () => {
+      const tabId = service.createTab('streaming');
+      service.setStreamingState(tabId, createEmptyStreamingState());
+      const before = service.tabs();
+      const tabBefore = before.find((t) => t.id === tabId);
+      const save = jest
+        .spyOn(service, 'saveTabState')
+        .mockImplementation(() => undefined);
+      const now = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue((tabBefore?.lastActivityAt ?? 0) + 1_000);
+
+      const next = createEmptyStreamingState();
+      service.setStreamingState(tabId, next);
+
+      const tabAfter = service.tabs().find((t) => t.id === tabId);
+      expect(service.tabs()).not.toBe(before);
+      expect(tabAfter).not.toBe(tabBefore);
+      expect(tabAfter?.streamingState).toBe(next);
+      expect(tabAfter?.lastActivityAt).toBe(
+        (tabBefore?.lastActivityAt ?? 0) + 1_000,
+      );
+      expect(save).toHaveBeenCalledTimes(1);
+      now.mockRestore();
+    });
+
+    it('publishes every status change, and nothing for a repeated status', () => {
+      const tabId = service.createTab('status');
+      service.setStatus(tabId, 'loaded');
+      const loaded = service.tabs();
+
+      service.setStatus(tabId, 'streaming');
+      const streaming = service.tabs();
+      expect(streaming).not.toBe(loaded);
+      expect(streaming.find((t) => t.id === tabId)?.status).toBe('streaming');
+
+      service.setStatus(tabId, 'streaming');
+      expect(service.tabs()).toBe(streaming);
+    });
+
+    it('routes a tab outside the active workspace to updateBackgroundTab', () => {
+      const before = service.tabs();
+
+      service.setStatus('background-tab', 'streaming');
+
+      expect(partitionMock.updateBackgroundTab).toHaveBeenCalledWith(
+        'background-tab',
+        { status: 'streaming' },
+      );
+      expect(service.tabs()).toBe(before);
+    });
+  });
 });

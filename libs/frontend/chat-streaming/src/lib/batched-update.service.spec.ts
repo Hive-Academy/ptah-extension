@@ -16,7 +16,10 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 
 type TabManagerSlice = Pick<
   TabManagerService,
-  'setStreamingState' | 'activeTabId' | 'visibleTabIds'
+  | 'setStreamingState'
+  | 'activeTabId'
+  | 'visibleTabIds'
+  | 'findTabByIdAcrossWorkspaces'
 >;
 
 function makeEmptyStreamingState(): StreamingState {
@@ -66,6 +69,8 @@ describe('BatchedUpdateService', () => {
       setStreamingState: jest.fn(),
       activeTabId: activeTabSignal.asReadonly(),
       visibleTabIds: visibleTabSignal.asReadonly(),
+      // Default: no tab found, so the stale-entry guard publishes.
+      findTabByIdAcrossWorkspaces: jest.fn(() => null),
     } as unknown as jest.Mocked<TabManagerSlice>;
 
     TestBed.configureTestingModule({
@@ -171,6 +176,58 @@ describe('BatchedUpdateService', () => {
 
     runRaf();
     expect(service.hasPendingUpdates('tab-1')).toBe(false);
+  });
+
+  it('queuedState returns the queued object until it flushes', () => {
+    const state = makeEmptyStreamingState();
+    expect(service.queuedState('tab-1')).toBeUndefined();
+    service.scheduleUpdate('tab-1', state);
+    expect(service.queuedState('tab-1')).toBe(state);
+    expect(service.queuedState('tab-2')).toBeUndefined();
+
+    runRaf();
+    expect(service.queuedState('tab-1')).toBeUndefined();
+  });
+
+  describe('stale-entry guard', () => {
+    function publishedState(state: StreamingState | null): void {
+      tabManager.findTabByIdAcrossWorkspaces.mockReturnValue({
+        tab: { id: 'tab-1', streamingState: state },
+        workspacePath: '/ws',
+      } as unknown as ReturnType<
+        TabManagerService['findTabByIdAcrossWorkspaces']
+      >);
+    }
+
+    it('publishes a normal delta: the tab holds a copy sharing the containers', () => {
+      const state = makeEmptyStreamingState();
+      publishedState({ ...state });
+      service.scheduleUpdate('tab-1', state);
+      runRaf();
+      expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
+    });
+
+    it('publishes the first write when the tab has no state yet', () => {
+      publishedState(null);
+      service.scheduleUpdate('tab-1', makeEmptyStreamingState());
+      runRaf();
+      expect(tabManager.setStreamingState).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the queued state when a direct writer installed a fresh one', () => {
+      service.scheduleUpdate('tab-1', makeEmptyStreamingState());
+      publishedState(makeEmptyStreamingState());
+      runRaf();
+      expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+      expect(service.queuedState('tab-1')).toBeUndefined();
+    });
+
+    it('drops it on a forced flushSync as well', () => {
+      service.scheduleUpdate('tab-1', makeEmptyStreamingState());
+      publishedState(makeEmptyStreamingState());
+      service.flushSync();
+      expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    });
   });
 
   it('clearPendingUpdates drops the queued entry so it will not flush', () => {

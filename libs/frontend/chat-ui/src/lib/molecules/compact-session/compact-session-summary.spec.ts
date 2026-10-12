@@ -848,3 +848,368 @@ describe('compact-session-summary', () => {
     ).toBe('\u2713');
   });
 });
+
+describe('summarizeLive cost per publish', () => {
+  type State = ReturnType<typeof createEmptyStreamingState>;
+
+  /** Appends `count` deltas to a block and sets its accumulated text. */
+  function streamBlock(
+    state: State,
+    messageId: string,
+    blockIndex: number,
+    text: string,
+    timestamps: readonly number[],
+  ): void {
+    for (const timestamp of timestamps) {
+      const id = `${messageId}-${blockIndex}-delta-${timestamp}`;
+      state.events.set(id, {
+        id,
+        eventType: 'text_delta',
+        timestamp,
+        messageId,
+        blockIndex,
+        delta: 'x',
+      });
+    }
+    state.textAccumulators.set(`${messageId}-block-${blockIndex}`, text);
+  }
+
+  function range(from: number, to: number): number[] {
+    return Array.from({ length: to - from + 1 }, (_, index) => from + index);
+  }
+
+  let replaceAll: jest.SpyInstance;
+
+  beforeEach(() => {
+    replaceAll = jest.spyOn(String.prototype, 'replaceAll');
+  });
+
+  afterEach(() => {
+    replaceAll.mockRestore();
+  });
+
+  it('builds one mark per block and tool, stamped with the last event', () => {
+    const state = createEmptyStreamingState();
+    streamBlock(
+      state,
+      'parity-msg',
+      0,
+      'Block zero mentions C:\\Users\\alice\\work\\ptah\\src\\a.ts done',
+      range(1, 100),
+    );
+    addToolStart(state, {
+      id: 'parity-start',
+      eventType: 'tool_start',
+      timestamp: 50,
+      messageId: 'parity-msg',
+      toolCallId: 'parity-call',
+      toolName: 'Read',
+      toolInput: { file_path: 'C:\\Users\\alice\\work\\ptah\\src\\app\\a.ts' },
+      isTaskTool: false,
+    });
+    streamBlock(
+      state,
+      'parity-msg',
+      1,
+      'Block one at /home/bob/x/y.md',
+      range(101, 150),
+    );
+    state.events.set('parity-result', {
+      id: 'parity-result',
+      eventType: 'tool_result',
+      timestamp: 160,
+      messageId: 'parity-msg',
+      toolCallId: 'parity-call',
+      output: 'file body',
+      isError: false,
+    });
+
+    expect(summarizeLive(state, context()).marks).toEqual([
+      {
+        id: 'parity-msg:prose:0',
+        kind: 'prose',
+        tone: 'live',
+        label: 'Assistant response',
+        timestamp: 100,
+        text: 'Block zero mentions ptah\\src\\a.ts done',
+      },
+      {
+        id: 'parity-msg:prose:1',
+        kind: 'prose',
+        tone: 'live',
+        label: 'Assistant response',
+        timestamp: 150,
+        text: 'Block one at y.md',
+      },
+      {
+        id: 'tool:parity-call',
+        kind: 'tool',
+        tone: 'success',
+        label: 'Read completed',
+        timestamp: 160,
+        text: '.../app/a.ts',
+        toolName: 'Read',
+      },
+    ]);
+  });
+
+  it('redacts a block once per change, not once per delta', () => {
+    const state = createEmptyStreamingState();
+    streamBlock(
+      state,
+      'linear-msg',
+      0,
+      'Edited C:\\Users\\alice\\work\\ptah\\src\\a.ts',
+      range(1, 200),
+    );
+
+    summarizeLive(state, context());
+    // One redaction: two workspace replacements.
+    expect(replaceAll).toHaveBeenCalledTimes(2);
+
+    replaceAll.mockClear();
+    summarizeLive(state, context());
+    expect(replaceAll).not.toHaveBeenCalled();
+
+    streamBlock(
+      state,
+      'linear-msg',
+      0,
+      'Edited C:\\Users\\alice\\work\\ptah\\src\\a.ts and more',
+      [201],
+    );
+    const summary = summarizeLive(state, context());
+    expect(replaceAll).toHaveBeenCalledTimes(2);
+    expect(summary.marks[0].text).toBe('Edited ptah\\src\\a.ts and more');
+  });
+
+  it('redacts a path that was split across two deltas', () => {
+    const state = createEmptyStreamingState();
+    streamBlock(state, 'split-msg', 0, 'see C:\\Users\\a', [1]);
+    summarizeLive(state, context());
+
+    streamBlock(state, 'split-msg', 0, 'see C:\\Users\\abd\\x.ts', [2]);
+    const text = summarizeLive(state, context()).marks[0].text ?? '';
+
+    expect(text).toBe('see x.ts');
+    expect(text).not.toContain('C:\\');
+    expect(text).not.toContain('Users');
+  });
+
+  it('redacts a block again when the workspace changes', () => {
+    const state = createEmptyStreamingState();
+    streamBlock(
+      state,
+      'workspace-msg',
+      0,
+      'Open C:\\Users\\alice\\work\\ptah\\README.md',
+      [1],
+    );
+
+    const first = summarizeLive(state, context()).marks[0].text;
+    replaceAll.mockClear();
+    const second = summarizeLive(
+      state,
+      context({ workspacePath: 'D:\\elsewhere\\repo' }),
+    ).marks[0].text;
+
+    expect(first).toBe('Open ptah\\README.md');
+    expect(second).toBe('Open README.md');
+    expect(replaceAll).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the newest 48 items in ascending (timestamp, id) order', () => {
+    const state = createEmptyStreamingState();
+    const ids: { id: string; timestamp: number }[] = [];
+    // Inserted out of order, with two items per timestamp so the id breaks ties.
+    for (let step = 0; step < 60; step += 1) {
+      const index = (step * 37) % 60;
+      const timestamp = Math.floor(index / 2);
+      state.events.set(`agent-event-${index}`, {
+        id: `agent-event-${index}`,
+        eventType: 'agent_start',
+        timestamp,
+        messageId: 'topk-msg',
+        toolCallId: `topk-call-${index}`,
+        agentType: 'reviewer',
+        agentId: `topk-${index}`,
+      });
+      ids.push({ id: `agent:topk-${index}`, timestamp });
+    }
+    const expected = ids
+      .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))
+      .slice(-48);
+
+    const summary = summarizeLive(state, context({ metrics: {} }));
+
+    expect(summary.metrics.agentCount).toBe(48);
+    expect(summary.marks.map((mark) => mark.id)).toEqual(
+      expected.slice(-24).map((item) => item.id),
+    );
+  });
+
+  it('redacts only the newest items, however many blocks the stream holds', () => {
+    const state = createEmptyStreamingState();
+    for (let block = 0; block < 100; block += 1) {
+      streamBlock(state, 'many-msg', block, `Block ${block}`, [block]);
+    }
+
+    summarizeLive(state, context());
+
+    // 48 kept blocks, two workspace replacements each.
+    expect(replaceAll).toHaveBeenCalledTimes(96);
+  });
+
+  it('evicts old blocks and redacts them again when they come back', () => {
+    for (let block = 0; block < 300; block += 1) {
+      const state = createEmptyStreamingState();
+      streamBlock(state, `lru-${block}`, 0, `Block ${block}`, [1]);
+      summarizeLive(state, context());
+    }
+    const first = createEmptyStreamingState();
+    streamBlock(first, 'lru-0', 0, 'Block 0', [1]);
+    replaceAll.mockClear();
+
+    expect(summarizeLive(first, context()).marks[0].text).toBe('Block 0');
+    expect(replaceAll).toHaveBeenCalledTimes(2);
+  });
+
+  it('parses a streamed tool input once until it changes', () => {
+    const state = createEmptyStreamingState();
+    addToolStart(state, {
+      id: 'parse-start',
+      eventType: 'tool_start',
+      timestamp: 1,
+      messageId: 'parse-msg',
+      toolCallId: 'parse-call',
+      toolName: 'Read',
+      isTaskTool: false,
+    });
+    state.toolInputAccumulators.set(
+      'parse-call-input',
+      JSON.stringify({ file_path: 'C:\\Users\\alice\\work\\ptah\\src\\a.ts' }),
+    );
+    const parse = jest.spyOn(JSON, 'parse');
+    try {
+      expect(summarizeLive(state, context()).marks[0].text).toBe(
+        '.../src/a.ts',
+      );
+      expect(parse).toHaveBeenCalledTimes(1);
+
+      summarizeLive(state, context());
+      expect(parse).toHaveBeenCalledTimes(1);
+
+      state.toolInputAccumulators.set(
+        'parse-call-input',
+        JSON.stringify({
+          file_path: 'C:\\Users\\alice\\work\\ptah\\src\\b.ts',
+        }),
+      );
+      expect(summarizeLive(state, context()).marks[0].text).toBe(
+        '.../src/b.ts',
+      );
+      expect(parse).toHaveBeenCalledTimes(2);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it('recovers the target once a malformed streamed input becomes valid', () => {
+    const state = createEmptyStreamingState();
+    addToolStart(state, {
+      id: 'recover-start',
+      eventType: 'tool_start',
+      timestamp: 1,
+      messageId: 'recover-msg',
+      toolCallId: 'recover-call',
+      toolName: 'Read',
+      isTaskTool: false,
+    });
+    state.toolInputAccumulators.set('recover-call-input', '{"file_pa');
+    expect(summarizeLive(state, context()).marks[0].text).toBe('Read');
+    // The same partial input stays a fallback, not a cached success.
+    expect(summarizeLive(state, context()).marks[0].text).toBe('Read');
+
+    state.toolInputAccumulators.set(
+      'recover-call-input',
+      JSON.stringify({ file_path: 'C:\\Users\\alice\\work\\ptah\\src\\c.ts' }),
+    );
+    expect(summarizeLive(state, context()).marks[0].text).toBe('.../src/c.ts');
+  });
+
+  it.each([
+    [48, 48],
+    [49, 48],
+  ])('keeps exactly 48 of %i live items', (count, kept) => {
+    const state = createEmptyStreamingState();
+    for (let index = 0; index < count; index += 1) {
+      state.events.set(`exact-${count}-${index}`, {
+        id: `exact-${count}-${index}`,
+        eventType: 'agent_start',
+        timestamp: index,
+        messageId: `exact-${count}-msg`,
+        toolCallId: `exact-${count}-call-${index}`,
+        agentType: 'reviewer',
+        agentId: `exact-${count}-${index}`,
+      });
+    }
+
+    const summary = summarizeLive(state, context({ metrics: {} }));
+
+    expect(summary.metrics.agentCount).toBe(kept);
+    expect(summary.marks.map((mark) => mark.id)).toEqual(
+      range(count - 24, count - 1).map(
+        (index) => `agent:exact-${count}-${index}`,
+      ),
+    );
+  });
+
+  it('does not retain a block over the per-entry size cap', () => {
+    const small = createEmptyStreamingState();
+    streamBlock(small, 'cap-small', 0, 'Small block', [1]);
+    summarizeLive(small, context());
+
+    const large = createEmptyStreamingState();
+    const text = `${'x'.repeat(40_000)} C:\\Users\\alice\\secret\\big.ts`;
+    streamBlock(large, 'cap-large', 0, text, [1]);
+    replaceAll.mockClear();
+
+    const first = summarizeLive(large, context()).marks[0].text ?? '';
+    const second = summarizeLive(large, context()).marks[0].text ?? '';
+
+    // Not cached: both calls redact it.
+    expect(replaceAll).toHaveBeenCalledTimes(4);
+    expect(second).toBe(first);
+    expect(first.endsWith(' big.ts')).toBe(true);
+    expect(first).not.toContain('Users');
+
+    // The skipped block did not push the small one out.
+    replaceAll.mockClear();
+    summarizeLive(small, context());
+    expect(replaceAll).not.toHaveBeenCalled();
+  });
+
+  it('evicts the oldest blocks once the retained-size budget is exceeded', () => {
+    // 20 blocks of about 30K characters keep about 60K each (raw plus
+    // redacted), over the 1M budget, so the oldest ones are dropped.
+    const states = range(0, 19).map((block) => {
+      const state = createEmptyStreamingState();
+      streamBlock(
+        state,
+        `budget-${block}`,
+        0,
+        `${'y'.repeat(30_000)} ${block}`,
+        [1],
+      );
+      summarizeLive(state, context());
+      return state;
+    });
+
+    replaceAll.mockClear();
+    summarizeLive(states[19], context());
+    expect(replaceAll).not.toHaveBeenCalled();
+
+    summarizeLive(states[0], context());
+    expect(replaceAll).toHaveBeenCalledTimes(2);
+  });
+});

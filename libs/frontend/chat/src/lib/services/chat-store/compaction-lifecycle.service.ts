@@ -505,7 +505,6 @@ export class CompactionLifecycleService {
     // open tab and canvas tile rebuild its whole tree on each compaction.
     for (const t of fanoutTabs) {
       this.treeBuilder.clearCache(`tab-${t.id}`);
-      this.treeBuilder.clearCache(`tile-${t.id}`);
     }
 
     const completedAt = Date.now();

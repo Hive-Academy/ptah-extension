@@ -411,11 +411,10 @@ describe('CompactionLifecycleService', () => {
         tabId: 'tab-1',
         compactionSessionId: SESS_RELOAD,
       });
-      // Only the reset tab's tab/tile entries — never a global clear, which
-      // rebuilt every open tab's tree on each compaction.
+      // Only the reset tab's entry (shared by its canvas tile) — never a global
+      // clear, which rebuilt every open tab's tree on each compaction.
       expect(clearCacheMock).toHaveBeenCalledWith('tab-tab-1');
-      expect(clearCacheMock).toHaveBeenCalledWith('tile-tab-1');
-      expect(clearCacheMock).not.toHaveBeenCalledWith();
+      expect(clearCacheMock).toHaveBeenCalledTimes(1);
       expect(applyCompactionCompleteMock).toHaveBeenCalledWith(
         'tab-1',
         expect.objectContaining({

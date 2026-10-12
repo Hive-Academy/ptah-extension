@@ -109,7 +109,9 @@ describe('AgentMonitorStore — retention bounds', () => {
     store.onAgentOutput({ agentId, streamEvents: events } as AgentOutputDelta);
   }
 
+  // Output is applied once per frame; read the applied state.
   function agentOf(agentId: string) {
+    store.flushPendingOutput();
     const agent = store.agents().find((a) => a.agentId === agentId);
     if (!agent) throw new Error(`missing agent ${agentId}`);
     return agent;
@@ -389,10 +391,34 @@ describe('AgentMonitorStore — retention bounds', () => {
   // The stdout/stderr byte cap (TASK_2026_335 / defect 3)
   // ==========================================================================
 
+  // A live buffer is trimmed back to the cap only once it passes twice the
+  // cap (one trim per ~50 KB of new output, not one per delta).
+  const BUFFER_CAP = 50 * 1024;
+  const OVER_TWICE_CAP_CHUNKS = 110; // 110 x 1000 chars > 2 x 50 KB
+
+  function noticeCount(buffer: string): number {
+    const match = BUFFER_NOTICE.exec(buffer.slice(0, buffer.indexOf('\n')));
+    return match ? Number(match[1]) : 0;
+  }
+
+  function bodyOf(buffer: string): string {
+    return noticeCount(buffer) > 0
+      ? buffer.slice(buffer.indexOf('\n') + 1)
+      : buffer;
+  }
+
+  /** Lines of the buffer, after index 0, that read as a truncation notice. */
+  function noticesAfterHead(buffer: string): string[] {
+    return buffer
+      .split('\n')
+      .slice(1)
+      .filter((line) => BUFFER_NOTICE.test(line));
+  }
+
   it('says at the head of the buffer how much earlier stdout was dropped', () => {
     spawn('buffered');
     const chunk = `${'x'.repeat(999)}\n`;
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < OVER_TWICE_CAP_CHUNKS; i++) {
       store.onAgentOutput({
         agentId: 'buffered',
         stdoutDelta: chunk,
@@ -419,7 +445,7 @@ describe('AgentMonitorStore — retention bounds', () => {
         )[1],
       );
 
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < OVER_TWICE_CAP_CHUNKS; i++) {
       store.onAgentOutput({
         agentId: 'cumulative',
         stdoutDelta: chunk,
@@ -427,7 +453,7 @@ describe('AgentMonitorStore — retention bounds', () => {
     }
     const afterFirst = readCount();
 
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < OVER_TWICE_CAP_CHUNKS; i++) {
       store.onAgentOutput({
         agentId: 'cumulative',
         stdoutDelta: chunk,
@@ -438,8 +464,67 @@ describe('AgentMonitorStore — retention bounds', () => {
     // recent trim — and it is never itself eaten by a later trim.
     expect(readCount()).toBeGreaterThan(afterFirst);
     expect(agentOf('cumulative').stdout.length).toBeLessThanOrEqual(
-      50 * 1024 + 200,
+      2 * BUFFER_CAP + 200,
     );
+  });
+
+  it('a hidden interval past twice the cap, then one more trim, leaves one notice at index 0 with every dropped byte', () => {
+    spawn('hidden');
+    const chunk = `${'h'.repeat(999)}\n`;
+    let received = 0;
+    // No frame runs while hidden: everything below stays queued, and the
+    // queue itself is trimmed more than once.
+    for (let i = 0; i < 3 * OVER_TWICE_CAP_CHUNKS; i++) {
+      store.onAgentOutput({
+        agentId: 'hidden',
+        stdoutDelta: chunk,
+      } as AgentOutputDelta);
+      received += chunk.length;
+    }
+    agentOf('hidden');
+    // One more trim, this time of the applied buffer (~50 KB kept + 60 KB
+    // queued passes twice the cap only once they are folded together).
+    for (let i = 0; i < 60; i++) {
+      store.onAgentOutput({
+        agentId: 'hidden',
+        stdoutDelta: chunk,
+      } as AgentOutputDelta);
+      received += chunk.length;
+    }
+
+    const stdout = agentOf('hidden').stdout;
+    expect(noticeCount(stdout)).toBe(received - bodyOf(stdout).length);
+    expect(noticesAfterHead(stdout)).toEqual([]);
+    expect(stdout.length).toBeLessThanOrEqual(2 * BUFFER_CAP + 200);
+  });
+
+  it('counts dropped bytes per stream when stdout and stderr trim in the same interval', () => {
+    spawn('both');
+    const out = `${'o'.repeat(999)}\n`;
+    const err = `${'e'.repeat(499)}\n`;
+    let outReceived = 0;
+    let errReceived = 0;
+    for (let i = 0; i < 2 * OVER_TWICE_CAP_CHUNKS; i++) {
+      store.onAgentOutput({
+        agentId: 'both',
+        stdoutDelta: out,
+        stderrDelta: err + err + err,
+      } as AgentOutputDelta);
+      outReceived += out.length;
+      errReceived += 3 * err.length;
+    }
+
+    const agent = agentOf('both');
+    expect(noticeCount(agent.stdout)).toBeGreaterThan(0);
+    expect(noticeCount(agent.stderr)).toBeGreaterThan(0);
+    expect(noticeCount(agent.stdout)).toBe(
+      outReceived - bodyOf(agent.stdout).length,
+    );
+    expect(noticeCount(agent.stderr)).toBe(
+      errReceived - bodyOf(agent.stderr).length,
+    );
+    expect(noticesAfterHead(agent.stdout)).toEqual([]);
+    expect(noticesAfterHead(agent.stderr)).toEqual([]);
   });
 
   it('only the emitting agent object is replaced by a delta', () => {

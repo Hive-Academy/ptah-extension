@@ -12,6 +12,10 @@ import {
   type SubagentRecord,
 } from './agent-monitor.store';
 import { BackgroundAgentStore } from './background-agent.store';
+import {
+  MAX_AGENT_SEGMENTS,
+  MAX_FRONTEND_BUFFER,
+} from './agent-output-retention';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
@@ -1360,8 +1364,11 @@ describe('AgentMonitorStore', () => {
       label: 'Codex account',
     };
 
-    const card = (agentId: string) =>
-      store.agents().find((a) => a.agentId === agentId);
+    // Output is applied once per frame; read the applied state.
+    const card = (agentId: string) => {
+      store.flushPendingOutput();
+      return store.agents().find((a) => a.agentId === agentId);
+    };
 
     function spawnLane(agentId: string, extra: Record<string, unknown>): void {
       store.onAgentSpawned({
@@ -2456,6 +2463,274 @@ describe('AgentMonitorStore', () => {
       const rec = store.getSubagent('tool-tab');
       expect(rec?.agentId).toBeUndefined();
       expect(rec?.usage).toBeUndefined();
+    });
+  });
+
+  // ==========================================================================
+  // Output deltas are applied once per frame (TASK_2026_628 batch 4a)
+  // ==========================================================================
+  describe('frame-coalesced output', () => {
+    let frames: FrameRequestCallback[];
+    let cancelled: number[];
+    let originalRaf: typeof requestAnimationFrame;
+    let originalCaf: typeof cancelAnimationFrame;
+
+    beforeEach(() => {
+      frames = [];
+      cancelled = [];
+      originalRaf = globalThis.requestAnimationFrame;
+      originalCaf = globalThis.cancelAnimationFrame;
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        frames.push(cb);
+        return frames.length;
+      }) as typeof requestAnimationFrame;
+      globalThis.cancelAnimationFrame = ((id: number) => {
+        cancelled.push(id);
+      }) as typeof cancelAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCaf;
+    });
+
+    function runFrame(): void {
+      const due = frames;
+      frames = [];
+      for (const cb of due) cb(0);
+    }
+
+    const find = (agentId: string) =>
+      store.agents().find((a) => a.agentId === agentId);
+
+    function event(id: string): FlatStreamEventUnion {
+      return {
+        id,
+        eventType: 'text_delta',
+        timestamp: 0,
+      } as unknown as FlatStreamEventUnion;
+    }
+
+    it('applies N deltas of one frame in a single store write', () => {
+      spawnAgent('c1');
+      const updateSpy = jest.spyOn(
+        (store as unknown as { _agents: { update: () => void } })._agents,
+        'update',
+      );
+      const before = store.agents();
+
+      store.onAgentOutput({
+        agentId: 'c1',
+        stdoutDelta: 'one ',
+        segments: [{ type: 'text', content: 'a', usage: { inputTokens: 2 } }],
+        streamEvents: [event('e1')],
+      } as AgentOutputDelta);
+      store.onAgentOutput({
+        agentId: 'c1',
+        stdoutDelta: 'two',
+        stderrDelta: 'warn',
+        segments: [
+          { type: 'text', content: 'b', usage: { inputTokens: 3 } },
+          { type: 'tool-call', content: '', toolName: 'Read' },
+        ],
+        streamEvents: [event('e2'), event('e3')],
+      } as AgentOutputDelta);
+
+      // Nothing is written before the frame runs.
+      expect(updateSpy).not.toHaveBeenCalled();
+      expect(store.agents()).toBe(before);
+      expect(frames).toHaveLength(1);
+
+      runFrame();
+
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      const agent = find('c1');
+      // Same result as applying the deltas one by one.
+      expect(agent?.stdout).toBe('one two');
+      expect(agent?.stderr).toBe('warn');
+      expect(agent?.segments.map((s) => [s.type, s.content])).toEqual([
+        ['text', 'ab'],
+        ['tool-call', ''],
+      ]);
+      expect(agent?.usageTotals?.inputTokens).toBe(5);
+      expect(agent?.streamEvents.map((e) => e.id)).toEqual(['e1', 'e2', 'e3']);
+      expect(agent?.streamRevision).toBe(2);
+    });
+
+    it('merges the first queued prose segment into the card\'s last one, as a single delta did', () => {
+      spawnAgent('c2');
+      store.onAgentOutput({
+        agentId: 'c2',
+        segments: [{ type: 'thinking', content: 'plan ' }],
+      } as AgentOutputDelta);
+      runFrame();
+      store.onAgentOutput({
+        agentId: 'c2',
+        segments: [{ type: 'thinking', content: 'more' }],
+      } as AgentOutputDelta);
+      store.onAgentOutput({
+        agentId: 'c2',
+        segments: [{ type: 'text', content: 'answer' }],
+      } as AgentOutputDelta);
+      runFrame();
+
+      expect(find('c2')?.segments.map((s) => [s.type, s.content])).toEqual([
+        ['thinking', 'plan more'],
+        ['text', 'answer'],
+      ]);
+    });
+
+    it('keeps the object identity of agents that received no output', () => {
+      spawnAgent('quiet');
+      spawnAgent('loud');
+      const quiet = find('quiet');
+
+      store.onAgentOutput({
+        agentId: 'loud',
+        stdoutDelta: 'x',
+      } as AgentOutputDelta);
+      runFrame();
+
+      expect(find('quiet')).toBe(quiet);
+      expect(find('loud')?.stdout).toBe('x');
+    });
+
+    it('applies queued output before an exit, without waiting for the frame', () => {
+      spawnAgent('exiting');
+      store.onAgentOutput({
+        agentId: 'exiting',
+        stdoutDelta: 'last words',
+      } as AgentOutputDelta);
+
+      store.onAgentExited({
+        agentId: 'exiting',
+        cli: 'codex',
+        task: 'Task for exiting',
+        status: 'completed',
+        startedAt: Date.now(),
+        exitCode: 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const agent = find('exiting');
+      expect(agent?.stdout).toBe('last words');
+      expect(agent?.status).toBe('completed');
+      // The frame that was scheduled finds nothing left to apply.
+      runFrame();
+      expect(find('exiting')).toBe(agent);
+    });
+
+    it('drops queued output for an agent the store does not hold', () => {
+      spawnAgent('known');
+      const before = store.agents();
+      store.onAgentOutput({
+        agentId: 'unknown',
+        stdoutDelta: 'lost',
+      } as AgentOutputDelta);
+      runFrame();
+
+      expect(store.agents()).toBe(before);
+    });
+
+    it('a delta never changes how agent.expanded is set', () => {
+      spawnAgent('exp');
+      store.toggleAgentExpanded('exp');
+      const expanded = find('exp')?.expanded;
+      store.onAgentOutput({
+        agentId: 'exp',
+        stdoutDelta: 'x',
+      } as AgentOutputDelta);
+      runFrame();
+
+      expect(find('exp')?.expanded).toBe(expanded);
+    });
+
+    it('applies queued output and cancels the scheduled frame on destroy', () => {
+      spawnAgent('d1');
+      store.onAgentOutput({
+        agentId: 'd1',
+        stdoutDelta: 'pending',
+      } as AgentOutputDelta);
+      expect(frames).toHaveLength(1);
+
+      store.ngOnDestroy();
+
+      expect(cancelled).toEqual([1]);
+      expect(find('d1')?.stdout).toBe('pending');
+      // Nothing is left queued to apply twice.
+      const after = store.agents();
+      store.flushPendingOutput();
+      expect(store.agents()).toBe(after);
+    });
+
+    describe('while frames are suspended (hidden window)', () => {
+      const queued = () =>
+        (
+          store as unknown as {
+            _pendingOutput: Map<
+              string,
+              { segments: unknown[]; usages: unknown[]; segmentChars: number }
+            >;
+          }
+        )._pendingOutput.get('h1');
+
+      it('bounds merged usage-bearing text by report count and keeps usage totals exact', () => {
+        spawnAgent('h1');
+        const deltas = 1300;
+        let maxUsages = 0;
+        for (let i = 0; i < deltas; i++) {
+          store.onAgentOutput({
+            agentId: 'h1',
+            segments: [
+              {
+                type: 'text',
+                content: 'x',
+                usage: { inputTokens: 1, outputTokens: 2 },
+              },
+            ],
+          } as AgentOutputDelta);
+          const pending = queued();
+          // Adjacent text merges: never more than one queued segment.
+          expect(pending?.segments.length ?? 0).toBeLessThanOrEqual(1);
+          maxUsages = Math.max(maxUsages, pending?.usages.length ?? 0);
+        }
+
+        // The queue never ran past the bound, and the store applied it early
+        // although no frame ran.
+        expect(maxUsages).toBeLessThanOrEqual(MAX_AGENT_SEGMENTS);
+        const appliedEarly = find('h1');
+        expect(appliedEarly?.usageTotals?.inputTokens).toBeGreaterThan(0);
+
+        runFrame();
+
+        const agent = find('h1');
+        expect(agent?.usageTotals?.inputTokens).toBe(deltas);
+        expect(agent?.usageTotals?.outputTokens).toBe(deltas * 2);
+        expect(agent?.segments.map((s) => s.content).join('')).toBe(
+          'x'.repeat(deltas),
+        );
+      });
+
+      it('bounds merged text by queued characters', () => {
+        spawnAgent('h1');
+        const chunk = 'y'.repeat(20 * 1024);
+        let maxChars = 0;
+        for (let i = 0; i < 10; i++) {
+          store.onAgentOutput({
+            agentId: 'h1',
+            segments: [{ type: 'text', content: chunk }],
+          } as AgentOutputDelta);
+          maxChars = Math.max(maxChars, queued()?.segmentChars ?? 0);
+        }
+
+        expect(maxChars).toBeLessThanOrEqual(MAX_FRONTEND_BUFFER);
+        expect(find('h1')?.segments.length).toBeGreaterThan(0);
+
+        runFrame();
+        expect(find('h1')?.segments.map((s) => s.content).join('')).toBe(
+          chunk.repeat(10),
+        );
+      });
     });
   });
 });

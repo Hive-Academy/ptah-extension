@@ -13,8 +13,9 @@ import { MarkdownModule } from 'ngx-markdown';
 import {
   SurfaceMarkdownPipe,
   StreamingMarkdownRenderer,
+  type StreamingMarkdownBlock,
 } from '@ptah-extension/markdown';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { LoggingService, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from '../../../services/scroll-dirty.service';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
@@ -231,10 +232,23 @@ function scheduleFrame(cb: () => void): FrameHandle {
             <!-- renderedContent() is the throttled mirror of node().content:
                  at most one new string per painted frame while the node
                  streams, and the exact final string the moment it settles.
-                 Every value still goes through ngx-markdown, so DOMPurify
-                 remains the only path AI text takes to the DOM. -->
+                 Any HTML from AI text reaches the DOM only after DOMPurify:
+                 through ngx-markdown when settled, per block while streaming. -->
             @if (incrementalStreamingEnabled && isNodeStreaming()) {
-              <div [innerHTML]="streamingHtml()"></div>
+              <!-- Each completed block was sanitized alone and is parsed alone
+                   in its own host; tracking by id keeps its DOM across frames.
+                   The open tail is interpolated as text and never parsed. -->
+              <div
+                class="ptah-markdown-root"
+                style="contain: layout paint; isolation: isolate; overflow-x: auto;"
+              >
+                @for (block of streamingBlocks(); track block.id) {
+                  <div class="contents" [innerHTML]="block.html"></div>
+                }
+                @if (streamingTail()) {
+                  <p class="whitespace-pre-line">{{ streamingTail() }}</p>
+                }
+              </div>
             } @else {
               <markdown
                 [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
@@ -500,9 +514,14 @@ export class ExecutionNodeComponent {
   protected readonly incrementalStreamingEnabled = inject(
     INCREMENTAL_STREAMING_PRESENTATION_ENABLED,
   );
+  private readonly logger = inject(LoggingService);
   private readonly streamingMarkdown = new StreamingMarkdownRenderer();
-  private readonly _streamingHtml = signal('');
-  protected readonly streamingHtml = this._streamingHtml.asReadonly();
+  private readonly _streamingBlocks = signal<readonly StreamingMarkdownBlock[]>(
+    [],
+  );
+  protected readonly streamingBlocks = this._streamingBlocks.asReadonly();
+  private readonly _streamingTail = signal('');
+  protected readonly streamingTail = this._streamingTail.asReadonly();
 
   constructor() {
     effect(() => {
@@ -550,13 +569,26 @@ export class ExecutionNodeComponent {
     this.pendingFrame = null;
     this.pendingContent = null;
     this._renderedContent.set(content);
-    this._streamingHtml.set('');
+    this._streamingBlocks.set([]);
+    this._streamingTail.set('');
   }
 
   private publishStreaming(content: string): void {
     this._renderedContent.set(content);
     if (this.incrementalStreamingEnabled) {
-      this._streamingHtml.set(this.streamingMarkdown.render(content));
+      const { blocks, tail, failed } = this.streamingMarkdown.render(content);
+      if (failed) {
+        // Reported once per message: the renderer sets `failed` only on the
+        // render that stops it. The text stays visible as plain text and the
+        // settled `<markdown>` render replaces it.
+        this.logger.warn(
+          'ExecutionNode',
+          'Incremental markdown render failed twice; streaming the rest as plain text',
+          { nodeId: this.node().id },
+        );
+      }
+      this._streamingBlocks.set(blocks);
+      this._streamingTail.set(tail);
     }
   }
 

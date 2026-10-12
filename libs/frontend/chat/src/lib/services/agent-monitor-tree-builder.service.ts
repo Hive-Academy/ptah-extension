@@ -71,17 +71,47 @@ interface TreeCache {
  * Per-agent accumulators folded from the event stream. Persisted across
  * buildTree() calls so each delta only indexes the newly-arrived events
  * instead of re-scanning the whole array — turning the per-delta cost from
- * O(total events) into O(new events). The assembly step is unchanged, so the
- * output is identical to a from-scratch build of the same events.
+ * O(total events) into O(new events).
+ *
+ * The `*ByMessage` / `*ByTool` indexes are kept next to the accumulators so
+ * the assembly reads each message's blocks directly instead of scanning every
+ * accumulator per message: one assembly is O(total blocks), not
+ * O(messages x blocks). The output is identical to a from-scratch build of
+ * the same events.
  */
 interface TreeAccumulators {
+  /** Key `${messageId}-block-${blockIndex}` -> accumulated text. */
   textAccumulators: Map<string, string>;
+  /** Key `${messageId}-thinking-${blockIndex}` -> accumulated thinking. */
   thinkingAccumulators: Map<string, string>;
   toolInputAccumulators: Map<string, string>;
   toolResults: Map<string, ToolResultEvent>;
   messageStarts: MessageStartEvent[];
   toolStarts: ToolStartEvent[];
   agentStarts: AgentStartEvent[];
+  /** Text block indexes per messageId, in first-seen order. */
+  textBlocksByMessage: Map<string, number[]>;
+  /** Thinking block indexes per messageId, in first-seen order. */
+  thinkingBlocksByMessage: Map<string, number[]>;
+  /** Tool starts per messageId, in arrival order. */
+  toolStartsByMessage: Map<string, ToolStartEvent[]>;
+  /** Assistant message starts per parentToolUseId, in arrival order. */
+  assistantMessagesByTool: Map<string, MessageStartEvent[]>;
+  /**
+   * Tool input resolved for a finished tool, per toolCallId. Reused while the
+   * accumulated raw input string is unchanged, so each finished tool's input
+   * is parsed once instead of on every assembly.
+   */
+  toolInputCache: Map<
+    string,
+    { raw: string; value: Record<string, unknown> | undefined }
+  >;
+}
+
+function pushGrouped<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const group = map.get(key);
+  if (group) group.push(value);
+  else map.set(key, [value]);
 }
 
 interface AgentBuildState extends TreeAccumulators {
@@ -456,6 +486,11 @@ export class AgentMonitorTreeBuilderService {
       messageStarts: [],
       toolStarts: [],
       agentStarts: [],
+      textBlocksByMessage: new Map<string, number[]>(),
+      thinkingBlocksByMessage: new Map<string, number[]>(),
+      toolStartsByMessage: new Map<string, ToolStartEvent[]>(),
+      assistantMessagesByTool: new Map<string, MessageStartEvent[]>(),
+      toolInputCache: new Map(),
       processedCount: 0,
       lastTree: null,
     };
@@ -464,33 +499,45 @@ export class AgentMonitorTreeBuilderService {
   /** Fold a single event into the accumulators (incremental indexing step). */
   private indexEvent(event: FlatStreamEventUnion, acc: TreeAccumulators): void {
     switch (event.eventType) {
-      case 'message_start':
-        acc.messageStarts.push(event as MessageStartEvent);
+      case 'message_start': {
+        const ms = event as MessageStartEvent;
+        acc.messageStarts.push(ms);
+        if (ms.parentToolUseId && ms.role === 'assistant') {
+          pushGrouped(acc.assistantMessagesByTool, ms.parentToolUseId, ms);
+        }
         break;
+      }
 
       case 'text_delta': {
         const td = event as TextDeltaEvent;
-        const key = `${td.messageId}-block-${td.blockIndex ?? 0}`;
-        acc.textAccumulators.set(
-          key,
-          (acc.textAccumulators.get(key) ?? '') + td.delta,
-        );
+        const blockIndex = td.blockIndex ?? 0;
+        const key = `${td.messageId}-block-${blockIndex}`;
+        const previous = acc.textAccumulators.get(key);
+        if (previous === undefined) {
+          pushGrouped(acc.textBlocksByMessage, td.messageId, blockIndex);
+        }
+        acc.textAccumulators.set(key, (previous ?? '') + td.delta);
         break;
       }
 
       case 'thinking_delta': {
         const thd = event as ThinkingDeltaEvent;
-        const key = `${thd.messageId}-thinking-${thd.blockIndex ?? 0}`;
-        acc.thinkingAccumulators.set(
-          key,
-          (acc.thinkingAccumulators.get(key) ?? '') + thd.delta,
-        );
+        const blockIndex = thd.blockIndex ?? 0;
+        const key = `${thd.messageId}-thinking-${blockIndex}`;
+        const previous = acc.thinkingAccumulators.get(key);
+        if (previous === undefined) {
+          pushGrouped(acc.thinkingBlocksByMessage, thd.messageId, blockIndex);
+        }
+        acc.thinkingAccumulators.set(key, (previous ?? '') + thd.delta);
         break;
       }
 
-      case 'tool_start':
-        acc.toolStarts.push(event as ToolStartEvent);
+      case 'tool_start': {
+        const ts = event as ToolStartEvent;
+        acc.toolStarts.push(ts);
+        pushGrouped(acc.toolStartsByMessage, ts.messageId, ts);
         break;
+      }
 
       case 'tool_delta': {
         const tld = event as ToolDeltaEvent;
@@ -536,13 +583,7 @@ export class AgentMonitorTreeBuilderService {
       const children = this.buildMessageChildren(
         msgStart.messageId,
         msgStart.timestamp,
-        acc.textAccumulators,
-        acc.thinkingAccumulators,
-        acc.toolStarts,
-        acc.toolInputAccumulators,
-        acc.toolResults,
-        acc.agentStarts,
-        acc.messageStarts,
+        acc,
         0,
       );
       if (children.length === 0) continue;
@@ -559,85 +600,61 @@ export class AgentMonitorTreeBuilderService {
   private buildMessageChildren(
     messageId: string,
     messageTimestamp: number,
-    textAccumulators: Map<string, string>,
-    thinkingAccumulators: Map<string, string>,
-    toolStarts: ToolStartEvent[],
-    toolInputAccumulators: Map<string, string>,
-    toolResults: Map<string, ToolResultEvent>,
-    agentStarts: AgentStartEvent[],
-    messageStarts: MessageStartEvent[],
+    acc: TreeAccumulators,
     depth: number,
   ): ExecutionNode[] {
     const children: ExecutionNode[] = [];
-    for (const [key, text] of textAccumulators) {
-      if (key.startsWith(`${messageId}-block-`)) {
-        const blockIndex = parseInt(key.split('-block-')[1], 10);
-        children.push(
-          createExecutionNode({
-            id: `${messageId}-text-${blockIndex}`,
-            type: 'text',
-            status: 'complete',
-            content: text,
-            children: [],
-            startTime: messageTimestamp + blockIndex, // Order by block index
-          }),
-        );
-      }
-    }
-    for (const [key, text] of thinkingAccumulators) {
-      if (key.startsWith(`${messageId}-thinking-`)) {
-        const blockIndex = parseInt(key.split('-thinking-')[1], 10);
-        children.push(
-          createExecutionNode({
-            id: `${messageId}-thinking-${blockIndex}`,
-            type: 'thinking',
-            status: 'complete',
-            content: text,
-            children: [],
-            startTime: messageTimestamp + blockIndex,
-          }),
-        );
-      }
-    }
-    const messageTools = toolStarts.filter((ts) => ts.messageId === messageId);
-
-    for (const toolStart of messageTools) {
-      const toolNode = this.buildToolNode(
-        toolStart,
-        toolInputAccumulators,
-        toolResults,
-        agentStarts,
-        messageStarts,
-        textAccumulators,
-        thinkingAccumulators,
-        toolStarts,
-        depth,
+    for (const blockIndex of acc.textBlocksByMessage.get(messageId) ?? []) {
+      children.push(
+        createExecutionNode({
+          id: `${messageId}-text-${blockIndex}`,
+          type: 'text',
+          status: 'complete',
+          content:
+            acc.textAccumulators.get(`${messageId}-block-${blockIndex}`) ?? '',
+          children: [],
+          startTime: messageTimestamp + blockIndex, // Order by block index
+        }),
       );
-      children.push(toolNode);
+    }
+    for (const blockIndex of acc.thinkingBlocksByMessage.get(messageId) ??
+      []) {
+      children.push(
+        createExecutionNode({
+          id: `${messageId}-thinking-${blockIndex}`,
+          type: 'thinking',
+          status: 'complete',
+          content:
+            acc.thinkingAccumulators.get(
+              `${messageId}-thinking-${blockIndex}`,
+            ) ?? '',
+          children: [],
+          startTime: messageTimestamp + blockIndex,
+        }),
+      );
+    }
+    for (const toolStart of acc.toolStartsByMessage.get(messageId) ?? []) {
+      children.push(this.buildToolNode(toolStart, acc, depth));
     }
     return children.sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0));
   }
 
   /**
-   * Build a tool ExecutionNode with potential nested agent children.
-   * For Task tools that spawn agents, the tool node becomes an agent node.
+   * Resolve a tool's input for display. A finished tool's input is final, so
+   * its resolution (parsed JSON or the parse-failure fallback) is cached per
+   * toolCallId and reused while the raw string is unchanged.
    */
-  private buildToolNode(
+  private resolveToolInput(
     toolStart: ToolStartEvent,
-    toolInputAccumulators: Map<string, string>,
-    toolResults: Map<string, ToolResultEvent>,
-    agentStarts: AgentStartEvent[],
-    messageStarts: MessageStartEvent[],
-    textAccumulators: Map<string, string>,
-    thinkingAccumulators: Map<string, string>,
-    allToolStarts: ToolStartEvent[],
-    depth: number,
-  ): ExecutionNode {
-    const resultEvent = toolResults.get(toolStart.toolCallId);
-    const inputKey = `${toolStart.toolCallId}-input`;
-    const inputString = toolInputAccumulators.get(inputKey) ?? '';
-    let toolInput: Record<string, unknown> | undefined;
-    if (inputString && resultEvent) {
+    hasResult: boolean,
+    acc: TreeAccumulators,
+  ): Record<string, unknown> | undefined {
+    const inputString =
+      acc.toolInputAccumulators.get(`${toolStart.toolCallId}-input`) ?? '';
+    if (inputString && hasResult) {
+      const cached = acc.toolInputCache.get(toolStart.toolCallId);
+      if (cached && cached.raw === inputString) return cached.value;
+      let toolInput: Record<string, unknown> | undefined;
       try {
         const parsed = JSON.parse(inputString);
         if (typeof parsed === 'object' && parsed !== null) {
@@ -656,30 +673,42 @@ export class AgentMonitorTreeBuilderService {
           };
         }
       }
-    } else if (inputString) {
-      toolInput = {
+      acc.toolInputCache.set(toolStart.toolCallId, {
+        raw: inputString,
+        value: toolInput,
+      });
+      return toolInput;
+    }
+    if (inputString) {
+      return {
         __streaming: true,
         __rawSnippet:
           inputString.substring(0, 50) + (inputString.length > 50 ? '...' : ''),
       };
-    } else if (
-      toolStart.toolInput &&
-      Object.keys(toolStart.toolInput).length > 0
-    ) {
-      toolInput = toolStart.toolInput;
     }
+    if (toolStart.toolInput && Object.keys(toolStart.toolInput).length > 0) {
+      return toolStart.toolInput;
+    }
+    return undefined;
+  }
+
+  /**
+   * Build a tool ExecutionNode with potential nested agent children.
+   * For Task tools that spawn agents, the tool node becomes an agent node.
+   */
+  private buildToolNode(
+    toolStart: ToolStartEvent,
+    acc: TreeAccumulators,
+    depth: number,
+  ): ExecutionNode {
+    const resultEvent = acc.toolResults.get(toolStart.toolCallId);
+    const toolInput = this.resolveToolInput(toolStart, !!resultEvent, acc);
     if (toolStart.isTaskTool || isAgentDispatchTool(toolStart.toolName)) {
       const agentNode = this.buildAgentNodeFromTool(
         toolStart,
         toolInput,
         resultEvent,
-        agentStarts,
-        messageStarts,
-        textAccumulators,
-        thinkingAccumulators,
-        allToolStarts,
-        toolInputAccumulators,
-        toolResults,
+        acc,
         depth,
       );
       if (agentNode) return agentNode;
@@ -712,22 +741,17 @@ export class AgentMonitorTreeBuilderService {
     toolStart: ToolStartEvent,
     toolInput: Record<string, unknown> | undefined,
     resultEvent: ToolResultEvent | undefined,
-    agentStarts: AgentStartEvent[],
-    messageStarts: MessageStartEvent[],
-    textAccumulators: Map<string, string>,
-    thinkingAccumulators: Map<string, string>,
-    allToolStarts: ToolStartEvent[],
-    toolInputAccumulators: Map<string, string>,
-    toolResults: Map<string, ToolResultEvent>,
+    acc: TreeAccumulators,
     depth: number,
   ): ExecutionNode | null {
     if (depth >= MAX_DEPTH) return null;
+    const agentStarts = acc.agentStarts;
     let matchedAgent = agentStarts.find(
       (as) => as.parentToolUseId === toolStart.toolCallId,
     );
     if (!matchedAgent) {
       const inputKey = `${toolStart.toolCallId}-input`;
-      const inputString = toolInputAccumulators.get(inputKey) ?? '';
+      const inputString = acc.toolInputAccumulators.get(inputKey) ?? '';
       const typeMatch = inputString.match(/"subagent_type"\s*:\s*"([^"]+)"/);
 
       if (typeMatch) {
@@ -756,22 +780,14 @@ export class AgentMonitorTreeBuilderService {
       toolStart.agentDescription ??
       (toolInput?.['description'] as string) ??
       'Agent working...';
-    const agentMessageStarts = messageStarts.filter(
-      (ms) =>
-        ms.parentToolUseId === toolStart.toolCallId && ms.role === 'assistant',
-    );
     const agentChildren: ExecutionNode[] = [];
-    for (const msgStart of agentMessageStarts) {
+    const agentMessages =
+      acc.assistantMessagesByTool.get(toolStart.toolCallId) ?? [];
+    for (const msgStart of agentMessages) {
       const msgChildren = this.buildMessageChildren(
         msgStart.messageId,
         msgStart.timestamp,
-        textAccumulators,
-        thinkingAccumulators,
-        allToolStarts,
-        toolInputAccumulators,
-        toolResults,
-        agentStarts,
-        messageStarts,
+        acc,
         depth + 1,
       );
       agentChildren.push(...msgChildren);

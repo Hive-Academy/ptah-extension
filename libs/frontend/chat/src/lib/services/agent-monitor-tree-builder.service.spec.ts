@@ -213,6 +213,139 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(reset).toHaveLength(1);
       expect(reset[0].content).toBe('second run');
     });
+
+    // TASK_2026_628 batch 4e: indexed assembly + tool-input parse cache.
+    function event(
+      fields: Record<string, unknown>,
+    ): FlatStreamEventUnion {
+      return fields as unknown as FlatStreamEventUnion;
+    }
+
+    function nestedRun(): FlatStreamEventUnion[] {
+      return [
+        messageStart('m1', 'msg-1', 1000),
+        textDelta('t1', 'msg-1', 1, 'second block'),
+        textDelta('t0', 'msg-1', 0, 'first block'),
+        event({
+          id: 'th0',
+          eventType: 'thinking_delta',
+          messageId: 'msg-1',
+          blockIndex: 0,
+          delta: 'pondering',
+        }),
+        event({
+          id: 'task',
+          eventType: 'tool_start',
+          messageId: 'msg-1',
+          toolCallId: 'tc-task',
+          toolName: 'Task',
+          isTaskTool: true,
+          timestamp: 1050,
+        }),
+        event({
+          id: 'task-in',
+          eventType: 'tool_delta',
+          toolCallId: 'tc-task',
+          delta: '{"subagent_type":"Explore","description":"look around"}',
+        }),
+        event({
+          id: 'as1',
+          eventType: 'agent_start',
+          parentToolUseId: 'tc-task',
+          agentType: 'Explore',
+          agentId: 'sub-1',
+          timestamp: 1060,
+        }),
+        messageStart('sm1', 'msg-sub', 1070, { parentToolUseId: 'tc-task' }),
+        textDelta('st0', 'msg-sub', 0, 'sub text'),
+        toolStart('sts', 'msg-sub', 'tc-read', 'Read', 1080),
+        event({
+          id: 'read-in',
+          eventType: 'tool_delta',
+          toolCallId: 'tc-read',
+          delta: '{"file_path":"a.ts"}',
+        }),
+        toolResult('str', 'tc-read', 'contents'),
+        toolStart('ts-bad', 'msg-1', 'tc-bad', 'Bash', 1200),
+        event({
+          id: 'bad-in',
+          eventType: 'tool_delta',
+          toolCallId: 'tc-bad',
+          delta: '{not json',
+        }),
+        toolResult('tr-bad', 'tc-bad', 'ran'),
+        toolResult('tr-task', 'tc-task', 'done'),
+      ];
+    }
+
+    it('assembles messages, nested agents and tool inputs into the expected tree', () => {
+      const tree = service.buildTree('nested', nestedRun());
+
+      expect(tree.map((n) => [n.type, n.id])).toEqual([
+        ['text', 'msg-1-text-0'],
+        ['thinking', 'msg-1-thinking-0'],
+        ['text', 'msg-1-text-1'],
+        ['agent', 'as1'],
+        ['tool', 'ts-bad'],
+      ]);
+      expect(tree[0].content).toBe('first block');
+      expect(tree[2].content).toBe('second block');
+
+      const agent = tree[3];
+      expect(agent.status).toBe('complete');
+      expect(agent.agentType).toBe('Explore');
+      expect(agent.agentDescription).toBe('look around');
+      expect(agent.children.map((n) => [n.type, n.id])).toEqual([
+        ['text', 'msg-sub-text-0'],
+        ['tool', 'sts'],
+      ]);
+      expect(agent.children[1].toolInput).toEqual({ file_path: 'a.ts' });
+
+      expect(tree[4].toolInput).toEqual({
+        __parseError: true,
+        __raw: '{not json',
+      });
+    });
+
+    it('parses each finished tool input once across assemblies', () => {
+      const events = nestedRun();
+      service.buildTree('parse-once', events);
+      const parseSpy = jest.spyOn(JSON, 'parse');
+      try {
+        // A later event forces a new assembly; no tool input changed.
+        const tree = service.buildTree('parse-once', [
+          ...events,
+          textDelta('late', 'msg-1', 0, ' (more)'),
+        ]);
+
+        expect(tree[0].content).toBe('first block (more)');
+        expect(parseSpy).not.toHaveBeenCalled();
+      } finally {
+        parseSpy.mockRestore();
+      }
+    });
+
+    it('re-parses a tool input whose raw string changed', () => {
+      const events = nestedRun();
+      service.buildTree('reparse', events);
+      const parseSpy = jest.spyOn(JSON, 'parse');
+      try {
+        const tree = service.buildTree('reparse', [
+          ...events,
+          event({
+            id: 'read-in-2',
+            eventType: 'tool_delta',
+            toolCallId: 'tc-read',
+            delta: ' ',
+          }),
+        ]);
+
+        expect(parseSpy).toHaveBeenCalledTimes(1);
+        expect(tree[3].children[1].toolInput).toEqual({ file_path: 'a.ts' });
+      } finally {
+        parseSpy.mockRestore();
+      }
+    });
   });
 
   describe('buildTreeFromSegments', () => {
@@ -609,6 +742,8 @@ describe('AgentMonitorTreeBuilderService — releases caches of agents the store
       stderrDelta: '',
       timestamp: 2,
     } as never);
+    // Output is applied once per frame; apply it so the agent list changes.
+    store.flushPendingOutput();
     TestBed.tick();
 
     expect(clearSpy).not.toHaveBeenCalled();

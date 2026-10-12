@@ -11,6 +11,11 @@ import type {
 import { generateAgentColor } from '../../utils/agent-color.utils';
 import { boundedText } from './compact-bounded-text';
 import {
+  redactAbsolutePaths,
+  redactBlock,
+  toolInputOf,
+} from './compact-session-summary-cache';
+import {
   describeToolTarget,
   shortenToolPath,
 } from '../../utils/tool-target.utils';
@@ -152,37 +157,107 @@ export function summarizeFinalized(
   );
 }
 
+/**
+ * The newest `MAX_ITEMS` live items, ascending by `(timestamp, id)`.
+ *
+ * One pass keeps only the last event per item id (the same "last write wins"
+ * a rebuild of every event would give), a bounded selection picks the newest
+ * ids, and only those are built. Building is where the text work is
+ * (redaction, tool-input parsing), so a publish costs one walk of the events
+ * plus at most `MAX_ITEMS` item builds, however many deltas the stream holds.
+ */
 function liveItems(
   state: StreamingState,
   workspacePath: string,
 ): SemanticItem[] {
-  const items = new Map<string, SemanticItem>();
+  const latest = new Map<string, FlatStreamEventUnion>();
   for (const event of state.events.values()) {
-    const item = liveEventItem(event, state, workspacePath);
-    if (item) items.set(item.id, item);
+    const id = liveItemId(event);
+    if (id !== null) latest.set(id, event);
   }
-  return [...items.values()]
-    .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))
-    .slice(-MAX_ITEMS);
+  const items: SemanticItem[] = [];
+  for (const { id, event } of selectNewest(latest, MAX_ITEMS)) {
+    const item = liveEventItem(id, event, state, workspacePath);
+    if (item) items.push(item);
+  }
+  return items;
+}
+
+/** The id of the item an event updates; `null` for events with no item. */
+function liveItemId(event: FlatStreamEventUnion): string | null {
+  switch (event.eventType) {
+    case 'text_delta':
+      return `${event.messageId}:prose:${event.blockIndex}`;
+    case 'tool_start':
+    case 'tool_result':
+      return `tool:${event.toolCallId}`;
+    case 'agent_start':
+      return `agent:${event.agentId ?? event.toolCallId}`;
+    case 'message_complete':
+      return `terminal:${event.messageId}`;
+    case 'compaction_start':
+    case 'compaction_complete':
+      return `compaction:${event.messageId}`;
+    default:
+      return null;
+  }
+}
+
+interface LiveCandidate {
+  readonly id: string;
+  readonly event: FlatStreamEventUnion;
+}
+
+function compareCandidates(a: LiveCandidate, b: LiveCandidate): number {
+  return a.event.timestamp - b.event.timestamp || a.id.localeCompare(b.id);
+}
+
+/**
+ * The same result as a stable ascending sort followed by `slice(-limit)`,
+ * without sorting or copying every candidate: a sorted array of at most
+ * `limit` entries, where a new entry goes after any equal one (stable order)
+ * and replaces the oldest when the array is full.
+ */
+function selectNewest(
+  latest: ReadonlyMap<string, FlatStreamEventUnion>,
+  limit: number,
+): LiveCandidate[] {
+  const kept: LiveCandidate[] = [];
+  for (const [id, event] of latest) {
+    const candidate = { id, event };
+    if (kept.length === limit) {
+      if (compareCandidates(candidate, kept[0]) < 0) continue;
+      kept.shift();
+    }
+    let low = 0;
+    let high = kept.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (compareCandidates(kept[middle], candidate) <= 0) low = middle + 1;
+      else high = middle;
+    }
+    kept.splice(low, 0, candidate);
+  }
+  return kept;
 }
 
 function liveEventItem(
+  id: string,
   event: FlatStreamEventUnion,
   state: StreamingState,
   workspacePath: string,
 ): SemanticItem | null {
   if (event.eventType === 'text_delta') {
-    const blockId = `${event.messageId}:prose:${event.blockIndex}`;
     const accumulated =
       state.textAccumulators.get(
         `${event.messageId}-block-${event.blockIndex}`,
       ) ?? event.delta;
     return {
-      id: blockId,
+      id,
       kind: 'prose',
       tone: 'live',
       label: 'Assistant response',
-      text: redactAbsolutePaths(accumulated, workspacePath),
+      text: redactBlock(id, accumulated, workspacePath),
       timestamp: event.timestamp,
       contentKind: 'prose',
       format: 'markdown',
@@ -196,7 +271,7 @@ function liveEventItem(
     );
     if (event.isTaskTool) {
       return {
-        id: `tool:${event.toolCallId}`,
+        id,
         kind: 'agent',
         tone: 'live',
         label: `Agent started: ${target}`,
@@ -207,7 +282,7 @@ function liveEventItem(
       };
     }
     return {
-      id: `tool:${event.toolCallId}`,
+      id,
       kind: 'tool',
       tone: 'live',
       label: `${event.toolName} started`,
@@ -225,7 +300,7 @@ function liveEventItem(
     const name = start?.toolName ?? 'tool';
     const failed = event.isError;
     return {
-      id: `tool:${event.toolCallId}`,
+      id,
       kind: 'tool',
       tone: failed ? 'error' : 'success',
       label: `${name} ${failed ? 'failed' : 'completed'}`,
@@ -249,7 +324,7 @@ function liveEventItem(
   if (event.eventType === 'agent_start') {
     const name = event.teammateName ?? event.agentType ?? 'agent';
     return {
-      id: `agent:${event.agentId ?? event.toolCallId}`,
+      id,
       kind: 'agent',
       tone: 'live',
       label: `Agent started: ${name}`,
@@ -261,7 +336,7 @@ function liveEventItem(
   }
   if (event.eventType === 'message_complete') {
     return {
-      id: `terminal:${event.messageId}`,
+      id,
       kind: 'terminal',
       tone: 'success',
       label: 'Turn completed',
@@ -270,7 +345,7 @@ function liveEventItem(
   }
   if (event.eventType === 'compaction_start') {
     return {
-      id: `compaction:${event.messageId}`,
+      id,
       kind: 'compaction',
       tone: 'warning',
       label: 'Context compaction started',
@@ -279,7 +354,7 @@ function liveEventItem(
   }
   if (event.eventType === 'compaction_complete') {
     return {
-      id: `compaction:${event.messageId}`,
+      id,
       kind: 'compaction',
       tone: 'success',
       label: 'Context compaction completed',
@@ -302,33 +377,6 @@ function findToolStart(
     if (event?.eventType === 'tool_start') return event;
   }
   return undefined;
-}
-
-/**
- * A call's input. A stream-source `tool_start` carries none; the input then
- * streams into `toolInputAccumulators`, and is used once it parses.
- */
-function toolInputOf(
-  state: StreamingState,
-  toolCallId: string,
-  input: Readonly<Record<string, unknown>> | undefined,
-): Readonly<Record<string, unknown>> | undefined {
-  if (input && Object.keys(input).length > 0) return input;
-  const raw = state.toolInputAccumulators.get(`${toolCallId}-input`);
-  if (!raw) return input;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed !== null &&
-      typeof parsed === 'object' &&
-      !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : input;
-  } catch {
-    // degradation-audit: optional-capability - input that is still streaming
-    // (partial JSON) only costs the row its target until a later rebuild;
-    // the row shows the tool name meanwhile.
-    return input;
-  }
 }
 
 function collectFinalizedNode(
@@ -742,25 +790,4 @@ function errorExcerpt(value: string, workspacePath: string): string {
     .slice(0, EXCERPT_MAX_LINES)
     .join('\n');
   return redactAbsolutePaths(bounded, workspacePath).trimEnd();
-}
-
-function redactAbsolutePaths(value: string, workspacePath: string): string {
-  const workspace = workspacePath.replace(/\\/g, '/').replace(/\/$/, '');
-  let result = value;
-  if (workspace) {
-    result = result.replaceAll(workspacePath, workspaceLabel(workspacePath));
-    result = result.replaceAll(workspace, workspaceLabel(workspace));
-  }
-  return result
-    .replace(/\b[A-Za-z]:[\\/](?:[^\s\\/"'`]+[\\/])*([^\s\\/"'`]+)/g, '$1')
-    .replace(/\/(?:Users|home)\/[^\s/]+\/(?:[^\s/"'`]+\/)*([^\s/"'`]+)/g, '$1');
-}
-
-function workspaceLabel(path: string): string {
-  return (
-    path
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .pop() ?? path
-  );
 }

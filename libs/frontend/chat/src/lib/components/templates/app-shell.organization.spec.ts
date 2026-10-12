@@ -351,6 +351,38 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(search?.className ?? '').not.toContain('bg-base-100');
     });
 
+    // TASK_2026_628: `transition-all` makes Chromium start `scrollbar-color`
+    // transitions on every restyle (see effort-selector.component.spec.ts).
+    it('sidebar rows and footer do not use transition-all', () => {
+      store.sessions.set([session('a', 'Alpha')]);
+      const fixture = configure(store);
+      (
+        TestBed.inject(ChatStore) as unknown as {
+          hasMoreSessions: WritableSignal<boolean>;
+        }
+      ).hasMoreSessions.set(true);
+      fixture.detectChanges();
+
+      const aside = query(fixture, 'aside');
+      expect(aside?.classList).toContain('transition-[width]');
+      expect(aside?.classList).not.toContain('transition-all');
+
+      const rows = queryAll(fixture, 'aside .sidebar-scroll li.group > button');
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(row.classList).toContain(
+          'transition-[color,background-color,box-shadow]',
+        );
+        expect(row.classList).not.toContain('transition-all');
+      }
+
+      const footer = query(fixture, 'aside button.btn-ghost.w-full');
+      expect(footer).not.toBeNull();
+      expect(footer?.classList).toContain('transition-colors');
+      expect(footer?.classList).not.toContain('transition-all');
+      expect(queryAll(fixture, 'aside .transition-all')).toEqual([]);
+    });
+
     it('filters by name locally and sends nothing to the server', async () => {
       store.sessions.set([session('a', 'Alpha'), session('b', 'Beta')]);
       const fixture = configure(store);

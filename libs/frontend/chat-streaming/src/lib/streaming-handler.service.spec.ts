@@ -191,7 +191,10 @@ describe('StreamingHandlerService', () => {
     >
   >;
   let batchedUpdate: jest.Mocked<
-    Pick<BatchedUpdateService, 'scheduleUpdate' | 'flushSync'>
+    Pick<
+      BatchedUpdateService,
+      'scheduleUpdate' | 'flushSync' | 'clearPendingUpdates'
+    >
   >;
   let finalization: jest.Mocked<
     Pick<
@@ -319,8 +322,12 @@ describe('StreamingHandlerService', () => {
     batchedUpdate = {
       scheduleUpdate: jest.fn(),
       flushSync: jest.fn(),
+      clearPendingUpdates: jest.fn(),
     } as jest.Mocked<
-      Pick<BatchedUpdateService, 'scheduleUpdate' | 'flushSync'>
+      Pick<
+        BatchedUpdateService,
+        'scheduleUpdate' | 'flushSync' | 'clearPendingUpdates'
+      >
     >;
 
     finalization = {
@@ -428,6 +435,9 @@ describe('StreamingHandlerService', () => {
     );
     expect(result?.measurement).toBe(measurement);
     expect(result?.boundaryId).toBe('A');
+    // The pre-compaction state queued for this tab must not flush over the
+    // replacement.
+    expect(batchedUpdate.clearPendingUpdates).toHaveBeenCalledWith(TAB_ID);
   });
 
   describe('agent_start', () => {

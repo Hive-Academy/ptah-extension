@@ -61,6 +61,7 @@ import {
 } from './transcript-render-window';
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
 import { SESSION_FOCUSED } from '../../../tokens/session-context.token';
+import { STREAM_PRESENTATION_RECORDS_ENABLED } from '../../../services/stream-presentation-store.service';
 import type {
   ExecutionChatMessage,
   ExecutionNode,
@@ -908,5 +909,93 @@ describe('ChatTranscriptComponent — agent-output link markers', () => {
     expect(host.hasAttribute('data-ptah-file-links')).toBe(true);
     expect(host.getAttribute('data-ptah-tab-id')).toBe('tab-1');
     expect(host.querySelector('markdown[data-ptah-file-links]')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One tree build per published tab snapshot (TASK_2026_628 Batch 5)
+//
+// Every surface of a tab (main panel, canvas tile, a detail row) shares one
+// build: with presentation records on, the store is the only `buildTree`
+// caller and dedups on the published tab object; with them off, every surface
+// uses the `tab-<id>` key, so the builder's per-key cache is shared too.
+// ---------------------------------------------------------------------------
+describe('ChatTranscriptComponent — one buildTree per published tab snapshot', () => {
+  let rafSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      });
+  });
+
+  afterEach(() => {
+    rafSpy.mockRestore();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('builds once when two transcripts of the same tab render in the same frame', () => {
+    const h = makeHarness();
+    const second = TestBed.createComponent(ChatTranscriptComponent);
+    second.componentRef.setInput('tabId', 'tab-1');
+    second.componentRef.setInput('active', true);
+    h.buildTreeMock.mockReturnValue([makeTree('s1')]);
+
+    h.streamingStateSig.set({ pendingStats: null });
+    h.fixture.detectChanges();
+    second.detectChanges();
+    expect(h.buildTreeMock).toHaveBeenCalledTimes(1);
+
+    // Next published snapshot: still exactly one build for both surfaces.
+    h.streamingStateSig.set({ pendingStats: { tokens: 3 } });
+    second.detectChanges();
+    h.fixture.detectChanges();
+    expect(h.buildTreeMock).toHaveBeenCalledTimes(2);
+    for (const call of h.buildTreeMock.mock.calls as unknown[][]) {
+      expect(call[1]).toBe('tab-tab-1');
+    }
+    expect(h.bubbleCount()).toBe(1);
+    expect(
+      second.nativeElement.querySelectorAll('ptah-message-bubble').length,
+    ).toBe(1);
+  });
+
+  it('uses the tab-<id> key on a tile surface when presentation records are off', () => {
+    const streamingStateSig = signal<unknown>(null);
+    const buildTreeMock = jest.fn(() => [makeTree('s1')] as ExecutionNode[]);
+    const tabs = computed(() => [
+      {
+        id: 'tab-1',
+        claudeSessionId: 'session-1',
+        status: 'streaming',
+        messages: [],
+        streamingState: streamingStateSig(),
+      },
+    ]);
+    configureTranscriptTestBed({
+      tabs,
+      buildTree: buildTreeMock,
+      sessionContext: { sessionId: 'session-1' },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: STREAM_PRESENTATION_RECORDS_ENABLED, useValue: false },
+      ],
+    });
+    const fixture = TestBed.createComponent(ChatTranscriptComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    fixture.componentRef.setInput('active', true);
+
+    streamingStateSig.set({ pendingStats: null });
+    fixture.detectChanges();
+
+    expect(buildTreeMock).toHaveBeenCalled();
+    for (const call of buildTreeMock.mock.calls as unknown[][]) {
+      expect(call[1]).toBe('tab-tab-1');
+    }
   });
 });

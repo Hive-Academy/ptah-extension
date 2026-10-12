@@ -111,6 +111,8 @@ describe('BatchedUpdateService — visibility gating (Batch B)', () => {
       setStreamingState: jest.fn(),
       activeTabId: activeTabSignal.asReadonly(),
       visibleTabIds: visibleTabSignal.asReadonly(),
+      // No published state: the stale-entry guard never drops here.
+      findTabByIdAcrossWorkspaces: jest.fn(() => null),
     } as unknown as jest.Mocked<TabManagerSlice>;
 
     TestBed.configureTestingModule({
