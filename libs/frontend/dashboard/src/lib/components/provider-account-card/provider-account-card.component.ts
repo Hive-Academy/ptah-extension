@@ -157,6 +157,13 @@ export interface OwnerSectionView {
   readonly activity: PlanLimitOwnerSnapshot['activity'] | null;
 }
 
+/** Bar fill tone per window state; every state not listed is neutral. */
+const BAR_TONES: Readonly<Partial<Record<PlanWindowState, Tone>>> = {
+  'limit-reached': 'error',
+  'near-limit': 'warning',
+  ok: 'success',
+};
+
 const STATE_CHIPS: Readonly<Record<PlanWindowState, StateChipView | null>> = {
   'limit-reached': { glyph: '■', text: 'Limit reached', tone: 'error' },
   'near-limit': { glyph: '▲', text: 'Near limit', tone: 'warning' },
@@ -593,74 +600,69 @@ function statusNotice(
       sources: [],
     };
   }
-  if (owner.status === 'service-unavailable') {
-    // A ledger-only owner arrives as `service-unavailable` (no live read was
-    // made): its recorded evidence is past evidence, not a read failure.
-    if (owner.unavailableReason === 'no-open-session') {
-      return {
-        text: hasData
-          ? 'No open session to read this account’s usage from; showing the last recorded limit evidence.'
-          : 'No open session to read this account’s usage from.',
-        tone: 'neutral',
-        sources: [],
-      };
-    }
-    if (hasData) {
-      return {
-        text: 'No live usage read; showing the last recorded limit evidence.',
-        tone: 'neutral',
-        sources: [],
-      };
-    }
-    if (owner.owner.providerId === 'antigravity') {
-      return {
-        text: 'Open Antigravity to read local quota',
-        tone: 'neutral',
-        sources: [],
-      };
-    }
-  }
-  const sentence = STATUS_SENTENCES[owner.status];
-  if (!hasData && owner.status === 'available') {
-    return { text: 'No plan limits reported', tone: 'neutral', sources: [] };
-  }
-  if (!hasData && owner.status === 'unsupported-auth') {
-    return {
-      text:
-        owner.owner.providerId === 'ollama-cloud'
-          ? 'API key rejected — check the key'
-          : 'No plan limits (API key)',
-      tone: 'neutral',
-      sources: [],
-    };
-  }
-  if (
-    !hasData &&
-    owner.status === 'unsupported-config' &&
-    owner.owner.providerId === 'ollama-cloud'
-  ) {
-    return { text: 'No API key configured', tone: 'neutral', sources: [] };
-  }
-  if (
-    !hasData &&
-    owner.status === 'no-usage-source' &&
-    owner.owner.providerId === 'opencode'
-  ) {
-    return { text: 'Sign in to OpenCode Go', tone: 'neutral', sources: [] };
-  }
+  const text =
+    owner.status === 'service-unavailable'
+      ? serviceUnavailableText(owner, hasData)
+      : null;
+  if (text !== null) return neutralNotice(text);
   if (
     owner.status === 'no-usage-source' &&
     owner.localUsage &&
     owner.windows.length === 0 &&
     owner.ownerEvidence.length === 0
   ) {
-    return { text: 'Local usage only', tone: 'neutral', sources: [] };
+    return neutralNotice('Local usage only');
   }
-  if (!hasData && owner.status === 'no-usage-source') {
-    return { text: 'No usage source available', tone: 'neutral', sources: [] };
+  if (hasData) return null;
+  const noDataText = noDataStatusText(owner);
+  return noDataText === undefined ? null : neutralNotice(noDataText);
+}
+
+function neutralNotice(text: string): NoticeView {
+  return { text, tone: 'neutral', sources: [] };
+}
+
+/**
+ * A ledger-only owner arrives as `service-unavailable` (no live read was
+ * made): its recorded evidence is past evidence, not a read failure.
+ */
+function serviceUnavailableText(
+  owner: PlanLimitOwnerSnapshot,
+  hasData: boolean,
+): string | null {
+  if (owner.unavailableReason === 'no-open-session') {
+    return hasData
+      ? 'No open session to read this account’s usage from; showing the last recorded limit evidence.'
+      : 'No open session to read this account’s usage from.';
   }
-  if (sentence === undefined || hasData) return null;
-  return { text: sentence, tone: 'neutral', sources: [] };
+  if (hasData) {
+    return 'No live usage read; showing the last recorded limit evidence.';
+  }
+  if (owner.owner.providerId === 'antigravity') {
+    return 'Open Antigravity to read local quota';
+  }
+  return null;
+}
+
+/** The compact-row sentence for an owner with no windows, evidence or local usage. */
+function noDataStatusText(owner: PlanLimitOwnerSnapshot): string | undefined {
+  const providerId = owner.owner.providerId;
+  switch (owner.status) {
+    case 'available':
+      return 'No plan limits reported';
+    case 'unsupported-auth':
+      return providerId === 'ollama-cloud'
+        ? 'API key rejected — check the key'
+        : 'No plan limits (API key)';
+    case 'unsupported-config':
+      if (providerId === 'ollama-cloud') return 'No API key configured';
+      break;
+    case 'no-usage-source':
+      return providerId === 'opencode'
+        ? 'Sign in to OpenCode Go'
+        : 'No usage source available';
+  }
+  return STATUS_SENTENCES[owner.status];
 }
 
 function buildWindowRow(
@@ -717,14 +719,7 @@ function buildWindowRow(
     // the neutral fill so a stale 97% never reads as healthy (revise-1 S1;
     // the fill itself is the muted tier since revise-2 M1). Only a fresh,
     // confirmed window is green.
-    barTone:
-      state === 'limit-reached'
-        ? 'error'
-        : state === 'near-limit'
-          ? 'warning'
-          : state === 'ok'
-            ? 'success'
-            : 'neutral',
+    barTone: BAR_TONES[state] ?? 'neutral',
     valueText: showValue ? `${formatUsed(window.used)} used` : 'Used: unknown',
     isPercent: window.used?.kind === 'percent',
     limitLine,

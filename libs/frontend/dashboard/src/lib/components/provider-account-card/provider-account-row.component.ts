@@ -543,11 +543,9 @@ export class ProviderAccountRowComponent {
    * with no border read as plain bold text in the dark theme.
    */
   protected statusChipClass(tone: Tone): string {
-    return tone === 'error'
-      ? 'badge-error badge-outline'
-      : tone === 'warning'
-        ? 'badge-warning badge-outline'
-        : 'badge-ghost badge-outline';
+    if (tone === 'error') return 'badge-error badge-outline';
+    if (tone === 'warning') return 'badge-warning badge-outline';
+    return 'badge-ghost badge-outline';
   }
 
   /**
