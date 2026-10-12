@@ -241,6 +241,36 @@ describe('LegacySessionStoreMigrator', () => {
     expect([...t.records.keys()]).toEqual([SESS_A]);
   });
 
+  it('skips agent output whose agent id is not a safe blob name and copies the session', async () => {
+    const storage = createMockStateStorage();
+    await writeLegacy(storage, SESS_A, WS_A, 'Alpha');
+    const index = storage.get<Array<{ cliSessions?: unknown[] }>>(
+      'ptah.sessionMetadata',
+    ) as Array<{ cliSessions?: unknown[] }>;
+    await storage.update('ptah.sessionMetadata', [
+      {
+        ...index[0],
+        cliSessions: [
+          ...(index[0].cliSessions ?? []),
+          {
+            ...ref('a/b' as AgentId),
+            segments: [{ type: 'text', content: 'bad' }],
+          },
+        ],
+      },
+    ]);
+    const t = target();
+
+    const result = await t.migrator.migrate([
+      { sourcePath: '/legacy/alpha', storage },
+    ]);
+
+    expect(result).toMatchObject({ copied: 1, failed: 0 });
+    expect([...t.blobs.__blobs.keys()].some((k) => k.includes('a/b'))).toBe(
+      false,
+    );
+  });
+
   it('copies the other sources when one cannot be read', async () => {
     const good = createMockStateStorage();
     await writeLegacy(good, SESS_A, WS_A, 'Alpha');

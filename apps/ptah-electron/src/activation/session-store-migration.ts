@@ -52,6 +52,7 @@ export async function collectLegacySessionSources(options: {
   openReadOnlyV2: (
     dir: string,
   ) => Promise<{ storage: IStateStorage; dispose: () => Promise<void> }>;
+  logger?: Pick<Logger, 'warn'>;
 }): Promise<CollectedLegacySources> {
   const sources: LegacySessionSource[] = [];
   const opened: Array<() => Promise<void>> = [];
@@ -71,17 +72,28 @@ export async function collectLegacySessionSources(options: {
         : options.liveStorage.getStorageForWorkspace(
             Buffer.from(name, 'base64url').toString('utf8'),
           );
-    if (live) {
-      sources.push({ sourcePath: dir, storage: live });
-    } else if (existsSync(path.join(dir, V2_POINTER))) {
-      const store = await options.openReadOnlyV2(dir);
-      opened.push(store.dispose);
-      sources.push({ sourcePath: dir, storage: store.storage });
-    } else if (existsSync(path.join(dir, LEGACY_FILE))) {
-      sources.push({
-        sourcePath: dir,
-        storage: await openReadOnlyJsonStateFile(path.join(dir, LEGACY_FILE)),
-      });
+    // One unreadable store must not stop the copy of every other project.
+    try {
+      if (live) {
+        sources.push({ sourcePath: dir, storage: live });
+      } else if (existsSync(path.join(dir, V2_POINTER))) {
+        const store = await options.openReadOnlyV2(dir);
+        opened.push(store.dispose);
+        sources.push({ sourcePath: dir, storage: store.storage });
+      } else if (existsSync(path.join(dir, LEGACY_FILE))) {
+        sources.push({
+          sourcePath: dir,
+          storage: await openReadOnlyJsonStateFile(path.join(dir, LEGACY_FILE)),
+        });
+      }
+    } catch (error: unknown) {
+      options.logger?.warn(
+        '[Electron] Skipped an unreadable legacy session store',
+        {
+          sourcePath: dir,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
   }
 
@@ -128,9 +140,15 @@ export async function runSessionStoreMigration(
             ? { workerPath: options.stateStorageWorkerPath }
             : undefined,
         );
-        await storage.whenReady();
+        try {
+          await storage.whenReady();
+        } catch (error: unknown) {
+          await storage.dispose().catch(() => undefined);
+          throw error;
+        }
         return { storage, dispose: () => storage.dispose() };
       },
+      logger,
     });
     release = collected.release;
     const migrator = new LegacySessionStoreMigrator(

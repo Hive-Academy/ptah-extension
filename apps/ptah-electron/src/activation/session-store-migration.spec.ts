@@ -110,6 +110,45 @@ describe('collectLegacySessionSources', () => {
     ).toBe('{"a":1}');
   });
 
+  it('skips an unreadable store and keeps the others', async () => {
+    const brokenV2 = folder(encode('/projects/broken-v2'), {
+      'workspace-state.v2/CURRENT': '{}',
+    });
+    const brokenV1 = folder(encode('/projects/broken-v1'), {
+      'workspace-state.json': '{not json',
+    });
+    const goodV2 = folder(encode('/projects/good-v2'), {
+      'workspace-state.v2/CURRENT': '{}',
+    });
+    const disposed: string[] = [];
+    const warn = jest.fn();
+    const result = await collectLegacySessionSources({
+      workspaceStorageRoot: root,
+      liveStorage: {
+        getDefaultStorage: () => storage('default'),
+        getStorageForWorkspace: () => undefined,
+      },
+      openReadOnlyV2: async (dir) => {
+        if (dir === brokenV2) throw new Error('recovery required');
+        return {
+          storage: storage('good'),
+          dispose: async () => {
+            disposed.push(dir);
+          },
+        };
+      },
+      logger: { warn },
+    });
+
+    expect(result.sources.map((s) => s.sourcePath)).toEqual([goodV2]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls.map((c) => c[1].sourcePath).sort()).toEqual(
+      [brokenV1, brokenV2].sort(),
+    );
+    await result.release();
+    expect(disposed).toEqual([goodV2]);
+  });
+
   it('returns nothing when the folder does not exist', async () => {
     const result = await collectLegacySessionSources({
       workspaceStorageRoot: path.join(root, 'missing'),

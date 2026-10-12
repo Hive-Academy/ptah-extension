@@ -213,6 +213,14 @@ export class LegacySessionStoreMigrator {
     ref: EmbeddedOutputRef,
   ): Promise<void> {
     if (typeof ref.agentId !== 'string' || ref.agentId.length === 0) return;
+    // The blob store rejects such an id; one bad ref must not fail the source.
+    if (!isSafeBlobSegment(ref.agentId)) {
+      this.logger.warn(
+        '[SessionStoreMigrator] Skipped agent output with an invalid agent id',
+        { sessionId, agentId: ref.agentId },
+      );
+      return;
+    }
     const key = `${KEYS.agentOutputPrefix}${ref.agentId}`;
     let output = isAsyncStateStorage(storage)
       ? await readSequenceOutput(storage, key, ref.agentId)
@@ -233,6 +241,11 @@ export class LegacySessionStoreMigrator {
       );
     }
   }
+}
+
+/** Same rule as the blob store's file names. */
+function isSafeBlobSegment(value: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(value) && value !== '.' && value !== '..';
 }
 
 async function readSequenceOutput(
