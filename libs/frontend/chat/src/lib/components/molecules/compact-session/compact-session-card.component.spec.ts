@@ -7,12 +7,28 @@ import {
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import type { TabState } from '@ptah-extension/chat-types';
+import * as chatUi from '@ptah-extension/chat-ui';
+import {
+  createEmptyStreamingState,
+  type TabState,
+} from '@ptah-extension/chat-types';
 import type {
   AskUserQuestionRequest,
   PermissionRequest,
 } from '@ptah-extension/shared';
-import { CompactSessionCardComponent } from './compact-session-card.component';
+import {
+  CARD_SUMMARY_SAMPLE_MS,
+  CompactSessionCardComponent,
+} from './compact-session-card.component';
+
+jest.mock('@ptah-extension/chat-ui', () => {
+  const actual = jest.requireActual('@ptah-extension/chat-ui');
+  return {
+    ...actual,
+    summarizeLive: jest.fn(actual.summarizeLive),
+    summarizeFinalized: jest.fn(actual.summarizeFinalized),
+  };
+});
 
 function tab(overrides: Partial<TabState> = {}): TabState {
   return {
@@ -324,5 +340,189 @@ describe(CompactSessionCardComponent.name, () => {
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-header'),
     ).toBeNull();
+  });
+
+  describe('live summary sampler', () => {
+    const summarizeLive = jest.mocked(chatUi.summarizeLive);
+    const summarizeFinalized = jest.mocked(chatUi.summarizeFinalized);
+
+    function streamingTab(overrides: Partial<TabState> = {}): TabState {
+      return tab({
+        status: 'streaming',
+        streamingState: createEmptyStreamingState(),
+        ...overrides,
+      });
+    }
+
+    function update(
+      fixture: ReturnType<typeof render>,
+      overrides: Partial<TabState> = {},
+    ): void {
+      const current = fixture.componentInstance.tab();
+      fixture.componentRef.setInput('tab', {
+        ...current,
+        streamingState: current.streamingState
+          ? { ...current.streamingState }
+          : null,
+        ...overrides,
+      });
+      fixture.detectChanges();
+    }
+
+    function lastLiveContext() {
+      return summarizeLive.mock.calls.at(-1)?.[1];
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      summarizeLive.mockClear();
+      summarizeFinalized.mockClear();
+    });
+
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    it('exports a 500 ms sample interval', () => {
+      expect(CARD_SUMMARY_SAMPLE_MS).toBe(500);
+    });
+
+    it('renders the first live event at once', () => {
+      const value = streamingTab();
+      render(value);
+
+      expect(summarizeLive).toHaveBeenCalledTimes(1);
+      expect(summarizeLive.mock.calls[0][0]).toBe(value.streamingState);
+    });
+
+    it('summarises 100 stream updates in one second at most three times', () => {
+      const fixture = render(streamingTab());
+
+      for (let i = 0; i < 100; i++) {
+        update(fixture);
+        jest.advanceTimersByTime(10);
+        fixture.detectChanges();
+      }
+
+      expect(summarizeLive.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(summarizeLive.mock.calls.length).toBeLessThanOrEqual(3);
+    });
+
+    it('applies the latest stream state in the trailing sample', () => {
+      const fixture = render(streamingTab());
+      update(fixture);
+      update(fixture);
+      const latest = fixture.componentInstance.tab().streamingState;
+      expect(summarizeLive).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(CARD_SUMMARY_SAMPLE_MS);
+      fixture.detectChanges();
+
+      expect(summarizeLive).toHaveBeenCalledTimes(2);
+      expect(summarizeLive.mock.calls[1][0]).toBe(latest);
+    });
+
+    it('shows a permission without waiting for the sampler', () => {
+      const fixture = render(streamingTab());
+      update(fixture);
+      const request = permission();
+      permissionTargets.set(request.id, ['tab-1']);
+
+      permissions.set([request]);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'Run the verification command?',
+      );
+      expect(lastLiveContext()?.permissions).toEqual([request]);
+    });
+
+    it('shows a question without waiting for the sampler', () => {
+      const fixture = render(streamingTab());
+      update(fixture);
+      const request = question();
+      questionTargets.set(request.id, ['tab-1']);
+
+      questions.set([request]);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain(
+        'Choose a deployment target',
+      );
+    });
+
+    it('shows a status change and an error without waiting for the sampler', () => {
+      const fixture = render(streamingTab());
+      update(fixture);
+
+      update(fixture, { status: 'resuming' });
+      expect(lastLiveContext()?.sessionStatus).toBe('resuming');
+
+      update(fixture, { lastTerminalReason: 'api_error' });
+      expect(lastLiveContext()?.terminalReason).toBe('api_error');
+    });
+
+    it('does not re-summarise a flush that changes nothing but the stream', () => {
+      const fixture = render(streamingTab());
+      update(fixture);
+      update(fixture);
+
+      expect(summarizeLive).toHaveBeenCalledTimes(1);
+      expect(summarizeFinalized).not.toHaveBeenCalled();
+    });
+
+    it('switches to the finalized summary as soon as the stream ends', () => {
+      const fixture = render(streamingTab());
+      update(fixture);
+      const messages = [] as TabState['messages'];
+      summarizeLive.mockClear();
+
+      update(fixture, { status: 'loaded', streamingState: null, messages });
+
+      expect(summarizeFinalized).toHaveBeenCalledTimes(1);
+      expect(summarizeFinalized.mock.calls[0][0]).toBe(messages);
+      jest.advanceTimersByTime(CARD_SUMMARY_SAMPLE_MS);
+      fixture.detectChanges();
+      expect(summarizeLive).not.toHaveBeenCalled();
+    });
+
+    it('renders the first event of a new stream at once', () => {
+      const fixture = render(streamingTab());
+      update(fixture, { status: 'loaded', streamingState: null });
+      summarizeLive.mockClear();
+
+      const next = createEmptyStreamingState();
+      update(fixture, { status: 'streaming', streamingState: next });
+
+      expect(summarizeLive).toHaveBeenCalledTimes(1);
+      expect(summarizeLive.mock.calls[0][0]).toBe(next);
+    });
+
+    it('clears its pending sample timer on destroy', () => {
+      // Child components own timers of their own, so the global timer count
+      // is not a reliable signal; follow the card's own timer handle instead.
+      const fixture = render(streamingTab());
+      const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout');
+      const clearTimeoutSpy = jest.spyOn(globalThis, 'clearTimeout');
+      try {
+        update(fixture);
+        const index = setTimeoutSpy.mock.calls.findIndex(
+          ([, delay]) => delay === CARD_SUMMARY_SAMPLE_MS,
+        );
+        expect(index).toBeGreaterThanOrEqual(0);
+        const handle = setTimeoutSpy.mock.results[index].value;
+        summarizeLive.mockClear();
+
+        fixture.destroy();
+
+        expect(clearTimeoutSpy).toHaveBeenCalledWith(handle);
+        jest.advanceTimersByTime(CARD_SUMMARY_SAMPLE_MS);
+        expect(summarizeLive).not.toHaveBeenCalled();
+      } finally {
+        setTimeoutSpy.mockRestore();
+        clearTimeoutSpy.mockRestore();
+      }
+    });
   });
 });
