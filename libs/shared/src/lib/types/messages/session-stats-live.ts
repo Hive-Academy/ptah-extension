@@ -43,9 +43,9 @@ type LiveBudgetStage = NonNullable<SessionStatsLiveWire['liveBudgetStage']>;
 function parseLiveBudgetStage(
   value: unknown,
 ): LiveBudgetStage | null | undefined {
-  return value === null || value === 'handoff' || value === 'limit'
-    ? value
-    : undefined;
+  if (value === null) return null;
+  if (value === 'handoff' || value === 'limit') return value;
+  return undefined;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

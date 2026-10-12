@@ -492,6 +492,8 @@ export class SessionBudgetActionsService {
       });
       return null;
     } catch (error: unknown) {
+      // degradation-audit: reported - logged below; `null` is the documented
+      // "no handoff" result the caller already handles.
       console.warn('[SessionBudget] Could not load the ended session handoff', {
         error: error instanceof Error ? error.message : String(error),
       });

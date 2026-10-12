@@ -91,6 +91,8 @@ export class PostToolUseHookHandler {
       );
       return resolvedSessionId ? queue.take(resolvedSessionId) : undefined;
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged below; the hook
+      // must never break a tool result, so only this notice is dropped.
       this.logger.debug(
         '[PostToolUseHookHandler] could not attach the pending notice, skipping it',
         {

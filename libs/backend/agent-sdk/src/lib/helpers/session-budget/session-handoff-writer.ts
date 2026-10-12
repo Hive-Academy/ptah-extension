@@ -168,6 +168,8 @@ export class SessionHandoffWriter {
       const content = await fs.readFile(target, 'utf8');
       return content.length > 0 ? { path: target, content } : null;
     } catch (error: unknown) {
+      // degradation-audit: reported - a missing file means "no handoff"; any
+      // other read failure is WARNed once below. `read` never throws.
       const code = errorCode(error);
       if (code !== 'ENOENT' && code !== 'ENOTDIR') {
         this.warnOnce(

@@ -1368,6 +1368,8 @@ export class ChatViewComponent implements OnDestroy {
     try {
       chatInput.restoreDraftToInput(draft.text);
     } catch (err) {
+      // degradation-audit: reported - logged below; skipping the
+      // acknowledgement keeps the draft recoverable for the next attempt.
       console.warn('[ChatView] Failed to restore the handover draft:', err);
       return;
     }
