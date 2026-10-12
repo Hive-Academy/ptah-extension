@@ -48,6 +48,15 @@ export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
+export type {
+  CompactCallout,
+  CompactErrorCallout,
+  CompactLaneKind,
+  CompactLaneRow,
+  CompactLaneStatus,
+  CompactLaneSummary,
+  CompactPermissionCallout,
+} from './lib/molecules/compact-session/compact-lane.types';
 export {
   summarizeFinalized,
   summarizeLive,

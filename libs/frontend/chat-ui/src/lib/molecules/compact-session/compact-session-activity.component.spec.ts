@@ -12,6 +12,13 @@ import type {
   CompactSemanticMark,
   CompactSessionSummary,
 } from './compact-session-summary';
+import type {
+  CompactCallout,
+  CompactLaneRow,
+  CompactLaneStatus,
+  CompactLaneSummary,
+  CompactPermissionCallout,
+} from './compact-lane.types';
 
 jest.mock('ngx-markdown', () => {
   @Component({
@@ -1081,5 +1088,308 @@ describe(CompactSessionActivityComponent.name, () => {
       fixture.nativeElement.querySelector('[data-testid="cs-split-handle"]'),
     ).not.toBeNull();
     expect(body.classList.contains('cs-no-handle')).toBe(false);
+  });
+});
+
+describe(`${CompactSessionActivityComponent.name} board layout`, () => {
+  const NOW = 1_000_000;
+
+  function lane(overrides: Partial<CompactLaneRow> = {}): CompactLaneRow {
+    return {
+      id: 'cli:a1',
+      name: 'codex',
+      kind: 'cli',
+      status: 'running',
+      startedAt: NOW - 65_000,
+      endedAt: null,
+      ...overrides,
+    };
+  }
+
+  function laneSummary(
+    rows: readonly CompactLaneRow[],
+    moreCount = 0,
+    counts: Partial<Record<CompactLaneStatus, number>> = {},
+  ): CompactLaneSummary {
+    return {
+      rows,
+      moreCount,
+      total: rows.length + moreCount,
+      counts: {
+        waiting: 0,
+        error: 0,
+        running: 0,
+        done: 0,
+        stopped: 0,
+        ...counts,
+      },
+    };
+  }
+
+  const permission: CompactPermissionCallout = {
+    kind: 'permission',
+    source: 'cli',
+    requestId: 'req-1',
+    agentId: 'a1',
+    tabId: 'tab-1',
+    text: 'codex asks to run npm test',
+  };
+
+  function renderBoard(
+    inputs: {
+      lanes?: CompactLaneSummary | null;
+      callout?: CompactCallout;
+      branch?: string | null;
+      elapsed?: number | null;
+      metricsModel?: string | null;
+    } = {},
+  ) {
+    const fixture = TestBed.createComponent(CompactSessionActivityComponent);
+    const base = summary();
+    fixture.componentRef.setInput(
+      'summary',
+      summary({
+        metrics: {
+          ...base.metrics,
+          model:
+            inputs.metricsModel === undefined ? 'sonnet' : inputs.metricsModel,
+        },
+      }),
+    );
+    fixture.componentRef.setInput(
+      'lanes',
+      inputs.lanes === undefined ? laneSummary([]) : inputs.lanes,
+    );
+    fixture.componentRef.setInput('callout', inputs.callout ?? null);
+    fixture.componentRef.setInput('now', NOW);
+    fixture.componentRef.setInput('branch', inputs.branch ?? null);
+    fixture.componentRef.setInput('elapsed', inputs.elapsed ?? null);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const zone = (root: HTMLElement, name: string) =>
+    root.querySelector<HTMLElement>(`[data-zone="${name}"]`);
+  const subLineParts = (root: HTMLElement) =>
+    [...(zone(root, 'sub')?.querySelectorAll('span') ?? [])].map((el) =>
+      el.textContent?.trim(),
+    );
+  const laneButtons = (root: HTMLElement) => [
+    ...root.querySelectorAll<HTMLButtonElement>('[data-zone="lanes"] [data-lane-id]'),
+  ];
+  const buttonByText = (root: HTMLElement, text: string) =>
+    [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === text,
+    );
+
+  beforeEach(() =>
+    TestBed.configureTestingModule({
+      imports: [CompactSessionActivityComponent],
+    }),
+  );
+
+  it('orders the zones header, sub line, Now, Lanes, metrics', () => {
+    const root = renderBoard().nativeElement as HTMLElement;
+
+    expect(
+      [...root.querySelectorAll('[data-zone]')].map((el) =>
+        el.getAttribute('data-zone'),
+      ),
+    ).toEqual(['status', 'sub', 'now', 'lanes', 'metrics']);
+    expect(root.querySelector('section')?.classList).toContain('cs-board');
+    expect(zone(root, 'now')?.textContent).toContain('Which path?');
+  });
+
+  it('keeps the four-zone body when no lane data is given', () => {
+    const root = renderBoard({ lanes: null }).nativeElement as HTMLElement;
+
+    expect(zone(root, 'sub')).toBeNull();
+    expect(zone(root, 'lanes')).toBeNull();
+    expect(zone(root, 'now')).toBeNull();
+    expect(root.querySelector('section')?.classList).not.toContain('cs-board');
+  });
+
+  it('shows placeholders when a zone has no data', () => {
+    const root = renderBoard({ metricsModel: null }).nativeElement as HTMLElement;
+
+    expect(subLineParts(root)).toEqual(['—', '·', '—', '·', '—']);
+    expect(
+      root.querySelector('[data-testid="cs-lanes-summary"]')?.textContent,
+    ).toContain('No lanes');
+    expect(
+      root.querySelector('[data-testid="cs-lanes-placeholder"]')?.textContent,
+    ).toContain('—');
+    expect(root.querySelector('[data-testid="cs-lanes-more"]')).toBeNull();
+  });
+
+  it('shows branch, model and elapsed on the sub line', () => {
+    const root = renderBoard({ branch: 'feat/board', elapsed: 125_000 })
+      .nativeElement as HTMLElement;
+
+    expect(subLineParts(root)).toEqual([
+      'feat/board',
+      '·',
+      'sonnet',
+      '·',
+      '2m 05s',
+    ]);
+  });
+
+  it('renders the lane rows with kind, status and elapsed time', () => {
+    const root = renderBoard({
+      lanes: laneSummary(
+        [
+          lane({ id: 'cli:a1', status: 'waiting' }),
+          lane({
+            id: 'subagent:t1',
+            name: 'reviewer',
+            kind: 'subagent',
+            status: 'done',
+            startedAt: NOW - 30_000,
+            endedAt: NOW - 18_000,
+          }),
+          lane({
+            id: 'background:b1',
+            name: 'watch',
+            kind: 'background',
+            startedAt: null,
+          }),
+        ],
+        0,
+        { waiting: 1, done: 1, running: 1 },
+      ),
+    }).nativeElement as HTMLElement;
+
+    const rows = laneButtons(root);
+    expect(rows.map((row) => row.getAttribute('data-lane-id'))).toEqual([
+      'cli:a1',
+      'subagent:t1',
+      'background:b1',
+    ]);
+    expect(rows[0].textContent).toContain('CLI lane');
+    expect(rows[0].textContent).toContain('waiting');
+    expect(rows[0].textContent).toContain('1m 05s');
+    expect(rows[1].textContent).toContain('Sub-agent');
+    expect(rows[1].textContent).toContain('12s');
+    expect(rows[2].textContent).toContain('Background');
+    expect(rows[2].textContent).toContain('—');
+    expect(
+      root.querySelector('[data-testid="cs-lanes-summary"]')?.textContent,
+    ).toContain('1 running · 1 waiting · 1 done');
+  });
+
+  it('shows "+N more lanes" for lanes beyond the shown rows', () => {
+    const rows = [
+      lane({ id: 'cli:1' }),
+      lane({ id: 'cli:2' }),
+      lane({ id: 'cli:3' }),
+    ];
+    const root = renderBoard({
+      lanes: laneSummary(rows, 4, { running: 7 }),
+    }).nativeElement as HTMLElement;
+
+    expect(laneButtons(root)).toHaveLength(3);
+    expect(
+      root.querySelector('[data-testid="cs-lanes-more"]')?.textContent?.trim(),
+    ).toBe('+4 more lanes');
+  });
+
+  it('caps an oversized lane input at three rows', () => {
+    const root = renderBoard({
+      lanes: laneSummary([
+        lane({ id: 'cli:1' }),
+        lane({ id: 'cli:2' }),
+        lane({ id: 'cli:3' }),
+        lane({ id: 'cli:4' }),
+      ], 0, { running: 4 }),
+    }).nativeElement as HTMLElement;
+
+    expect(laneButtons(root)).toHaveLength(3);
+    expect(root.querySelector('[data-testid="cs-lanes-more"]')?.textContent?.trim())
+      .toBe('+1 more lanes');
+  });
+
+  it('emits the lane key when a lane row is selected', () => {
+    const fixture = renderBoard({
+      lanes: laneSummary([lane({ id: 'cli:a1' })], 0, { running: 1 }),
+    });
+    const selected = jest.fn();
+    fixture.componentInstance.laneSelected.subscribe(selected);
+
+    laneButtons(fixture.nativeElement)[0].click();
+
+    expect(selected).toHaveBeenCalledWith('cli:a1');
+  });
+
+  it('replaces the lane rows with a permission callout and keeps the summary line', () => {
+    const fixture = renderBoard({
+      lanes: laneSummary([lane()], 2, { running: 3 }),
+      callout: permission,
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    const allowed = jest.fn();
+    const denied = jest.fn();
+    fixture.componentInstance.allow.subscribe(allowed);
+    fixture.componentInstance.deny.subscribe(denied);
+
+    expect(laneButtons(root)).toHaveLength(0);
+    expect(root.querySelector('[data-testid="cs-lanes-more"]')).toBeNull();
+    expect(
+      root.querySelector('[data-testid="cs-lanes-summary"]')?.textContent,
+    ).toContain('3 running');
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
+    ).toContain('codex asks to run npm test');
+
+    buttonByText(root, 'Allow')?.click();
+    buttonByText(root, 'Deny')?.click();
+
+    expect(allowed).toHaveBeenCalledWith(permission);
+    expect(denied).toHaveBeenCalledWith(permission);
+  });
+
+  it('shows an error callout with Show output, and Retry only when a retry exists', () => {
+    const fixture = renderBoard({
+      lanes: laneSummary([lane()], 0, { running: 1 }),
+      callout: { kind: 'error', text: 'Model overloaded', canRetry: false },
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    const shown = jest.fn();
+    const retried = jest.fn();
+    fixture.componentInstance.showOutput.subscribe(shown);
+    fixture.componentInstance.retry.subscribe(retried);
+
+    expect(laneButtons(root)).toHaveLength(0);
+    expect(
+      root.querySelector('[data-testid="cs-callout-error"]')?.textContent,
+    ).toContain('Model overloaded');
+    expect(buttonByText(root, 'Retry')).toBeUndefined();
+
+    buttonByText(root, 'Show output')?.click();
+    expect(shown).toHaveBeenCalledTimes(1);
+
+    fixture.componentRef.setInput('callout', {
+      kind: 'error',
+      text: 'Model overloaded',
+      canRetry: true,
+    });
+    fixture.detectChanges();
+    buttonByText(root, 'Retry')?.click();
+    expect(retried).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the lane rows when the callout clears', () => {
+    const fixture = renderBoard({
+      lanes: laneSummary([lane()], 0, { running: 1 }),
+      callout: permission,
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    expect(laneButtons(root)).toHaveLength(0);
+
+    fixture.componentRef.setInput('callout', null);
+    fixture.detectChanges();
+
+    expect(laneButtons(root)).toHaveLength(1);
+    expect(root.querySelector('[data-testid="cs-callout-permission"]')).toBeNull();
   });
 });
