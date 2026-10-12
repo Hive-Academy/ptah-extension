@@ -89,9 +89,10 @@ export class ToolOutputDisplayComponent {
    * Computed: the truncation notice for this node's OUTPUT, or null.
    *
    * Reads `ExecutionNode.retention`, written by `capFinalizedTree` in
-   * `@ptah-extension/chat-streaming`. The typed field is the only legal route
-   * across that boundary — chat-ui is `type:ui` and cannot import a predicate
-   * from a `type:feature` lib.
+   * `@ptah-extension/chat-streaming`. chat-ui is `type:feature` like that lib
+   * and may import it, but the typed field in `@ptah-extension/shared` is the
+   * contract between writer and reader, so this molecule needs no predicate
+   * from chat-streaming.
    *
    * The copy names the recovery honestly: the bytes are in the session's SDK
    * transcript and come back when the session is reopened, and that reload is

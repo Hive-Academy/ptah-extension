@@ -4,7 +4,11 @@ import {
   makeSurfaceEnvelope,
   makeSurfaceTextInput,
 } from '../testing/fixtures/surface';
-import { SURFACE_CATALOG_VERSION, SURFACE_LIMITS } from './surface-catalog';
+import {
+  SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
+  SURFACE_LIMITS,
+} from './surface-catalog';
 import {
   SurfaceEnvelopeSchema,
   SurfaceUpdateInputSchema,
@@ -1164,6 +1168,261 @@ describe('surface validator — Revision 2 (review finding 5): raw preflight cha
           },
         ]),
       ).ok,
+    ).toBe(true);
+  });
+});
+
+describe('surface validator — dashboard-catalog/4 (D1, D2, R4.1-R4.2)', () => {
+  const plain = (text: string) => ({ text, format: 'plain' as const });
+  const trend = {
+    direction: 'up',
+    amount: 4.2,
+    percent: true,
+    polarity: 'good',
+  } as const;
+  const stat = (extra: Record<string, unknown> = {}) => ({
+    kind: 'stat',
+    id: 'cost',
+    value: '$1.20',
+    ...extra,
+  });
+  const avatar = (extra: Record<string, unknown> = {}) => ({
+    kind: 'avatar',
+    id: 'who',
+    name: 'Ada Lovelace',
+    subtitle: 'reviewer',
+    ...extra,
+  });
+  const accordion = (
+    children: unknown[] = [avatar()],
+    extra: Record<string, unknown> = {},
+  ) => ({
+    kind: 'accordion',
+    id: 'more',
+    title: plain('Details'),
+    children,
+    ...extra,
+  });
+  const v4 = (components: unknown[]) => ({
+    ...makeSurfaceEnvelope({ dataModel: {} }),
+    catalogVersion: SURFACE_CATALOG_VERSION_4,
+    components,
+  });
+  const v3 = (components: unknown[]) => ({
+    ...makeSurfaceEnvelope({ dataModel: {} }),
+    components,
+  });
+  const points = (length: number) =>
+    Array.from({ length }, (_, index) => index % 10);
+
+  it('pairs spec/2 with both /3 and /4 as whole pairs, and spec/1 with neither', () => {
+    expect(
+      validateSurfaceEnvelopeVersions({
+        schemaVersion: 'dashboard-spec/2',
+        catalogVersion: SURFACE_CATALOG_VERSION_4,
+      }),
+    ).toEqual({
+      ok: true,
+      contract: 'dashboard-spec/2',
+      catalog: SURFACE_CATALOG_VERSION_4,
+    });
+    expect(
+      validateSurfaceEnvelopeVersions({
+        schemaVersion: 'dashboard-spec/2',
+        catalogVersion: SURFACE_CATALOG_VERSION,
+      }),
+    ).toEqual({
+      ok: true,
+      contract: 'dashboard-spec/2',
+      catalog: SURFACE_CATALOG_VERSION,
+    });
+    expectRejected(
+      validateSurfaceEnvelopeVersions({
+        schemaVersion: 'dashboard-spec/1',
+        catalogVersion: SURFACE_CATALOG_VERSION_4,
+      }),
+      'catalogVersion',
+      'does not pair',
+      'expected dashboard-catalog/1',
+    );
+    expectRejected(
+      validateSurfaceEnvelopeVersions({
+        schemaVersion: 'dashboard-spec/2',
+        catalogVersion: 'dashboard-catalog/1',
+      }),
+      'catalogVersion',
+      `expected ${SURFACE_CATALOG_VERSION} or ${SURFACE_CATALOG_VERSION_4}`,
+    );
+  });
+
+  it('accepts a /4 document with accordion, avatar, stat trend and spark', () => {
+    const result = documentOf(
+      v4([
+        stat({ trend, spark: [1, 2, 3] }),
+        stat({
+          id: 'plain-trend',
+          trend: { direction: 'down', amount: 3, percent: false },
+        }),
+        accordion([avatar(), stat({ id: 'inner', spark: [0, 5] })]),
+        avatar({ id: 'solo', subtitle: undefined }),
+      ]),
+    );
+    expect(result).toMatchObject({ ok: true });
+    if (result.ok) {
+      expect(result.surface.catalogVersion).toBe(SURFACE_CATALOG_VERSION_4);
+      expect(result.surface.components[0]).toMatchObject({
+        trend,
+        spark: [1, 2, 3],
+      });
+    }
+  });
+
+  it('keeps every /3 kind valid under /4', () => {
+    expect(
+      documentOf({
+        ...makeSurfaceEnvelope({ components: makeSurfaceComponents() }),
+        catalogVersion: SURFACE_CATALOG_VERSION_4,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it.each<[string, unknown[], string[]]>([
+    [
+      'avatar kind',
+      [avatar()],
+      ['components.0.kind', '"avatar"', SURFACE_CATALOG_VERSION_4],
+    ],
+    [
+      'accordion kind',
+      [accordion()],
+      ['components.0.kind', '"accordion"', SURFACE_CATALOG_VERSION_4],
+    ],
+    [
+      'stat trend field',
+      [stat({ trend })],
+      ['components.0.trend', '"trend"', SURFACE_CATALOG_VERSION_4],
+    ],
+    [
+      'stat spark field',
+      [stat({ spark: [1, 2] })],
+      ['components.0.spark', '"spark"', SURFACE_CATALOG_VERSION_4],
+    ],
+    [
+      'avatar nested in a card',
+      [{ kind: 'card', id: 'c', children: [stat(), avatar()] }],
+      ['components.0.children.1.kind', '"avatar"'],
+    ],
+  ])(
+    'rejects a /3 document that uses the /4 %s, naming the field',
+    (_label, components, fragments) => {
+      expectRejected(documentOf(v3(components)), ...fragments);
+    },
+  );
+
+  it('rejects /4 features in ptah_surface_update input, which stays /3 only', () => {
+    expectRejected(
+      update({ operation: 'create', surface: v3([stat({ trend })]) }),
+      'surface.components.0.trend',
+      SURFACE_CATALOG_VERSION_4,
+    );
+    expectRejected(
+      update({
+        operation: 'patch',
+        surfaceId: 'profile',
+        baseRevision: 1,
+        ops: [{ op: 'add-component', parentId: null, component: accordion() }],
+      }),
+      'ops.0.component.kind',
+      '"accordion"',
+    );
+    expectRejected(
+      update({ operation: 'create', surface: v4([avatar()]) }),
+      'surface.catalogVersion',
+      `accepts ${SURFACE_CATALOG_VERSION} only`,
+    );
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['avatar', avatar()],
+    ['accordion', accordion()],
+    ['stat with a trend', stat({ trend })],
+  ])(
+    'rejects class, style and url on the /4 %s (trust boundary)',
+    (_label, component) => {
+      for (const key of ['class', 'style', 'url'])
+        expectRejected(documentOf(v4([{ ...component, [key]: 'x' }])), key);
+    },
+  );
+
+  it.each(['class', 'style', 'url', 'color', 'icon'])(
+    'rejects a %s field inside a stat trend',
+    (key) => {
+      expectRejected(
+        documentOf(v4([stat({ trend: { ...trend, [key]: 'x' } })])),
+        'components.0.trend',
+        key,
+      );
+    },
+  );
+
+  it('keeps trend direction, polarity and amount closed', () => {
+    for (const bad of [
+      { ...trend, direction: 'sideways' },
+      { ...trend, polarity: 'neutral' },
+      { ...trend, amount: -1 },
+      { ...trend, percent: 'yes' },
+      { direction: 'up', amount: 1 },
+    ])
+      expectRejected(
+        documentOf(v4([stat({ trend: bad })])),
+        'components.0.trend',
+      );
+  });
+
+  it('bounds spark points per component: 2..maxSeriesPoints (A7)', () => {
+    for (const spark of [[], [1], points(SURFACE_LIMITS.maxSeriesPoints + 1)])
+      expectRejected(documentOf(v4([stat({ spark })])), 'components.0.spark');
+    expectRejected(
+      documentOf(v4([stat({ spark: [1, 'two'] })])),
+      'components.0.spark',
+    );
+    expect(
+      documentOf(v4([stat({ spark: points(SURFACE_LIMITS.maxSeriesPoints) })]))
+        .ok,
+    ).toBe(true);
+    // Per component, like chart series: two stats each at the limit are legal.
+    expect(
+      documentOf(
+        v4(
+          ['a', 'b'].map((id) =>
+            stat({ id, spark: points(SURFACE_LIMITS.maxSeriesPoints) }),
+          ),
+        ),
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('requires an accordion title and a non-empty plain-text avatar name', () => {
+    expectRejected(
+      documentOf(v4([accordion([avatar()], { title: undefined })])),
+      'components.0.title',
+    );
+    expectRejected(documentOf(v4([avatar({ name: '' })])), 'components.0.name');
+    expectRejected(
+      documentOf(v4([avatar({ subtitle: { text: 'rich' } })])),
+      'components.0.subtitle',
+    );
+  });
+
+  it('walks accordion children for semantic checks', () => {
+    expectRejected(
+      documentOf(
+        v4([avatar({ id: 'dup' }), accordion([avatar({ id: 'dup' })])]),
+      ),
+      'Duplicate component id "dup"',
+    );
+    expect(
+      documentOf(v4([accordion([accordion([avatar()], { id: 'inner' })])])).ok,
     ).toBe(true);
   });
 });

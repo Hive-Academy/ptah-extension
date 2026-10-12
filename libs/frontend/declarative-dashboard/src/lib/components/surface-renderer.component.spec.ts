@@ -4,6 +4,7 @@ import { By } from '@angular/platform-browser';
 import {
   SURFACE_CATALOG_VERSION,
   SURFACE_LIMITS,
+  SURFACE_SPARK_MIN_POINTS,
   type SurfaceComponent,
   type SurfaceDataModel,
   type SurfaceSelection,
@@ -14,6 +15,7 @@ import { buildSurfaceViewModel } from '../view-model/surface-view-model';
 import { SURFACE_TEXT_COMMIT_DEBOUNCE_MS } from './surface-text-input.component';
 import {
   SURFACE_VIEW_MODEL_BUILDER,
+  DISPLAY_TEXT_MIX,
   SurfaceRendererComponent,
   type SurfaceViewModelBuilder,
 } from './surface-renderer.component';
@@ -33,6 +35,10 @@ const submit = { id: 'send', action: 'surface.submit' as const, label: { text: '
 const form = (children: readonly SurfaceComponent[] = [reason]) =>
   surface([{ id: 'form', kind: 'section', title: { text: 'Form' }, actions: [submit], children }]);
 const TOO_LONG = 'x'.repeat(SURFACE_LIMITS.maxStringLength + 1);
+
+it('pins semantic text at 65% base-content so tone labels remain readable on their tints', () => {
+  expect(DISPLAY_TEXT_MIX).toBe('65%');
+});
 /** The default form surface with its root title text replaced. */
 const withTitle = (text: string): SurfaceRenderable => {
   const v2 = form() as Extract<SurfaceRenderable, { contract: 'dashboard-spec/2' }>;
@@ -185,6 +191,52 @@ describe('SurfaceRendererComponent', () => {
       type('fine');
       element.querySelector<HTMLButtonElement>('[data-apps-focus-key="surface:form:action-send"]')!.click();
       expect(host.log).toEqual([['commit', { componentId: 'reason', value: 'fine' }], ['action', 'send']]);
+    });
+  });
+
+  describe('a non-throwing override that returns malformed /4 atom fields', () => {
+    const avatar = (fields: Record<string, unknown>) => ({ id: 'a', kind: 'avatar', selectable: false, name: 'Agent', ...fields });
+    const stat = (fields: Record<string, unknown>) =>
+      ({ id: 't', kind: 'stat', selectable: false, title: { text: 'Cost' }, value: 3, ...fields });
+    const trend = (fields: Record<string, unknown>) => stat({ trend: { direction: 'up', amount: 1, percent: false, ...fields } });
+    const overrideWith = (components: readonly unknown[]) => TestBed.overrideProvider(SURFACE_VIEW_MODEL_BUILDER, {
+      useValue: () => ({ renderFailed: false, viewModel: { title: { text: 'Override' }, components } }),
+    });
+
+    it.each([
+      ['an avatar with a rich-text name', avatar({ name: { text: 'Agent' } })],
+      ['an avatar with a rich-text subtitle', avatar({ subtitle: { text: 'x' } })],
+      ['an avatar with a blank name', avatar({ name: '   ' })],
+      ['a stat trend with direction "sideways"', trend({ direction: 'sideways' })],
+      ['a stat trend with polarity "danger"', trend({ polarity: 'danger' })],
+      ['a stat trend with a NaN amount', trend({ amount: Number.NaN })],
+      ['a stat trend with a negative amount', trend({ amount: -1 })],
+      ['a stat trend without a boolean percent flag', trend({ percent: 'yes' })],
+      ['a stat trend that is not an object', stat({ trend: 'up' })],
+      ['a spark containing NaN', stat({ spark: [1, Number.NaN, 3] })],
+      ['a spark containing Infinity', stat({ spark: [1, Number.POSITIVE_INFINITY] })],
+      ['a spark below the minimum point count', stat({ spark: Array.from({ length: SURFACE_SPARK_MIN_POINTS - 1 }, () => 1) })],
+      ['a spark over maxSeriesPoints', stat({ spark: Array.from({ length: SURFACE_LIMITS.maxSeriesPoints + 1 }, (_v, i) => i) })],
+      ['a spark that is not an array', stat({ spark: { 0: 1, 1: 2, length: 2 } })],
+    ])('renders nothing and reports renderFailed once for %s', (_name, node) => {
+      overrideWith([node]);
+      const { element, host, rerender } = setup(form());
+      expect(element.querySelector('ptah-surface-renderer')?.children).toHaveLength(0);
+      expect(element.querySelector('ptah-dashboard-avatar, ptah-dashboard-stat')).toBeNull();
+      rerender();
+      expect(host.failures).toBe(1);
+    });
+
+    it('still renders a well-formed avatar and a stat with a valid trend and spark', () => {
+      const spark = Array.from({ length: SURFACE_SPARK_MIN_POINTS + 1 }, (_v, i) => i);
+      overrideWith([avatar({ subtitle: 'Reviewer' }),
+        stat({ trend: { direction: 'down', amount: 4.2, percent: true, polarity: 'bad' }, spark })]);
+      const { element, host } = setup(form());
+      expect(host.failures).toBe(0);
+      expect(element.querySelector('[data-testid="avatar-name"]')?.textContent).toBe('Agent');
+      expect(element.querySelector('[data-testid="avatar-subtitle"]')?.textContent).toBe('Reviewer');
+      expect(element.querySelector('[data-testid="stat-trend"]')?.textContent).toContain('down 4.2%');
+      expect(element.querySelector('[data-testid="stat-spark"]')).not.toBeNull();
     });
   });
 

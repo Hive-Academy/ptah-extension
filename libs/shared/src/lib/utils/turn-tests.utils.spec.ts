@@ -111,6 +111,66 @@ describe('collectTurnTests', () => {
     expect(result).toEqual([{ command, outcome: 'passed' }]);
   });
 
+  it.each([
+    [
+      'the Node spec reporter',
+      `> node --test sum.test.js
+
+ok 1 test passed
+✔ sum.test.js (99.1006ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 107.0612`,
+    ],
+    [
+      'the Node TAP reporter',
+      `TAP version 13
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 107.0612`,
+    ],
+  ])('recognizes a completed Bash run using %s', (_reporter, toolOutput) => {
+    const command = 'npm test';
+    expect(
+      collectTurnTests([{ ...bash(command, 'complete'), toolOutput }], {
+        finalized: true,
+      }),
+    ).toEqual([{ command, outcome: 'passed' }]);
+  });
+
+  it('keeps a failed Node test runner summary failed when it also reports passes', () => {
+    const command = 'npm test';
+    const toolOutput = `ℹ pass 1
+ℹ fail 1`;
+    expect(
+      collectTurnTests([{ ...bash(command, 'complete'), toolOutput }], {
+        finalized: true,
+      }),
+    ).toEqual([{ command, outcome: 'failed' }]);
+  });
+
+  it('marks a Node test runner summary with cancelled tests failed', () => {
+    const command = 'npm test';
+    const toolOutput = `ℹ pass 3
+ℹ fail 0
+ℹ cancelled 1`;
+    expect(
+      collectTurnTests([{ ...bash(command, 'complete'), toolOutput }], {
+        finalized: true,
+      }),
+    ).toEqual([{ command, outcome: 'failed' }]);
+  });
+
   it('does not record a running target as passed', () => {
     const command = 'npx nx test app';
     const result = collectTurnTests(

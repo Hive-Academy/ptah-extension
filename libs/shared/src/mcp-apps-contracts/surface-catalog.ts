@@ -7,18 +7,32 @@ import {
 } from './dashboard-catalog';
 
 export const SURFACE_SCHEMA_VERSION = 'dashboard-spec/2';
+/**
+ * The released Apps-profile catalog (TASK_2026_594). `ptah_surface_update`,
+ * its tool text and the Apps prompt advertise this version only.
+ */
 export const SURFACE_CATALOG_VERSION = 'dashboard-catalog/3';
+/**
+ * The ptah-ui display catalog: `/3` plus the `accordion` layout kind, the
+ * `avatar` display kind and the stat `trend` and `spark` fields. It never
+ * widens `/3`: a `/3` envelope that uses any of them is rejected.
+ */
+export const SURFACE_CATALOG_VERSION_4 = 'dashboard-catalog/4';
 export const SURFACE_SUPPORTED_SCHEMA_VERSIONS = [
   SURFACE_SCHEMA_VERSION,
 ] as const;
 export const SURFACE_SUPPORTED_CATALOG_VERSIONS = [
   SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
 ] as const;
+/** Every legal `[schemaVersion, catalogVersion]` pair; matched as a whole pair. */
 export const DASHBOARD_CONTRACT_VERSION_PAIRS = [
   [DASHBOARD_SCHEMA_VERSION, DASHBOARD_CATALOG_VERSION],
   [SURFACE_SCHEMA_VERSION, SURFACE_CATALOG_VERSION],
+  [SURFACE_SCHEMA_VERSION, SURFACE_CATALOG_VERSION_4],
 ] as const;
 
+/** dashboard-catalog/3 layout vocabulary. */
 export const SURFACE_LAYOUT_KINDS = [
   'section',
   'stack',
@@ -45,11 +59,35 @@ export const SURFACE_DISPLAY_KINDS = [
   'divider',
   'text-block',
 ] as const;
+/** dashboard-catalog/3 component vocabulary (19 kinds). */
 export const SURFACE_COMPONENT_KINDS = [
   ...SURFACE_LAYOUT_KINDS,
   ...SURFACE_INPUT_KINDS,
   ...SURFACE_DISPLAY_KINDS,
 ] as const;
+/** dashboard-catalog/4 additions, kept apart so the `/3` lists above never grow. */
+export const SURFACE_CATALOG_4_ONLY_LAYOUT_KINDS = ['accordion'] as const;
+export const SURFACE_CATALOG_4_ONLY_DISPLAY_KINDS = ['avatar'] as const;
+export const SURFACE_CATALOG_4_ONLY_STAT_FIELDS = ['trend', 'spark'] as const;
+/** dashboard-catalog/4 vocabularies: the `/3` lists plus the additions above. */
+export const SURFACE_CATALOG_4_LAYOUT_KINDS = [
+  ...SURFACE_LAYOUT_KINDS,
+  ...SURFACE_CATALOG_4_ONLY_LAYOUT_KINDS,
+] as const;
+export const SURFACE_CATALOG_4_DISPLAY_KINDS = [
+  ...SURFACE_DISPLAY_KINDS,
+  ...SURFACE_CATALOG_4_ONLY_DISPLAY_KINDS,
+] as const;
+export const SURFACE_CATALOG_4_COMPONENT_KINDS = [
+  ...SURFACE_CATALOG_4_LAYOUT_KINDS,
+  ...SURFACE_INPUT_KINDS,
+  ...SURFACE_CATALOG_4_DISPLAY_KINDS,
+] as const;
+/** Closed stat trend enums (`/4`). Direction is conveyed by text, never colour alone. */
+export const SURFACE_TREND_DIRECTIONS = ['up', 'down'] as const;
+export const SURFACE_TREND_POLARITIES = ['good', 'bad'] as const;
+/** A sparkline needs two points to draw a line; the ceiling is `maxSeriesPoints`. */
+export const SURFACE_SPARK_MIN_POINTS = 2;
 export const SURFACE_ACTIONS = [
   ...DASHBOARD_ACTIONS,
   'surface.submit',
@@ -61,10 +99,17 @@ export const SURFACE_HOST_SUPPORTED_ACTIONS = [
 export const SURFACE_STACK_DIRECTIONS = ['vertical', 'horizontal'] as const;
 export const SURFACE_GAPS = ['none', 'small', 'medium', 'large'] as const;
 
-export type SurfaceLayoutKind = (typeof SURFACE_LAYOUT_KINDS)[number];
+export type SurfaceCatalogVersion =
+  (typeof SURFACE_SUPPORTED_CATALOG_VERSIONS)[number];
+/** Kind types span every supported catalog (`/4` is a superset of `/3`). */
+export type SurfaceLayoutKind = (typeof SURFACE_CATALOG_4_LAYOUT_KINDS)[number];
 export type SurfaceInputKind = (typeof SURFACE_INPUT_KINDS)[number];
-export type SurfaceDisplayKind = (typeof SURFACE_DISPLAY_KINDS)[number];
-export type SurfaceComponentKind = (typeof SURFACE_COMPONENT_KINDS)[number];
+export type SurfaceDisplayKind =
+  (typeof SURFACE_CATALOG_4_DISPLAY_KINDS)[number];
+export type SurfaceComponentKind =
+  (typeof SURFACE_CATALOG_4_COMPONENT_KINDS)[number];
+export type SurfaceTrendDirection = (typeof SURFACE_TREND_DIRECTIONS)[number];
+export type SurfaceTrendPolarity = (typeof SURFACE_TREND_POLARITIES)[number];
 export type SurfaceActionId = (typeof SURFACE_ACTIONS)[number];
 export type SurfaceStackDirection = (typeof SURFACE_STACK_DIRECTIONS)[number];
 export type SurfaceGap = (typeof SURFACE_GAPS)[number];

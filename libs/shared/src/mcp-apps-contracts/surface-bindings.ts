@@ -5,8 +5,8 @@
  * for well-typed input.
  */
 import {
+  SURFACE_CATALOG_4_LAYOUT_KINDS,
   SURFACE_INPUT_KINDS,
-  SURFACE_LAYOUT_KINDS,
   SURFACE_LIMITS,
 } from './surface-catalog';
 import type { SurfaceLayoutKind } from './surface-catalog';
@@ -28,7 +28,14 @@ export type SurfaceLayoutComponent = Extract<
   { readonly kind: SurfaceLayoutKind }
 >;
 
-const LAYOUT_KINDS: ReadonlySet<string> = new Set(SURFACE_LAYOUT_KINDS);
+/**
+ * Every kind that takes children in any supported catalog. A `/3` document
+ * never holds an `accordion` (the validator rejects it), so walking the `/4`
+ * superset is correct for both versions.
+ */
+const LAYOUT_KINDS: ReadonlySet<string> = new Set(
+  SURFACE_CATALOG_4_LAYOUT_KINDS,
+);
 const INPUT_KINDS: ReadonlySet<string> = new Set(SURFACE_INPUT_KINDS);
 
 export function isSurfaceLayoutComponent(

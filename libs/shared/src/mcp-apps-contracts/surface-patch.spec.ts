@@ -186,6 +186,33 @@ describe('applySurfaceOps — structure', () => {
     expect(v2(prev).dataModel).toEqual({ form: { name: 'Ada' } });
   });
 
+  it('treats a dashboard-catalog/4 accordion as a parent (A6)', () => {
+    const withAccordion = apply(state(), [
+      {
+        op: 'add-component',
+        parentId: null,
+        component: {
+          kind: 'accordion',
+          id: 'more',
+          title: { text: 'More' },
+          children: [],
+        },
+      },
+    ]);
+    const next = apply(withAccordion, [
+      {
+        op: 'add-component',
+        parentId: 'more',
+        component: { kind: 'avatar', id: 'who', name: 'Ada' },
+      },
+    ]);
+    const roots = v2(next).surface.components;
+    expect(roots[roots.length - 1]).toMatchObject({
+      kind: 'accordion',
+      children: [{ kind: 'avatar', id: 'who' }],
+    });
+  });
+
   it('sets the header wholesale: an omitted description clears it', () => {
     const titled = apply(state(), [
       { op: 'set-title', title: { text: 'New' } },

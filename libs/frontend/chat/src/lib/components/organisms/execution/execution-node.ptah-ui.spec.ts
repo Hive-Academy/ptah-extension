@@ -26,7 +26,7 @@ import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
+import { FILE_LINK_OPENER, VSCodeService } from '@ptah-extension/core';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
 import { PtahUiLiveWindow } from '@ptah-extension/chat-ui';
 import {
@@ -180,6 +180,7 @@ function configure({ isElectron, behavior, preB6 }: Setup): void {
       provideSurfaceActiveTesting(),
       PtahUiLiveWindow,
       { provide: VSCodeService, useValue: vscodeStub },
+      { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
       { provide: ChatStore, useValue: chatStoreStub },
     ],
     deferBlockBehavior: behavior ?? DeferBlockBehavior.Playthrough,

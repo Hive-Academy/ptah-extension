@@ -14,6 +14,7 @@ describe('SidebarTabComponent', () => {
     label?: string;
     size?: 'sm' | 'default';
     badgeType?: 'warning' | 'info' | 'neutral' | null;
+    newCount?: number;
   }) {
     const fixture = TestBed.createComponent(SidebarTabComponent);
     fixture.componentRef.setInput('label', opts.label ?? 'Sessions');
@@ -22,6 +23,8 @@ describe('SidebarTabComponent', () => {
     if (opts.size) fixture.componentRef.setInput('size', opts.size);
     if (opts.badgeType !== undefined)
       fixture.componentRef.setInput('badgeType', opts.badgeType);
+    if (opts.newCount !== undefined)
+      fixture.componentRef.setInput('newCount', opts.newCount);
     fixture.detectChanges();
     return fixture;
   }
@@ -60,5 +63,50 @@ describe('SidebarTabComponent', () => {
     fixture.componentInstance.toggled.subscribe(() => (fired = true));
     fixture.nativeElement.querySelector('button').click();
     expect(fired).toBe(true);
+  });
+
+  it('names the toggle and exposes aria-expanded from isOpen', () => {
+    const closed = render({ isOpen: false, side: 'right', label: 'Display' });
+    const button: HTMLButtonElement =
+      closed.nativeElement.querySelector('button');
+    expect(button.getAttribute('aria-label')).toBe('Toggle Display panel');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+
+    closed.componentRef.setInput('isOpen', true);
+    closed.detectChanges();
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('shows no new badge when newCount is 0', () => {
+    const fixture = render({ isOpen: false, side: 'right', newCount: 0 });
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="sidebar-tab-new"]'),
+    ).toBeNull();
+  });
+
+  it('shows the "1 new" text badge and adds it to the accessible name (R1.8)', () => {
+    const fixture = render({
+      isOpen: false,
+      side: 'right',
+      label: 'Display',
+      newCount: 1,
+    });
+    const badge: HTMLElement = fixture.nativeElement.querySelector(
+      '[data-testid="sidebar-tab-new"]',
+    );
+    expect(badge.textContent?.trim()).toBe('1 new');
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
+    expect(
+      fixture.nativeElement.querySelector('button').getAttribute('aria-label'),
+    ).toBe('Toggle Display panel, 1 new');
+
+    fixture.componentRef.setInput('newCount', 0);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="sidebar-tab-new"]'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('button').getAttribute('aria-label'),
+    ).toBe('Toggle Display panel');
   });
 });

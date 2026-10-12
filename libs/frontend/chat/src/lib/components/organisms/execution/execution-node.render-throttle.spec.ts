@@ -49,7 +49,7 @@ jest.mock('ngx-markdown', () => {
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { MarkdownComponent } from 'ngx-markdown';
 import { ExecutionNodeComponent } from './execution-node.component';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { FILE_LINK_OPENER, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from '../../../services/scroll-dirty.service';
 import type { ExecutionNode, ExecutionStatus } from '@ptah-extension/shared';
 
@@ -122,6 +122,7 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
       providers: [
         provideZonelessChangeDetection(),
         { provide: SURFACE_ACTIVE, useValue: surfaceActive },
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
         {
           provide: INCREMENTAL_STREAMING_PRESENTATION_ENABLED,
           useValue: false,

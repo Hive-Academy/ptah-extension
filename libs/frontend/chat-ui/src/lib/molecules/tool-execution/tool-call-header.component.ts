@@ -1,8 +1,11 @@
 import {
   Component,
+  ElementRef,
   input,
+  inject,
   output,
   computed,
+  viewChild,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import {
@@ -12,10 +15,12 @@ import {
   XCircle,
   Loader2,
   AlertTriangle,
+  ExternalLink,
 } from 'lucide-angular';
+import { FILE_LINK_OPENER } from '@ptah-extension/core';
 import { ToolIconComponent } from '../../atoms/tool-icon.component';
-import { FilePathLinkComponent } from '../../atoms/file-path-link.component';
 import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
+import { CopyTextButtonComponent } from '../../atoms/copy-text-button.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import {
   isReadToolInput,
@@ -36,6 +41,20 @@ import {
   toolStatusBadgeClass,
   truncateToolText,
 } from '../../utils/tool-target.utils';
+import {
+  getLanguageFromPath,
+  getLanguageLabel,
+} from '../../utils/tool-language.utils';
+
+/**
+ * Outcome of a command (Bash) call as text plus an icon name. There is no
+ * exit code on `ExecutionNode` (A9), so the name is "Command succeeded" or
+ * "Command failed" without "exit code N".
+ */
+interface CommandOutcome {
+  readonly text: 'succeeded' | 'failed' | 'running';
+  readonly label: string;
+}
 
 /**
  * ToolCallHeaderComponent - Header section for tool call display
@@ -44,13 +63,19 @@ import {
  * Patterns: Composition pattern, event delegation
  *
  * Features:
- * - Compose ToolIconComponent, FilePathLinkComponent, DurationBadgeComponent
- * - Toggle collapse state on header click
- * - File path clicks do NOT toggle collapse (stopPropagation)
- * - Show status indicator based on node.status (complete/error/streaming)
- * - Display streaming animation with descriptive text
- * - Show duration badge if available
- * - Accessible (aria-expanded attribute)
+ * - Toggle `<button>` (`aria-expanded`) holding the chevron, tool icon,
+ *   badges, target, parse warning, status and duration
+ * - File tools (Read, Write, Edit): file name prominent, directory muted,
+ *   full path in `title`, a language label, and a separate 28 px
+ *   "Open <file>" button beside the toggle (buttons do not nest) that opens
+ *   through `FILE_LINK_OPENER`
+ * - Command tools (Bash): an outcome pill ("succeeded", "failed",
+ *   "running") whose icon has an accessible name, and a command row (`$`,
+ *   mono, full text in `title`; one line while collapsed, wrapping when
+ *   expanded) with "Copy command"
+ * - Status icons carry accessible names; the streaming description shows
+ *   while the call runs
+ * - Text wraps or ends in an ellipsis; nothing scrolls sideways
  */
 @Component({
   selector: 'ptah-tool-call-header',
@@ -58,97 +83,191 @@ import {
   imports: [
     LucideAngularModule,
     ToolIconComponent,
-    FilePathLinkComponent,
     DurationBadgeComponent,
+    CopyTextButtonComponent,
   ],
   template: `
-    <button
-      type="button"
-      class="w-full py-1.5 px-2 text-[11px] flex items-center gap-1.5 hover:bg-base-300/30 transition-colors cursor-pointer"
-      (click)="toggleClicked.emit()"
-      [attr.aria-expanded]="!isCollapsed()"
-    >
-      <!-- Chevron icon -->
-      <lucide-angular
-        [img]="ChevronIcon"
-        class="w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform"
-        [class.rotate-0]="!isCollapsed()"
-        [class.-rotate-90]="isCollapsed()"
-      />
-
-      <!-- Tool icon -->
-      <ptah-tool-icon [toolName]="node().toolName || 'Unknown'" />
-
-      <!-- Tool name badge -->
-      @if (isPtahMcpTool()) {
-        <span class="badge badge-xs font-mono px-1.5 ptah-superpower-badge">
-          Ptah Superpower
-        </span>
-        <span class="badge badge-xs font-mono px-1.5 ptah-tool-name-badge">
-          {{ getPtahToolName() }}
-        </span>
-      } @else {
-        <span [class]="'badge badge-xs font-mono px-1.5 ' + getBadgeClass()">
-          {{ node().toolName }}
-        </span>
-      }
-
-      <!-- Description (file path or generic) - HIDDEN during streaming to avoid redundancy -->
-      @if (node().status !== 'streaming' && hasClickableFilePath()) {
-        <ptah-file-path-link
-          [fullPath]="getFilePath()"
-          (clicked)="onFilePathClick($event)"
-        />
-      } @else if (node().status !== 'streaming') {
-        <span
-          class="text-base-content-muted truncate flex-1 min-w-0 font-mono text-[10px]"
-          [title]="getFullDescription()"
-        >
-          {{ getToolDescription() }}
-        </span>
-      }
-
-      <!-- Parse Error Warning -->
-      @if (hasParseError()) {
-        <div
-          class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-warning"
-          [title]="'Parse Error: ' + parseError()"
-        >
-          <lucide-angular [img]="AlertIcon" class="w-3 h-3" />
-          <span class="text-[10px] font-mono">Parse Error</span>
-        </div>
-      }
-
-      <!-- Status indicator -->
-      @if (node().status === 'complete' && node().toolOutput) {
+    <div class="flex items-start min-w-0">
+      <button
+        #toggle
+        type="button"
+        class="flex-1 min-w-0 py-1.5 px-2 text-[11px] flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-left hover:bg-base-300/30 transition-colors cursor-pointer"
+        (click)="toggleClicked.emit()"
+        [attr.aria-expanded]="!isCollapsed()"
+        [attr.aria-controls]="isCollapsed() ? null : 'tool-' + node().id"
+      >
+        <!-- Chevron icon -->
         <lucide-angular
-          [img]="CheckIcon"
-          class="w-3 h-3 text-success flex-shrink-0"
+          [img]="ChevronIcon"
+          class="w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform"
+          [class.rotate-0]="!isCollapsed()"
+          [class.-rotate-90]="isCollapsed()"
+          aria-hidden="true"
         />
-      } @else if (node().status === 'error') {
-        <lucide-angular
-          [img]="XIcon"
-          class="w-3 h-3 text-error flex-shrink-0"
-        />
-      } @else if (node().status === 'streaming') {
-        <div class="flex items-center gap-1 flex-1 min-w-0">
-          <lucide-angular
-            [img]="LoaderIcon"
-            class="w-3 h-3 text-info animate-spin flex-shrink-0"
-          />
-          <span
-            class="text-base-content-muted text-[10px] animate-pulse font-mono truncate"
-          >
-            {{ getStreamingDescription() }}
+
+        <!-- Tool icon -->
+        <ptah-tool-icon [toolName]="node().toolName || 'Unknown'" />
+
+        <!-- Tool name badge -->
+        @if (isPtahMcpTool()) {
+          <span class="badge badge-xs font-mono px-1.5 ptah-superpower-badge">
+            Ptah Superpower
           </span>
-        </div>
-      }
+          <span class="badge badge-xs font-mono px-1.5 ptah-tool-name-badge">
+            {{ getPtahToolName() }}
+          </span>
+        } @else {
+          <span [class]="'badge badge-xs font-mono px-1.5 ' + getBadgeClass()">
+            {{ node().toolName }}
+          </span>
+        }
 
-      <!-- Duration -->
-      @if (node().duration) {
-        <ptah-duration-badge [durationMs]="node().duration!" />
+        <!-- Target (file or generic) - HIDDEN during streaming to avoid redundancy -->
+        <!-- File path: one line while collapsed, wraps when expanded -->
+        @if (node().status !== 'streaming' && filePath()) {
+          <span
+            class="flex-1 min-w-0 font-mono text-[10px]"
+            [class.truncate]="isCollapsed()"
+            [class.break-all]="!isCollapsed()"
+            [title]="filePath()"
+            data-testid="tool-file-path"
+          >
+            <span class="font-semibold text-base-content">{{
+              fileName()
+            }}</span>
+            @if (fileDirectory()) {
+              <span class="ml-1 text-base-content-muted">{{
+                fileDirectory()
+              }}</span>
+            }
+          </span>
+          <span
+            class="badge badge-ghost badge-xs text-[10px] text-base-content-muted flex-shrink-0"
+            data-testid="tool-language"
+            >{{ fileLanguageLabel() }}</span
+          >
+        } @else if (node().status !== 'streaming') {
+          <span
+            class="text-base-content-muted truncate flex-1 min-w-0 font-mono text-[10px]"
+            [title]="getFullDescription()"
+          >
+            {{ getToolDescription() }}
+          </span>
+        }
+
+        <!-- Parse Error Warning -->
+        @if (hasParseError()) {
+          <div
+            class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-warning"
+            [title]="'Parse Error: ' + parseError()"
+          >
+            <lucide-angular
+              [img]="AlertIcon"
+              class="w-3 h-3"
+              aria-hidden="true"
+            />
+            <span class="text-[10px] font-mono">Parse Error</span>
+          </div>
+        }
+
+        <!-- Status: command outcome pill, or a named status icon -->
+        @if (commandOutcome(); as outcome) {
+          <span
+            class="badge badge-xs gap-1 px-1.5 text-[10px] flex-shrink-0 bg-base-300/50 border-0"
+            [class.text-success]="outcome.text === 'succeeded'"
+            [class.text-error]="outcome.text === 'failed'"
+            [class.text-info]="outcome.text === 'running'"
+            data-testid="command-outcome"
+          >
+            <lucide-angular
+              [img]="outcomeIcon(outcome)"
+              class="w-3 h-3"
+              [class.animate-spin]="outcome.text === 'running'"
+              role="img"
+              [attr.aria-label]="outcome.label"
+            />
+            <span aria-hidden="true">{{ outcome.text }}</span>
+          </span>
+        } @else if (node().status === 'complete' && node().toolOutput) {
+          <lucide-angular
+            [img]="CheckIcon"
+            class="w-3 h-3 text-success flex-shrink-0"
+            role="img"
+            aria-label="Completed"
+          />
+        } @else if (node().status === 'error') {
+          <lucide-angular
+            [img]="XIcon"
+            class="w-3 h-3 text-error flex-shrink-0"
+            role="img"
+            aria-label="Failed"
+          />
+        }
+
+        @if (node().status === 'streaming') {
+          <div class="flex items-center gap-1 flex-1 min-w-0">
+            @if (!isCommandTool()) {
+              <lucide-angular
+                [img]="LoaderIcon"
+                class="w-3 h-3 text-info animate-spin flex-shrink-0"
+                role="img"
+                aria-label="Running"
+              />
+            }
+            <span
+              class="text-base-content-muted text-[10px] animate-pulse font-mono truncate"
+            >
+              {{ getStreamingDescription() }}
+            </span>
+          </div>
+        }
+
+        <!-- Duration -->
+        @if (node().duration) {
+          <ptah-duration-badge [durationMs]="node().duration!" />
+        }
+      </button>
+
+      <!-- Open file: a sibling of the toggle, never nested inside it -->
+      @if (filePath()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-square btn-xs h-7 w-7 min-h-0 flex-shrink-0 text-info/80 hover:text-info"
+          [attr.aria-label]="'Open ' + fileName()"
+          [title]="'Open ' + filePath()"
+          (click)="openFile()"
+        >
+          <lucide-angular
+            [img]="ExternalLinkIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />
+        </button>
       }
-    </button>
+    </div>
+
+    <!-- Command row: one line while collapsed, wraps when expanded -->
+    @if (bashCommand()) {
+      <div
+        class="flex items-start gap-1 px-2 pb-1 font-mono text-[10px]"
+        data-testid="tool-command-row"
+      >
+        <span
+          class="py-1.5 text-base-content-muted select-none"
+          aria-hidden="true"
+          >$</span
+        >
+        <code
+          class="flex-1 min-w-0 py-1.5 text-base-content"
+          [class.truncate]="isCollapsed()"
+          [class.whitespace-pre-wrap]="!isCollapsed()"
+          [class.break-all]="!isCollapsed()"
+          [title]="bashCommand()"
+          >{{ bashCommand() }}</code
+        >
+        <ptah-copy-text-button [text]="bashCommand()" label="Copy command" />
+      </div>
+    }
   `,
   // `.ptah-superpower-badge` / `.ptah-tool-name-badge` are defined once
   // globally in apps/ptah-extension-webview/src/styles.css, keyed off the
@@ -156,6 +275,9 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallHeaderComponent {
+  private readonly opener = inject(FILE_LINK_OPENER);
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
+
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = input.required<boolean>();
   readonly toggleClicked = output<void>();
@@ -164,6 +286,10 @@ export class ToolCallHeaderComponent {
   readonly XIcon = XCircle;
   readonly LoaderIcon = Loader2;
   readonly AlertIcon = AlertTriangle;
+  readonly ExternalLinkIcon = ExternalLink;
+
+  private readonly toggle =
+    viewChild.required<ElementRef<HTMLButtonElement>>('toggle');
 
   /**
    * Check if tool input has parse error
@@ -193,6 +319,64 @@ export class ToolCallHeaderComponent {
     }
     return '';
   });
+
+  /** The file this call targets; empty when it is not a file tool. */
+  protected readonly filePath = computed(() =>
+    this.hasClickableFilePath() ? this.getFilePath() : '',
+  );
+
+  /** Last path segment, shown prominently. */
+  protected readonly fileName = computed(() => {
+    const path = this.filePath().replaceAll('\\', '/');
+    return path.slice(path.lastIndexOf('/') + 1);
+  });
+
+  /** Directory part of the path (no trailing slash), shown muted. */
+  protected readonly fileDirectory = computed(() => {
+    const path = this.filePath().replaceAll('\\', '/');
+    return path.slice(0, Math.max(0, path.lastIndexOf('/')));
+  });
+
+  protected readonly fileLanguageLabel = computed(() =>
+    getLanguageLabel(getLanguageFromPath(this.filePath())),
+  );
+
+  /** A shell command call: the Bash tool, or any input carrying `command`. */
+  protected readonly isCommandTool = computed(
+    () =>
+      this.node().toolName === 'Bash' || isBashToolInput(this.node().toolInput),
+  );
+
+  /** The full command text; empty when the input has none (yet). */
+  protected readonly bashCommand = computed(() => {
+    const input = this.node().toolInput;
+    return isBashToolInput(input) ? input.command : '';
+  });
+
+  protected readonly commandOutcome = computed<CommandOutcome | null>(() => {
+    if (!this.isCommandTool()) return null;
+    switch (this.node().status) {
+      case 'complete':
+        return { text: 'succeeded', label: 'Command succeeded' };
+      case 'error':
+        return { text: 'failed', label: 'Command failed' };
+      case 'streaming':
+        return { text: 'running', label: 'Command running' };
+      default:
+        return null;
+    }
+  });
+
+  protected outcomeIcon(outcome: CommandOutcome): typeof CheckCircle {
+    if (outcome.text === 'succeeded') return this.CheckIcon;
+    if (outcome.text === 'failed') return this.XIcon;
+    return this.LoaderIcon;
+  }
+
+  /** Move focus to the expand toggle (used when the item collapses on Escape). */
+  focusToggle(): void {
+    this.toggle().nativeElement.focus();
+  }
 
   /**
    * Check if tool has clickable file path
@@ -344,9 +528,17 @@ export class ToolCallHeaderComponent {
   }
 
   /**
-   * Handle file path click (prevent collapse toggle)
+   * Open the target file through the host's opener (desktop viewer or the
+   * VS Code editor). A rejection is logged, as in `ptah-file-path-link`; the
+   * host renders the failure.
    */
-  protected onFilePathClick(event: Event): void {
-    event.stopPropagation(); // Prevent collapse toggle
+  protected openFile(): void {
+    const path = this.filePath();
+    if (!path) return;
+    void this.opener
+      .open({ path, origin: this.host.nativeElement })
+      .catch((error: unknown) => {
+        console.error('[ToolCallHeader] Failed to open', path, error);
+      });
   }
 }

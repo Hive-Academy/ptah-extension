@@ -53,12 +53,23 @@ function outputOutcome(output: string): TurnTestOutcome | null {
     output.matchAll(/(?:Tests|Test Suites):\s*(\d+)\s+failed/gi),
     (match) => Number(match[1]),
   );
+  const nodeReportedFailures = Array.from(
+    output.matchAll(/^[ \t]*(?:ℹ|#)\s+(?:fail|cancelled)\s+(\d+)\s*$/gim),
+    (match) => Number(match[1]),
+  );
   if (
     /^[ \t]*(?:Failed tasks:|Ran targets?\b.*\bfailed\b)/im.test(output) ||
-    reportedFailures.some((count) => count > 0)
+    reportedFailures.some((count) => count > 0) ||
+    nodeReportedFailures.some((count) => count > 0)
   )
     return 'failed';
+  const nodeReportedPasses = Array.from(
+    output.matchAll(/^[ \t]*(?:ℹ|#)\s+pass\s+(\d+)\s*$/gim),
+    (match) => Number(match[1]),
+  );
   if (
+    (nodeReportedPasses.some((count) => count > 0) &&
+      nodeReportedFailures.some((count) => count === 0)) ||
     /Successfully ran target|Tests:\s*\d+\s+passed|Test Suites:\s*\d+\s+passed/i.test(
       output,
     )

@@ -1,3 +1,4 @@
+import { SURFACE_ID_PATTERN, SURFACE_LIMITS } from './surface-catalog';
 import type { PtahUiSegment } from './ptah-ui.types';
 
 interface Line {
@@ -12,7 +13,11 @@ interface Fence {
   readonly length: number;
 }
 
-/** Separates complete, top-level `ptah-ui` fences from ordinary markdown. */
+/**
+ * Separates complete, top-level `ptah-ui` and `ptah-ui display [id]` fences
+ * from ordinary markdown. Inline and display fences share one ordinal
+ * sequence, so ordinals follow transcript order (R2.8).
+ */
 export function segmentPtahUi(text: string): PtahUiSegment[] {
   const lines = readLines(text);
   const segments: PtahUiSegment[] = [];
@@ -31,7 +36,9 @@ export function segmentPtahUi(text: string): PtahUiSegment[] {
       continue;
     }
 
-    if (trimmed === '```ptah-ui') {
+    const opener = readPtahUiOpener(trimmed);
+    if (opener !== undefined) {
+      // Only a closed fence yields a block: an unclosed (streaming) opener stays markdown.
       const closeIndex = findPtahUiClose(lines, index + 1);
       if (closeIndex === undefined) {
         index += 1;
@@ -52,6 +59,7 @@ export function segmentPtahUi(text: string): PtahUiSegment[] {
         ordinal,
         raw: text.slice(line.start, closing.next),
         body: text.slice(line.next, closing.start),
+        ...opener,
       });
       ordinal += 1;
       markdownStart = closing.next;
@@ -72,6 +80,34 @@ export function segmentPtahUi(text: string): PtahUiSegment[] {
     });
   }
   return segments;
+}
+
+type PtahUiOpener =
+  | Record<string, never>
+  | { readonly target: 'display'; readonly displayId?: string };
+
+const INLINE_OPENER = '```ptah-ui';
+const DISPLAY_OPENER = '```ptah-ui display';
+
+/**
+ * Reads a target opener line (trailing spaces already removed): exactly
+ * `` ```ptah-ui ``, `` ```ptah-ui display `` or `` ```ptah-ui display <id> ``,
+ * with one space between parts. Any other `ptah-ui …` info string returns
+ * `undefined` and stays an ordinary code block (R2.1).
+ */
+function readPtahUiOpener(line: string): PtahUiOpener | undefined {
+  if (line === INLINE_OPENER) return {};
+  if (line === DISPLAY_OPENER) return { target: 'display' };
+  if (!line.startsWith(`${DISPLAY_OPENER} `)) return undefined;
+  const displayId = line.slice(DISPLAY_OPENER.length + 1);
+  return isDisplayId(displayId) ? { target: 'display', displayId } : undefined;
+}
+
+function isDisplayId(value: string): boolean {
+  return (
+    value.length <= SURFACE_LIMITS.maxSurfaceIdLength &&
+    SURFACE_ID_PATTERN.test(value)
+  );
 }
 
 function findPtahUiClose(

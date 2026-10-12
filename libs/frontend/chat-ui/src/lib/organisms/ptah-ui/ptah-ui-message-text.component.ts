@@ -9,6 +9,7 @@ import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { segmentPtahUi } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { TurnSourceSnapshot } from '@ptah-extension/shared';
 import { PtahUiBlockComponent } from './ptah-ui-block.component';
+import { PtahUiDisplayChipComponent } from './ptah-ui-display-chip.component';
 import { MermaidDiagramComponent } from '../mermaid/mermaid-diagram.component';
 import { segmentMermaidFences } from '../mermaid/mermaid-fences';
 
@@ -21,6 +22,12 @@ type PtahUiTextPart =
       readonly ordinal: number;
       readonly raw: string;
       readonly body: string;
+    }
+  | {
+      readonly kind: 'display';
+      readonly track: string;
+      readonly ordinal: number;
+      readonly raw: string;
     }
   | { readonly kind: 'mermaid'; readonly track: string; readonly source: string };
 
@@ -35,11 +42,22 @@ type PtahUiTextPart =
  * `ui:<ordinal>`, so a closed block keeps its instance however much text
  * streams after it, and an open fence stays inside the trailing markdown part
  * as an ordinary code block until its closing line arrives.
+ *
+ * A closed `ptah-ui display [id]` fence (`target === 'display'`; an absent
+ * `target` is inline) renders `ptah-ui-display-chip` instead of a block,
+ * under the same `ui:<ordinal>` key (TASK_2026_623, component 4). The chip
+ * never runs the pipeline; the display panel owns the surface.
  */
 @Component({
   selector: 'ptah-ui-message-text',
   standalone: true,
-  imports: [MarkdownModule, SurfaceMarkdownPipe, PtahUiBlockComponent, MermaidDiagramComponent],
+  imports: [
+    MarkdownModule,
+    SurfaceMarkdownPipe,
+    PtahUiBlockComponent,
+    PtahUiDisplayChipComponent,
+    MermaidDiagramComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (part of parts(); track part.track) {
@@ -55,6 +73,14 @@ type PtahUiTextPart =
           [orderKey]="orderKey()"
           [active]="active()"
           [snapshot]="snapshot()"
+        />
+      } @else if (part.kind === 'display') {
+        <ptah-ui-display-chip
+          [raw]="part.raw"
+          [ordinal]="part.ordinal"
+          [messageId]="messageId()"
+          [nodeId]="nodeId()"
+          [active]="active()"
         />
       } @else {
         <ptah-mermaid-diagram [source]="part.source" />
@@ -87,13 +113,25 @@ export class PtahUiMessageTextComponent {
             : { kind: 'mermaid', track: `mermaid:${mermaidIndex++}`, source: part.source },
         );
       }
-      return [{
-            kind: 'block',
+      if (segment.target === 'display') {
+        return [
+          {
+            kind: 'display',
             track: `ui:${segment.ordinal}`,
             ordinal: segment.ordinal,
             raw: segment.raw,
-            body: segment.body,
-          }];
+          },
+        ];
+      }
+      return [
+        {
+          kind: 'block',
+          track: `ui:${segment.ordinal}`,
+          ordinal: segment.ordinal,
+          raw: segment.raw,
+          body: segment.body,
+        },
+      ];
     });
   });
 }

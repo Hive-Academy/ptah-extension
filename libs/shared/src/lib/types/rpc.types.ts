@@ -41,6 +41,13 @@ export * from './rpc/rpc-surface.types';
 
 export * from './rpc/rpc-capability.types';
 
+export * from './rpc/rpc-lane-plan-limits.types';
+
+import type {
+  AgentGetLanePlanLimitsParams,
+  AgentGetLanePlanLimitsResult,
+} from './rpc/rpc-lane-plan-limits.types';
+
 import type {
   CapabilitiesGetEffectiveParams,
   CapabilitiesGetEffectiveResult,
@@ -1392,6 +1399,14 @@ export interface RpcMethodRegistry {
         startedAt: number;
       }>;
     };
+  };
+  /**
+   * Read-only per-lane plan-limit rows, as `ptah_agent_list` prints them
+   * (TASK_2026_623 R10.1). Electron only; text and lane counts, no identity.
+   */
+  'agent:getLanePlanLimits': {
+    params: AgentGetLanePlanLimitsParams;
+    result: AgentGetLanePlanLimitsResult;
   };
   'ptahCli:list': {
     params: PtahCliListParams;
@@ -3891,6 +3906,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'agent:continue': true,
   'agent:resumeCliSession': true, // CLI agent session resume
   'agent:backgroundList': true, // Background agent listing
+  // TASK_2026_623 R10.1. `agent:` is ALREADY in `ALLOWED_METHOD_PREFIXES`, so
+  // the registry entry plus this allow-map entry are the whole of
+  // dual-registration. Capability-gated to Electron in RPC_HANDLER_MANIFEST.
+  'agent:getLanePlanLimits': true,
   'ptahCli:list': true,
   'ptahCli:create': true,
   'ptahCli:update': true,

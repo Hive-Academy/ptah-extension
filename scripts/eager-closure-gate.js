@@ -15,6 +15,12 @@ const FORBIDDEN_EAGER_INPUTS = [
   /libs\/frontend\/chat-ui\/src\/lib\/organisms\/ptah-ui\//,
   /libs\/frontend\/chat-ui\/src\/lib\/molecules\/turn-recap\//,
   /libs\/frontend\/declarative-dashboard\/.*\/charts\//,
+  /libs\/shared\/src\/mcp-apps-contracts\/ptah-ui-agents-source\.ts$/,
+  /libs\/frontend\/chat-ui\/src\/display-panel\.ts$/,
+  /libs\/frontend\/chat-ui\/src\/lib\/organisms\/display-panel\//,
+  // Lazy-only: organisms/display-dock/display-dock.component.ts is reached
+  // only through @defer, so it must never enter the eager closure.
+  /libs\/frontend\/chat\/.*\/organisms\/display-dock\//,
 ];
 
 const ALLOWED_EAGER_GROWTH_INPUTS = [
@@ -22,6 +28,16 @@ const ALLOWED_EAGER_GROWTH_INPUTS = [
   /libs\/frontend\/chat-ui\/src\/lib\/services\/ptah-ui-live-window\.ts$/,
   /libs\/frontend\/chat\/.*\/transcript\/transcript-turns\.ts$/,
   /libs\/shared\/src\/lib\/utils\/(?:test-command-matcher|turn-tests\.utils|turn-sources\.utils|usage-format\.utils)\.ts$/,
+  /libs\/frontend\/chat\/.*\/transcript\/transcript-(?:display-candidates|agent-facts|ptah-ui-host-sources|display-feed|turn-summaries|turn-recap-loader)\.ts$/,
+  /libs\/frontend\/chat\/.*\/services\/display-dock\/display-dock\.state\.ts$/,
+  /libs\/frontend\/chat-ui\/src\/lib\/services\/ptah-ui-host-sources\.ts$/,
+  // Eager port whose only runtime import is @angular/core; its import of
+  // organisms/display-panel/ is type-only and erased from esbuild inputs.
+  /libs\/frontend\/chat-ui\/src\/lib\/services\/ptah-ui-display-dock\.ts$/,
+  // Eager because the pre-existing inline tool-call header, input display,
+  // diff display and code output import them (decision #148).
+  /libs\/frontend\/chat-ui\/src\/lib\/atoms\/copy-text-button\.component\.ts$/,
+  /libs\/frontend\/chat-ui\/src\/lib\/utils\/tool-language\.utils\.ts$/,
 ];
 
 function compareCodeUnits(a, b) {

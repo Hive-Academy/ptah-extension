@@ -366,6 +366,48 @@ describe('LaneLimitLookupService', () => {
     ]);
   });
 
+  it('never forwards `refresh` to the plan-usage caches when called as `agent.limits(rows)` calls it', async () => {
+    const { service, snapshots, ledger } = createHarness(async (target) =>
+      snapshot(target.ownerRef),
+    );
+
+    // `ptah_agent_list` / `agent.limits(rows)` call `getLaneLimits(rows)`:
+    // rows only, no options object.
+    const results = await service.lookup([
+      { cli: 'codex' as const },
+      { cli: 'opencode' as const },
+      { cli: 'antigravity' as const },
+      {
+        cli: 'ptah-cli' as const,
+        ptahCliId: 'pc-glm',
+        providerId: 'ollama-cloud',
+      },
+      { cli: 'ptah-cli' as const, ptahCliId: 'pc-1', quotaOwner: CLAUDE_RUN },
+      { cli: 'copilot' as const },
+    ]);
+
+    expect(results.map((r) => r.lookup)).toEqual([
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      'no-owner',
+    ]);
+    expect(snapshots.getOwnerSnapshot).toHaveBeenCalledTimes(4);
+    for (const [target, options] of snapshots.getOwnerSnapshot.mock.calls) {
+      // Exactly the cancellation signal: no `refresh` key at all, so the
+      // reader's 30 s cache is honoured and no forced re-read happens.
+      expect(Object.keys(options)).toEqual(['signal']);
+      expect(options).not.toHaveProperty('refresh');
+      expect(target).not.toHaveProperty('refresh');
+    }
+    // The recorded-owner lane reads the ledger by key alone.
+    expect(ledger.snapshotFor).toHaveBeenCalledTimes(1);
+    expect(ledger.snapshotFor).toHaveBeenCalledWith(CLAUDE_RUN.key);
+    expect(ledger.snapshotFor.mock.calls[0]).toHaveLength(1);
+  });
+
   it('returns nothing for no rows', async () => {
     const { service } = createHarness(async (t) => snapshot(t.ownerRef));
 

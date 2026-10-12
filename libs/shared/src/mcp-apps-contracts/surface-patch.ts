@@ -8,6 +8,7 @@
  * document with `validateSurfaceDocument` before it commits (Req 5.2).
  */
 import { isSurfaceLayoutComponent } from './surface-bindings';
+import { SURFACE_LAYOUT_KINDS } from './surface-catalog';
 import type { SurfaceLayoutComponent } from './surface-bindings';
 import { applyDataModelOps } from './surface-data-model';
 import type { SurfaceDataModelOp } from './surface-data-model';
@@ -45,6 +46,12 @@ type ListResult =
   { readonly ok: true; readonly list: readonly SurfaceComponent[] } | Failure;
 
 const fail = (reason: string): Failure => ({ ok: false, reason });
+
+/**
+ * "section, stack, grid and card": the `/3` layouts, the only catalog
+ * `ptah_surface_update` accepts; the type guard keeps the `/4` superset.
+ */
+const PARENT_KINDS_TEXT = `${SURFACE_LAYOUT_KINDS.slice(0, -1).join(', ')} and ${SURFACE_LAYOUT_KINDS[SURFACE_LAYOUT_KINDS.length - 1]}`;
 
 /** Ops can come from untyped callers; read the discriminant defensively. */
 function opName(op: unknown): string {
@@ -162,7 +169,7 @@ function addComponent(
     const parent = componentAt(surface.components, located);
     if (parent === undefined || !isSurfaceLayoutComponent(parent))
       return fail(
-        `Component "${op.parentId}" is a ${parent?.kind ?? 'missing component'}; only section, stack, grid and card take children.`,
+        `Component "${op.parentId}" is a ${parent?.kind ?? 'missing component'}; only ${PARENT_KINDS_TEXT} take children.`,
       );
     parentPath = located;
   }

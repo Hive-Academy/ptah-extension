@@ -32,6 +32,9 @@ const NOOP_LOGGER = {
 /** Electron-only surfaces: raw FS, PTY, updater, workspace lifecycle, and
  *  every SQLite/native-backed subsystem. */
 export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
+  // Lane plan-limit read (TASK_2026_623 R10.9) — `lanePlanLimits` capability is
+  // Electron-only, see expected-absent.ts.
+  'agent:getLanePlanLimits',
   'corpus:build',
   'corpus:delete',
   'corpus:get',

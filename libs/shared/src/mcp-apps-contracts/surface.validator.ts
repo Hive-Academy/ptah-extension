@@ -17,8 +17,10 @@
  *    (`SURFACE_MAX_RAW_JSON_DEPTH`), so no hostile value reaches the recursive
  *    byte counter.
  * 3. Bytes, measured on the value as it ARRIVED (request or document budget).
- * 4. Version pair (a named field for unknown or mixed pairs, Req 1.3).
- * 5. The zod parse: the authority on shape.
+ * 4. Version pair (a named field for unknown or mixed pairs, Req 1.3), then,
+ *    for a `dashboard-catalog/3` tree, a named rejection of any `/4` kind or
+ *    stat field. `ptah_surface_update` input is `/3` only.
+ * 5. The zod parse, by the catalog's own schema: the authority on shape.
  * 6. Semantic checks on the parsed document: unique ids, input count, binding
  *    compatibility, stored values valid as drafts, and the submit scope rule.
  *
@@ -52,12 +54,18 @@ import {
 } from './surface-bindings';
 import {
   DASHBOARD_CONTRACT_VERSION_PAIRS,
+  SURFACE_CATALOG_4_ONLY_DISPLAY_KINDS,
+  SURFACE_CATALOG_4_ONLY_LAYOUT_KINDS,
+  SURFACE_CATALOG_4_ONLY_STAT_FIELDS,
+  SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
   SURFACE_LIMITS,
   SURFACE_SUPPORTED_CATALOG_VERSIONS,
   SURFACE_SUPPORTED_SCHEMA_VERSIONS,
 } from './surface-catalog';
 import { parseSurfacePath, readSurfacePath } from './surface-data-model';
 import {
+  SurfaceCatalog4EnvelopeSchema,
   SurfaceEnvelopeSchema,
   SurfaceUpdateInputSchema,
 } from './surface.schemas';
@@ -91,8 +99,14 @@ export type SurfaceDocumentValidation =
   SurfaceDocumentAccepted | SurfaceValidationRejected;
 
 export type SurfaceContractVersion = 'dashboard-spec/1' | 'dashboard-spec/2';
+export type SurfaceContractCatalogVersion =
+  (typeof DASHBOARD_CONTRACT_VERSION_PAIRS)[number][1];
 export type SurfaceVersionCheck =
-  | { readonly ok: true; readonly contract: SurfaceContractVersion }
+  | {
+      readonly ok: true;
+      readonly contract: SurfaceContractVersion;
+      readonly catalog: SurfaceContractCatalogVersion;
+    }
   | {
       readonly ok: false;
       readonly field: 'schemaVersion' | 'catalogVersion';
@@ -121,9 +135,11 @@ const KNOWN_CATALOG_VERSIONS: readonly string[] = [
 
 /**
  * Read the raw version pair and check it against the one statement of legal
- * pairs, `DASHBOARD_CONTRACT_VERSION_PAIRS`. The reason names the field: the
- * schema version when it is missing or unknown, otherwise the catalog version
- * (unknown, or not the partner of the schema version). Never throws.
+ * pairs, `DASHBOARD_CONTRACT_VERSION_PAIRS`, matched as a WHOLE pair: one
+ * schema version may pair with several catalogs (`spec/2` with `/3` and `/4`).
+ * The reason names the field: the schema version when it is missing or
+ * unknown, otherwise the catalog version (unknown, or not a partner of the
+ * schema version). Never throws.
  */
 export function validateSurfaceEnvelopeVersions(
   input: unknown,
@@ -152,15 +168,20 @@ export function validateSurfaceEnvelopeVersions(
         reason: `catalogVersion ${catalogVersion === undefined ? 'is missing' : `${quote(catalogVersion)} is unknown`}; supported: ${KNOWN_CATALOG_VERSIONS.join(', ')}.`,
       };
     const pair = DASHBOARD_CONTRACT_VERSION_PAIRS.find(
-      ([schema]) => schema === schemaVersion,
+      ([schema, catalog]) =>
+        schema === schemaVersion && catalog === catalogVersion,
     );
-    if (pair === undefined || pair[1] !== catalogVersion)
+    if (pair === undefined) {
+      const partners = DASHBOARD_CONTRACT_VERSION_PAIRS.filter(
+        ([schema]) => schema === schemaVersion,
+      ).map(([, catalog]) => catalog);
       return {
         ok: false,
         field: 'catalogVersion',
-        reason: `catalogVersion ${quote(catalogVersion)} does not pair with schemaVersion ${quote(schemaVersion)}; expected ${pair?.[1] ?? 'a defined pair'}.`,
+        reason: `catalogVersion ${quote(catalogVersion)} does not pair with schemaVersion ${quote(schemaVersion)}; expected ${partners.length > 0 ? partners.join(' or ') : 'a defined pair'}.`,
       };
-    return { ok: true, contract: pair[0] };
+    }
+    return { ok: true, contract: pair[0], catalog: pair[1] };
   } catch {
     return {
       ok: false,
@@ -329,6 +350,58 @@ function findUpdateBreach(input: Record<string, unknown>): Breach {
     }
   }
   return null;
+}
+
+const CATALOG_4_ONLY_KINDS: ReadonlySet<unknown> = new Set([
+  ...SURFACE_CATALOG_4_ONLY_LAYOUT_KINDS,
+  ...SURFACE_CATALOG_4_ONLY_DISPLAY_KINDS,
+]);
+
+/**
+ * A `/3` component tree must not use a `/4` kind or stat field. The strict `/3`
+ * schema would reject them too, but only with a generic "Invalid input" for an
+ * unknown kind; this names the path, the field and the catalog it belongs to.
+ * Iterative over raw `children` (the tree walk has already bounded it). Runs
+ * before the `/3` zod parse, so a `/3` envelope keeps the released schema.
+ */
+function findCatalog4FeatureBreach(
+  roots: readonly { readonly node: unknown; readonly path: string }[],
+): Breach {
+  const stack = [...roots].reverse();
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (entry === undefined) break;
+    if (!isRecord(entry.node)) continue;
+    const kind = entry.node['kind'];
+    if (CATALOG_4_ONLY_KINDS.has(kind))
+      return `${entry.path}.kind: ${quote(kind)} is a ${SURFACE_CATALOG_VERSION_4} kind; it is not part of ${SURFACE_CATALOG_VERSION}.`;
+    if (kind === 'stat')
+      for (const field of SURFACE_CATALOG_4_ONLY_STAT_FIELDS)
+        if (Object.prototype.hasOwnProperty.call(entry.node, field))
+          return `${entry.path}.${field}: stat field "${field}" is part of ${SURFACE_CATALOG_VERSION_4}; it is not part of ${SURFACE_CATALOG_VERSION}.`;
+    const children = entry.node['children'];
+    if (!Array.isArray(children)) continue;
+    for (let index = children.length - 1; index >= 0; index--)
+      stack.push({
+        node: children[index],
+        path: `${entry.path}.children.${index}`,
+      });
+  }
+  return null;
+}
+
+/** Raw component roots of an envelope-shaped value, with their paths. */
+function envelopeRoots(
+  surface: unknown,
+  label: string,
+): { readonly node: unknown; readonly path: string }[] {
+  const components = isRecord(surface) ? surface['components'] : undefined;
+  return Array.isArray(components)
+    ? components.map((node: unknown, index) => ({
+        node,
+        path: `${label}components.${index}`,
+      }))
+    : [];
 }
 
 /**
@@ -556,7 +629,27 @@ export function validateSurfaceUpdateInput(
           reason:
             'surface.schemaVersion: dashboard-spec/1 envelopes are proposed with ptah_dashboard_propose_spec; ptah_surface_update accepts dashboard-spec/2 only.',
         };
+      if (versions.catalog !== SURFACE_CATALOG_VERSION)
+        return {
+          ok: false,
+          bytes,
+          reason: `surface.catalogVersion: ${quote(versions.catalog)} is the ptah-ui display catalog; ptah_surface_update accepts ${SURFACE_CATALOG_VERSION} only.`,
+        };
     }
+    // Update input is always `/3`: the carried surface and every op component.
+    const ops = input['ops'];
+    const featureBreach = findCatalog4FeatureBreach([
+      ...envelopeRoots(surface, 'surface.'),
+      ...(Array.isArray(ops)
+        ? ops.flatMap((op: unknown, index) =>
+            isRecord(op) && op['component'] !== undefined
+              ? [{ node: op['component'], path: `ops.${index}.component` }]
+              : [],
+          )
+        : []),
+    ]);
+    if (featureBreach !== null)
+      return { ok: false, bytes, reason: featureBreach };
     const parsed = SurfaceUpdateInputSchema.safeParse(input);
     if (!parsed.success)
       return {
@@ -637,7 +730,16 @@ export function validateSurfaceDocument(
         reason:
           'schemaVersion: a surface document must be dashboard-spec/2; v1 specs are validated with validateDashboardSpec.',
       };
-    const parsed = SurfaceEnvelopeSchema.safeParse(doc);
+    // Each catalog is parsed by its own schema; `/3` stays the released one.
+    if (versions.catalog === SURFACE_CATALOG_VERSION) {
+      const featureBreach = findCatalog4FeatureBreach(envelopeRoots(doc, ''));
+      if (featureBreach !== null)
+        return { ok: false, bytes, reason: featureBreach };
+    }
+    const parsed =
+      versions.catalog === SURFACE_CATALOG_VERSION_4
+        ? SurfaceCatalog4EnvelopeSchema.safeParse(doc)
+        : SurfaceEnvelopeSchema.safeParse(doc);
     if (!parsed.success)
       return {
         ok: false,

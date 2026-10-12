@@ -18,6 +18,12 @@ export { McpCallerWorkspaceResolver } from './lib/code-execution/mcp-caller-work
 // The per-call MCP caller context (session, workspace, tool profile). Hosts
 // and composition tests use it to run `ptah.*` calls as a given caller.
 export { runWithMcpRequestContext } from './lib/code-execution/mcp-core/mcp-request-context';
+// The `ptah_agent_list` Plan limits rows; the `$limits` host read builds its
+// rows from the same function so both show the same text.
+export {
+  formatPlanLimitRows,
+  type AgentLimit,
+} from './lib/code-execution/mcp-core/agent-limit.formatter';
 export {
   killRunningChecks,
   runningCheckPids,
