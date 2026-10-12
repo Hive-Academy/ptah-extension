@@ -1,12 +1,22 @@
 /**
- * Dashboard provider account card (TASK_2026_596, Component 16; design §4).
+ * Dashboard provider account card (TASK_2026_596, Component 16; design §4;
+ * relaid out as a provider list in TASK_2026_631).
  *
- * One `<section>` per quota owner in the shared `PlanLimitsStore` snapshot,
- * the selected provider's owner first. Each section names every plan window
- * with its used value (never a fabricated 0), its reset as absolute + relative
- * time, its state as a word and its per-field sources; owner-level limit
- * evidence and an active cooldown are separate notices. The Codex activity
- * block is kept as it was.
+ * One full-width row per quota owner in the shared `PlanLimitsStore`
+ * snapshot, the selected provider's owner first. Each row names every plan
+ * window with its used value (never a fabricated 0), its reset as absolute +
+ * relative time, its state as a word and its per-field sources; owner-level
+ * limit evidence and an active cooldown are separate notices below the row.
+ * The Codex activity block is kept as it was.
+ *
+ * Layout adapts to the width each row itself has (a container query on its
+ * `li`, never the viewport); `ProviderAccountRowComponent` (same folder)
+ * presents each row: wide rows place identity | windows | local usage |
+ * refresh on one line; medium and narrow rows drop the windows and the
+ * local-usage stat below the identity, so the owner name is never squeezed
+ * beside them. A row without windows is a compact one-line reason. Every
+ * row carries a decorative per-provider accent (left border + mark tint,
+ * `provider-accent.ts`); the provider name always stays in text.
  *
  * Selection: `AuthStateService.persistedProviderId()` drives `load({providerId})`.
  * The store merges only the fields a call names, so the card passes exactly
@@ -24,7 +34,6 @@ import {
   untracked,
 } from '@angular/core';
 import { AuthStateService, PlanLimitsStore } from '@ptah-extension/core';
-import { ProviderMarkComponent } from '@ptah-extension/ui';
 import {
   activeEstimatedExhaustion,
   activeWindowExhaustion,
@@ -52,8 +61,9 @@ import {
   type PlanWindowState,
   type ProviderAccountUsageStatus,
 } from '@ptah-extension/shared';
+import { ProviderAccountRowComponent } from './provider-account-row.component';
 
-type Tone = 'success' | 'error' | 'warning' | 'info' | 'neutral';
+export type Tone = 'success' | 'error' | 'warning' | 'info' | 'neutral';
 
 export interface SourceChipView {
   readonly text: string;
@@ -73,6 +83,12 @@ export interface WindowRowView {
   readonly chip: StateChipView | null;
   /** Bar fill percent; `null` draws no bar (unknown is never an empty bar). */
   readonly percent: number | null;
+  /**
+   * Bar fill tone. `neutral` (the pre-redesign `bg-base-content` fill) marks
+   * readings whose freshness or provenance is not confirmed — aged,
+   * estimate-only, not-confirmed — so a stale high percent never reads as
+   * healthy; only a fresh, confirmed window is `success` (revise-1 S1).
+   */
   readonly barTone: Tone;
   readonly valueText: string;
   readonly isPercent: boolean;
@@ -146,10 +162,30 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
 @Component({
   selector: 'ptah-provider-account-card',
   standalone: true,
-  imports: [ProviderMarkComponent],
+  imports: [ProviderAccountRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
-    ':host{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,21rem),1fr));gap:0.5rem;align-items:start}',
+    // TASK_2026_631: the auto-fit card grid became a vertical list of rows.
+    // Each `li` is its own inline-size container, so the row component (not
+    // the viewport) adapts to the width it itself has; the row-local layout
+    // lives in `ProviderAccountRowComponent`.
+    `
+      :host {
+        display: block;
+      }
+      .rows {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .row {
+        container-type: inline-size;
+        container-name: row;
+      }
+    `,
   ],
   template: `
     @if (sections(); as list) {
@@ -162,262 +198,10 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
           {{ notice }}
         </p>
       }
-      @for (section of list; track section.key) {
-        <section
-          class="surface-2 flex min-w-0 flex-col rounded-lg border border-base-content/10 p-3"
-          [attr.aria-label]="section.label + ' usage'"
-          data-testid="provider-account-section"
-        >
-          <div
-            class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2"
-            data-testid="section-header"
-          >
-            <div class="flex min-w-0 items-start gap-2">
-              <ptah-provider-mark [providerId]="section.providerId" />
-              <div class="min-w-0">
-                <h4 class="font-semibold text-sm">{{ section.label }}</h4>
-                <p
-                  class="text-[10px] text-base-content-muted break-words"
-                  [title]="section.subtitle"
-                >
-                  {{ section.subtitle }}
-                </p>
-              </div>
-            </div>
-            <div class="flex items-center gap-1 shrink-0">
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-square"
-                [disabled]="loading()"
-                [attr.aria-label]="'Refresh ' + section.label + ' usage'"
-                (click)="refresh()"
-                title="Refresh usage"
-              >
-                <span aria-hidden="true">↻</span>
-              </button>
-            </div>
-          </div>
-          @if (section.statusChip; as status) {
-            <div class="mt-1">
-              <span
-                class="badge badge-sm whitespace-normal h-auto text-left"
-                [class]="statusChipClass(status.tone)"
-                [attr.title]="section.statusNotice?.text ?? status.text"
-                data-testid="status-chip"
-                >{{ status.text }}</span
-              >
-            </div>
-          }
-          @if (section.commonSources.length > 0) {
-            <div class="mt-1 flex flex-wrap gap-1" aria-label="Usage source">
-              @for (source of section.commonSources; track source.text) {
-                <span
-                  class="text-[10px] px-1 rounded border border-base-content/20 text-base-content-muted"
-                  [class.border-dashed]="source.unofficial"
-                  [class.italic]="source.unofficial"
-                  data-testid="source-chip"
-                  >{{ source.text }}</span
-                >
-              }
-            </div>
-          }
-
-          @if (section.noUsageSource) {
-            <p class="sr-only">
-              <strong>No usage source</strong>
-              <span class="text-base-content-muted">
-                · This provider does not report plan usage, so nothing is shown
-                as a percentage.</span
-              >
-            </p>
-          }
-          @if (section.statusNotice; as notice) {
-            <p
-              role="status"
-              class="rounded border px-2 py-1 text-xs"
-              [class]="noticeBorder(notice.tone)"
-            >
-              {{ notice.text }}
-            </p>
-          }
-
-          @if (section.localUsage; as usage) {
-            <div
-              class="mt-3 rounded border border-base-content/20 px-3 py-2"
-              data-testid="local-usage-stat"
-            >
-              <p
-                class="text-[10px] uppercase tracking-wider text-base-content-muted"
-              >
-                {{ usage.label }}
-              </p>
-              <p class="text-sm font-semibold tabular-nums">
-                {{ usage.value }}
-              </p>
-              @if (usage.range) {
-                <p class="text-[11px] text-base-content-muted">
-                  Range: {{ usage.range }}
-                </p>
-              }
-              <p class="text-[11px] text-base-content-muted">
-                Local CLI accounting · not a plan percentage or reset
-              </p>
-            </div>
-          }
-
-          @if (section.windows.length > 0) {
-            <div class="mt-3 grid gap-1.5">
-              @for (row of section.windows; track row.key) {
-                <div
-                  role="group"
-                  [attr.aria-label]="row.name"
-                  class="grid min-w-0 grid-cols-[minmax(5.5rem,auto)_minmax(0,1fr)_4.5rem] items-start gap-2 rounded-md bg-surface-0/50 p-2 text-left"
-                  data-testid="window-row"
-                >
-                  <div class="flex min-w-0 flex-col items-start gap-1">
-                    <span class="text-[13px] font-semibold">{{
-                      row.name
-                    }}</span>
-                    @if (row.chip; as chip) {
-                      <span
-                        class="text-[11px] px-1.5 rounded border whitespace-nowrap"
-                        [class]="chipClass(chip.tone)"
-                        data-testid="state-chip"
-                        ><span aria-hidden="true">{{ chip.glyph }} </span
-                        >{{ chip.text }}</span
-                      >
-                    }
-                  </div>
-                  <div class="min-w-0">
-                    <span class="sr-only">{{ row.valueText }}</span>
-                    @if (row.percent !== null) {
-                      <div
-                        class="h-1.5 w-full overflow-hidden rounded bg-base-content/10"
-                        role="progressbar"
-                        aria-valuemin="0"
-                        aria-valuemax="100"
-                        [attr.aria-valuenow]="roundPercent(row.percent)"
-                        [attr.aria-valuetext]="row.valueText"
-                        [attr.aria-label]="row.name + ' plan usage'"
-                        [attr.title]="
-                          row.valueText + '. ' + row.resetLines.join(' ')
-                        "
-                        data-testid="window-progress"
-                      >
-                        <div
-                          class="h-full rounded"
-                          [class.bg-error]="row.barTone === 'error'"
-                          [class.bg-warning]="row.barTone === 'warning'"
-                          [class.bg-base-content]="row.barTone === 'success'"
-                          [style.width.%]="clampPercent(row.percent)"
-                        ></div>
-                      </div>
-                    }
-                    <div
-                      class="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[11px] text-base-content-muted break-words"
-                    >
-                      @if (row.limitLine) {
-                        <strong class="text-base-content">{{
-                          row.limitLine
-                        }}</strong>
-                      }
-                      @for (line of row.resetLines; track $index) {
-                        <span
-                          [class.font-semibold]="line.startsWith('Resets in')"
-                          >{{ line }}</span
-                        >
-                      }
-                      @if (row.note) {
-                        <span>{{ row.note }}</span>
-                      }
-                      @if (section.commonSources.length === 0) {
-                        @for (source of row.sources; track source.text) {
-                          <span
-                            class="text-[10px] px-1 rounded border border-base-content/20 text-base-content-muted"
-                            [class.border-dashed]="source.unofficial"
-                            [class.italic]="source.unofficial"
-                            [attr.title]="
-                              'Source for ' + row.name + ': ' + source.text
-                            "
-                            data-testid="source-chip"
-                            >{{ source.text }}</span
-                          >
-                        }
-                      }
-                    </div>
-                    @if (row.estimateNote) {
-                      <p
-                        class="text-[11px] text-base-content-muted mt-1"
-                        data-testid="estimate-note"
-                      >
-                        {{ row.estimateNote }}
-                      </p>
-                    }
-                  </div>
-                  <span
-                    class="text-right text-xs font-semibold tabular-nums break-words"
-                    [class.whitespace-nowrap]="row.isPercent"
-                    data-testid="window-value"
-                    >{{
-                      row.isPercent && row.percent !== null
-                        ? roundPercent(row.percent) + '%'
-                        : row.valueText
-                    }}</span
-                  >
-                </div>
-              }
-            </div>
-          }
-
-          @for (notice of section.evidence; track $index) {
-            <p
-              role="status"
-              class="text-xs mt-2.5 border-l-2 pl-2 flex flex-wrap items-center gap-x-1.5"
-              [class]="noticeBorder(notice.tone)"
-              data-testid="owner-evidence"
-            >
-              <span>{{ notice.text }}</span>
-              @for (source of notice.sources; track source.text) {
-                <span
-                  class="text-[10px] px-1 rounded border border-base-content/20 text-base-content-muted"
-                  [class.border-dashed]="source.unofficial"
-                  [class.italic]="source.unofficial"
-                  >{{ source.text }}</span
-                >
-              }
-            </p>
-          }
-
-          @if (section.cooldown; as cooldown) {
-            <p
-              role="status"
-              class="text-xs mt-2.5 border-l-2 border-info pl-2 flex flex-wrap items-center gap-x-1.5"
-              data-testid="cooldown"
-            >
-              <span
-                class="text-[11px] px-1.5 rounded border border-info bg-info/15"
-                >Cooldown</span
-              >
-              <span>{{ cooldown }}</span>
-            </p>
-          }
-
-          @if (section.activity; as activity) {
-            <div class="mt-2" aria-label="Account activity">
-              <p class="text-xs font-medium">Activity</p>
-              <p class="text-xs">
-                Lifetime tokens: {{ activity.lifetimeTokens ?? 'Unavailable' }}
-              </p>
-              <p class="text-[10px] text-base-content-muted">
-                Activity is not remaining messages, credits, or billing.
-              </p>
-            </div>
-          }
-        </section>
-      } @empty {
+      @if (list.length === 0) {
         <section class="surface-2 rounded-lg p-3" aria-label="Account usage">
           <div class="flex items-center justify-between gap-3">
-            <h4 class="font-medium text-sm">Account usage</h4>
+            <h5 class="font-medium text-sm">Account usage</h5>
             <button
               type="button"
               class="btn btn-ghost btn-xs"
@@ -441,6 +225,18 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
             </p>
           }
         </section>
+      } @else {
+        <ul class="rows">
+          @for (section of list; track section.key) {
+            <li class="row">
+              <ptah-provider-account-row
+                [section]="section"
+                [refreshing]="loading()"
+                (refresh)="refresh()"
+              />
+            </li>
+          }
+        </ul>
       }
     } @else if (loading()) {
       <span
@@ -460,7 +256,6 @@ export class ProviderAccountCardComponent {
     zoneNameLocale: inject(LOCALE_ID),
   };
 
-  protected readonly nearLimitPercent = NEAR_LIMIT_PERCENT;
   protected readonly loading = this.planLimits.loading;
 
   /** `null` until the first snapshot; `[]` for an empty (failed) snapshot. */
@@ -503,49 +298,6 @@ export class ProviderAccountCardComponent {
       providerId: this.auth.persistedProviderId(),
       refresh: true,
     });
-  }
-
-  protected roundPercent(percent: number): number {
-    return Math.round(percent);
-  }
-
-  protected clampPercent(percent: number): number {
-    return Math.max(0, Math.min(100, percent));
-  }
-
-  protected statusChipClass(tone: Tone): string {
-    return tone === 'error'
-      ? 'badge-error'
-      : tone === 'warning'
-        ? 'badge-warning'
-        : 'badge-ghost';
-  }
-
-  /** Semantic colour only as border and tint, never as text (design §8). */
-  protected chipClass(tone: Tone): string {
-    switch (tone) {
-      case 'error':
-        return 'border-error bg-error/15 font-semibold';
-      case 'warning':
-        return 'border-warning bg-warning/15 font-semibold';
-      case 'info':
-        return 'border-info bg-info/15';
-      default:
-        return 'border-dashed border-base-content/20';
-    }
-  }
-
-  protected noticeBorder(tone: Tone): string {
-    switch (tone) {
-      case 'error':
-        return 'border-error';
-      case 'warning':
-        return 'border-warning';
-      case 'info':
-        return 'border-info';
-      default:
-        return 'border-base-content/40';
-    }
   }
 }
 
@@ -851,12 +603,17 @@ function buildWindowRow(
     name: window.label,
     chip: STATE_CHIPS[state],
     percent: showValue && percent !== undefined ? percent : null,
+    // Aged, estimate-only and not-confirmed readings are not room: they keep
+    // the neutral pre-redesign fill so a stale 97% never reads as healthy
+    // (revise-1 S1). Only a fresh, confirmed window is green.
     barTone:
       state === 'limit-reached'
         ? 'error'
         : state === 'near-limit'
           ? 'warning'
-          : 'success',
+          : state === 'ok'
+            ? 'success'
+            : 'neutral',
     valueText: showValue ? `${formatUsed(window.used)} used` : 'Used: unknown',
     isPercent: window.used?.kind === 'percent',
     limitLine,

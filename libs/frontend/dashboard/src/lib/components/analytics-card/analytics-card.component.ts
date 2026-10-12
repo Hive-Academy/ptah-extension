@@ -9,6 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { LucideAngularModule, ChartColumn } from 'lucide-angular';
+import { NEAR_LIMIT_PERCENT } from '@ptah-extension/shared';
 import {
   SessionAnalyticsStateService,
   SessionDateRange,
@@ -57,6 +58,8 @@ export class AnalyticsCardComponent {
   readonly ChartColumnIcon = ChartColumn;
   readonly dateRangeOptions = SESSION_DATE_RANGE_OPTIONS;
   readonly estimateLabel = 'Estimated from recorded usage and current rate card';
+  /** The near-limit threshold the provider rows' bar ticks mark. */
+  readonly nearLimitPercent = NEAR_LIMIT_PERCENT;
 
   readonly isLoading = this.analyticsState.isLoading;
   readonly isLoadingStats = this.analyticsState.isLoadingStats;

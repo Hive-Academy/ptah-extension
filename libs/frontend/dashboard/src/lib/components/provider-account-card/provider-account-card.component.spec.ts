@@ -2,6 +2,10 @@
  * ProviderAccountCardComponent — the 16 design states of design §4 (F61) over
  * a fake `PlanLimitsStore`, plus selection order, the provider effect, Refresh,
  * the empty snapshot, and one pass through the REAL store with a fake RPC.
+ *
+ * TASK_2026_631 list redesign: one `li` per owner, compact reason rows for
+ * owners without windows, per-state bar classes with the 90% tick, per-provider
+ * accents, and local usage stacked below the identity (never beside the name).
  */
 import { LOCALE_ID, signal, type WritableSignal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -766,22 +770,311 @@ describe('ProviderAccountCardComponent', () => {
     expect(rows(el)).toHaveLength(0);
   });
 
-  it('16b. the header wraps at narrow width: the status chip never truncates or overlaps the title', () => {
+  it('16b. narrow rows keep the full owner name: the local stat stacks below the identity, never beside it', () => {
     const el = render(
       snapshotOf(
-        owner('antigravity', 'Claude account', {
-          status: 'service-unavailable',
+        owner('opencode', 'OpenCode local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage: tokens & estimated cost',
+            tokens: 1234,
+            estimatedCostUsd: 5.67,
+            observedAt: NOW,
+            source: 'local-cli',
+          },
         }),
       ),
     );
-    const header = el.querySelector(
+    const [section] = sections(el);
+    const identity = section.querySelector(
       '[data-testid="section-header"]',
     ) as HTMLElement;
-    expect(header.className).toContain('grid-cols-[minmax(0,1fr)_auto]');
-    expect(header.firstElementChild?.className).toContain('min-w-0');
+    const stat = section.querySelector(
+      '[data-testid="local-usage-stat"]',
+    ) as HTMLElement;
+    // The stat is its own grid area of the row, a sibling of the identity —
+    // it can never squeeze the name column (the prototype's narrow defect).
+    expect(stat.parentElement).toBe(section);
+    expect(stat.closest('[data-testid="section-header"]')).toBeNull();
+    expect(identity.className).toContain('min-w-0');
+    expect(
+      identity.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(
       el.querySelector('[data-testid="status-chip"]')?.className,
     ).toContain('whitespace-normal');
+  });
+
+  // ---- TASK_2026_631: provider list layout ----
+
+  it('renders one full-width list row per owner', () => {
+    const el = render(
+      snapshotOf(
+        owner('openai-codex', 'Codex account'),
+        owner('anthropic', 'Claude account'),
+      ),
+    );
+    const items = Array.from(el.querySelectorAll('li'));
+    expect(items).toHaveLength(2);
+    // every owner section lives in its own li, in list order
+    expect(sections(el).map((s) => s.closest('li'))).toEqual(items);
+    expect(Array.from(el.querySelector('ul')?.children ?? [])).toEqual(items);
+  });
+
+  it('renders a compact one-line reason row for an owner without windows', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          status: 'unsupported-auth',
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    const [section] = sections(el);
+    expect(section.classList.contains('owner-row--compact')).toBe(true);
+    expect(section.querySelector('.wins')).toBeNull();
+    const reason = section.querySelector('[data-testid="compact-reason"]');
+    // the reason occupies the mid grid area, never an auto-placed cell
+    expect(reason?.classList.contains('mid')).toBe(true);
+    expect(textOf(reason)).toBe('No plan limits (API key)');
+    expect(section.querySelector('button[type="button"]')).not.toBeNull();
+  });
+
+  it('colours each window bar by state and ticks the 90% near-limit mark', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 3 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 4 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - 40 * MIN,
+              observedAt: NOW - 10 * MIN,
+            }),
+            win({
+              key: 'weekly',
+              kind: 'weekly',
+              label: 'Weekly',
+              used: { kind: 'percent', percent: 94 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 5 * 24 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - HOUR,
+            }),
+            win({
+              key: 'weekly_model:opus',
+              kind: 'weekly_model',
+              label: 'Weekly · Opus',
+              used: { kind: 'percent', percent: 100 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 45 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - HOUR,
+              exhaustion: {
+                observedAt: NOW - 10 * MIN,
+                source: 'error-derived',
+              },
+            }),
+            win({ key: 'other:unread', label: 'Unread' }),
+          ],
+        }),
+      ),
+    );
+    const [ok, near, limit, unknown] = rows(el);
+    const fill = (row: HTMLElement) =>
+      row.querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild as HTMLElement;
+    expect(fill(ok)?.classList.contains('bg-success')).toBe(true);
+    expect(fill(ok)?.classList.contains('bg-base-content')).toBe(false);
+    expect(fill(near)?.classList.contains('bg-warning')).toBe(true);
+    expect(fill(limit)?.classList.contains('bg-error')).toBe(true);
+    expect(ok.querySelector<HTMLElement>('.bar-tick')?.style.left).toBe('90%');
+    expect(near.querySelector<HTMLElement>('.bar-tick')?.style.left).toBe(
+      '90%',
+    );
+    // unknown keeps a neutral hatched track, never an empty 0% bar
+    expect(unknown.querySelector('[role="progressbar"]')).toBeNull();
+    const track = unknown.querySelector('[data-testid="window-unknown-bar"]');
+    expect(track).not.toBeNull();
+    expect(track?.getAttribute('aria-hidden')).toBe('true');
+    expect(unknown.querySelector('.bar-tick')).toBeNull();
+  });
+
+  it('carries a decorative per-provider accent with a generic fallback', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account'),
+        owner('claude-cli', 'Claude CLI'),
+        owner('openai-codex', 'Codex account'),
+        owner('opencode', 'OpenCode account'),
+        owner('opencode-go', 'OpenCode Go'),
+        owner('antigravity', 'Antigravity account'),
+        owner('ollama-cloud', 'Ollama Cloud account'),
+        owner('github-copilot', 'Copilot account'),
+        owner('openrouter', 'OpenRouter account'),
+        owner('moonshot', 'Moonshot account'),
+        owner('z-ai', 'Z AI account'),
+        owner('grok', 'Grok account'),
+        owner('some-provider', 'Some provider'),
+      ),
+    );
+    const accents = sections(el).map((s) =>
+      s.style.getPropertyValue('--accent'),
+    );
+    expect(accents).toEqual([
+      '#d97757', // Claude (anthropic, claude-cli)
+      '#d97757',
+      '#10a37f', // Codex
+      '#3b82f6', // OpenCode (opencode, -go, -zen)
+      '#3b82f6',
+      '#8b5cf6', // Antigravity
+      '#9ca3af', // Ollama (ollama, -cloud)
+      '#8957e5', // Copilot
+      '#6d28d9', // OpenRouter
+      '#4f46e5', // Moonshot
+      '#0ea5e9', // Z.ai
+      '#71717a', // Grok (xAI monochrome)
+      'oklch(var(--bcm, var(--bc)))', // any other id
+    ]);
+  });
+
+  it('pins the near-limit boundary: 89% is still ok, 90% turns warning', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 89 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 4 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - 40 * MIN,
+              observedAt: NOW - 10 * MIN,
+            }),
+            win({
+              key: 'weekly',
+              kind: 'weekly',
+              label: 'Weekly',
+              used: { kind: 'percent', percent: 90 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 5 * 24 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - HOUR,
+              observedAt: NOW - 5 * MIN,
+            }),
+          ],
+        }),
+      ),
+    );
+    const [at89, at90] = rows(el);
+    expect(chipsIn(at89, 'state-chip')).toEqual([]);
+    expect(
+      at89
+        .querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild?.classList.contains('bg-success'),
+    ).toBe(true);
+    expect(chipsIn(at90, 'state-chip')).toEqual(['▲ Near limit']);
+    expect(
+      at90
+        .querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild?.classList.contains('bg-warning'),
+    ).toBe(true);
+  });
+
+  it('keeps a neutral fill for aged, estimate-only and not-confirmed windows, never a healthy green', () => {
+    const el = render(
+      snapshotOf(
+        owner('openai-codex', 'Codex account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 97 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 4 * HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - 50 * MIN,
+              observedAt: NOW - 22 * MIN,
+            }),
+          ],
+        }),
+        owner('opencode', 'OpenCode account', {
+          windows: [
+            win({
+              key: 'monthly',
+              kind: 'monthly',
+              label: 'Monthly',
+              used: { kind: 'percent', percent: 40 },
+              usedSource: 'estimated',
+              resetsAt: NOW + 10 * 24 * HOUR,
+              resetSource: 'estimated',
+              lastResetAt: NOW - HOUR,
+            }),
+          ],
+        }),
+        owner('antigravity', 'Antigravity account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 57 },
+              usedSource: 'provider-unofficial',
+              resetsAt: NOW + 5 * HOUR,
+              resetSource: 'estimated',
+            }),
+          ],
+        }),
+      ),
+    );
+    const fill = (row: HTMLElement) =>
+      row.querySelector('[data-testid="window-progress"]')
+        ?.firstElementChild as HTMLElement;
+    const [aged, estimated, unconfirmed] = sections(el).map(
+      (s) => s.querySelector('[data-testid="window-row"]') as HTMLElement,
+    );
+    // a stale 97% must not read as healthy green (revise-1 S1)
+    expect(chipsIn(aged, 'state-chip')).toEqual(['◷ Aged']);
+    expect(fill(aged)?.classList.contains('bg-base-content')).toBe(true);
+    expect(fill(aged)?.classList.contains('bg-success')).toBe(false);
+    expect(chipsIn(estimated, 'state-chip')).toEqual(['~ Estimate only']);
+    expect(fill(estimated)?.classList.contains('bg-base-content')).toBe(true);
+    expect(fill(estimated)?.classList.contains('bg-success')).toBe(false);
+    expect(chipsIn(unconfirmed, 'state-chip')).toEqual(['? Not confirmed']);
+    expect(fill(unconfirmed)?.classList.contains('bg-base-content')).toBe(
+      true,
+    );
+    expect(fill(unconfirmed)?.classList.contains('bg-success')).toBe(false);
+  });
+
+  it('keeps the warning tone on a stale owner without windows (compact row)', () => {
+    const el = render(
+      snapshotOf(
+        owner('openai-codex', 'Codex account', {
+          status: 'stale',
+          staleSince: NOW - 47 * MIN,
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    const reason = el.querySelector('[data-testid="compact-reason"]');
+    expect(reason?.getAttribute('role')).toBe('status');
+    expect(reason?.classList.contains('border-warning')).toBe(true);
+    expect(textOf(reason)).toContain('Showing cached account data');
+    expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
+      'Cached data',
+    );
   });
 
   // ---- ledger-only and informational evidence ----
@@ -894,7 +1187,7 @@ describe('ProviderAccountCardComponent', () => {
         owner('anthropic', 'Claude account', {}, 'fedcba9876543210'),
       ),
     );
-    const headings = Array.from(el.querySelectorAll('h4')).map(textOf);
+    const headings = Array.from(el.querySelectorAll('h5')).map(textOf);
     expect(headings).toEqual([
       'Claude account · cdef',
       'Claude account · 3210',
@@ -1019,9 +1312,12 @@ describe('ProviderAccountCardComponent', () => {
       expect(line?.className).not.toMatch(
         /border-(warning|error)|text-(warning|error)/,
       );
-      expect(line?.nextElementSibling?.getAttribute('data-testid')).toBe(
-        'provider-account-section',
-      );
+      expect(line?.nextElementSibling?.tagName).toBe('UL');
+      expect(
+        line?.nextElementSibling?.querySelector(
+          '[data-testid="provider-account-section"]',
+        ),
+      ).not.toBeNull();
       expect(sections(el)).toHaveLength(2);
     });
 

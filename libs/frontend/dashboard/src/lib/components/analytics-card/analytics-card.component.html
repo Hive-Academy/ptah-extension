@@ -77,6 +77,14 @@
         class="flex flex-col gap-3"
         data-testid="analytics-section-provider-accounts"
       >
+        <div>
+          <h4 class="text-sm font-semibold">Provider accounts &amp; plan limits</h4>
+          <p class="mt-0.5 text-xs text-base-content-muted">
+            One row per quota owner. The tick on each bar marks
+            {{ nearLimitPercent }}% (near limit); bars highlight a reached
+            limit.
+          </p>
+        </div>
         <ptah-provider-account-card />
       </div>
 
