@@ -46,7 +46,7 @@ const DEFAULT_LANE_GUARD_THRESHOLDS: LaneBudgetThresholds = {
 };
 
 export const MIN_CONCURRENT_AGENTS = 1;
-export const MAX_CONCURRENT_AGENTS = 20;
+export const MAX_CONCURRENT_AGENTS = 100;
 export const DEFAULT_CONCURRENT_AGENTS = 5;
 
 @injectable()
@@ -298,9 +298,9 @@ export class AgentSpawnEnvironment {
    *
    * The extension manifest schema protects only the VS Code settings UI.
    * Electron, CLI, and hand-edited settings reach this runtime unchecked, so
-   * the 1..20 bounds are enforced here and non-finite values fall back to 5.
+   * the 1..100 bounds are enforced here and non-finite values fall back to 5.
    *
-   * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 20, both
+   * `ptah.agentOrchestration.maxConcurrentAgents` — DEFAULT 5, MAXIMUM 100, both
    * declared in the extension's `package.json`. Prompt text and docs that say
    * "max 3 concurrent" are stale and describe a limit that has not existed for
    * some time; the number here is the one the runtime enforces.

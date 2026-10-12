@@ -16,7 +16,6 @@ import {
   ProvidersSettingsStateService,
 } from '@ptah-extension/core';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
-import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
@@ -62,7 +61,6 @@ const FOCUS =
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     LucideAngularModule,
-    AgentOrchestrationConfigComponent,
     CliOrchestrationMatrixComponent,
     ProviderConsumerAssignmentsComponent,
     SubagentCacheTtlSettingComponent,
@@ -72,8 +70,6 @@ const FOCUS =
   ],
   template: `
     <div class="flex flex-col gap-4 font-sans text-sm text-base-content">
-      <ptah-agent-orchestration-config />
-
       <!-- Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
       @defer (on immediate) {
         <ptah-cli-orchestration-matrix #cliMatrix />

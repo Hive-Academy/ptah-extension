@@ -54,6 +54,7 @@ import {
   type CliTierMappingTarget,
 } from '../providers/cli-tier-mapping-modal.component';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 
 /** Which popover of which row is open; one at a time. */
 type OpenCell = {
@@ -166,6 +167,7 @@ const SAVE_SCOPE = 'global';
   standalone: true,
   imports: [
     SettingsBusyDisabledDirective,
+    AgentOrchestrationConfigComponent,
     LucideAngularModule,
     NativePopoverComponent,
     ProviderMarkComponent,
@@ -215,6 +217,8 @@ const SAVE_SCOPE = 'global';
           Add Ptah CLI Instance
         </button>
       </div>
+
+      <ptah-agent-orchestration-config />
 
       <div class="surface-2 overflow-x-auto rounded-lg">
         <!-- table-xs density: the §1.2 fold budget is the pass line, not the prototype's 56 px rows (plan :1049-1052).
