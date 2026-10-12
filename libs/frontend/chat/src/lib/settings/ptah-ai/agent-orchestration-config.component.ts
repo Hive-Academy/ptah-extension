@@ -20,14 +20,14 @@ import {
   X,
 } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
-import {
-  NativePopoverComponent,
-  SurfaceSectionComponent,
-} from '@ptah-extension/ui';
+import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { cliMatrixRows } from './cli-matrix-rows';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
+/** Bounds of the max-concurrent field; the runtime enforces the same range (`MAX_CONCURRENT_AGENTS`). */
+const MIN_CONCURRENT = 1;
+const MAX_CONCURRENT = 100;
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 /** One order chip (the strip, its measuring copy and "+N"). */
@@ -56,8 +56,9 @@ interface OrderChip {
 }
 
 /**
- * Agent Orchestration policy bar (plan :702-709, design-spec §1.2 item 2, prototype `orchestration.html` :107-147).
- * One row: max concurrent agents (range 1-20 with its live value), the preferred agent order as compact read-only chips
+ * Agent Orchestration policy toolbar (plan :702-709, design-spec §1.2 item 2, prototype `orchestration.html` :107-147),
+ * rendered inside the CLI matrix card above its table (no card of its own).
+ * One row: max concurrent agents (number input 1-100), the preferred agent order as compact read-only chips
  * (the prototype's `1. Codex → 2. Antigravity → …`), and Re-detect CLIs.
  * - The chip group opens the order popover (the "popover for short choices" save model): one row per agent with ▲/▼
  *   buttons of 24×24 px (deviation 5: chevrons, no grip, no drag; `moveAgentUp/Down` kept). Each move saves.
@@ -75,13 +76,12 @@ interface OrderChip {
     SettingsBusyDisabledDirective,
     LucideAngularModule,
     NativePopoverComponent,
-    SurfaceSectionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ptah-surface-section
-      tone="subtle"
-      padding="md"
+    <div
+      class="mb-2"
+      role="group"
       aria-label="Orchestration policy"
       data-testid="settings-section-orchestration-policy"
     >
@@ -96,27 +96,21 @@ interface OrderChip {
             class="whitespace-nowrap text-xs font-bold"
             >Max Concurrent:</label
           >
-          <span
-            class="badge badge-xs border-primary/30 bg-primary/10 font-mono font-bold text-base-content"
-            aria-hidden="true"
-            data-testid="policy-max-concurrent-value"
-            >{{ maxConcurrent() ?? '—' }}</span
-          >
           <input
             id="agent-max-concurrent"
-            type="range"
+            type="number"
             min="1"
-            max="20"
+            max="100"
             step="1"
-            [class]="'range range-xs range-primary h-3.5 w-16 ' + focusRing"
-            [value]="maxConcurrent() ?? 1"
-            [disabled]="maxConcurrent() === null || !canWrite()"
-            [attr.aria-valuetext]="
-              maxConcurrent() === null
-                ? null
-                : maxConcurrent() + ' agents at once'
+            inputmode="numeric"
+            [class]="
+              'input input-bordered input-xs h-6 min-h-6 w-16 px-1.5 text-center font-mono text-xs ' +
+              focusRing
             "
-            (input)="previewMaxConcurrent($event)"
+            [value]="maxConcurrent() ?? ''"
+            [disabled]="maxConcurrent() === null || !canWrite()"
+            aria-label="Max concurrent agents (1 to 100)"
+            data-testid="policy-max-concurrent-input"
             (change)="saveMaxConcurrent($event)"
           />
         </div>
@@ -361,7 +355,7 @@ interface OrderChip {
       <span class="sr-only" role="status" aria-live="polite">{{
         detectDone() ? 'CLI agents re-detected.' : ''
       }}</span>
-    </ptah-surface-section>
+    </div>
   `,
 })
 export class AgentOrchestrationConfigComponent {
@@ -379,14 +373,9 @@ export class AgentOrchestrationConfigComponent {
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
-  /** The slider's value while it is dragged; `null` shows the saved (read-back) value. */
-  private readonly draft = signal<number | null>(null);
-  /** The live value: the dragged one, else the saved one, else `null` before the first read. */
+  /** The saved value, or `null` before the first read. */
   protected readonly maxConcurrent = computed(
-    () =>
-      this.draft() ??
-      this.state.orchestration().data?.maxConcurrentAgents ??
-      null,
+    () => this.state.orchestration().data?.maxConcurrentAgents ?? null,
   );
   protected readonly loaded = computed(
     () => this.state.orchestration().data !== null,
@@ -533,27 +522,22 @@ export class AgentOrchestrationConfigComponent {
       ?.focus();
   }
 
-  protected previewMaxConcurrent(event: Event): void {
-    const value = (event.target as HTMLInputElement).valueAsNumber;
-    if (Number.isInteger(value)) this.draft.set(value);
-  }
-
-  /** Saves on release; the slider then shows the read-back value (the draft is dropped either way). */
+  /**
+   * Saves on commit (blur / Enter / spinner). A fractional or out-of-range number is clamped to an integer in
+   * 1..MAX_CONCURRENT; an empty or non-numeric entry keeps the previous value. The field then shows the read-back value.
+   */
   protected async saveMaxConcurrent(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
-    const value = input.valueAsNumber;
+    const raw = input.valueAsNumber;
     const previous = this.state.orchestration().data?.maxConcurrentAgents;
     const context = this.state.reviewContext();
     try {
-      if (
-        !context ||
-        previous === undefined ||
-        !Number.isInteger(value) ||
-        value < 1 ||
-        value > 20 ||
-        value === previous
-      )
-        return;
+      if (!context || previous === undefined || !Number.isFinite(raw)) return;
+      const value = Math.min(
+        MAX_CONCURRENT,
+        Math.max(MIN_CONCURRENT, Math.round(raw)),
+      );
+      if (value === previous) return;
       await this.feedback.save({
         label: 'max concurrent agents',
         scope: SAVE_SCOPE,
@@ -569,8 +553,7 @@ export class AgentOrchestrationConfigComponent {
           ),
       });
     } finally {
-      this.draft.set(null);
-      // The binding may not change (the same saved value), so the thumb is moved to the read-back value directly.
+      // The binding may not change (the same saved value), so the field is set to the read-back value directly.
       const saved = this.state.orchestration().data?.maxConcurrentAgents;
       if (saved !== undefined) input.value = String(saved);
     }

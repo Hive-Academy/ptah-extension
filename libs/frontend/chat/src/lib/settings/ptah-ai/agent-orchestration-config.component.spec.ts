@@ -140,8 +140,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
   const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
     element().querySelector(selector) as T | null;
   const slider = () => q<HTMLInputElement>('#agent-max-concurrent');
-  const value = () =>
-    q('[data-testid="policy-max-concurrent-value"]')?.textContent?.trim();
+  const value = () => slider()?.value;
   const chips = () =>
     Array.from(
       element().querySelectorAll('[data-testid^="policy-order-chip-"]'),
@@ -290,26 +289,26 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
   });
 
   describe('max concurrent agents (#74, plan §3 row 891)', () => {
-    it('is a 1-20 range showing the saved value', () => {
+    it('is a labelled 1-100 integer number input showing the saved value', () => {
+      expect(slider()?.type).toBe('number');
       expect(slider()?.min).toBe('1');
-      expect(slider()?.max).toBe('20');
+      expect(slider()?.max).toBe('100');
+      expect(slider()?.step).toBe('1');
       expect(slider()?.valueAsNumber).toBe(3);
       expect(value()).toBe('3');
+      expect(slider()?.getAttribute('aria-label')).toContain('Max concurrent');
       expect(q('label[for="agent-max-concurrent"]')?.textContent).toContain(
         'Max Concurrent',
       );
     });
 
-    it('shows the live value while dragging and saves nothing until release', () => {
+    it('saves nothing until the value is committed', () => {
       slide(7, 'input');
       fixture.detectChanges();
-      expect(value()).toBe('7');
-      expect(slider()?.getAttribute('aria-valuetext')).toBe('7 agents at once');
       expect(state.saveSettings).not.toHaveBeenCalled();
     });
 
-    it('saves on release through the state, with a toast and an Undo that writes the previous value', async () => {
-      slide(7, 'input');
+    it('saves on commit through the state, with a toast and an Undo that writes the previous value', async () => {
       slide(7, 'change');
       await flush();
       expect(state.saveSettings).toHaveBeenCalledWith(
@@ -331,9 +330,33 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(value()).toBe('3');
     });
 
+    it.each([
+      [100, 100],
+      [250, 100],
+      [0, 1],
+      [-4, 1],
+      [7.6, 8],
+    ])('commits %s as %s (rounded, clamped to 1-100)', async (typed, saved) => {
+      slide(typed, 'change');
+      await flush();
+      expect(state.saveSettings).toHaveBeenCalledWith(
+        { orchestration: { maxConcurrentAgents: saved } },
+        CONTEXT,
+      );
+    });
+
+    it('keeps the previous value when the field is emptied', async () => {
+      const input = slider();
+      if (!input) throw new Error('No input');
+      input.value = '';
+      input.dispatchEvent(new Event('change'));
+      await flush();
+      expect(state.saveSettings).not.toHaveBeenCalled();
+      expect(input.value).toBe('3');
+    });
+
     it('D15: a failed save shows the saved value again and an alert, never "Saved"', async () => {
       state.persist = false;
-      slide(9, 'input');
       slide(9, 'change');
       await flush();
       expect(value()).toBe('3');
@@ -344,13 +367,13 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       );
     });
 
-    it('writes nothing when released on the saved value or before the state is read', async () => {
+    it('writes nothing when committed on the saved value or before the state is read', async () => {
       slide(3, 'change');
       await flush();
       expect(state.saveSettings).not.toHaveBeenCalled();
       state.orchestration.set(unloaded());
       fixture.detectChanges();
-      expect(value()).toBe('—');
+      expect(value()).toBe('');
       expect(isDisabledControl(slider())).toBe(true);
     });
   });
