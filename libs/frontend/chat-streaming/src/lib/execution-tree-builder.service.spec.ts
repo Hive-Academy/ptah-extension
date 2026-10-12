@@ -630,27 +630,24 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       feed(textDelta('m1', 1, 'hello'));
       for (const key of [
         'tab-T',
-        'tile-T',
         'history-page-T',
-        'tile-OTHER',
+        'history-page-OTHER',
         'tab-OTHER',
       ]) {
         builder.buildTree(state, key);
       }
     });
 
-    it('clearForClosedTab releases the tab, tile and history-page memos of that tab only', () => {
+    it('clearForClosedTab releases the tab and history-page memos of that tab only', () => {
       builder.clearForClosedTab('T');
 
-      expect(cachedKeys().sort()).toEqual(['tab-OTHER', 'tile-OTHER']);
+      expect(cachedKeys().sort()).toEqual(['history-page-OTHER', 'tab-OTHER']);
     });
 
-    it('clearForTab stays main-panel scoped so a still-open tile keeps its memo', () => {
+    it('clearForTab keeps the history-page memo of a still-open tab', () => {
       builder.clearForTab('T');
 
-      expect(cachedKeys()).toEqual(
-        expect.arrayContaining(['tile-T', 'history-page-T']),
-      );
+      expect(cachedKeys()).toContain('history-page-T');
       expect(cachedKeys()).not.toContain('tab-T');
     });
   });
