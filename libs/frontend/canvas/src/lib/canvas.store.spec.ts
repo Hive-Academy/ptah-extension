@@ -1,4 +1,10 @@
-import { ChangeDetectionStrategy, Component, Input, NgModule, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  NgModule,
+  signal,
+} from '@angular/core';
 jest.mock('ngx-markdown', () => {
   @Component({
     // eslint-disable-next-line @angular-eslint/component-selector
@@ -25,6 +31,7 @@ jest.mock('ngx-markdown', () => {
 });
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { CanvasStore, RETAINED_WORKSPACE_CAP } from './canvas.store';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import type { CanvasLayoutLoadResult } from './canvas-layout-persistence.service';
@@ -32,7 +39,29 @@ import type { TileIntent } from './canvas-layout-intent';
 
 describe('CanvasStore', () => {
   let store: CanvasStore;
-  let tabs: ReturnType<typeof signal<Array<{ id: string; claudeSessionId: null; name: string }>>>;
+  let tabs: ReturnType<
+    typeof signal<
+      Array<{
+        id: string;
+        claudeSessionId: string | null;
+        name: string;
+        status: 'loaded' | 'streaming' | 'resuming';
+      }>
+    >
+  >;
+  let agents: ReturnType<
+    typeof signal<
+      Array<{ parentSessionId: string; status: 'running' | 'completed' }>
+    >
+  >;
+  let subagents: ReturnType<
+    typeof signal<
+      ReadonlyMap<
+        string,
+        { parentSessionId: string; status: 'running' | 'completed' }
+      >
+    >
+  >;
   let persistence: {
     load: jest.Mock<CanvasLayoutLoadResult, [string]>;
     markHydrated: jest.Mock;
@@ -42,6 +71,8 @@ describe('CanvasStore', () => {
 
   beforeEach(() => {
     tabs = signal([]);
+    agents = signal([]);
+    subagents = signal(new Map());
     persistence = {
       load: jest.fn(() => ({
         tiles: null,
@@ -52,27 +83,68 @@ describe('CanvasStore', () => {
       schedule: jest.fn(),
       remove: jest.fn(),
     };
-    TestBed.configureTestingModule({ providers: [
-      CanvasStore,
-      { provide: CanvasLayoutPersistenceService, useValue: persistence },
-      { provide: TabManagerService, useValue: {
-        onTabClosed: jest.fn(() => () => undefined),
-        tabs,
-        activeTabId: signal<string | null>(null),
-        activeWorkspacePath$: signal<string | null>(null),
-        createTab: jest.fn(() => `tab-${tabs().length + 1}`),
-        openSessionTab: jest.fn((id: string) => `tab-${id}`),
-        switchTab: jest.fn(),
-        closeTab: jest.fn().mockResolvedValue(undefined),
-      } },
-    ] });
+    TestBed.configureTestingModule({
+      providers: [
+        CanvasStore,
+        { provide: AgentMonitorStore, useValue: { agents, subagents } },
+        { provide: CanvasLayoutPersistenceService, useValue: persistence },
+        {
+          provide: TabManagerService,
+          useValue: {
+            onTabClosed: jest.fn(() => () => undefined),
+            tabs,
+            activeTabId: signal<string | null>(null),
+            activeWorkspacePath$: signal<string | null>(null),
+            createTab: jest.fn(() => `tab-${tabs().length + 1}`),
+            openSessionTab: jest.fn((id: string) => `tab-${id}`),
+            switchTab: jest.fn(),
+            closeTab: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+      ],
+    });
     store = TestBed.inject(CanvasStore);
   });
 
   const hydrate = (path: string, ids: readonly string[]): void => {
-    tabs.set(ids.map((id) => ({ id, claudeSessionId: null, name: id })));
+    tabs.set(
+      ids.map((id) => ({
+        id,
+        claudeSessionId: null,
+        name: id,
+        status: 'loaded',
+      })),
+    );
     store.hydrateWorkspace(path, ids);
   };
+
+  it('counts only active tile sessions and reopens a slot when one finishes', () => {
+    const ids = Array.from({ length: 10 }, (_, i) => `tab-${i}`);
+    hydrate('/ws/a', ids);
+    tabs.set(
+      ids.map((id, i) => ({
+        id,
+        name: id,
+        claudeSessionId: `session-${i}`,
+        status: i < 9 ? 'streaming' : 'loaded',
+      })),
+    );
+    expect(store.runningSessionCount()).toBe(9);
+    expect(store.canStartRunningSession()).toBe(false);
+    expect(store.canAddTile()).toBe(true);
+    tabs.update((list) =>
+      list.map((tab, i) => (i === 0 ? { ...tab, status: 'loaded' } : tab)),
+    );
+    expect(store.runningSessionCount()).toBe(8);
+    expect(store.canStartRunningSession()).toBe(true);
+    agents.set([{ parentSessionId: 'session-9', status: 'running' }]);
+    expect(store.runningSessionCount()).toBe(9);
+    agents.set([]);
+    subagents.set(
+      new Map([['agent', { parentSessionId: 'session-9', status: 'running' }]]),
+    );
+    expect(store.runningSessionCount()).toBe(9);
+  });
 
   it('adoptTab of an already-tiled tab adds no second tile (agent re-adoption, TASK_2026_612)', () => {
     hydrate('/ws/a', ['parent']);
@@ -82,15 +154,25 @@ describe('CanvasStore', () => {
     // double the tile; a fresh canvas mount restores it by hydration instead.
     expect(store.adoptTab('child')).toBe('child');
 
-    expect(
-      store.tiles().filter((tile) => tile.tabId === 'child'),
-    ).toHaveLength(1);
+    expect(store.tiles().filter((tile) => tile.tabId === 'child')).toHaveLength(
+      1,
+    );
   });
 
   it('hydrates exact authoritative ids once before enabling writes', () => {
     const persisted: TileIntent[] = [
-      { tabId: 'kept', order: 0, width: { kind: 'span', span: 'half' }, rowBreakBefore: false },
-      { tabId: 'closed', order: 1, width: { kind: 'span', span: 'full' }, rowBreakBefore: true },
+      {
+        tabId: 'kept',
+        order: 0,
+        width: { kind: 'span', span: 'half' },
+        rowBreakBefore: false,
+      },
+      {
+        tabId: 'closed',
+        order: 1,
+        width: { kind: 'span', span: 'full' },
+        rowBreakBefore: true,
+      },
     ];
     persistence.load.mockReturnValue({
       tiles: persisted,
@@ -111,7 +193,10 @@ describe('CanvasStore', () => {
     expect(store.setTileSpan('/ws/a', 'B', 'two-thirds')).toBe(true);
     expect(store.workspaceRevision('/ws/a')).toBe(revision + 1);
     expect(store.tiles()[0].width).toEqual({ kind: 'auto', weight: 1 });
-    expect(store.tiles()[1].width).toEqual({ kind: 'span', span: 'two-thirds' });
+    expect(store.tiles()[1].width).toEqual({
+      kind: 'span',
+      span: 'two-thirds',
+    });
   });
 
   it('commits snapped resize only for the addressed workspace and revision', () => {
@@ -126,7 +211,9 @@ describe('CanvasStore', () => {
     expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'half' });
     const updatedRevisionA = store.workspaceRevision('/ws/a');
     expect(store.commitResizeSpan('/ws/a', revisionA, 'B', 'full')).toBe(false);
-    expect(store.commitResizeSpan('/ws/a', updatedRevisionA, 'B', 'two-thirds')).toBe(true);
+    expect(
+      store.commitResizeSpan('/ws/a', updatedRevisionA, 'B', 'two-thirds'),
+    ).toBe(true);
   });
 
   it('clears stale layout focus carried from the implicit partition during hydration', () => {
@@ -138,7 +225,12 @@ describe('CanvasStore', () => {
 
   it('schedules a v2 persist when migrated intent already matches reconciliation', () => {
     const migrated: TileIntent[] = [
-      { tabId: 'A', order: 0, width: { kind: 'auto', weight: 5 }, rowBreakBefore: false },
+      {
+        tabId: 'A',
+        order: 0,
+        width: { kind: 'auto', weight: 5 },
+        rowBreakBefore: false,
+      },
     ];
     persistence.load.mockReturnValue({
       tiles: migrated,

@@ -8,6 +8,11 @@ import {
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { SessionId } from '@ptah-extension/shared';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  countRunningSessions,
+  MAX_RUNNING_SESSIONS,
+} from './canvas-running-cap';
 import {
   DEFAULT_TILE_WIDTH,
   MAX_CANVAS_TILES,
@@ -80,13 +85,13 @@ const IMPLICIT_WORKSPACE_PATH = '';
 export class CanvasStore {
   private readonly tabManager = inject(TabManagerService);
   private readonly persistence = inject(CanvasLayoutPersistenceService);
+  private readonly agentMonitor = inject(AgentMonitorStore);
 
   /**
    * Maximum number of tiles the orchestra canvas allows simultaneously.
    *
-   * Caps the layout at a 3x3 grid — `CanvasLayoutService` clamps derived
-   * columns at 3, and Gridstack's column packing stays readable up to nine
-   * tiles before tiles get too small to host a usable chat surface.
+   * The tile bound is MAX_CANVAS_TILES (20) for persistence and Gridstack.
+   * The separate running limit is MAX_RUNNING_SESSIONS in canvas-running-cap.ts.
    */
   static readonly MAX_TILES = MAX_CANVAS_TILES;
 
@@ -142,6 +147,25 @@ export class CanvasStore {
   readonly tileCount = computed(() => this.tiles().length);
   readonly canAddTile = computed(
     () => this.tiles().length < CanvasStore.MAX_TILES,
+  );
+  readonly runningSessionCount = computed(() => {
+    const tabs = this.tabManager.tabs();
+    const tileTabIds = new Set(this.tiles().map((tile) => tile.tabId));
+    const canvasTabs = tabs.filter((tab) => tileTabIds.has(tab.id));
+    return countRunningSessions(
+      canvasTabs.map((tab) => tab.claudeSessionId),
+      (sessionId) =>
+        canvasTabs.some(
+          (tab) =>
+            tab.claudeSessionId === sessionId &&
+            (tab.status === 'streaming' || tab.status === 'resuming'),
+        ),
+      this.agentMonitor.agents(),
+      [...this.agentMonitor.subagents().values()],
+    );
+  });
+  readonly canStartRunningSession = computed(
+    () => this.runningSessionCount() < MAX_RUNNING_SESSIONS,
   );
 
   /**
@@ -283,7 +307,8 @@ export class CanvasStore {
     projected: readonly CanvasTile[],
   ): boolean {
     if (this._layoutLocked()) return false;
-    if (this.workspaceRevision(workspacePath) !== expectedRevision) return false;
+    if (this.workspaceRevision(workspacePath) !== expectedRevision)
+      return false;
     const current = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
     if (!sameIdsExactly(current, projected)) return false;
     const normalized = projected.map((tile, order) => ({
@@ -307,7 +332,8 @@ export class CanvasStore {
     tabId: string,
     span: TileSpan,
   ): boolean {
-    if (this.workspaceRevision(workspacePath) !== expectedRevision) return false;
+    if (this.workspaceRevision(workspacePath) !== expectedRevision)
+      return false;
     return this.setTileSpan(workspacePath, tabId, span);
   }
 
@@ -323,7 +349,9 @@ export class CanvasStore {
   /** Start a new logical row before a tile, or join it to the previous row. */
   toggleRowBreak(workspacePath: string, tabId: string): boolean {
     if (this._layoutLocked()) return false;
-    const first = sortByOrder(this._workspaceTiles().get(workspacePath) ?? [])[0];
+    const first = sortByOrder(
+      this._workspaceTiles().get(workspacePath) ?? [],
+    )[0];
     if (first?.tabId === tabId) return false;
     return this.updateTile(workspacePath, tabId, (tile) => ({
       ...tile,
@@ -339,7 +367,8 @@ export class CanvasStore {
     if (this._layoutLocked()) return false;
     const tiles = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
     if (!tiles.some((tile) => tile.tabId === tabId)) return false;
-    const next = this.layoutFocusTabIdFor(workspacePath) === tabId ? null : tabId;
+    const next =
+      this.layoutFocusTabIdFor(workspacePath) === tabId ? null : tabId;
     setIn(this._workspaceLayoutFocus, workspacePath, next);
     return true;
   }
@@ -444,10 +473,7 @@ export class CanvasStore {
       setIn(this._workspaceRevisions, path, 0);
     }
     this.persistence.markHydrated(path, loaded.writable);
-    if (
-      loaded.needsWrite ||
-      !sameIntent(loaded.tiles ?? EMPTY_TILES, tiles)
-    ) {
+    if (loaded.needsWrite || !sameIntent(loaded.tiles ?? EMPTY_TILES, tiles)) {
       this.schedulePersist(path);
     }
   }

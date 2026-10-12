@@ -64,7 +64,7 @@ import { ApplicationRef, signal, type WritableSignal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { TabId } from '@ptah-extension/shared';
+import { SessionId, TabId } from '@ptah-extension/shared';
 import type { TabState } from '@ptah-extension/chat-types';
 import { OrchestraCanvasComponent } from './orchestra-canvas.component';
 import { CanvasStore } from './canvas.store';
@@ -73,6 +73,7 @@ import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.serv
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
 import {
   AppStateManager,
@@ -144,6 +145,8 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let onTabClosedMock: jest.Mock;
   let switchSessionMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
+  let canStartRunningSession: ReturnType<typeof signal<boolean>>;
+  let newCanvasSessionRequest: WritableSignal<string | null>;
 
   function mount() {
     const fixture = TestBed.createComponent(OrchestraCanvasComponent);
@@ -191,6 +194,8 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       return requests;
     });
     onTabClosedMock = jest.fn(() => jest.fn());
+    canStartRunningSession = signal(true);
+    newCanvasSessionRequest = signal<string | null>(null);
 
     const tabManagerMock = {
       tabs: tabsSignal,
@@ -224,6 +229,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       focusedTabId: signal<string | null>(null),
       tileCount: signal(0),
       canAddTile: signal(true),
+      canStartRunningSession,
       workspacePaths: signal<string[]>([]),
       activeWorkspacePath: signal<string | null>(null),
       switchWorkspaceTiles: switchWorkspaceTilesMock,
@@ -273,7 +279,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         );
         return matching;
       }),
-      newCanvasSessionRequest: signal<string | null>(null),
+      newCanvasSessionRequest,
       canvasTabRequests: canvasTabRequests$,
       takeCanvasTabRequests: takeCanvasTabRequestsMock,
       clearNewCanvasSessionRequest: jest.fn(),
@@ -285,6 +291,10 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: ChatStore, useValue: chatStoreMock },
         { provide: AppStateManager, useValue: appStateMock },
+        {
+          provide: AgentMonitorStore,
+          useValue: { agents: signal([]), subagents: signal(new Map()) },
+        },
         idleActivityStub(),
       ],
     });
@@ -302,6 +312,46 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         ],
       },
     });
+  });
+
+  it('refuses new-session requests at nine running and clears the message when a slot frees', () => {
+    const fixture = mount();
+    canStartRunningSession.set(false);
+    newCanvasSessionRequest.set('new');
+    flush();
+    fixture.detectChanges();
+    expect(canvasStoreMock.addTile).not.toHaveBeenCalled();
+    expect(
+      TestBed.inject(AppStateManager).clearNewCanvasSessionRequest,
+    ).toHaveBeenCalled();
+    expect(
+      (
+        fixture.componentInstance as unknown as {
+          headerMessage: () => string | null;
+        }
+      ).headerMessage(),
+    ).toBe('9 sessions are running. Wait for one to finish to start another.');
+    canStartRunningSession.set(true);
+    flush();
+    fixture.detectChanges();
+    expect(
+      (
+        fixture.componentInstance as unknown as {
+          headerMessage: () => string | null;
+        }
+      ).headerMessage(),
+    ).toBeNull();
+  });
+
+  it('refuses popover creation at the running cap', () => {
+    const fixture = mount();
+    canStartRunningSession.set(false);
+    (
+      fixture.componentInstance as unknown as {
+        handleCreateSession: () => void;
+      }
+    ).handleCreateSession();
+    expect(canvasStoreMock.addTile).not.toHaveBeenCalled();
   });
 
   it('workspace-swap effect calls switchWorkspaceTiles with new path and current tabs', () => {
@@ -457,9 +507,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   // tiled into the now-active grid.
   it('drops a tab-adoption request for a workspace the canvas is not showing', () => {
     (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-a');
-    (
-      canvasStoreMock.activeWorkspacePath as WritableSignal<string | null>
-    ).set('/ws/b');
+    (canvasStoreMock.activeWorkspacePath as WritableSignal<string | null>).set(
+      '/ws/b',
+    );
     const fixture = mount();
 
     canvasTabRequests$.set([{ tabId: 'tab-a', workspacePath: '/ws/a' }]);
@@ -474,9 +524,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
 
   it('adopts exactly one tile for a same-workspace request', () => {
     (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-a');
-    (
-      canvasStoreMock.activeWorkspacePath as WritableSignal<string | null>
-    ).set('/ws/a');
+    (canvasStoreMock.activeWorkspacePath as WritableSignal<string | null>).set(
+      '/ws/a',
+    );
     const fixture = mount();
 
     canvasTabRequests$.set([
@@ -760,6 +810,10 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
         { provide: ChatStore, useValue: chatStoreMock },
         { provide: AppStateManager, useValue: appStateMock },
         idleActivityStub(),
+        {
+          provide: AgentMonitorStore,
+          useValue: { agents: signal([]), subagents: signal(new Map()) },
+        },
       ],
     });
     TestBed.overrideComponent(OrchestraCanvasComponent, {
@@ -951,6 +1005,10 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
         { provide: ChatStore, useValue: chatStoreMock },
         { provide: AppStateManager, useValue: appStateMock },
         {
+          provide: AgentMonitorStore,
+          useValue: { agents: signal([]), subagents: signal(new Map()) },
+        },
+        {
           provide: BackOfficeActivityService,
           useValue: { recent: activityItems, isIdle: activityIdle },
         },
@@ -991,6 +1049,44 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
 
     fixture = TestBed.createComponent(OrchestraCanvasComponent);
     fixture.detectChanges();
+  });
+
+  it('disables the New Session trigger and exposes its reason at nine running sessions', () => {
+    const existingTabId = tabsSignal()[0].id;
+    const runningTabs = Array.from({ length: 9 }, (_, index) => ({
+      ...createMockTabState(
+        `running-${index}`,
+        index === 0 ? existingTabId : TabId.create(),
+      ),
+      claudeSessionId: SessionId.from(
+        `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      ),
+      status: 'streaming' as const,
+    }));
+    tabsSignal.set(runningTabs);
+    for (const tab of runningTabs.slice(1)) {
+      fixture.componentInstance.canvasStore.adoptTab(tab.id);
+    }
+    expect(fixture.componentInstance.canvasStore.runningSessionCount()).toBe(9);
+    fixture.detectChanges();
+    const trigger = fixture.nativeElement.querySelector(
+      'button[aria-label="Add new session tile"]',
+    ) as HTMLButtonElement;
+    expect(trigger.disabled).toBe(true);
+    expect(trigger.title).toBe(
+      '9 sessions are running. Wait for one to finish to start another.',
+    );
+    expect(trigger.getAttribute('aria-describedby')).toBe(
+      'canvas-running-cap-reason',
+    );
+    const reason = fixture.nativeElement.querySelector(
+      '#canvas-running-cap-reason',
+    ) as HTMLElement | null;
+    expect(reason).not.toBeNull();
+    expect(reason?.textContent?.trim()).toBe(trigger.title);
+    expect(
+      trigger.closest('ptah-native-popover')?.getAttribute('tabindex'),
+    ).toBe('0');
   });
 
   it('renders reserved dock outside the session viewport when tiles are present', () => {

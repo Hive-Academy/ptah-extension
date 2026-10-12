@@ -37,6 +37,7 @@ import { CanvasLayoutControlsComponent } from './canvas-layout-controls.componen
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import type { CanvasLayoutPreset } from './canvas-layout-intent';
+import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -114,6 +115,11 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
             (lockToggled)="toggleLock()"
             (presetRequested)="applyPreset($event)"
           />
+          @if (headerMessage()) {
+            <span class="text-xs text-warning" role="status">{{
+              headerMessage()
+            }}</span>
+          }
 
           @if (canvasStore.canAddTile()) {
             <ptah-native-popover
@@ -121,20 +127,46 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
               [placement]="'bottom-end'"
               [hasBackdrop]="true"
               [backdropClass]="'transparent'"
+              [attr.tabindex]="canvasStore.canStartRunningSession() ? null : 0"
+              [attr.role]="
+                canvasStore.canStartRunningSession() ? null : 'group'
+              "
+              [attr.aria-label]="
+                canvasStore.canStartRunningSession()
+                  ? null
+                  : 'New Session unavailable'
+              "
+              [attr.aria-describedby]="
+                canvasStore.canStartRunningSession()
+                  ? null
+                  : 'canvas-running-cap-reason'
+              "
+              [attr.title]="
+                canvasStore.canStartRunningSession() ? null : runningCapMessage
+              "
               (closed)="handleCancelSession()"
             >
               <button
                 trigger
                 type="button"
                 class="btn btn-xs btn-primary gap-1 shadow-sm"
-                title="Add new session tile"
+                [disabled]="!canvasStore.canStartRunningSession()"
+                [title]="
+                  canvasStore.canStartRunningSession()
+                    ? 'Add new session tile'
+                    : runningCapMessage
+                "
+                [attr.aria-describedby]="
+                  canvasStore.canStartRunningSession()
+                    ? null
+                    : 'canvas-running-cap-reason'
+                "
                 aria-label="Add new session tile"
                 (click)="openNewSessionPopover()"
               >
                 <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
                 <span class="text-xs font-medium">New Session</span>
               </button>
-
               <div content class="surface-3 p-4 w-72 rounded-xl">
                 <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
                   New Session
@@ -172,6 +204,9 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
                 </div>
               </div>
             </ptah-native-popover>
+            <span id="canvas-running-cap-reason" class="sr-only">{{
+              runningCapMessage
+            }}</span>
           }
         </div>
       }
@@ -301,6 +336,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
   protected readonly sessionPopoverOpen = signal(false);
   protected readonly sessionNameInput = signal('');
+  protected readonly runningCapMessage = `${MAX_RUNNING_SESSIONS} sessions are running. Wait for one to finish to start another.`;
+  protected readonly headerMessage = signal<string | null>(null);
   private readonly sessionNameInputRef = viewChild<
     ElementRef<HTMLInputElement>
   >('sessionNameInputRef');
@@ -391,8 +428,17 @@ export class OrchestraCanvasComponent implements OnDestroy {
     effect(() => {
       const name = this.appState.newCanvasSessionRequest();
       if (name !== null) {
-        this.canvasStore.addTile(name);
+        if (this.canvasStore.canStartRunningSession()) {
+          this.canvasStore.addTile(name);
+        } else {
+          this.headerMessage.set(this.runningCapMessage);
+        }
         this.appState.clearNewCanvasSessionRequest();
+      }
+    });
+    effect(() => {
+      if (this.canvasStore.canStartRunningSession()) {
+        this.headerMessage.set(null);
       }
     });
     // Adopt already-existing tabs as tiles (F-D3). The Tasks-board launch and
@@ -548,6 +594,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
   /** Create session with the entered (or default) name. */
   protected handleCreateSession(): void {
+    if (!this.canvasStore.canStartRunningSession()) {
+      this.headerMessage.set(this.runningCapMessage);
+      this.sessionPopoverOpen.set(false);
+      return;
+    }
     const name = this.sessionNameInput().trim();
     const sessionName = name || defaultSessionName();
     this.canvasStore.addTile(sessionName);
