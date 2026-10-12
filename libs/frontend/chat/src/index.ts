@@ -24,3 +24,9 @@ export {
 } from './lib/services/change-set/change-set.store';
 export { ChangeSetActionsService } from './lib/services/change-set/change-set-actions.service';
 export { ChatAgentFeedbackSender } from './lib/services/agent-feedback/chat-agent-feedback-sender.service';
+export { AgentPermissionResponder } from './lib/services/agent-permission-responder';
+export {
+  buildLaneSummary,
+  laneKey,
+} from './lib/components/molecules/compact-session/compact-lane-rows';
+export { SESSION_CARD_ACTIONS } from './lib/tokens/session-context.token';

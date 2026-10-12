@@ -42,3 +42,9 @@ export const SESSION_VISIBLE = new InjectionToken<Signal<boolean>>(
 export const SESSION_FOCUSED = new InjectionToken<Signal<boolean>>(
   'SESSION_FOCUSED',
 );
+
+/** Optional actions supplied by a canvas tile to the compact session card. */
+export const SESSION_CARD_ACTIONS = new InjectionToken<{
+  openLane(laneKey: string): void;
+  openSession(): void;
+}>('SESSION_CARD_ACTIONS');
