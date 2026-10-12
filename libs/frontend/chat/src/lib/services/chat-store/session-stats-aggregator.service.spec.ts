@@ -40,7 +40,6 @@ import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
-import { SessionHandoverClientService } from '../session-handover-client.service';
 import type { TabState } from '@ptah-extension/chat-types';
 import {
   SessionId,
@@ -1015,8 +1014,6 @@ describe('SessionStatsAggregatorService', () => {
       lowerBound: false,
       revision: 7,
       compactions: 0,
-      extensions: 0,
-      blocked: true,
     };
 
     it('installs the budget with the snapshot of a turn result', () => {
@@ -1156,7 +1153,6 @@ describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)',
   let loadSessions: jest.Mock;
   let sendQueued: jest.Mock;
   let clearCompactionState: jest.Mock;
-  let handoverRecord: jest.Mock;
   let setLiveModelStats: jest.SpyInstance;
   let warn: jest.SpyInstance;
 
@@ -1228,7 +1224,6 @@ describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)',
       loadSessions,
       sendQueued,
       clearCompactionState,
-      handoverRecord,
     ]) {
       spy.mockClear();
     }
@@ -1240,7 +1235,6 @@ describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)',
     expect(loadSessions).not.toHaveBeenCalled();
     expect(sendQueued).not.toHaveBeenCalled();
     expect(clearCompactionState).not.toHaveBeenCalled();
-    expect(handoverRecord).not.toHaveBeenCalled();
     expect(setLiveModelStats).not.toHaveBeenCalled();
   }
 
@@ -1256,7 +1250,6 @@ describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)',
     loadSessions = jest.fn().mockResolvedValue(undefined);
     sendQueued = jest.fn();
     clearCompactionState = jest.fn();
-    handoverRecord = jest.fn();
     warn = jest.spyOn(console, 'warn').mockImplementation();
     const modelRefresh = {
       refreshModels: jest.fn().mockResolvedValue(undefined),
@@ -1288,10 +1281,6 @@ describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)',
         {
           provide: MessageDispatchService,
           useValue: { sendQueuedMessage: sendQueued },
-        },
-        {
-          provide: SessionHandoverClientService,
-          useValue: { record: handoverRecord },
         },
       ],
     });

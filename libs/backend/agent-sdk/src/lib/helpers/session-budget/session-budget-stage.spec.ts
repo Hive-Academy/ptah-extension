@@ -14,7 +14,6 @@ import type {
 import { SESSION_BUDGET_DEFAULT_CONFIG } from './session-budget-config.provider';
 import {
   acceptsSessionBudgetSnapshot,
-  effectiveSessionBudgetLimit,
   evaluateSessionBudget,
   measureSessionBudget,
   nextSessionBudgetStage,
@@ -47,7 +46,7 @@ function config(
 const COST = config({ unit: 'cost' });
 
 describe('measureSessionBudget — unit tokens', () => {
-  const opts = { extensions: 0, stickyWeightedFallback: false };
+  const opts = { stickyWeightedFallback: false };
 
   it('uses the displayed tokenCount against the token limit', () => {
     expect(
@@ -76,7 +75,7 @@ describe('measureSessionBudget — unit tokens', () => {
 });
 
 describe('measureSessionBudget — unit cost (F6)', () => {
-  const opts = { extensions: 0, stickyWeightedFallback: false };
+  const opts = { stickyWeightedFallback: false };
 
   it('uses totalCost when it is known', () => {
     expect(
@@ -144,19 +143,9 @@ describe('measureSessionBudget — unit cost (F6)', () => {
       measureSessionBudget(
         snapshot({ totalCost: 3, pricingCoverage: 'full' }),
         COST,
-        { extensions: 0, stickyWeightedFallback: true },
+        { stickyWeightedFallback: true },
       ).measure,
     ).toBe('weighted-fallback');
-  });
-
-  it('an extension adds 20% of the configured limit to every measure', () => {
-    expect(
-      measureSessionBudget(snapshot({ totalCost: 1 }), COST, {
-        extensions: 2,
-        stickyWeightedFallback: false,
-      }).limit,
-    ).toBeCloseTo(42, 10);
-    expect(effectiveSessionBudgetLimit(50_000_000, 1)).toBe(60_000_000);
   });
 });
 
@@ -241,7 +230,7 @@ describe('nextSessionBudgetStage', () => {
     ).toBe('limit');
   });
 
-  it('a reset (extend or settings change) drops the floor', () => {
+  it('a reset (settings change) drops the floor', () => {
     expect(
       nextSessionBudgetStage({
         ...base,
@@ -295,7 +284,6 @@ describe('evaluateSessionBudget', () => {
     extra: Partial<{
       config: SessionBudgetConfig;
       compactions: number;
-      extensions: number;
       resetStage: boolean;
       resetMeasure: boolean;
     }> = {},
@@ -306,7 +294,6 @@ describe('evaluateSessionBudget', () => {
       config: extra.config ?? config(),
       previous,
       compactions: extra.compactions ?? 0,
-      extensions: extra.extensions ?? 0,
       resetStage: extra.resetStage ?? false,
       resetMeasure: extra.resetMeasure ?? false,
     }),
@@ -328,17 +315,14 @@ describe('evaluateSessionBudget', () => {
       lowerBound: false,
       revision: 7,
       compactions: 0,
-      extensions: 0,
-      blocked: false,
     });
   });
 
-  it('no figure before the first one → unknown, never blocked', () => {
+  it('no figure before the first one → unknown', () => {
     const state = evaluate(snapshot({ revision: 1 }), null);
     expect(state.stage).toBe('unknown');
     expect(state.used).toBeNull();
     expect(state.percent).toBeNull();
-    expect(state.blocked).toBe(false);
   });
 
   it('a snapshot with no figure keeps the previous figure and stage', () => {
@@ -352,7 +336,7 @@ describe('evaluateSessionBudget', () => {
     expect(next.revision).toBe(2);
   });
 
-  it('a kept figure from another measure uses the current extended limit', () => {
+  it('a kept figure from another measure uses the current configured limit', () => {
     const priced = evaluate(
       snapshot({ totalCost: 1, pricingCoverage: 'full', revision: 1 }),
       null,
@@ -362,36 +346,17 @@ describe('evaluateSessionBudget', () => {
     const next = evaluate(
       snapshot({ pricingCoverage: 'partial', revision: 2 }),
       priced,
-      { config: COST, extensions: 1 },
+      { config: COST },
     );
     expect(next.measure).toBe('cost');
     expect(next.used).toBe(1);
-    expect(next.limit).toBeCloseTo(COST.usd * 1.2, 6);
+    expect(next.limit).toBe(COST.usd);
   });
 
-  it('at 100% with blockAtLimit the state is blocked; without it, not', () => {
-    expect(evaluate(snapshot({ tokenCount: 50_000_000 }), null).blocked).toBe(
-      true,
-    );
-    expect(
-      evaluate(snapshot({ tokenCount: 50_000_000 }), null, {
-        config: config({ blockAtLimit: false }),
-      }),
-    ).toMatchObject({ stage: 'limit', blocked: false });
-  });
-
-  it('extend: +20% limit and the stage recomputed without the floor', () => {
-    const atLimit = evaluate(snapshot({ tokenCount: 52_000_000 }), null);
-    const extended = evaluate(snapshot({ tokenCount: 52_000_000 }), atLimit, {
-      extensions: 1,
-      resetStage: true,
-    });
-    expect(extended).toMatchObject({
-      stage: 'handoff',
-      limit: 60_000_000,
-      extensions: 1,
-      blocked: false,
-    });
+  it('at 100% the stage is limit and nothing is blocked', () => {
+    const state = evaluate(snapshot({ tokenCount: 50_000_000 }), null);
+    expect(state.stage).toBe('limit');
+    expect(state).not.toHaveProperty('blocked');
   });
 
   it('weighted-fallback stays sticky until a settings change', () => {

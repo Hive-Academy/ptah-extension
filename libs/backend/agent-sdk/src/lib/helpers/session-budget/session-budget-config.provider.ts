@@ -43,7 +43,6 @@ export const SESSION_BUDGET_DEFAULT_CONFIG: SessionBudgetConfig = {
   handoffAfterCompactions:
     SESSION_BUDGET_SETTINGS.handoffAfterCompactions.default,
   tightenWindowTokens: SESSION_BUDGET_SETTINGS.tightenWindowTokens.default,
-  blockAtLimit: SESSION_BUDGET_SETTINGS.blockAtLimit.default,
 };
 
 function isNumberInBounds(
@@ -137,10 +136,6 @@ export class SessionBudgetConfigProvider {
       tightenWindowTokens: this.readNumber(
         read,
         SESSION_BUDGET_SETTINGS.tightenWindowTokens,
-      ),
-      blockAtLimit: this.readBoolean(
-        read,
-        SESSION_BUDGET_SETTINGS.blockAtLimit,
       ),
     };
   }

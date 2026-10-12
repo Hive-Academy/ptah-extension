@@ -66,8 +66,6 @@ function budgetState(
     lowerBound: false,
     revision,
     compactions: 0,
-    extensions: 0,
-    blocked: false,
   };
 }
 
@@ -1300,22 +1298,6 @@ describe('TabManagerService — intent-named mutators', () => {
         expect(budgetOf(id)).toBe(live);
       });
 
-      // PR 3 review S-3: a SESSION_BUDGET_REACHED refusal carries its state.
-      it('installSessionBudget installs a refusal state for the bound session only', () => {
-        const id = service.createTab('budget refusal');
-        service.attachSession(id, SESS_X);
-        const refused = budgetState(SESS_X, 6, 600);
-
-        service.installSessionBudget(id, budgetState('other-session', 9, 900));
-        expect(budgetOf(id) ?? null).toBeNull();
-
-        service.installSessionBudget(id, refused);
-        expect(budgetOf(id)).toBe(refused);
-        expect(
-          service.tabs().find((t) => t.id === id)?.sessionStats ?? null,
-        ).toBeNull();
-      });
-
       // TASK_2026_614 F.4 / F-D: turning the budget off clears every banner.
       it('clearSessionBudgets drops the budget from every tab and keeps the stats', () => {
         const first = service.createTab('budget off 1');
@@ -1329,7 +1311,11 @@ describe('TabManagerService — intent-named mutators', () => {
           sessionSnapshot(SESS_X, 2, 2),
           budgetState(SESS_X, 2, 200),
         );
-        service.installSessionBudget(second, budgetState(other, 3, 300));
+        service.installSessionStats(
+          second,
+          sessionSnapshot(other, 3, 3),
+          budgetState(other, 3, 300),
+        );
         service.setLiveBudgetStage(first, SESS_X, 'handoff');
         expect(budgetOf(second)).not.toBeNull();
         const plainBefore = service.tabs().find((t) => t.id === plain);
@@ -1351,23 +1337,6 @@ describe('TabManagerService — intent-named mutators', () => {
           service.tabs().find((t) => t.id === first)?.sessionStats,
         ).toBeTruthy();
         expect(service.tabs().find((t) => t.id === plain)).toBe(plainBefore);
-      });
-
-      it('clearSessionBudget clears the live stage with the budget, for the bound session only', () => {
-        const id = service.createTab('budget clear one');
-        service.attachSession(id, SESS_X);
-        service.installSessionBudget(id, budgetState(SESS_X, 2, 200));
-        service.setLiveBudgetStage(id, SESS_X, 'limit');
-
-        service.clearSessionBudget(id, 'other-session');
-        const kept = service.tabs().find((t) => t.id === id);
-        expect(kept?.sessionBudget).not.toBeNull();
-        expect(kept?.liveBudgetStage).toBe('limit');
-
-        service.clearSessionBudget(id, SESS_X);
-        const cleared = service.tabs().find((t) => t.id === id);
-        expect(cleared?.sessionBudget).toBeNull();
-        expect(cleared?.liveBudgetStage).toBeNull();
       });
 
       it('resetTabToFresh clears the budget with the snapshot', () => {

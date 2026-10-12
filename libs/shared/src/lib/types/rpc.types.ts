@@ -733,20 +733,6 @@ import type {
   SurfaceReadResult,
   SurfaceSelectParams,
 } from './rpc/rpc-surface.types';
-import type {
-  SessionBudgetActionParams,
-  SessionBudgetActionResult,
-} from './session-budget.types';
-import type {
-  BeginSessionHandoverParams,
-  BeginSessionHandoverResult,
-  CancelSessionHandoverParams,
-  CancelSessionHandoverResult,
-  GetSessionHandoverStateParams,
-  GetSessionHandoverStateResult,
-  SuccessorBoundParams,
-  SuccessorBoundResult,
-} from './session-handover.types';
 
 /**
  * RPC Method Registry
@@ -852,28 +838,6 @@ export interface RpcMethodRegistry {
   'session:listForTasks': {
     params: SessionListForTasksParams;
     result: SessionListForTasksResult;
-  };
-  // Session budget banner actions (TASK_2026_597 N7). Served on every host; a
-  // host without the budget service answers `{ success: false, error: 'unavailable' }`.
-  'session:budgetAction': {
-    params: SessionBudgetActionParams;
-    result: SessionBudgetActionResult;
-  };
-  'session:beginHandover': {
-    params: BeginSessionHandoverParams;
-    result: BeginSessionHandoverResult;
-  };
-  'session:cancelHandover': {
-    params: CancelSessionHandoverParams;
-    result: CancelSessionHandoverResult;
-  };
-  'session:successorBound': {
-    params: SuccessorBoundParams;
-    result: SuccessorBoundResult;
-  };
-  'session:getHandoverState': {
-    params: GetSessionHandoverStateParams;
-    result: GetSessionHandoverStateResult;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -3788,11 +3752,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:addPrLink': true,
   'session:removePrLink': true,
   'session:listForTasks': true,
-  'session:budgetAction': true,
-  'session:beginHandover': true,
-  'session:cancelHandover': true,
-  'session:successorBound': true,
-  'session:getHandoverState': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,

@@ -24,15 +24,8 @@ export type RpcUserErrorCode =
   /** The connection is the main agent's current driver and cannot be removed. */
   | 'CONNECTION_IN_USE'
   /**
-   * The session reached its budget limit and sends are blocked until the user
-   * allows more, compacts, clears or continues in a new session.
-   */
-  | 'SESSION_BUDGET_REACHED'
-  /**
    * The feature's background-learning switch (`memory.enabled` or
    * `skillSynthesis.enabled`) is off, so a manual run that would do the same
    * model work is refused until the user resumes it.
    */
-  | 'PAUSED'
-  /** A queued prompt has been accepted into the handover transfer FIFO. */
-  | 'SESSION_HANDOVER_HELD';
+  | 'PAUSED';

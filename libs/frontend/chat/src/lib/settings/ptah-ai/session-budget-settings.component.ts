@@ -27,7 +27,7 @@ type NumberKey =
   | 'handoffPercent'
   | 'handoffAfterCompactions'
   | 'tightenWindowTokens';
-type BooleanKey = 'enabled' | 'blockAtLimit';
+type BooleanKey = 'enabled';
 
 type Parsed =
   | { readonly ok: true; readonly value: number | null }
@@ -78,12 +78,12 @@ const NUMBER_FIELDS: readonly NumberField[] = [
   {
     key: 'handoffPercent',
     label: 'Handoff at (%)',
-    help: 'Suggests a new session.',
+    help: 'Offers to wrap up and hand off to a new session.',
   },
   {
     key: 'handoffAfterCompactions',
     label: 'Handoff after compactions',
-    help: 'Suggests a handoff after this many compactions.',
+    help: 'Offers a handoff after this many compactions.',
   },
   {
     key: 'tightenWindowTokens',
@@ -94,7 +94,6 @@ const NUMBER_FIELDS: readonly NumberField[] = [
 
 const BOOLEAN_LABELS: Readonly<Record<BooleanKey, string>> = {
   enabled: 'Track a budget for each chat session',
-  blockAtLimit: 'Pause sending at 100% until you choose what to do',
 };
 
 const LABELS: Readonly<Record<BudgetKey, string>> = {
@@ -364,10 +363,7 @@ export class SessionBudgetSettingsComponent implements OnInit {
   protected readonly settings = SESSION_BUDGET_SETTINGS;
   protected readonly labels = LABELS;
   protected readonly numberFields = NUMBER_FIELDS;
-  protected readonly booleanKeys: readonly BooleanKey[] = [
-    'enabled',
-    'blockAtLimit',
-  ];
+  protected readonly booleanKeys: readonly BooleanKey[] = ['enabled'];
   protected readonly units = SESSION_BUDGET_SETTINGS.unit.values;
   protected readonly unitLabels = UNIT_LABELS;
 

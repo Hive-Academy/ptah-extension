@@ -13,7 +13,6 @@ import {
   SessionId,
   type ResultStatsPayload,
   type SessionBudgetState,
-  type SessionHandoverState,
   type SessionStatsEntry,
   type SessionStatsLiveWire,
 } from '@ptah-extension/shared';
@@ -24,7 +23,6 @@ import {
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
-import { SessionHandoverClientService } from '../session-handover-client.service';
 
 /**
  * A `session:stats` broadcast for one SDK result, as the webview receives it.
@@ -47,7 +45,6 @@ export type SessionStatsResultEvent = Omit<
 > & {
   readonly sessionId: string;
   readonly modelUsage?: TurnModelUsage[];
-  readonly handover?: SessionHandoverState;
 };
 
 /**
@@ -59,8 +56,6 @@ export interface SessionStatsSnapshotEvent {
   readonly sessionStats?: SessionStatsEntry;
   /** `null` clears known-absent state; `undefined` keeps the last budget. */
   readonly budget?: SessionBudgetState | null;
-  /** Revisioned coordinator state; it may arrive before terminal turn_state. */
-  readonly handover?: SessionHandoverState;
   readonly turnCost?: undefined;
   readonly tokens?: undefined;
   readonly duration?: undefined;
@@ -114,7 +109,6 @@ export class SessionStatsAggregatorService {
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
   private readonly messageDispatch = inject(MessageDispatchService);
-  private readonly handoverClient = inject(SessionHandoverClientService);
 
   /**
    * Handle session stats update from backend
@@ -123,9 +117,6 @@ export class SessionStatsAggregatorService {
    * @param stats - Per-result footer fields plus the backend session snapshot
    */
   handleSessionStats(stats: SessionStatsEvent): void {
-    if (stats.handover) {
-      this.handoverClient.record(stats.sessionId, stats.handover);
-    }
     const targetTabs = this.tabsForSession(SessionId.from(stats.sessionId));
     const snapshot = this.snapshotFor(stats, 'handleSessionStats');
     if (isSnapshotOnly(stats)) {
@@ -200,7 +191,7 @@ export class SessionStatsAggregatorService {
    * marker. This is never a turn result, so none of the `session:stats`
    * result-path effects run here — no compaction clearing, no footer or
    * `pendingStats` write (`streamingHandler.handleSessionStats`), no sidebar
-   * refresh, no queued send, no handover record and no `setLiveModelStats`.
+   * refresh, no queued send and no `setLiveModelStats`.
    * Turn finalization stays with `turn_state`.
    *
    * Every bound tab, in any workspace, installs through `installSessionStats`

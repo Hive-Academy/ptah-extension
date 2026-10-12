@@ -54,7 +54,6 @@ import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/age
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
-import { SessionHandoverClientService } from '../../services/session-handover-client.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -87,7 +86,7 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
-import { ENDED_HANDOVER_PHASES, SessionId } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
   CliType,
@@ -1040,64 +1039,30 @@ export class ChatViewComponent implements OnDestroy {
     });
   });
 
-  /** Budget banner state and flows, scoped to this view's tab and session. */
+  /** Budget banner state, scoped to this view's tab and session. */
   private readonly _budgetActions = inject(SessionBudgetActionsService);
-  private readonly _handoverClient = inject(SessionHandoverClientService);
 
-  /** The tab's budget, or the newer state a budget action returned (M6). */
+  /** The tab's budget state. */
   readonly resolvedSessionBudget = this._budgetActions.budget;
-  /** Per-session samples for the budget sparkline. */
-  protected readonly budgetUsage = this._budgetActions.usage;
+  /** Authoritative or live budget stage, whichever is higher. */
+  protected readonly budgetDisplayStage = this._budgetActions.displayStage;
+  protected readonly budgetDismissedStage = this._budgetActions.dismissedStage;
+  protected readonly budgetWrapUpSent = this._budgetActions.wrapUpSent;
   /**
-   * Stored immediately from stats. Shown once this tab is idle, or while it
-   * streams when the handover is still pending (see `showSessionBudgetBanner`).
-   */
-  protected readonly resolvedHandover = computed(() =>
-    this._handoverClient.stateFor(this.resolvedSessionId()),
-  );
-  /** The live budget stage; counts only while this tab streams with a budget. */
-  protected readonly budgetLiveStage = this._budgetActions.liveStage;
-  protected readonly budgetTurnRunning = this._budgetActions.turnRunning;
-  protected readonly budgetWrapUpRequested = this._budgetActions.wrapUpRequested;
-  protected readonly budgetQueuedMessageCarried =
-    this._budgetActions.queuedMessageCarried;
-  /**
-   * An idle tab shows any budget or handover notice. A streaming tab shows the
-   * banner only when it needs a click mid-turn (Decision 7): the display stage
-   * is `handoff`/`limit` (wrap-up, continue), or a handover is still pending,
-   * including an agent request that arrives mid-turn (Approve/Cancel). Other
-   * stats received while generating wait for the terminal turn_state.
+   * The budget banner shows on the active tab of the main panel, idle or
+   * streaming: the wrap-up message queues like any typed one while a turn runs.
+   * The banner itself decides the stage (handoff or limit, not dismissed).
    */
   protected readonly showSessionBudgetBanner = computed(() => {
     const tab = this.resolvedActiveTab();
     const tabId = this.resolvedTabId();
-    const handover = this.resolvedHandover();
-    const hasNotice = this.resolvedSessionBudget() !== null || handover !== null;
-    const stage = this._budgetActions.displayStage();
-    const showWhileStreaming =
-      tab?.status === 'streaming' &&
-      (stage === 'handoff' ||
-        stage === 'limit' ||
-        (handover !== null && !ENDED_HANDOVER_PHASES.has(handover.phase)));
     return (
-      hasNotice &&
+      this.resolvedSessionBudget() !== null &&
       this.mainPanelShowing() &&
-      (tab?.status === 'loaded' || showWhileStreaming) &&
+      (tab?.status === 'loaded' || tab?.status === 'streaming') &&
       tabId !== null &&
       tabId === this._tabManager.activeTabId()
     );
-  });
-  protected readonly budgetActionBusy = this._budgetActions.busy;
-  protected readonly budgetPreviewText = this._budgetActions.previewText;
-  /** True when the last preview load for this session failed (F.6). */
-  protected readonly budgetPreviewFailed = this._budgetActions.previewFailed;
-
-  /** Main-context tokens for the banner's limit comparison, when known. */
-  protected readonly budgetContextTokens = computed(() => {
-    const live = this.resolvedActiveTab()?.liveModelStats;
-    return live && live.contextKnown !== false && live.contextUsed > 0
-      ? live.contextUsed
-      : null;
   });
 
   /**
@@ -1357,15 +1322,6 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
-    // Handover draft return (D24, S20): reads the handover state and the
-    // composer, so a compact → full switch re-runs it with a mounted input.
-    effect(() => {
-      this.resolvedHandover();
-      const chatInput = this.chatInputRef();
-      if (!chatInput) return;
-      untracked(() => this.applyHandoverDraft(chatInput));
-    });
-
     // Agent auto-open, per panel key (decision #100): running agents or a
     // pending permission ask for the Agents tab, which the store ignores while
     // the panel is open or after a user close; settled agents release it.
@@ -1497,72 +1453,13 @@ export class ChatViewComponent implements OnDestroy {
     }
   }
 
-  /** Budget banner buttons that only change the budget state. */
-  protected async onBudgetAction(
-    action: 'dismiss' | 'extend' | 'restore-window',
-  ): Promise<void> {
-    return this._budgetActions.runStateAction(action);
+  /** Budget banner "Wrap up & hand off": one normal message to the agent. */
+  protected onBudgetWrapUp(): Promise<void> {
+    return this._budgetActions.sendWrapUp();
   }
 
-  protected onBudgetPreview(): Promise<void> {
-    return this._budgetActions.loadPreview();
-  }
-
-  protected onBudgetContinue(): Promise<void> {
-    return this._budgetActions.continueInNewSession();
-  }
-
-  protected onBudgetCancelHandover(): Promise<void> {
-    return this._budgetActions.cancelHandover();
-  }
-
-  protected onBudgetRequestWrapUp(): Promise<void> {
-    return this._budgetActions.requestWrapUp();
-  }
-
-  protected onBudgetContinueNowAnyway(): Promise<void> {
-    return this._budgetActions.continueNowAnyway();
-  }
-
-  /** Approving an agent request is the user's own begin (D23). */
-  protected onBudgetApproveAgentRequest(): Promise<void> {
-    return this._budgetActions.continueInNewSession();
-  }
-
-  /**
-   * Put a cancelled or failed handover's returned draft (D24) into this view's
-   * composer, once per operation. Without a mounted composer (compact view)
-   * nothing happens and the draft stays unacknowledged; the effect re-runs when
-   * the composer mounts. A throwing write skips the acknowledgement, so the
-   * draft stays recoverable. Never routed through restoreInputs or the send path.
-   */
-  private applyHandoverDraft(chatInput: ChatInputComponent): void {
-    const draft = this._handoverClient.peekDraft(this.resolvedSessionId());
-    if (!draft) return;
-    try {
-      chatInput.restoreDraftToInput(draft.text);
-    } catch (err) {
-      // degradation-audit: reported - logged below; skipping the
-      // acknowledgement keeps the draft recoverable for the next attempt.
-      console.warn('[ChatView] Failed to restore the handover draft:', err);
-      return;
-    }
-    this._handoverClient.acknowledgeDraft(draft.operationId);
-  }
-
-  /** Put bounded lost handover inputs back into this source view's composer. */
-  protected onRestoreLostHandoverInputs(texts: readonly string[]): void {
-    const content = texts.filter(Boolean).join('\n\n');
-    if (content) this.chatInputRef()?.restoreContentToInput(content);
-  }
-
-  protected onBudgetRotate(): Promise<void> {
-    return this._budgetActions.rotateSession();
-  }
-
-  /** Banner "Compact": the composer's `/compact` send, not a budget RPC. */
-  protected onBudgetCompact(): Promise<void> {
-    return this._budgetActions.compact();
+  protected onBudgetDismiss(): void {
+    this._budgetActions.dismiss();
   }
 
   /**

@@ -8,11 +8,8 @@ import {
   SESSION_BUDGET_SETTINGS,
   isSessionBudgetPercentOrderValid,
   type SessionBudgetConfig,
-  type SessionBudgetHandoff,
-  type SessionBudgetHandoffReadStatus,
   type SessionBudgetRotation,
   type SessionBudgetState,
-  type SessionBudgetWindow,
 } from './session-budget.types';
 
 const entries = Object.entries(SESSION_BUDGET_SETTINGS) as Array<
@@ -34,7 +31,6 @@ describe('SESSION_BUDGET_SETTINGS', () => {
       'handoffPercent',
       'handoffAfterCompactions',
       'tightenWindowTokens',
-      'blockAtLimit',
     ];
     expect(Object.keys(SESSION_BUDGET_SETTINGS).sort()).toEqual(
       [...fields].sort(),
@@ -54,7 +50,6 @@ describe('SESSION_BUDGET_SETTINGS', () => {
     expect(SESSION_BUDGET_SETTINGS.handoffPercent.default).toBe(80);
     expect(SESSION_BUDGET_SETTINGS.handoffAfterCompactions.default).toBe(3);
     expect(SESSION_BUDGET_SETTINGS.tightenWindowTokens.default).toBeNull();
-    expect(SESSION_BUDGET_SETTINGS.blockAtLimit.default).toBe(true);
     expect(SESSION_BUDGET_SETTINGS.unit.default).toBe('tokens');
     expect(SESSION_BUDGET_SETTINGS.enabled.default).toBe(true);
   });
@@ -102,8 +97,6 @@ describe('SessionBudgetState.rotation', () => {
     lowerBound: false,
     revision: null,
     compactions: 0,
-    extensions: 0,
-    blocked: false,
   };
 
   it('is optional: a state without the advisory is complete', () => {
@@ -129,47 +122,6 @@ describe('SessionBudgetState.rotation', () => {
       'threshold',
     ]);
   });
-});
-
-describe('SessionBudgetWindow restore failure (F-A)', () => {
-  it('carries `restore-failed` with `applied: true` and survives JSON', () => {
-    const window: SessionBudgetWindow = {
-      target: 200_000,
-      applied: true,
-      reason: 'restore-failed',
-    };
-    const roundTripped = JSON.parse(
-      JSON.stringify(window),
-    ) as SessionBudgetWindow;
-    expect(roundTripped).toEqual({
-      target: 200_000,
-      applied: true,
-      reason: 'restore-failed',
-    });
-  });
-});
-
-describe('SessionBudgetHandoff.readStatus', () => {
-  const base: SessionBudgetHandoff = {
-    path: '/home/u/.ptah/handoffs/s1.md',
-    chars: 1_200,
-    truncated: false,
-    writtenAt: 1_700_000_000_000,
-  };
-
-  it('is optional: a handoff built from a read transcript omits it', () => {
-    expect(base.readStatus).toBeUndefined();
-  });
-
-  it.each<SessionBudgetHandoffReadStatus>(['workspace-unknown', 'read-failed'])(
-    'carries `%s` through JSON',
-    (readStatus) => {
-      const roundTripped = JSON.parse(
-        JSON.stringify({ ...base, readStatus }),
-      ) as SessionBudgetHandoff;
-      expect(roundTripped.readStatus).toBe(readStatus);
-    },
-  );
 });
 
 describe('isSessionBudgetPercentOrderValid', () => {

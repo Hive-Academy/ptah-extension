@@ -30,10 +30,9 @@ import type {
 } from '@ptah-extension/shared';
 import { blankToUndefined } from '@ptah-extension/shared';
 
-import type { Query } from '../session-lifecycle-manager';
+import type { Query, SDKUserMessage } from '../session-lifecycle-manager';
 import type { ActivityHold } from '../no-activity-watchdog';
 import type { UsageCostSource } from '../../session-stats/session-stats-owner.service';
-import type { QueuedSessionInput } from '../session-handoff/session-handover-coordinator.service';
 
 /**
  * A single session record held in the dual-index registry.
@@ -65,8 +64,8 @@ export interface SessionRecord {
   readonly config: AISessionConfig;
   /** Abort controller for this session. Immutable after register. */
   readonly abortController: AbortController;
-  /** Source-neutral inputs awaiting stream-pump SDK-message construction. */
-  messageQueue: QueuedSessionInput[];
+  /** Queued user messages awaiting the streaming pump. */
+  messageQueue: SDKUserMessage[];
   /** Callback to wake the streaming iterator when a message arrives. */
   resolveNext: (() => void) | null;
   /**
@@ -550,22 +549,6 @@ export class SessionRegistry {
     }
     rec.turnInFlight = false;
     if (rec.resolveNext) {
-      const wake = rec.resolveNext;
-      rec.resolveNext = null;
-      wake();
-    }
-    return true;
-  }
-
-  /** Restore a handover FIFO ahead of later source input and wake an idle pump. */
-  restoreQueuedInputs(
-    idOrTabId: string,
-    inputs: readonly QueuedSessionInput[],
-  ): boolean {
-    const rec = this.find(idOrTabId);
-    if (!rec || inputs.length === 0) return false;
-    rec.messageQueue.unshift(...inputs);
-    if (!rec.turnInFlight && rec.resolveNext) {
       const wake = rec.resolveNext;
       rec.resolveNext = null;
       wake();

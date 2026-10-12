@@ -24,7 +24,6 @@ import type {
   SessionChildSendResult,
   SessionChildSnapshot,
   SessionChildStartRequest,
-  SessionSuccessorStartRequest,
   SessionChildStartResult,
   SessionSendMode,
 } from '@ptah-extension/cli-agent-runtime';
@@ -35,9 +34,10 @@ export const SESSION_SPAWNER_UNAVAILABLE_MESSAGE =
   'services during container setup.';
 
 /** Start arguments; the caller is supplied by the namespace, never by the agent. */
-export type SessionStartInput =
-  | Omit<SessionChildStartRequest, 'callerSessionId'>
-  | Omit<SessionSuccessorStartRequest, 'callerSessionId'>;
+export type SessionStartInput = Omit<
+  SessionChildStartRequest,
+  'callerSessionId'
+>;
 
 export interface SessionSendInput {
   readonly childSessionId: string;
@@ -102,7 +102,7 @@ export function buildSessionNamespace(
         ...input,
         callerSessionId: caller(),
       });
-      if (result.ok && 'child' in result) {
+      if (result.ok) {
         deps.onWorktreeChanged?.({
           action: 'created',
           worktreePath: result.child.worktreePath,
