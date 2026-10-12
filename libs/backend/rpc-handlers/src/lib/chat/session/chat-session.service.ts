@@ -1068,6 +1068,10 @@ export class ChatSessionService {
       return { success: true, sessionId };
     } catch (error) {
       if (error instanceof RpcUserError) {
+        this.logger.warn(
+          `RPC: chat:continue returned user error (${error.errorCode}): ${error.message}`,
+          { sessionId: params.sessionId },
+        );
         return {
           success: false,
           error: error.message,
@@ -1243,6 +1247,10 @@ export class ChatSessionService {
       };
     } catch (error) {
       if (error instanceof RpcUserError) {
+        this.logger.warn(
+          `RPC: chat:resume returned user error (${error.errorCode}): ${error.message}`,
+          { sessionId: params.sessionId },
+        );
         return {
           success: false,
           error: error.message,
