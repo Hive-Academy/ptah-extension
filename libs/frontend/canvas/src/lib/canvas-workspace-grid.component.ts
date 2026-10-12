@@ -41,6 +41,11 @@ import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { TabManagerService } from '@ptah-extension/chat';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { canvasGridItems } from './canvas-grid-items';
+import { canvasDetailGeometry } from './canvas-detail-geometry';
+import {
+  canvasDetailStyles,
+  canvasWorkspaceGridStyles,
+} from './canvas-workspace-grid.styles';
 
 /** Which gesture just ended, latched before Gridstack's `change` fires. */
 type GestureKind = 'drag' | 'resize';
@@ -93,6 +98,7 @@ interface LayoutMeasurements {
     // sessions shown, stacked). `display:none` hides the grid without unmounting
     // its tiles/transcripts, so the keep-alive contract still holds.
     '[style.display]': "visible() ? 'block' : 'none'",
+    '[style.--ptah-detail-h.px]': 'detailGeometry()?.heightPx ?? null',
     '[attr.data-canvas-measured-width]': 'layoutService.containerWidth()',
     '[attr.data-canvas-layout-computations]': "metric('layoutComputations')",
     '[attr.data-canvas-apply-checks]': "metric('applyChecks')",
@@ -120,6 +126,9 @@ interface LayoutMeasurements {
         <gridstack-item
           [options]="item.options"
           [class.ptah-compact-item]="item.compact"
+          [class.ptah-below-detail]="
+            detailGeometry()?.belowIds?.has(item.tabId)
+          "
         >
           <ptah-canvas-tile
             data-testid="canvas-tile"
@@ -141,53 +150,26 @@ interface LayoutMeasurements {
         </gridstack-item>
       }
     </gridstack>
+    @if (detailGeometry(); as detail) {
+      <div
+        class="ptah-detail-slot"
+        [style.top.px]="detail.topPx"
+        [style.height.px]="detail.heightPx"
+        [style.--ptah-notch-pct.%]="detail.notchPct"
+      >
+        <ng-content select="[ptahCanvasDetail]" />
+      </div>
+    }
   `,
   styles: [
+    canvasDetailStyles,
+    canvasWorkspaceGridStyles,
     `
       :host {
         height: 100%;
       }
-
-      gridstack {
-        min-height: 200px;
-        height: 100%;
-      }
-
-      gridstack.singleton {
-        height: 100% !important;
-      }
-
-      /* Keep full-height singletons tall; Gridstack owns their chosen width. */
-      gridstack.singleton:not(.compact-singleton) > gridstack-item {
-        height: 100% !important;
-      }
-
-      /* Electron does not resolve Gridstack 12's calculated inline height, so
-         pin a compact singleton to its stored height via a pixel variable.
-         Unpinned while its south edge is dragged (Gridstack writes a live
-         pixel height), so the drag previews; the commit re-pins it on stop. */
       gridstack.compact-singleton > gridstack-item:not(.ui-resizable-resizing) {
         height: var(--ptah-compact-singleton-height) !important;
-      }
-
-      :host
-        ::ng-deep
-        gridstack-item.ui-resizable-disabled
-        > .ui-resizable-handle {
-        display: none !important;
-      }
-
-      /* Gridstack creates one handle set for every item; each tile shows only
-         the edges it can write: a compact tile its height (south), a full
-         tile its span (east and west). */
-      :host ::ng-deep gridstack-item.ptah-compact-item > .ui-resizable-e,
-      :host ::ng-deep gridstack-item.ptah-compact-item > .ui-resizable-w,
-      :host ::ng-deep gridstack-item:not(.ptah-compact-item) > .ui-resizable-s {
-        display: none !important;
-      }
-
-      gridstack.singleton .tile-header {
-        cursor: default !important;
       }
     `,
   ],
@@ -199,6 +181,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   readonly visible = input.required<boolean>();
   /** Canvas-wide lock: freezes layout and disables drag/resize when true. */
   readonly locked = input<boolean>(false);
+  readonly detailTabId = input<string | null>(null);
 
   readonly canvasStore = inject(CanvasStore);
   private readonly tabManager = inject(TabManagerService);
@@ -356,6 +339,14 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       () => this.metrics.increment('creationOptionWrites', 1, false),
     );
   });
+
+  protected readonly detailGeometry = computed(() =>
+    canvasDetailGeometry(
+      this.detailTabId(),
+      this.layout(),
+      this.layoutService.containerHeight(),
+    ),
+  );
 
   /**
    * True for the synchronous window in which this component is writing derived
