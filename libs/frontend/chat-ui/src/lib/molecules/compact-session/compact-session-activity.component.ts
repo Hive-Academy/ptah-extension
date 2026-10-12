@@ -490,313 +490,327 @@ const FALLBACK_RECAP_HEIGHT = 180;
           data-zone="now"
         >
           <span class="cs-zone-label">Now</span>
-          <span class="truncate" [title]="nowActivity()">{{ nowActivity() }}</span>
+          <span class="truncate" [title]="nowActivity()">{{
+            nowActivity()
+          }}</span>
         </div>
       } @else {
-      <div class="cs-body-host min-h-0 overflow-hidden" #bodyHost>
-        <div
-          class="cs-body h-full min-h-0"
-          [class.cs-no-handle]="!handleVisible()"
-          [style.--cs-recap-w]="recapWidthStyle()"
-          [style.--cs-recap-h]="recapHeightStyle()"
-        >
+        <div class="cs-body-host min-h-0 overflow-hidden" #bodyHost>
           <div
-            #recapPane
-            class="cs-recap-pane bg-base-200/20 p-3"
-            data-zone="recap"
+            class="cs-body h-full min-h-0"
+            [class.cs-no-handle]="!handleVisible()"
+            [style.--cs-recap-w]="recapWidthStyle()"
+            [style.--cs-recap-h]="recapHeightStyle()"
           >
             <div
-              class="flex shrink-0 items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
+              #recapPane
+              class="cs-recap-pane bg-base-200/20 p-3"
+              data-zone="recap"
             >
-              <span>Assistant recap</span>
-              <span
-                class="shrink-0 rounded border px-1.5 py-px font-mono text-[9px] font-bold uppercase"
-                [class.border-primary/30]="summary().status.tone === 'live'"
-                [class.bg-primary/10]="summary().status.tone === 'live'"
-                [class.text-primary]="summary().status.tone === 'live'"
-                [class.border-success/30]="summary().status.tone === 'success'"
-                [class.bg-success/10]="summary().status.tone === 'success'"
-                [class.text-success]="summary().status.tone === 'success'"
-                [class.border-warning/30]="summary().status.tone === 'warning'"
-                [class.bg-warning/10]="summary().status.tone === 'warning'"
-                [class.text-warning]="summary().status.tone === 'warning'"
-                [class.border-error/30]="summary().status.tone === 'error'"
-                [class.bg-error/10]="summary().status.tone === 'error'"
-                [class.text-error]="summary().status.tone === 'error'"
-                [class.border-base-content/20]="
-                  summary().status.tone === 'idle'
-                "
-                [class.bg-base-content/5]="summary().status.tone === 'idle'"
-                [class.text-base-content-muted]="
-                  summary().status.tone === 'idle'
-                "
-              >
-                {{ outcomeTag() }}
-              </span>
-            </div>
-
-            <div class="cs-recap-scroll my-2 pr-1">
-              @if (summary().content.format === 'markdown') {
-                <div class="cs-recap-md">
-                  <ptah-markdown-block [content]="summary().content.text" />
-                </div>
-              } @else if (summary().content.format === 'snippet') {
-                <pre
-                  class="cs-recap-snippet font-mono text-[11px] leading-snug text-error"
-                  data-testid="cs-recap-snippet"
-                  >{{ summary().content.text }}</pre>
-              } @else {
-                <p
-                  class="whitespace-pre-line text-xs leading-relaxed"
-                  [class.text-error]="summary().content.kind === 'error'"
-                  [class.text-base-content]="summary().content.kind !== 'error'"
-                >
-                  {{ summary().content.text }}
-                </p>
-              }
-              @if (summary().content.additionalPromptCount > 0) {
-                <span
-                  class="mt-1 inline-block text-[11px] font-semibold text-warning"
-                >
-                  +{{ summary().content.additionalPromptCount }} more
-                </span>
-              }
-            </div>
-
-            <div class="flex shrink-0 flex-col gap-2 pt-1">
               <div
-                class="cs-agent-context rounded border border-base-content/10 bg-base-300/20 p-2 font-mono text-[10px] text-base-content-muted"
+                class="flex shrink-0 items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
               >
-                <div>
-                  Agent:
-                  <span class="font-semibold text-base-content">{{
-                    activeAgentName()
-                  }}</span>
-                </div>
-                <div>
-                  Events:
-                  <span class="font-semibold text-base-content">{{
-                    feedCounts().all
-                  }}</span>
-                </div>
-                @if (lastErrorLabel(); as lastError) {
-                  <div class="truncate text-error" [title]="lastError">
-                    Last error: {{ lastError }}
+                <span>Assistant recap</span>
+                <span
+                  class="shrink-0 rounded border px-1.5 py-px font-mono text-[9px] font-bold uppercase"
+                  [class.border-primary/30]="summary().status.tone === 'live'"
+                  [class.bg-primary/10]="summary().status.tone === 'live'"
+                  [class.text-primary]="summary().status.tone === 'live'"
+                  [class.border-success/30]="
+                    summary().status.tone === 'success'
+                  "
+                  [class.bg-success/10]="summary().status.tone === 'success'"
+                  [class.text-success]="summary().status.tone === 'success'"
+                  [class.border-warning/30]="
+                    summary().status.tone === 'warning'
+                  "
+                  [class.bg-warning/10]="summary().status.tone === 'warning'"
+                  [class.text-warning]="summary().status.tone === 'warning'"
+                  [class.border-error/30]="summary().status.tone === 'error'"
+                  [class.bg-error/10]="summary().status.tone === 'error'"
+                  [class.text-error]="summary().status.tone === 'error'"
+                  [class.border-base-content/20]="
+                    summary().status.tone === 'idle'
+                  "
+                  [class.bg-base-content/5]="summary().status.tone === 'idle'"
+                  [class.text-base-content-muted]="
+                    summary().status.tone === 'idle'
+                  "
+                >
+                  {{ outcomeTag() }}
+                </span>
+              </div>
+
+              <div class="cs-recap-scroll my-2 pr-1">
+                @if (summary().content.format === 'markdown') {
+                  <div class="cs-recap-md">
+                    <ptah-markdown-block [content]="summary().content.text" />
                   </div>
+                } @else if (summary().content.format === 'snippet') {
+                  <pre
+                    class="cs-recap-snippet font-mono text-[11px] leading-snug text-error"
+                    data-testid="cs-recap-snippet"
+                    >{{ summary().content.text }}</pre>
+                } @else {
+                  <p
+                    class="whitespace-pre-line text-xs leading-relaxed"
+                    [class.text-error]="summary().content.kind === 'error'"
+                    [class.text-base-content]="
+                      summary().content.kind !== 'error'
+                    "
+                  >
+                    {{ summary().content.text }}
+                  </p>
+                }
+                @if (summary().content.additionalPromptCount > 0) {
+                  <span
+                    class="mt-1 inline-block text-[11px] font-semibold text-warning"
+                  >
+                    +{{ summary().content.additionalPromptCount }} more
+                  </span>
                 }
               </div>
-              @if (summary().content.actionable) {
-                <button
-                  type="button"
-                  class="btn btn-primary btn-xs w-full"
-                  (click)="openFullView.emit()"
-                >
-                  Open full view
-                </button>
-              }
-            </div>
-          </div>
 
-          @if (handleVisible()) {
-            <ptah-split-handle
-              data-testid="cs-split-handle"
-              [orientation]="handleOrientation()"
-              [size]="handleSize()"
-              [min]="handleMin()"
-              [max]="handleMax()"
-              [label]="splitHandleLabel()"
-              (sizeChange)="onSplitSizeChange($event)"
-              (sizeReset)="onSplitReset()"
-            />
-          }
-
-          <div class="cs-feed-pane" data-zone="feed">
-            <div
-              class="flex shrink-0 items-center justify-between border-b border-base-content/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
-            >
-              <span>Teletype wire stream</span>
-              <span class="cs-feed-counter"
-                >{{ summary().marks.length }} EVENTS</span
-              >
-              <div
-                class="cs-filter-chips items-center gap-1 font-mono text-[10px]"
-              >
-                <button
-                  type="button"
-                  class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
-                  [class.bg-base-300]="activeFilter() === 'all'"
-                  [class.text-base-content]="activeFilter() === 'all'"
-                  [class.font-bold]="activeFilter() === 'all'"
-                  [class.text-base-content-muted]="activeFilter() !== 'all'"
-                  [class.hover:text-base-content]="activeFilter() !== 'all'"
-                  [attr.aria-pressed]="activeFilter() === 'all'"
-                  (click)="setFilter('all')"
+              <div class="flex shrink-0 flex-col gap-2 pt-1">
+                <div
+                  class="cs-agent-context rounded border border-base-content/10 bg-base-300/20 p-2 font-mono text-[10px] text-base-content-muted"
                 >
-                  ALL ({{ feedCounts().all }})
-                </button>
-                <span class="text-base-content-muted" aria-hidden="true"
-                  >&bull;</span
-                >
-                <button
-                  type="button"
-                  class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
-                  [class.bg-error/20]="activeFilter() === 'error'"
-                  [class.text-error]="
-                    activeFilter() === 'error' || feedCounts().error > 0
-                  "
-                  [class.font-bold]="activeFilter() === 'error'"
-                  [class.text-base-content-muted]="
-                    activeFilter() !== 'error' && feedCounts().error === 0
-                  "
-                  [attr.aria-pressed]="activeFilter() === 'error'"
-                  (click)="setFilter('error')"
-                >
-                  ERR ({{ feedCounts().error }})
-                </button>
-                <span class="text-base-content-muted" aria-hidden="true"
-                  >&bull;</span
-                >
-                <button
-                  type="button"
-                  class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
-                  [class.bg-warning/20]="activeFilter() === 'warn'"
-                  [class.text-warning]="
-                    activeFilter() === 'warn' || feedCounts().warn > 0
-                  "
-                  [class.font-bold]="activeFilter() === 'warn'"
-                  [class.text-base-content-muted]="
-                    activeFilter() !== 'warn' && feedCounts().warn === 0
-                  "
-                  [attr.aria-pressed]="activeFilter() === 'warn'"
-                  (click)="setFilter('warn')"
-                >
-                  WARN ({{ feedCounts().warn }})
-                </button>
-              </div>
-            </div>
-
-            <ul
-              #feedList
-              class="min-h-0 flex-1 overflow-y-auto"
-              role="list"
-              aria-label="Session activity feed"
-            >
-              @for (row of feedRows(); track row.mark.id) {
-                <li
-                  class="flex flex-col border-l-2 border-transparent transition-colors hover:bg-base-content/5"
-                  [class.border-error]="row.mark.tone === 'error'"
-                  [class.bg-error/5]="row.mark.tone === 'error'"
-                  [class.border-warning]="row.mark.tone === 'warning'"
-                  [class.bg-warning/5]="row.mark.tone === 'warning'"
-                  [class.border-primary]="row.mark.tone === 'live'"
-                  [class.bg-primary/5]="row.mark.tone === 'live'"
-                  role="listitem"
-                >
-                  <div
-                    class="cs-row-line flex items-center gap-2 rounded px-2.5 py-1 font-mono text-[11px] leading-snug outline-none focus-visible:bg-primary/10"
-                    [class.cursor-pointer]="row.detail !== null"
-                    [attr.role]="row.detail !== null ? 'button' : null"
-                    [attr.tabindex]="row.detail !== null ? 0 : null"
-                    [attr.aria-expanded]="
-                      row.detail !== null
-                        ? activeExpandedMarkId() === row.mark.id
-                        : null
-                    "
-                    [attr.aria-controls]="
-                      row.detail !== null ? row.mark.id + '-detail' : null
-                    "
-                    [attr.title]="row.title"
-                    (click)="toggleExpanded(row)"
-                    (keydown)="onRowKeydown($event, row)"
-                  >
-                    <span
-                      class="w-[50px] shrink-0 text-[10px] tabular-nums text-base-content-muted"
-                    >
-                      {{ formatWireTime(row.mark.timestamp) }}
-                    </span>
-                    @if (row.tool; as tool) {
-                      <ptah-tool-icon
-                        class="inline-flex shrink-0"
-                        aria-hidden="true"
-                        [toolName]="tool.name"
-                      />
-                      <span
-                        [class]="tool.badgeClass"
-                        data-testid="cs-tool-badge"
-                      >
-                        <span class="truncate">{{ tool.displayName }}</span>
-                      </span>
-                    } @else {
-                      <span [class]="wireBadgeClass(row.mark)">
-                        <span aria-hidden="true">{{
-                          toneGlyph(row.mark.tone)
-                        }}</span>
-                        {{ kindLabel(row.mark.kind) }}
-                      </span>
-                    }
-                    <span class="min-w-0 flex-1 truncate">
-                      {{ row.text }}
-                      @if (newestLiveMarkId() === row.mark.id) {
-                        <span class="blinking-cursor" aria-hidden="true"></span>
-                      }
-                    </span>
-                    @if (
-                      row.tool &&
-                      (row.mark.tone === 'success' || row.mark.tone === 'error')
-                    ) {
-                      <lucide-angular
-                        [img]="row.mark.tone === 'success' ? CheckIcon : XIcon"
-                        class="h-3 w-3 shrink-0"
-                        [class.text-success]="row.mark.tone === 'success'"
-                        [class.text-error]="row.mark.tone === 'error'"
-                        aria-hidden="true"
-                      />
-                    }
+                  <div>
+                    Agent:
+                    <span class="font-semibold text-base-content">{{
+                      activeAgentName()
+                    }}</span>
                   </div>
-                  @if (
-                    row.detail !== null &&
-                    activeExpandedMarkId() === row.mark.id
-                  ) {
-                    <div
-                      class="cs-row-detail mb-1 ml-2.5 mr-2.5 rounded border border-base-content/10 bg-base-content/5 px-2 py-1.5 font-mono text-[10px] leading-normal text-base-content-muted"
-                      [attr.id]="row.mark.id + '-detail'"
-                    >
-                      {{ row.detail }}
+                  <div>
+                    Events:
+                    <span class="font-semibold text-base-content">{{
+                      feedCounts().all
+                    }}</span>
+                  </div>
+                  @if (lastErrorLabel(); as lastError) {
+                    <div class="truncate text-error" [title]="lastError">
+                      Last error: {{ lastError }}
                     </div>
                   }
-                </li>
-              } @empty {
-                <li
-                  class="px-3 py-2 font-mono text-[10px] text-base-content-muted"
-                  role="listitem"
-                >
-                  No matching events
-                </li>
-              }
-            </ul>
-
-            <div
-              class="cs-terminal-footer shrink-0 items-center justify-between border-t border-dashed border-base-content/15 bg-base-300/20 px-3 py-1.5 font-mono text-[10px] text-base-content-muted"
-            >
-              <div class="flex items-center gap-1 truncate">
-                <span class="font-semibold text-primary">ptah</span>:<span
-                  class="text-info"
-                  >{{ summary().status.workspaceLabel }}</span
-                >$
-                <span class="font-medium text-base-content">{{
-                  terminalPromptStatus()
-                }}</span>
-                @if (summary().status.tone === 'live') {
-                  <span class="blinking-cursor" aria-hidden="true"></span>
+                </div>
+                @if (summary().content.actionable) {
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-xs w-full"
+                    (click)="openFullView.emit()"
+                  >
+                    Open full view
+                  </button>
                 }
               </div>
-              <span class="shrink-0 text-[10px] tabular-nums"
-                >{{ summary().marks.length }} events</span
+            </div>
+
+            @if (handleVisible()) {
+              <ptah-split-handle
+                data-testid="cs-split-handle"
+                [orientation]="handleOrientation()"
+                [size]="handleSize()"
+                [min]="handleMin()"
+                [max]="handleMax()"
+                [label]="splitHandleLabel()"
+                (sizeChange)="onSplitSizeChange($event)"
+                (sizeReset)="onSplitReset()"
+              />
+            }
+
+            <div class="cs-feed-pane" data-zone="feed">
+              <div
+                class="flex shrink-0 items-center justify-between border-b border-base-content/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
               >
+                <span>Teletype wire stream</span>
+                <span class="cs-feed-counter"
+                  >{{ summary().marks.length }} EVENTS</span
+                >
+                <div
+                  class="cs-filter-chips items-center gap-1 font-mono text-[10px]"
+                >
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
+                    [class.bg-base-300]="activeFilter() === 'all'"
+                    [class.text-base-content]="activeFilter() === 'all'"
+                    [class.font-bold]="activeFilter() === 'all'"
+                    [class.text-base-content-muted]="activeFilter() !== 'all'"
+                    [class.hover:text-base-content]="activeFilter() !== 'all'"
+                    [attr.aria-pressed]="activeFilter() === 'all'"
+                    (click)="setFilter('all')"
+                  >
+                    ALL ({{ feedCounts().all }})
+                  </button>
+                  <span class="text-base-content-muted" aria-hidden="true"
+                    >&bull;</span
+                  >
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
+                    [class.bg-error/20]="activeFilter() === 'error'"
+                    [class.text-error]="
+                      activeFilter() === 'error' || feedCounts().error > 0
+                    "
+                    [class.font-bold]="activeFilter() === 'error'"
+                    [class.text-base-content-muted]="
+                      activeFilter() !== 'error' && feedCounts().error === 0
+                    "
+                    [attr.aria-pressed]="activeFilter() === 'error'"
+                    (click)="setFilter('error')"
+                  >
+                    ERR ({{ feedCounts().error }})
+                  </button>
+                  <span class="text-base-content-muted" aria-hidden="true"
+                    >&bull;</span
+                  >
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
+                    [class.bg-warning/20]="activeFilter() === 'warn'"
+                    [class.text-warning]="
+                      activeFilter() === 'warn' || feedCounts().warn > 0
+                    "
+                    [class.font-bold]="activeFilter() === 'warn'"
+                    [class.text-base-content-muted]="
+                      activeFilter() !== 'warn' && feedCounts().warn === 0
+                    "
+                    [attr.aria-pressed]="activeFilter() === 'warn'"
+                    (click)="setFilter('warn')"
+                  >
+                    WARN ({{ feedCounts().warn }})
+                  </button>
+                </div>
+              </div>
+
+              <ul
+                #feedList
+                class="min-h-0 flex-1 overflow-y-auto"
+                role="list"
+                aria-label="Session activity feed"
+              >
+                @for (row of feedRows(); track row.mark.id) {
+                  <li
+                    class="flex flex-col border-l-2 border-transparent transition-colors hover:bg-base-content/5"
+                    [class.border-error]="row.mark.tone === 'error'"
+                    [class.bg-error/5]="row.mark.tone === 'error'"
+                    [class.border-warning]="row.mark.tone === 'warning'"
+                    [class.bg-warning/5]="row.mark.tone === 'warning'"
+                    [class.border-primary]="row.mark.tone === 'live'"
+                    [class.bg-primary/5]="row.mark.tone === 'live'"
+                    role="listitem"
+                  >
+                    <div
+                      class="cs-row-line flex items-center gap-2 rounded px-2.5 py-1 font-mono text-[11px] leading-snug outline-none focus-visible:bg-primary/10"
+                      [class.cursor-pointer]="row.detail !== null"
+                      [attr.role]="row.detail !== null ? 'button' : null"
+                      [attr.tabindex]="row.detail !== null ? 0 : null"
+                      [attr.aria-expanded]="
+                        row.detail !== null
+                          ? activeExpandedMarkId() === row.mark.id
+                          : null
+                      "
+                      [attr.aria-controls]="
+                        row.detail !== null ? row.mark.id + '-detail' : null
+                      "
+                      [attr.title]="row.title"
+                      (click)="toggleExpanded(row)"
+                      (keydown)="onRowKeydown($event, row)"
+                    >
+                      <span
+                        class="w-[50px] shrink-0 text-[10px] tabular-nums text-base-content-muted"
+                      >
+                        {{ formatWireTime(row.mark.timestamp) }}
+                      </span>
+                      @if (row.tool; as tool) {
+                        <ptah-tool-icon
+                          class="inline-flex shrink-0"
+                          aria-hidden="true"
+                          [toolName]="tool.name"
+                        />
+                        <span
+                          [class]="tool.badgeClass"
+                          data-testid="cs-tool-badge"
+                        >
+                          <span class="truncate">{{ tool.displayName }}</span>
+                        </span>
+                      } @else {
+                        <span [class]="wireBadgeClass(row.mark)">
+                          <span aria-hidden="true">{{
+                            toneGlyph(row.mark.tone)
+                          }}</span>
+                          {{ kindLabel(row.mark.kind) }}
+                        </span>
+                      }
+                      <span class="min-w-0 flex-1 truncate">
+                        {{ row.text }}
+                        @if (newestLiveMarkId() === row.mark.id) {
+                          <span
+                            class="blinking-cursor"
+                            aria-hidden="true"
+                          ></span>
+                        }
+                      </span>
+                      @if (
+                        row.tool &&
+                        (row.mark.tone === 'success' ||
+                          row.mark.tone === 'error')
+                      ) {
+                        <lucide-angular
+                          [img]="
+                            row.mark.tone === 'success' ? CheckIcon : XIcon
+                          "
+                          class="h-3 w-3 shrink-0"
+                          [class.text-success]="row.mark.tone === 'success'"
+                          [class.text-error]="row.mark.tone === 'error'"
+                          aria-hidden="true"
+                        />
+                      }
+                    </div>
+                    @if (
+                      row.detail !== null &&
+                      activeExpandedMarkId() === row.mark.id
+                    ) {
+                      <div
+                        class="cs-row-detail mb-1 ml-2.5 mr-2.5 rounded border border-base-content/10 bg-base-content/5 px-2 py-1.5 font-mono text-[10px] leading-normal text-base-content-muted"
+                        [attr.id]="row.mark.id + '-detail'"
+                      >
+                        {{ row.detail }}
+                      </div>
+                    }
+                  </li>
+                } @empty {
+                  <li
+                    class="px-3 py-2 font-mono text-[10px] text-base-content-muted"
+                    role="listitem"
+                  >
+                    No matching events
+                  </li>
+                }
+              </ul>
+
+              <div
+                class="cs-terminal-footer shrink-0 items-center justify-between border-t border-dashed border-base-content/15 bg-base-300/20 px-3 py-1.5 font-mono text-[10px] text-base-content-muted"
+              >
+                <div class="flex items-center gap-1 truncate">
+                  <span class="font-semibold text-primary">ptah</span>:<span
+                    class="text-info"
+                    >{{ summary().status.workspaceLabel }}</span
+                  >$
+                  <span class="font-medium text-base-content">{{
+                    terminalPromptStatus()
+                  }}</span>
+                  @if (summary().status.tone === 'live') {
+                    <span class="blinking-cursor" aria-hidden="true"></span>
+                  }
+                </div>
+                <span class="shrink-0 text-[10px] tabular-nums"
+                  >{{ summary().marks.length }} events</span
+                >
+              </div>
             </div>
           </div>
         </div>
-      </div>
       }
 
       @if (lanes(); as laneData) {
@@ -885,9 +899,10 @@ const FALLBACK_RECAP_HEIGHT = 180;
                       laneKindIcon[row.kind]
                     }}</span>
                     <span class="truncate">{{ row.name }}</span>
-                    <span class="truncate text-[10px] text-base-content-muted">{{
-                      laneKindLabel[row.kind]
-                    }}</span>
+                    <span
+                      class="truncate text-[10px] text-base-content-muted"
+                      >{{ laneKindLabel[row.kind] }}</span
+                    >
                     <span [class]="laneStatusTextClass[row.status]">
                       <span
                         [class]="laneStatusDotClass[row.status]"
@@ -921,10 +936,22 @@ const FALLBACK_RECAP_HEIGHT = 180;
         </div>
       }
 
-      <ptah-compact-session-stats
+      <div
         data-zone="metrics"
-        [metrics]="summary().metrics"
-      />
+        class="flex min-w-0 items-center overflow-hidden"
+      >
+        <ptah-compact-session-stats
+          class="min-w-0 flex-1"
+          [metrics]="summary().metrics"
+        />
+        @if (boardLayout() && contextPercent() !== null) {
+          <span
+            class="shrink-0 pr-3 font-mono text-[10px] text-base-content-muted"
+            aria-label="Context usage"
+            >Context {{ roundedContextPercent() }}%</span
+          >
+        }
+      </div>
     </section>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -945,6 +972,10 @@ export class CompactSessionActivityComponent {
   readonly branch = input<string | null>(null);
   /** Session elapsed time in ms; `null` shows the placeholder. */
   readonly elapsed = input<number | null>(null);
+  readonly contextPercent = input<number | null>(null);
+  readonly roundedContextPercent = computed(() =>
+    Math.round(this.contextPercent() ?? 0),
+  );
 
   readonly allow = output<CompactPermissionCallout>();
   readonly deny = output<CompactPermissionCallout>();
@@ -960,13 +991,15 @@ export class CompactSessionActivityComponent {
 
   readonly boardLayout = computed(() => this.lanes() !== null);
 
-  readonly nowActivity = computed(() =>
-    stripMarkdownToPlainText(this.summary().content.text) || '—',
+  readonly nowActivity = computed(
+    () => stripMarkdownToPlainText(this.summary().content.text) || '—',
   );
 
   readonly remainingLanes = computed(() => {
     const lanes = this.lanes();
-    return lanes ? Math.max(0, lanes.total - Math.min(lanes.rows.length, 3)) : 0;
+    return lanes
+      ? Math.max(0, lanes.total - Math.min(lanes.rows.length, 3))
+      : 0;
   });
 
   readonly permissionCallout = computed<CompactPermissionCallout | null>(() => {
@@ -1250,9 +1283,14 @@ export class CompactSessionActivityComponent {
 
   private setupFeedScrollListener(element: HTMLElement | undefined): void {
     if (!element || element === this.feedScrollElement) return;
-    this.feedScrollElement?.removeEventListener('scroll', this.feedScrollHandler);
+    this.feedScrollElement?.removeEventListener(
+      'scroll',
+      this.feedScrollHandler,
+    );
     this.ngZone.runOutsideAngular(() => {
-      element.addEventListener('scroll', this.feedScrollHandler, { passive: true });
+      element.addEventListener('scroll', this.feedScrollHandler, {
+        passive: true,
+      });
     });
     this.feedScrollElement = element;
   }

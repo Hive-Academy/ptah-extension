@@ -6,7 +6,11 @@ import {
   TabManagerService,
   TabSessionBinding,
 } from '@ptah-extension/chat-state';
-import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  PermissionHandlerService,
+  type MonitoredAgent,
+} from '@ptah-extension/chat-streaming';
 import * as chatUi from '@ptah-extension/chat-ui';
 import {
   createEmptyStreamingState,
@@ -20,6 +24,8 @@ import {
   CARD_SUMMARY_SAMPLE_MS,
   CompactSessionCardComponent,
 } from './compact-session-card.component';
+import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
+import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
 
 jest.mock('@ptah-extension/chat-ui', () => {
   const actual = jest.requireActual('@ptah-extension/chat-ui');
@@ -83,6 +89,10 @@ function question(
 describe(CompactSessionCardComponent.name, () => {
   const permissions = signal<readonly PermissionRequest[]>([]);
   const questions = signal<readonly AskUserQuestionRequest[]>([]);
+  const agents = signal<MonitoredAgent[]>([]);
+  const subagents = signal<[]>([]);
+  const respondSession = jest.fn();
+  const respondLane = jest.fn();
   const routingRevision = signal(0);
   const permissionTargets = new Map<string, readonly string[]>();
   const questionTargets = new Map<string, readonly string[]>();
@@ -120,10 +130,18 @@ describe(CompactSessionCardComponent.name, () => {
     compactionStateFor: () => compaction(),
     compactionMarkerFor: () => marker(),
   };
+  const agentStore = {
+    agentsForSession: () => agents(),
+    sessionSubagentsForSession: () => subagents(),
+  };
 
   beforeEach(() => {
     permissions.set([]);
     questions.set([]);
+    agents.set([]);
+    subagents.set([]);
+    respondSession.mockClear();
+    respondLane.mockClear();
     routingRevision.set(0);
     permissionTargets.clear();
     questionTargets.clear();
@@ -145,6 +163,11 @@ describe(CompactSessionCardComponent.name, () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: TabSessionBinding, useValue: sessionBinding },
         { provide: ConversationRegistry, useValue: conversations },
+        { provide: AgentMonitorStore, useValue: agentStore },
+        {
+          provide: AgentPermissionResponder,
+          useValue: { respondSession, respondLane },
+        },
       ],
     });
   });
@@ -162,6 +185,189 @@ describe(CompactSessionCardComponent.name, () => {
     fixture.detectChanges();
     return fixture;
   }
+
+  function lane(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
+    return {
+      agentId: 'agent-1',
+      cli: 'codex',
+      task: 'Build the board',
+      status: 'running',
+      startedAt: Date.now() - 2000,
+      parentSessionId: 'session-1',
+      permissionQueue: [],
+      ...overrides,
+    } as MonitoredAgent;
+  }
+
+  it('swaps session, CLI and error callouts in priority order', () => {
+    agents.set([
+      lane({
+        permissionQueue: [
+          {
+            requestId: 'cli-request',
+            agentId: 'agent-1',
+            kind: 'shell',
+            toolName: 'Bash',
+            toolArgs: '{}',
+            description: 'CLI approval',
+            timestamp: 1,
+            timeoutAt: 0,
+          },
+        ],
+      }),
+    ]);
+    permissions.set([permission()]);
+    const fixture = render(tab({ lastTerminalReason: 'api_error' }));
+    expect(fixture.nativeElement.textContent).toContain(
+      'Run the verification command?',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain('CLI approval');
+
+    permissions.set([]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('CLI approval');
+
+    agents.set([]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('api error');
+    expect(fixture.nativeElement.textContent).toContain('Show output');
+    expect(fixture.nativeElement.textContent).not.toContain('Retry');
+  });
+
+  it('responds with the routed session tab ID and exact CLI IDs', () => {
+    const request = permission();
+    permissions.set([request]);
+    const fixture = render();
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="cs-callout-permission"] button',
+      ) as HTMLButtonElement
+    ).click();
+    expect(respondSession).toHaveBeenCalledWith(request, 'allow', 'tab-1');
+
+    permissions.set([]);
+    agents.set([
+      lane({
+        permissionQueue: [
+          {
+            requestId: 'cli-request',
+            agentId: 'agent-1',
+            kind: 'shell',
+            toolName: 'Bash',
+            toolArgs: '{}',
+            description: 'CLI approval',
+            timestamp: 1,
+            timeoutAt: 0,
+          },
+        ],
+      }),
+    ]);
+    fixture.detectChanges();
+    const buttons = fixture.nativeElement.querySelectorAll(
+      '[data-testid="cs-callout-permission"] button',
+    ) as NodeListOf<HTMLButtonElement>;
+    buttons[1].click();
+    expect(respondLane).toHaveBeenCalledWith('agent-1', 'cli-request', 'deny');
+  });
+
+  it('opens lane output through the token, or expands when absent', () => {
+    agents.set([lane()]);
+    const fixture = render();
+    const expanded = jest.fn();
+    fixture.componentInstance.expandToFull.subscribe(expanded);
+    (
+      fixture.nativeElement.querySelector('[data-lane-id]') as HTMLButtonElement
+    ).click();
+    expect(expanded).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+
+    const openLane = jest.fn();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CompactSessionCardComponent],
+      providers: [
+        provideMarkdown(),
+        { provide: PermissionHandlerService, useValue: permissionHandler },
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: TabSessionBinding, useValue: sessionBinding },
+        { provide: ConversationRegistry, useValue: conversations },
+        { provide: AgentMonitorStore, useValue: agentStore },
+        {
+          provide: AgentPermissionResponder,
+          useValue: { respondSession, respondLane },
+        },
+        {
+          provide: SESSION_CARD_ACTIONS,
+          useValue: { openLane, openSession: jest.fn() },
+        },
+      ],
+    });
+    const withToken = render();
+    (
+      withToken.nativeElement.querySelector(
+        '[data-lane-id]',
+      ) as HTMLButtonElement
+    ).click();
+    expect(openLane).toHaveBeenCalledWith('cli:agent-1');
+  });
+
+  it('runs one elapsed interval only while a lane runs and clears it on destroy', () => {
+    jest.useFakeTimers();
+    const interval = jest.spyOn(globalThis, 'setInterval');
+    const clear = jest.spyOn(globalThis, 'clearInterval');
+    try {
+      const fixture = render();
+      expect(interval).not.toHaveBeenCalled();
+      agents.set([lane()]);
+      fixture.detectChanges();
+      expect(interval).toHaveBeenCalledTimes(1);
+      const handle = interval.mock.results[0].value;
+      agents.set([]);
+      fixture.detectChanges();
+      expect(clear).toHaveBeenCalledWith(handle);
+      agents.set([lane()]);
+      fixture.detectChanges();
+      const nextHandle = interval.mock.results[1].value;
+      fixture.destroy();
+      expect(clear).toHaveBeenCalledWith(nextHandle);
+    } finally {
+      interval.mockRestore();
+      clear.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it('passes available branch, elapsed and context data into the board zones', () => {
+    const fixture = render(
+      tab({
+        agentOrigin: {
+          parentTabId: 'parent',
+          parentSessionId: null,
+          label: 'Child',
+          branch: 'feat/canvas',
+          worktreePath: 'C:\\work\\child',
+          startedAt: Date.now() - 5000,
+        },
+        liveModelStats: {
+          contextKnown: true,
+          model: 'model',
+          contextUsed: 25,
+          contextWindow: 100,
+          contextPercent: 25,
+        },
+      }),
+    );
+    const sub = fixture.nativeElement.querySelector(
+      '[data-zone="sub"]',
+    ) as HTMLElement;
+    expect(sub.textContent).toContain('feat/canvas');
+    expect(sub.textContent).toContain('5s');
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Context usage"]')
+        ?.textContent,
+    ).toContain('25%');
+  });
 
   it('uses router metadata before a mismatched session id', () => {
     const value = tab();
@@ -199,7 +405,7 @@ describe(CompactSessionCardComponent.name, () => {
     );
   });
 
-  it('shows the oldest question and count before permissions', () => {
+  it('keeps routed questions in the summary while permission takes the callout', () => {
     const value = tab();
     const older = question({ id: 'older', timestamp: 1 });
     const newer = question({
@@ -220,7 +426,9 @@ describe(CompactSessionCardComponent.name, () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Choose a deployment target',
     );
-    expect(fixture.nativeElement.textContent).toContain('+2 more');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Run the verification command?',
+    );
   });
 
   it('renders a newly routed blocking prompt within one animation frame', async () => {
@@ -238,8 +446,10 @@ describe(CompactSessionCardComponent.name, () => {
 
     expect(fixture.nativeElement.textContent).toContain(request.description);
     expect(
-      fixture.nativeElement.querySelector('button')?.textContent,
-    ).toContain('Open full view');
+      fixture.nativeElement.querySelector(
+        '[data-testid="cs-callout-permission"] button',
+      )?.textContent,
+    ).toContain('Allow');
   });
 
   it('projects conversation-scoped compaction and marker data', () => {
@@ -256,7 +466,7 @@ describe(CompactSessionCardComponent.name, () => {
       completedAt: 10,
     });
 
-    const fixture = render();
+    const fixture = render(tab({ lastTerminalReason: 'api_error' }));
 
     expect(fixture.nativeElement.textContent).toContain('Compacting');
   });
@@ -322,14 +532,15 @@ describe(CompactSessionCardComponent.name, () => {
   });
 
   it('emits expand and keeps the fixed-height summary-only contract', () => {
-    const request = question();
-    questions.set([request]);
-    questionTargets.set(request.id, ['tab-1']);
-    const fixture = render();
+    const fixture = render(tab({ lastTerminalReason: 'api_error' }));
     const emitted = jest.fn();
     fixture.componentInstance.expandToFull.subscribe(emitted);
 
-    fixture.nativeElement.querySelector('button').click();
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="cs-callout-error"] button',
+      ) as HTMLButtonElement
+    ).click();
 
     expect(emitted).toHaveBeenCalledTimes(1);
     expect(fixture.nativeElement.innerHTML).toContain('h-full');

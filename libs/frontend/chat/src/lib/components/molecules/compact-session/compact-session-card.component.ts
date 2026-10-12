@@ -14,6 +14,8 @@ import {
   CompactSessionActivityComponent,
   summarizeFinalized,
   summarizeLive,
+  type CompactCallout,
+  type CompactPermissionCallout,
   type CompactSessionSummary,
   type CompactSummaryContext,
   type CompactSummaryMetrics,
@@ -24,12 +26,18 @@ import {
   TabSessionBinding,
   workspaceLabelFromPath,
 } from '@ptah-extension/chat-state';
-import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  PermissionHandlerService,
+} from '@ptah-extension/chat-streaming';
 import type { StreamingState, TabState } from '@ptah-extension/chat-types';
 import type {
   AskUserQuestionRequest,
   PermissionRequest,
 } from '@ptah-extension/shared';
+import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
+import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
+import { buildLaneSummary } from './compact-lane-rows';
 
 /**
  * Minimum interval between two live-stream samples of a card summary. Stream
@@ -71,7 +79,17 @@ function sameMetrics(a: CompactSummaryMetrics, b: CompactSummaryMetrics) {
       <ptah-compact-session-activity
         class="h-full"
         [summary]="summary()"
+        [lanes]="laneSummary()"
+        [callout]="callout()"
+        [now]="now()"
+        [branch]="branch()"
+        [elapsed]="elapsed()"
+        [contextPercent]="contextPercent()"
         (openFullView)="expandToFull.emit()"
+        (allow)="respond($event, 'allow')"
+        (deny)="respond($event, 'deny')"
+        (showOutput)="expandToFull.emit()"
+        (laneSelected)="openLane($event)"
       />
     </div>
   `,
@@ -82,6 +100,11 @@ export class CompactSessionCardComponent {
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly sessionBinding = inject(TabSessionBinding);
   private readonly conversations = inject(ConversationRegistry);
+  private readonly agentStore = inject(AgentMonitorStore);
+  private readonly responder = inject(AgentPermissionResponder);
+  private readonly cardActions = inject(SESSION_CARD_ACTIONS, {
+    optional: true,
+  });
 
   readonly tab = input.required<TabState>();
   readonly expandToFull = output<void>();
@@ -99,6 +122,59 @@ export class CompactSessionCardComponent {
   private readonly sessionIdentity = computed(
     () => this.tab().claudeSessionId ?? this.tab().id,
   );
+  readonly branch = computed(() => this.tab().agentOrigin?.branch ?? null);
+  readonly now = signal(Date.now());
+  readonly elapsed = computed(() => {
+    const startedAt = this.tab().agentOrigin?.startedAt;
+    return startedAt === undefined ? null : Math.max(0, this.now() - startedAt);
+  });
+  readonly contextPercent = computed(() =>
+    this.tab().liveModelStats?.contextKnown
+      ? (this.tab().liveModelStats?.contextPercent ?? null)
+      : null,
+  );
+  readonly laneSummary = computed(() =>
+    buildLaneSummary(
+      this.agentStore.agentsForSession(this.sessionIdentity()),
+      this.agentStore.sessionSubagentsForSession(this.sessionIdentity()),
+      this.sessionIdentity(),
+    ),
+  );
+  readonly callout = computed<CompactCallout>(() => {
+    const sessionRequest = this.sessionPermissions()[0];
+    if (sessionRequest) {
+      return {
+        kind: 'permission',
+        source: 'session',
+        requestId: sessionRequest.id,
+        tabId: this.tabId(),
+        text: sessionRequest.description || sessionRequest.toolName,
+      };
+    }
+    const agent = this.agentStore
+      .agentsForSession(this.sessionIdentity())
+      .find((candidate) => candidate.permissionQueue.length > 0);
+    const request = agent?.permissionQueue[0];
+    if (agent && request) {
+      return {
+        kind: 'permission',
+        source: 'cli',
+        requestId: request.requestId,
+        agentId: agent.agentId,
+        tabId: null,
+        text: request.description || request.toolName,
+      };
+    }
+    const reason = this.terminalReason();
+    if (reason && this.summary().status.tone === 'error') {
+      return {
+        kind: 'error',
+        text: reason.replaceAll('_', ' '),
+        canRetry: false,
+      };
+    }
+    return null;
+  });
   private readonly messages = computed(() => this.tab().messages);
   private readonly streaming = computed(
     () => this.tab().streamingState !== null,
@@ -109,6 +185,7 @@ export class CompactSessionCardComponent {
   private sampledTabId: string | null = null;
   private lastSampleAt = 0;
   private pendingSample: ReturnType<typeof setTimeout> | null = null;
+  private elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly routingRevision = computed(() =>
     this.permissionHandler.routingTargetRevision(),
@@ -202,7 +279,44 @@ export class CompactSessionCardComponent {
 
   constructor() {
     effect(() => this.sampleStream(this.tab()));
-    inject(DestroyRef).onDestroy(() => this.cancelPendingSample());
+    effect(() => {
+      if (this.laneSummary().counts.running > 0) {
+        if (this.elapsedTimer === null) {
+          this.now.set(Date.now());
+          this.elapsedTimer = setInterval(() => this.now.set(Date.now()), 1000);
+        }
+      } else {
+        this.clearElapsedTimer();
+      }
+    });
+    inject(DestroyRef).onDestroy(() => {
+      this.cancelPendingSample();
+      this.clearElapsedTimer();
+    });
+  }
+
+  respond(callout: CompactPermissionCallout, decision: 'allow' | 'deny'): void {
+    if (callout.source === 'session') {
+      const request = this.sessionPermissions().find(
+        (candidate) => candidate.id === callout.requestId,
+      );
+      if (request && callout.tabId) {
+        this.responder.respondSession(request, decision, callout.tabId);
+      }
+    } else if (callout.agentId) {
+      this.responder.respondLane(callout.agentId, callout.requestId, decision);
+    }
+  }
+
+  openLane(key: string): void {
+    if (this.cardActions) this.cardActions.openLane(key);
+    else this.expandToFull.emit();
+  }
+
+  private clearElapsedTimer(): void {
+    if (this.elapsedTimer === null) return;
+    clearInterval(this.elapsedTimer);
+    this.elapsedTimer = null;
   }
 
   /**
@@ -229,13 +343,16 @@ export class CompactSessionCardComponent {
       return;
     }
     if (this.pendingSample !== null) return;
-    this.pendingSample = setTimeout(() => {
-      this.pendingSample = null;
-      const latest = untracked(this.tab);
-      if (latest.streamingState !== null) {
-        this.applySample(latest.id, latest.streamingState, Date.now());
-      }
-    }, this.lastSampleAt + CARD_SUMMARY_SAMPLE_MS - now);
+    this.pendingSample = setTimeout(
+      () => {
+        this.pendingSample = null;
+        const latest = untracked(this.tab);
+        if (latest.streamingState !== null) {
+          this.applySample(latest.id, latest.streamingState, Date.now());
+        }
+      },
+      this.lastSampleAt + CARD_SUMMARY_SAMPLE_MS - now,
+    );
   }
 
   private applySample(tabId: string, state: StreamingState, now: number) {
