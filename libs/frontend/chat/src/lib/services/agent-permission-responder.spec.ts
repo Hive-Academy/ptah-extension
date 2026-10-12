@@ -40,9 +40,7 @@ describe('AgentPermissionResponder', () => {
   });
 
   it('posts the existing protocol and clears only the chosen request', () => {
-    expect(responder.respondLane('agent', 'first', 'deny', 'User denied')).toBe(
-      true,
-    );
+    expect(responder.respondLane('agent', 'first', 'deny')).toBe(true);
     expect(postMessage).toHaveBeenCalledWith({
       type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
       payload: { requestId: 'first', decision: 'deny', reason: 'User denied' },

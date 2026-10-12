@@ -50,6 +50,7 @@ describe('OrchestraCanvasComponent detail keyboard', () => {
     onDetailKeydown(this: unknown, event: KeyboardEvent): void;
   };
   const context = {
+    surfaceActive: () => true,
     detailTabId: () => (open ? 'tile-1' : null),
     detail: { close, next, prev },
   };
@@ -92,6 +93,30 @@ describe('OrchestraCanvasComponent detail keyboard', () => {
     const escape = new KeyboardEvent('keydown', { key: 'Escape' });
     Object.defineProperty(escape, 'target', { value: input });
     handler.onDetailKeydown.call(context, escape);
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('ignores hidden canvas, handled events, and lane tabs', () => {
+    const tab = document.createElement('button');
+    tab.setAttribute('role', 'tab');
+    const arrow = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      cancelable: true,
+    });
+    Object.defineProperty(arrow, 'target', { value: tab });
+    handler.onDetailKeydown.call(context, arrow);
+    expect(next).not.toHaveBeenCalled();
+    const prevented = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      cancelable: true,
+    });
+    prevented.preventDefault();
+    handler.onDetailKeydown.call(context, prevented);
+    expect(close).not.toHaveBeenCalled();
+    handler.onDetailKeydown.call(
+      { ...context, surfaceActive: () => false },
+      new KeyboardEvent('keydown', { key: 'Escape' }),
+    );
+    expect(close).not.toHaveBeenCalled();
   });
 });

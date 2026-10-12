@@ -45,18 +45,20 @@ import { CanvasLaneViewComponent } from './canvas-lane-view.component';
       </header>
       <div class="grid min-h-0 grid-cols-1 md:grid-cols-[minmax(0,1fr)_300px]">
         <div class="flex flex-col min-h-0 min-w-0">
-          <nav
+          <div
             aria-label="Session lanes"
             class="border-b border-base-300 min-h-9"
           >
             <ptah-canvas-lane-tabs
+              [panelId]="panelId"
               [sessionId]="sessionId()"
               [laneKey]="detail.laneKey()"
               (laneSelected)="detail.selectLane($event)"
             />
-          </nav>
+          </div>
           <div class="flex-1 min-h-0 overflow-hidden">
             <ptah-canvas-lane-view
+              [panelId]="panelId"
               [tabId]="tabId()"
               [sessionId]="sessionId()"
               [laneKey]="detail.laneKey()"
@@ -89,6 +91,8 @@ import { CanvasLaneViewComponent } from './canvas-lane-view.component';
   ],
 })
 export class CanvasDetailPanelComponent {
+  private static nextPanelId = 0;
+  readonly panelId = `canvas-lane-panel-${++CanvasDetailPanelComponent.nextPanelId}`;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly tabs = inject(TabManagerService);
   readonly detail = inject(CanvasDetailService);

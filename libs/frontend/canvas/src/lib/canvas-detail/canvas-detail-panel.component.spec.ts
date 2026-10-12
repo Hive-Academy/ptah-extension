@@ -20,6 +20,7 @@ import { CanvasLaneViewComponent } from './canvas-lane-view.component';
 })
 class TranscriptStub {
   readonly tabId = input.required<string>();
+  readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
 }
@@ -31,6 +32,7 @@ class TranscriptStub {
   template: '',
 })
 class TabsStub {
+  readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
   readonly laneSelected = output<string>();

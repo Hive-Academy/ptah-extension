@@ -122,6 +122,6 @@ export class TileAgentMiniPanelComponent {
   }
 
   denyPermission(agentId: string, perm: AgentPermissionRequest): void {
-    this.responder.respondLane(agentId, perm.requestId, 'deny', 'User denied');
+    this.responder.respondLane(agentId, perm.requestId, 'deny');
   }
 }

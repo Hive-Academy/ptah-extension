@@ -50,8 +50,10 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
   );
   private readonly registration = effect((onCleanup) => {
     const id = this.tabId();
-    this.tabManager.registerVisibleTab(id);
-    onCleanup(() => this.tabManager.unregisterVisibleTab(id));
+    if (!this.tabManager.visibleTabIds().has(id)) {
+      this.tabManager.registerVisibleTab(id);
+      onCleanup(() => this.tabManager.unregisterVisibleTab(id));
+    }
   });
 
   ngOnDestroy(): void {

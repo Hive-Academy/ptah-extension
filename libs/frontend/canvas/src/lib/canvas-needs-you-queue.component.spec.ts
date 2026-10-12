@@ -190,12 +190,7 @@ describe('CanvasNeedsYouQueueComponent', () => {
         'button.btn-error',
       ) as HTMLButtonElement
     ).click();
-    expect(respondLane).toHaveBeenCalledWith(
-      'agent',
-      'lane-request',
-      'deny',
-      'User denied',
-    );
+    expect(respondLane).toHaveBeenCalledWith('agent', 'lane-request', 'deny');
     expect(
       fixture.componentInstance.answering().has('lane:agent:lane-request'),
     ).toBe(true);
@@ -229,12 +224,7 @@ describe('CanvasNeedsYouQueueComponent', () => {
     ) as HTMLButtonElement;
     allow.click();
     fixture.detectChanges();
-    expect(respondLane).toHaveBeenCalledWith(
-      'agent',
-      'replayed',
-      'allow',
-      undefined,
-    );
+    expect(respondLane).toHaveBeenCalledWith('agent', 'replayed', 'allow');
     expect(fixture.componentInstance.answering().size).toBe(0);
     expect(allow.disabled).toBe(false);
     expect(

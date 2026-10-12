@@ -1323,7 +1323,7 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     const actions = injector.get(SESSION_CARD_ACTIONS);
     actions.openSession();
     actions.openLane('cli:lane-1');
-    expect(detail.toggle).toHaveBeenCalledWith('tile-1');
+    expect(detail.open).toHaveBeenCalledWith('tile-1');
     expect(detail.open).toHaveBeenCalledWith('tile-1', 'cli:lane-1');
     host.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
@@ -1331,9 +1331,9 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     host.dispatchEvent(
       new KeyboardEvent('keydown', { key: ' ', bubbles: true }),
     );
-    expect(detail.toggle).toHaveBeenCalledTimes(3);
+    expect(detail.toggle).toHaveBeenCalledTimes(2);
     host.querySelector('button')?.click();
-    expect(detail.toggle).toHaveBeenCalledTimes(3);
+    expect(detail.toggle).toHaveBeenCalledTimes(2);
   });
 
   it('toggles detail on a plain click inside a card-mode tile', () => {
@@ -1348,5 +1348,26 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     host.click();
     expect(detail.toggle).toHaveBeenCalledTimes(2);
     expect(detail.toggle).toHaveBeenCalledWith('tile-1');
+  });
+
+  it('keeps live tile clicks focusable and ignores editable card content', () => {
+    const live = mountFocused(true, true);
+    const focus = jest.fn();
+    live.componentInstance.focusRequested.subscribe(focus);
+    const button = document.createElement('button');
+    live.nativeElement.appendChild(button);
+    button.click();
+    expect(focus).toHaveBeenCalledWith('tile-1');
+    live.destroy();
+
+    const card = mountFocused(false, true);
+    card.componentRef.setInput('autoCard', true);
+    card.detectChanges();
+    detail.toggle.mockClear();
+    const editable = document.createElement('div');
+    Object.defineProperty(editable, 'isContentEditable', { value: true });
+    card.nativeElement.appendChild(editable);
+    editable.click();
+    expect(detail.toggle).not.toHaveBeenCalled();
   });
 });

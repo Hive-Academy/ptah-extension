@@ -16,13 +16,16 @@ import {
 import {
   BackgroundAgentStore,
   AgentMonitorStore,
+  PermissionHandlerService,
 } from '@ptah-extension/chat-streaming';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   BackgroundAgentStripComponent,
   SubagentTranscriptViewerComponent,
 } from '@ptah-extension/chat-ui';
 import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
+import { ownedBySession } from './lane-owner';
 
 @Component({
   selector: 'ptah-canvas-lane-view',
@@ -33,11 +36,17 @@ import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.comp
     SubagentTranscriptViewerComponent,
     BackgroundAgentStripComponent,
     CanvasDetailTranscriptComponent,
+    NgTemplateOutlet,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0 overflow-auto' },
   template: `
-    <div id="canvas-lane-panel" role="tabpanel" class="h-full min-h-0">
+    <div
+      [id]="panelId()"
+      role="tabpanel"
+      [attr.aria-labelledby]="panelId() + '-tab-' + laneKey()"
+      class="h-full min-h-0"
+    >
       @for (key of [laneKey()]; track key) {
         @switch (selectedKind()) {
           @case ('cli') {
@@ -82,73 +91,11 @@ import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.comp
             }
           }
           @case ('subagent') {
-            @if (selectedSubagent(); as sub) {
-              <div class="p-2 space-y-2">
-                <ptah-subagent-usage-summary [record]="sub" />
-                @if (
-                  sub.taskId &&
-                  (sub.status === 'running' ||
-                    sub.status === 'pending' ||
-                    sub.status === 'paused' ||
-                    sub.status === 'background')
-                ) {
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-error btn-outline"
-                    [disabled]="stopping()"
-                    (click)="stop(sub.taskId, sub.parentSessionId!)"
-                  >
-                    Stop
-                  </button>
-                }
-                @if (sub.agentId) {
-                  <ptah-subagent-transcript-viewer
-                    [agentName]="
-                      sub.teammateName || sub.description || 'Sub-agent'
-                    "
-                    [messages]="messages()"
-                    [loading]="loading()"
-                    [error]="error()"
-                    (refresh)="
-                      loadTranscript(sub.agentId, sub.parentSessionId!)
-                    "
-                  />
-                } @else {
-                  <p class="text-sm text-base-content/60">
-                    Transcript is not available yet
-                  </p>
-                }
-              </div>
-            }
+            <ng-container [ngTemplateOutlet]="subagentLane" />
           }
           @case ('background') {
             @if (selectedSubagent(); as sub) {
-              <div class="p-2 space-y-2">
-                <ptah-subagent-usage-summary [record]="sub" />
-                @if (sub.taskId && sub.status === 'background') {
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-error btn-outline"
-                    [disabled]="stopping()"
-                    (click)="stop(sub.taskId, sub.parentSessionId!)"
-                  >
-                    Stop
-                  </button>
-                }
-                @if (sub.agentId) {
-                  <ptah-subagent-transcript-viewer
-                    [agentName]="
-                      sub.teammateName || sub.description || 'Background agent'
-                    "
-                    [messages]="messages()"
-                    [loading]="loading()"
-                    [error]="error()"
-                    (refresh)="
-                      loadTranscript(sub.agentId, sub.parentSessionId!)
-                    "
-                  />
-                }
-              </div>
+              <ng-container [ngTemplateOutlet]="subagentLane" />
             } @else if (selectedBackground(); as agent) {
               <ptah-background-agent-strip
                 [entries]="[
@@ -172,6 +119,67 @@ import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.comp
           }
         }
       }
+      <ng-template #subagentLane>
+        @if (selectedSubagent(); as sub) {
+          <div class="p-2 space-y-2">
+            <ptah-subagent-usage-summary [record]="sub" />
+            @for (request of selectedPermissions(); track request.id) {
+              <div
+                class="rounded-box border border-warning/40 bg-warning/10 p-2 text-xs"
+                role="group"
+                aria-label="Permission request"
+              >
+                <div>Permission: {{ request.toolName }}</div>
+                <div class="flex gap-2 mt-1">
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-success"
+                    (click)="respondSession(request, 'allow')"
+                  >
+                    Allow
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs btn-error btn-outline"
+                    (click)="respondSession(request, 'deny')"
+                  >
+                    Deny
+                  </button>
+                </div>
+              </div>
+            }
+            @if (
+              sub.taskId &&
+              (sub.status === 'running' ||
+                sub.status === 'pending' ||
+                sub.status === 'paused' ||
+                sub.status === 'background')
+            ) {
+              <button
+                type="button"
+                class="btn btn-xs btn-error btn-outline"
+                [disabled]="stopping()"
+                (click)="stop(sub.taskId, sub.parentSessionId!)"
+              >
+                Stop
+              </button>
+            }
+            @if (sub.agentId) {
+              <ptah-subagent-transcript-viewer
+                [agentName]="sub.teammateName || sub.description || 'Sub-agent'"
+                [messages]="messages()"
+                [loading]="loading()"
+                [error]="error()"
+                (refresh)="loadTranscript(sub.agentId, sub.parentSessionId!)"
+              />
+            } @else {
+              <p class="text-sm text-base-content/60">
+                Transcript is not available yet
+              </p>
+            }
+          </div>
+        }
+      </ng-template>
     </div>
   `,
 })
@@ -179,28 +187,31 @@ export class CanvasLaneViewComponent {
   readonly monitor = inject(AgentMonitorStore);
   private readonly background = inject(BackgroundAgentStore);
   private readonly responder = inject(AgentPermissionResponder);
+  private readonly permissions = inject(PermissionHandlerService);
   readonly tabId = input.required<string>();
+  readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
   private readonly parsed = computed(() => parseLaneKey(this.laneKey()));
   readonly selectedCli = computed(() =>
     this.parsed()?.kind === 'cli'
-      ? this.monitor
-          .agents()
-          .find(
-            (a) =>
-              a.parentSessionId === this.sessionId() &&
-              a.agentId === this.parsed()?.id,
-          )
+      ? ownedBySession(
+          this.monitor.agents(),
+          this.sessionId(),
+          (a) => a.parentSessionId,
+        ).find((a) => a.agentId === this.parsed()?.id)
       : undefined,
   );
   readonly selectedSubagent = computed(() => {
     const parsed = this.parsed();
     if (parsed?.kind !== 'subagent' && parsed?.kind !== 'background')
       return undefined;
-    return [...this.monitor.subagents().values()].find(
+    return ownedBySession(
+      [...this.monitor.subagents().values()],
+      this.sessionId(),
+      (a) => a.parentSessionId,
+    ).find(
       (a) =>
-        a.parentSessionId === this.sessionId() &&
         a.parentToolUseId === parsed.id &&
         (parsed.kind === 'background'
           ? a.status === 'background'
@@ -209,13 +220,11 @@ export class CanvasLaneViewComponent {
   });
   readonly selectedBackground = computed(() =>
     this.parsed()?.kind === 'background'
-      ? this.background
-          .agents()
-          .find(
-            (a) =>
-              a.sessionId === this.sessionId() &&
-              a.toolCallId === this.parsed()?.id,
-          )
+      ? ownedBySession(
+          this.background.agents(),
+          this.sessionId(),
+          (a) => a.sessionId,
+        ).find((a) => a.toolCallId === this.parsed()?.id)
       : undefined,
   );
   readonly selectedKind = computed(() => {
@@ -233,6 +242,27 @@ export class CanvasLaneViewComponent {
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly stopping = signal(false);
+  readonly selectedPermissions = computed(() => {
+    const sub = this.selectedSubagent();
+    return sub && this.sessionId()
+      ? this.permissions
+          .permissionRequests()
+          .filter(
+            (request) =>
+              (request.tabId === this.tabId() ||
+                request.sessionId === this.sessionId()) &&
+              request.agentToolCallId === sub.parentToolUseId &&
+              !request.surfaceMode,
+          )
+      : [];
+  });
+  readonly transcriptAgentId = computed(
+    () => this.selectedSubagent()?.agentId ?? null,
+  );
+  readonly transcriptSessionId = computed(
+    () => this.selectedSubagent()?.parentSessionId ?? null,
+  );
+  private requestVersion = 0;
 
   constructor() {
     effect(() => {
@@ -241,13 +271,12 @@ export class CanvasLaneViewComponent {
         this.monitor.toggleAgentExpanded(agent.agentId);
     });
     effect((onCleanup) => {
-      const sub = this.selectedSubagent();
-      const id = sub?.agentId;
-      const sessionId = sub?.parentSessionId;
+      const id = this.transcriptAgentId();
+      const sessionId = this.transcriptSessionId();
       if (!id || !sessionId) return;
-      let active = true;
+      const version = ++this.requestVersion;
       onCleanup(() => {
-        active = false;
+        this.requestVersion++;
       });
       this.loading.set(true);
       this.error.set(null);
@@ -255,10 +284,10 @@ export class CanvasLaneViewComponent {
       void this.monitor
         .getSubagentTranscript(sessionId, id)
         .then((messages) => {
-          if (active) this.messages.set(messages);
+          if (version === this.requestVersion) this.messages.set(messages);
         })
         .catch((error: unknown) => {
-          if (active)
+          if (version === this.requestVersion)
             this.error.set(
               error instanceof Error
                 ? error.message
@@ -266,23 +295,42 @@ export class CanvasLaneViewComponent {
             );
         })
         .finally(() => {
-          if (active) this.loading.set(false);
+          if (version === this.requestVersion) this.loading.set(false);
         });
     });
   }
 
   loadTranscript(agentId: string, sessionId: string): void {
+    if (
+      this.transcriptAgentId() !== agentId ||
+      this.transcriptSessionId() !== sessionId
+    )
+      return;
+    const version = ++this.requestVersion;
     this.loading.set(true);
     this.error.set(null);
     void this.monitor
       .getSubagentTranscript(sessionId, agentId)
-      .then((messages) => this.messages.set(messages))
-      .catch((error: unknown) =>
-        this.error.set(
-          error instanceof Error ? error.message : 'Failed to load transcript',
-        ),
+      .then((messages) => {
+        if (
+          version === this.requestVersion &&
+          this.transcriptAgentId() === agentId &&
+          this.transcriptSessionId() === sessionId
+        )
+          this.messages.set(messages);
+      })
+      .catch(
+        (error: unknown) =>
+          version === this.requestVersion &&
+          this.error.set(
+            error instanceof Error
+              ? error.message
+              : 'Failed to load transcript',
+          ),
       )
-      .finally(() => this.loading.set(false));
+      .finally(() => {
+        if (version === this.requestVersion) this.loading.set(false);
+      });
   }
 
   async stop(taskId: string, ownerSessionId: string): Promise<void> {
@@ -299,11 +347,13 @@ export class CanvasLaneViewComponent {
     requestId: string,
     decision: 'allow' | 'deny',
   ): void {
-    this.responder.respondLane(
-      agentId,
-      requestId,
-      decision,
-      decision === 'deny' ? 'User denied' : undefined,
-    );
+    this.responder.respondLane(agentId, requestId, decision);
+  }
+
+  respondSession(
+    request: import('@ptah-extension/shared').PermissionRequest,
+    decision: 'allow' | 'deny',
+  ): void {
+    this.responder.respondSession(request, decision, this.tabId());
   }
 }

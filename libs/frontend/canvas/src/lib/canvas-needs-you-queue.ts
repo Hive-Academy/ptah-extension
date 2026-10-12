@@ -3,6 +3,7 @@ import type {
   PermissionRequest,
 } from '@ptah-extension/shared';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
+import { ownedBySession } from './canvas-detail/lane-owner';
 
 export type NeedsYouItemKind = 'permission' | 'question' | 'lane-permission';
 
@@ -86,7 +87,11 @@ export function buildNeedsYouItems(
   for (const agent of laneAgents) {
     const tile = tiles.find(
       (tile) =>
-        tile.sessionId !== null && agent.parentSessionId === tile.sessionId,
+        ownedBySession(
+          [agent],
+          tile.sessionId,
+          (candidate) => candidate.parentSessionId,
+        ).length > 0,
     );
     if (!tile) continue;
     for (const request of agent.permissionQueue) {

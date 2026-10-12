@@ -27,6 +27,7 @@ import {
   AppStateManager,
   BackOfficeActivityService,
   defaultSessionName,
+  SURFACE_ACTIVE,
 } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
@@ -43,6 +44,7 @@ import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
 import { CANVAS_LIVE_BUDGET } from './canvas-live-budget';
 import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import { CanvasDetailPanelComponent } from './canvas-detail/canvas-detail-panel.component';
+import { handleCanvasDetailKeydown } from './canvas-detail/canvas-detail-keyboard';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -340,25 +342,16 @@ export class OrchestraCanvasComponent implements OnDestroy {
   });
 
   protected onDetailKeydown(event: KeyboardEvent): void {
-    if (!this.detailTabId()) return;
-    if (event.key === 'Escape') {
-      this.detail.close();
-      event.preventDefault();
-      return;
-    }
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable ||
-        target.closest('input, textarea, select, [contenteditable="true"]'))
-    )
-      return;
-    if (event.key === 'ArrowRight') this.detail.next();
-    else if (event.key === 'ArrowLeft') this.detail.prev();
-    else return;
-    event.preventDefault();
+    handleCanvasDetailKeydown(
+      event,
+      this.surfaceActive(),
+      this.detailTabId(),
+      this.detail,
+    );
   }
   private readonly appState = inject(AppStateManager);
+  private readonly surfaceActive =
+    inject(SURFACE_ACTIVE, { optional: true }) ?? signal(false);
   /** The dock ticker's only source of items (TASK_2026_380). */
   protected readonly activity = inject(BackOfficeActivityService);
   private readonly tabManager = inject(TabManagerService);

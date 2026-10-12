@@ -34,12 +34,6 @@ describe('TileAgentMiniPanelComponent', () => {
     fixture.componentInstance.denyPermission('agent-1', permission('second'));
 
     expect(respondLane).toHaveBeenNthCalledWith(1, 'agent-1', 'first', 'allow');
-    expect(respondLane).toHaveBeenNthCalledWith(
-      2,
-      'agent-1',
-      'second',
-      'deny',
-      'User denied',
-    );
+    expect(respondLane).toHaveBeenNthCalledWith(2, 'agent-1', 'second', 'deny');
   });
 });

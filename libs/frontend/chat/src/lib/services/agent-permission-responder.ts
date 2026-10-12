@@ -31,7 +31,11 @@ export class AgentPermissionResponder {
         payload: {
           requestId,
           decision,
-          ...(reason === undefined ? {} : { reason }),
+          ...(decision === 'deny'
+            ? { reason: reason ?? 'User denied' }
+            : reason === undefined
+              ? {}
+              : { reason }),
         },
       });
       this.agentStore.clearPermission(agentId, requestId);

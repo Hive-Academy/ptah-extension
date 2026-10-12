@@ -642,7 +642,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
           {
             provide: SESSION_CARD_ACTIONS,
             useValue: {
-              openSession: () => this.openCardSession(),
+              openSession: () => this.openCardAction(),
               openLane: (laneKey: string) => this.openCardLane(laneKey),
             },
           },
@@ -667,6 +667,12 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     else this.focusRequested.emit(this.tabId());
   }
 
+  private openCardAction(): void {
+    if (this.detail) this.detail.open(this.tabId());
+    else if (this.canvasStore) this.canvasStore.focusTile(this.tabId());
+    else this.focusRequested.emit(this.tabId());
+  }
+
   private openCardLane(laneKey: string): void {
     if (this.detail) this.detail.open(this.tabId(), laneKey);
     else this.openCardSession();
@@ -678,9 +684,10 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    * This keeps global activeTabId in sync before any message is sent.
    */
   onTileClick(event?: MouseEvent): void {
-    if (event && this.isInteractiveTarget(event.target)) return;
-    if (this.cardMode()) this.openCardSession();
-    else this.focusRequested.emit(this.tabId());
+    if (this.cardMode()) {
+      if (event && this.isInteractiveTarget(event.target)) return;
+      this.openCardSession();
+    } else this.focusRequested.emit(this.tabId());
   }
 
   onTileKeydown(event: KeyboardEvent): void {
@@ -697,6 +704,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   /** True for a control inside the tile; the card-mode host is itself a role="button". */
   private isInteractiveTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
+    if (target instanceof HTMLElement && target.isContentEditable) return true;
     const control = target.closest(
       'button, a, input, textarea, select, [role="button"], [contenteditable="true"]',
     );

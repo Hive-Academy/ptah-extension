@@ -12,6 +12,7 @@ import {
   AgentMonitorStore,
   BackgroundAgentStore,
 } from '@ptah-extension/chat-streaming';
+import { ownedBySession } from './lane-owner';
 
 interface LaneTab {
   readonly key: string;
@@ -36,6 +37,7 @@ interface LaneGroup {
       @for (group of groups(); track group.label) {
         @if (group.label !== 'Orchestrator') {
           <span
+            role="presentation"
             class="self-center px-2 text-[10px] font-semibold uppercase tracking-wider text-base-content/60 whitespace-nowrap"
             >{{ group.label }}</span
           >
@@ -44,13 +46,14 @@ interface LaneGroup {
           <button
             type="button"
             role="tab"
+            [id]="tabId(tab.key)"
             class="inline-flex items-center gap-1.5 h-9 px-2.5 border-b-2 whitespace-nowrap text-xs hover:text-base-content"
             [class.border-primary]="selectedKey() === tab.key"
             [class.border-transparent]="selectedKey() !== tab.key"
             [class.text-base-content]="selectedKey() === tab.key"
             [class.text-base-content/60]="selectedKey() !== tab.key"
             [attr.aria-selected]="selectedKey() === tab.key"
-            [attr.aria-controls]="'canvas-lane-panel'"
+            [attr.aria-controls]="panelId()"
             [tabIndex]="selectedKey() === tab.key ? 0 : -1"
             [attr.title]="tab.status"
             (click)="laneSelected.emit(tab.key)"
@@ -71,19 +74,26 @@ export class CanvasLaneTabsComponent {
   private readonly monitor = inject(AgentMonitorStore);
   private readonly background = inject(BackgroundAgentStore);
   readonly sessionId = input<string | null>(null);
+  readonly panelId = input('canvas-lane-panel');
   readonly laneKey = input('orchestrator');
   readonly laneSelected = output<string>();
   readonly groups = computed<readonly LaneGroup[]>(() => {
     const sessionId = this.sessionId();
-    const subagents = [...this.monitor.subagents().values()].filter(
-      (a) => !!sessionId && a.parentSessionId === sessionId,
+    const subagents = ownedBySession(
+      [...this.monitor.subagents().values()],
+      sessionId,
+      (a) => a.parentSessionId,
     );
-    const cli = this.monitor
-      .agents()
-      .filter((a) => !!sessionId && a.parentSessionId === sessionId);
-    const background = this.background
-      .agents()
-      .filter((a) => !!sessionId && a.sessionId === sessionId);
+    const cli = ownedBySession(
+      this.monitor.agents(),
+      sessionId,
+      (a) => a.parentSessionId,
+    );
+    const background = ownedBySession(
+      this.background.agents(),
+      sessionId,
+      (a) => a.sessionId,
+    );
     return [
       {
         label: 'Orchestrator',
@@ -163,10 +173,15 @@ export class CanvasLaneTabsComponent {
               : -1;
     if (next < 0) return;
     event.preventDefault();
+    event.stopPropagation();
     this.laneSelected.emit(keys[next]);
     const tabs = (event.currentTarget as HTMLElement)
       .closest('[role="tablist"]')
       ?.querySelectorAll<HTMLElement>('[role="tab"]');
     tabs?.[next]?.focus();
+  }
+
+  tabId(key: string): string {
+    return `${this.panelId()}-tab-${key}`;
   }
 }

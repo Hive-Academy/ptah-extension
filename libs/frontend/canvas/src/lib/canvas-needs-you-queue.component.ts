@@ -166,7 +166,6 @@ export class CanvasNeedsYouQueueComponent {
           item.agentId,
           item.requestId,
           decision,
-          decision === 'deny' ? 'User denied' : undefined,
         );
         if (!posted) this.releaseAnswer(item.key);
       } else if (item.kind === 'permission') {
