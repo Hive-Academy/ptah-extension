@@ -637,6 +637,21 @@ describe('CodeOutputComponent — inner code-block chrome (full markdown preset)
     );
   });
 
+  // Visual review issue 3: the dark global Prism theme left light-theme
+  // tokens at 1.3-2.2:1. Every token rule is scoped to the light marker, so
+  // dark themes keep the global Prism colours.
+  it('gives Prism tokens a light palette only under the light theme marker', () => {
+    const tokenRules = source.match(/[^{}]*\.token\.[^{}]*\{/g) ?? [];
+
+    expect(tokenRules.length).toBeGreaterThan(0);
+    for (const rule of tokenRules) {
+      expect(rule.trim()).toMatch(
+        /^:host-context\(\[data-theme-mode='light'\]\)\s+::ng-deep\s+\.tool-output-markdown/,
+      );
+    }
+    expect(source).toMatch(/\.token\.keyword\) \{\s*color: #a40e26;/);
+  });
+
   it.each([3, 20])(
     'renders the inner chrome where that rule applies, for %i lines',
     async (count) => {

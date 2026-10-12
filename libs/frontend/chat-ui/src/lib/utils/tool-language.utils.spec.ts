@@ -53,6 +53,16 @@ describe('looksLikeMarkdown', () => {
     ['| a | b |\n| --- | --- |\n| 1 | 2 |'],
     ['a **bold** word'],
     ['see [docs](https://example.com)'],
+    ['###### Six\nbody'],
+    ['#\tTabbed heading'],
+    ['intro\n   + indented item'],
+    ['10) tenth'],
+    ['  ~~~\ncode\n  ~~~'],
+    ['a | b\n---|---'],
+    ['| :--- | ---: | :---: |'],
+    ['  |---|---|  \r\n'],
+    ['[a](b) and [c](d)'],
+    ['see [Foo](https://en.wikipedia.org/wiki/Foo_(bar))'],
   ])('detects markdown in %j', (text) => {
     expect(looksLikeMarkdown(text)).toBe(true);
   });
@@ -64,6 +74,21 @@ describe('looksLikeMarkdown', () => {
     ['a | b | c'],
     ['[NX] ran build'],
     [''],
+    ['####### seven hashes'],
+    ['#\nnot a heading'],
+    ['-not a list'],
+    ['    - indented four spaces'],
+    ['1.5 seconds'],
+    ['text ``` inline fence'],
+    ['---'],
+    ['|---|'],
+    ['| -- | -- |'],
+    ['a\n- \nb'],
+    ['**unclosed bold'],
+    ['[label] (url)'],
+    ['[label](has space)'],
+    ['[[[[[[[[[[[[[[[['],
+    ['[a](' + 'x[a]('.repeat(50)],
   ])('reads %j as plain text', (text) => {
     expect(looksLikeMarkdown(text)).toBe(false);
   });

@@ -169,59 +169,111 @@ export function describeToolChips(
     if (chip) chips.push(chip);
   };
 
-  if (isReadToolInput(toolInput)) {
-    const offset = toolInput['offset'];
-    const limit = toolInput['limit'];
-    const from = typeof offset === 'number' ? offset : 1;
-    if (typeof limit === 'number') {
-      take('offset');
-      take('limit', `lines ${from}-${from + limit - 1}`);
-    } else if (typeof offset === 'number') {
-      take('offset', `from line ${from}`);
-    }
-  }
-  if (isWriteToolInput(toolInput)) {
-    const lines = countLines(toolInput.content);
-    if (lines > 0) chips.push(`${lines} line${lines === 1 ? '' : 's'}`);
-  }
+  for (const [key, chip] of readRangeChips(toolInput)) take(key, chip);
+  const lineChip = writeLineChip(toolInput);
+  if (lineChip) chips.push(lineChip);
 
   const isSearch = isGrepToolInput(toolInput) || isGlobToolInput(toolInput);
   for (const [key, value] of Object.entries(toolInput)) {
     if (keys.includes(key)) continue;
-    if (key === '__parseError') {
-      take(key);
-    } else if (key === 'run_in_background' && typeof value === 'boolean') {
-      take(key, value ? 'background' : undefined);
-    } else if (key === 'timeout' && typeof value === 'number') {
-      take(key, formatTimeout(value));
-    } else if (isSearch && key === 'path' && typeof value === 'string') {
-      take(key, value ? `in ${value}` : undefined);
-    } else if (
-      ENUM_CHIP_KEYS.has(key) &&
-      typeof value === 'string' &&
-      value.length <= ENUM_CHIP_MAX_CHARS
-    ) {
-      take(key, value);
-    } else if (typeof value === 'boolean') {
-      take(key, value ? key : undefined);
-    } else if (typeof value === 'number') {
-      take(key, `${key} ${value}`);
-    }
+    const entry = chipForEntry(key, value, isSearch);
+    if (entry.consumed) take(key, entry.chip);
   }
   return { chips, keys };
 }
 
+/** Whether an input entry is presented in the header, and its chip if any. */
+interface ChipEntry {
+  readonly consumed: boolean;
+  readonly chip?: string;
+}
+
+const NOT_CONSUMED: ChipEntry = { consumed: false };
+
+/** A Read range as `[key, chip]` pairs: `lines 1-60`, or `from line 40`. */
+function readRangeChips(
+  toolInput: Readonly<Record<string, unknown>>,
+): ReadonlyArray<readonly [string, string | undefined]> {
+  if (!isReadToolInput(toolInput)) return [];
+  const offset = toolInput['offset'];
+  const limit = toolInput['limit'];
+  const from = typeof offset === 'number' ? offset : 1;
+  if (typeof limit === 'number') {
+    return [
+      ['offset', undefined],
+      ['limit', `lines ${from}-${from + limit - 1}`],
+    ];
+  }
+  if (typeof offset === 'number') return [['offset', `from line ${from}`]];
+  return [];
+}
+
+/** A Write call's line count (`84 lines`); undefined for other tools or empty content. */
+function writeLineChip(
+  toolInput: Readonly<Record<string, unknown>>,
+): string | undefined {
+  if (!isWriteToolInput(toolInput)) return undefined;
+  const lines = countLines(toolInput.content);
+  if (lines === 0) return undefined;
+  return `${lines} line${lines === 1 ? '' : 's'}`;
+}
+
+/** The header chip for one input entry (the rule in `describeToolChips`). */
+function chipForEntry(
+  key: string,
+  value: unknown,
+  isSearch: boolean,
+): ChipEntry {
+  if (key === '__parseError') return { consumed: true };
+  if (typeof value === 'boolean') {
+    return { consumed: true, chip: booleanChip(key, value) };
+  }
+  if (typeof value === 'number') {
+    const chip = key === 'timeout' ? formatTimeout(value) : `${key} ${value}`;
+    return { consumed: true, chip };
+  }
+  if (typeof value === 'string') return stringChip(key, value, isSearch);
+  return NOT_CONSUMED;
+}
+
+/** A true flag shows its key (`run_in_background` reads `background`); false shows nothing. */
+function booleanChip(key: string, value: boolean): string | undefined {
+  if (!value) return undefined;
+  return key === 'run_in_background' ? 'background' : key;
+}
+
+/** A search `path` reads `in src/`; a short enum value is shown as-is. */
+function stringChip(key: string, value: string, isSearch: boolean): ChipEntry {
+  if (isSearch && key === 'path') {
+    return { consumed: true, chip: value ? `in ${value}` : undefined };
+  }
+  if (ENUM_CHIP_KEYS.has(key) && value.length <= ENUM_CHIP_MAX_CHARS) {
+    return { consumed: true, chip: value };
+  }
+  return NOT_CONSUMED;
+}
+
+const MCP_PREFIX = 'mcp__';
+const MCP_SEPARATOR = '__';
+
 /**
  * An MCP tool from another server split into its server and tool names
  * (`mcp__orchestrator__ListAgents` -> `orchestrator`, `ListAgents`); null for
- * built-in tools and the Ptah server, which has its own gold treatment.
+ * built-in tools and the Ptah server, which has its own gold treatment. The
+ * server name ends at the first `__` after its first character, so
+ * `mcp__a__b__c` is server `a`, tool `b__c`; both parts are non-empty.
  */
 export function splitMcpToolName(
   toolName: string,
 ): { readonly server: string; readonly tool: string } | null {
   if (isPtahMcpToolName(toolName)) return null;
-  const match = toolName.match(/^mcp__(.+?)__(.+)$/);
-  return match ? { server: match[1], tool: match[2] } : null;
+  if (!toolName.startsWith(MCP_PREFIX)) return null;
+  const rest = toolName.slice(MCP_PREFIX.length);
+  const separator = rest.indexOf(MCP_SEPARATOR, 1);
+  if (separator < 0) return null;
+  const tool = rest.slice(separator + MCP_SEPARATOR.length);
+  if (!tool) return null;
+  return { server: rest.slice(0, separator), tool };
 }
 
 /** `3600000` -> `60 min`, `90000` -> `90 s`, `500` -> `500 ms`. */

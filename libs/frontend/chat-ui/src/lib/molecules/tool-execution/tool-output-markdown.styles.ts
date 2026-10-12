@@ -12,6 +12,14 @@
  * pipe adds (.ptah-markdown-root) carries an inline overflow-x: auto, which
  * made it a second scroll container; its overflow is lifted here (its contain
  * and isolation stay), so the enclosing block is the only scroller.
+ *
+ * Light themes: the global Prism theme (prism-tomorrow, a dark theme) colours
+ * tokens for a dark background, which left them at 1.3-2.2:1 on the light
+ * block. Under the `data-theme-mode='light'` marker ThemeService sets on
+ * <html> (every light theme, anubis-light included), tool-output tokens get a
+ * GitHub-light-like palette, each at least 4.9:1 on white, #f2f2f2 and the
+ * light base-300; plain code text and punctuation use base-content. Dark
+ * themes keep the global Prism colours.
  */
 export const TOOL_OUTPUT_MARKDOWN_STYLES = `
   :host ::ng-deep .tool-output-markdown {
@@ -54,5 +62,75 @@ export const TOOL_OUTPUT_MARKDOWN_STYLES = `
   :host ::ng-deep .tool-output-markdown table {
     table-layout: fixed;
     width: 100%;
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(code[class*='language-'], pre[class*='language-'], .token.punctuation) {
+    color: oklch(var(--bc));
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(
+      .token.comment,
+      .token.block-comment,
+      .token.prolog,
+      .token.doctype,
+      .token.cdata
+    ) {
+    color: #57606a;
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(
+      .token.property,
+      .token.tag,
+      .token.namespace,
+      .token.boolean,
+      .token.number,
+      .token.constant,
+      .token.symbol,
+      .token.deleted
+    ) {
+    color: #0550ae;
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(
+      .token.selector,
+      .token.attr-name,
+      .token.string,
+      .token.char,
+      .token.builtin,
+      .token.inserted
+    ) {
+    color: #0a3069;
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(.token.operator, .token.entity, .token.url) {
+    color: #116329;
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(.token.atrule, .token.attr-value, .token.keyword) {
+    color: #a40e26;
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(.token.function, .token.function-name, .token.class-name) {
+    color: #6639ba;
+  }
+  :host-context([data-theme-mode='light'])
+    ::ng-deep
+    .tool-output-markdown
+    :is(.token.regex, .token.important, .token.variable) {
+    color: #953800;
   }
 `;

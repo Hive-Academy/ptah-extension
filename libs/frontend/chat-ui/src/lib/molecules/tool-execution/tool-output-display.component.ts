@@ -22,6 +22,9 @@ import {
 } from '../../utils/tool-text.utils';
 import { detectToolLanguage } from '../../utils/tool-language.utils';
 
+/** A tag, comment or declaration opener (`<b`, `</`, `<!`, `<?`) in text. */
+const HTML_LIKE_MARKUP = /<[a-z!/?]/i;
+
 /**
  * ToolOutputDisplayComponent - Output section orchestrator
  *
@@ -122,10 +125,11 @@ export class ToolOutputDisplayComponent {
    * The call's error text, or null. It is left out only when the output
    * block, as displayed, already holds the same message whole
    * (`outputShowsError`); an incidental mention in the output does not count.
-   * Only fenced code/text output qualifies: markdown output (MCP results
-   * that use markdown syntax, `.md` content) is parsed and sanitised before
-   * display, which can drop the matching text, so its Error block is never
-   * suppressed. Plain-text MCP output is fenced as text, so it qualifies.
+   * Markdown output (MCP results that use markdown syntax, `.md` content) is
+   * parsed and sanitised before display. Sanitising only drops markup, so the
+   * block is left out for markdown output too, unless the error text itself
+   * holds HTML-like markup (`HTML_LIKE_MARKUP`): that part may not survive
+   * sanitising, so the output may not show the message whole.
    * A whitespace-only error still shows the block, with a stated fallback.
    */
   readonly errorMessage = computed((): string | null => {
@@ -133,10 +137,12 @@ export class ToolOutputDisplayComponent {
     const { error, toolOutput } = node;
     if (!error) return null;
     if (!error.trim()) return 'The tool reported an error without a message.';
+    const sanitisingMayDropIt =
+      HTML_LIKE_MARKUP.test(error) && detectToolLanguage(node) === 'markdown';
     const shownAsOutput =
       !this.todoInput() &&
       !this.editInput() &&
-      detectToolLanguage(node) !== 'markdown' &&
+      !sanitisingMayDropIt &&
       outputShowsError(toolOutputPlainText(toolOutput), error);
     return shownAsOutput ? null : error;
   });

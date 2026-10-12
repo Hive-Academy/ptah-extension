@@ -173,6 +173,10 @@ describe('tool-target.utils', () => {
   describe('splitMcpToolName', () => {
     it.each([
       ['mcp__orchestrator__ListAgents', { server: 'orchestrator', tool: 'ListAgents' }],
+      ['mcp__a__b__c', { server: 'a', tool: 'b__c' }],
+      ['mcp_____x', { server: '_', tool: 'x' }],
+      ['mcp__server__', null],
+      ['mcp__server', null],
       ['mcp__ptah__workspace_analyze', null],
       ['ptah-ptah_search_files', null],
       ['Bash', null],

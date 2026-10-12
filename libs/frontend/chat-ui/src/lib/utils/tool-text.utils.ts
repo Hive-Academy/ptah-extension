@@ -106,7 +106,7 @@ function stripLineNumbers(content: string): string {
   return content
     .split('\n')
     .map((line) => {
-      const match = line.match(/^\s*\d+→(.*)$/);
+      const match = /^\s*\d+→(.*)$/.exec(line);
       return match ? match[1] : line;
     })
     .join('\n');

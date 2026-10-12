@@ -74,22 +74,48 @@ export function getLanguageFromPath(filePath: string): string {
 
 /**
  * Markdown syntax that changes how text renders: a heading, a list item, a
- * code fence, a table separator row, `**bold**` or a `[link](url)`. Text with
- * none of these renders as plain text, which keeps its line breaks (markdown
- * would join single newlines into one paragraph).
+ * code fence, `**bold**` or a `[link](url)` (a table separator row is
+ * `isTableSeparatorRow`). Text with none of these renders as plain text,
+ * which keeps its line breaks (markdown would join single newlines into one
+ * paragraph).
+ *
+ * Every pattern runs in linear time: line-start patterns use `[ \t]` (never
+ * `\s`, which would cross lines under `/m`) with a CommonMark `{0,3}` indent,
+ * and the inline ones exclude their own opening delimiter from the spans
+ * they repeat, so a failed match never rescans the same text.
  */
 const MARKDOWN_SIGNALS: readonly RegExp[] = [
-  /^#{1,6}\s+\S/m,
-  /^\s*(?:[-*+]|\d+[.)])\s+\S/m,
-  /^\s*(?:```|~~~)/m,
-  /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/m,
+  /^#{1,6}[ \t]+\S/m,
+  /^[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+\S/m,
+  /^[ \t]{0,3}(?:```|~~~)/m,
   /\*\*[^*\n]+\*\*/,
-  /\[[^\]\n]+\]\([^)\s]+\)/,
+  /\[[^[\]\n]+\]\([^)[\s]+\)/,
 ];
 
-/** Whether text uses markdown syntax (`MARKDOWN_SIGNALS`). */
+/** One cell of a table separator row: `---`, `:---`, `---:` or `:---:`. */
+const TABLE_SEPARATOR_CELL = /^:?-{3,}:?$/;
+
+/**
+ * Whether a line is a table separator row (`| --- | :---: |`): two or more
+ * separator cells split by `|`, with optional outer pipes.
+ */
+function isTableSeparatorRow(line: string): boolean {
+  let row = line.trim();
+  if (row.startsWith('|')) row = row.slice(1);
+  if (row.endsWith('|')) row = row.slice(0, -1);
+  const cells = row.split('|');
+  return (
+    cells.length >= 2 &&
+    cells.every((cell) => TABLE_SEPARATOR_CELL.test(cell.trim()))
+  );
+}
+
+/** Whether text uses markdown syntax (`MARKDOWN_SIGNALS`, a table separator row). */
 export function looksLikeMarkdown(text: string): boolean {
-  return MARKDOWN_SIGNALS.some((signal) => signal.test(text));
+  return (
+    MARKDOWN_SIGNALS.some((signal) => signal.test(text)) ||
+    text.split('\n').some(isTableSeparatorRow)
+  );
 }
 
 /**

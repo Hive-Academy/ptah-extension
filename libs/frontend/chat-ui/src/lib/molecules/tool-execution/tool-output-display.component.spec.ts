@@ -395,8 +395,49 @@ describe.each([true, false])(
       expect(host.querySelector('[data-testid="tool-error"]')).not.toBeNull();
     });
 
-    // Regression: markdown output is sanitised, so the matching text can vanish.
-    it('keeps the Error block for markdown (MCP) output that holds the same text', async () => {
+    it('drops the Error block for markdown (MCP) output that equals the error', async () => {
+      const message = '## Failed\n- **fatal**: build stopped';
+      const host = render({
+        toolName: 'mcp__server__run',
+        status: 'error',
+        toolOutput: message,
+        error: message,
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="tool-error"]')).toBeNull();
+    });
+
+    it('keeps the Error block when markdown output only mentions the error incidentally', async () => {
+      const host = render({
+        toolName: 'mcp__server__run',
+        status: 'error',
+        toolOutput: '## Log\n- Permission denied was seen, then retry succeeded',
+        error: 'Permission denied',
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="tool-error"]')).not.toBeNull();
+    });
+
+    // Regression: markdown output is sanitised, so markup in the error can vanish.
+    it('keeps the Error block for markdown output whose error holds a <b> tag', async () => {
+      const message = '## Failed\n<b>fatal</b> build stopped';
+      const host = render({
+        toolName: 'mcp__server__run',
+        status: 'error',
+        toolOutput: message,
+        error: message,
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="tool-error"]')).not.toBeNull();
+    });
+
+    it('keeps the Error block for markdown (MCP) output whose error holds a <script> tag', async () => {
       const message = '**fatal** <script>boom</script>';
       const host = render({
         toolName: 'mcp__server__run',
@@ -429,7 +470,7 @@ describe.each([true, false])(
       );
     });
 
-    it('keeps the Error block for a .md Read whose output equals the error', () => {
+    it('drops the Error block for a .md Read whose output equals the error', () => {
       const host = render({
         toolName: 'Read',
         toolInput: { file_path: '/repo/README.md' },
@@ -438,7 +479,7 @@ describe.each([true, false])(
         error: 'File not found',
       });
 
-      expect(host.querySelector('[data-testid="tool-error"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="tool-error"]')).toBeNull();
     });
 
     it('forwards a pending permission: the output is not styled as a failure', () => {
