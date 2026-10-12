@@ -44,7 +44,6 @@ import {
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
 import {
-  SESSION_HANDOVER_HELD,
   type ExecutionChatMessage,
   type SessionId,
 } from '@ptah-extension/shared';
@@ -95,7 +94,6 @@ describe('MessageSenderService', () => {
     setMessages: jest.Mock;
     consumeFirstMessagePreamble: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
-    installSessionBudget: jest.Mock;
     activeWorkspacePath: string | null;
   };
   /** Tabs parked in a NON-active workspace — absent from `tabs()` by design. */
@@ -163,7 +161,6 @@ describe('MessageSenderService', () => {
       }),
       isTabStreaming: jest.fn((tabId: string) => streamingTabIds.has(tabId)),
       consumeFirstMessagePreamble: jest.fn(() => null),
-      installSessionBudget: jest.fn(),
       // Stub returns a real AbortSignal so the wireAbortDispatch listener
       // can attach without throwing.
       createAbortController: jest.fn(() => new AbortController().signal),
@@ -448,93 +445,6 @@ describe('MessageSenderService', () => {
         expect(tabsSignal()[0].messages).toEqual([]);
       });
 
-      // TASK_2026_597 N7: the session is at its budget limit.
-      it.each([
-        [
-          'on data',
-          {
-            success: true,
-            data: {
-              success: false,
-              errorCode: 'SESSION_BUDGET_REACHED',
-              error: 'Session budget reached',
-            },
-          },
-        ],
-        [
-          'on the envelope',
-          {
-            success: false,
-            errorCode: 'SESSION_BUDGET_REACHED',
-            error: 'Session budget reached',
-          },
-        ],
-      ])(
-        'refuses at the budget limit (%s): bubble and boundary go, code returned, no retry, no auth banner',
-        async (_where, continueResult) => {
-          failContinue(continueResult);
-
-          const outcome = await service.send('over budget', { tabId: 'tab-1' });
-
-          expect(outcome).toEqual({
-            success: false,
-            error: 'Session budget reached',
-            errorCode: 'SESSION_BUDGET_REACHED',
-          });
-          expect(removeBoundary).toHaveBeenCalledWith(
-            'tab-1',
-            recordedBubbleId(),
-          );
-          expect(tabsSignal()[0].messages).toEqual([]);
-          expect(tabsSignal()[0].status).toBe('loaded');
-          expect(streamingTabIds.has('tab-1')).toBe(false);
-          expect(
-            rpcCall.mock.calls.filter(([method]) => method === 'chat:continue'),
-          ).toHaveLength(1);
-          expect(
-            rpcCall.mock.calls.some(([method]) => method === 'chat:start'),
-          ).toBe(false);
-          expect(flagAuthRequired).not.toHaveBeenCalled();
-          expect(tabManager.installSessionBudget).not.toHaveBeenCalled();
-        },
-      );
-
-      // PR 3 review S-3: a refusal is never silent — the state it carries is
-      // installed on the tab so the limit banner shows.
-      it('installs the budget state a refusal carries on the tab', async () => {
-        const budget = {
-          sessionId: 'sess-X',
-          stage: 'limit',
-          unit: 'tokens',
-          measure: 'tokens',
-          used: 60,
-          limit: 50,
-          percent: 120,
-          lowerBound: false,
-          revision: 7,
-          compactions: 0,
-          extensions: 0,
-          blocked: true,
-        };
-        failContinue({
-          success: true,
-          data: {
-            success: false,
-            errorCode: 'SESSION_BUDGET_REACHED',
-            error: 'Session budget reached',
-            budget,
-          },
-        });
-
-        const outcome = await service.send('over budget', { tabId: 'tab-1' });
-
-        expect(outcome.errorCode).toBe('SESSION_BUDGET_REACHED');
-        expect(tabManager.installSessionBudget).toHaveBeenCalledWith(
-          'tab-1',
-          budget,
-        );
-      });
-
       it('returns no error code for any other rejection', async () => {
         failContinue({
           success: true,
@@ -546,67 +456,15 @@ describe('MessageSenderService', () => {
         expect(outcome).toEqual({ success: false, error: 'auth' });
       });
 
-      // TASK_2026_627 R9: a budget refusal or a handover hold is expected,
-      // so it is logged at info; any other rejection stays an error.
-      describe('logging a refused continue', () => {
-        let consoleInfo: jest.SpyInstance;
+      it('logs a refused continue at error', async () => {
+        failContinue({ success: false, error: 'turn rejected' });
 
-        beforeEach(() => {
-          consoleInfo = jest.spyOn(console, 'info').mockImplementation();
-        });
+        await service.send('follow up', { tabId: 'tab-1' });
 
-        afterEach(() => {
-          consoleInfo.mockRestore();
-        });
-
-        it.each([
-          [
-            'a budget refusal',
-            {
-              success: true,
-              data: {
-                success: false,
-                errorCode: 'SESSION_BUDGET_REACHED',
-                error: 'Session budget reached',
-              },
-            },
-            { errorCode: 'SESSION_BUDGET_REACHED' },
-          ],
-          [
-            'a handover hold',
-            {
-              success: true,
-              data: { success: false, error: SESSION_HANDOVER_HELD },
-            },
-            { errorCode: SESSION_HANDOVER_HELD },
-          ],
-        ])(
-          'logs %s at info, not error',
-          async (_what, continueResult, expected) => {
-            failContinue(continueResult);
-
-            const outcome = await service.send('held', { tabId: 'tab-1' });
-
-            expect(outcome).toEqual(expect.objectContaining(expected));
-            expect(consoleInfo).toHaveBeenCalledWith(
-              '[MessageSender] Continue held by the session budget or handover:',
-              expect.any(String),
-            );
-            expect(consoleError).not.toHaveBeenCalled();
-          },
+        expect(consoleError).toHaveBeenCalledWith(
+          '[MessageSender] Failed to continue chat:',
+          'turn rejected',
         );
-
-        it('keeps any other rejection at error', async () => {
-          failContinue({ success: false, error: 'turn rejected' });
-
-          await service.send('follow up', { tabId: 'tab-1' });
-
-          expect(consoleError).toHaveBeenCalledWith(
-            '[MessageSender] Failed to continue chat:',
-            'turn rejected',
-          );
-          expect(consoleInfo).not.toHaveBeenCalled();
-        });
       });
 
       it('rolls nothing back when the continue is delivered', async () => {

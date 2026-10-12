@@ -2,7 +2,7 @@
  * SessionControl — owner of the lifecycle-control methods that act on a
  * registered session's `query` handle: interrupt, end, dispose-all, set
  * permission level, set model, set effort, apply a changed auto-compact
- * window, lower or restore one session's auto-compact window.
+ * window, lower one session's auto-compact window.
  *
  * Extracted from `SessionLifecycleManager` (originally lines
  * 395–451, 462–556, 563–610, 1110–1149, 1162–1207). The cleanup-call order
@@ -58,14 +58,13 @@ export class SessionControl {
     private readonly sessionEndRegistry: SessionEndCallbackRegistry,
     /**
      * Current compaction config, read per call by
-     * {@link applySessionAutoCompactWindow} (env skip, restore value). `null`
+     * {@link applySessionAutoCompactWindow} (env skip, revert value). `null`
      * in a container without the provider: no env skip is detectable and a
-     * restore sends `null` (the runtime decides).
+     * revert sends `null` (the runtime decides).
      */
     private readonly getCompactionConfig:
       (() => CompactionConfig) | null = null,
     private readonly onTurnTerminal: ((sessionId: SessionId) => void) | null = null,
-    private readonly mayInterrupt: ((sessionId: SessionId) => boolean) | null = null,
   ) {}
 
   /**
@@ -84,12 +83,6 @@ export class SessionControl {
    * @returns true if interrupt was called, false if session/query not found
    */
   async interruptCurrentTurn(sessionId: SessionId): Promise<boolean> {
-    if (this.mayInterrupt && !this.mayInterrupt(sessionId)) {
-      this.logger.info(
-        `[SessionLifecycle] Interrupt refused for handover source: ${sessionId}`,
-      );
-      return false;
-    }
     const rec = this.registry.find(sessionId as string);
 
     if (!rec?.query) {
@@ -662,9 +655,8 @@ export class SessionControl {
   }
 
   /**
-   * Lower ONE session's auto-compact window (`window`), or restore it
-   * (`null`), and report what actually happened. This is the session budget's
-   * `tighten` action and its `restore-window` undo.
+   * Lower ONE session's auto-compact window (`window`) and report what
+   * actually happened. This is the session budget's `tighten` action.
    *
    * It never assumes the runtime honours `autoCompactWindow` (experiment E2 is
    * unproven, which is why `A1_DEFAULT_WINDOW` stays `null`). Lowering is:
@@ -677,18 +669,9 @@ export class SessionControl {
    *    {@link applyAutoCompactConfig} keeps it), then send it;
    * 4. read the threshold back again. If it did not move to ≤ `window`, the
    *    runtime ignored the window: send back the window the session had (the
-   *    previous override, else the configured window, resolved as restore
-   *    does), drop the override, report `not-honoured` and WARN with the model
-   *    class. That WARN (or the INFO on success) is the E2 live result for
+   *    previous override, else the configured window), drop the override,
+   *    report `not-honoured` and WARN with the model class. That WARN (or the INFO on success) is the E2 live result for
    *    that class.
-   *
-   * Restoring clears the override and sends what
-   * {@link resolveAutoCompactControl} gives for the current config, or `null`
-   * (the runtime decides) — never a guessed class default. With no override
-   * recorded there is nothing to restore and nothing is sent. A restore that
-   * cannot reach the runtime, throws or times out keeps the override and gives
-   * `{ applied: true, reason: 'restore-failed' }`: the lowered window is still
-   * in force.
    *
    * Any throw or timeout while lowering gives `failed`. Before the target was
    * sent the record keeps the override it had. After it was sent (a read-back or the
@@ -696,19 +679,9 @@ export class SessionControl {
    * that fails too the target stays recorded, because the runtime holds it.
    * Never throws.
    *
-   * @returns the `window` part of `SessionBudgetState`; `undefined` after a
-   *   restore that left no override in place.
+   * @returns the `window` part of `SessionBudgetState`.
    */
   async applySessionAutoCompactWindow(
-    sessionId: SessionId,
-    window: number | null,
-  ): Promise<SessionBudgetWindow | undefined> {
-    return window === null
-      ? this.restoreSessionAutoCompactWindow(sessionId)
-      : this.lowerSessionAutoCompactWindow(sessionId, window);
-  }
-
-  private async lowerSessionAutoCompactWindow(
     sessionId: SessionId,
     target: number,
   ): Promise<SessionBudgetWindow> {
@@ -822,8 +795,8 @@ export class SessionControl {
           return failed;
         } catch (revertError) {
           // degradation-audit: optional-capability - the target stays
-          // recorded (below) because the runtime still holds it; restore and
-          // the next config re-apply both see the truth.
+          // recorded (below) because the runtime still holds it; the next
+          // config re-apply sees the truth.
           this.logger.warn(
             `[SessionLifecycle] Failed to put back the previous auto-compact window for ${sessionId}`,
             revertError instanceof Error
@@ -832,8 +805,8 @@ export class SessionControl {
           );
         }
       }
-      // The runtime holds the target: keep it recorded so the record, the
-      // config re-apply and `restore-window` match the runtime.
+      // The runtime holds the target: keep it recorded so the record and the
+      // config re-apply match the runtime.
       rec.autoCompactOverride = target;
       return failed;
     }
@@ -841,8 +814,8 @@ export class SessionControl {
 
   /**
    * Put back the window the session had before a lowering: the previous
-   * override when there was one, else the user's configured window resolved
-   * exactly as {@link restoreSessionAutoCompactWindow} does. The record's
+   * override when there was one, else the user's configured window
+   * ({@link configuredAutoCompactWindow}). The record's
    * override changes only once the runtime accepted the value. Throws on
    * failure.
    */
@@ -877,54 +850,6 @@ export class SessionControl {
           envWindow: config.envWindow ?? null,
         }).autoCompactWindow ?? null)
       : null;
-  }
-
-  private async restoreSessionAutoCompactWindow(
-    sessionId: SessionId,
-  ): Promise<SessionBudgetWindow | undefined> {
-    const rec = this.registry.find(sessionId as string);
-    const override = rec?.autoCompactOverride;
-    if (!rec || typeof override !== 'number') {
-      return undefined;
-    }
-    // `applied: true`: the lowered window is still in place after a failure.
-    const failed: SessionBudgetWindow = {
-      target: override,
-      applied: true,
-      reason: 'restore-failed',
-    };
-    const query = rec.query;
-    if (!query) {
-      this.logger.warn(
-        `[SessionLifecycle] Cannot restore the auto-compact window - query not found: ${sessionId}`,
-      );
-      return failed;
-    }
-
-    const modelClass = autoCompactModelClass(
-      rec.accountingAuthEnv.ANTHROPIC_BASE_URL,
-    );
-    const autoCompactWindow = this.configuredAutoCompactWindow(modelClass);
-    try {
-      await this.withApplyTimeout(
-        query.applyFlagSettings({ autoCompactWindow }),
-        'applyFlagSettings',
-      );
-      rec.autoCompactOverride = null;
-      this.logger.info(
-        `[SessionLifecycle] Session auto-compact window restored for ${sessionId}`,
-        { from: override, autoCompactWindow, modelClass },
-      );
-      return undefined;
-    } catch (error) {
-      // degradation-audit: optional-capability - the session keeps its
-      // lowered window and the override stays recorded; the user can retry.
-      this.logger.warn(
-        `[SessionLifecycle] Failed to restore the auto-compact window for ${sessionId}`,
-        error instanceof Error ? error : new Error(String(error)),
-      );
-      return failed;
-    }
   }
 
   /**

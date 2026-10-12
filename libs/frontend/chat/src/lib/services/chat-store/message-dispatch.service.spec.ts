@@ -188,22 +188,6 @@ describe('MessageDispatchService', () => {
     );
   });
 
-  // TASK_2026_597 N7: the budget banner explains a refusal at the limit.
-  it('adds no failure notice when a direct send is refused at the budget limit', async () => {
-    const refused = {
-      success: false,
-      error: 'Session budget reached',
-      errorCode: 'SESSION_BUDGET_REACHED',
-    };
-    sendMock.mockResolvedValue(refused);
-
-    const outcome = await service.sendOrQueueMessage('over budget');
-
-    expect(outcome).toBe(refused);
-    expect(setMessagesMock).not.toHaveBeenCalled();
-    expect(sendMock).toHaveBeenCalledTimes(1);
-  });
-
   it('typing during a successful flush leaves only the new draft', async () => {
     tabs = [makeTab({ queuedContent: 'original' })];
     let resolveFlush!: (outcome: { success: boolean }) => void;
@@ -229,14 +213,12 @@ describe('MessageDispatchService', () => {
     tabs = [makeTab({ queuedContent: 'queued' })];
     continueExistingSessionForQueueFlushMock.mockResolvedValue({
       success: false,
-      error: 'Session budget reached',
-      errorCode: 'SESSION_BUDGET_REACHED',
+      error: 'not sent',
     });
 
     await service.sendQueuedMessage('tab-1', 'queued');
 
     expect(tabs[0].queuedContent).toBe('queued');
-    expect(setMessagesMock).not.toHaveBeenCalled();
     expect(setQueuedContentMock).toHaveBeenCalledTimes(1);
     expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
     expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledTimes(1);
@@ -649,18 +631,6 @@ describe('MessageDispatchService', () => {
     it('clears queue + queuedOptions before dispatch', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
       expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
-    });
-
-    it('clears queue only when handover holds the prompt in its transfer FIFO', async () => {
-      continueExistingSessionForQueueFlushMock.mockResolvedValue({
-        success: false,
-        errorCode: 'SESSION_HANDOVER_HELD',
-      });
-
-      await service.sendQueuedMessage('tab-1', 'queued');
-
-      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
-      expect(setMessagesMock).not.toHaveBeenCalled();
     });
 
     it('forwards stored queuedOptions (files + images) to the dedicated queue-flush method', async () => {

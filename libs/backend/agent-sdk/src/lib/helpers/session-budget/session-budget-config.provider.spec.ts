@@ -58,7 +58,6 @@ describe('SessionBudgetConfigProvider.getConfig', () => {
       handoffPercent: 80,
       handoffAfterCompactions: 3,
       tightenWindowTokens: null,
-      blockAtLimit: true,
     });
     expect(provider.getConfig()).toEqual(SESSION_BUDGET_DEFAULT_CONFIG);
     expect(warn).not.toHaveBeenCalled();
@@ -164,15 +163,12 @@ describe('SessionBudgetConfigProvider.getConfig', () => {
   );
 
   describe('booleans', () => {
-    it.each(['enabled', 'blockAtLimit'] as const)(
-      'reads false for %s',
-      (field) => {
-        const { provider } = makeProvider({
-          [SESSION_BUDGET_SETTINGS[field].key]: false,
-        });
-        expect(provider.getConfig()[field]).toBe(false);
-      },
-    );
+    it('reads false for enabled', () => {
+      const { provider } = makeProvider({
+        [SESSION_BUDGET_SETTINGS.enabled.key]: false,
+      });
+      expect(provider.getConfig().enabled).toBe(false);
+    });
 
     it.each([
       ['a string', 'false'],
@@ -181,12 +177,10 @@ describe('SessionBudgetConfigProvider.getConfig', () => {
     ])('reads %s as the default', (_label, value) => {
       const { provider, warn } = makeProvider({
         'sessionBudget.enabled': value,
-        'sessionBudget.blockAtLimit': value,
       });
       const config = provider.getConfig();
       expect(config.enabled).toBe(true);
-      expect(config.blockAtLimit).toBe(true);
-      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledTimes(1);
     });
   });
 

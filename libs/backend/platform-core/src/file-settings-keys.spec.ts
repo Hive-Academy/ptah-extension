@@ -1153,7 +1153,6 @@ describe('isFileBasedSettingKey', () => {
       'sessionBudget.handoffPercent': 80,
       'sessionBudget.handoffAfterCompactions': 3,
       'sessionBudget.tightenWindowTokens': null,
-      'sessionBudget.blockAtLimit': true,
     };
 
     it.each(Object.entries(budgetDefaults))(
@@ -1171,7 +1170,7 @@ describe('isFileBasedSettingKey', () => {
       },
     );
 
-    it('registers exactly the ten keys of the shared table', () => {
+    it('registers exactly the nine keys of the shared table', () => {
       const budgetKeys = [...FILE_BASED_SETTINGS_KEYS].filter((key) =>
         key.startsWith('sessionBudget.'),
       );

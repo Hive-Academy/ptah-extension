@@ -934,24 +934,7 @@ describe('ChatInputComponent', () => {
       );
     });
 
-    // TASK_2026_597 N7: a send refused at the session budget limit keeps the
-    // draft; any other outcome clears the composer as before.
-    it('keeps the draft when the send is refused at the budget limit', async () => {
-      mockChatStore.sendOrQueueMessage.mockResolvedValueOnce({
-        success: false,
-        error: 'Session budget reached',
-        errorCode: 'SESSION_BUDGET_REACHED',
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (component as any)._currentMessage.set('keep me');
-
-      await component.handleSend();
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((component as any)._currentMessage()).toBe('keep me');
-    });
-
-    it('clears the draft after any other failed send', async () => {
+    it('clears the draft after a failed send', async () => {
       mockChatStore.sendOrQueueMessage.mockResolvedValueOnce({
         success: false,
         error: 'not sent',
@@ -1240,78 +1223,6 @@ describe('ChatInputComponent', () => {
       expect(component.currentMessage()).toBe('a');
       component.handleInput({ target: { value: 'ab' } } as unknown as Event);
       expect(component.currentMessage()).toBe('ab');
-    });
-  });
-
-  // ============================================================================
-  // HANDOVER DRAFT — TASK_2026_627 S20: the draft returns to the composer,
-  // appended after a blank line, never overwriting and never sent
-  // ============================================================================
-
-  describe('restoreDraftToInput (handover draft, S20)', () => {
-    function mountTextarea(): HTMLTextAreaElement {
-      const textarea = document.createElement('textarea');
-      jest.spyOn(textarea, 'focus');
-      Object.defineProperty(component, 'textareaRef', {
-        value: () => ({ nativeElement: textarea }),
-      });
-      return textarea;
-    }
-
-    it('puts the draft in an empty composer and focuses it', () => {
-      const textarea = mountTextarea();
-
-      component.restoreDraftToInput('my draft');
-
-      expect(component.currentMessage()).toBe('my draft');
-      expect(textarea.focus).toHaveBeenCalledTimes(1);
-    });
-
-    it('treats a whitespace-only composer as empty', () => {
-      component.handleInput({ target: { value: '  \n' } } as unknown as Event);
-
-      component.restoreDraftToInput('my draft');
-
-      expect(component.currentMessage()).toBe('my draft');
-    });
-
-    it('appends the draft after a blank line, never overwriting typed text', () => {
-      const textarea = mountTextarea();
-      component.handleInput({
-        target: { value: 'typed since' },
-      } as unknown as Event);
-
-      component.restoreDraftToInput('my draft');
-
-      expect(component.currentMessage()).toBe('typed since\n\nmy draft');
-      expect(textarea.focus).toHaveBeenCalledTimes(1);
-    });
-
-    it('never sends and never touches the queued content', () => {
-      mockTabManager.activeTabQueuedContent.set('queued message');
-
-      component.restoreDraftToInput('my draft');
-
-      expect(mockChatStore.sendOrQueueMessage).not.toHaveBeenCalled();
-      expect(mockChatStore.clearQueueRestoreSignal).not.toHaveBeenCalled();
-      expect(mockTabManager.activeTabQueuedContent()).toBe('queued message');
-      mockTabManager.activeTabQueuedContent.set(null);
-    });
-
-    it('ignores an empty draft', () => {
-      const textarea = mountTextarea();
-      component.handleInput({ target: { value: 'typed' } } as unknown as Event);
-
-      component.restoreDraftToInput('   ');
-
-      expect(component.currentMessage()).toBe('typed');
-      expect(textarea.focus).not.toHaveBeenCalled();
-    });
-
-    it('still writes the draft when the textarea is not mounted', () => {
-      component.restoreDraftToInput('my draft');
-
-      expect(component.currentMessage()).toBe('my draft');
     });
   });
 });

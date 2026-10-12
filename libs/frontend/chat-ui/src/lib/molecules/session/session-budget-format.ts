@@ -83,7 +83,7 @@ export function budgetTooltip(
     used = `${budget.measure === 'cost-lower-bound' ? '≥ ' : ''}${formatCost(cost)}`;
     limit = formatBudgetUsd(budget.limit);
   }
-  return `Session budget: ${Math.floor(budget.percent)}% used (${used} of ${limit}). At 50% Ptah lowers auto-compact; at 80% it prepares a handoff; at 100% new messages pause.`;
+  return `Session budget: ${Math.floor(budget.percent)}% used (${used} of ${limit}). At 50% Ptah lowers auto-compact; at 80% you can ask the agent to wrap up and hand off.`;
 }
 
 /** COST chip tooltip: the budget line unless the budget is counted in tokens. */

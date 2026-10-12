@@ -1,12 +1,8 @@
 /**
- * ChatSessionService — session budget (TASK_2026_597 N7, decision 13).
+ * ChatSessionService — session budget on `chat:resume` (TASK_2026_597 N7).
  *
- * - `chat:continue` gate: a session whose budget refuses sends gets
- *   `SESSION_BUDGET_REACHED` before any resume, slash routing or send. Only
- *   the exact trimmed prompts `/compact` and `/clear` pass. An unknown figure
- *   and a host without the budget registration both send as before.
- * - `chat:resume`: the resume snapshot recomputes the stage and the result
- *   carries `budget`; no stats means no `budget` field.
+ * The resume snapshot recomputes the stage and the result carries `budget`;
+ * no stats, or no budget registration, means no `budget` field.
  */
 
 import 'reflect-metadata';
@@ -51,21 +47,15 @@ import type {
 } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
-  ChatContinueParams,
   IAgentAdapter,
   SessionBudgetConfig,
-  SessionBudgetState,
   SessionId,
   SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import {
-  SessionBudgetService,
-  type SessionHandoverCoordinator,
-} from '@ptah-extension/agent-sdk';
-import { SESSION_HANDOVER_HELD } from '@ptah-extension/shared';
+import { SessionBudgetService } from '@ptah-extension/agent-sdk';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
@@ -76,27 +66,7 @@ const SESSION_ID = 'b5399ba8-e06d-417c-bac4-aba5add0555c' as SessionId;
 const TAB_ID = 'f69cb197-0798-40bc-ac0c-6f7591e0a894';
 const LIMIT = 50_000_000;
 
-type BudgetFake = Pick<SessionBudgetService, 'canSend' | 'observeLoaded'>;
-
-function budgetState(
-  overrides: Partial<SessionBudgetState> = {},
-): SessionBudgetState {
-  return {
-    sessionId: SESSION_ID,
-    stage: 'limit',
-    unit: 'tokens',
-    measure: 'tokens',
-    used: LIMIT,
-    limit: LIMIT,
-    percent: 100,
-    lowerBound: false,
-    revision: 7,
-    compactions: 0,
-    extensions: 0,
-    blocked: true,
-    ...overrides,
-  };
-}
+type BudgetFake = Pick<SessionBudgetService, 'observeLoaded'>;
 
 function statsAt(tokenCount: number, revision?: number): SessionStatsEntry {
   return {
@@ -121,7 +91,6 @@ const BUDGET_CONFIG: SessionBudgetConfig = {
   handoffPercent: 80,
   handoffAfterCompactions: 3,
   tightenWindowTokens: null,
-  blockAtLimit: true,
 };
 
 /** The real stage machine with fakes for its own collaborators. */
@@ -129,23 +98,8 @@ function realBudget(): SessionBudgetService {
   return new SessionBudgetService(
     createMockLogger() as unknown as Logger,
     { getConfig: jest.fn(() => BUDGET_CONFIG) } as never,
-    { snapshot: jest.fn(() => null) } as never,
-    {
-      applySessionAutoCompactWindow: jest.fn(async () => undefined),
-      getSessionWorkspace: jest.fn(() => OPEN_FOLDER),
-    } as never,
-    {
-      build: jest.fn(async () => ({
-        document: {
-          content: '# Handoff',
-          seed: 'seed',
-          chars: 9,
-          truncated: false,
-          builtAt: 1_700_000_000_000,
-        },
-      })),
-    } as never,
-    { write: jest.fn(async () => ({ path: null })) } as never,
+    { leaseOf: jest.fn(() => null) } as never,
+    { applySessionAutoCompactWindow: jest.fn(async () => undefined) } as never,
     {
       evaluate: jest.fn(() => undefined),
       current: jest.fn(() => undefined),
@@ -156,52 +110,27 @@ function realBudget(): SessionBudgetService {
 
 interface Harness {
   service: ChatSessionService;
-  resumeSession: jest.Mock;
-  sendMessageToSession: jest.Mock;
-  routeFollowUpSlashCommand: jest.Mock;
-  handleContinue: jest.Mock;
   readForResume: jest.Mock;
-  interruptCurrentTurn: jest.Mock;
-  getWithDefault: jest.Mock;
 }
 
-type HandoverFake = Pick<SessionHandoverCoordinator, 'admitOrHold'>;
-
-function makeHarness(
-  budget: BudgetFake | null,
-  handover: HandoverFake | null = null,
-): Harness {
+function makeHarness(budget: BudgetFake | null): Harness {
   const noop = jest.fn();
-  const getWithDefault = jest.fn().mockReturnValue(false);
   const provider = createMockWorkspaceProvider({ folders: [OPEN_FOLDER] });
   const emptyStream = (): AsyncGenerator<never> =>
     (async function* () {
       /* no events */
     })();
 
-  const resumeSession = jest.fn().mockImplementation(async () => emptyStream());
-  const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
-  const interruptCurrentTurn = jest.fn().mockResolvedValue(true);
   const sdkAdapter = {
     startChatSession: jest.fn().mockImplementation(async () => emptyStream()),
     isSessionActive: jest.fn().mockReturnValue(true),
-    resumeSession,
-    sendMessageToSession,
+    resumeSession: jest.fn().mockImplementation(async () => emptyStream()),
+    sendMessageToSession: jest.fn().mockResolvedValue(undefined),
     endSession: jest.fn().mockResolvedValue(undefined),
     interruptSession: jest.fn().mockResolvedValue(undefined),
-    interruptCurrentTurn,
+    interruptCurrentTurn: jest.fn().mockResolvedValue(true),
   } as unknown as IAgentAdapter;
 
-  const routeFollowUpSlashCommand = jest
-    .fn()
-    .mockImplementation(async (prompt: string) =>
-      prompt.trim().startsWith('/')
-        ? { success: true, sessionId: SESSION_ID }
-        : null,
-    );
-  const handleContinue = jest
-    .fn()
-    .mockResolvedValue({ error: '__NOT_PTAH_CLI__' });
   const readForResume = jest.fn().mockResolvedValue({
     events: [],
     stats: null,
@@ -213,7 +142,7 @@ function makeHarness(
     { broadcastMessage: noop } as never,
     {
       get: noop,
-      getWithDefault,
+      getWithDefault: jest.fn().mockReturnValue(false),
     } as unknown as ConfigManager,
     sdkAdapter,
     { captureException: jest.fn() } as unknown as SentryService,
@@ -249,7 +178,7 @@ function makeHarness(
       resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
       resolvePluginPaths: jest.fn().mockReturnValue([]),
     } as never,
-    { handleContinue } as never,
+    { handleContinue: jest.fn() } as never,
     {
       streamEventsToWebview: jest.fn(),
       isStreaming: jest.fn().mockReturnValue(true),
@@ -259,7 +188,7 @@ function makeHarness(
         .fn()
         .mockImplementation(async (prompt: string) => ({ prompt })),
     } as never,
-    { routeFollowUpSlashCommand } as never,
+    { routeFollowUpSlashCommand: jest.fn() } as never,
     createMockModelSettings() as unknown as ModelSettings,
     {
       getProviderKey: jest.fn().mockResolvedValue(null),
@@ -277,183 +206,10 @@ function makeHarness(
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     null,
     budget,
-    handover as unknown as SessionHandoverCoordinator | null,
   );
 
-  return {
-    service,
-    resumeSession,
-    sendMessageToSession,
-    routeFollowUpSlashCommand,
-    handleContinue,
-    readForResume,
-    interruptCurrentTurn,
-    getWithDefault,
-  };
+  return { service, readForResume };
 }
-
-function blockedBudget(): BudgetFake & { canSend: jest.Mock } {
-  return {
-    canSend: jest.fn(() => ({ ok: false as const, state: budgetState() })),
-    observeLoaded: jest.fn(() => undefined),
-  };
-}
-
-function params(prompt: string): ChatContinueParams {
-  return {
-    prompt,
-    sessionId: SESSION_ID,
-    tabId: TAB_ID,
-    workspacePath: OPEN_FOLDER,
-  };
-}
-
-// The refusal carries the state that refused it (PR 3 review S-3), so a tab
-// that never received a published state still shows the banner.
-const REFUSED = {
-  success: false,
-  errorCode: 'SESSION_BUDGET_REACHED',
-  error: expect.stringContaining('Allow 20% more'),
-  budget: budgetState(),
-};
-
-describe('chat:continue — session budget gate', () => {
-  it('holds a prompt for an active handover before the CLI and budget gates', async () => {
-    const handover: HandoverFake = {
-      admitOrHold: jest.fn(() => ({ held: true })),
-    };
-    const budget = blockedBudget();
-    const h = makeHarness(budget, handover);
-
-    await expect(h.service.continueSession(params('continue in successor'))).resolves.toEqual({
-      success: false,
-      error: SESSION_HANDOVER_HELD,
-    });
-    expect(handover.admitOrHold).toHaveBeenCalledWith(SESSION_ID, {
-      content: 'continue in successor',
-      admission: 'require-idle',
-    });
-    expect(h.handleContinue).not.toHaveBeenCalled();
-    expect(budget.canSend).not.toHaveBeenCalled();
-    expect(h.sendMessageToSession).not.toHaveBeenCalled();
-  });
-
-  it('holds stop intent during handover instead of interrupting the current turn', async () => {
-    const handover: HandoverFake = {
-      admitOrHold: jest
-        .fn()
-        .mockReturnValueOnce({ held: false })
-        .mockReturnValueOnce({ held: true }),
-    };
-    const h = makeHarness(null, handover);
-    h.getWithDefault.mockImplementation((key: string, fallback: unknown) => {
-      if (key === 'autopilot.enabled') return true;
-      if (key === 'autopilot.permissionLevel') return 'auto-edit';
-      return fallback;
-    });
-
-    await expect(h.service.continueSession(params('stop'))).resolves.toEqual({
-      success: false,
-      error: SESSION_HANDOVER_HELD,
-    });
-    expect(handover.admitOrHold).toHaveBeenCalledTimes(2);
-    expect(h.interruptCurrentTurn).not.toHaveBeenCalled();
-    expect(h.sendMessageToSession).not.toHaveBeenCalled();
-  });
-
-  it('refuses a plain prompt with SESSION_BUDGET_REACHED before any send', async () => {
-    const budget = blockedBudget();
-    const h = makeHarness(budget);
-
-    const result = await h.service.continueSession(params('keep going'));
-
-    expect(result).toEqual(REFUSED);
-    expect(budget.canSend).toHaveBeenCalledWith(SESSION_ID);
-    expect(h.sendMessageToSession).not.toHaveBeenCalled();
-    expect(h.resumeSession).not.toHaveBeenCalled();
-    expect(h.routeFollowUpSlashCommand).not.toHaveBeenCalled();
-  });
-
-  it.each(['/compact', '/clear', '  /compact  ', '\n/clear\t'])(
-    'lets %j through at the limit',
-    async (prompt) => {
-      const budget = blockedBudget();
-      const h = makeHarness(budget);
-
-      const result = await h.service.continueSession(params(prompt));
-
-      expect(result).toEqual({ success: true, sessionId: SESSION_ID });
-      expect(h.routeFollowUpSlashCommand).toHaveBeenCalledTimes(1);
-      expect(budget.canSend).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(['/orchestrate asset-audit', '/compact keep the plan', '/clearall'])(
-    'blocks the slash command %j (only exact /compact and /clear pass)',
-    async (prompt) => {
-      const h = makeHarness(blockedBudget());
-
-      const result = await h.service.continueSession(params(prompt));
-
-      expect(result).toEqual(REFUSED);
-      expect(h.routeFollowUpSlashCommand).not.toHaveBeenCalled();
-    },
-  );
-
-  it('sends when the budget is unknown (no figure: fail-open)', async () => {
-    const h = makeHarness(realBudget());
-
-    const result = await h.service.continueSession(params('keep going'));
-
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
-    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
-  });
-
-  it('sends when the host has no budget registration', async () => {
-    const h = makeHarness(null);
-
-    const result = await h.service.continueSession(params('keep going'));
-
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
-    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
-  });
-
-  it('pauses after the turn that crossed 100% (real stage machine)', async () => {
-    const budget = realBudget();
-    const h = makeHarness(budget);
-
-    expect(budget.observe(statsAt(LIMIT * 0.99, 1))?.blocked).toBe(false);
-    expect((await h.service.continueSession(params('next step'))).success).toBe(
-      true,
-    );
-
-    expect(budget.observe(statsAt(LIMIT, 2))?.blocked).toBe(true);
-    expect(await h.service.continueSession(params('next step'))).toEqual({
-      ...REFUSED,
-      budget: expect.objectContaining({
-        sessionId: SESSION_ID,
-        stage: 'limit',
-        revision: 2,
-        blocked: true,
-      }),
-    });
-    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
-  });
-
-  it('leaves Ptah CLI sessions ungated', async () => {
-    const budget = blockedBudget();
-    const h = makeHarness(budget);
-    h.handleContinue.mockResolvedValue({
-      success: true,
-      sessionId: SESSION_ID,
-    });
-
-    const result = await h.service.continueSession(params('keep going'));
-
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
-    expect(budget.canSend).not.toHaveBeenCalled();
-  });
-});
 
 describe('chat:resume — session budget', () => {
   it('attaches the budget computed from the resume snapshot (used === stats.tokenCount)', async () => {
@@ -480,13 +236,12 @@ describe('chat:resume — session budget', () => {
         used: stats.tokenCount,
         limit: LIMIT,
         revision: 12,
-        blocked: false,
       }),
     );
   });
 
   it('has no budget field when the resume has no stats', async () => {
-    const budget = blockedBudget();
+    const budget = { observeLoaded: jest.fn(() => undefined) };
     const h = makeHarness(budget);
 
     const result = await h.service.resumeSession({

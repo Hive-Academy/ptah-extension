@@ -41,6 +41,7 @@ import {
 } from './tool-result-budget';
 
 const PARITY = [
+  [buildSessionStartTool, SessionStartArgsSchema, ['branch', 'task']],
   [buildSessionSendTool, SessionSendArgsSchema, ['message', 'sessionId']],
   [buildSessionStatusTool, SessionStatusArgsSchema, []],
   [buildSessionReadTool, SessionReadArgsSchema, ['sessionId']],
@@ -67,10 +68,9 @@ describe('session tool definitions', () => {
   );
 
   it('lists the five names in order', () => {
-    expect([
-      buildSessionStartTool(),
-      ...PARITY.map(([build]) => build()),
-    ].map((tool) => tool.name)).toEqual([...SESSION_TOOL_NAMES]);
+    expect(PARITY.map(([build]) => build().name)).toEqual([
+      ...SESSION_TOOL_NAMES,
+    ]);
   });
 
   it('marks status and read read-only only', () => {
@@ -81,33 +81,13 @@ describe('session tool definitions', () => {
   });
 
   it('is deterministic: two builds serialise byte-identically', () => {
-    expect(JSON.stringify(buildSessionStartTool())).toBe(JSON.stringify(buildSessionStartTool()));
     for (const [build] of PARITY) {
       expect(JSON.stringify(build())).toBe(JSON.stringify(build()));
     }
   });
-
-  it('advertises one flat start shape for MCP clients', () => {
-    const schema = buildSessionStartTool().inputSchema as Record<string, unknown>;
-    expect(schema['type']).toBe('object');
-    expect(schema['anyOf']).toBeUndefined();
-    expect(schema['oneOf']).toBeUndefined();
-    expect(schema['allOf']).toBeUndefined();
-    expect((schema['properties'] as Record<string, unknown>)['mode']).toEqual(
-      expect.objectContaining({ enum: ['child', 'successor'] }),
-    );
-  });
 });
 
 describe('session tool schemas', () => {
-  it('accepts successor mode only with optional handoff and rejects child fields', () => {
-    expect(SessionStartArgsSchema.safeParse({ mode: 'successor' }).success).toBe(true);
-    expect(SessionStartArgsSchema.safeParse({ mode: 'successor', handoff: 'notes' }).success).toBe(true);
-    for (const key of ['task', 'branch', 'baseRef', 'model']) {
-      expect(SessionStartArgsSchema.safeParse({ mode: 'successor', [key]: 'x' }).success).toBe(false);
-    }
-    expect(SessionStartArgsSchema.safeParse({ task: 't', branch: 'b' }).success).toBe(true);
-  });
   it('rejects every caller, parent or permission key', () => {
     for (const key of [
       'callerSessionId',
@@ -306,7 +286,6 @@ describe('handleSessionToolCall', () => {
       session,
     );
     expect(session.start).toHaveBeenCalledWith({
-      mode: 'child',
       task: 'fix',
       branch: 'feat/x',
     });
@@ -314,30 +293,6 @@ describe('handleSessionToolCall', () => {
     expect(reply.text).toMatch(/sessionId c-1/);
     expect(reply.text).toMatch(/feat\/x/);
     expect(reply.text).toMatch(/\/repo\/\.worktrees\/feat-x/);
-  });
-
-  it('renders successor acceptance and the shared held handover code', async () => {
-    const successor = fakeSession({
-      start: jest.fn().mockResolvedValue({ ok: true, successor: true }),
-    });
-    expect((await call('ptah_session_start', { mode: 'successor', handoff: 'notes' }, successor)).text)
-      .toBe(
-        'Successor handover requested. It waits for the user to approve it in the session ' +
-          'banner; nothing changes until then. Keep working normally. If the user cancels, ' +
-          'this session continues.',
-      );
-    expect(successor.start).toHaveBeenCalledWith({ mode: 'successor', handoff: 'notes' });
-
-    const held = fakeSession({
-      send: jest.fn().mockResolvedValue({
-        delivered: true,
-        effect: 'held-until-turn-end',
-        held: true,
-        code: 'SESSION_HANDOVER_HELD',
-      }),
-    });
-    expect((await call('ptah_session_send', { sessionId: 'c-1', message: 'go', mode: 'steer' }, held)).text)
-      .toContain('SESSION_HANDOVER_HELD');
   });
 
   it('a plain refusal is a plain-text answer with code and detail', async () => {

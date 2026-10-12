@@ -209,7 +209,6 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'interruptCurrentTurn'
     | 'markTurnEnded'
     | 'onTurnTerminal'
-    | 'parkLimitHandoverIfIdle'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
     | 'getSessionToken'
@@ -234,7 +233,6 @@ function createMockSessionLifecycle(): jest.Mocked<
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     markTurnEnded: jest.fn().mockReturnValue(true),
     onTurnTerminal: jest.fn(),
-    parkLimitHandoverIfIdle: jest.fn(),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     getSessionToken: jest.fn().mockReturnValue(null),
@@ -380,7 +378,6 @@ function createMockSessionBudget(): jest.Mocked<
     | 'recordCompaction'
     | 'release'
     | 'clearAll'
-    | 'canSend'
   >
 > {
   return {
@@ -389,7 +386,6 @@ function createMockSessionBudget(): jest.Mocked<
     recordCompaction: jest.fn(),
     release: jest.fn(),
     clearAll: jest.fn(),
-    canSend: jest.fn().mockReturnValue({ ok: true }),
   };
 }
 
@@ -2516,35 +2512,6 @@ describe('SdkAgentAdapter', () => {
       // The caller's payload is never mutated.
       expect(payload).not.toHaveProperty('liveBudgetStage');
     });
-
-    // D17 / D22: the live stage is display-only. A live `limit` (also at the
-    // turn's end) parks nothing and starts nothing; only the blocking result
-    // parks the limit handover.
-    it('D17: a live limit stage never parks or starts a handover', async () => {
-      const h = makeAdapter();
-      await h.adapter.initialize();
-      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
-        sdkQuery: createFakeQuery(),
-        initialModel: 'claude-sonnet-4-20250514',
-        abortController: new AbortController(),
-      } as ExecuteQueryResult);
-      await h.adapter.startChatSession(makeSessionConfig());
-      const onLiveStats =
-        h.streamTransformer.transform.mock.calls[0][0].onLiveStats;
-      h.sessionBudget.observeLive.mockReturnValue('limit');
-
-      onLiveStats?.({
-        sessionId: 'tab_1' as SessionId,
-        sessionStats: {
-          sessionId: 'tab_1',
-          provisional: true,
-          revision: 4,
-        } as SessionStatsEntry,
-      });
-
-      expect(h.sessionLifecycle.parkLimitHandoverIfIdle).not.toHaveBeenCalled();
-      expect(h.sessionBudget.observe).not.toHaveBeenCalled();
-    });
   });
 
   describe('session budget wiring (TASK_2026_597 N7)', () => {
@@ -2566,8 +2533,6 @@ describe('SdkAgentAdapter', () => {
         lowerBound: false,
         revision: 1,
         compactions: 0,
-        extensions: 0,
-        blocked: false,
       };
     }
 
@@ -2678,89 +2643,6 @@ describe('SdkAgentAdapter', () => {
       expect(h.sessionBudget.observe.mock.calls[0][0]).toBe(snapshot);
     });
 
-    // R2: the result arrives after the turn terminal; only a blocking limit
-    // it made authoritative parks the limit handover (D22).
-    it('parks the limit handover after a blocking result, after the broadcast (S3, S16)', async () => {
-      const h = makeAdapter();
-      const onStats = jest.fn();
-      const arg = await startNewSession(h, onStats);
-      h.sessionBudget.observe.mockReturnValueOnce({
-        ...budgetFor(REAL_ID),
-        stage: 'limit',
-        blocked: true,
-      });
-
-      (arg.onResultStats as ResultStatsCallback)(
-        resultStats(snapshotFor(REAL_ID)),
-      );
-
-      expect(h.sessionLifecycle.parkLimitHandoverIfIdle).toHaveBeenCalledWith(
-        'tab_1',
-      );
-      expect(onStats.mock.invocationCallOrder[0]).toBeLessThan(
-        h.sessionLifecycle.parkLimitHandoverIfIdle.mock.invocationCallOrder[0],
-      );
-    });
-
-    it.each(['handoff', 'limit'] as const)(
-      'parks nothing after a non-blocking result at the %s stage (S3)',
-      async (stage) => {
-        const h = makeAdapter();
-        const arg = await startNewSession(h);
-        h.sessionBudget.observe.mockReturnValueOnce({
-          ...budgetFor(REAL_ID),
-          stage,
-        });
-
-        (arg.onResultStats as ResultStatsCallback)(
-          resultStats(snapshotFor(REAL_ID)),
-        );
-
-        expect(
-          h.sessionLifecycle.parkLimitHandoverIfIdle,
-        ).not.toHaveBeenCalled();
-      },
-    );
-
-    it('parks nothing below the handoff stage or without a budget state', async () => {
-      const h = makeAdapter();
-      const arg = await startNewSession(h);
-      h.sessionBudget.observe.mockReturnValueOnce(budgetFor(REAL_ID));
-
-      (arg.onResultStats as ResultStatsCallback)(
-        resultStats(snapshotFor(REAL_ID)),
-      );
-      (arg.onResultStats as ResultStatsCallback)(resultStats());
-
-      expect(h.sessionLifecycle.parkLimitHandoverIfIdle).not.toHaveBeenCalled();
-    });
-
-    it('never lets a throwing park escape the result callback', async () => {
-      const h = makeAdapter();
-      const onStats = jest.fn();
-      const arg = await startNewSession(h, onStats);
-      h.sessionBudget.observe.mockReturnValueOnce({
-        ...budgetFor(REAL_ID),
-        stage: 'limit',
-        blocked: true,
-      });
-      h.sessionLifecycle.parkLimitHandoverIfIdle.mockImplementationOnce(() => {
-        throw new Error('park failed');
-      });
-
-      expect(() =>
-        (arg.onResultStats as ResultStatsCallback)(
-          resultStats(snapshotFor(REAL_ID)),
-        ),
-      ).not.toThrow();
-      expect(onStats).toHaveBeenCalledTimes(1);
-      expect(
-        h.logger.warn.mock.calls.some((call) =>
-          String(call[0]).includes('Could not park the budget limit handover'),
-        ),
-      ).toBe(true);
-    });
-
     it('passes a compaction recorder to the transformer that never throws', async () => {
       const h = makeAdapter();
       const arg = await startNewSession(h);
@@ -2778,12 +2660,12 @@ describe('SdkAgentAdapter', () => {
       expect(h.logger.warn).toHaveBeenCalled();
     });
 
-    it('delegates terminal handover before releasing the result turn', async () => {
+    it('delegates the turn terminal before releasing the result turn', async () => {
       const h = makeAdapter();
       const arg = await startNewSession(h);
       const callOrder: string[] = [];
       h.sessionLifecycle.onTurnTerminal.mockImplementation((sessionId) => {
-        callOrder.push('arm');
+        callOrder.push('terminal');
         h.sessionLifecycle.markTurnEnded(sessionId);
       });
       h.sessionLifecycle.markTurnEnded.mockImplementation(() => {
@@ -2794,7 +2676,7 @@ describe('SdkAgentAdapter', () => {
       (arg.onTurnEnd as () => void)();
 
       expect(h.sessionLifecycle.onTurnTerminal).toHaveBeenCalledWith('tab_1');
-      expect(callOrder).toEqual(['arm', 'markTurnEnded']);
+      expect(callOrder).toEqual(['terminal', 'markTurnEnded']);
     });
 
     it('keeps the budget of an interrupted session (Stop is not a session end)', async () => {
