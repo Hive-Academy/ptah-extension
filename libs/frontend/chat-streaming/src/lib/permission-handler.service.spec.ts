@@ -709,6 +709,33 @@ describe('PermissionHandlerService', () => {
         expect(service.decisionPulse()?.decidingTabId).toBeNull();
       });
 
+      it('uses an explicit tabId as decidingTabId instead of the active tab', () => {
+        tabSignals.activeTabId.set('tab-active');
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-active', 'tab-card']);
+
+        service.handlePermissionResponse(
+          { id: 'p-1', decision: 'allow' } as never,
+          'tab-card',
+        );
+
+        const pulse = service.decisionPulse();
+        expect(pulse?.promptId).toBe('p-1');
+        expect(pulse?.decidingTabId).toBe('tab-card');
+      });
+
+      it('uses an explicit tabId even when no tab is active', () => {
+        tabSignals.activeTabId.set(null);
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+
+        service.handlePermissionResponse(
+          { id: 'p-1', decision: 'deny' } as never,
+          'tab-card',
+        );
+
+        expect(service.decisionPulse()?.decidingTabId).toBe('tab-card');
+      });
+
       it('emits a fresh pulse with a higher seq for each response', () => {
         service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
         service.handlePermissionRequest(makePermissionRequest({ id: 'p-2' }));

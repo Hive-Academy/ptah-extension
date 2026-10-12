@@ -422,9 +422,13 @@ export class PermissionHandlerService {
    *
    * Removes request from pending list and sends response to backend.
    *
+   * `tabId` is the tab the answer was given for (canvas header, card or lane
+   * view answer for a tab that is often not the active one). It is published
+   * as `decidingTabId` on `decisionPulse`; when omitted, the active tab is used.
+   *
    * Extracted from chat.store.ts:1344-1364
    */
-  handlePermissionResponse(response: PermissionResponse): void {
+  handlePermissionResponse(response: PermissionResponse, tabId?: string): void {
     if (response.decision === 'deny') {
       const originalRequest = this._permissionRequests().find(
         (r) => r.id === response.id,
@@ -442,7 +446,7 @@ export class PermissionHandlerService {
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
     );
-    const decidingTabId = this.tabManager.activeTabId() ?? null;
+    const decidingTabId = tabId ?? this.tabManager.activeTabId() ?? null;
     this._decisionSeq += 1;
     this._decisionPulse.set({
       seq: this._decisionSeq,
