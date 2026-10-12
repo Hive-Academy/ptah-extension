@@ -77,7 +77,33 @@ describe('CodeOutputComponent — output language detection', () => {
         toolOutput: '[NX] Successfully ran target build\nDone in 4s',
       });
     }).not.toThrow();
-    expect(formatted).toContain('```bash');
+    expect(formatted).toContain('```text');
+  });
+
+  it.each(['Bash', 'PowerShell'])(
+    'fences %s output as plain text, not shell code',
+    (toolName) => {
+      const formatted = outputFor({
+        toolName,
+        toolOutput: 'Build finished for the project\nDone',
+      });
+      expect(formatted).toMatch(/^```text\n/);
+      expect(formatted).not.toContain('```bash');
+    },
+  );
+
+  it('keeps the line breaks of plain-text MCP output in a text fence', () => {
+    const output = 'Agent: claude\nAgent: codex\nAgent: gemini';
+    expect(
+      outputFor({ toolName: 'mcp__github__ListAgents', toolOutput: output }),
+    ).toBe('```text\n' + output + '\n```');
+  });
+
+  it('leaves markdown MCP output unfenced', () => {
+    const output = '## Agents\n- claude\n- codex';
+    expect(
+      outputFor({ toolName: 'mcp__ptah__agents', toolOutput: output }),
+    ).toBe(output);
   });
 
   it.each([0, 1, 2, 3, 6])(
@@ -109,7 +135,7 @@ describe('CodeOutputComponent — output language detection', () => {
   it('uses the longest backtick run even when a shorter fence appears first', () => {
     const output = '```html\n<div>x</div>\n```\n``````';
     expect(outputFor({ toolName: 'Bash', toolOutput: output })).toBe(
-      '```````bash\n' + output + '\n```````',
+      '```````text\n' + output + '\n```````',
     );
   });
 
@@ -159,7 +185,6 @@ describe.each([true, false])(
     });
 
     it.each([
-      [{ toolName: 'Bash', toolOutput: 'ok' }, 'Bash'],
       [
         {
           toolName: 'Read',
@@ -169,7 +194,6 @@ describe.each([true, false])(
         'TypeScript',
       ],
       [{ toolName: 'Bash', toolOutput: '{"ok":true}' }, 'JSON'],
-      [{ toolName: 'Grep', toolOutput: lines(8) }, 'Text'],
     ] as const)('labels the language (%#)', (partial, label) => {
       const host = render(partial);
       expect(
@@ -180,7 +204,46 @@ describe.each([true, false])(
     });
 
     it.each([
-      [{ toolName: 'Bash', toolOutput: 'ok' }, 'Result'],
+      [{ toolName: 'Bash', toolOutput: lines(8) }],
+      [{ toolName: 'PowerShell', toolOutput: lines(8) }],
+      [{ toolName: 'Grep', toolOutput: lines(8) }],
+    ] as const)(
+      'shows no language label for plain-text output (%#)',
+      (partial) => {
+        const host = render(partial);
+        expect(
+          host.querySelector('[data-testid="code-output-header"]'),
+        ).not.toBeNull();
+        expect(
+          host.querySelector('[data-testid="code-output-language"]'),
+        ).toBeNull();
+        expect(host.textContent).not.toContain('Bash');
+      },
+    );
+
+    it('wraps the header row and keeps its actions from shrinking', () => {
+      const host = render({ toolName: 'Bash', toolOutput: lines(8) });
+      const header = host.querySelector(
+        '[data-testid="code-output-header"]',
+      ) as HTMLElement;
+      const actions = host.querySelector(
+        '[data-testid="code-output-actions"]',
+      ) as HTMLElement;
+      const toggle = host.querySelector(
+        'button[aria-expanded]',
+      ) as HTMLButtonElement;
+      expect(header.classList).toContain('flex-wrap');
+      expect(actions.classList).toContain('shrink-0');
+      expect(actions.classList).toContain('ml-auto');
+      expect(toggle.classList).toContain('shrink-0');
+      // Unshrinkable items keep "8 lines" on one line without whitespace-nowrap.
+      expect(
+        host.querySelector('[data-testid="code-output-lines"]')?.classList,
+      ).toContain('shrink-0');
+    });
+
+    it.each([
+      [{ toolName: 'Bash', toolOutput: lines(8) }, 'Result'],
       [
         {
           toolName: 'Read',
@@ -190,7 +253,7 @@ describe.each([true, false])(
         'Content',
       ],
       [{ toolName: 'Grep', toolOutput: lines(8) }, 'Matches'],
-      [{ toolName: 'Bash', toolOutput: 'boom', status: 'error' }, 'Error'],
+      [{ toolName: 'Bash', toolOutput: lines(8), status: 'error' }, 'Error'],
     ] as const)(
       'names the content in the header row (%#)',
       (partial, label) => {
@@ -205,7 +268,11 @@ describe.each([true, false])(
     );
 
     it('counts the output lines in the header row', () => {
-      const host = render({ toolName: 'Bash', toolOutput: 'a\nb\nc\n' });
+      const host = render({
+        toolName: 'Read',
+        toolInput: { file_path: '/src/a.ts' },
+        toolOutput: 'a\nb\nc\n',
+      });
       expect(
         host
           .querySelector('[data-testid="code-output-lines"]')
@@ -241,7 +308,14 @@ describe.each([true, false])(
         'expandable plain text',
         { toolName: 'mcp__srv__ping', toolOutput: lines(8) },
       ],
-      ['a non-text language', { toolName: 'Bash', toolOutput: 'ok' }],
+      [
+        'a non-text language',
+        {
+          toolName: 'Read',
+          toolInput: { file_path: '/src/a.ts' },
+          toolOutput: 'ok',
+        },
+      ],
     ] as const)('keeps the label row for %s', (_case, partial) => {
       const host = render(partial);
       expect(
@@ -592,9 +666,10 @@ describe('CodeOutputComponent — inner code-block chrome (full markdown preset)
       expect(
         host.querySelector('[data-testid="code-output-label"]')?.textContent,
       ).toBe('Result');
+      // PowerShell output is plain text: no language label repeats the tool.
       expect(
         host.querySelectorAll('[data-testid="code-output-language"]'),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
     },
   );
 });

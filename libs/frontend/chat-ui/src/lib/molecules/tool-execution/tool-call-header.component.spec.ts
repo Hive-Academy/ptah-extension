@@ -162,6 +162,110 @@ describe.each([true, false])(
       expect(chevron.classList).toContain('motion-reduce:transition-none');
     });
 
+    // Visual review issue 2: at 360 px Grep chips hid the pattern and pushed
+    // the chevron out of the row.
+    describe('narrow layout', () => {
+      const grep = {
+        toolName: 'Grep',
+        toolInput: {
+          pattern: 'toolStatusPresentation',
+          path: 'libs/frontend/chat-ui/src',
+          glob: '*.ts',
+          '-i': true,
+          output_mode: 'content',
+        },
+      };
+
+      it('wraps chips onto a second line instead of squeezing the target', () => {
+        const host = render(grep);
+        const content = host.querySelector(
+          '[data-testid="tool-header-content"]',
+        ) as HTMLElement;
+        const lead = host.querySelector(
+          '[data-testid="tool-header-lead"]',
+        ) as HTMLElement;
+
+        expect(content.classList).toContain('flex-wrap');
+        expect(content.classList).toContain('min-w-0');
+        expect(content.classList).toContain('flex-1');
+        // The tool name and target claim up to 12rem before any chip.
+        expect(lead.classList).toContain('basis-48');
+        expect(lead.classList).toContain('grow');
+        expect(lead.classList).toContain('min-w-0');
+        expect(lead.classList).toContain('max-w-max');
+        expect(
+          lead.querySelector('[data-testid="tool-target"]')?.classList,
+        ).toContain('min-w-0');
+        expect(chips(host).length).toBeGreaterThan(0);
+        for (const chip of Array.from(
+          content.querySelectorAll('[data-testid="tool-chip"]'),
+        )) {
+          expect(chip.parentElement).toBe(content);
+          expect(chip.classList).toContain('max-w-full');
+        }
+      });
+
+      it('keeps the chevron and duration outside the wrapping content, unshrinkable', () => {
+        const host = render({ ...grep, duration: 1200 });
+        const chevron = host.querySelector(
+          '[data-testid="tool-chevron"]',
+        ) as HTMLElement;
+        const duration = host.querySelector(
+          'ptah-duration-badge',
+        ) as HTMLElement;
+
+        expect(chevron.parentElement).toBe(toggle(host));
+        expect(chevron.classList).toContain('flex-shrink-0');
+        expect(duration.parentElement).toBe(toggle(host));
+        expect(duration.classList).toContain('flex-shrink-0');
+      });
+
+      it('keeps the Open-file button in the row and the file name in the lead group', () => {
+        const host = render({
+          toolName: 'Read',
+          toolInput: { file_path: '/repo/src/app/main.ts', offset: 1, limit: 60 },
+        });
+        const open = host.querySelector(
+          'button[aria-label="Open main.ts"]',
+        ) as HTMLElement;
+        const lead = host.querySelector('[data-testid="tool-header-lead"]');
+
+        expect(open.classList).toContain('flex-shrink-0');
+        expect(
+          lead?.querySelector('[data-testid="tool-file-path"]'),
+        ).not.toBeNull();
+      });
+    });
+
+    // Visual review issue 1: muted text fell under 4.5:1 on the hover surface.
+    it('brightens muted header text while the toggle is hovered or focused', () => {
+      const host = render({
+        toolName: 'Read',
+        toolInput: { file_path: '/repo/src/app/main.ts' },
+      });
+      const button = toggle(host);
+      const name = host.querySelector('[data-testid="tool-name"]');
+      const directory = host.querySelector(
+        '[data-testid="tool-file-path"] .text-base-content-muted',
+      );
+
+      expect(button.classList).toContain('group/toggle');
+      for (const el of [name, directory]) {
+        expect(el?.classList).toContain('group-hover/toggle:text-base-content');
+        expect(el?.classList).toContain(
+          'group-focus-visible/toggle:text-base-content',
+        );
+      }
+    });
+
+    it('puts the light-theme Ptah chip on base-100 so its gold text stays readable', () => {
+      const chip = render({
+        toolName: 'mcp__ptah__workspace_analyze',
+        toolInput: {},
+      }).querySelector('[data-testid="tool-ptah-chip"]') as HTMLElement;
+      expect(chip.classList).toContain('[[data-theme-mode=light]_&]:bg-base-100');
+    });
+
     it('shows a file tool as bold name and muted directory, with the full path title', () => {
       const host = render({
         toolName: 'Read',

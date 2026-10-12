@@ -44,9 +44,11 @@ let nextBlockId = 0;
  *   reminders, ANSI codes, line numbers)
  * - One header row, only when the block is expandable or has a non-text
  *   language: a label naming the content ("Result", "Content", "Matches",
- *   "Error"), the language label (`tool-language.utils`), the line count, the
- *   expand toggle and "Copy output". Short plain text has no row, only a
- *   floating "Copy output" (shown on hover / focus-within, always tabbable)
+ *   "Error"), the language label for code (`tool-language.utils`; none for
+ *   plain text), the line count, the expand toggle and "Copy output". The
+ *   row wraps; the actions never shrink, so they stay whole at 360 px. Short
+ *   plain text has no row, only a floating "Copy output" (shown on hover /
+ *   focus-within, always tabbable)
  * - Wrap content in markdown code blocks
  * - Render with ngx-markdown; the code block's own header and "Collapse"
  *   summary are hidden, so nothing repeats the label or eats the limit
@@ -72,33 +74,44 @@ let nextBlockId = 0;
     <div class="relative group/output">
       @if (showHeaderRow()) {
         <div
-          class="flex items-center gap-2 min-h-7 text-[11px] text-base-content-muted"
+          class="flex flex-wrap items-center gap-x-2 min-h-7 text-[11px] text-base-content-muted"
           data-testid="code-output-header"
         >
           <span
-            class="font-medium"
+            class="font-medium shrink-0"
             [class.text-base-content]="failed()"
             data-testid="code-output-label"
             >{{ sectionLabel() }}</span
           >
-          <span data-testid="code-output-language">{{ languageLabel() }}</span>
-          <span data-testid="code-output-lines"
+          @if (showLanguageLabel()) {
+            <span class="shrink-0" data-testid="code-output-language">{{
+              languageLabel()
+            }}</span>
+          }
+          <span class="shrink-0" data-testid="code-output-lines"
             >{{ lineCount() }} line{{ lineCount() === 1 ? '' : 's' }}</span
           >
-          <span class="flex-1"></span>
-          @if (collapsible()) {
-            <button
-              #expandToggle
-              type="button"
-              class="btn btn-ghost btn-xs h-7 min-h-0 px-2 text-[11px] font-normal"
-              [attr.aria-expanded]="expanded()"
-              [attr.aria-controls]="blockId"
-              (click)="toggleExpanded()"
-            >
-              {{ expanded() ? 'Show less' : 'Show full output' }}
-            </button>
-          }
-          <ptah-copy-text-button [text]="plainOutput()" label="Copy output" />
+          <span
+            class="ml-auto flex items-center shrink-0"
+            data-testid="code-output-actions"
+          >
+            @if (collapsible()) {
+              <button
+                #expandToggle
+                type="button"
+                class="btn btn-ghost btn-xs h-7 min-h-0 px-2 text-[11px] font-normal shrink-0"
+                [attr.aria-expanded]="expanded()"
+                [attr.aria-controls]="blockId"
+                (click)="toggleExpanded()"
+              >
+                {{ expanded() ? 'Show less' : 'Show full output' }}
+              </button>
+            }
+            <ptah-copy-text-button
+              [text]="plainOutput()"
+              label="Copy output"
+            />
+          </span>
         </div>
       } @else {
         <!-- Short plain text: no label row, only a floating Copy. Always in
@@ -169,6 +182,15 @@ export class CodeOutputComponent {
 
   protected readonly languageLabel = computed(() =>
     getLanguageLabel(this.language()),
+  );
+
+  /**
+   * The language label names a code language only. Plain text (Bash,
+   * PowerShell, Grep and Glob output) gets none: "Text" adds nothing, and a
+   * shell label would read as the tool's name again.
+   */
+  protected readonly showLanguageLabel = computed(
+    () => this.language() !== 'text',
   );
 
   /** A permission request for this call is waiting on the user. */

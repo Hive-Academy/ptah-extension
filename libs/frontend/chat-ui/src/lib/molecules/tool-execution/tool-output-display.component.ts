@@ -122,9 +122,10 @@ export class ToolOutputDisplayComponent {
    * The call's error text, or null. It is left out only when the output
    * block, as displayed, already holds the same message whole
    * (`outputShowsError`); an incidental mention in the output does not count.
-   * Only fenced code/text output qualifies: markdown output (MCP results,
-   * `.md` content) is parsed and sanitised before display, which can drop
-   * the matching text, so its Error block is never suppressed.
+   * Only fenced code/text output qualifies: markdown output (MCP results
+   * that use markdown syntax, `.md` content) is parsed and sanitised before
+   * display, which can drop the matching text, so its Error block is never
+   * suppressed. Plain-text MCP output is fenced as text, so it qualifies.
    * A whitespace-only error still shows the block, with a stated fallback.
    */
   readonly errorMessage = computed((): string | null => {

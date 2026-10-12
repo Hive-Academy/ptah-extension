@@ -307,7 +307,8 @@ describe.each([true, false])(
 
     // Regression: "Output" heading, then a language badge in a second row.
     it('has no generic "Output" heading; the code output names its content', () => {
-      const host = render({ toolOutput: 'ok' });
+      // Long enough for the label row: short plain text (Bash) has none.
+      const host = render({ toolOutput: 'a\nb\nc\nd\ne\nf\ng\nh' });
 
       expect(host.textContent).not.toMatch(/\bOutput\b/);
       expect(
@@ -396,6 +397,23 @@ describe.each([true, false])(
 
     // Regression: markdown output is sanitised, so the matching text can vanish.
     it('keeps the Error block for markdown (MCP) output that holds the same text', async () => {
+      const message = '**fatal** <script>boom</script>';
+      const host = render({
+        toolName: 'mcp__server__run',
+        status: 'error',
+        toolOutput: message,
+        error: message,
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const block = host.querySelector('[data-testid="tool-error"]');
+      expect(block).not.toBeNull();
+      expect(block?.textContent).toContain(message);
+    });
+
+    // Plain-text MCP output is fenced as text, so it shows the error whole.
+    it('drops the Error block for plain-text MCP output that equals the error', async () => {
       const host = render({
         toolName: 'mcp__server__run',
         status: 'error',
@@ -405,9 +423,10 @@ describe.each([true, false])(
       await fixture.whenStable();
       fixture.detectChanges();
 
-      const block = host.querySelector('[data-testid="tool-error"]');
-      expect(block).not.toBeNull();
-      expect(block?.textContent).toContain('<script>fatal</script>');
+      expect(host.querySelector('[data-testid="tool-error"]')).toBeNull();
+      expect(host.querySelector('pre code')?.textContent).toContain(
+        '<script>fatal</script>',
+      );
     });
 
     it('keeps the Error block for a .md Read whose output equals the error', () => {

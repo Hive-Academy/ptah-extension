@@ -67,7 +67,14 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
  *   failed`; `ExecutionNode` has no exit code, so it says `failed`)
  * - "Open <file>" is a 28 px sibling button (buttons do not nest) that opens
  *   through `FILE_LINK_OPENER`
- * - Text truncates with an ellipsis; nothing scrolls sideways
+ * - Text truncates with an ellipsis; nothing scrolls sideways. The tool name
+ *   and target form one lead group that claims up to 12rem first; chips that
+ *   do not fit beside it wrap to a second line, and the chevron, duration and
+ *   Open button never shrink, so they stay in the row at 360 px
+ * - Muted text (tool name, directory, MCP server, "started") turns
+ *   `text-base-content` while the toggle is hovered or focused: muted text on
+ *   `--surface-highlight` measured under 4.5:1. In light themes the gold
+ *   "Ptah" chip sits on `bg-base-100` so `--ptah-gold-strong` clears 4.5:1
  */
 @Component({
   selector: 'ptah-tool-call-header',
@@ -78,7 +85,7 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
       <button
         #toggle
         type="button"
-        class="flex-1 min-w-0 min-h-7 px-1 py-0.5 flex items-center gap-2 text-xs text-left rounded hover:bg-[var(--surface-highlight)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content cursor-pointer"
+        class="group/toggle flex-1 min-w-0 min-h-7 px-1 py-0.5 flex items-center gap-2 text-xs text-left rounded hover:bg-[var(--surface-highlight)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content cursor-pointer"
         (click)="toggleClicked.emit()"
         [attr.aria-expanded]="!isCollapsed()"
         [attr.aria-controls]="isCollapsed() ? null : 'tool-' + node().id"
@@ -88,111 +95,135 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
           statusLabel()
         }}</span>
 
-        <!-- Tool name, once -->
-        @if (isPtahMcpTool()) {
+        <!-- Everything but the chevron and duration. It wraps: chips that do
+             not fit move to a second line, so the target keeps its room and
+             the chevron never leaves the row. -->
+        <span
+          class="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5"
+          data-testid="tool-header-content"
+        >
+          <!-- Tool name and primary target stay together on the first line;
+               the group claims up to 12rem before any chip, and the target
+               truncates inside it. -->
           <span
-            class="badge badge-sm h-5 px-1.5 text-[11px] font-semibold flex-shrink-0 bg-[var(--ptah-gold-soft)] text-[color:var(--ptah-gold-strong)] border border-[color:var(--ptah-gold)]"
-            data-testid="tool-ptah-chip"
-            >Ptah</span
+            class="flex items-center gap-2 min-w-0 max-w-max grow basis-48"
+            data-testid="tool-header-lead"
           >
-          <span
-            class="font-semibold text-base-content flex-shrink-0"
-            data-testid="tool-name"
-            >{{ ptahToolName() }}</span
-          >
-        } @else if (mcpTool(); as mcp) {
-          <span class="flex-shrink-0" data-testid="tool-name">
-            <span class="text-base-content-muted">{{ mcp.server }} ·</span>
-            <span class="ml-1 font-semibold text-base-content">{{
-              mcp.tool
-            }}</span>
-          </span>
-        } @else {
-          <span
-            class="font-mono text-base-content-muted flex-shrink-0"
-            data-testid="tool-name"
-            >{{ node().toolName }}</span
-          >
-        }
+            <!-- Tool name, once -->
+            @if (isPtahMcpTool()) {
+              <span
+                class="badge badge-sm h-5 px-1.5 text-[11px] font-semibold flex-shrink-0 bg-[var(--ptah-gold-soft)] [[data-theme-mode=light]_&]:bg-base-100 text-[color:var(--ptah-gold-strong)] border border-[color:var(--ptah-gold)]"
+                data-testid="tool-ptah-chip"
+                >Ptah</span
+              >
+              <span
+                class="min-w-0 truncate font-semibold text-base-content"
+                data-testid="tool-name"
+                >{{ ptahToolName() }}</span
+              >
+            } @else if (mcpTool(); as mcp) {
+              <span class="min-w-0 truncate" data-testid="tool-name">
+                <span
+                  class="text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content"
+                  >{{ mcp.server }} ·</span
+                >
+                <span class="ml-1 font-semibold text-base-content">{{
+                  mcp.tool
+                }}</span>
+              </span>
+            } @else {
+              <span
+                class="font-mono text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content flex-shrink-0"
+                data-testid="tool-name"
+                >{{ node().toolName }}</span
+              >
+            }
 
-        <!-- Primary: file, or the call's target -->
-        @if (filePath()) {
-          <span
-            class="min-w-0 truncate"
-            [title]="filePath()"
-            data-testid="tool-file-path"
-          >
-            <span class="font-semibold text-base-content">{{
-              fileName()
-            }}</span>
-            @if (fileDirectory()) {
-              <span class="ml-1 text-base-content-muted">{{
-                fileDirectory()
-              }}</span>
+            <!-- Primary: file, or the call's target -->
+            @if (filePath()) {
+              <span
+                class="min-w-0 truncate"
+                [title]="filePath()"
+                data-testid="tool-file-path"
+              >
+                <span class="font-semibold text-base-content">{{
+                  fileName()
+                }}</span>
+                @if (fileDirectory()) {
+                  <span
+                    class="ml-1 text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content"
+                    >{{ fileDirectory() }}</span
+                  >
+                }
+              </span>
+            } @else if (targetLabel()) {
+              <span
+                class="min-w-0 truncate text-base-content"
+                [class.font-mono]="isPatternTarget()"
+                [title]="fullDescription()"
+                data-testid="tool-target"
+                >{{ targetLabel() }}</span
+              >
             }
           </span>
-        } @else if (targetLabel()) {
-          <span
-            class="min-w-0 truncate text-base-content"
-            [class.font-mono]="isPatternTarget()"
-            [title]="fullDescription()"
-            data-testid="tool-target"
-            >{{ targetLabel() }}</span
-          >
-        }
 
-        @for (chip of chips(); track $index) {
-          <span
-            class="badge badge-ghost badge-sm h-5 px-1.5 font-mono text-[11px] text-base-content-muted flex-shrink-0"
-            data-testid="tool-chip"
-            >{{ chip }}</span
-          >
-        }
+          @for (chip of chips(); track $index) {
+            <span
+              class="badge badge-ghost badge-sm h-5 px-1.5 font-mono text-[11px] text-base-content-muted flex-shrink-0 max-w-full truncate"
+              data-testid="tool-chip"
+              >{{ chip }}</span
+            >
+          }
 
-        @if (backgroundStarted()) {
-          <span
-            class="text-[11px] text-base-content-muted flex-shrink-0"
-            data-testid="tool-started"
-            >started</span
-          >
-        }
+          @if (backgroundStarted()) {
+            <span
+              class="text-[11px] text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content flex-shrink-0"
+              data-testid="tool-started"
+              >started</span
+            >
+          }
 
-        <!-- Parse Error Warning -->
-        @if (hasParseError()) {
-          <span
-            class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-base-content"
-            [title]="'Parse Error: ' + parseError()"
-          >
-            <lucide-angular
-              [img]="AlertIcon"
-              class="w-3 h-3 text-warning"
+          <!-- Parse Error Warning -->
+          @if (hasParseError()) {
+            <span
+              class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-base-content"
+              [title]="'Parse Error: ' + parseError()"
+            >
+              <lucide-angular
+                [img]="AlertIcon"
+                class="w-3 h-3 text-warning"
+                aria-hidden="true"
+              />
+              <span class="text-[11px] font-mono">Parse Error</span>
+            </span>
+          }
+
+          <!-- The failure in words: colour is never the only signal -->
+          @if (statusPresentation().failed) {
+            <span
+              class="badge badge-ghost badge-sm h-5 px-1.5 text-[11px] text-base-content flex-shrink-0"
               aria-hidden="true"
-            />
-            <span class="text-[11px] font-mono">Parse Error</span>
-          </span>
-        }
-
-        <!-- The failure in words: colour is never the only signal -->
-        @if (statusPresentation().failed) {
-          <span
-            class="badge badge-ghost badge-sm h-5 px-1.5 text-[11px] text-base-content flex-shrink-0"
-            aria-hidden="true"
-            data-testid="tool-failed"
-            >failed</span
-          >
-        }
+              data-testid="tool-failed"
+              >failed</span
+            >
+          }
+        </span>
 
         <!-- Chevron: always in the DOM, shown on hover and focus -->
         <lucide-angular
           [img]="ChevronIcon"
-          class="ml-auto w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform motion-reduce:transition-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          class="w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform motion-reduce:transition-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
           [class.-rotate-90]="isCollapsed()"
           aria-hidden="true"
+          data-testid="tool-chevron"
         />
 
         <!-- Duration -->
         @if (node().duration) {
-          <ptah-duration-badge [durationMs]="node().duration!" />
+          <ptah-duration-badge
+            class="flex-shrink-0"
+            [durationMs]="node().duration!"
+          />
         }
       </button>
 
