@@ -7,7 +7,11 @@ import {
 import { ProviderMarkComponent } from '@ptah-extension/ui';
 import { NEAR_LIMIT_PERCENT } from '@ptah-extension/shared';
 import { providerAccent } from './provider-accent';
-import type { OwnerSectionView, Tone } from './provider-account-card.component';
+import type {
+  OwnerSectionView,
+  RowActionView,
+  Tone,
+} from './provider-account-card.component';
 
 /**
  * One row of the provider list (TASK_2026_631): pure presentation of one
@@ -17,14 +21,17 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
  * wide rows place identity | windows | local usage | refresh on one line;
  * medium and narrow rows drop the windows and the local-usage stat below the
  * identity, so the owner name is never squeezed beside them. A row without
- * windows is a compact one-line reason; a warning or error notice keeps the
+ * windows is a compact one-line reason, and may end with an inline action
+ * (the card owns what that action does); a warning or error notice keeps the
  * bordered box it had before the redesign.
  *
  * Every datum, `data-testid` and accessibility semantic is the card's: the
- * progressbar aria attributes, the state chip's glyph + word (colour is never
- * the only signal), source chips, the sr-only value text, the focusable
- * refresh control. The decorative per-provider accent (left border + mark
- * tint) never carries identity — the provider name always stays in text.
+ * progressbar aria attributes, the state chip's glyph + word and the status
+ * badge's outline + glyph (colour is never the only signal), the source
+ * chips, the sr-only value text, the focusable refresh control and the
+ * focusable inline action, whose visible label is its accessible name. The
+ * decorative per-provider accent (left border + mark tint) never carries
+ * identity — the provider name always stays in text.
  */
 @Component({
   selector: 'ptah-provider-account-row',
@@ -122,6 +129,16 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
         align-items: baseline;
         gap: 0.25rem 0.5rem;
       }
+      /* Dense rows: the value never wraps under a long state chip — it is an
+         inflexible item on the chip's line, and the name/chip span takes the
+         remaining space and wraps inside itself (revise-2 minor). */
+      .win-name {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      .win-value {
+        flex: none;
+      }
       .bar {
         position: relative;
         margin: 0.375rem 0 0.25rem;
@@ -144,6 +161,25 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
           transparent 6px 10px
         );
       }
+      /* bar-fill marks the fill div so the light-mode re-tint below can
+         scope to it (revise-2 M2). The tone itself stays a semantic
+         utility class (bg-success / bg-warning / bg-error) in dark themes
+         and every other light theme DaisyUI already tunes. */
+      /* Light themes render DaisyUI's success/warning (and retro's error)
+         too pale against the row background — measured 2.12-2.42:1 (visual
+         review M2) — so on the light-mode marker every fill is re-tinted
+         darker, the same text-safe tint idea the prototype's
+         --su-t/--wa-t/--er-t carried. Dark themes already measure >= 3.5:1
+         and keep the plain semantic fill. */
+      :host-context([data-theme-mode='light']) .bar-fill.bg-success {
+        background-color: color-mix(in oklab, oklch(var(--su)) 60%, black);
+      }
+      :host-context([data-theme-mode='light']) .bar-fill.bg-warning {
+        background-color: color-mix(in oklab, oklch(var(--wa)) 60%, black);
+      }
+      :host-context([data-theme-mode='light']) .bar-fill.bg-error {
+        background-color: color-mix(in oklab, oklch(var(--er)) 75%, black);
+      }
       /* Medium rows (641-1100px): windows flow horizontally, local usage
          moves to its own line, right-aligned under the refresh control. */
       @container row (min-width: 641px) {
@@ -161,10 +197,14 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
         }
       }
       /* Wide rows (>1100px): identity | windows | local usage | refresh on
-         one line, so the stacked-row margins come off mid and local. */
+         one line, so the stacked-row margins come off mid and local. The
+         identity column grows to its own content — a long name no longer
+         wraps while most of the row sits free — but never below 14rem, so
+         the name is never squeezed; the windows column takes whatever is
+         left (revise-2 minor). */
       @container row (min-width: 1101px) {
         .owner-row {
-          grid-template-columns: minmax(14rem, 19rem) minmax(0, 1fr) max-content max-content;
+          grid-template-columns: minmax(14rem, max-content) minmax(0, 1fr) max-content max-content;
           grid-template-areas:
             "identity mid local actions"
             "below below below below";
@@ -218,6 +258,7 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
                 [class]="statusChipClass(status.tone)"
                 [attr.title]="section().statusNotice?.text ?? status.text"
                 data-testid="status-chip"
+                ><span aria-hidden="true">{{ status.glyph }} </span
                 >{{ status.text }}</span
               >
             }
@@ -235,7 +276,7 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
                 data-testid="window-row"
               >
                 <div class="win-top">
-                  <span class="min-w-0">
+                  <span class="win-name min-w-0">
                     <span class="text-[13px] font-semibold">{{
                       row.name
                     }}</span>
@@ -251,7 +292,7 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
                   </span>
                   <span class="sr-only">{{ row.valueText }}</span>
                   <span
-                    class="text-xs font-semibold tabular-nums break-words"
+                    class="win-value text-xs font-semibold tabular-nums break-words"
                     [class.whitespace-nowrap]="row.isPercent"
                     data-testid="window-value"
                     >{{
@@ -276,11 +317,8 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
                     data-testid="window-progress"
                   >
                     <div
-                      class="h-full rounded"
-                      [class.bg-error]="row.barTone === 'error'"
-                      [class.bg-warning]="row.barTone === 'warning'"
-                      [class.bg-success]="row.barTone === 'success'"
-                      [class.bg-base-content]="row.barTone === 'neutral'"
+                      class="bar-fill h-full rounded"
+                      [class]="barFillClass(row.barTone)"
                       [style.width.%]="clampPercent(row.percent)"
                     ></div>
                     <span
@@ -349,6 +387,17 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
             data-testid="compact-reason"
           >
             {{ notice.text }}
+            @if (section().action; as action) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs ml-1 min-h-6 align-middle"
+                [attr.aria-label]="action.label + ' for ' + section().label"
+                (click)="actionClick.emit(action)"
+                data-testid="compact-action"
+              >
+                {{ action.label }}
+              </button>
+            }
           </p>
         }
       }
@@ -362,9 +411,13 @@ import type { OwnerSectionView, Tone } from './provider-account-card.component';
           <p class="text-sm font-semibold tabular-nums">
             {{ usage.value }}
           </p>
-          @if (usage.range) {
-            <p class="text-[11px] text-base-content-muted">
-              Range: {{ usage.range }}
+          @if (usage.range; as range) {
+            <p
+              class="text-[11px] text-base-content-muted"
+              [attr.title]="range"
+              data-testid="local-usage-range"
+            >
+              Range: {{ usage.rangeLabel ?? range }}
             </p>
           }
           <p class="text-[11px] text-base-content-muted">
@@ -466,6 +519,8 @@ export class ProviderAccountRowComponent {
   readonly refreshing = input(false);
   /** Emits when the row's refresh button is pressed. */
   readonly refresh = output<void>();
+  /** Emits when a compact-row inline action is pressed (revise-2 item 7). */
+  readonly actionClick = output<RowActionView>();
 
   /** Where the near-limit tick sits on every bar (NEAR_LIMIT_PERCENT). */
   protected readonly nearLimitPercent = NEAR_LIMIT_PERCENT;
@@ -483,12 +538,35 @@ export class ProviderAccountRowComponent {
     return providerAccent(providerId);
   }
 
+  /**
+   * Every status badge keeps a visible outline (revise-2 M3): a ghost badge
+   * with no border read as plain bold text in the dark theme.
+   */
   protected statusChipClass(tone: Tone): string {
     return tone === 'error'
-      ? 'badge-error'
+      ? 'badge-error badge-outline'
       : tone === 'warning'
-        ? 'badge-warning'
-        : 'badge-ghost';
+        ? 'badge-warning badge-outline'
+        : 'badge-ghost badge-outline';
+  }
+
+  /**
+   * The window bar's fill class. Neutral (aged / estimate-only /
+   * not-confirmed) is the muted 45% tier, not full-strength base-content —
+   * the heaviest element in the row was a stale reading (revise-2 M1) — and
+   * 45% still holds >= 3:1 against every row background.
+   */
+  protected barFillClass(tone: Tone): string {
+    switch (tone) {
+      case 'error':
+        return 'bg-error';
+      case 'warning':
+        return 'bg-warning';
+      case 'success':
+        return 'bg-success';
+      default:
+        return 'bg-base-content/45';
+    }
   }
 
   /** Semantic colour only as border and tint, never as text (design §8). */

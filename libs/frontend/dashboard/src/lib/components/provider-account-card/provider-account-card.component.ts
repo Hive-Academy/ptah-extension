@@ -14,9 +14,11 @@
  * presents each row: wide rows place identity | windows | local usage |
  * refresh on one line; medium and narrow rows drop the windows and the
  * local-usage stat below the identity, so the owner name is never squeezed
- * beside them. A row without windows is a compact one-line reason. Every
- * row carries a decorative per-provider accent (left border + mark tint,
- * `provider-accent.ts`); the provider name always stays in text.
+ * beside them. A row without windows is a compact one-line reason, and may
+ * end with an inline action wired only to navigation that already exists
+ * (`AppStateManager`; revise-2 item 7). Every row carries a decorative
+ * per-provider accent (left border + mark tint, `provider-accent.ts`); the
+ * provider name always stays in text.
  *
  * Selection: `AuthStateService.persistedProviderId()` drives `load({providerId})`.
  * The store merges only the fields a call names, so the card passes exactly
@@ -33,7 +35,11 @@ import {
   inject,
   untracked,
 } from '@angular/core';
-import { AuthStateService, PlanLimitsStore } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  AuthStateService,
+  PlanLimitsStore,
+} from '@ptah-extension/core';
 import {
   activeEstimatedExhaustion,
   activeWindowExhaustion,
@@ -84,10 +90,11 @@ export interface WindowRowView {
   /** Bar fill percent; `null` draws no bar (unknown is never an empty bar). */
   readonly percent: number | null;
   /**
-   * Bar fill tone. `neutral` (the pre-redesign `bg-base-content` fill) marks
-   * readings whose freshness or provenance is not confirmed — aged,
-   * estimate-only, not-confirmed — so a stale high percent never reads as
-   * healthy; only a fresh, confirmed window is `success` (revise-1 S1).
+   * Bar fill tone. `neutral` (the pre-redesign fill, now the muted 45% tier
+   * from revise-2 M1) marks readings whose freshness or provenance is not
+   * confirmed — aged, estimate-only, not-confirmed — so a stale high percent
+   * never reads as healthy; only a fresh, confirmed window is `success`
+   * (revise-1 S1).
    */
   readonly barTone: Tone;
   readonly valueText: string;
@@ -110,7 +117,26 @@ export interface NoticeView {
 export interface LocalUsageView {
   readonly label: string;
   readonly value: string;
+  /** The CLI's exact aggregation range, shown in the stat's tooltip. */
   readonly range: string | null;
+  /**
+   * "last 30 days" derived from the range; the raw string when the range
+   * does not parse (revise-2 minor 6).
+   */
+  readonly rangeLabel: string | null;
+}
+
+/**
+ * One inline action on a compact row (revise-2 item 7), wired only to
+ * navigation that already exists in the webview: `open-session` goes to the
+ * chat surface (where a session with the provider is opened, so its usage
+ * can be read), `add-key` opens Settings on the Providers tab focused on
+ * this provider.
+ */
+export interface RowActionView {
+  readonly kind: 'open-session' | 'add-key';
+  readonly label: string;
+  readonly providerId: string;
 }
 
 export interface OwnerSectionView {
@@ -121,6 +147,8 @@ export interface OwnerSectionView {
   readonly statusChip: StateChipView | null;
   readonly noUsageSource: boolean;
   readonly statusNotice: NoticeView | null;
+  /** Inline action for a compact row, when one exists (revise-2 item 7). */
+  readonly action: RowActionView | null;
   readonly windows: readonly WindowRowView[];
   readonly commonSources: readonly SourceChipView[];
   readonly localUsage: LocalUsageView | null;
@@ -233,6 +261,7 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
                 [section]="section"
                 [refreshing]="loading()"
                 (refresh)="refresh()"
+                (actionClick)="onRowAction($event)"
               />
             </li>
           }
@@ -249,6 +278,8 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
 export class ProviderAccountCardComponent {
   private readonly planLimits = inject(PlanLimitsStore);
   private readonly auth = inject(AuthStateService);
+  /** Compact-row inline actions navigate through existing app-state routes. */
+  private readonly appState = inject(AppStateManager);
 
   /** Explicit zone and zone-name locale (carry-forward from Batch 3). */
   private readonly timeOptions: LocalTimeOptions = {
@@ -298,6 +329,20 @@ export class ProviderAccountCardComponent {
       providerId: this.auth.persistedProviderId(),
       refresh: true,
     });
+  }
+
+  /**
+   * Compact-row inline actions (revise-2 item 7) — existing navigation
+   * only: "Go to chat" goes to chat, where a session with the provider
+   * opens and its usage can be read; "Add key" opens Settings on the
+   * Providers tab focused on this provider.
+   */
+  onRowAction(action: RowActionView): void {
+    if (action.kind === 'open-session') {
+      this.appState.setCurrentView('chat');
+    } else {
+      this.appState.openSettingsTab('providers', action.providerId);
+    }
   }
 }
 
@@ -386,6 +431,7 @@ function buildOwnerSection(
     statusChip: statusChip(owner.status, owner.owner.providerId),
     noUsageSource: owner.status === 'no-usage-source',
     statusNotice: statusNotice(owner, hasData, now, time),
+    action: compactRowAction(owner, hasData),
     windows,
     commonSources,
     localUsage: owner.localUsage ? localUsageView(owner.localUsage) : null,
@@ -398,12 +444,72 @@ function buildOwnerSection(
   };
 }
 
+/**
+ * The prototype's inline actions on compact rows (revise-2 item 7), wired
+ * only to navigation that already exists in the webview: "Go to chat"
+ * (the no-open-session reason) goes to the chat surface, "Add key" (Ollama
+ * Cloud's missing key) opens Settings on the Providers tab. "How to
+ * refresh" (the Antigravity reason) has no existing handler anywhere in
+ * the webview code, so it is deliberately absent — see the revise-2
+ * report's Clarifications Needed.
+ */
+function compactRowAction(
+  owner: PlanLimitOwnerSnapshot,
+  hasData: boolean,
+): RowActionView | null {
+  if (owner.windows.length > 0) return null;
+  if (
+    owner.status === 'service-unavailable' &&
+    owner.unavailableReason === 'no-open-session'
+  ) {
+    return {
+      kind: 'open-session',
+      label: 'Go to chat',
+      providerId: owner.owner.providerId,
+    };
+  }
+  if (
+    !hasData &&
+    owner.status === 'unsupported-config' &&
+    owner.owner.providerId === 'ollama-cloud'
+  ) {
+    return {
+      kind: 'add-key',
+      label: 'Add key',
+      providerId: owner.owner.providerId,
+    };
+  }
+  return null;
+}
+
 function localUsageView(usage: PlanLocalUsage): LocalUsageView {
   return {
     label: usage.label,
     value: `${usage.tokens.toLocaleString()} tokens · $${usage.estimatedCostUsd.toFixed(2)}`,
     range: usage.range ?? null,
+    rangeLabel: localRangeLabel(usage.range),
   };
+}
+
+/**
+ * "last 30 days" derived from the CLI's own "start – end" ISO range (the
+ * reader joins with an en dash; a hyphen or em dash is accepted too); the
+ * exact range string stays available in the stat's tooltip (revise-2
+ * minor 6). A range that does not parse, or runs backwards, falls back to
+ * the raw string, as does a free-form range string the CLI sends verbatim.
+ */
+function localRangeLabel(range: string | undefined): string | null {
+  if (range === undefined) return null;
+  const parts = range.split(/\s[-–—]\s/);
+  if (parts.length !== 2) return range;
+  const start = Date.parse((parts[0] ?? '').trim());
+  const end = Date.parse((parts[1] ?? '').trim());
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return range;
+  }
+  const days = Math.round((end - start) / 86_400_000);
+  if (days < 1) return range;
+  return days === 1 ? 'last 1 day' : `last ${days} days`;
 }
 
 function subtitleFor(owner: PlanLimitOwnerSnapshot): string {
@@ -425,7 +531,11 @@ function subtitleFor(owner: PlanLimitOwnerSnapshot): string {
   return plan ? `${base} · Plan: ${plan}` : base;
 }
 
-/** Short, human-readable status labels; diagnostic codes stay out of the UI. */
+/**
+ * Short, human-readable status labels; diagnostic codes stay out of the UI.
+ * Every chip leads with a glyph (revise-2 M3) — ○ not configured/unread,
+ * ◷ cached, – no plan limits (API key), ! CLI trouble.
+ */
 function statusChip(
   status: ProviderAccountUsageStatus,
   providerId: string,
@@ -434,12 +544,12 @@ function statusChip(
     case 'available':
       return null;
     case 'no-usage-source':
-      return { glyph: '', text: 'No usage source', tone: 'neutral' };
+      return { glyph: '○', text: 'No usage source', tone: 'neutral' };
     case 'stale':
-      return { glyph: '', text: 'Cached data', tone: 'warning' };
+      return { glyph: '◷', text: 'Cached data', tone: 'warning' };
     case 'unsupported-auth':
       return {
-        glyph: '',
+        glyph: '–',
         text:
           providerId === 'ollama-cloud'
             ? 'API key rejected'
@@ -448,7 +558,7 @@ function statusChip(
       };
     case 'unsupported-config':
       return {
-        glyph: '',
+        glyph: '○',
         text:
           providerId === 'ollama-cloud'
             ? 'No API key configured'
@@ -456,13 +566,13 @@ function statusChip(
         tone: 'neutral',
       };
     case 'provider-unsupported':
-      return { glyph: '', text: 'No usage source', tone: 'neutral' };
+      return { glyph: '○', text: 'No usage source', tone: 'neutral' };
     case 'cli-unavailable':
-      return { glyph: '', text: 'CLI unavailable', tone: 'warning' };
+      return { glyph: '!', text: 'CLI unavailable', tone: 'warning' };
     case 'cli-version-unsupported':
-      return { glyph: '', text: 'CLI update needed', tone: 'warning' };
+      return { glyph: '!', text: 'CLI update needed', tone: 'warning' };
     case 'service-unavailable':
-      return { glyph: '', text: 'Usage unavailable', tone: 'neutral' };
+      return { glyph: '○', text: 'Usage unavailable', tone: 'neutral' };
   }
 }
 
@@ -604,8 +714,9 @@ function buildWindowRow(
     chip: STATE_CHIPS[state],
     percent: showValue && percent !== undefined ? percent : null,
     // Aged, estimate-only and not-confirmed readings are not room: they keep
-    // the neutral pre-redesign fill so a stale 97% never reads as healthy
-    // (revise-1 S1). Only a fresh, confirmed window is green.
+    // the neutral fill so a stale 97% never reads as healthy (revise-1 S1;
+    // the fill itself is the muted tier since revise-2 M1). Only a fresh,
+    // confirmed window is green.
     barTone:
       state === 'limit-reached'
         ? 'error'

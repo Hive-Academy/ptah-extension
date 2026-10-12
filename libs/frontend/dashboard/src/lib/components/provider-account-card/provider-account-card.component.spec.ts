@@ -10,6 +10,7 @@
 import { LOCALE_ID, signal, type WritableSignal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
+  AppStateManager,
   AuthStateService,
   ClaudeRpcService,
   PlanLimitsStore,
@@ -92,6 +93,8 @@ interface FakeStore {
 describe('ProviderAccountCardComponent', () => {
   let store: FakeStore;
   let providerId: WritableSignal<string>;
+  /** Compact-row inline actions navigate through app state (revise-2). */
+  let appState: { setCurrentView: jest.Mock; openSettingsTab: jest.Mock };
   let fixture: ComponentFixture<ProviderAccountCardComponent>;
 
   function render(
@@ -106,6 +109,7 @@ describe('ProviderAccountCardComponent', () => {
       load: jest.fn().mockResolvedValue(undefined),
     };
     providerId = signal('anthropic');
+    appState = { setCurrentView: jest.fn(), openSettingsTab: jest.fn() };
     TestBed.configureTestingModule({
       imports: [ProviderAccountCardComponent],
       providers: [
@@ -114,6 +118,7 @@ describe('ProviderAccountCardComponent', () => {
           provide: AuthStateService,
           useValue: { persistedProviderId: providerId },
         },
+        { provide: AppStateManager, useValue: appState },
         ...(locale ? [{ provide: LOCALE_ID, useValue: locale }] : []),
       ],
     });
@@ -343,11 +348,11 @@ describe('ProviderAccountCardComponent', () => {
         }),
       ),
     );
-    expect(textOf(el)).toContain('No usage source');
+    expect(textOf(el)).toContain('○ No usage source');
     expect(el.querySelector('[role="progressbar"]')).toBeNull();
     expect(textOf(el)).not.toContain('%');
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
-      'No usage source',
+      '○ No usage source',
     );
   });
 
@@ -373,6 +378,106 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(stat)).toContain('1,234 tokens · $5.67');
     expect(stat?.querySelector('.radial-progress')).toBeNull();
     expect(el.querySelector('[data-testid="window-progress"]')).toBeNull();
+  });
+
+  it('labels the local usage range "last N days", with the exact range in the tooltip (revise-2)', () => {
+    const el = render(
+      snapshotOf(
+        owner('opencode', 'OpenCode local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 1234,
+            estimatedCostUsd: 5.67,
+            observedAt: NOW,
+            source: 'local-cli',
+            range: '2025-12-31T22:00:00.000Z – 2026-01-30T22:00:00.000Z',
+          },
+        }),
+        owner('codex', 'Codex local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 10,
+            estimatedCostUsd: 0.1,
+            observedAt: NOW,
+            source: 'local-cli',
+            range: '2026-01-30T22:00:00.000Z - 2025-12-31T22:00:00.000Z',
+          },
+        }),
+        owner('grok', 'Grok local', {
+          status: 'no-usage-source',
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage',
+            tokens: 99,
+            estimatedCostUsd: 1.23,
+            observedAt: NOW,
+            source: 'local-cli',
+            range: 'since install',
+          },
+        }),
+      ),
+    );
+    const ranges = Array.from(
+      el.querySelectorAll<HTMLElement>('[data-testid="local-usage-range"]'),
+    );
+    // a 30-day CLI range (the reader's en-dash form) reads "last 30 days";
+    // a backwards or unparseable range falls back to the raw string, and
+    // the exact range stays in the tooltip
+    expect(ranges.map((r) => textOf(r))).toEqual([
+      'Range: last 30 days',
+      'Range: 2026-01-30T22:00:00.000Z - 2025-12-31T22:00:00.000Z',
+      'Range: since install',
+    ]);
+    expect(ranges[0]?.getAttribute('title')).toBe(
+      '2025-12-31T22:00:00.000Z – 2026-01-30T22:00:00.000Z',
+    );
+    expect(ranges[2]?.getAttribute('title')).toBe('since install');
+  });
+
+  it('offers inline actions on compact rows, wired only to existing navigation (revise-2)', () => {
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          status: 'service-unavailable',
+          unavailableReason: 'no-open-session',
+          windowSetEstablished: false,
+        }),
+        owner('ollama-cloud', 'Ollama Cloud', {
+          status: 'unsupported-config',
+          windowSetEstablished: false,
+        }),
+        owner('grok', 'Grok account', {
+          status: 'unsupported-auth',
+          windowSetEstablished: false,
+        }),
+      ),
+    );
+    const buttons = Array.from(
+      el.querySelectorAll<HTMLButtonElement>('[data-testid="compact-action"]'),
+    );
+    // only the no-open-session reason and the missing Ollama Cloud key
+    // carry an action; every other compact row (the API-key owner) keeps none
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual([
+      'Go to chat',
+      'Add key',
+    ]);
+    expect(buttons[0]?.getAttribute('aria-label')).toMatch(
+      /^Go to chat for Claude account/,
+    );
+    buttons[0]?.click();
+    expect(appState.setCurrentView).toHaveBeenCalledWith('chat');
+    buttons[1]?.click();
+    expect(appState.openSettingsTab).toHaveBeenCalledWith(
+      'providers',
+      'ollama-cloud',
+    );
   });
 
   it('6. OpenCode: no usage source plus a recorded limit hit with a known reset', () => {
@@ -508,7 +613,7 @@ describe('ProviderAccountCardComponent', () => {
       ),
     );
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
-      'Cached data',
+      '◷ Cached data',
     );
     expect(textOf(el)).toContain(
       `Showing cached account data; refresh failed at ${abs(NOW - 47 * MIN)}.`,
@@ -613,7 +718,7 @@ describe('ProviderAccountCardComponent', () => {
       ),
     );
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
-      'API key — no plan limits',
+      '– API key — no plan limits',
     );
     expect(textOf(el)).toContain('No plan limits (API key)');
     expect(rows(el)).toHaveLength(0);
@@ -741,9 +846,10 @@ describe('ProviderAccountCardComponent', () => {
         owner('codex-x', 'Codex CLI', { status: 'cli-version-unsupported' }),
       ),
     );
+    // every status badge leads with a glyph (revise-2 M3)
     expect(chipsIn(el, 'status-chip')).toEqual([
-      'Usage unavailable',
-      'CLI update needed',
+      '○ Usage unavailable',
+      '! CLI update needed',
     ]);
     expect(textOf(el)).toContain('Usage unavailable');
     expect(textOf(el)).toContain('Usage cannot be read');
@@ -760,9 +866,9 @@ describe('ProviderAccountCardComponent', () => {
       ),
     );
     expect(chipsIn(el, 'status-chip')).toEqual([
-      'No API key configured',
-      'No usage source',
-      'CLI unavailable',
+      '○ No API key configured',
+      '○ No usage source',
+      '! CLI unavailable',
     ]);
     expect(textOf(el)).toContain(
       'Usage cannot be read: the provider CLI was not found.',
@@ -1044,15 +1150,20 @@ describe('ProviderAccountCardComponent', () => {
     const [aged, estimated, unconfirmed] = sections(el).map(
       (s) => s.querySelector('[data-testid="window-row"]') as HTMLElement,
     );
-    // a stale 97% must not read as healthy green (revise-1 S1)
+    // a stale 97% must not read as healthy green (revise-1 S1), and the
+    // neutral fill is the muted 45% tier, not full-strength base-content
+    // (revise-2 M1)
     expect(chipsIn(aged, 'state-chip')).toEqual(['◷ Aged']);
-    expect(fill(aged)?.classList.contains('bg-base-content')).toBe(true);
+    expect(fill(aged)?.classList.contains('bg-base-content/45')).toBe(true);
+    expect(fill(aged)?.classList.contains('bg-base-content')).toBe(false);
     expect(fill(aged)?.classList.contains('bg-success')).toBe(false);
     expect(chipsIn(estimated, 'state-chip')).toEqual(['~ Estimate only']);
-    expect(fill(estimated)?.classList.contains('bg-base-content')).toBe(true);
+    expect(fill(estimated)?.classList.contains('bg-base-content/45')).toBe(
+      true,
+    );
     expect(fill(estimated)?.classList.contains('bg-success')).toBe(false);
     expect(chipsIn(unconfirmed, 'state-chip')).toEqual(['? Not confirmed']);
-    expect(fill(unconfirmed)?.classList.contains('bg-base-content')).toBe(
+    expect(fill(unconfirmed)?.classList.contains('bg-base-content/45')).toBe(
       true,
     );
     expect(fill(unconfirmed)?.classList.contains('bg-success')).toBe(false);
@@ -1073,7 +1184,7 @@ describe('ProviderAccountCardComponent', () => {
     expect(reason?.classList.contains('border-warning')).toBe(true);
     expect(textOf(reason)).toContain('Showing cached account data');
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
-      'Cached data',
+      '◷ Cached data',
     );
   });
 
@@ -1369,6 +1480,7 @@ describe('ProviderAccountCardComponent', () => {
         imports: [ProviderAccountCardComponent],
         providers: [
           { provide: ClaudeRpcService, useValue: rpc },
+        { provide: AppStateManager, useValue: appState },
           {
             provide: AuthStateService,
             useValue: { persistedProviderId: signal('anthropic') },
@@ -1421,6 +1533,7 @@ describe('ProviderAccountCardComponent', () => {
       imports: [ProviderAccountCardComponent],
       providers: [
         { provide: ClaudeRpcService, useValue: rpc },
+        { provide: AppStateManager, useValue: appState },
         {
           provide: AuthStateService,
           useValue: { persistedProviderId: selected },
