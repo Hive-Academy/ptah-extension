@@ -1,12 +1,33 @@
 import type {
+  SessionBudgetStage,
   SessionBudgetState,
   SessionHandoverState,
 } from '@ptah-extension/shared';
 
 /**
- * Pure text for the session budget banner: figures on the stats chip's scale
- * and the work-in-flight line of a waiting handover.
+ * Pure helpers for the session budget banner: the display stage, figures on
+ * the stats chip's scale and the work-in-flight line of a waiting handover.
  */
+
+/** Budget stages from lowest to highest, for the display-stage comparison. */
+const STAGE_RANK: Readonly<Record<SessionBudgetStage, number>> = {
+  unknown: 0,
+  normal: 1,
+  tighten: 2,
+  handoff: 3,
+  limit: 4,
+};
+
+/**
+ * The stage to display: the higher of the authoritative stage and the live
+ * (estimated) stage of the running turn. Display only (D25).
+ */
+export function displayBudgetStage(
+  stage: SessionBudgetStage,
+  live: 'handoff' | 'limit' | null,
+): SessionBudgetStage {
+  return live && STAGE_RANK[live] > STAGE_RANK[stage] ? live : stage;
+}
 
 /** A finite, non-negative integer; `waitingFor` is not validated upstream. */
 function isCount(value: unknown): value is number {

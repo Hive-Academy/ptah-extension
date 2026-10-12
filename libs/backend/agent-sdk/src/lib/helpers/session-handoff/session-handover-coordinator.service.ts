@@ -259,20 +259,20 @@ export class SessionHandoverCoordinator {
     const existing = this.operations.get(sourceSessionId);
     const live = existing && !this.isRestartable(existing) ? existing : undefined;
     const operation = live ?? this.createOperation(sourceSessionId, reason, agentHandoff);
-    const draftCaptured = this.captureDraft(operation, options.queuedInput);
+    // Tells the caller it may clear its composer only when the op took the text (D24).
+    const draftOwned = this.captureDraft(operation, options.queuedInput) ? { draftCaptured: true } : undefined;
     if (live && !this.isUserGatable(live)) {
       // Already writing or starting: a repeat click changes nothing else.
-      return { accepted: true, state: draftCaptured ? this.bump(live) : this.snapshot(live) };
+      return { accepted: true, state: draftOwned ? this.bump(live) : this.snapshot(live), ...draftOwned };
     }
-    const changed =
-      !live || draftCaptured || !operation.userConfirmed || operation.requestedBy !== undefined;
+    const changed = !live || !!draftOwned || !operation.userConfirmed || operation.requestedBy !== undefined;
     operation.userConfirmed = true;
     operation.requestedBy = undefined;
     if (options.continueNow) {
-      if (!turnInFlight) return { accepted: true, state: this.startConfirmed(operation) };
+      if (!turnInFlight) return { accepted: true, state: this.startConfirmed(operation), ...draftOwned };
       operation.forced = true;
     }
-    return { accepted: true, state: this.gate(operation, turnInFlight, changed) };
+    return { accepted: true, state: this.gate(operation, turnInFlight, changed), ...draftOwned };
   }
 
   /**

@@ -1036,6 +1036,34 @@ describe('SessionBudgetBannerComponent', () => {
     );
   });
 
+  it('offers Cancel only while the handoff is written, the one cancellable progress phase', () => {
+    const progress = (phase: SessionHandoverState['phase']) => ({
+      operationId: 'handover-1',
+      sourceSessionId: BASE.sessionId,
+      reason: 'budget-limit' as const,
+      phase,
+      revision: 2,
+      heldInputCount: 0,
+    });
+    const root = render(
+      { ...BASE, stage: 'handoff', handoff: HANDOFF },
+      { handover: progress('writing-handoff') },
+    );
+    expect(buttons(root)).toContain('Cancel (keep working)');
+
+    for (const phase of [
+      'starting-successor',
+      'successor-confirmed',
+      'closing',
+    ] as const) {
+      fixture.componentRef.setInput('handover', progress(phase));
+      fixture.detectChanges();
+
+      expect(text(root, 'session-budget-title')).toBe('Continuing in a new session…');
+      expect(buttons(root)).not.toContain('Cancel (keep working)');
+    }
+  });
+
   it('renders a failed handover before the budget handoff stage', () => {
     const root = render(
       { ...BASE, stage: 'tighten' },

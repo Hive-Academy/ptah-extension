@@ -17,6 +17,10 @@ export type SessionHandoverPhase =
   | 'failed'
   | 'cancelled';
 
+/** Phases after which an operation is over: nothing is pending or carried. */
+export const ENDED_HANDOVER_PHASES: ReadonlySet<SessionHandoverPhase> =
+  new Set<SessionHandoverPhase>(['closed', 'failed', 'cancelled']);
+
 export interface SessionHandoverState {
   readonly operationId: string;
   readonly sourceSessionId: string;
@@ -85,7 +89,16 @@ export interface SuccessorBoundResult {
 }
 
 export type BeginSessionHandoverResult =
-  | { readonly accepted: true; readonly state: SessionHandoverState }
+  | {
+      readonly accepted: true;
+      readonly state: SessionHandoverState;
+      /**
+       * True only when the operation now owns the `queuedInput` text (as its
+       * draft / for the successor). Absent or false means the caller must
+       * keep its composer text.
+       */
+      readonly draftCaptured?: boolean;
+    }
   | {
       readonly accepted: false;
       /** `source-unavailable`: the source session no longer exists. */

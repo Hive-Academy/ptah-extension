@@ -1125,6 +1125,47 @@ describe('SessionHandoverCoordinator', () => {
       ]);
       expect(coordinator.snapshotFor('source')?.phase).toBe('closed');
     });
+
+    it('reports draftCaptured only when the op took the composer text', async () => {
+      const { coordinator, host } = makeHarness();
+      host.startSuccessorSession.mockReturnValueOnce(new Promise(() => undefined));
+
+      expect(coordinator.begin('source', 'successor', true)).not.toHaveProperty('draftCaptured');
+      const waiting = coordinator.begin('source', 'successor', true, undefined, { queuedInput: 'one' });
+      expect(waiting).toEqual(expect.objectContaining({ accepted: true, draftCaptured: true }));
+
+      coordinator.armAtTerminal('source', false, []);
+      await flush();
+      await flush();
+      expect(coordinator.snapshotFor('source')?.phase).toBe('starting-successor');
+
+      const starting = coordinator.begin('source', 'successor', false, undefined, { queuedInput: 'two' });
+      expect(starting).toEqual(expect.objectContaining({ accepted: true, draftCaptured: true }));
+    });
+
+    it('never takes or claims the composer text at closing (Finding 2)', async () => {
+      const { coordinator, runtime, host, logger } = makeHarness();
+      runtime.closeIfTokenMatches.mockReturnValue(new Promise(() => undefined));
+      coordinator.begin('source', 'successor', false);
+      await flush();
+      await flush();
+      await flush();
+      expect(coordinator.snapshotFor('source')?.phase).toBe('closing');
+
+      const result = coordinator.begin('source', 'successor', false, undefined, { queuedInput: 'late' });
+
+      expect(result.accepted).toBe(true);
+      expect(result.accepted && result.draftCaptured).toBeFalsy();
+      expect(coordinator.snapshotFor('source')?.draftText).toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Draft not captured'),
+        expect.any(Object),
+      );
+      expect(host.deliverTransferInputs).toHaveBeenCalledTimes(1);
+      expect(host.deliverTransferInputs.mock.calls[0][1]).not.toContainEqual(
+        expect.objectContaining({ content: 'late' }),
+      );
+    });
   });
 
   it('refuses begin with source-unavailable and creates nothing when the source is gone (R7)', () => {

@@ -79,22 +79,14 @@ import {
   RpcResult,
 } from '@ptah-extension/core';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
-import { SessionId } from '@ptah-extension/shared';
+import { ENDED_HANDOVER_PHASES, SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
   CliType,
   LocalTimeOptions,
   SubagentRecord,
   MessageAnchorHint,
-  SessionHandoverPhase,
 } from '@ptah-extension/shared';
-
-/** Handover phases after which nothing is pending; they wait for an idle tab. */
-const ENDED_HANDOVER_PHASES: ReadonlySet<SessionHandoverPhase> = new Set([
-  'closed',
-  'failed',
-  'cancelled',
-]);
 
 /** Product names of the lane CLIs, for runs that carry no display name. */
 const CLI_LABELS: Readonly<Record<CliType, string>> = {

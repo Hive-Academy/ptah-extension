@@ -345,7 +345,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
   it('continue starts one backend-owned handover and transfers queued input', async () => {
     const h = setup();
     h.rpcCallMock.mockResolvedValue(
-      rpcOk({ accepted: true, state: HANDOVER }),
+      rpcOk({ accepted: true, state: HANDOVER, draftCaptured: true }),
     );
 
     await h.service.continueInNewSession();
@@ -367,7 +367,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
 
     const request = h.service.continueInNewSession();
     h.handoverTab.queuedContent = 'newer draft';
-    resolve(rpcOk({ accepted: true, state: HANDOVER }));
+    resolve(rpcOk({ accepted: true, state: HANDOVER, draftCaptured: true }));
     await request;
 
     expect(h.clearQueuedContentAndOptionsMock).not.toHaveBeenCalled();
@@ -885,6 +885,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
         rpcOk({
           accepted: true,
           state: { ...HANDOVER, phase: 'starting-successor' },
+          draftCaptured: true,
         }),
       );
 
@@ -916,6 +917,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
           rpcOk({
             accepted: true,
             state: { ...HANDOVER, phase: 'waiting-for-turn-end' },
+            draftCaptured: true,
           }),
         );
 
@@ -944,6 +946,26 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
 
         expect(h.service.queuedMessageCarried()).toBe(false);
         expect(h.rpcCallMock.mock.calls[0]?.[1]).not.toHaveProperty('queuedInput');
+      });
+
+      it('keeps the composer text when an accepted begin did not capture it (closing)', async () => {
+        const h = setup(HANDOFF_BUDGET);
+        h.rpcCallMock.mockResolvedValue(
+          rpcOk({
+            accepted: true,
+            state: { ...HANDOVER, phase: 'closing', revision: 4 },
+          }),
+        );
+
+        await h.service.continueInNewSession();
+
+        expect(h.rpcCallMock.mock.calls[0]?.[1]).toHaveProperty(
+          'queuedInput',
+          'queued follow-up',
+        );
+        expect(h.clearQueuedContentAndOptionsMock).not.toHaveBeenCalled();
+        expect(h.handoverTab.queuedContent).toBe(' queued follow-up ');
+        expect(h.service.queuedMessageCarried()).toBe(false);
       });
 
       it('is not flagged for a refused begin', async () => {

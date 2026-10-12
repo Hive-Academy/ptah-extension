@@ -21,6 +21,7 @@ import {
 import type { SessionBudgetUsageSample } from '../../../services/session-budget-actions.service';
 import {
   budgetAmount,
+  displayBudgetStage,
   formatPercent,
   formatTokens,
   formatUsd,
@@ -255,14 +256,16 @@ const FOCUS =
             <span class="px-1 text-base-content-muted" data-testid="session-handover-progress">
               {{ handoverProgress() }}
             </span>
-            <button
-              type="button"
-              class="btn btn-xs btn-outline {{ focus }}"
-              [disabled]="busy()"
-              (click)="cancelHandover.emit()"
-            >
-              Cancel (keep working)
-            </button>
+            @if (handoverCancellable()) {
+              <button
+                type="button"
+                class="btn btn-xs btn-outline {{ focus }}"
+                [disabled]="busy()"
+                (click)="cancelHandover.emit()"
+              >
+                Cancel (keep working)
+              </button>
+            }
           } @else if (current === 'handover-failed') {
             <button
               type="button"
@@ -508,12 +511,18 @@ export class SessionBudgetBannerComponent {
   private readonly displayStage = computed<SessionBudgetState['stage'] | null>(
     () => {
       const budget = this.budget();
-      if (!budget) return null;
-      const live = this.liveStage();
-      if (live === 'limit') return 'limit';
-      if (live === 'handoff' && budget.stage !== 'limit') return 'handoff';
-      return budget.stage;
+      return budget ? displayBudgetStage(budget.stage, this.liveStage()) : null;
     },
+  );
+
+  /**
+   * True while the coordinator still accepts a cancel of the running
+   * handover. Of the progress phases only `writing-handoff` is cancellable
+   * (the coordinator's `CANCELLABLE_PHASES`); once the successor starts, a
+   * cancel is refused, so the button is not offered.
+   */
+  protected readonly handoverCancellable = computed(
+    () => this.handover()?.phase === 'writing-handoff',
   );
 
   /** True when the shown handoff or limit stage comes from the live estimate. */

@@ -16,8 +16,9 @@ import type {
   SessionBudgetActionResult,
   SessionBudgetStage,
   SessionBudgetState,
-  SessionHandoverPhase,
 } from '@ptah-extension/shared';
+import { ENDED_HANDOVER_PHASES } from '@ptah-extension/shared';
+import { displayBudgetStage } from '../components/molecules/notifications/session-budget-format';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
 import { SessionHandoverClientService } from './session-handover-client.service';
@@ -66,22 +67,6 @@ const NO_HANDOFF_NOTICE =
 /** Shown when the host refuses `request-wrap-up` (`WRAP_UP_UNAVAILABLE`). */
 const WRAP_UP_UNAVAILABLE_NOTICE =
   'The agent is not working on a turn right now.';
-
-/** Budget stages from lowest to highest, for the display-stage comparison. */
-const STAGE_RANK: Readonly<Record<SessionBudgetStage, number>> = {
-  unknown: 0,
-  normal: 1,
-  tighten: 2,
-  handoff: 3,
-  limit: 4,
-};
-
-/** Handover phases after which the operation no longer carries anything. */
-const ENDED_HANDOVER_PHASES: ReadonlySet<SessionHandoverPhase> = new Set([
-  'closed',
-  'failed',
-  'cancelled',
-]);
 
 const NO_VIEW: SessionBudgetView = {
   activeTab: signal(null),
@@ -223,10 +208,7 @@ export class SessionBudgetActionsService {
   readonly displayStage = computed<SessionBudgetStage | null>(() => {
     const budget = this.budget();
     if (!budget) return null;
-    const live = this.liveStage();
-    return live && STAGE_RANK[live] > STAGE_RANK[budget.stage]
-      ? live
-      : budget.stage;
+    return displayBudgetStage(budget.stage, this.liveStage());
   });
 
   /** True once "Ask agent to wrap up" was clicked at this stage in this turn. */
@@ -380,13 +362,15 @@ export class SessionBudgetActionsService {
       });
       const data = result.isSuccess() ? result.data : null;
       if (data?.accepted) {
-        const currentQueuedInput = this.tabManager
-          .findTabByIdAcrossWorkspaces(tabId)
-          ?.tab.queuedContent?.trim();
-        if (queuedInput && currentQueuedInput === queuedInput) {
-          this.tabManager.clearQueuedContentAndOptions(tabId);
-        }
-        if (queuedInput) {
+        // Only an operation that took the text as its draft may clear the
+        // composer; any other accepted begin (e.g. at `closing`) leaves it.
+        if (queuedInput && data.draftCaptured === true) {
+          const currentQueuedInput = this.tabManager
+            .findTabByIdAcrossWorkspaces(tabId)
+            ?.tab.queuedContent?.trim();
+          if (currentQueuedInput === queuedInput) {
+            this.tabManager.clearQueuedContentAndOptions(tabId);
+          }
           const operationId = data.state.operationId;
           this.queuedInputOperations.update((ids) =>
             new Set(ids).add(operationId),
