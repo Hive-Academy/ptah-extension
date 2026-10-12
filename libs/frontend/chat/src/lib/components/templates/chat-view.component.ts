@@ -262,7 +262,7 @@ export class ChatViewComponent implements OnDestroy {
   private readonly _sessionVisible = inject(SESSION_VISIBLE, {
     optional: true,
   });
-  private readonly _forcedCard = inject(SESSION_FORCED_CARD, {
+  protected readonly _forcedCard = inject(SESSION_FORCED_CARD, {
     optional: true,
   });
   /** When true, the per-session Agents right sidebar is hidden (e.g. Tribunal
@@ -837,7 +837,7 @@ export class ChatViewComponent implements OnDestroy {
    * transcript freezes; when the token is absent (tribunal conductor, tests) the
    * tile is treated as always showing.
    *
-   * NOTE: a compact view mode (`isCompactViewMode(resolvedViewMode())`)
+   * NOTE: `showCompactCard()`
    * destroys the keep-alive region via the template `@if/@else`; a main-panel
    * compact toggle is rare and simply rebuilds on return. Accepted, not fixed
    * (plan risk 6).
@@ -903,7 +903,7 @@ export class ChatViewComponent implements OnDestroy {
   /**
    * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
    * In compact mode the chat view renders a CompactSessionCard instead of the
-   * full message list — see {@link isCompactViewMode}. The compact height is
+   * full message list via `showCompactCard()`. The compact height is
    * tab state (`compactHeightUnits`) that only canvas reads.
    */
   readonly resolvedViewMode = computed(() => {
@@ -918,7 +918,7 @@ export class ChatViewComponent implements OnDestroy {
     return this._tabManager.activeTabViewMode();
   });
 
-  readonly showCompactCard = computed(
+  protected readonly showCompactCard = computed(
     () =>
       (this._forcedCard?.() ?? false) ||
       isCompactViewMode(this.resolvedViewMode()),

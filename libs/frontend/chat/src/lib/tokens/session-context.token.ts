@@ -43,7 +43,11 @@ export const SESSION_FOCUSED = new InjectionToken<Signal<boolean>>(
   'SESSION_FOCUSED',
 );
 
-/** Optional signal that forces a tile to show its compact card without changing its stored view mode. */
+/**
+ * Optional signal supplied by canvas tiles to force a compact card without
+ * changing the tab's stored view mode. Absent means the host does not force
+ * card mode; the user's selected view mode still applies.
+ */
 export const SESSION_FORCED_CARD = new InjectionToken<Signal<boolean>>(
   'SESSION_FORCED_CARD',
 );

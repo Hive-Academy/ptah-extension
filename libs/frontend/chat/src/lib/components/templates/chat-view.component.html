@@ -247,7 +247,7 @@
     }
   </div>
 
-  @if (dockEnabled && !showCompactCard()) {
+  @if (dockEnabled && !(_forcedCard?.() ?? false)) {
     <!-- Electron: one right-side dock with Displays | Agents tabs (R1.3). The
          toggle hides while the dock is an overlay, as the monitor's did. -->
     @if (!isOverlay() || !panelOpen()) {
@@ -319,7 +319,7 @@
         />
       }
     }
-  } @else if (!hideAgentSidebar && !showCompactCard()) {
+  } @else if (!hideAgentSidebar && !(_forcedCard?.() ?? false)) {
     <!-- Agents vertical toggle tab (per-session). In overlay mode, hide when open to give chat 100% width. -->
     @if (!isOverlay() || !panelOpen()) {
       <ptah-sidebar-tab

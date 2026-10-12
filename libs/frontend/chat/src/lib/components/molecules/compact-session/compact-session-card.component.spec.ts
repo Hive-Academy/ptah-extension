@@ -25,7 +25,10 @@ import {
   CompactSessionCardComponent,
 } from './compact-session-card.component';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
-import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
+import {
+  SESSION_CARD_ACTIONS,
+  SESSION_FORCED_CARD,
+} from '../../../tokens/session-context.token';
 
 jest.mock('@ptah-extension/chat-ui', () => {
   const actual = jest.requireActual('@ptah-extension/chat-ui');
@@ -349,6 +352,46 @@ describe(CompactSessionCardComponent.name, () => {
       ) as HTMLButtonElement
     ).click();
     expect(openLane).toHaveBeenCalledWith('cli:agent-1');
+  });
+
+  it('routes forced card actions through the host without expanding', () => {
+    const openSession = jest.fn();
+    const openLane = jest.fn();
+    TestBed.overrideProvider(SESSION_FORCED_CARD, { useValue: signal(true) });
+    TestBed.overrideProvider(SESSION_CARD_ACTIONS, {
+      useValue: { openSession, openLane },
+    });
+    agents.set([lane()]);
+    const fixture = render(tab({ lastTerminalReason: 'api_error' }));
+    const expanded = jest.fn();
+    fixture.componentInstance.expandToFull.subscribe(expanded);
+
+    fixture.componentInstance.openFullView();
+    fixture.componentInstance.openLane('cli:agent-1');
+    agents.set([]);
+    fixture.detectChanges();
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="cs-callout-error"] button',
+      ) as HTMLButtonElement
+    ).click();
+
+    expect(openSession).toHaveBeenCalledTimes(2);
+    expect(openLane).toHaveBeenCalledWith('cli:agent-1');
+    expect(expanded).not.toHaveBeenCalled();
+  });
+
+  it('keeps unforced expand behavior even when host actions exist', () => {
+    const openSession = jest.fn();
+    TestBed.overrideProvider(SESSION_CARD_ACTIONS, {
+      useValue: { openSession, openLane: jest.fn() },
+    });
+    const fixture = render(tab({ lastTerminalReason: 'api_error' }));
+    const expanded = jest.fn();
+    fixture.componentInstance.expandToFull.subscribe(expanded);
+    fixture.componentInstance.openFullView();
+    expect(expanded).toHaveBeenCalledTimes(1);
+    expect(openSession).not.toHaveBeenCalled();
   });
 
   it('runs one elapsed interval only while a lane runs and clears it on destroy', () => {

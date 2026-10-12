@@ -4,6 +4,7 @@ import {
   signal,
   computed,
   effect,
+  untracked,
   ChangeDetectionStrategy,
   viewChild,
   ElementRef,
@@ -35,6 +36,10 @@ import { ChatStore } from '../../../services/chat.store';
 import { isTabBusyGenerating } from '../../../services/chat-store/message-dispatch.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  ComposerDraftStore,
+  type ComposerDraftImage,
+} from '../../../services/composer-draft.store';
 import {
   AuthStateService,
   AutopilotStateService,
@@ -73,7 +78,7 @@ import {
 } from '../../../services/composer-trigger-scheduler';
 
 /** Pasted image data for UI display */
-interface PastedImage {
+interface PastedImage extends ComposerDraftImage {
   id: string;
   data: string; // base64 (no prefix)
   mediaType: string;
@@ -456,6 +461,7 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
 export class ChatInputComponent implements OnInit, OnDestroy {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
+  private readonly draftStore = inject(ComposerDraftStore);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
@@ -673,6 +679,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     null;
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _pastedImages = signal<PastedImage[]>([]);
+  private draftTabId: string | null = null;
   private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
   private readonly _isPickingFiles = signal(false);
@@ -710,6 +717,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.saveDraft();
     this.clearTriggerProjectionTimeout();
     if (this._imageAttachmentErrorTimeout) {
       clearTimeout(this._imageAttachmentErrorTimeout);
@@ -1189,7 +1197,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
             (command) =>
               command.name.toLowerCase().includes(query.toLowerCase()) ||
               (command.description &&
-                command.description.toLowerCase().includes(query.toLowerCase())),
+                command.description
+                  .toLowerCase()
+                  .includes(query.toLowerCase())),
           ),
     );
   }
@@ -1467,6 +1477,8 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       this._currentMessage.set('');
       this._selectedFiles.set([]);
       this._pastedImages.set([]);
+      const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+      if (tabId) this.draftStore.clear(tabId);
       // The emptied `[value]` binding plus `field-sizing: content` shrink the
       // textarea back to its resting height — no manual height reset.
     } catch (error) {
@@ -1503,6 +1515,23 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   }
 
   constructor() {
+    this.draftTabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (this.draftTabId) this.restoreDraft(this.draftTabId);
+    effect(() => {
+      const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+      if (tabId !== this.draftTabId) {
+        untracked(() => {
+          this.saveDraft();
+          this.draftTabId = tabId;
+          if (tabId) this.restoreDraft(tabId);
+          else this.clearLocalDraft();
+        });
+      }
+      this._currentMessage();
+      this._selectedFiles();
+      this._pastedImages();
+      untracked(() => this.saveDraft());
+    });
     effect(() => {
       const restoreData = this.chatStore.queueRestoreContent();
       if (restoreData) {
@@ -1522,5 +1551,36 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         this._lastSessionId = currentTabId;
       }
     });
+  }
+
+  private saveDraft(): void {
+    if (!this.draftTabId) return;
+    if (!this.tabManager.findTabByIdAcrossWorkspaces(this.draftTabId)) return;
+    if (
+      !this._currentMessage() &&
+      this._selectedFiles().length === 0 &&
+      this._pastedImages().length === 0
+    ) {
+      this.draftStore.clear(this.draftTabId);
+      return;
+    }
+    this.draftStore.save(this.draftTabId, {
+      text: this._currentMessage(),
+      files: this._selectedFiles(),
+      images: this._pastedImages(),
+    });
+  }
+
+  private restoreDraft(tabId: string): void {
+    const draft = this.draftStore.get(tabId);
+    this._currentMessage.set(draft?.text ?? '');
+    this._selectedFiles.set(draft?.files ?? []);
+    this._pastedImages.set(draft?.images ?? []);
+  }
+
+  private clearLocalDraft(): void {
+    this._currentMessage.set('');
+    this._selectedFiles.set([]);
+    this._pastedImages.set([]);
   }
 }

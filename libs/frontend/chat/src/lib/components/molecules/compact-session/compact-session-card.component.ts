@@ -36,7 +36,10 @@ import type {
   PermissionRequest,
 } from '@ptah-extension/shared';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
-import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
+import {
+  SESSION_CARD_ACTIONS,
+  SESSION_FORCED_CARD,
+} from '../../../tokens/session-context.token';
 import { buildLaneSummary } from './compact-lane-rows';
 
 /**
@@ -85,10 +88,10 @@ function sameMetrics(a: CompactSummaryMetrics, b: CompactSummaryMetrics) {
         [branch]="branch()"
         [elapsed]="elapsed()"
         [contextPercent]="contextPercent()"
-        (openFullView)="expandToFull.emit()"
+        (openFullView)="openFullView()"
         (allow)="respond($event, 'allow')"
         (deny)="respond($event, 'deny')"
-        (showOutput)="expandToFull.emit()"
+        (showOutput)="openFullView()"
         (laneSelected)="openLane($event)"
       />
     </div>
@@ -105,6 +108,7 @@ export class CompactSessionCardComponent {
   private readonly cardActions = inject(SESSION_CARD_ACTIONS, {
     optional: true,
   });
+  private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
 
   readonly tab = input.required<TabState>();
   readonly expandToFull = output<void>();
@@ -317,8 +321,21 @@ export class CompactSessionCardComponent {
   }
 
   openLane(key: string): void {
-    if (this.cardActions) this.cardActions.openLane(key);
-    else this.expandToFull.emit();
+    if (this.forcedCard?.()) {
+      this.cardActions?.openLane(key);
+    } else if (this.cardActions) {
+      this.cardActions.openLane(key);
+    } else {
+      this.expandToFull.emit();
+    }
+  }
+
+  openFullView(): void {
+    if (this.forcedCard?.()) {
+      this.cardActions?.openSession();
+    } else {
+      this.expandToFull.emit();
+    }
   }
 
   private clearElapsedTimer(): void {

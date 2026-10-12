@@ -56,6 +56,7 @@ jest.mock('ngx-markdown', () => {
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
+import { ComposerDraftStore } from '../../../services/composer-draft.store';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -106,7 +107,14 @@ describe('ChatInputComponent', () => {
     }>
   >([]);
   const activeTabIdSignal = signal<string | null>(null);
+  let onTabClosedListener: ((event: { tabId: string }) => void) | null = null;
   const mockTabManager = {
+    onTabClosed: jest.fn((listener: (event: { tabId: string }) => void) => {
+      onTabClosedListener = listener;
+      return () => {
+        onTabClosedListener = null;
+      };
+    }),
     isTabStreaming: jest.fn().mockReturnValue(false),
     tabs: tabsSignal,
     activeTabId: activeTabIdSignal,
@@ -231,6 +239,45 @@ describe('ChatInputComponent', () => {
 
   it('should be created', () => {
     expect(component).toBeTruthy();
+  });
+
+  it('restores a tab draft after remount and clears it on send', async () => {
+    createComponent({ sessionContextTabId: 'tile-A' });
+    tabsSignal.set([{ id: 'tile-A', status: 'loaded' }]);
+    component.handleInput({
+      target: { value: 'Unsent note' },
+    } as unknown as Event);
+    component.ngOnDestroy();
+    component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    expect(component.currentMessage()).toBe('Unsent note');
+
+    await component.handleSend();
+    expect(component.currentMessage()).toBe('');
+    expect(TestBed.inject(ComposerDraftStore).get('tile-A')).toBeUndefined();
+  });
+
+  it('restores attachments and clears the draft when its tab closes', () => {
+    createComponent({ sessionContextTabId: 'tile-A' });
+    tabsSignal.set([{ id: 'tile-A', status: 'loaded' }]);
+    (component as any)._selectedFiles.set([{ path: '/project/a.ts' }]);
+    (component as any)._pastedImages.set([
+      {
+        id: 'image-1',
+        data: 'abc',
+        mediaType: 'image/png',
+        dataUrl: 'data:image/png;base64,abc',
+        name: 'paste.png',
+      },
+    ]);
+    component.ngOnDestroy();
+    component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    expect(component.selectedFiles()).toHaveLength(1);
+    expect(component.pastedImages()).toHaveLength(1);
+
+    tabsSignal.set([]);
+    onTabClosedListener?.({ tabId: 'tile-A' });
+    component.ngOnDestroy();
+    expect(TestBed.inject(ComposerDraftStore).get('tile-A')).toBeUndefined();
   });
 
   // ============================================================================

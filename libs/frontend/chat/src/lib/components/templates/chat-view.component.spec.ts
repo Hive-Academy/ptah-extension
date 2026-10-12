@@ -181,6 +181,7 @@ function makeHarness(
     activeTabViewMode?: TabViewMode;
     /** When set, provide a tile-local signal that forces the compact card. */
     forcedCard?: boolean;
+    isElectron?: boolean;
   } = {},
 ) {
   const {
@@ -195,6 +196,7 @@ function makeHarness(
     renderCompactTemplate = false,
     activeTabViewMode = 'full',
     forcedCard,
+    isElectron = false,
   } = opts;
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
@@ -305,6 +307,7 @@ function makeHarness(
   } as unknown as TabManagerService;
 
   const vscodeStub = {
+    isElectron,
     config: jest.fn(() => ({
       workspaceRoot: '/test/workspace',
     })),
@@ -2270,6 +2273,34 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     ).not.toBeNull();
     // Falling through to the full view would render the input area instead.
     expect(fixture.nativeElement.querySelector('ptah-chat-input')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-sidebar-tab'),
+    ).not.toBeNull();
+  });
+
+  it('keeps the display dock for a user-chosen compact mode', () => {
+    const { fixture } = makeHarness({
+      activeTabViewMode: 'compact',
+      renderCompactTemplate: true,
+      isElectron: true,
+    });
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-sidebar-tab'),
+    ).not.toBeNull();
+  });
+
+  it('hides the display dock when card mode is forced', () => {
+    const forced = makeHarness({
+      activeTabViewMode: 'compact',
+      renderCompactTemplate: true,
+      isElectron: true,
+      forcedCard: true,
+    });
+    forced.fixture.detectChanges();
+    expect(
+      forced.fixture.nativeElement.querySelector('ptah-sidebar-tab'),
+    ).toBeNull();
   });
 
   it('forces a compact card in full mode and restores the full view when cleared', () => {
