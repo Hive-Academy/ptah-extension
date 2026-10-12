@@ -3,6 +3,7 @@ import {
   Component,
   Input,
   NgModule,
+  computed,
   signal,
   type ComponentFixture,
   type DebugElement,
@@ -500,6 +501,51 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
       kind: 'available',
       changeSet: CHANGE_SET,
     });
+  });
+
+  // TASK_2026_628 Batch 5 review: a streaming tree that grows under the same
+  // id changes only its record, not the structural message list. While
+  // history replays, streaming messages count as finalized and get a built
+  // snapshot, which must see the new message object.
+  it('reflects a tool added to a replaying tree under the same id', async () => {
+    const streamingState = signal<unknown>({ pendingStats: null });
+    let tree = messageTree('live', 110);
+    const buildTree = jest.fn(() => [tree]);
+    const tabs = computed(() => [
+      {
+        id: 'tab-1',
+        claudeSessionId: 'session-1',
+        status: 'streaming',
+        messages: [makeTranscriptMessage('u1', 'user', 100)],
+        streamingState: streamingState(),
+      },
+    ]);
+    configureTranscriptTestBed({ tabs, buildTree });
+    const fixture = TestBed.createComponent(ChatTranscriptComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    fixture.componentRef.setInput('active', true);
+    fixture.componentRef.setInput('historyReplaying', true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const before = snapshotsByMessageId(fixture).get('live');
+    expect(before?.state).not.toBe('pending');
+
+    tree = messageTree('live', 110, [
+      bashNode('live-jest', 'npx jest libs/frontend/chat', 'passed'),
+    ]);
+    streamingState.set({ pendingStats: null });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const after = snapshotsByMessageId(fixture).get('live');
+    expect(after).not.toBe(before);
+    expect(after?.tests).toEqual(
+      expect.objectContaining({
+        runs: [{ command: 'npx jest libs/frontend/chat', outcome: 'passed' }],
+      }),
+    );
   });
 
   it('passes no snapshot when the host is not Electron', async () => {

@@ -1322,57 +1322,61 @@ export class TabManagerService {
    * to a background workspace, it delegates to
    * `TabWorkspacePartitionService.updateBackgroundTab()`.
    *
-   * PERFORMANCE: shallow equality check skips signal updates when only
-   * streamingState reference is set to itself (single-key fast path) —
-   * critical during 100+/sec streaming events.
+   * PERFORMANCE: an update whose every value is `Object.is`-equal to the
+   * tab's current value is a no-op — no tab copy, no tabs-array copy, no
+   * `lastActivityAt` bump and no save — critical during 100+/sec streaming
+   * events. Any changed value (a new `streamingState`, any `status` change)
+   * still publishes a new tab and a new array.
    *
    * @param tabId - Tab ID to update
    * @param updates - Partial tab state updates
    */
   private updateTabInternal(tabId: string, updates: Partial<TabState>): void {
-    // Fast path: check active workspace's tabs first
-    const activeTabs = this._tabs();
-    const activeTabIndex = activeTabs.findIndex((t) => t.id === tabId);
+    let found = false;
+    let changed = false;
 
-    if (activeTabIndex !== -1) {
-      // Tab is in the active workspace -- update via signal for UI reactivity
-      this._tabs.update((tabs) => {
-        const tabIndex = tabs.findIndex((t) => t.id === tabId);
-        if (tabIndex === -1) return tabs;
+    // Tab in the active workspace -- update via signal for UI reactivity.
+    // One scan: the lookup happens inside the updater only.
+    this._tabs.update((tabs) => {
+      const tabIndex = tabs.findIndex((t) => t.id === tabId);
+      if (tabIndex === -1) return tabs;
+      found = true;
 
-        const existingTab = tabs[tabIndex];
+      const existingTab = tabs[tabIndex];
 
-        // PERFORMANCE: Skip update if streamingState reference is identical
-        if (
-          updates.streamingState !== undefined &&
-          updates.streamingState === existingTab.streamingState &&
-          Object.keys(updates).length === 1
-        ) {
-          return tabs;
+      // Populate reverse index when claudeSessionId is assigned.
+      if (
+        updates.claudeSessionId &&
+        this.workspacePartition.activeWorkspacePath
+      ) {
+        this.workspacePartition.registerSessionForWorkspace(
+          updates.claudeSessionId,
+          this.workspacePartition.activeWorkspacePath,
+        );
+      }
+
+      let differs = false;
+      for (const key in updates) {
+        const field = key as keyof TabState;
+        if (!Object.is(updates[field], existingTab[field])) {
+          differs = true;
+          break;
         }
+      }
+      if (!differs) return tabs;
 
-        const updatedTab = {
-          ...existingTab,
-          ...updates,
-          lastActivityAt: Date.now(),
-        };
+      changed = true;
+      const newTabs = [...tabs];
+      newTabs[tabIndex] = {
+        ...existingTab,
+        ...updates,
+        lastActivityAt: Date.now(),
+      };
+      return newTabs;
+    });
 
-        // Populate reverse index when claudeSessionId is assigned.
-        if (
-          updates.claudeSessionId &&
-          this.workspacePartition.activeWorkspacePath
-        ) {
-          this.workspacePartition.registerSessionForWorkspace(
-            updates.claudeSessionId,
-            this.workspacePartition.activeWorkspacePath,
-          );
-        }
-
-        const newTabs = [...tabs];
-        newTabs[tabIndex] = updatedTab;
-        return newTabs;
-      });
-      this.saveTabState();
+    if (found) {
+      if (changed) this.saveTabState();
       return;
     }
 

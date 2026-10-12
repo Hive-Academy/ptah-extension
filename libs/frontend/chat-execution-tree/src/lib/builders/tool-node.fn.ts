@@ -25,17 +25,12 @@ import {
   isAgentDispatchTool,
   isAgentTaskType,
 } from '@ptah-extension/shared';
-import type { StreamingState } from '@ptah-extension/chat-types';
+import {
+  parseToolInputCached,
+  type StreamingState,
+} from '@ptah-extension/chat-types';
 import { MAX_DEPTH } from '../execution-tree.constants';
 import type { BuilderDeps } from './builder-deps';
-
-/** Result of safe JSON parsing with error tracking. */
-interface ParseResult<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  raw?: string;
-}
 
 export function collectTools(
   deps: BuilderDeps,
@@ -173,7 +168,9 @@ export function buildToolNode(
   const inputString = state.toolInputAccumulators.get(inputKey) || '';
   let toolInput: Record<string, unknown> | undefined;
   if (inputString && resultEvent) {
-    const result = parseToolInput(inputString);
+    // Shared, cached parse: `result.data` is read-only and shared with other
+    // consumers of the same tool call.
+    const result = parseToolInputCached(toolStart.toolCallId, inputString);
     if (result.success) {
       toolInput = result.data;
     } else if (
@@ -264,18 +261,6 @@ export function buildToolChildren(
   }
 
   return children;
-}
-
-function parseToolInput(input: string): ParseResult<Record<string, unknown>> {
-  try {
-    const parsed = JSON.parse(input);
-    if (typeof parsed !== 'object' || parsed === null) {
-      return { success: false, error: 'Not an object', raw: input };
-    }
-    return { success: true, data: parsed };
-  } catch (e) {
-    return { success: false, error: String(e), raw: input };
-  }
 }
 
 /**
