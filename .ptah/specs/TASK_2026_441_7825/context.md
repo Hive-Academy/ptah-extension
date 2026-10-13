@@ -81,6 +81,70 @@ REFACTORING (skills and prompts; some runtime support)
    summary names the fallback and the reset time, and no later batch in the run spawns the exhausted lane.
 5. The team-leader agent's executor heuristics and `batches.md` schema reflect the lanes-first default.
 
+## Added scope (2026-10-13)
+
+User request: "so if you are going to review and evaluate that specifically for users who don't know how to
+use that, what you think the best option ... do you think we should have them in one or 2 skills" → agreed:
+two skills. `orchestration` is the one user entry point; `agent-lanes` stays a separate internal contract
+(tribunal and subagents also load it).
+
+6. **Fold `fleet-orchestration` into `orchestration` as a fleet mode.** New
+   `.claude/skills/orchestration/references/fleet.md` keeps only the fleet-unique content (resume from disk,
+   artifact checkpoints, judge protocol, disjoint-lib batching for N tasks). Duplicates move to their one
+   home: batch cap → `lane-assignment.md` / agent-lanes §8, commit window and commitlint →
+   `references/git-standards.md`, CLI lane mechanics → `agent-lanes`. `/orchestrate TASK_A TASK_B …` or
+   "fleet" triggers fleet mode. Keep `.claude/workflows/fleet-fix.js` and the `fleet-fix` skill; point
+   them at the new reference. Delete `.claude/skills/fleet-orchestration/` (approved by the user in this
+   session).
+
+7. Acceptance for 6: no rule from `fleet-orchestration` is lost (a parity table in the plan maps each
+   section to its new home); no file references `fleet-orchestration` after the change.
+
+Follow-up filed: TASK_2026_646_136a (optional decision model + `ptah_route_decide`), depends on this task.
+
+## Source of truth (user correction, 2026-10-13)
+
+> you know that we should be fixing our plugins not the .claude skills ?
+
+Edit the shipped sources only:
+
+- Skills and commands: `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/{orchestration,agent-lanes,tribunal}/`
+  and `.../ptah-core/commands/orchestrate*.md`. After edits: bump `ptah-core/.claude-plugin/plugin.json`
+  version (now 1.6.0), run `node scripts/generate-content-manifest.js` (updates `content-manifest.json`),
+  and run the skill validator (`scripts/validate-orchestration-skill.ts`, `npm run validate-skill`).
+- Agents: `libs/backend/agent-generation/templates/agents/team-leader.template.md` (and other templates).
+  `.claude/agents/*.md`, `.codex/agents/*.toml`, `.opencode/agent/*.md` are generated per workspace.
+- Do NOT edit `.claude/skills/**` as a source. Those are mirrors/junctions of the plugin.
+- `fleet-orchestration` exists only in `.claude/skills/fleet-orchestration/` (not shipped) next to the
+  repo-local `.claude/workflows/fleet-fix.js`. The shipped plugin is generic for all users, so the fleet
+  mode added to the plugin's orchestration must be generic; repo-specific rules (this repo's commitlint
+  scopes, Nx run-many header check) stay repo-local. Also check
+  `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts` and
+  `tools/mcp-bench/fixtures/memory-skills/skill-triggers.v1.jsonl`, which mention fleet-orchestration.
+
+## Strategy
+
+REFACTORING, Partial: architect → document review → Gate 2 → team-leader → QA. Worktree
+`D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8`, branch from origin/main.
+
+## CLI Lanes
+
+Mode: enabled — lanes-first (user preference in memory and in this task's own scope).
+Approval: lane-review.
+Rows on 2026-10-13:
+
+| Agent | Type | Status | Limit state |
+| --- | --- | --- | --- |
+| codex | cli | installed | unknown (reader failed) |
+| copilot | cli | disabled (installed) | unknown |
+| antigravity | cli | installed | unknown (reader failed) |
+| opencode | cli | installed | unknown (no usage source) |
+| grok | cli | installed | AT LIMIT (Weekly 100%, resets 2026-10-13 17:40 UTC) |
+| Glm | ptah-cli (Ollama Cloud) | available, ptahCliId pc-355b645d-35af-4974-84cf-9cf961ea0164 | unknown |
+
+Note: `ptah_agent_list` already reports AT LIMIT with a reset time (grok). The architect must check which
+parts of scope item 3 already exist in the runtime before it plans new work.
+
 ## Related
 
 - TASK_2026_438_a942 (completion contract) — a hard dependency for fully unattended lanes-first runs.

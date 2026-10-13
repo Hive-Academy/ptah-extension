@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_441_7825
-status: backlog
+status: in_progress
 type: REFACTORING
 title: >-
   Lanes first: orchestration spends CLI lanes before subagents and falls back
