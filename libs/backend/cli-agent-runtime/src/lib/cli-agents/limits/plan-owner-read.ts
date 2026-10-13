@@ -27,7 +27,7 @@ export type PlanOwnerLedgerReader = Pick<PlanLimitLedgerService, 'snapshotFor'>;
 export interface PlanOwnerReadContext {
   /** The live session whose query a Claude read must ask. */
   readonly sessionId?: string;
-  /** The Ptah CLI agent whose stored key an Ollama Cloud read uses. */
+  /** The Ptah CLI agent whose own key (or sign-in) an Ollama Cloud read uses. */
   readonly ptahCliId?: string;
   /** Grok CLI session id recorded when Ptah started the lane. */
   readonly cliSessionId?: string;
@@ -61,9 +61,11 @@ const KEYLESS_READ_PROVIDERS: ReadonlySet<string> = new Set([
  *   for. Without that session the probe would answer with whichever native
  *   session is active, which may be another account, so the owner reads as
  *   "no open session" instead.
- * - Ollama Cloud reads the agent's own key for a Ptah CLI lane, else the
- *   provider key. A missing key or a placeholder becomes `unsupported-config`
- *   or `unsupported-auth` inside `PlanUsageService`, before any network call.
+ * - Ollama Cloud reads a Ptah CLI lane through the agent's own key when it
+ *   holds a real one, else through the shared `ollama-cloud` provider key (the
+ *   ollama.com sign-in); the main route reads the provider key. A missing key
+ *   becomes `unsupported-config` inside `PlanUsageService`, before any network
+ *   call.
  * - Codex, Antigravity and OpenCode read without a Ptah secret.
  */
 export function planOwnerRead(
@@ -90,13 +92,18 @@ export function planOwnerRead(
             unavailableReason: 'no-open-session',
           };
     case 'ollama-cloud':
+      // A Ptah CLI lane reads with the agent's own key when it holds a real
+      // one, else (empty slot or the ollama.com sign-in placeholder) with the
+      // shared provider key — the rule `ownerForPtahCli` resolves the owner by,
+      // so the key and the owner always match. The main route reads the
+      // provider key.
       return {
         kind: 'read',
         target: {
           providerId: 'ollama-cloud',
           ownerRef: owner,
           credentialRef: context.ptahCliId
-            ? { kind: 'ptah-cli-key', ptahCliId: context.ptahCliId }
+            ? { kind: 'ollama-cloud-agent-key', ptahCliId: context.ptahCliId }
             : { kind: 'provider-key', providerId: 'ollama-cloud' },
         },
       };

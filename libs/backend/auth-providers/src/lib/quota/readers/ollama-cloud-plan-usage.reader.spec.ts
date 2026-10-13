@@ -19,14 +19,13 @@ const TARGET = {
     label: 'Ollama Cloud API key',
   },
 } as PlanOwnerTarget;
+// The real ollama.com/api/usage body: request-count buckets, no quota/limit.
 const USAGE_PAYLOAD = {
-  limits: {
-    session: {
-      usage: 0.2,
-      period: { ending_at: '2026-10-05T12:00:00Z' },
-    },
-    weekly: { usage: 80 },
-  },
+  range: '7d',
+  scope: 'self',
+  granularity: 'day',
+  totals: { request_count: 2588 },
+  buckets: [{ from: '2026-10-06T00:00:00Z', request_count: 793 }],
 };
 
 function loggerCalls(logger: Record<string, unknown>): string {
@@ -38,7 +37,7 @@ function loggerCalls(logger: Record<string, unknown>): string {
 }
 
 describe('Ollama Cloud plan-usage reader', () => {
-  it('F33: maps usage limits and never logs the API key', async () => {
+  it('F33: a working key reports its request count and never logs the key', async () => {
     const rawLogger = createMockLogger() as unknown as Record<string, unknown>;
     const fetcher = jest.fn(
       async () => new Response(JSON.stringify(USAGE_PAYLOAD), { status: 200 }),
@@ -48,7 +47,7 @@ describe('Ollama Cloud plan-usage reader', () => {
       () => 1,
       fetcher,
     );
-    const reading = await reader({
+    const result = await reader({
       target: TARGET,
       credential: new PlanSecret(API_KEY),
       refresh: true,
@@ -57,51 +56,89 @@ describe('Ollama Cloud plan-usage reader', () => {
       'https://ollama.com/api/usage',
       expect.objectContaining({ method: 'GET' }),
     );
-    expect(reading).toMatchObject({
+    expect(result).toEqual({
       status: 'available',
-      windowSetEstablished: true,
-    });
-    expect(reading.windows).toHaveLength(2);
-    expect(reading.windows[0]).toMatchObject({
-      key: 'five_hour',
-      label: 'Session',
-      used: { kind: 'percent', percent: 20 },
-      usedSource: 'provider-api',
-      resetsAt: Date.parse('2026-10-05T12:00:00Z'),
+      fetchedAt: 1,
+      windowSetEstablished: false,
+      windows: [],
+      localUsage: {
+        kind: 'local-usage',
+        label: 'Ollama Cloud requests',
+        tokens: 0,
+        estimatedCostUsd: 0,
+        requests: 2588,
+        observedAt: 1,
+        source: 'provider-api',
+        range: 'last 7 days',
+      },
     });
     expect(loggerCalls(rawLogger)).not.toContain(API_KEY);
   });
 
   it.each([
-    ['missing credential', undefined, 'unsupported-config'],
-    [
-      'malformed provisional payload',
-      new PlanSecret(API_KEY),
-      'service-unavailable',
-    ],
-  ] as const)(
-    '%s does not produce windows or log the API key',
-    async (_name, credential, status) => {
-      const rawLogger = createMockLogger() as unknown as Record<
-        string,
-        unknown
-      >;
-      const fetcher = jest.fn(
-        async () =>
-          new Response(JSON.stringify({ session: {} }), { status: 200 }),
-      );
+    ['an unparseable body', 'not json'],
+    ['a body without request totals', JSON.stringify({ range: '7d' })],
+    ['an oversized body', 'x'.repeat(256 * 1024 + 1)],
+  ])(
+    'an authenticated 200 with %s is a service failure, not an absent source',
+    async (_, body) => {
+      const fetcher = jest.fn(async () => new Response(body, { status: 200 }));
       const reader = createOllamaCloudPlanUsageReader(
-        rawLogger as unknown as Logger,
+        createMockLogger() as unknown as Logger,
         () => 1,
         fetcher,
       );
       await expect(
-        reader({ target: TARGET, credential, refresh: true }),
-      ).resolves.toEqual({ status, windowSetEstablished: false, windows: [] });
-      if (!credential) expect(fetcher).not.toHaveBeenCalled();
-      expect(loggerCalls(rawLogger)).not.toContain(API_KEY);
+        reader({
+          target: TARGET,
+          credential: new PlanSecret(API_KEY),
+          refresh: true,
+        }),
+      ).resolves.toEqual({
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
     },
   );
+
+  it('keeps an unrecognised range code verbatim', async () => {
+    const fetcher = jest.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ range: '90d', totals: { request_count: 3 } }),
+          { status: 200 },
+        ),
+    );
+    const reader = createOllamaCloudPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      fetcher,
+    );
+    const result = await reader({
+      target: TARGET,
+      credential: new PlanSecret(API_KEY),
+      refresh: true,
+    });
+    expect(result.localUsage).toMatchObject({ requests: 3, range: '90d' });
+  });
+
+  it('missing credential maps to unsupported-config without fetching', async () => {
+    const fetcher = jest.fn();
+    const reader = createOllamaCloudPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      fetcher as typeof fetch,
+    );
+    await expect(
+      reader({ target: TARGET, credential: undefined, refresh: true }),
+    ).resolves.toEqual({
+      status: 'unsupported-config',
+      windowSetEstablished: false,
+      windows: [],
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 
   it('maps a non-ok HTTP response to service-unavailable', async () => {
     const reader = createOllamaCloudPlanUsageReader(

@@ -1,6 +1,8 @@
 import {
   FRESHNESS_MS,
   LIMIT_LOOKUP_DEADLINE_MS,
+  limitLookupDeadlineMs,
+  SLOW_LIMIT_LOOKUP_DEADLINE_MS,
   NEAR_LIMIT_PERCENT,
   supersedes,
   type PlanLimitEvidenceStamp,
@@ -157,5 +159,26 @@ describe('plan-limit constants', () => {
     expect(NEAR_LIMIT_PERCENT).toBe(90);
     expect(FRESHNESS_MS).toBe(15 * MINUTE);
     expect(LIMIT_LOOKUP_DEADLINE_MS).toBe(3_000);
+  });
+});
+
+describe('limitLookupDeadlineMs', () => {
+  it('gives Codex and Antigravity the slow deadline', () => {
+    expect(limitLookupDeadlineMs('openai-codex')).toBe(
+      SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+    );
+    expect(limitLookupDeadlineMs(undefined, 'codex')).toBe(
+      SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+    );
+    expect(limitLookupDeadlineMs('antigravity')).toBe(
+      SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+    );
+  });
+
+  it('keeps the ordinary deadline for other providers', () => {
+    expect(limitLookupDeadlineMs('anthropic', undefined)).toBe(
+      LIMIT_LOOKUP_DEADLINE_MS,
+    );
+    expect(limitLookupDeadlineMs()).toBe(LIMIT_LOOKUP_DEADLINE_MS);
   });
 });

@@ -672,6 +672,25 @@ describe('PlanUsageService', () => {
       );
       expect(logs).not.toContain(SECRET);
     });
+
+    it('does not read Ollama Cloud with a key that belongs to another owner', async () => {
+      const h = harness();
+      const fetchSpy = jest.spyOn(globalThis, 'fetch');
+      try {
+        const snapshot = await h.service.getOwnerSnapshot({
+          providerId: 'ollama-cloud',
+          ownerRef: quotaOwnerRefFromKey(
+            credentialOwnerKey('ollama-cloud', 'shared-sign-in-key'),
+          ),
+          credentialRef: { kind: 'ollama-cloud-agent-key', ptahCliId: 'pc-1' },
+        });
+
+        expect(snapshot.status).toBe('service-unavailable');
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
   });
 
   describe('cache and single flight', () => {

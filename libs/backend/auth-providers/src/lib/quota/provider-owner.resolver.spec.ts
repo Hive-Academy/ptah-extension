@@ -398,14 +398,43 @@ describe('ProviderOwnerResolver', () => {
     const { resolver, getProviderKey } = harness({
       keys: { 'ptahCli.glm-1': SECRET },
     });
-    const ref = await resolver.ownerForPtahCli('glm-1', 'ollama-cloud');
+    const ref = await resolver.ownerForPtahCli('glm-1', 'moonshot');
     expect(getProviderKey).toHaveBeenCalledWith('ptahCli.glm-1');
-    expect(ref.key).toBe(credentialOwnerKey('ollama-cloud', SECRET));
+    expect(ref.key).toBe(credentialOwnerKey('moonshot', SECRET));
     const missing = await harness().resolver.ownerForPtahCli(
       'glm-1',
-      'ollama-cloud',
+      'moonshot',
     );
-    expect(missing.key).toBe(unknownOwnerKey('ollama-cloud', 'ptah-cli:glm-1'));
+    expect(missing.key).toBe(unknownOwnerKey('moonshot', 'ptah-cli:glm-1'));
+  });
+
+  it('bills an Ollama Cloud Ptah CLI agent to the shared ollama-cloud provider key, not its sign-in placeholder slot', async () => {
+    const { resolver, getProviderKey } = harness({
+      keys: {
+        'ptahCli.glm-1': OLLAMA_AUTH_TOKEN_PLACEHOLDER,
+        'ollama-cloud': SECRET,
+      },
+    });
+    const ref = await resolver.ownerForPtahCli('glm-1', 'ollama-cloud');
+    // The agent's own placeholder slot is not what identifies the account.
+    expect(getProviderKey).toHaveBeenCalledWith('ptahCli.glm-1');
+    expect(getProviderKey).toHaveBeenCalledWith('ollama-cloud');
+    expect(ref.key).toBe(credentialOwnerKey('ollama-cloud', SECRET));
+    expect(ref.identityKind).toBe('credential');
+    const empty = await harness({
+      keys: { 'ollama-cloud': SECRET },
+    }).resolver.ownerForPtahCli('glm-1', 'ollama-cloud');
+    expect(empty.key).toBe(credentialOwnerKey('ollama-cloud', SECRET));
+  });
+
+  it('bills an Ollama Cloud Ptah CLI agent with its own real key to that key', async () => {
+    const own = 'agent-own-ollama-key';
+    const { resolver, getProviderKey } = harness({
+      keys: { 'ptahCli.glm-1': own, 'ollama-cloud': SECRET },
+    });
+    const ref = await resolver.ownerForPtahCli('glm-1', 'ollama-cloud');
+    expect(ref.key).toBe(credentialOwnerKey('ollama-cloud', own));
+    expect(getProviderKey).not.toHaveBeenCalledWith('ollama-cloud');
   });
 
   it('keys a Claude account by email plus organization, and unknown without an email', () => {

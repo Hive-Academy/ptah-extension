@@ -105,7 +105,7 @@ describe('LaneLimitLookupService', () => {
     jest.useFakeTimers();
     let slowSignal: AbortSignal | undefined;
     const { service } = createHarness((target, options) => {
-      if (target.providerId === 'antigravity') {
+      if (target.providerId === 'opencode') {
         slowSignal = options?.signal;
         return new Promise(() => undefined);
       }
@@ -124,14 +124,14 @@ describe('LaneLimitLookupService', () => {
     jest.advanceTimersByTime(1);
     const results = await pending;
 
-    expect(results.map((r) => r.lookup)).toEqual(['ok', 'timeout', 'ok']);
-    expect(results[1].state).toEqual({
+    expect(results.map((r) => r.lookup)).toEqual(['ok', 'ok', 'timeout']);
+    expect(results[2].state).toEqual({
       state: 'unknown',
       reasons: [{ kind: 'lookup-failed', failure: 'timed-out' }],
       windows: [],
     });
     expect(results[0].snapshot?.owner).toEqual(CODEX);
-    expect(results[2].owner).toEqual(OPENCODE);
+    expect(results[1].snapshot?.owner).toEqual(ANTIGRAVITY);
     // The read still waiting is released once the deadline has passed.
     expect(slowSignal?.aborted).toBe(true);
   });
@@ -147,6 +147,37 @@ describe('LaneLimitLookupService', () => {
 
     await expect(pending).resolves.toEqual([
       expect.objectContaining({ lookup: 'timeout' }),
+    ]);
+  });
+
+  it('gives Codex and Antigravity 12 seconds while another lane still times out at 3 seconds', async () => {
+    jest.useFakeTimers();
+    const { service } = createHarness((target) =>
+      target.providerId === 'openai-codex' ||
+      target.providerId === 'antigravity'
+        ? new Promise((resolve) =>
+            setTimeout(() => resolve(snapshot(target.ownerRef)), 5_000),
+          )
+        : new Promise(() => undefined),
+    );
+    let settled = false;
+    const pending = service
+      .lookup([
+        { cli: 'codex' as const },
+        { cli: 'antigravity' as const },
+        { cli: 'opencode' as const },
+      ])
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+    await jest.advanceTimersByTimeAsync(3_000);
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect((await pending).map((result) => result.lookup)).toEqual([
+      'ok',
+      'ok',
+      'timeout',
     ]);
   });
 
@@ -199,7 +230,7 @@ describe('LaneLimitLookupService', () => {
     expect(result.state.reasons).toEqual([{ kind: 'no-snapshot' }]);
   });
 
-  it('reads a Ptah CLI Ollama Cloud lane with that agent key', async () => {
+  it('reads a Ptah CLI Ollama Cloud lane through its agent key or sign-in', async () => {
     const { service, rules, snapshots } = createHarness(async (target) =>
       snapshot(target.ownerRef),
     );
@@ -216,11 +247,14 @@ describe('LaneLimitLookupService', () => {
       'pc-glm',
       'ollama-cloud',
     );
+    // The agent's own real key when it has one; the shared provider key when
+    // its slot holds only the ollama.com sign-in placeholder (resolved by
+    // PlanCredentialSource with the same rule as the owner).
     expect(snapshots.getOwnerSnapshot).toHaveBeenCalledWith(
       {
         providerId: 'ollama-cloud',
         ownerRef: OLLAMA,
-        credentialRef: { kind: 'ptah-cli-key', ptahCliId: 'pc-glm' },
+        credentialRef: { kind: 'ollama-cloud-agent-key', ptahCliId: 'pc-glm' },
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );

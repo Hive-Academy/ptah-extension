@@ -9,16 +9,16 @@
  * limit evidence and an active cooldown are separate notices below the row.
  * The Codex activity block is kept as it was.
  *
- * Layout adapts to the width each row itself has (a container query on its
- * `li`, never the viewport); `ProviderAccountRowComponent` (same folder)
- * presents each row: wide rows place identity | windows | local usage |
- * refresh on one line; medium and narrow rows drop the windows and the
- * local-usage stat below the identity, so the owner name is never squeezed
- * beside them. A row without windows is a compact one-line reason, and may
- * end with an inline action wired only to navigation that already exists
- * (`AppStateManager`; revise-2 item 7). Every row carries a decorative
- * per-provider accent (left border + mark tint, `provider-accent.ts`); the
- * provider name always stays in text.
+ * The card is its own Dashboard section (heading + list), placed by
+ * `DashboardGridComponent` above Session Analytics; it does not depend on
+ * the analytics date range. `ProviderAccountRowComponent` (same folder)
+ * presents each row on one grid shared by every provider — identity |
+ * windows area | refresh — adapting to the width each row itself has (a
+ * container query on its `li`, never the viewport). A row without windows
+ * shows one status line in the windows area, which may end with an inline
+ * action wired only to navigation that already exists (`AppStateManager`).
+ * Every row carries a decorative per-provider accent (left border + mark
+ * tint, `provider-accent.ts`); the provider name always stays in text.
  *
  * Selection: `AuthStateService.persistedProviderId()` drives `load({providerId})`.
  * The store merges only the fields a call names, so the card passes exactly
@@ -124,6 +124,8 @@ export interface LocalUsageView {
    * does not parse (revise-2 minor 6).
    */
   readonly rangeLabel: string | null;
+  /** States what the figure is, and that it is not a plan percentage. */
+  readonly note: string;
 }
 
 /**
@@ -150,7 +152,6 @@ export interface OwnerSectionView {
   /** Inline action for a compact row, when one exists (revise-2 item 7). */
   readonly action: RowActionView | null;
   readonly windows: readonly WindowRowView[];
-  readonly commonSources: readonly SourceChipView[];
   readonly localUsage: LocalUsageView | null;
   readonly evidence: readonly NoticeView[];
   readonly cooldown: string | null;
@@ -223,63 +224,78 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
     `,
   ],
   template: `
-    @if (sections(); as list) {
-      @if (refreshNotice(); as notice) {
-        <p
-          role="status"
-          class="mb-2 border-l-2 border-info pl-2 text-xs text-base-content-muted"
-          data-testid="refresh-failed"
-        >
-          {{ notice }}
+    <section
+      class="surface-1 flex flex-col gap-3 rounded-xl p-5"
+      aria-labelledby="provider-accounts-heading"
+      data-testid="dashboard-section-provider-accounts"
+    >
+      <div>
+        <h3 id="provider-accounts-heading" class="text-base font-semibold">
+          Provider accounts &amp; plan limits
+        </h3>
+        <p class="mt-0.5 text-xs text-base-content-muted">
+          One row per quota owner. The tick on each bar marks
+          {{ nearLimitPercent }}% (near limit); bars highlight a reached limit.
         </p>
+      </div>
+      @if (sections(); as list) {
+        @if (refreshNotice(); as notice) {
+          <p
+            role="status"
+            class="mb-2 border-l-2 border-info pl-2 text-xs text-base-content-muted"
+            data-testid="refresh-failed"
+          >
+            {{ notice }}
+          </p>
+        }
+        @if (list.length === 0) {
+          <section class="surface-2 rounded-lg p-3" aria-label="Account usage">
+            <div class="flex items-center justify-between gap-3">
+              <h5 class="font-medium text-sm">Account usage</h5>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                [disabled]="loading()"
+                (click)="refresh()"
+              >
+                Refresh
+              </button>
+            </div>
+            @if (loading()) {
+              <span
+                class="loading loading-spinner loading-xs mt-3"
+                aria-label="Loading account usage"
+              ></span>
+            } @else {
+              <p
+                class="text-xs text-base-content-muted mt-3"
+                data-testid="usage-unavailable"
+              >
+                Account usage unavailable
+              </p>
+            }
+          </section>
+        } @else {
+          <ul class="rows">
+            @for (section of list; track section.key) {
+              <li class="row">
+                <ptah-provider-account-row
+                  [section]="section"
+                  [refreshing]="loading()"
+                  (refresh)="refresh()"
+                  (actionClick)="onRowAction($event)"
+                />
+              </li>
+            }
+          </ul>
+        }
+      } @else if (loading()) {
+        <span
+          class="loading loading-spinner loading-xs"
+          aria-label="Loading account usage"
+        ></span>
       }
-      @if (list.length === 0) {
-        <section class="surface-2 rounded-lg p-3" aria-label="Account usage">
-          <div class="flex items-center justify-between gap-3">
-            <h5 class="font-medium text-sm">Account usage</h5>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs"
-              [disabled]="loading()"
-              (click)="refresh()"
-            >
-              Refresh
-            </button>
-          </div>
-          @if (loading()) {
-            <span
-              class="loading loading-spinner loading-xs mt-3"
-              aria-label="Loading account usage"
-            ></span>
-          } @else {
-            <p
-              class="text-xs text-base-content-muted mt-3"
-              data-testid="usage-unavailable"
-            >
-              Account usage unavailable
-            </p>
-          }
-        </section>
-      } @else {
-        <ul class="rows">
-          @for (section of list; track section.key) {
-            <li class="row">
-              <ptah-provider-account-row
-                [section]="section"
-                [refreshing]="loading()"
-                (refresh)="refresh()"
-                (actionClick)="onRowAction($event)"
-              />
-            </li>
-          }
-        </ul>
-      }
-    } @else if (loading()) {
-      <span
-        class="loading loading-spinner loading-xs"
-        aria-label="Loading account usage"
-      ></span>
-    }
+    </section>
   `,
 })
 export class ProviderAccountCardComponent {
@@ -295,6 +311,8 @@ export class ProviderAccountCardComponent {
   };
 
   protected readonly loading = this.planLimits.loading;
+  /** The near-limit threshold each row's bar tick marks. */
+  protected readonly nearLimitPercent = NEAR_LIMIT_PERCENT;
 
   /** `null` until the first snapshot; `[]` for an empty (failed) snapshot. */
   protected readonly sections = computed<readonly OwnerSectionView[] | null>(
@@ -416,18 +434,6 @@ function buildOwnerSection(
     owner.ownerEvidence.length > 0 ||
     owner.localUsage !== undefined;
   const windows = owner.windows.map((w) => buildWindowRow(w, owner, now, time));
-  const firstSources = windows[0]?.sources ?? [];
-  const commonSources =
-    windows.length > 0 &&
-    windows.every(
-      (row) =>
-        row.sources.length === firstSources.length &&
-        row.sources.every(
-          (source, index) => source.text === firstSources[index]?.text,
-        ),
-    )
-      ? firstSources
-      : [];
   return {
     key: owner.owner.key,
     providerId: owner.owner.providerId,
@@ -440,7 +446,6 @@ function buildOwnerSection(
     statusNotice: statusNotice(owner, hasData, now, time),
     action: compactRowAction(owner, hasData),
     windows,
-    commonSources,
     localUsage: owner.localUsage ? localUsageView(owner.localUsage) : null,
     evidence: owner.ownerEvidence.map((e) => evidenceNotice(e, now, time)),
     cooldown:
@@ -490,11 +495,24 @@ function compactRowAction(
 }
 
 function localUsageView(usage: PlanLocalUsage): LocalUsageView {
+  // A request-metered source (Ollama Cloud) has no token or cost figure.
+  const requests = usage.requests;
   return {
     label: usage.label,
-    value: `${usage.tokens.toLocaleString()} tokens · $${usage.estimatedCostUsd.toFixed(2)}`,
+    value:
+      requests !== undefined
+        ? `${requests.toLocaleString()} ${requests === 1 ? 'request' : 'requests'}`
+        : `${usage.tokens.toLocaleString()} tokens · $${usage.estimatedCostUsd.toFixed(2)}`,
     range: usage.range ?? null,
     rangeLabel: localRangeLabel(usage.range),
+    // The provenance decides the note: a provider API counts the whole
+    // account, a local CLI only what it recorded on this machine.
+    note:
+      usage.source === 'provider-api'
+        ? requests !== undefined
+          ? 'Account request count from the provider · no plan percentage or reset'
+          : 'Account usage from the provider · not a plan percentage or reset'
+        : 'Local CLI accounting · not a plan percentage or reset',
   };
 }
 
@@ -560,7 +578,11 @@ function statusChip(
         text:
           providerId === 'ollama-cloud'
             ? 'API key rejected'
-            : 'API key — no plan limits',
+            : providerId === 'antigravity'
+              ? 'Sign-in rejected'
+              : providerId === 'opencode'
+                ? 'Sign-in expired'
+                : 'API key — no plan limits',
         tone: 'neutral',
       };
     case 'unsupported-config':
@@ -651,9 +673,19 @@ function noDataStatusText(owner: PlanLimitOwnerSnapshot): string | undefined {
     case 'available':
       return 'No plan limits reported';
     case 'unsupported-auth':
-      return providerId === 'ollama-cloud'
-        ? 'API key rejected — check the key'
-        : 'No plan limits (API key)';
+      if (providerId === 'ollama-cloud') {
+        return 'API key rejected — check the key';
+      }
+      // The Antigravity keyring login was refused by Google (revoked or
+      // expired): an authentication problem, not a missing local app.
+      if (providerId === 'antigravity') {
+        return 'Antigravity sign-in rejected — sign in to Antigravity again';
+      }
+      // OpenCode's stored login was rejected (401) or has expired.
+      if (providerId === 'opencode') {
+        return 'OpenCode sign-in expired — sign in to OpenCode again';
+      }
+      return 'No plan limits (API key)';
     case 'unsupported-config':
       if (providerId === 'ollama-cloud') return 'No API key configured';
       break;

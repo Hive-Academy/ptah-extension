@@ -78,14 +78,10 @@ describe('AnalyticsCardComponent', () => {
     await settle();
 
     expect(count('ptah-session-stats-card')).toBe(25);
-    const providerAccounts = el().querySelector(
-      '[data-testid="analytics-section-provider-accounts"]',
-    );
-    expect(providerAccounts).not.toBeNull();
-    expect(providerAccounts?.querySelector('h4')?.textContent?.trim()).toBe(
-      'Provider accounts & plan limits',
-    );
-    expect(providerAccounts?.textContent).toMatch(/marks\s+90%/);
+    // Plan limits are their own Dashboard section above this card, not part
+    // of session analytics (plan-limits-live-fix).
+    expect(count('ptah-provider-account-card')).toBe(0);
+    expect(el().textContent).not.toContain('Provider accounts');
     expect(count('[data-testid="session-card-pending"]')).toBe(25);
     expect(text('analytics-progress')).toMatch(/0 of\s+25 sessions/);
 
