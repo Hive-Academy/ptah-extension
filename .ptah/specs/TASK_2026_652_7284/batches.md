@@ -357,7 +357,7 @@ tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping erro
   re-review disposition"). One exception: the prettier drift is fixed in 8afe14ce5.
 - Batch 17 COMPLETE (94eb0149d). Batch 9 (Phase 2B) COMPLETE (9f98ea07c). Phase 2B review
   APPROVED 8.5/10 (`code-logic-review-phase-2b.md`; see "Phase 2B review disposition").
-  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 COMPLETE (27bf6b468). Batch 11 IN_PROGRESS.
+  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 COMPLETE (27bf6b468). Batch 11 COMPLETE (93fe34db7). Batch 12 COMPLETE. Batch 13 IN_PROGRESS.
 - FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
   Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
   confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
@@ -963,7 +963,7 @@ pin the name contract that the dispatcher depends on.
   Batch 12 is not offered for resume; Batch 12 (v4 writer, v3 archive on resume) closes it.
   No merge or release happens before then.
 
-## Batch 11: Analysis freshness service and DI - IN_PROGRESS
+## Batch 11: Analysis freshness service and DI - COMPLETE (commit 93fe34db7)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1024,7 +1024,7 @@ pin the name contract that the dispatcher depends on.
   di-lint OK (1825 sites, 793 tokens). Minor for the phase review: the selection loop reads
   `manifest.json` twice before `readManifest` (`analysis-freshness.service.ts:165-176`).
 
-## Batch 12: v4 writer and SDK session capture - PENDING
+## Batch 12: v4 writer and SDK session capture - COMPLETE
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1034,14 +1034,14 @@ pin the name contract that the dispatcher depends on.
 - Tasks: 3 | Depends on: Batches 10, 11
 - Phase: 3 - Manifest v4 and freshness | Phase review: code-logic, plus style
 
-### Task 12.1: Capture the real SDK session id per phase attempt - PENDING
+### Task 12.1: Capture the real SDK session id per phase attempt - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/multi-phase-analysis.service.ts`
 - Plan reference: implementation-plan.md:62-64
 - Pattern to follow: `createTextCapturingStream` (`:815-846`) and `isSystemInit` (`libs/backend/agent-sdk/src/lib/types/sdk-types/claude-sdk.types.ts:352`)
 - Quality requirements: take the first non-empty `session_id`. Prefer `system/init`, and fail on disagreement. No id at all gives a typed phase failure and stays unverified. Never record `WizardPhaseId.fromPhase` (`:717-768`). Compute the prompt, prior-phase and output SHA-256 and pass them to the checkpoint. Keep timeout and abort behavior (`:630-673`).
 
-### Task 12.2: Checkpoint writes v4; v3 resume archives and starts fresh - PENDING
+### Task 12.2: Checkpoint writes v4; v3 resume archives and starts fresh - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/analysis-run-checkpoint.ts`
 - Plan reference: implementation-plan.md:88, 109-111
@@ -1054,7 +1054,7 @@ pin the name contract that the dispatcher depends on.
   - On v4 resume, compare recorded inputs and output bytes before skipping. A mismatch restarts that phase and its descendants.
   - Persist on every transition.
 
-### Task 12.3: Multi-phase spec - PENDING
+### Task 12.3: Multi-phase spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/multi-phase-analysis.service.spec.ts`
 - Quality requirements:
@@ -1072,8 +1072,24 @@ pin the name contract that the dispatcher depends on.
 - Command:
   `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1 && npx nx typecheck @ptah-extension/rpc-handlers && npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.spec.ts --coverage=false --maxWorkers=2 && npx nx run-many -t typecheck,test -p @ptah-extension/setup-wizard --parallel=1 && npx nx typecheck ptah-cli && npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src/cli/commands/analyze.spec.ts --coverage=false --maxWorkers=2 && npx nx run di-lint:lint`
 - This covers the parity row "CLI deep analysis" (the plan's batch E CLI verification).
+- Split form (orchestrator 2026-10-14; never pass `--maxWorkers` with typecheck or lint), one at
+  a time: `npx nx run-many -t typecheck,lint -p @ptah-extension/agent-generation --parallel=1`;
+  `npx nx run-many -t test -p @ptah-extension/agent-generation --parallel=1 --maxWorkers=2`;
+  `npx nx typecheck @ptah-extension/rpc-handlers`; the rpc-handlers jest line above;
+  `npx nx typecheck @ptah-extension/setup-wizard`;
+  `npx nx test @ptah-extension/setup-wizard --maxWorkers=2` (read-only, no frontend edit);
+  `npx nx typecheck ptah-cli`; the ptah-cli jest line above; `npx nx run di-lint:lint`.
+- Verified (team-leader, 2026-10-14, report `batch-12-report.md`): only the three listed
+  agent-generation files changed; prettier check clean; agent-generation typecheck, lint and
+  test pass; rpc-handlers typecheck and setup-rpc spec (43 passed); setup-wizard typecheck;
+  ptah-cli typecheck and analyze spec (6 passed); di-lint OK (1826 sites, 793 tokens).
+  setup-wizard test taken from the lane (337 passed; read-only lib, unchanged).
+  For the Phase 3 review: `markCompleted(..., outcome.sessionId!)` at
+  `multi-phase-analysis.service.ts:545` relies on "no error implies an id"; the checkpoint
+  now archives a v3 slug on every open, not only on resume (`analysis-run-checkpoint.ts:58`);
+  the batch deleted most method doc comments in `analysis-run-checkpoint.ts`.
 
-## Batch 13: `wizard:analysis-status` RPC - PENDING
+## Batch 13: `wizard:analysis-status` RPC - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1082,7 +1098,7 @@ pin the name contract that the dispatcher depends on.
 - Tasks: 3 | Depends on: Batches 5, 11, 12
 - Phase: 3 - Manifest v4 and freshness (last batch of the phase) | Phase review: code-logic, plus style
 
-### Task 13.1: Register the method (F18) - PENDING
+### Task 13.1: Register the method (F18) - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc.types.ts` (second owner, after Batch 5),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts` (second owner),
@@ -1090,7 +1106,7 @@ pin the name contract that the dispatcher depends on.
 - Pattern to follow: `'wizard:get-resumable-run'` at `rpc.types.ts:1005-1008,3795`, `baseline.ts:409`, `setup-rpc.schema.ts:26`
 - Quality requirements: the registry entry uses the Task 1.3 types. `WizardAnalysisStatusParamsSchema = z.object({})`.
 
-### Task 13.2: Handler and spec - PENDING
+### Task 13.2: Handler and spec - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.spec.ts`
@@ -1098,7 +1114,7 @@ pin the name contract that the dispatcher depends on.
 - Pattern to follow: `registerGetResumableRun` (`setup-rpc.handlers.ts:405-449`), `METHODS` (`:86`)
 - Quality requirements: add the method to `METHODS`, then bind. Resolve via `AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE`. No workspace returns missing. Read-only. `get-resumable-run` keeps its response type, and its spec reflects that v3 is not resumable. The spec covers params validation, no disk mutation, and no workspace.
 
-### Task 13.3: CLI surface confirmation (F19) - PENDING
+### Task 13.3: CLI surface confirmation (F19) - IN_PROGRESS
 
 - File: none edited. Same rule as Task 5.4.
 

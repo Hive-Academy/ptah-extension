@@ -29,6 +29,7 @@ import {
   jest,
 } from '@jest/globals';
 import { join, resolve } from 'path';
+import { createHash } from 'crypto';
 
 jest.mock('@ptah-extension/vscode-core', () => ({
   Logger: class {},
@@ -68,6 +69,8 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   },
   discoverPluginSkills: jest.fn(() => []),
   formatSkillsForPrompt: jest.fn(() => ''),
+  isSystemInit: (message: SdkMessage) =>
+    message['type'] === 'system' && message['subtype'] === 'init',
 }));
 
 import {
@@ -75,6 +78,8 @@ import {
   type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
 import { AnalysisStorageService } from '../analysis-storage.service';
+import { computeWorkspaceFingerprint } from '../analysis-freshness.service';
+import { buildPhase1Prompts } from './multi-phase-prompts';
 import {
   MultiPhaseAnalysisService,
   PER_PHASE_TIMEOUT_MS,
@@ -85,6 +90,8 @@ import {
 import {
   PHASE_CONFIGS,
   type MultiPhaseManifest,
+  type MultiPhaseManifestV3,
+  type MultiPhaseManifestV4,
 } from '../../types/multi-phase.types';
 
 const WORKSPACE = resolve('/ws/demo');
@@ -96,10 +103,12 @@ type Scenario = (signal: AbortSignal) => AsyncIterable<SdkMessage>;
 
 const assistant = (text: string): SdkMessage => ({
   type: 'assistant',
+  session_id: 'sdk-session-default',
   message: { content: [{ type: 'text', text }] },
 });
 const success = (result?: string): SdkMessage => ({
   type: 'result',
+  session_id: 'sdk-session-default',
   subtype: 'success',
   result,
   num_turns: 1,
@@ -108,11 +117,13 @@ const success = (result?: string): SdkMessage => ({
 });
 const errorResult = (): SdkMessage => ({
   type: 'result',
+  session_id: 'sdk-session-default',
   subtype: 'error_during_execution',
   errors: ['model exploded'],
 });
 const maxTurnsResult = (): SdkMessage => ({
   type: 'result',
+  session_id: 'sdk-session-default',
   subtype: 'error_max_turns',
   errors: ['maximum turns exceeded'],
 });
@@ -201,9 +212,10 @@ describe('MultiPhaseAnalysisService', () => {
       .map(([, content]) => JSON.parse(String(content)) as MultiPhaseManifest);
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     fs = createMockFileSystemProvider();
+    await fs.createDirectory(WORKSPACE);
     storage = new AnalysisStorageService(logger as never, fs);
     scenarios = [];
     closeFn = jest.fn();
@@ -212,14 +224,15 @@ describe('MultiPhaseAnalysisService', () => {
         abortController: AbortController;
         maxTurns?: number;
       }) => {
-      const scenario = scenarios.shift();
-      if (!scenario) throw new Error('No scenario left for execute()');
-      return {
-        stream: scenario(config.abortController.signal),
-        close: closeFn,
-        abort: jest.fn(),
-      };
-    });
+        const scenario = scenarios.shift();
+        if (!scenario) throw new Error('No scenario left for execute()');
+        return {
+          stream: scenario(config.abortController.signal),
+          close: closeFn,
+          abort: jest.fn(),
+        };
+      },
+    );
     broadcastMessage = jest.fn();
     resolveLlm = jest.fn(async () => ({
       providerId: 'moonshot',
@@ -234,6 +247,7 @@ describe('MultiPhaseAnalysisService', () => {
       {
         resolveForPath: resolveLlm,
       } as never,
+      fs,
     );
   });
 
@@ -258,11 +272,25 @@ describe('MultiPhaseAnalysisService', () => {
 
     expect(result.isOk()).toBe(true);
     const manifest = result.value!;
-    expect(manifest.version).toBe(3);
+    expect(manifest.version).toBe(4);
     expect(manifest.runId).toHaveLength(26);
     expect(manifest.lifecycle).toBe('completed');
     for (const config of PHASE_CONFIGS) {
       expect(manifest.phases[config.id].status).toBe('completed');
+      if (manifest.version === 4) {
+        const phase = manifest.phases[config.id];
+        const bytes = await fs.readFileBytes(join(SLUG_DIR, config.file));
+        expect(phase.attempt).toBe(1);
+        expect(phase.sessionId).toBe('sdk-session-default');
+        expect(phase.input?.workspaceSha256).toBe(
+          manifest.workspaceFingerprint.digest,
+        );
+        expect(phase.input?.promptSha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(phase.verification.status).toBe('verified');
+        expect(phase.verification.outputSha256).toBe(
+          createHash('sha256').update(bytes).digest('hex'),
+        );
+      }
     }
     expect(await readManifest()).toEqual(manifest);
     expect(closeFn).toHaveBeenCalledTimes(4);
@@ -295,6 +323,91 @@ describe('MultiPhaseAnalysisService', () => {
     const file = await fs.readFile(join(SLUG_DIR, FILES[0]));
     expect(file).toBe('First turn\n\nSecond turn');
     expect(file).not.toContain('UI-ONLY-DELTA');
+  });
+
+  it('records the SDK init identity rather than the synthetic UI phase identity', async () => {
+    scenarios = [
+      streamOf([
+        { type: 'system', subtype: 'init', session_id: 'sdk-init-one' },
+        { ...assistant('profile'), session_id: 'sdk-init-one' },
+        { ...success('profile'), session_id: 'sdk-init-one' },
+      ]),
+      ...FILES.slice(1).map((file) => agentWritesFile(file)),
+    ];
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+    });
+    expect(result.value!.phases['project-profile']).toMatchObject({
+      status: 'completed',
+      sessionId: 'sdk-init-one',
+    });
+    expect(
+      (result.value as MultiPhaseManifestV4).phases['project-profile']
+        .sessionId,
+    ).not.toBe('wizard-project-profile');
+    expect(
+      broadcastMessage.mock.calls.some(([, payload]) => {
+        const stream = payload as { flatEvent?: { sessionId?: string } };
+        return stream.flatEvent?.sessionId === 'wizard-project-profile';
+      }),
+    ).toBe(true);
+  });
+
+  it('uses the first message identity when the stream has no init', async () => {
+    scenarios = [
+      streamOf([
+        { ...assistant('profile'), session_id: 'first-message-id' },
+        { ...success('profile'), session_id: 'later-message-id' },
+      ]),
+      ...FILES.slice(1).map((file) => agentWritesFile(file)),
+    ];
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+    });
+    expect(
+      (result.value as MultiPhaseManifestV4).phases['project-profile']
+        .sessionId,
+    ).toBe('first-message-id');
+  });
+
+  it('fails an attempt when init disagrees with an earlier identity', async () => {
+    scenarios = [
+      streamOf([
+        { ...assistant('profile'), session_id: 'earlier-id' },
+        { type: 'system', subtype: 'init', session_id: 'different-id' },
+        success('profile'),
+      ]),
+      ...FILES.slice(1).map((file) => agentWritesFile(file)),
+    ];
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+    });
+    const phase = (result.value as MultiPhaseManifestV4).phases[
+      'project-profile'
+    ];
+    expect(phase.status).toBe('failed');
+    expect(phase.error).toContain('system/init session_id disagrees');
+    expect(phase.verification.status).toBe('failed');
+  });
+
+  it('fails and leaves an attempt unverified when the SDK stream has no identity', async () => {
+    scenarios = [
+      streamOf([
+        { ...assistant('profile'), session_id: undefined },
+        { ...success('profile'), session_id: undefined },
+      ]),
+      ...FILES.slice(1).map((file) => agentWritesFile(file)),
+    ];
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+    });
+    const phase = (result.value as MultiPhaseManifestV4).phases[
+      'project-profile'
+    ];
+    expect(phase.status).toBe('failed');
+    expect(phase.error).toContain('did not provide a session_id');
+    expect(phase.sessionId).toBeNull();
+    expect(phase.verification.outputSha256).toBeNull();
   });
 
   it('marks a phase failed when the stream ends without a result, keeping the text for diagnosis', async () => {
@@ -389,9 +502,14 @@ describe('MultiPhaseAnalysisService', () => {
   });
 
   describe('resume', () => {
-    function seedPausedManifest(): MultiPhaseManifest {
+    async function seedPausedManifest(): Promise<MultiPhaseManifest> {
+      await fs.createDirectory(WORKSPACE);
+      const fingerprint = await computeWorkspaceFingerprint(WORKSPACE, fs);
+      const prompts = buildPhase1Prompts('.ptah/analysis/demo');
+      const sha256 = (value: string) =>
+        createHash('sha256').update(value).digest('hex');
       return {
-        version: 3,
+        version: 4,
         runId: 'RUN-KEEP',
         slug: 'demo',
         analyzedAt: '2026-08-30T10:00:00.000Z',
@@ -400,29 +518,97 @@ describe('MultiPhaseAnalysisService', () => {
         // Same model the snapshot resolves — a resumable run.
         model: 'snapshot-model',
         totalDurationMs: 5_000,
+        workspaceFingerprint: fingerprint,
         phases: {
           'project-profile': {
             status: 'completed',
             file: FILES[0],
             durationMs: 10,
+            attempt: 1,
+            sessionId: 'old-sdk-session',
+            input: {
+              workspaceSha256: fingerprint.digest,
+              promptSha256: sha256(
+                JSON.stringify([prompts.systemPrompt, prompts.userPrompt]),
+              ),
+              priorPhaseSha256: null,
+              model: 'snapshot-model',
+            },
+            verification: {
+              status: 'verified',
+              outputSha256: sha256('OLD PROFILE'),
+              checkedAt: '2026-08-30T10:00:00.000Z',
+            },
           },
           'architecture-assessment': {
             status: 'running',
             file: FILES[1],
             durationMs: 0,
+            attempt: 1,
+            sessionId: null,
+            input: null,
+            verification: {
+              status: 'pending',
+              outputSha256: null,
+              checkedAt: null,
+            },
           },
-          'quality-audit': { status: 'pending', file: FILES[2], durationMs: 0 },
+          'quality-audit': {
+            status: 'pending',
+            file: FILES[2],
+            durationMs: 0,
+            attempt: 0,
+            sessionId: null,
+            input: null,
+            verification: {
+              status: 'pending',
+              outputSha256: null,
+              checkedAt: null,
+            },
+          },
           'elevation-plan': {
             status: 'pending',
             file: FILES[3],
             durationMs: 0,
+            attempt: 0,
+            sessionId: null,
+            input: null,
+            verification: {
+              status: 'pending',
+              outputSha256: null,
+              checkedAt: null,
+            },
           },
         },
       };
     }
 
+    function seedLegacyManifest(): MultiPhaseManifestV3 {
+      const phases = Object.fromEntries(
+        PHASE_CONFIGS.map((config) => [
+          config.id,
+          {
+            status: config.id === 'project-profile' ? 'completed' : 'pending',
+            file: config.file,
+            durationMs: 0,
+          },
+        ]),
+      ) as MultiPhaseManifestV3['phases'];
+      return {
+        version: 3,
+        runId: 'LEGACY-RUN',
+        slug: 'demo',
+        analyzedAt: '2026-08-30T10:00:00.000Z',
+        updatedAt: '2026-08-30T10:05:00.000Z',
+        lifecycle: 'paused',
+        model: 'snapshot-model',
+        totalDurationMs: 1_000,
+        phases,
+      };
+    }
+
     it('skips completed phases, restarts a stale running phase and keeps the runId', async () => {
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], 'stale partial');
       fs.writeFile.mockClear();
@@ -439,6 +625,10 @@ describe('MultiPhaseAnalysisService', () => {
       expect(manifest.model).toBe('snapshot-model');
       expect(manifest.lifecycle).toBe('completed');
       expect(manifest.totalDurationMs).toBeGreaterThanOrEqual(5_000);
+      if (manifest.version === 4) {
+        expect(manifest.phases['project-profile'].attempt).toBe(1);
+        expect(manifest.phases['architecture-assessment'].attempt).toBe(2);
+      }
       expect(execute).toHaveBeenCalledTimes(3);
       expect(fs.delete).toHaveBeenCalledWith(join(SLUG_DIR, FILES[1]));
       expect(await fs.readFile(join(SLUG_DIR, FILES[0]))).toBe('OLD PROFILE');
@@ -459,7 +649,7 @@ describe('MultiPhaseAnalysisService', () => {
     const STALE_STUB = '# Architecture Assessment\n(run was interrupted)';
 
     it('replaces the stale phase file when the resumed phase succeeds without writing it', async () => {
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
       scenarios = [
@@ -492,7 +682,7 @@ describe('MultiPhaseAnalysisService', () => {
         mtime: phaseMtime,
         size: STALE_STUB.length,
       }));
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
       scenarios = [
@@ -522,7 +712,7 @@ describe('MultiPhaseAnalysisService', () => {
         mtime: 100,
         size: STALE_STUB.length,
       });
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
       scenarios = [
@@ -545,7 +735,7 @@ describe('MultiPhaseAnalysisService', () => {
     });
 
     it('rejects an unchanged stale file when the resumed phase writes nothing', async () => {
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
       scenarios = [
@@ -569,7 +759,7 @@ describe('MultiPhaseAnalysisService', () => {
     });
 
     it('restores the stale phase file when a resumed phase is paused before writing', async () => {
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
       scenarios = [
@@ -598,7 +788,7 @@ describe('MultiPhaseAnalysisService', () => {
         mtime: 100,
         size: STALE_STUB.length,
       });
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
       scenarios = [
@@ -621,7 +811,7 @@ describe('MultiPhaseAnalysisService', () => {
 
     it('falls back to changed content when the provider cannot report modification times', async () => {
       fs.stat.mockRejectedValue(new Error('stat unavailable'));
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
       await storage.writePhaseFile(SLUG_DIR, FILES[1], STALE_STUB);
       const rewrittenContent = '# Architecture Assessment\nComplete analysis';
@@ -662,7 +852,7 @@ describe('MultiPhaseAnalysisService', () => {
       // The run was paused on another model; the workspace's provider/model
       // has changed since. Resuming would finish it on a second model.
       await storage.writeManifest(SLUG_DIR, {
-        ...seedPausedManifest(),
+        ...(await seedPausedManifest()),
         model: 'old-provider-model',
       });
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'OLD PROFILE');
@@ -702,12 +892,95 @@ describe('MultiPhaseAnalysisService', () => {
         resume: true,
       });
 
-      expect(result.value!.version).toBe(3);
+      expect(result.value!.version).toBe(4);
       expect(execute).toHaveBeenCalledTimes(4);
     });
 
+    it('archives a paused v3 run and starts a distinct verified v4 run', async () => {
+      const legacy = seedLegacyManifest();
+      await storage.writeManifest(SLUG_DIR, legacy);
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'LEGACY PROFILE');
+      scenarios = FILES.map((file) => agentWritesFile(file));
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.version).toBe(4);
+      expect(result.value!.runId).not.toBe(legacy.runId);
+      expect(execute).toHaveBeenCalledTimes(4);
+      const entries = await fs.readDirectory(storage.getAnalysisDir(WORKSPACE));
+      const archive = entries.find((entry) =>
+        entry.name.startsWith('demo-v3-archive-'),
+      );
+      expect(archive).toBeDefined();
+      const archivedDir = join(
+        storage.getAnalysisDir(WORKSPACE),
+        archive!.name,
+      );
+      expect(await storage.loadManifest(archivedDir)).toEqual(legacy);
+      expect(await fs.readFile(join(archivedDir, FILES[0]))).toBe(
+        'LEGACY PROFILE',
+      );
+    });
+
+    it('leaves v3 intact and starts no SDK work when archiving fails', async () => {
+      const legacy = seedLegacyManifest();
+      await storage.writeManifest(SLUG_DIR, legacy);
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'LEGACY PROFILE');
+      fs.copy.mockRejectedValueOnce(new Error('EIO'));
+      scenarios = FILES.map((file) => agentWritesFile(file));
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.isErr()).toBe(true);
+      expect(result.error?.name).toBe('LegacyRunArchiveError');
+      expect(execute).not.toHaveBeenCalled();
+      expect(await storage.loadManifest(SLUG_DIR)).toEqual(legacy);
+      expect(await fs.readFile(join(SLUG_DIR, FILES[0]))).toBe(
+        'LEGACY PROFILE',
+      );
+    });
+
+    it('invalidates a changed output and every downstream completed phase', async () => {
+      scenarios = FILES.map((file) => agentWritesFile(file));
+      const first = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+      });
+      expect(first.isOk()).toBe(true);
+      await storage.writeManifest(SLUG_DIR, {
+        ...(first.value as MultiPhaseManifestV4),
+        lifecycle: 'paused',
+      });
+      await storage.writePhaseFile(SLUG_DIR, FILES[0], 'CHANGED PROFILE');
+      execute.mockClear();
+      scenarios = FILES.map((file) => agentWritesFile(file));
+
+      const resumed = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(resumed.isOk()).toBe(true);
+      expect(execute).toHaveBeenCalledTimes(4);
+      for (const config of PHASE_CONFIGS) {
+        expect(
+          (resumed.value as MultiPhaseManifestV4).phases[config.id].attempt,
+        ).toBe(2);
+        expect(
+          (resumed.value as MultiPhaseManifestV4).phases[config.id].verification
+            .status,
+        ).toBe('verified');
+      }
+    });
+
     it('fresh runs start with a new runId and pending phases', async () => {
-      await storage.writeManifest(SLUG_DIR, seedPausedManifest());
+      await storage.writeManifest(SLUG_DIR, await seedPausedManifest());
       scenarios = FILES.map((file) => agentWritesFile(file));
 
       const result = await service.analyzeWorkspace(WORKSPACE, {
@@ -827,16 +1100,9 @@ describe('MultiPhaseAnalysisService', () => {
       agentWritesFile(FILES[0]),
       agentWritesFile(FILES[1]),
       streamOf(
-        [
-          assistant('One sentence captured text.'),
-          maxTurnsResult(),
-        ],
+        [assistant('One sentence captured text.'), maxTurnsResult()],
         () =>
-          storage.writePhaseFile(
-            SLUG_DIR,
-            FILES[2],
-            substantialAuditContent,
-          ),
+          storage.writePhaseFile(SLUG_DIR, FILES[2], substantialAuditContent),
       ),
       agentWritesFile(FILES[3]),
     ];
@@ -865,24 +1131,15 @@ describe('MultiPhaseAnalysisService', () => {
     const insubstantialContent = '# Phase 3: Quality Audit\nSkeleton only.';
     const diagnosticText = 'Short diagnostic text from assistant turns.';
 
-    expect(
-      Buffer.byteLength(insubstantialContent, 'utf8'),
-    ).toBeLessThan(SUBSTANTIAL_PHASE_FILE_MIN_BYTES);
+    expect(Buffer.byteLength(insubstantialContent, 'utf8')).toBeLessThan(
+      SUBSTANTIAL_PHASE_FILE_MIN_BYTES,
+    );
 
     scenarios = [
       agentWritesFile(FILES[0]),
       agentWritesFile(FILES[1]),
-      streamOf(
-        [
-          assistant(diagnosticText),
-          maxTurnsResult(),
-        ],
-        () =>
-          storage.writePhaseFile(
-            SLUG_DIR,
-            FILES[2],
-            insubstantialContent,
-          ),
+      streamOf([assistant(diagnosticText), maxTurnsResult()], () =>
+        storage.writePhaseFile(SLUG_DIR, FILES[2], insubstantialContent),
       ),
       agentWritesFile(FILES[3]),
     ];

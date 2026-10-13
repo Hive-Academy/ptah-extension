@@ -9,7 +9,7 @@
  * - Uses SdkStreamProcessor for UI-only stream events (throttled to 100 ms)
  * - Captures phase text from COMPLETE SDK assistant/result messages, never
  *   from the throttled UI emitter
- * - Checkpoints a version-3 manifest through AnalysisRunCheckpoint on every
+ * - Checkpoints a version-4 manifest through AnalysisRunCheckpoint on every
  *   lifecycle transition, so a run survives a host restart and can resume
  * - Broadcasts progress via WebviewManager for real-time frontend updates
  * - Each phase is independent: a failed phase is recorded as `failed` with a
@@ -19,7 +19,12 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { relative } from 'path';
+import { createHash } from 'crypto';
+import { join, relative } from 'path';
+import {
+  PLATFORM_TOKENS,
+  type IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import {
   Logger,
   TOKENS,
@@ -39,7 +44,11 @@ import type {
   ToolResultEvent,
   MessageCompleteEvent,
 } from '@ptah-extension/shared';
-import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  SdkStreamProcessor,
+  isSystemInit,
+} from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
   IWorkspaceLlmResolver,
@@ -108,6 +117,7 @@ export interface PhaseExecutionOutcome {
   timedOut: boolean;
   /** Complete assistant text captured from SDK messages, or null. */
   assistantText: string | null;
+  sessionId: string | null;
   /** Non-empty when the phase cannot be `completed`. */
   error?: string;
 }
@@ -118,6 +128,15 @@ interface PhaseTextCapture {
   resultText: string | null;
   resultReceived: boolean;
   resultError?: string;
+  sessionId: string | null;
+}
+
+export class PhaseSessionIdentityError extends Error {
+  override name = 'PhaseSessionIdentityError';
+}
+
+export class PhaseSessionMissingError extends Error {
+  override name = 'PhaseSessionMissingError';
 }
 
 /**
@@ -143,15 +162,16 @@ export class MultiPhaseAnalysisService {
     private readonly storageService: AnalysisStorageService,
     @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER)
     private readonly workspaceLlm: IWorkspaceLlmResolver,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fs: IFileSystemProvider,
   ) {}
 
   /**
    * Execute the full multi-phase analysis pipeline.
    *
-   * With `options.resume === true` the existing version-3 manifest for the
-   * workspace slug is continued: completed phases are skipped, a stale
-   * `running` phase restarts, and nothing under the slug is deleted. Without
-   * a resumable manifest the call falls back to a fresh run.
+   * With `options.resume === true` a valid version-4 manifest is continued:
+   * completed phases are skipped only after their inputs and output bytes
+   * verify. A legacy v3 directory is archived before a fresh v4 run starts.
    *
    * @param workspacePath - Workspace root path to analyze
    * @param options - Pipeline configuration
@@ -198,6 +218,7 @@ export class MultiPhaseAnalysisService {
       const folderName = workspacePath.split(/[\\/]/).pop() || 'project';
       const checkpoint = await AnalysisRunCheckpoint.open(
         this.storageService,
+        this.fs,
         workspacePath,
         folderName,
         model,
@@ -216,8 +237,36 @@ export class MultiPhaseAnalysisService {
       for (let i = 0; i < LLM_PHASE_COUNT; i++) {
         const phaseConfig = PHASE_CONFIGS[i];
         const phaseId = phaseConfig.id as MultiPhaseId;
+        let pluginSkillsContext: string | undefined;
+        if (pluginPaths?.length) {
+          const skills = discoverPluginSkills(pluginPaths);
+          if (skills.length)
+            pluginSkillsContext = formatSkillsForPrompt(skills);
+        }
+        const prompts = PROMPT_BUILDERS[i](
+          relative(workspacePath, slugDir).replace(/\\/g, '/'),
+          pluginSkillsContext,
+        );
+        const promptSha256 = createHash('sha256')
+          .update(JSON.stringify([prompts.systemPrompt, prompts.userPrompt]))
+          .digest('hex');
+        let priorPhaseSha256: string | null = null;
+        if (i > 0) {
+          try {
+            priorPhaseSha256 = createHash('sha256')
+              .update(
+                await this.fs.readFileBytes(
+                  join(slugDir, PHASE_CONFIGS[i - 1].file),
+                ),
+              )
+              .digest('hex');
+          } catch {
+            // A missing prior output changes this phase's input on resume.
+          }
+        }
+        const input = checkpoint.input(promptSha256, priorPhaseSha256);
 
-        if (checkpoint.isCompleted(phaseId)) {
+        if (await checkpoint.isCompleted(phaseId, input)) {
           this.logger.info(
             `${SERVICE_TAG} Phase ${phaseId} already completed, skipping`,
           );
@@ -229,7 +278,7 @@ export class MultiPhaseAnalysisService {
           break;
         }
 
-        await checkpoint.markRunning(phaseId);
+        await checkpoint.markRunning(phaseId, input);
         this.broadcastPhaseProgress(
           phaseId as AnalysisPhase,
           i,
@@ -289,7 +338,7 @@ export class MultiPhaseAnalysisService {
             mcpServerRunning,
             mcpPort,
             masterAbortController,
-            pluginPaths,
+            prompts,
           );
         } catch (error: unknown) {
           if (masterAbortController.signal.aborted) {
@@ -307,6 +356,7 @@ export class MultiPhaseAnalysisService {
             resultReceived: false,
             timedOut: false,
             assistantText: null,
+            sessionId: null,
             error: error instanceof Error ? error.message : String(error),
           };
         }
@@ -476,6 +526,7 @@ export class MultiPhaseAnalysisService {
             phaseId,
             durationMs,
             'Agent did not write the phase file and no text was captured',
+            outcome.sessionId,
           );
           return;
         }
@@ -488,7 +539,12 @@ export class MultiPhaseAnalysisService {
           outcome.assistantText,
         );
       }
-      await checkpoint.markCompleted(phaseId, durationMs);
+      await checkpoint.markCompleted(
+        phaseId,
+        durationMs,
+        outcome.sessionId!,
+        await this.hashPhaseOutput(checkpoint.slugDir, filename),
+      );
       return;
     }
 
@@ -504,6 +560,7 @@ export class MultiPhaseAnalysisService {
     // its capped file is a partial document rather than an incomplete one.
     if (
       isMaxTurns &&
+      outcome.sessionId !== null &&
       phaseId === 'quality-audit' &&
       fileWrittenThisRun &&
       hasSubstantialFile
@@ -512,7 +569,12 @@ export class MultiPhaseAnalysisService {
         `${SERVICE_TAG} Phase ${phaseId} hit max turns cap but produced a substantial file (${currentFileBytes} bytes); recording as completed with partial document`,
         { phaseId, durationMs, bytes: currentFileBytes },
       );
-      await checkpoint.markCompleted(phaseId, durationMs);
+      await checkpoint.markCompleted(
+        phaseId,
+        durationMs,
+        outcome.sessionId,
+        await this.hashPhaseOutput(checkpoint.slugDir, filename),
+      );
       return;
     }
 
@@ -545,7 +607,16 @@ export class MultiPhaseAnalysisService {
       `${SERVICE_TAG} Phase ${phaseId} failed after ${durationMs}ms: ${error}`,
       { phaseId, durationMs, timedOut: outcome.timedOut },
     );
-    await checkpoint.markFailed(phaseId, durationMs, error);
+    await checkpoint.markFailed(phaseId, durationMs, error, outcome.sessionId);
+  }
+
+  private async hashPhaseOutput(
+    slugDir: string,
+    filename: string,
+  ): Promise<string> {
+    return createHash('sha256')
+      .update(await this.fs.readFileBytes(join(slugDir, filename)))
+      .digest('hex');
   }
 
   private async restorePriorPhaseFileIfMissing(
@@ -585,17 +656,9 @@ export class MultiPhaseAnalysisService {
     mcpServerRunning: boolean,
     mcpPort: number | undefined,
     masterAbortController: AbortController,
-    pluginPaths?: string[],
+    prompts: { systemPrompt: string; userPrompt: string },
   ): Promise<PhaseExecutionOutcome> {
     const phaseConfig = PHASE_CONFIGS[phaseIndex];
-    const promptBuilder = PROMPT_BUILDERS[phaseIndex];
-    let pluginSkillsContext: string | undefined;
-    if (pluginPaths && pluginPaths.length > 0) {
-      const skills = discoverPluginSkills(pluginPaths);
-      if (skills.length > 0) {
-        pluginSkillsContext = formatSkillsForPrompt(skills);
-      }
-    }
 
     // The prompts hand this path to the agent, and the agent reads earlier
     // phases through `ptah.files.read`, which REJECTS absolute paths outright
@@ -603,10 +666,7 @@ export class MultiPhaseAnalysisService {
     // An absolute slugDir made every phase after the first fail to read its
     // predecessor's output. The agent's cwd is the workspace root, so the
     // relative form is also correct for the Write tool.
-    const { systemPrompt, userPrompt } = promptBuilder(
-      relative(cwd, slugDir).replace(/\\/g, '/'),
-      pluginSkillsContext,
-    );
+    const { systemPrompt, userPrompt } = prompts;
 
     const maxTurns =
       (PHASE_MAX_AGENT_TURNS as Record<string, number>)[phaseConfig.id] ??
@@ -624,7 +684,6 @@ export class MultiPhaseAnalysisService {
         systemPromptLength: systemPrompt.length,
         userPromptLength: userPrompt.length,
         slugDir,
-        pluginPathCount: pluginPaths?.length ?? 0,
       },
     );
     const phaseAbortController = new AbortController();
@@ -642,6 +701,7 @@ export class MultiPhaseAnalysisService {
       assistantTexts: [],
       resultText: null,
       resultReceived: false,
+      sessionId: null,
     };
 
     try {
@@ -668,6 +728,11 @@ export class MultiPhaseAnalysisService {
           phaseConfig.id as MultiPhaseId,
           capture,
         );
+        if (capture.sessionId === null) {
+          throw new PhaseSessionMissingError(
+            'SDK stream did not provide a session_id',
+          );
+        }
       } finally {
         handle.close();
       }
@@ -677,7 +742,12 @@ export class MultiPhaseAnalysisService {
       }
       if (!phaseAbortController.signal.aborted) {
         capture.resultError =
-          error instanceof Error ? error.message : String(error);
+          error instanceof PhaseSessionIdentityError ||
+          error instanceof PhaseSessionMissingError
+            ? `${error.name}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error);
       }
     } finally {
       masterAbortController.signal.removeEventListener('abort', onMasterAbort);
@@ -705,6 +775,7 @@ export class MultiPhaseAnalysisService {
       resultReceived: capture.resultReceived && !timedOut,
       timedOut,
       assistantText,
+      sessionId: capture.sessionId,
       ...(error ? { error } : {}),
     };
   }
@@ -817,6 +888,23 @@ export class MultiPhaseAnalysisService {
     capture: PhaseTextCapture,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
+      const sessionId =
+        'session_id' in message && typeof message.session_id === 'string'
+          ? message.session_id.trim()
+          : '';
+      if (sessionId) {
+        if (isSystemInit(message)) {
+          if (capture.sessionId && capture.sessionId !== sessionId) {
+            capture.sessionId = null;
+            throw new PhaseSessionIdentityError(
+              'SDK system/init session_id disagrees with an earlier message',
+            );
+          }
+          capture.sessionId = sessionId;
+        } else if (capture.sessionId === null) {
+          capture.sessionId = sessionId;
+        }
+      }
       if (message.type === 'assistant') {
         const text = extractAssistantText(message);
         if (text) capture.assistantTexts.push(text);
