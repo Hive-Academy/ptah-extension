@@ -568,7 +568,7 @@ describe('skill.trigger-eval.human', () => {
 
   const writeLabels = (panel?: string): void =>
     writeJsonl(
-      join(home, 'memory-skills', 'skill-triggers.v1.jsonl'),
+      join(home, 'memory-skills', 'skill-triggers.v2.jsonl'),
       LABELS.map((label) => committedTrigger(label, panel)),
     );
 
@@ -581,7 +581,7 @@ describe('skill.trigger-eval.human', () => {
     });
     expect(result.verdict).toBe('na');
     expect(result.naReason).toMatch(
-      /^ground-truth-absent: gt-skill-triggers@v1/,
+      /^ground-truth-absent: gt-skill-triggers@v2/,
     );
     expect(cases).toEqual([]);
     expect(result.modelCalls).toBe(0);
@@ -590,7 +590,7 @@ describe('skill.trigger-eval.human', () => {
       'precision.num': 0,
       'precision.den': 0,
       skills: 0,
-      expectedSkills: 23,
+      expectedSkills: 22,
     });
     expectExactRates(result.metrics);
     expect(funnelDetailsSchema.parse(result.details).precision).toBeNull();
@@ -655,7 +655,7 @@ describe('skill.trigger-eval.human', () => {
     expect(TRIGGER_EVAL_DISPLAY_LABEL).toBe('skill.trigger-eval.panel');
     expect(result.groundTruth).toEqual({
       id: 'gt-skill-triggers',
-      version: 'v1',
+      version: 'v2',
       method: 'labelled',
       raterCount: 2,
     });
@@ -682,7 +682,7 @@ describe('skill.trigger-eval.human', () => {
     expect(result.displayLabel).toBe('skill.trigger-eval.panel');
     expect(result.groundTruth).toEqual({
       id: 'gt-skill-triggers',
-      version: 'v1',
+      version: 'v2',
       method: 'model-panel',
       panel,
       raterCount: 2,
@@ -701,7 +701,7 @@ describe('skill.trigger-eval.human', () => {
     });
     expect(result.groundTruth).toEqual({
       id: 'gt-skill-triggers',
-      version: 'v1',
+      version: 'v2',
       method: 'labelled',
       raterCount: 2,
     });
@@ -710,7 +710,7 @@ describe('skill.trigger-eval.human', () => {
 
   it('refuses a label file that mixes panelled and unpanelled rows', async () => {
     const panel = verifiedTriggerPanel();
-    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v1.jsonl'), [
+    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v2.jsonl'), [
       committedTrigger(LABELS[0], panel),
       committedTrigger(LABELS[1], undefined),
     ]);
@@ -734,7 +734,7 @@ describe('skill.trigger-eval.human', () => {
       adjudicator: triggerLane('GLM', 'r-glm', 'ollama-cloud', 'glm-4.5'),
     });
     if (!googleFirst.ok) throw new Error(googleFirst.reason);
-    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v1.jsonl'), [
+    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v2.jsonl'), [
       committedTrigger(LABELS[0], xaiFirst),
       committedTrigger(LABELS[1], googleFirst.panel),
     ]);
@@ -818,7 +818,7 @@ describe('skill.trigger-eval.human', () => {
     });
     expect(result.verdict).toBe('na');
     expect(result.naReason).toBe(
-      'ground-truth-incomplete: 3 of 23 skills labelled',
+      'ground-truth-incomplete: 3 of 22 skills labelled',
     );
     expect(result.metrics['precision']).toBe(4 / 5);
   });
@@ -842,7 +842,7 @@ describe('skill.trigger-eval.human', () => {
   });
 
   it('refuses a label file that labels one skill twice', async () => {
-    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v1.jsonl'), [
+    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v2.jsonl'), [
       LABELS[0],
       LABELS[0],
     ]);

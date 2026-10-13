@@ -1,7 +1,7 @@
 /**
  * `skill.trigger-eval.human` (benchmark-design.md:100, :291): model-panel
  * should-trigger and near-miss prompts for the authored skills (5 + 5 each,
- * `gt-skill-triggers@v1`, user activity U4), scored by the product's
+ * `gt-skill-triggers@v2`, user activity U4), scored by the product's
  * `TriggerEvalService` itself.
  *
  * Ground truth is a cross-family model panel (raters xAI and Google,
@@ -86,11 +86,11 @@ export const TRIGGER_EVAL_PANEL_RATER_COUNT = 2;
  */
 export const TRIGGER_EVAL_HUMAN_SUITE_ID = 'skill.trigger-eval.human';
 
-/** Home-relative target the plan seeds `gt-skill-triggers@v1` into. */
-export const TRIGGER_LABELS_TARGET = 'memory-skills/skill-triggers.v1.jsonl';
+/** Home-relative target the plan seeds `gt-skill-triggers@v2` into. */
+export const TRIGGER_LABELS_TARGET = 'memory-skills/skill-triggers.v2.jsonl';
 
 /** The authored skills design :291 labels (batches.md:99). */
-export const EXPECTED_LABELLED_SKILLS = 23;
+export const EXPECTED_LABELLED_SKILLS = 22;
 
 export const SELF_GENERATED_BASELINE_ID = 'self-generated';
 
@@ -101,7 +101,7 @@ const skillIdSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, 'skill id: a lower-case slug');
 const promptsSchema = z.array(z.string().trim().min(1)).min(1);
 
-/** One line of `gt-skill-triggers@v1`: a skill's description and its labelled prompts. */
+/** One line of `gt-skill-triggers@v2`: a skill's description and its labelled prompts. */
 export const triggerLabelSchema = z.strictObject({
   skillId: skillIdSchema,
   /** The skill's description at the pinned commit: the only text retrieval sees. */
@@ -134,7 +134,7 @@ export const triggerHumanOptionsSchema = z
       .int()
       .positive()
       .default(EXPECTED_LABELLED_SKILLS),
-    groundTruthVersion: z.string().min(1).default('v1'),
+    groundTruthVersion: z.string().min(1).default('v2'),
     /** Per-case safety cap override (specs); default `case-runner.ts`. */
     capMs: z.number().int().positive().optional(),
   })
