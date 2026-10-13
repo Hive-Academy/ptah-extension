@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 6/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 7/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -368,7 +368,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   detail-service 8/8, lane-tabs 5/5, queue 9/9, orchestra 34/34, canvas project 26 suites / 344 tests, typecheck
   pass, lint 0 errors (14 pre-existing warnings).
 
-## Batch R4b: Transcript surface gating, freeze and click helpers (canvas) — COMPLETE
+## Batch R4b: Transcript surface gating, freeze and click helpers (canvas) — COMPLETE (commit 5267965b6)
 
 - Goal: the transcript follows the parent `SURFACE_ACTIVE` (D7); `freezeSessionOverrides` and `isIgnoredCardClick` /
   `isInteractiveTarget` extracted verbatim from the tile (D8) (plan Component 5, `:305-342`).
@@ -411,7 +411,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   additions only (3 new cases). Re-run checks: transcript 5/5, tile 51/51, canvas project 26 suites / 347
   tests, typecheck pass, lint 0 errors (13 warnings).
 
-## Batch R5: Rail column, rail card wrapper, focus header, rail keyboard (canvas) — PENDING
+## Batch R5: Rail column, rail card wrapper, focus header, rail keyboard (canvas) — COMPLETE (commit: the `batch R5` commit; SHA recorded at R6 acceptance)
 
 - Goal: the rail of cards, the per-card canvas wrapper (actions through `detail.open`, stale announcement, `lanesRequested`),
   the dumb focus header with the overflow menu (Send to messaging), and the pure rail keyboard (plan Components 9,
@@ -451,7 +451,19 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader: only the 8 listed files created under
+  `canvas-rail/`, no other source change, `canvas/src/index.ts` unchanged; no TODO/stub markers. A2 proved by
+  rail-card spec case (4): the child injects `SESSION_CARD_ACTIONS` exactly as the real smart card does
+  (`compact-session-card.component.ts:166`) and receives the wrapper instance; the lane click reaches
+  `detail.open('a', 'orchestrator')`; fallback not needed. D11: tile-bound text and `RUNNING_CAP_MESSAGE`
+  asserted in the rail spec, button stays focusable with `aria-disabled`. D18: menu Esc consumed
+  (`preventDefault` + `stopPropagation`), focus back on the `…` trigger, asserted in the header spec. K10: all 15
+  `--state-ink-*` uses carry a daisy fallback; no bare form. Case (5) judgement: accepted. The wrapper spec
+  stubs the child and proves forwarding of `staleAction`, the live-region announcement and host Enter; the
+  replaced-id refusal is smart-card logic (R2) and is pinned in `compact-session-card.component.spec.ts:273-331`.
+  The end-to-end Answer path through the real card is left to R6/R7 integration and the phase review. Re-run
+  checks: keyboard 6/6, rail 4/4, rail card 4/4, focus header 4/4; canvas project 30 suites / 365 tests;
+  typecheck pass; lint 0 errors (20 warnings, 7 new in R5 specs).
 
 ## Batch R6: Focus area, Rail board, rail geometry, render metrics (canvas) — PENDING
 
