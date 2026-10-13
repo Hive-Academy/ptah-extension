@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 40 | Batches: 15 | Complete: 4/15
+Total tasks: 40 | Batches: 15 | Complete: 5/15
 
 Worktree root (every command runs here):
 `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`
@@ -280,7 +280,7 @@ Edge cases:
     as stale (5 s), turning a successful write into a rejected save.
   - Stale recovery unlinks by path, so two processes recovering the same stale lock can race.
 
-## Batch 5: New Project handoff result and `harness:get-proposal` RPC - IN_PROGRESS
+## Batch 5: New Project handoff result and `harness:get-proposal` RPC - COMPLETE (commit 48fbb5673)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -290,7 +290,7 @@ Edge cases:
 - Tasks: 4 | Depends on: Batches 1, 4
 - Phase: 1 - Proposal backend (last batch of the phase) | Phase review: code-logic, plus style
 
-### Task 5.1: Return the handoff from `harness:start-new-project`; drop only its broadcast - IMPLEMENTED
+### Task 5.1: Return the handoff from `harness:start-new-project`; drop only its broadcast - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-harness.types.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.handlers.ts`
@@ -299,7 +299,7 @@ Edge cases:
 - Quality requirements: `HarnessStartNewProjectResult` (`rpc-harness.types.ts:512-515`) becomes the success/failure union with `seedPrompt`, `intake`, `plugins {enabledBundled, missingExternal, availableSkillIds}` and `toolchain?`. Reuse existing exported types. Intake Zod runs before side effects. Keep plugin enable and reconcile, `focusChat` and wizard-panel disposal before returning. Remove only the `HARNESS_OPEN_WORKFLOW` broadcast at `:872`. Keep the constant, payload, baseline entry and relay. If `harness:apply` params already carry a session id, delete that session's proposal after a successful apply. Otherwise wire nothing (30-day prune covers it) and say so in the report.
 - Validation notes: R9. Plugin write failure stays a failed RPC.
 
-### Task 5.2: Register `harness:get-proposal` - IMPLEMENTED
+### Task 5.2: Register `harness:get-proposal` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc.types.ts` (first owner),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts` (first owner),
@@ -309,12 +309,12 @@ Edge cases:
 - Pattern to follow: `'harness:start-new-project'` at `rpc.types.ts:1794,3979`, `baseline.ts:179`, `HarnessRpcHandlers.METHODS` at `harness-rpc.handlers.ts:171`
 - Quality requirements: `HarnessGetProposalParamsSchema = z.object({sessionId: z.string().trim().min(1).max(256)}).strict()`. Add to the METHODS list, then bind. Resolve the store via `PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE`. Return `{proposal}`, which is null when absent or corrupt. Do NOT add `wizard:analysis-status` (F18, Batch 13). The baseline may be regenerated with `npx tsx scripts/generate-host-source-registry-baseline.ts`. Only the baseline file may change.
 
-### Task 5.3: Handler spec - IMPLEMENTED
+### Task 5.3: Handler spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.handlers.spec.ts`
 - Quality requirements: intake validated before plugin effects. Enabled and missing plugin diagnostics are in the result. Required success fields are present. No `HARNESS_OPEN_WORKFLOW` broadcast. Focus and dispose happen before the response. get-proposal param rejection. get-proposal reads the same root the store wrote.
 
-### Task 5.4: CLI surface confirmation (F19) - IMPLEMENTED
+### Task 5.4: CLI surface confirmation (F19) - COMPLETE
 
 - File: none edited. Decision recorded above: the CLI serves `harness:get-proposal`.
 - Quality requirements: the cli-engine test passes with no cli-engine edit. If it fails, report it and stop. Do not edit `CLI_EXPECTED_ABSENT_METHODS`.
@@ -323,6 +323,30 @@ Edge cases:
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers --parallel=1 && npx nx run-many -t test -p @ptah-extension/cli-engine --parallel=1`
 - After commit: the Phase 1 review is due (Batches 1-5, combined diff).
+- Result (team-leader re-run, `--skip-nx-cache`): "Running targets typecheck, test, lint for
+  2 projects" -> "Successfully ran targets typecheck, test, lint for 2 projects"; cli-engine
+  "Successfully ran target test"; both exit 0. Executor report: `batch-5-report.md`.
+- Recorded outcomes: `harness:apply` params carry no session id, so no proposal cleanup was
+  wired (30-day prune covers stale records). R9 Electron e2e event-injection specs and the
+  629-owned webview routing spec were not retargeted (deferred per plan).
+- Commit note: the subject of 48fbb5673 is 73 characters, one over the repo's 72-character
+  rule (commitlint enforces 100, so the hook passed). Not amended, per the no-amend rule.
+- Interim state (must not ship): the producer broadcast is gone, but the webview still waits
+  for it. `harness-workflow-message.handler.ts` (frontend relay) and
+  `setup-hub.component.ts:1440` ignore the success payload. Until Batch 6 lands, Setup Hub
+  New Project returns success and focuses chat, but no workflow or seed prompt opens. Do not
+  merge or release this branch between Batch 5 and Batch 6.
+
+## Run status (paused after Batch 5 at the user's request)
+
+- Batches 1-5 (Phase 1 - Proposal backend) are COMPLETE and committed.
+- NEXT STEP: the Phase 1 code-logic review plus style review (new platform port, new RPC,
+  shared contracts) on the combined diff `58d543298^..48fbb5673` (the parent of the Batch 1
+  commit to the Batch 5 commit). The review covers the Batch 4 notes above (prune error
+  handling, lock release ENOENT, stale-lock recovery race) and the interim state above.
+- Then re-invoke team-leader in Mode 2 with the review paths and verdicts. On APPROVED,
+  Batch 6 starts. On NEEDS_REVISION, one fix batch is added to Phase 1 first.
+- Batch 6 stays PENDING until the Phase 1 review accepts.
 
 ## Batch 6: Direct New Project handoff in Setup Hub - PENDING
 
