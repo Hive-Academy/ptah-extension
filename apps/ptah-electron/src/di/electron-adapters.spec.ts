@@ -67,6 +67,18 @@ describe('ElectronLoggerAdapter.error context', () => {
     expect(context).toMatch(/…\[truncated \d+ chars\]$/);
   });
 
+  it('bounds the work for a huge nested context', () => {
+    const { logger, lines } = makeLogger();
+    const huge = Array.from({ length: 100_000 }, (_, i) => ({ i, nested: { i } }));
+
+    logger.error('huge nested', { huge });
+
+    const context = lines.find((l) => l.startsWith('  Context: ')) ?? '';
+    expect(context.length).toBeLessThan(8_300);
+    expect(context).toContain('…[99950 more]');
+    expect(context).not.toContain('…[truncated');
+  });
+
   it('writes no context line when there is no context', () => {
     const { logger, lines } = makeLogger();
 

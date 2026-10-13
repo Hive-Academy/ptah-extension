@@ -21,8 +21,8 @@
  *   measured unresponsive duration, and `webContents` `console-message`.
  * - Console forwarding takes `warning` and `error` only, at most
  *   {@link CONSOLE_LINES_PER_WINDOW} lines per {@link CONSOLE_WINDOW_MS}, then one
- *   "suppressed N" line; each message is truncated to
- *   {@link CONSOLE_MAX_BYTES}. The renderer's `WebviewErrorHandler` already
+ *   "suppressed N" line; only the source and the redacted first line of each
+ *   message are kept, truncated to {@link CONSOLE_MAX_BYTES}. The renderer's `WebviewErrorHandler` already
  *   logs to its console, so this is the whole bridge — no new IPC channel, and
  *   `contextIsolation` / `sandbox` are untouched.
  *
@@ -60,8 +60,13 @@ export const CONSOLE_LINES_PER_WINDOW = 20;
 /** Length of one console rate window. */
 export const CONSOLE_WINDOW_MS = 10_000;
 
-/** Per-message truncation bound for forwarded console text. */
-export const CONSOLE_MAX_BYTES = 2_048;
+/**
+ * Byte bound for the one forwarded console line. Only the console source and
+ * a short, redacted first line reach the persistent log: renderer text is
+ * untrusted, and stack traces or payloads below the first line are where
+ * request bodies and credentials appear.
+ */
+export const CONSOLE_MAX_BYTES = 256;
 
 /**
  * Credential shapes stripped from forwarded console text before it reaches the
@@ -73,9 +78,27 @@ const CONSOLE_REDACTIONS: ReadonlyArray<[RegExp, string]> = [
     /([?&#](?:code|state|token|access_token|refresh_token|id_token|client_secret|api_key|apikey|key)=)[^&#\s"'<>]+/gi,
     '$1[REDACTED]',
   ],
-  [/\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]'],
+  [/\b((?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]'],
+  [
+    /\b((?:x-api-key|api-key|authorization|cookie)\s*[:=]\s*)[^\r\n;"']+/gi,
+    '$1[REDACTED]',
+  ],
+  [
+    /("(?:[A-Za-z_]*(?:token|secret|password|apiKey|api_key))"\s*:\s*")[^"]*/gi,
+    '$1[REDACTED]',
+  ],
   [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, '[REDACTED]'],
 ];
+
+/** The first non-empty line of console text, trimmed. */
+function firstLine(text: string): string {
+  return (
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ''
+  );
+}
 
 /** Strip credential-shaped substrings from renderer console text. */
 export function redactConsoleText(text: string): string {
@@ -219,7 +242,7 @@ export class ProcessLifecycleRecorder {
       {
         windowId,
         message: truncateUtf8(
-          redactConsoleText(details.message),
+          redactConsoleText(firstLine(details.message)),
           CONSOLE_MAX_BYTES,
         ),
         source: `${redactConsoleText(details.sourceId)}:${details.lineNumber}`,

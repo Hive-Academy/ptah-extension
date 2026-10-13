@@ -118,6 +118,36 @@ export interface ConnectOptions {
   clientSecret?: string;
 }
 
+/**
+ * Process-wide, per-server lock for token-store commits. The MCP directory
+ * handler and the chat-start resolver each build their own `McpOAuthService`
+ * over the same secret slots, so an instance field could not order a
+ * disconnect in one against a refresh commit in the other.
+ */
+const serverCommitLocks = new Map<string, Promise<void>>();
+
+async function withServerCommitLock<T>(
+  serverKey: string,
+  commit: () => Promise<T>,
+): Promise<T> {
+  const previous = serverCommitLocks.get(serverKey) ?? Promise.resolve();
+  let release: () => void = () => undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  serverCommitLocks.set(serverKey, tail);
+  await previous;
+  try {
+    return await commit();
+  } finally {
+    release();
+    if (serverCommitLocks.get(serverKey) === tail) {
+      serverCommitLocks.delete(serverKey);
+    }
+  }
+}
+
 /** Build a stable, filesystem/config-safe key from a server URL. */
 export function deriveMcpOAuthServerKey(serverUrl: string): string {
   const u = new URL(serverUrl);
@@ -334,8 +364,10 @@ export class McpOAuthService {
         }),
       );
 
-      await this.tokenStore.setToken(serverKey, token);
-      this.manifest.record({ serverKey, name, serverUrl });
+      await withServerCommitLock(serverKey, async () => {
+        await this.tokenStore.setToken(serverKey, token);
+        this.manifest.record({ serverKey, name, serverUrl });
+      });
       this.logger?.debug('MCP OAuth: connected', { serverKey });
       return { serverKey };
     } finally {
@@ -384,8 +416,10 @@ export class McpOAuthService {
 
   /** Delete the tokens and manifest record for a server. */
   async disconnect(serverKey: string): Promise<void> {
-    this.manifest.remove(serverKey);
-    await this.tokenStore.deleteToken(serverKey);
+    await withServerCommitLock(serverKey, async () => {
+      this.manifest.remove(serverKey);
+      await this.tokenStore.deleteToken(serverKey);
+    });
   }
 
   /**
@@ -471,14 +505,17 @@ export class McpOAuthService {
     };
     // The connection may have changed while the token endpoint answered. A
     // disconnect must not be undone, and a reconnect's newer token must not be
-    // overwritten by this refresh of the old one.
-    if (!this.manifest.has(serverKey)) return null;
-    const current = await this.tokenStore.getToken(serverKey);
-    if (!current || current.refreshToken !== token.refreshToken) {
-      return current;
-    }
-    await this.tokenStore.setToken(serverKey, updated);
-    return updated;
+    // overwritten by this refresh of the old one. The check and the write run
+    // under the same lock as connect/disconnect, so nothing interleaves.
+    return withServerCommitLock(serverKey, async () => {
+      if (!this.manifest.has(serverKey)) return null;
+      const current = await this.tokenStore.getToken(serverKey);
+      if (!current || current.refreshToken !== token.refreshToken) {
+        return current;
+      }
+      await this.tokenStore.setToken(serverKey, updated);
+      return updated;
+    });
   }
 
   private buildAuthorizeUrl(

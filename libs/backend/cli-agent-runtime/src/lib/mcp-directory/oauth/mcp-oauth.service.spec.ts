@@ -268,6 +268,41 @@ describe('McpOAuthService', () => {
       expect(await r.service.status(r.serverKey)).toBe('disconnected');
     });
 
+    it('orders a disconnect after a refresh commit that is already writing', async () => {
+      let t = 1_000_000;
+      const h = makeService({ now: () => t });
+      cleanup.push(h.manifestPath);
+      const { serverKey } = await h.service.connect({
+        serverUrl: 'https://mcp.example.com/mcp',
+      });
+
+      // Block the refresh inside its token-store write.
+      const realSet = h.tokenStore.setToken.bind(h.tokenStore);
+      let writing = false;
+      let releaseWrite: () => void = () => undefined;
+      h.tokenStore.setToken = async (key, token) => {
+        writing = true;
+        await new Promise<void>((resolve) => {
+          releaseWrite = resolve;
+        });
+        return realSet(key, token);
+      };
+
+      t = 1_000_000 + 3600 * 1000 + 1;
+      const refreshing = h.service.getFreshAccessToken(serverKey);
+      while (!writing) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      const disconnecting = h.service.disconnect(serverKey);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releaseWrite();
+      await Promise.all([refreshing, disconnecting]);
+
+      // The disconnect ran after the commit, so it wins.
+      expect(await h.tokenStore.getToken(serverKey)).toBeNull();
+      expect(await h.service.status(serverKey)).toBe('disconnected');
+    });
+
     it('does not overwrite the token of a newer connection', async () => {
       const r = await startDeferredRefresh();
       const stored = await r.tokenStore.getToken(r.serverKey);

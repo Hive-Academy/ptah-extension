@@ -105,6 +105,37 @@ const CONTEXT_LINE_KEYS = new Set(['service', 'operation', 'error']);
 /** Upper bound for one serialized `Context:` line in the log file. */
 const MAX_CONTEXT_CHARS = 8_192;
 
+/** Values serialized per `Context:` line; deeper or later values are dropped. */
+const MAX_CONTEXT_NODES = 500;
+
+/** Items kept from one array value in a `Context:` line. */
+const MAX_CONTEXT_ARRAY_ITEMS = 50;
+
+/**
+ * Serialize log context with bounded work: strings are cut to the line budget
+ * and nothing past {@link MAX_CONTEXT_NODES} values is descended into, so a
+ * huge or deeply nested object cannot stall the main process.
+ */
+function serializeContext(details: Record<string, unknown>): string {
+  let nodes = 0;
+  return JSON.stringify(details, (_key, value: unknown) => {
+    nodes += 1;
+    if (nodes > MAX_CONTEXT_NODES) return undefined;
+    if (typeof value === 'string' && value.length > MAX_CONTEXT_CHARS) {
+      return `${value.slice(0, MAX_CONTEXT_CHARS)}…`;
+    }
+    // A value dropped inside an array serializes as `null`, so a long array
+    // is cut here rather than left to the node budget.
+    if (Array.isArray(value) && value.length > MAX_CONTEXT_ARRAY_ITEMS) {
+      return [
+        ...value.slice(0, MAX_CONTEXT_ARRAY_ITEMS),
+        `…[${value.length - MAX_CONTEXT_ARRAY_ITEMS} more]`,
+      ];
+    }
+    return value;
+  });
+}
+
 export class ElectronLoggerAdapter {
   private static readonly CHANNEL_NAME = 'Ptah';
 
@@ -245,7 +276,7 @@ export class ElectronLoggerAdapter {
     if (Object.keys(details).length > 0) {
       let serialized: string;
       try {
-        serialized = JSON.stringify(details);
+        serialized = serializeContext(details);
       } catch {
         // degradation-audit: optional-capability - an unserializable context
         // keeps the log line itself; only the detail payload is replaced.

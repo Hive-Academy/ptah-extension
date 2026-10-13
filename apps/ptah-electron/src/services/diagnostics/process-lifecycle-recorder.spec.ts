@@ -234,7 +234,26 @@ describe('ProcessLifecycleRecorder', () => {
     expect(logger.error).toHaveBeenCalledTimes(CONSOLE_LINES_PER_WINDOW + 1);
   });
 
-  it('truncates a forwarded console message to 2 KB', () => {
+  it('forwards only the source and the redacted first line of a message', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit(
+      'console-message',
+      consoleMessage(
+        'error',
+        '\n  OAuth callback failed for ?code=abc123\n    at body {"apiKey":"k-1"}\n',
+      ),
+    );
+
+    expect(logger.error.mock.calls[0][1]).toEqual({
+      windowId: 1,
+      message: 'OAuth callback failed for ?code=[REDACTED]',
+      source: 'app://main.js:7',
+    });
+  });
+
+  it('truncates a forwarded console line to the byte bound', () => {
     const window = new FakeWindow(1);
     app.emit('browser-window-created', {}, window);
 
@@ -423,7 +442,16 @@ describe('redactConsoleText', () => {
       'GET https://api.example.com/v1?api_key=SECRETVALUE failed',
       'GET https://api.example.com/v1?api_key=[REDACTED] failed',
     ],
-    ['Authorization: Bearer eyJhbGciOi.payload.sig', 'Authorization: Bearer [REDACTED]'],
+    ['auth with Bearer eyJhbGciOi.payload.sig', 'auth with Bearer [REDACTED]'],
+    ['auth with Basic dXNlcjpwYXNz', 'auth with Basic [REDACTED]'],
+    ['header X-API-Key: abc123def', 'header X-API-Key: [REDACTED]'],
+    ['header Authorization: Token abc', 'header Authorization: [REDACTED]'],
+    [
+      'header Authorization: Bearer eyJ.p.s',
+      'header Authorization: [REDACTED]',
+    ],
+    ['body {"apiKey":"k-1","name":"x"}', 'body {"apiKey":"[REDACTED]","name":"x"}'],
+    ['body {"access_token":"t-1"}', 'body {"access_token":"[REDACTED]"}'],
     ['bad key sk-ant-api03-ABCDEFGHIJKLMNOPQRST', 'bad key [REDACTED]'],
   ])('redacts %s', (input, expected) => {
     expect(redactConsoleText(input)).toBe(expected);
