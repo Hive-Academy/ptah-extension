@@ -39,6 +39,66 @@ export interface WizardDeepAnalyzeParams {
 export type MultiPhaseAnalysisPhaseStatus =
   'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
+/** Digest of the bounded workspace metadata used to qualify analysis freshness. */
+export interface WorkspaceFingerprint {
+  algorithm: 'sha256-v1';
+  digest: string;
+  capturedAt: string;
+}
+
+export interface AnalysisStatus {
+  state: 'fresh' | 'stale' | 'missing';
+  reason:
+    | 'ok'
+    | 'no-analysis'
+    | 'legacy-v3'
+    | 'incomplete'
+    | 'expired'
+    | 'workspace-changed'
+    | 'output-mismatch'
+    | 'unreadable';
+  analysisDir: string | null;
+  checkedAt: string;
+  analyzedAt: string | null;
+}
+
+export type WizardAnalysisStatusParams = Record<string, never>;
+export type WizardAnalysisStatusResponse = AnalysisStatus;
+
+export interface PhaseResultV4 {
+  status: MultiPhaseAnalysisPhaseStatus;
+  file: string;
+  durationMs: number;
+  attempt: number;
+  /** Real SDK session ID for this attempt; null until an SDK message supplies it. */
+  sessionId: string | null;
+  input: {
+    workspaceSha256: string;
+    promptSha256: string;
+    priorPhaseSha256: string | null;
+    model: string;
+  } | null;
+  verification: {
+    status: 'pending' | 'verified' | 'failed';
+    outputSha256: string | null;
+    checkedAt: string | null;
+  };
+  error?: string;
+}
+
+export interface MultiPhaseManifestV4 {
+  version: 4;
+  runId: string;
+  slug: string;
+  analyzedAt: string;
+  updatedAt: string;
+  lifecycle: 'running' | 'paused' | 'completed' | 'failed';
+  model: string;
+  totalDurationMs: number;
+  workspaceFingerprint: WorkspaceFingerprint;
+  phases: Record<string, PhaseResultV4>;
+}
+
 /**
  * Multi-phase analysis response from wizard:deep-analyze RPC method.
  *
@@ -67,7 +127,7 @@ export interface MultiPhaseAnalysisResponse {
         error?: string;
       }
     >;
-  };
+  } | MultiPhaseManifestV4;
   /** Phase file contents (markdown) keyed by phase ID */
   phaseContents: Record<string, string>;
   /** Analysis directory path for downstream consumers (generation, enhanced prompts) */

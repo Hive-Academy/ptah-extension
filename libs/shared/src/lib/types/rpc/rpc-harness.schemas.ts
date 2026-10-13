@@ -8,7 +8,12 @@
 
 import { z } from 'zod';
 
-import type { HarnessSkillRef, NewSkillDefinition } from './rpc-harness.types';
+import type { HarnessProposal } from './rpc-harness-proposal.types';
+import type {
+  HarnessConfig,
+  HarnessSkillRef,
+  NewSkillDefinition,
+} from './rpc-harness.types';
 
 /**
  * Boundary shape for a skill ref as the designing agent writes it: `source` may
@@ -452,3 +457,17 @@ export const HarnessConfigUpdatesSchema = z
   })
   .partial()
   .strict();
+
+/** Validates a proposal loaded from workspace storage. */
+export const HarnessProposalSchema: z.ZodType<HarnessProposal> = z.strictObject({
+  version: z.literal(1),
+  workspaceRoot: z.string().min(1),
+  sessionId: z.string().trim().min(1).max(256),
+  // Updates can contain partial nested sections; validate with the existing
+  // update schema while preserving the public Partial<HarnessConfig> contract.
+  configUpdates: z.custom<Partial<HarnessConfig>>(
+    (value) => HarnessConfigUpdatesSchema.safeParse(value).success,
+  ),
+  isConfigComplete: z.boolean(),
+  updatedAt: z.iso.datetime(),
+});
