@@ -10,7 +10,7 @@ import {
   CheckCircle2,
   Loader2,
 } from 'lucide-angular';
-import type { TodoItem, TodoWriteToolInput } from '@ptah-extension/shared';
+import type { TodoWriteToolInput } from '@ptah-extension/shared';
 
 /**
  * TodoListDisplayComponent - Specialized display for TodoWrite tool
@@ -20,34 +20,19 @@ import type { TodoItem, TodoWriteToolInput } from '@ptah-extension/shared';
  *
  * Features:
  * - Display all todo items with status icons (pending=circle, in_progress=spinner, completed=checkmark)
- * - Show progress bar with completion percentage
- * - Active task (in_progress) shows activeForm text with pulse animation
- * - Completed tasks show faded text
+ * - No progress bar: the tool-call header already reads "3 of 5 done"
+ * - Active task (in_progress) shows its activeForm text in bold
+ * - Completed tasks show muted text
+ * - Each icon's state is named in text (`sr-only`); the spinner stops under
+ *   reduced motion
  * - Pending tasks show circle icon with low opacity
  */
-/** @deprecated Use TodoWriteToolInput from @ptah-extension/shared */
-export type TodoWriteInput = TodoWriteToolInput;
-export type { TodoItem };
-
 @Component({
   selector: 'ptah-todo-list-display',
   standalone: true,
   imports: [LucideAngularModule],
   template: `
-    <div class="space-y-2">
-      <!-- Progress bar -->
-      <div class="flex items-center gap-2 text-[10px]">
-        <div class="flex-1 h-1.5 bg-base-300 rounded-full overflow-hidden">
-          <div
-            class="h-full bg-success transition-all duration-300 [width:var(--progress-width)]"
-            [style]="'--progress-width:' + progressPercentage() + '%'"
-          ></div>
-        </div>
-        <span class="text-base-content-muted font-mono">
-          {{ completedCount() }}/{{ totalCount() }}
-        </span>
-      </div>
-
+    <div>
       <!-- Todo items -->
       <div class="space-y-1">
         @for (item of todos(); track item.content) {
@@ -57,23 +42,29 @@ export type { TodoItem };
               <lucide-angular
                 [img]="CheckIcon"
                 class="w-4 h-4 text-success flex-shrink-0 mt-0.5"
+                aria-hidden="true"
               />
+              <span class="sr-only">Done:</span>
             } @else if (item.status === 'in_progress') {
               <lucide-angular
                 [img]="SpinnerIcon"
-                class="w-4 h-4 text-info animate-spin flex-shrink-0 mt-0.5"
+                class="w-4 h-4 text-info animate-spin motion-reduce:animate-none flex-shrink-0 mt-0.5"
+                aria-hidden="true"
               />
+              <span class="sr-only">In progress:</span>
             } @else {
               <lucide-angular
                 [img]="CircleIcon"
                 class="w-4 h-4 text-base-content-muted flex-shrink-0 mt-0.5"
+                aria-hidden="true"
               />
+              <span class="sr-only">Pending:</span>
             }
 
             <!-- Task text -->
-            <div class="flex-1">
+            <div class="flex-1 min-w-0 break-words">
               @if (item.status === 'in_progress') {
-                <span class="font-medium text-info animate-pulse">
+                <span class="font-semibold text-base-content">
                   {{ item.activeForm }}
                 </span>
               } @else if (item.status === 'completed') {
@@ -96,15 +87,6 @@ export type { TodoItem };
 export class TodoListDisplayComponent {
   readonly toolInput = input.required<TodoWriteToolInput>();
   readonly todos = computed(() => this.toolInput().todos);
-  readonly totalCount = computed(() => this.todos().length);
-  readonly completedCount = computed(
-    () => this.todos().filter((t: TodoItem) => t.status === 'completed').length,
-  );
-  readonly progressPercentage = computed(() =>
-    this.totalCount() > 0
-      ? (this.completedCount() / this.totalCount()) * 100
-      : 0,
-  );
   readonly CircleIcon = Circle;
   readonly CheckIcon = CheckCircle2;
   readonly SpinnerIcon = Loader2;

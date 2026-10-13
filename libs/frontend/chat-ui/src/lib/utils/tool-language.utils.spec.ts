@@ -2,6 +2,7 @@ import {
   detectToolLanguage,
   getLanguageFromPath,
   getLanguageLabel,
+  looksLikeMarkdown,
 } from './tool-language.utils';
 
 describe('getLanguageFromPath', () => {
@@ -41,11 +42,96 @@ describe('getLanguageFromPath', () => {
   });
 });
 
+describe('looksLikeMarkdown', () => {
+  it.each([
+    ['# Heading\ntext'],
+    ['intro\n## Section'],
+    ['- one\n- two'],
+    ['* one'],
+    ['1. first\n2. second'],
+    ['```ts\nconst a = 1;\n```'],
+    ['| a | b |\n| --- | --- |\n| 1 | 2 |'],
+    ['a **bold** word'],
+    ['see [docs](https://example.com)'],
+    ['###### Six\nbody'],
+    ['#\tTabbed heading'],
+    ['intro\n   + indented item'],
+    ['10) tenth'],
+    ['  ~~~\ncode\n  ~~~'],
+    ['a | b\n---|---'],
+    ['| :--- | ---: | :---: |'],
+    ['  |---|---|  \r\n'],
+    ['[a](b) and [c](d)'],
+    ['see [Foo](https://en.wikipedia.org/wiki/Foo_(bar))'],
+  ])('detects markdown in %j', (text) => {
+    expect(looksLikeMarkdown(text)).toBe(true);
+  });
+
+  it.each([
+    ['Agent: claude (ready)\nAgent: codex (ready)\nAgent: gemini (busy)'],
+    ['pong'],
+    ['#hashtag and 3 * 4 = 12'],
+    ['a | b | c'],
+    ['[NX] ran build'],
+    [''],
+    ['####### seven hashes'],
+    ['#\nnot a heading'],
+    ['-not a list'],
+    ['    - indented four spaces'],
+    ['1.5 seconds'],
+    ['text ``` inline fence'],
+    ['---'],
+    ['|---|'],
+    ['| -- | -- |'],
+    ['a\n- \nb'],
+    ['**unclosed bold'],
+    ['[label] (url)'],
+    ['[label](has space)'],
+    ['[[[[[[[[[[[[[[[['],
+    ['[a](' + 'x[a]('.repeat(50)],
+  ])('reads %j as plain text', (text) => {
+    expect(looksLikeMarkdown(text)).toBe(false);
+  });
+});
+
 describe('detectToolLanguage', () => {
-  it('renders mcp__ tools as markdown, even with JSON output', () => {
+  it('renders mcp__ output that uses markdown syntax as markdown', () => {
+    expect(
+      detectToolLanguage({
+        toolName: 'mcp__ptah__x',
+        toolOutput: '## Agents\n- claude\n- codex',
+      }),
+    ).toBe('markdown');
+  });
+
+  it('renders plain-text mcp__ output as text, keeping its line breaks', () => {
+    expect(
+      detectToolLanguage({
+        toolName: 'mcp__github__ListAgents',
+        toolOutput: 'Agent: claude\nAgent: codex\nAgent: gemini',
+      }),
+    ).toBe('text');
+  });
+
+  it('reads MCP content blocks through their displayed text', () => {
+    expect(
+      detectToolLanguage({
+        toolName: 'mcp__srv__x',
+        toolOutput: [{ type: 'text', text: '# Title\nbody' }],
+      }),
+    ).toBe('markdown');
+    expect(
+      detectToolLanguage({
+        toolName: 'mcp__srv__x',
+        toolOutput: [{ type: 'text', text: 'line one\nline two' }],
+      }),
+    ).toBe('text');
+  });
+
+  it('never returns json for mcp__ output', () => {
     expect(
       detectToolLanguage({ toolName: 'mcp__ptah__x', toolOutput: '{"a":1}' }),
-    ).toBe('markdown');
+    ).toBe('text');
   });
 
   it.each(['Read', 'Write', 'Edit'])(
@@ -63,15 +149,18 @@ describe('detectToolLanguage', () => {
     },
   );
 
-  it('uses bash for Bash', () => {
-    expect(
-      detectToolLanguage({
-        toolName: 'Bash',
-        toolInput: { command: 'ls' },
-        toolOutput: 'a\nb',
-      }),
-    ).toBe('bash');
-  });
+  it.each(['Bash', 'PowerShell'])(
+    'uses plain text, not shell highlighting, for %s output',
+    (toolName) => {
+      expect(
+        detectToolLanguage({
+          toolName,
+          toolInput: { command: 'ls' },
+          toolOutput: 'Build finished for the project\nDone',
+        }),
+      ).toBe('text');
+    },
+  );
 
   it.each(['Grep', 'Glob', 'Task', undefined])(
     'uses text for %s',
@@ -94,7 +183,7 @@ describe('detectToolLanguage', () => {
   it('keeps the tool language when output only starts with a bracket', () => {
     expect(
       detectToolLanguage({ toolName: 'Bash', toolOutput: '[NX] ran build' }),
-    ).toBe('bash');
+    ).toBe('text');
     expect(
       detectToolLanguage({
         toolName: 'Read',
@@ -110,7 +199,7 @@ describe('detectToolLanguage', () => {
         toolName: 'Bash',
         toolOutput: { a: 1 },
       }),
-    ).toBe('bash');
+    ).toBe('text');
   });
 });
 
@@ -119,7 +208,7 @@ describe('getLanguageLabel', () => {
     expect(getLanguageLabel('typescript')).toBe('TypeScript');
     expect(getLanguageLabel('bash')).toBe('Bash');
     expect(getLanguageLabel('json')).toBe('JSON');
-    expect(getLanguageLabel('text')).toBe('Plain text');
+    expect(getLanguageLabel('text')).toBe('Text');
   });
 
   it('returns an unmapped id unchanged', () => {

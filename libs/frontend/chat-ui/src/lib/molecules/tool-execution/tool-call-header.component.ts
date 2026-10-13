@@ -11,220 +11,219 @@ import {
 import {
   LucideAngularModule,
   ChevronDown,
-  CheckCircle,
-  XCircle,
-  Loader2,
   AlertTriangle,
   ExternalLink,
 } from 'lucide-angular';
 import { FILE_LINK_OPENER } from '@ptah-extension/core';
-import { ToolIconComponent } from '../../atoms/tool-icon.component';
 import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
-import { CopyTextButtonComponent } from '../../atoms/copy-text-button.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import {
   isReadToolInput,
   isWriteToolInput,
   isEditToolInput,
   isBashToolInput,
-  isGrepToolInput,
-  isGlobToolInput,
-  isWebFetchToolInput,
-  isWebSearchToolInput,
-  isAgentDispatchTool,
 } from '@ptah-extension/shared';
 import {
+  describeToolChips,
   describeToolTarget,
   displayToolName,
+  isJustToolName,
   isPtahMcpToolName,
-  shortenToolPath,
-  toolStatusBadgeClass,
-  truncateToolText,
+  splitMcpToolName,
 } from '../../utils/tool-target.utils';
-import {
-  getLanguageFromPath,
-  getLanguageLabel,
-} from '../../utils/tool-language.utils';
+import { toolStatusPresentation } from '../../utils/tool-status.utils';
 
 /**
- * Outcome of a command (Bash) call as text plus an icon name. There is no
- * exit code on `ExecutionNode` (A9), so the name is "Command succeeded" or
- * "Command failed" without "exit code N".
- */
-interface CommandOutcome {
-  readonly text: 'succeeded' | 'failed' | 'running';
-  readonly label: string;
-}
-
-/**
- * ToolCallHeaderComponent - Header section for tool call display
+ * ToolCallHeaderComponent - One log line per tool call (Direction A)
  *
  * Complexity Level: 2 (Molecule - composition of atoms)
  * Patterns: Composition pattern, event delegation
  *
- * Features:
- * - Toggle `<button>` (`aria-expanded`) holding the chevron, tool icon,
- *   badges, target, parse warning, status and duration
- * - File tools (Read, Write, Edit): file name prominent, directory muted,
- *   full path in `title`, a language label, and a separate 28 px
- *   "Open <file>" button beside the toggle (buttons do not nest) that opens
+ * Layout: `[tool name] [primary] [chips] [started] [failed] ... [chevron]
+ * [duration]`
+ * - The status words come from `toolStatusPresentation`, the same mapping
+ *   that colours the item's rail, so the two cannot drift; a pending
+ *   permission (`awaitingPermission`) reads "Awaiting permission", not
+ *   "Failed"
+ * - Toggle `<button>` (`aria-expanded`, `aria-controls` while expanded)
+ * - The status is read out as text (`sr-only`); its colour is the left rail
+ *   the orchestrator (`ptah-tool-call-item`) draws, so it shows once. No
+ *   second streaming sentence replaces the header text
+ * - Tool name once: built-in tools in muted mono; other MCP servers as a
+ *   muted `server ·` prefix and the tool name; Ptah tools as a gold "Ptah"
+ *   chip and the short name
+ * - Deviation from Direction A: an MCP call's first argument is not put in
+ *   the header; every argument goes to the body's "Arguments", because a
+ *   header argument would repeat there
+ * - Primary: file name bold and directory muted (full path in `title`), a
+ *   command's description, a pattern, URL, query or summary. A command with
+ *   no description shows its first line only while collapsed; expanded, the
+ *   body's "Command" block has it, so the header shows no target. A primary
+ *   that only repeats the tool name is left out
+ * - Chips (`describeToolChips`): `background`, `60 min`, `lines 1-60`, ...
+ * - A `run_in_background` command that has completed adds the word
+ *   `started` after the chips (it started; it has not finished its work)
+ * - A real failure adds a `failed` chip (Direction A's table says `exit
+ *   failed`; `ExecutionNode` has no exit code, so it says `failed`)
+ * - "Open <file>" is a 28 px sibling button (buttons do not nest) that opens
  *   through `FILE_LINK_OPENER`
- * - Command tools (Bash): an outcome pill ("succeeded", "failed",
- *   "running") whose icon has an accessible name, and a command row (`$`,
- *   mono, full text in `title`; one line while collapsed, wrapping when
- *   expanded) with "Copy command"
- * - Status icons carry accessible names; the streaming description shows
- *   while the call runs
- * - Text wraps or ends in an ellipsis; nothing scrolls sideways
+ * - Text truncates with an ellipsis; nothing scrolls sideways. The tool name
+ *   and target form one lead group that claims up to 12rem first; chips that
+ *   do not fit beside it wrap to a second line, and the chevron, duration and
+ *   Open button never shrink, so they stay in the row at 360 px
+ * - Muted text (tool name, directory, MCP server, "started") turns
+ *   `text-base-content` while the toggle is hovered or focused: muted text on
+ *   `--surface-highlight` measured under 4.5:1. In light themes the gold
+ *   "Ptah" chip sits on `bg-base-100` so `--ptah-gold-strong` clears 4.5:1
  */
 @Component({
   selector: 'ptah-tool-call-header',
   standalone: true,
-  imports: [
-    LucideAngularModule,
-    ToolIconComponent,
-    DurationBadgeComponent,
-    CopyTextButtonComponent,
-  ],
+  imports: [LucideAngularModule, DurationBadgeComponent],
   template: `
-    <div class="flex items-start min-w-0">
+    <div class="group flex items-start min-w-0">
       <button
         #toggle
         type="button"
-        class="flex-1 min-w-0 py-1.5 px-2 text-[11px] flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-left hover:bg-base-300/30 transition-colors cursor-pointer"
+        class="group/toggle flex-1 min-w-0 min-h-7 px-1 py-0.5 flex items-center gap-2 text-xs text-left rounded hover:bg-[var(--surface-highlight)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content cursor-pointer"
         (click)="toggleClicked.emit()"
         [attr.aria-expanded]="!isCollapsed()"
         [attr.aria-controls]="isCollapsed() ? null : 'tool-' + node().id"
       >
-        <!-- Chevron icon -->
+        <!-- Status in words; the item's rail carries the colour -->
+        <span class="sr-only" data-testid="tool-status">{{
+          statusLabel()
+        }}</span>
+
+        <!-- Everything but the chevron and duration. It wraps: chips that do
+             not fit move to a second line, so the target keeps its room and
+             the chevron never leaves the row. -->
+        <span
+          class="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5"
+          data-testid="tool-header-content"
+        >
+          <!-- Tool name and primary target stay together on the first line;
+               the group claims up to 12rem before any chip, and the target
+               truncates inside it. -->
+          <span
+            class="flex items-center gap-2 min-w-0 max-w-max grow basis-48"
+            data-testid="tool-header-lead"
+          >
+            <!-- Tool name, once -->
+            @if (isPtahMcpTool()) {
+              <span
+                class="badge badge-sm h-5 px-1.5 text-[11px] font-semibold flex-shrink-0 bg-[var(--ptah-gold-soft)] [[data-theme-mode=light]_&]:bg-base-100 text-[color:var(--ptah-gold-strong)] border border-[color:var(--ptah-gold)]"
+                data-testid="tool-ptah-chip"
+                >Ptah</span
+              >
+              <span
+                class="min-w-0 truncate font-semibold text-base-content"
+                data-testid="tool-name"
+                >{{ ptahToolName() }}</span
+              >
+            } @else if (mcpTool(); as mcp) {
+              <span class="min-w-0 truncate" data-testid="tool-name">
+                <span
+                  class="text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content"
+                  >{{ mcp.server }} ·</span
+                >
+                <span class="ml-1 font-semibold text-base-content">{{
+                  mcp.tool
+                }}</span>
+              </span>
+            } @else {
+              <span
+                class="font-mono text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content flex-shrink-0"
+                data-testid="tool-name"
+                >{{ node().toolName }}</span
+              >
+            }
+
+            <!-- Primary: file, or the call's target -->
+            @if (filePath()) {
+              <span
+                class="min-w-0 truncate"
+                [title]="filePath()"
+                data-testid="tool-file-path"
+              >
+                <span class="font-semibold text-base-content">{{
+                  fileName()
+                }}</span>
+                @if (fileDirectory()) {
+                  <span
+                    class="ml-1 text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content"
+                    >{{ fileDirectory() }}</span
+                  >
+                }
+              </span>
+            } @else if (targetLabel()) {
+              <span
+                class="min-w-0 truncate text-base-content"
+                [class.font-mono]="isPatternTarget()"
+                [title]="fullDescription()"
+                data-testid="tool-target"
+                >{{ targetLabel() }}</span
+              >
+            }
+          </span>
+
+          @for (chip of chips(); track $index) {
+            <span
+              class="badge badge-ghost badge-sm h-5 px-1.5 font-mono text-[11px] text-base-content-muted flex-shrink-0 max-w-full truncate"
+              data-testid="tool-chip"
+              >{{ chip }}</span
+            >
+          }
+
+          @if (backgroundStarted()) {
+            <span
+              class="text-[11px] text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content flex-shrink-0"
+              data-testid="tool-started"
+              >started</span
+            >
+          }
+
+          <!-- Parse Error Warning -->
+          @if (hasParseError()) {
+            <span
+              class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-base-content"
+              [title]="'Parse Error: ' + parseError()"
+            >
+              <lucide-angular
+                [img]="AlertIcon"
+                class="w-3 h-3 text-warning"
+                aria-hidden="true"
+              />
+              <span class="text-[11px] font-mono">Parse Error</span>
+            </span>
+          }
+
+          <!-- The failure in words: colour is never the only signal -->
+          @if (statusPresentation().failed) {
+            <span
+              class="badge badge-ghost badge-sm h-5 px-1.5 text-[11px] text-base-content flex-shrink-0"
+              aria-hidden="true"
+              data-testid="tool-failed"
+              >failed</span
+            >
+          }
+        </span>
+
+        <!-- Chevron: always in the DOM, shown on hover and focus -->
         <lucide-angular
           [img]="ChevronIcon"
-          class="w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform"
-          [class.rotate-0]="!isCollapsed()"
+          class="w-3 h-3 flex-shrink-0 text-base-content-muted transition-transform motion-reduce:transition-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
           [class.-rotate-90]="isCollapsed()"
           aria-hidden="true"
+          data-testid="tool-chevron"
         />
-
-        <!-- Tool icon -->
-        <ptah-tool-icon [toolName]="node().toolName || 'Unknown'" />
-
-        <!-- Tool name badge -->
-        @if (isPtahMcpTool()) {
-          <span class="badge badge-xs font-mono px-1.5 ptah-superpower-badge">
-            Ptah Superpower
-          </span>
-          <span class="badge badge-xs font-mono px-1.5 ptah-tool-name-badge">
-            {{ getPtahToolName() }}
-          </span>
-        } @else {
-          <span [class]="'badge badge-xs font-mono px-1.5 ' + getBadgeClass()">
-            {{ node().toolName }}
-          </span>
-        }
-
-        <!-- Target (file or generic) - HIDDEN during streaming to avoid redundancy -->
-        <!-- File path: one line while collapsed, wraps when expanded -->
-        @if (node().status !== 'streaming' && filePath()) {
-          <span
-            class="flex-1 min-w-0 font-mono text-[10px]"
-            [class.truncate]="isCollapsed()"
-            [class.break-all]="!isCollapsed()"
-            [title]="filePath()"
-            data-testid="tool-file-path"
-          >
-            <span class="font-semibold text-base-content">{{
-              fileName()
-            }}</span>
-            @if (fileDirectory()) {
-              <span class="ml-1 text-base-content-muted">{{
-                fileDirectory()
-              }}</span>
-            }
-          </span>
-          <span
-            class="badge badge-ghost badge-xs text-[10px] text-base-content-muted flex-shrink-0"
-            data-testid="tool-language"
-            >{{ fileLanguageLabel() }}</span
-          >
-        } @else if (node().status !== 'streaming') {
-          <span
-            class="text-base-content-muted truncate flex-1 min-w-0 font-mono text-[10px]"
-            [title]="getFullDescription()"
-          >
-            {{ getToolDescription() }}
-          </span>
-        }
-
-        <!-- Parse Error Warning -->
-        @if (hasParseError()) {
-          <div
-            class="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-warning/20 rounded text-warning"
-            [title]="'Parse Error: ' + parseError()"
-          >
-            <lucide-angular
-              [img]="AlertIcon"
-              class="w-3 h-3"
-              aria-hidden="true"
-            />
-            <span class="text-[10px] font-mono">Parse Error</span>
-          </div>
-        }
-
-        <!-- Status: command outcome pill, or a named status icon -->
-        @if (commandOutcome(); as outcome) {
-          <span
-            class="badge badge-xs gap-1 px-1.5 text-[10px] flex-shrink-0 bg-base-300/50 border-0"
-            [class.text-success]="outcome.text === 'succeeded'"
-            [class.text-error]="outcome.text === 'failed'"
-            [class.text-info]="outcome.text === 'running'"
-            data-testid="command-outcome"
-          >
-            <lucide-angular
-              [img]="outcomeIcon(outcome)"
-              class="w-3 h-3"
-              [class.animate-spin]="outcome.text === 'running'"
-              role="img"
-              [attr.aria-label]="outcome.label"
-            />
-            <span aria-hidden="true">{{ outcome.text }}</span>
-          </span>
-        } @else if (node().status === 'complete' && node().toolOutput) {
-          <lucide-angular
-            [img]="CheckIcon"
-            class="w-3 h-3 text-success flex-shrink-0"
-            role="img"
-            aria-label="Completed"
-          />
-        } @else if (node().status === 'error') {
-          <lucide-angular
-            [img]="XIcon"
-            class="w-3 h-3 text-error flex-shrink-0"
-            role="img"
-            aria-label="Failed"
-          />
-        }
-
-        @if (node().status === 'streaming') {
-          <div class="flex items-center gap-1 flex-1 min-w-0">
-            @if (!isCommandTool()) {
-              <lucide-angular
-                [img]="LoaderIcon"
-                class="w-3 h-3 text-info animate-spin flex-shrink-0"
-                role="img"
-                aria-label="Running"
-              />
-            }
-            <span
-              class="text-base-content-muted text-[10px] animate-pulse font-mono truncate"
-            >
-              {{ getStreamingDescription() }}
-            </span>
-          </div>
-        }
 
         <!-- Duration -->
         @if (node().duration) {
-          <ptah-duration-badge [durationMs]="node().duration!" />
+          <ptah-duration-badge
+            class="flex-shrink-0"
+            [durationMs]="node().duration!"
+          />
         }
       </button>
 
@@ -245,33 +244,7 @@ interface CommandOutcome {
         </button>
       }
     </div>
-
-    <!-- Command row: one line while collapsed, wraps when expanded -->
-    @if (bashCommand()) {
-      <div
-        class="flex items-start gap-1 px-2 pb-1 font-mono text-[10px]"
-        data-testid="tool-command-row"
-      >
-        <span
-          class="py-1.5 text-base-content-muted select-none"
-          aria-hidden="true"
-          >$</span
-        >
-        <code
-          class="flex-1 min-w-0 py-1.5 text-base-content"
-          [class.truncate]="isCollapsed()"
-          [class.whitespace-pre-wrap]="!isCollapsed()"
-          [class.break-all]="!isCollapsed()"
-          [title]="bashCommand()"
-          >{{ bashCommand() }}</code
-        >
-        <ptah-copy-text-button [text]="bashCommand()" label="Copy command" />
-      </div>
-    }
   `,
-  // `.ptah-superpower-badge` / `.ptah-tool-name-badge` are defined once
-  // globally in apps/ptah-extension-webview/src/styles.css, keyed off the
-  // theme-aware `--ptah-gold*` tokens. Do not re-add a local copy.
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallHeaderComponent {
@@ -280,11 +253,10 @@ export class ToolCallHeaderComponent {
 
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = input.required<boolean>();
+  /** A permission request for this call is waiting on the user. */
+  readonly awaitingPermission = input(false);
   readonly toggleClicked = output<void>();
   readonly ChevronIcon = ChevronDown;
-  readonly CheckIcon = CheckCircle;
-  readonly XIcon = XCircle;
-  readonly LoaderIcon = Loader2;
   readonly AlertIcon = AlertTriangle;
   readonly ExternalLinkIcon = ExternalLink;
 
@@ -337,41 +309,81 @@ export class ToolCallHeaderComponent {
     return path.slice(0, Math.max(0, path.lastIndexOf('/')));
   });
 
-  protected readonly fileLanguageLabel = computed(() =>
-    getLanguageLabel(getLanguageFromPath(this.filePath())),
-  );
-
   /** A shell command call: the Bash tool, or any input carrying `command`. */
   protected readonly isCommandTool = computed(
     () =>
       this.node().toolName === 'Bash' || isBashToolInput(this.node().toolInput),
   );
 
-  /** The full command text; empty when the input has none (yet). */
-  protected readonly bashCommand = computed(() => {
+  /**
+   * A `run_in_background` call. The one flag behind both the `started` word
+   * and the "Command started" label, so the two cannot disagree.
+   */
+  private readonly runsInBackground = computed(
+    () => this.node().toolInput?.['run_in_background'] === true,
+  );
+
+  /** Rail colour, words and failure flag for this call's state. */
+  protected readonly statusPresentation = computed(() =>
+    toolStatusPresentation(this.node().status, {
+      command: this.isCommandTool(),
+      awaitingPermission: this.awaitingPermission(),
+      background: this.runsInBackground(),
+    }),
+  );
+
+  /** The status in words (`toolStatusPresentation`). */
+  protected readonly statusLabel = computed(
+    () => this.statusPresentation().label,
+  );
+
+  /** A background call that has completed: it has started, not finished. */
+  protected readonly backgroundStarted = computed(
+    () =>
+      this.node().status === 'complete' &&
+      this.runsInBackground() &&
+      !this.awaitingPermission(),
+  );
+
+  private readonly toolTarget = computed(() =>
+    describeToolTarget(this.node().toolName || '', this.node().toolInput),
+  );
+
+  protected readonly chips = computed(
+    () =>
+      describeToolChips(this.node().toolName || '', this.node().toolInput)
+        .chips,
+  );
+
+  /**
+   * The primary text. A command shows its description; with none, its first
+   * line while collapsed and nothing while expanded (the body's "Command"
+   * block then holds the full text). A label that only repeats the tool name
+   * is dropped.
+   */
+  protected readonly targetLabel = computed(() => {
     const input = this.node().toolInput;
-    return isBashToolInput(input) ? input.command : '';
-  });
-
-  protected readonly commandOutcome = computed<CommandOutcome | null>(() => {
-    if (!this.isCommandTool()) return null;
-    switch (this.node().status) {
-      case 'complete':
-        return { text: 'succeeded', label: 'Command succeeded' };
-      case 'error':
-        return { text: 'failed', label: 'Command failed' };
-      case 'streaming':
-        return { text: 'running', label: 'Command running' };
-      default:
-        return null;
+    if (isBashToolInput(input)) {
+      if (input.description) return input.description;
+      return this.isCollapsed() ? input.command.split(/\r\n|\r|\n/)[0] : '';
     }
+    const label = this.toolTarget().short;
+    return isJustToolName(label, this.node().toolName || '') ? '' : label;
   });
 
-  protected outcomeIcon(outcome: CommandOutcome): typeof CheckCircle {
-    if (outcome.text === 'succeeded') return this.CheckIcon;
-    if (outcome.text === 'failed') return this.XIcon;
-    return this.LoaderIcon;
-  }
+  /** Search patterns read as code. */
+  protected readonly isPatternTarget = computed(() =>
+    this.toolTarget().keys.includes('pattern'),
+  );
+
+  /** Full target for the primary's `title`. */
+  protected readonly fullDescription = computed(
+    () => this.toolTarget().full || this.targetLabel(),
+  );
+
+  protected readonly mcpTool = computed(() =>
+    splitMcpToolName(this.node().toolName || ''),
+  );
 
   /** Move focus to the expand toggle (used when the item collapses on Escape). */
   focusToggle(): void {
@@ -398,15 +410,6 @@ export class ToolCallHeaderComponent {
    */
   protected getFilePath(): string {
     const toolInput = this.node().toolInput;
-    if (isReadToolInput(toolInput)) {
-      return toolInput.file_path;
-    }
-    if (isWriteToolInput(toolInput)) {
-      return toolInput.file_path;
-    }
-    if (isEditToolInput(toolInput)) {
-      return toolInput.file_path;
-    }
     if (
       toolInput &&
       typeof toolInput === 'object' &&
@@ -437,74 +440,6 @@ export class ToolCallHeaderComponent {
   }
 
   /**
-   * Get tool description for display
-   */
-  protected getToolDescription(): string {
-    return this.toolTarget().short;
-  }
-
-  /**
-   * Get full description for title attribute
-   */
-  protected getFullDescription(): string {
-    return this.toolTarget().full;
-  }
-
-  private readonly toolTarget = computed(() =>
-    describeToolTarget(this.node().toolName || '', this.node().toolInput),
-  );
-
-  /**
-   * Get streaming description
-   */
-  protected getStreamingDescription(): string {
-    const toolName = this.node().toolName;
-    const input = this.node().toolInput;
-
-    if (!toolName || !input) return 'Working...';
-
-    if (isReadToolInput(input)) {
-      return `Reading ${shortenToolPath(input.file_path)}...`;
-    }
-    if (isWriteToolInput(input)) {
-      return `Writing ${shortenToolPath(input.file_path)}...`;
-    }
-    if (isEditToolInput(input)) {
-      return `Editing ${shortenToolPath(input.file_path)}...`;
-    }
-    if (isBashToolInput(input)) {
-      const desc = input.description;
-      if (desc) return `${desc}...`;
-      const cmd = input.command;
-      return `Running ${truncateToolText(cmd, 20)}...`;
-    }
-    if (isGrepToolInput(input)) {
-      return `Searching for "${truncateToolText(input.pattern, 15)}"...`;
-    }
-    if (isGlobToolInput(input)) {
-      return `Finding ${truncateToolText(input.pattern, 15)}...`;
-    }
-    if (isWebFetchToolInput(input)) {
-      return `Fetching ${truncateToolText(input.url, 20)}...`;
-    }
-    if (isWebSearchToolInput(input)) {
-      return `Searching "${truncateToolText(input.query, 15)}"...`;
-    }
-    if (isAgentDispatchTool(toolName)) {
-      return 'Invoking agent...';
-    }
-    return `Executing ${toolName}...`;
-  }
-
-  /**
-   * Check if this is any MCP tool call
-   */
-  isMcpTool(): boolean {
-    const toolName = this.node().toolName || '';
-    return toolName.startsWith('mcp__');
-  }
-
-  /**
    * Check if this is a Ptah MCP server tool call
    * Matches both ptah-cli format (mcp__ptah__*) and Copilot format (ptah-ptah_*)
    */
@@ -516,15 +451,8 @@ export class ToolCallHeaderComponent {
    * Clean Ptah MCP tool name (`mcp__ptah__workspace_analyze` ->
    * "workspace analyze", `ptah-ptah_search_files` -> "search files").
    */
-  protected getPtahToolName(): string {
+  protected ptahToolName(): string {
     return displayToolName(this.node().toolName || '');
-  }
-
-  /**
-   * Get badge class based on status
-   */
-  protected getBadgeClass(): string {
-    return toolStatusBadgeClass(this.node().status);
   }
 
   /**

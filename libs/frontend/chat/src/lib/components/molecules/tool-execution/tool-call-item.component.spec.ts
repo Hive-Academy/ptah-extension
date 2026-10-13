@@ -7,7 +7,122 @@ import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
 import { ToolCallItemComponent } from './tool-call-item.component';
 
 describe('ToolCallItemComponent', () => {
-  it('keeps the collapsed header text and status icon while using one separator element', async () => {
+  async function renderNode(
+    partial: Parameters<typeof createExecutionNode>[0],
+  ): Promise<ComponentFixture<ToolCallItemComponent>> {
+    await TestBed.configureTestingModule({
+      imports: [ToolCallItemComponent],
+      providers: [
+        provideSurfaceActiveTesting(),
+        provideMarkdown(),
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ToolCallItemComponent);
+    fixture.componentRef.setInput('node', createExecutionNode(partial));
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it.each([
+    ['complete', 'bg-success', 'Completed'],
+    ['error', 'bg-error', 'Failed'],
+    ['streaming', 'bg-info', 'Running'],
+    ['pending', 'bg-base-300', 'Pending'],
+    ['interrupted', 'bg-warning', 'Interrupted'],
+    ['resumed', 'bg-info', 'Resumed'],
+  ] as const)(
+    'colours the rail for a %s call and names the status in words',
+    async (status, railClass, label) => {
+      const row = (
+        await renderNode({
+          id: 'tool-row-1',
+          type: 'tool',
+          status,
+          toolName: 'Read',
+          toolInput: { file_path: '/workspace/readme.md' },
+        })
+      ).nativeElement as HTMLElement;
+      const rail = row.querySelector(
+        '[data-testid="tool-rail"]',
+      ) as HTMLElement;
+
+      expect(rail.classList).toContain(railClass);
+      expect(rail.getAttribute('aria-hidden')).toBe('true');
+      expect(
+        row.querySelector('[data-testid="tool-status"]')?.textContent?.trim(),
+      ).toBe(label);
+    },
+  );
+
+  it('shows a pending permission (delivered with status error) as a warning rail and "Awaiting permission"', async () => {
+    const fixture = await renderNode({
+      id: 'tool-row-1',
+      type: 'tool',
+      status: 'error',
+      toolName: 'Bash',
+      toolInput: { command: 'rm -rf build' },
+      isPermissionRequest: true,
+    });
+    const permission: PermissionRequest = {
+      id: 'perm-1',
+      toolName: 'Bash',
+      toolInput: { command: 'rm -rf build' },
+      timestamp: Date.now(),
+      description: 'Remove build',
+      timeoutAt: 0,
+    };
+    fixture.componentRef.setInput('permission', permission);
+    fixture.detectChanges();
+    const row = fixture.nativeElement as HTMLElement;
+    const rail = row.querySelector('[data-testid="tool-rail"]') as HTMLElement;
+
+    expect(rail.classList).toContain('bg-warning');
+    expect(rail.classList).not.toContain('bg-error');
+    expect(
+      row.querySelector('[data-testid="tool-status"]')?.textContent?.trim(),
+    ).toBe('Awaiting permission');
+    expect(row.querySelector('[data-testid="tool-failed"]')).toBeNull();
+  });
+
+  it('stops the running rail pulse under reduced motion', async () => {
+    const row = (
+      await renderNode({
+        id: 'tool-row-1',
+        type: 'tool',
+        status: 'streaming',
+        toolName: 'Read',
+        toolInput: { file_path: '/workspace/readme.md' },
+      })
+    ).nativeElement as HTMLElement;
+    const rail = row.querySelector('[data-testid="tool-rail"]') as HTMLElement;
+
+    expect(rail.classList).toContain('animate-pulse');
+    expect(rail.classList).toContain('motion-reduce:animate-none');
+  });
+
+  it('gives an expanded Ptah call a gold body border', async () => {
+    const fixture = await renderNode({
+      id: 'ptah-1',
+      type: 'tool',
+      status: 'complete',
+      toolName: 'mcp__ptah__workspace_analyze',
+      toolInput: {},
+    });
+    const row = fixture.nativeElement as HTMLElement;
+    (
+      row.querySelector(
+        'ptah-tool-call-header button[aria-expanded]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(row.querySelector('#tool-ptah-1')?.classList).toContain(
+      'ptah-gold-border',
+    );
+  });
+
+  it('keeps the collapsed header text with no card box and no separator', async () => {
     await TestBed.configureTestingModule({
       imports: [ToolCallItemComponent],
       providers: [{ provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } }],
@@ -29,9 +144,10 @@ describe('ToolCallItemComponent', () => {
 
     const row = fixture.nativeElement as HTMLElement;
     expect(row.textContent).toContain('Read');
-    expect(row.querySelector('lucide-angular')).not.toBeNull();
-    const separator = row.querySelector(':scope > div:last-child') as HTMLElement;
-    expect(separator.querySelectorAll('div')).toHaveLength(1);
+    expect(row.children).toHaveLength(1);
+    const item = row.firstElementChild as HTMLElement;
+    expect(item.classList).not.toContain('border');
+    expect(item.classList).not.toContain('bg-surface-1');
   });
 });
 
