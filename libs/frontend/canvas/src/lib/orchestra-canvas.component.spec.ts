@@ -32,32 +32,6 @@ jest.mock('ngx-markdown', () => {
     SANITIZE: 'SANITIZE',
   };
 });
-jest.mock('gridstack/dist/angular', () => {
-  @Component({
-    // eslint-disable-next-line @angular-eslint/component-selector
-    selector: 'gridstack',
-    standalone: true,
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    template: '<ng-content />',
-  })
-  class GridstackStub {
-    grid: unknown = null;
-  }
-  @Component({
-    // eslint-disable-next-line @angular-eslint/component-selector
-    selector: 'gridstack-item',
-    standalone: true,
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    template: '<ng-content />',
-  })
-  class GridstackItemStub {}
-  return {
-    GridstackComponent: GridstackStub,
-    GridstackItemComponent: GridstackItemStub,
-    nodesCB: undefined,
-  };
-});
-jest.mock('gridstack', () => ({ GridStack: class {} }));
 
 import { TestBed } from '@angular/core/testing';
 import { ApplicationRef, signal, type WritableSignal } from '@angular/core';
@@ -71,9 +45,6 @@ import { CanvasStore } from './canvas.store';
 import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
-import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
-import { CanvasBoardToggleComponent } from './canvas-board-toggle.component';
-import { CanvasRailBoardComponent } from './canvas-rail/canvas-rail-board.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 
 @Component({
@@ -83,12 +54,13 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
 })
 class NeedsYouQueueStub {}
 @Component({
-  selector: 'ptah-canvas-detail-panel',
+  selector: 'ptah-canvas-rail-board',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '',
 })
-class DetailPanelStub {
-  @Input() tabId = '';
+class RailBoardStub {
+  @Input() workspacePath = '';
+  @Input() visible = false;
 }
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -250,8 +222,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       canStartRunningSession,
       workspacePaths: signal<string[]>([]),
       activeWorkspacePath: signal<string | null>(null),
-      boardFor: jest.fn(() => ({ mode: 'grid' })),
-      activeBoard: signal({ mode: 'grid' }),
       switchWorkspaceTiles: switchWorkspaceTilesMock,
       removeWorkspaceTileState: removeWorkspaceTileStateMock,
       removeTileOnly: removeTileOnlyMock,
@@ -263,8 +233,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       focusTile: jest.fn(),
       removeTile: jest.fn(),
       reorderTiles: jest.fn(),
-      setLayoutLocked: jest.fn(),
-      applyPreset: jest.fn(),
     } as unknown as CanvasStore;
 
     const layoutServiceMock = {
@@ -335,37 +303,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     });
   });
 
-  it('closes detail when its tile is removed or the live budget is no longer exceeded', () => {
-    const fixture = mount();
-    const detail = fixture.debugElement.injector.get(CanvasDetailService);
-    const tiles = canvasStoreMock.tiles as WritableSignal<
-      ReturnType<CanvasStore['tiles']>
-    >;
-    const tile = (tabId: string, order: number) => ({
-      tabId,
-      order,
-      width: { kind: 'auto' as const, weight: 1 },
-      rowBreakBefore: false,
-    });
-    tiles.set([tile('a', 0), tile('b', 1), tile('c', 2)]);
-    flush();
-    detail.open('b');
-    flush();
-    expect(detail.detailTabId()).toBe('b');
-    tiles.set([tile('a', 0), tile('c', 2)]);
-    fixture.detectChanges();
-    flush();
-    expect(detail.detailTabId()).toBeNull();
-    tiles.set([tile('a', 0), tile('b', 1), tile('c', 2)]);
-    flush();
-    detail.open('b');
-    flush();
-    tiles.set([tile('a', 0), tile('b', 1)]);
-    fixture.detectChanges();
-    flush();
-    expect(detail.detailTabId()).toBeNull();
-  });
-
   it('refuses new-session requests at nine running and clears the message when a slot frees', () => {
     const fixture = mount();
     canStartRunningSession.set(false);
@@ -404,6 +341,13 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       }
     ).handleCreateSession();
     expect(canvasStoreMock.addTile).not.toHaveBeenCalled();
+    expect(
+      (
+        fixture.componentInstance as unknown as {
+          headerMessage: () => string | null;
+        }
+      ).headerMessage(),
+    ).toBe('9 sessions are running. Wait for one to finish to start another.');
   });
 
   it('workspace-swap effect calls switchWorkspaceTiles with new path and current tabs', () => {
@@ -556,7 +500,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   // A request queued while the canvas wasn't mounted (another view) carries
   // the workspace that was active at REQUEST time; if the user switched
   // workspace before the canvas drains it, the request is DROPPED, never
-  // tiled into the now-active grid.
+  // tiled into the now-active board.
   it('drops a tab-adoption request for a workspace the canvas is not showing', () => {
     (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-a');
     (canvasStoreMock.activeWorkspacePath as WritableSignal<string | null>).set(
@@ -731,248 +675,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(persistenceFlushMock).toHaveBeenCalledTimes(1);
     expect(forceCloseTabMock).not.toHaveBeenCalled();
   });
-
-  it('routes a dock preset request to the store exactly once', () => {
-    const fixture = mount();
-    const component = fixture.componentInstance as unknown as {
-      applyPreset(preset: 'one-plus-two'): void;
-    };
-    component.applyPreset('one-plus-two');
-    expect(canvasStoreMock.applyPreset).toHaveBeenCalledWith('one-plus-two');
-    expect(canvasStoreMock.applyPreset).toHaveBeenCalledTimes(1);
-  });
-});
-
-@Component({
-  selector: 'ptah-canvas-workspace-grid',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class WorkspaceGridStub {
-  @Input() workspacePath = '';
-  @Input() visible = false;
-  @Input() locked = false;
-  @Input() detailTabId: string | null = null;
-}
-
-@Component({
-  selector: 'ptah-canvas-empty-state',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class EmptyStateStub {}
-
-/**
- * Keep-alive coverage: with the real CanvasStore driving per-workspace grids,
- * a workspace's grid section must survive a switch away-and-back as the SAME
- * component instance (no teardown), and only the active workspace's grid is
- * marked visible.
- */
-describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
-  let activeWorkspacePath$: ReturnType<typeof signal<string | null>>;
-  let tabsSignal: ReturnType<
-    typeof signal<
-      Array<{ id: string; claudeSessionId: string | null; name: string }>
-    >
-  >;
-
-  function flush(): void {
-    TestBed.inject(ApplicationRef).tick();
-  }
-
-  function switchTo(
-    path: string,
-    tabs: Array<{ id: string; claudeSessionId: string | null; name: string }>,
-    fixture: ReturnType<typeof TestBed.createComponent>,
-  ): void {
-    tabsSignal.set(tabs);
-    activeWorkspacePath$.set(path);
-    flush();
-    fixture.detectChanges();
-  }
-
-  function gridFor(
-    fixture: ReturnType<typeof TestBed.createComponent>,
-    path: string,
-  ): WorkspaceGridStub | undefined {
-    return fixture.debugElement
-      .queryAll(By.directive(WorkspaceGridStub))
-      .map((de) => de.componentInstance as WorkspaceGridStub)
-      .find((g) => g.workspacePath === path);
-  }
-
-  beforeEach(() => {
-    activeWorkspacePath$ = signal<string | null>(null);
-    tabsSignal = signal<
-      Array<{ id: string; claudeSessionId: string | null; name: string }>
-    >([]);
-
-    const tabManagerMock = {
-      tabs: tabsSignal,
-      getWorkspaceTabs: jest.fn(() => []),
-      activeTabId: signal<string | null>(null),
-      activeWorkspacePath$,
-      removedWorkspace$: signal<{ path: string; seq: number } | null>(null),
-      closedTab: signal<unknown>(null),
-      onTabClosed: jest.fn(() => () => undefined),
-      forceCloseTab: jest.fn(),
-      switchTab: jest.fn(),
-      openSessionTab: jest.fn(),
-      createTab: jest.fn(),
-      closeTab: jest.fn().mockResolvedValue(undefined),
-    } as unknown as TabManagerService;
-
-    const layoutServiceMock = {
-      observe: jest.fn(),
-      containerWidth: signal(0),
-      containerHeight: signal(0),
-      columnsFor: jest.fn(() => 3),
-      computeLayout: jest.fn((tiles: ReadonlyArray<{ tabId: string }>) => ({
-        cellHeight: 120,
-        columns: 3,
-        tiles: tiles.map((tile, i) => ({
-          tabId: tile.tabId,
-          x: (i % 3) * 4,
-          y: Math.floor(i / 3) * 6,
-          w: 4,
-          h: 6,
-        })),
-      })),
-    } as unknown as CanvasLayoutService;
-
-    const chatStoreMock = {
-      switchSession: jest.fn().mockResolvedValue(undefined),
-    } as unknown as ChatStore;
-
-    const appStateMock = {
-      canvasSessionRequests: signal<readonly CanvasSessionRequest[]>([]),
-      takeCanvasSessionRequests: jest.fn(() => []),
-      canvasFocusRequests: signal<readonly CanvasFocusRequest[]>([]),
-      takeCanvasFocusRequests: jest.fn(() => []),
-      newCanvasSessionRequest: signal<string | null>(null),
-      canvasTabRequests: signal<readonly CanvasTabRequest[]>([]),
-      takeCanvasTabRequests: jest.fn(() => []),
-      clearNewCanvasSessionRequest: jest.fn(),
-    } as unknown as AppStateManager;
-
-    TestBed.configureTestingModule({
-      imports: [OrchestraCanvasComponent],
-      providers: [
-        { provide: TabManagerService, useValue: tabManagerMock },
-        { provide: ChatStore, useValue: chatStoreMock },
-        { provide: AppStateManager, useValue: appStateMock },
-        idleActivityStub(),
-        {
-          provide: AgentMonitorStore,
-          useValue: { agents: signal([]), subagents: signal(new Map()) },
-        },
-      ],
-    });
-    TestBed.overrideComponent(OrchestraCanvasComponent, {
-      set: {
-        template: `
-          @for (path of canvasStore.workspacePaths(); track path) {
-            <ptah-canvas-workspace-grid
-              [class.hidden]="path !== canvasStore.activeWorkspacePath()"
-              [workspacePath]="path"
-              [visible]="path === canvasStore.activeWorkspacePath()"
-              [locked]="locked()"
-            />
-          }
-        `,
-        imports: [WorkspaceGridStub],
-        providers: [
-          CanvasStore,
-          CanvasDetailService,
-          { provide: CanvasLayoutService, useValue: layoutServiceMock },
-          {
-            provide: CanvasLayoutPersistenceService,
-            useValue: {
-              load: jest.fn(() => ({
-                tiles: null,
-                board: { mode: 'grid', railCollapsed: false, railDensity: 'comfortable', railScrollTop: 0 },
-                writable: true,
-                needsWrite: false,
-                readOnlyReason: null,
-              })),
-              writeFailed: signal(false),
-              readOnlyPaths: signal(new Set<string>()),
-              markHydrated: jest.fn(),
-              schedule: jest.fn(),
-              remove: jest.fn(),
-              flush: jest.fn(),
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  it('keeps workspace A grid mounted (same instance) after switching to B and back', () => {
-    const fixture = TestBed.createComponent(OrchestraCanvasComponent);
-    fixture.detectChanges();
-
-    switchTo(
-      '/ws/a',
-      [{ id: 'a1', claudeSessionId: null, name: 'a1' }],
-      fixture,
-    );
-    const gridA = gridFor(fixture, '/ws/a');
-    expect(gridA).toBeDefined();
-    expect(gridA?.visible).toBe(true);
-
-    switchTo(
-      '/ws/b',
-      [{ id: 'b1', claudeSessionId: null, name: 'b1' }],
-      fixture,
-    );
-    // Both grids stay mounted; A survives as the SAME instance, now hidden.
-    expect(
-      fixture.debugElement.queryAll(By.directive(WorkspaceGridStub)),
-    ).toHaveLength(2);
-    expect(gridFor(fixture, '/ws/a')).toBe(gridA);
-    expect(gridA?.visible).toBe(false);
-    expect(gridFor(fixture, '/ws/b')?.visible).toBe(true);
-
-    switchTo(
-      '/ws/a',
-      [{ id: 'a1', claudeSessionId: null, name: 'a1' }],
-      fixture,
-    );
-    // Round-trip: still the SAME instance — no remount — and visible again.
-    expect(gridFor(fixture, '/ws/a')).toBe(gridA);
-    expect(gridA?.visible).toBe(true);
-  });
-
-  it('marks exactly one workspace grid visible at a time', () => {
-    const fixture = TestBed.createComponent(OrchestraCanvasComponent);
-    fixture.detectChanges();
-
-    switchTo(
-      '/ws/a',
-      [{ id: 'a1', claudeSessionId: null, name: 'a1' }],
-      fixture,
-    );
-    switchTo(
-      '/ws/b',
-      [{ id: 'b1', claudeSessionId: null, name: 'b1' }],
-      fixture,
-    );
-    switchTo(
-      '/ws/c',
-      [{ id: 'c1', claudeSessionId: null, name: 'c1' }],
-      fixture,
-    );
-
-    const grids = fixture.debugElement
-      .queryAll(By.directive(WorkspaceGridStub))
-      .map((de) => de.componentInstance as WorkspaceGridStub);
-    expect(grids).toHaveLength(3);
-    expect(grids.filter((g) => g.visible)).toHaveLength(1);
-    expect(gridFor(fixture, '/ws/c')?.visible).toBe(true);
-  });
 });
 
 describe('OrchestraCanvasComponent dock and viewport allocation', () => {
@@ -1079,12 +781,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
         imports: [
           FormsModule,
           LucideAngularModule,
-          WorkspaceGridStub,
-          EmptyStateStub,
-          DetailPanelStub,
-          CanvasLayoutControlsComponent,
-          CanvasBoardToggleComponent,
-          CanvasRailBoardComponent,
+          RailBoardStub,
           NeedsYouQueueStub,
           ActivityTickerComponent,
           NativePopoverComponent,
@@ -1098,7 +795,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
             useValue: {
               load: jest.fn(() => ({
                 tiles: null,
-                board: { mode: 'grid', railCollapsed: false, railDensity: 'comfortable', railScrollTop: 0 },
+                board: { mode: 'rail', railCollapsed: false, railDensity: 'comfortable', railScrollTop: 0 },
                 writable: true,
                 needsWrite: false,
                 readOnlyReason: null,
@@ -1175,30 +872,40 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     );
   });
 
-  it('shares reserved dock between layout controls and new session button', () => {
+  it('shares reserved dock between the queue and the New Session anchor, with no Grid controls', () => {
     const dock = fixture.debugElement.query(
       By.css('[data-testid="canvas-dock"]'),
-    );
-    const layoutControls = dock.query(
-      By.directive(CanvasLayoutControlsComponent),
     );
     const queue = dock.query(By.directive(NeedsYouQueueStub));
     const newSessionBtn = dock.query(
       By.css('button[title="Add new session tile"]'),
     );
     expect(queue).toBeTruthy();
-    expect(
-      layoutControls.nativeElement.compareDocumentPosition(
-        queue.nativeElement,
-      ) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(newSessionBtn).toBeTruthy();
     expect(
       queue.nativeElement.compareDocumentPosition(newSessionBtn.nativeElement) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(
+      dock.nativeElement.querySelector(
+        'ptah-canvas-layout-controls, ptah-canvas-board-toggle',
+      ),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelectorAll('ptah-native-popover'),
+    ).toHaveLength(1);
+  });
 
-    expect(layoutControls).toBeTruthy();
-    expect(newSessionBtn).toBeTruthy();
+  it('mounts only the Rail board in the session viewport', () => {
+    const viewport = fixture.debugElement.query(
+      By.css('[data-testid="session-viewport"]'),
+    );
+    expect(viewport.queryAll(By.directive(RailBoardStub))).toHaveLength(1);
+    expect(
+      viewport.nativeElement.querySelector(
+        'ptah-canvas-workspace-grid, ptah-canvas-empty-state, ptah-canvas-detail-panel',
+      ),
+    ).toBeNull();
   });
 
   it('does not have permanent absolute overlay controls over the session viewport', () => {
@@ -1224,7 +931,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
    * moved the Layout and New Session buttons. It now sits in this row, in
    * normal flow, on the free left edge.
    */
-  it('renders the ticker inside the dock, before the layout controls', () => {
+  it('renders the ticker inside the dock, before the queue', () => {
     activityIdle.set(false);
     activityItems.set([activityItem('a', 'Backup finished')]);
     fixture.detectChanges();
@@ -1234,7 +941,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     expect(dock().nativeElement.contains(tickerEl.nativeElement)).toBe(true);
 
     // DOM order decides the visual order: ticker first, controls after it.
-    const controls = dock().query(By.directive(CanvasLayoutControlsComponent));
+    const controls = dock().query(By.directive(NeedsYouQueueStub));
     expect(
       tickerEl.nativeElement.compareDocumentPosition(controls.nativeElement) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -1285,25 +992,5 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
 
     ticker().nativeElement.querySelector('button')?.click();
     expect(setCurrentViewMock).toHaveBeenCalledWith('thoth');
-  });
-
-  it('toggles lock state when layout controls emit lockToggled', () => {
-    const layoutControls = fixture.debugElement.query(
-      By.directive(CanvasLayoutControlsComponent),
-    );
-    expect(
-      (
-        fixture.componentInstance as unknown as { locked: () => boolean }
-      ).locked(),
-    ).toBe(false);
-
-    layoutControls.componentInstance.lockToggled.emit();
-    fixture.detectChanges();
-
-    expect(
-      (
-        fixture.componentInstance as unknown as { locked: () => boolean }
-      ).locked(),
-    ).toBe(true);
   });
 });

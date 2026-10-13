@@ -9,13 +9,14 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
 } from '@angular/core';
-import { defaultSessionName } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import type { CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { railWidthBand } from '../canvas-board-mode';
+import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
 import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
@@ -73,13 +74,50 @@ import {
           "
           (lanesRequested)="onLanesRequested($event)"
         />
-        <ptah-canvas-focus-area
-          class="min-w-0 flex-1"
-          [focusedTabId]="focusedId()"
-          [state]="railStates().get(focusedId() ?? '') ?? 'idle'"
-          [band]="band()"
-          (closeRequested)="close($event)"
-        />
+        @if (orderedTiles().length === 0) {
+          <section
+            class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+            data-testid="canvas-rail-empty-board"
+            aria-labelledby="canvas-rail-empty-board-title"
+          >
+            <h2
+              id="canvas-rail-empty-board-title"
+              class="text-sm font-semibold text-base-content"
+            >
+              No sessions on this board
+            </h2>
+            <p class="max-w-xs text-xs text-base-content-muted">
+              Start a session to see it here.
+            </p>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              [attr.aria-disabled]="newSessionBlockReason() ? 'true' : null"
+              [attr.aria-describedby]="
+                newSessionBlockReason() ? 'canvas-rail-empty-board-reason' : null
+              "
+              (click)="emptyBoardNewSession()"
+            >
+              New session
+            </button>
+            @if (newSessionBlockReason(); as reason) {
+              <p
+                id="canvas-rail-empty-board-reason"
+                class="text-xs text-base-content-muted"
+              >
+                {{ reason }}
+              </p>
+            }
+          </section>
+        } @else {
+          <ptah-canvas-focus-area
+            class="min-w-0 flex-1"
+            [focusedTabId]="focusedId()"
+            [state]="railStates().get(focusedId() ?? '') ?? 'idle'"
+            [band]="band()"
+            (closeRequested)="close($event)"
+          />
+        }
         @if (band() === 'sm') {
           @if (detailsOpen()) {
             <aside
@@ -132,6 +170,8 @@ import {
 export class CanvasRailBoardComponent {
   readonly workspacePath = input.required<string>();
   readonly visible = input.required<boolean>();
+  /** The footer or empty board asked for the host's named New session popover. */
+  readonly newSessionRequested = output<void>();
   readonly store = inject(CanvasStore);
   readonly layout = inject(CanvasLayoutService);
   readonly detail = inject(CanvasDetailService);
@@ -168,6 +208,9 @@ export class CanvasRailBoardComponent {
     );
   });
   readonly band = computed(() => railWidthBand(this.layout.containerWidth()));
+  readonly newSessionBlockReason = computed(() =>
+    this.store.canStartRunningSession() ? null : RUNNING_CAP_MESSAGE,
+  );
   readonly effectiveCollapsed = computed(
     () =>
       this.board().railCollapsed ||
@@ -318,11 +361,26 @@ export class CanvasRailBoardComponent {
     this.detailsOpen.update((open) => !open);
     this.anchor();
   }
+  /**
+   * Footer and zero-tile empty-board "New session": ask the host to open its
+   * one named popover. The board never creates a session itself; the host
+   * stays the final cap gate and announces a refusal in its dock status line.
+   */
   newSession(): void {
-    if (!this.store.canStartRunningSession() || !this.store.canAddTile())
-      return;
-    const id = this.store.addTile(defaultSessionName());
-    if (!id) return;
+    this.newSessionRequested.emit();
+  }
+  /**
+   * The empty-board trigger stays focusable while `aria-disabled`, so its
+   * reason is still read out; activating it then does nothing. A native
+   * button turns Enter and Space into this click, so the guard covers the
+   * keyboard too.
+   */
+  emptyBoardNewSession(): void {
+    if (this.newSessionBlockReason()) return;
+    this.newSession();
+  }
+  /** Called by the host after its popover added `id` to this board. */
+  sessionCreated(id: string): void {
     this.geometryBaseline = null;
     this.store.focusTile(id);
     this.anchor();

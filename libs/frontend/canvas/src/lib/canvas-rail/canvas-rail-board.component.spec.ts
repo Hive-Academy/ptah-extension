@@ -7,7 +7,6 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { defaultSessionName } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
@@ -18,6 +17,7 @@ import { CanvasStore, type CanvasTile } from '../canvas.store';
 import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
+import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
 import { CanvasRailBoardComponent } from './canvas-rail-board.component';
 
 const sourceState = signal<CompactRailState>('idle');
@@ -125,15 +125,29 @@ describe('CanvasRailBoardComponent actions', () => {
       workspacePath: () => 'workspace',
       orderedTiles: () => [{ tabId: 'a' }, { tabId: 'b' }],
       anchor: jest.fn(),
+      newSessionRequested: { emit: jest.fn() },
     });
     return { instance, focusTile, addTile, removeTile };
   };
 
-  it('adds a named session and focuses it', () => {
-    const { instance, addTile, focusTile } = board();
+  it('asks the host for the named popover instead of adding a session', () => {
+    const { instance, addTile } = board();
     instance.newSession();
-    expect(addTile).toHaveBeenCalledWith(defaultSessionName());
+    expect(instance.newSessionRequested.emit).toHaveBeenCalledTimes(1);
+    expect(addTile).not.toHaveBeenCalled();
+  });
+
+  it('focuses, anchors and resets the geometry baseline after the host adds a session', () => {
+    const { instance, focusTile } = board();
+    Object.assign(instance, { geometryBaseline: { key: 'k' } });
+    instance.sessionCreated('new');
     expect(focusTile).toHaveBeenCalledWith('new');
+    expect(
+      (instance as unknown as { anchor: jest.Mock }).anchor,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      (instance as unknown as { geometryBaseline: unknown }).geometryBaseline,
+    ).toBeNull();
   });
 
   it('focuses the next neighbour after closing a focused session', async () => {
@@ -148,30 +162,45 @@ describe('CanvasRailBoardComponent actions', () => {
     expect(focusTile).toHaveBeenCalledWith('b');
   });
 
-  it('refuses an add at the running cap', () => {
-    const { instance, addTile } = board();
-    Object.assign(instance, {
-      store: { canStartRunningSession: () => false, canAddTile: () => true },
-    });
-    instance.newSession();
-    expect(addTile).not.toHaveBeenCalled();
-  });
+  it.each([
+    ['running cap', false, true],
+    ['tile bound', true, false],
+  ])(
+    'never adds at the %s; the host owns the refusal and its reason',
+    (_label, canStart, canAdd) => {
+      const { instance, addTile } = board();
+      Object.assign(instance, {
+        store: {
+          canStartRunningSession: () => canStart,
+          canAddTile: () => canAdd,
+          addTile,
+        },
+      });
+      instance.newSession();
+      expect(addTile).not.toHaveBeenCalled();
+      expect(instance.newSessionRequested.emit).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe('CanvasRailBoardComponent rendering', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  function mount(visible = true) {
+  function mount(visible = true, count = 2) {
     sourceState.set('idle');
     jest
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function (this: HTMLElement) {
         return { height: Number.parseFloat(this.style.height) || 0 } as DOMRect;
       });
-    const tiles = signal<readonly CanvasTile[]>([
-      { tabId: 'a', order: 0 } as CanvasTile,
-      { tabId: 'b', order: 1 } as CanvasTile,
-    ]);
+    const tiles = signal<readonly CanvasTile[]>(
+      Array.from(
+        { length: count },
+        (_, order) =>
+          ({ tabId: String.fromCharCode(97 + order), order }) as CanvasTile,
+      ),
+    );
+    const canStart = signal(true);
     const focused = signal<string | null>('a');
     const board = signal<{
       mode: 'rail';
@@ -200,7 +229,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       focusedTabIdFor: () => focused(),
       boardFor: () => board(),
       runningSessionCount: () => 0,
-      canStartRunningSession: () => true,
+      canStartRunningSession: () => canStart(),
       canAddTile: () => true,
       focusTile: (id: string) => focused.set(id),
       setRailCollapsed,
@@ -242,6 +271,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       board,
       width,
       store,
+      canStart,
       metrics: TestBed.inject(CanvasRenderMetricsService),
     };
   }
@@ -464,5 +494,81 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.nativeElement.getAttribute('data-canvas-live-views')).toBe(
       '0',
     );
+  });
+
+  it.each([1, 3, 9, 12])(
+    'Rail with %i sessions has one live view',
+    (count) => {
+      const { fixture } = mount(true, count);
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelectorAll('[data-rail-card]'),
+      ).toHaveLength(count);
+      expect(
+        fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
+      ).toHaveLength(1);
+      expect(
+        fixture.nativeElement.getAttribute('data-canvas-live-views'),
+      ).toBe('1');
+    },
+  );
+
+  it('0 tiles: the empty-board trigger asks for the named popover', () => {
+    const { fixture } = mount(true, 0);
+    const requested = jest.fn();
+    fixture.componentInstance.newSessionRequested.subscribe(requested);
+    expect(fixture.nativeElement.querySelector('ptah-canvas-focus-area')).toBeNull();
+    const trigger = fixture.nativeElement.querySelector<HTMLButtonElement>(
+      '[data-testid="canvas-rail-empty-board"] button',
+    );
+    expect(trigger.textContent?.trim()).toBe('New session');
+    expect(trigger.getAttribute('aria-disabled')).toBeNull();
+    trigger.click();
+    expect(requested).toHaveBeenCalledTimes(1);
+  });
+
+  it('0 tiles: at the running cap the aria-disabled trigger keeps its reason and does not emit', () => {
+    const { fixture, canStart } = mount(true, 0);
+    const requested = jest.fn();
+    fixture.componentInstance.newSessionRequested.subscribe(requested);
+    canStart.set(false);
+    fixture.detectChanges();
+    const trigger = fixture.nativeElement.querySelector<HTMLButtonElement>(
+      '[data-testid="canvas-rail-empty-board"] button',
+    );
+    expect(trigger.getAttribute('aria-disabled')).toBe('true');
+    // Still focusable, so the reason stays reachable by keyboard.
+    expect(trigger.disabled).toBe(false);
+    expect(trigger.getAttribute('aria-describedby')).toBe(
+      'canvas-rail-empty-board-reason',
+    );
+    expect(
+      fixture.nativeElement.querySelector('#canvas-rail-empty-board-reason')
+        .textContent,
+    ).toContain(RUNNING_CAP_MESSAGE);
+    // Pointer activation, and the click a browser makes from Enter or Space.
+    trigger.click();
+    for (const key of ['Enter', ' ']) {
+      trigger.dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+      );
+    }
+    expect(requested).not.toHaveBeenCalled();
+    // A free running slot enables it again.
+    canStart.set(true);
+    fixture.detectChanges();
+    expect(trigger.getAttribute('aria-disabled')).toBeNull();
+    trigger.click();
+    expect(requested).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes the footer New session to the named popover request', () => {
+    const { fixture } = mount();
+    const requested = jest.fn();
+    fixture.componentInstance.newSessionRequested.subscribe(requested);
+    fixture.debugElement
+      .query((node) => node.name === 'ptah-canvas-rail')
+      .triggerEventHandler('newSession');
+    expect(requested).toHaveBeenCalledTimes(1);
   });
 });
