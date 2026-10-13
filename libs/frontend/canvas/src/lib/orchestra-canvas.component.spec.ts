@@ -72,6 +72,8 @@ import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
+import { CanvasBoardToggleComponent } from './canvas-board-toggle.component';
+import { CanvasRailBoardComponent } from './canvas-rail/canvas-rail-board.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 
 @Component({
@@ -890,9 +892,13 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
             useValue: {
               load: jest.fn(() => ({
                 tiles: null,
+                board: { mode: 'grid', railCollapsed: false, railDensity: 'comfortable', railScrollTop: 0 },
                 writable: true,
                 needsWrite: false,
+                readOnlyReason: null,
               })),
+              writeFailed: signal(false),
+              readOnlyPaths: signal(new Set<string>()),
               markHydrated: jest.fn(),
               schedule: jest.fn(),
               remove: jest.fn(),
@@ -1077,6 +1083,8 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
           EmptyStateStub,
           DetailPanelStub,
           CanvasLayoutControlsComponent,
+          CanvasBoardToggleComponent,
+          CanvasRailBoardComponent,
           NeedsYouQueueStub,
           ActivityTickerComponent,
           NativePopoverComponent,
@@ -1090,9 +1098,13 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
             useValue: {
               load: jest.fn(() => ({
                 tiles: null,
+                board: { mode: 'grid', railCollapsed: false, railDensity: 'comfortable', railScrollTop: 0 },
                 writable: true,
                 needsWrite: false,
+                readOnlyReason: null,
               })),
+              writeFailed: signal(false),
+              readOnlyPaths: signal(new Set<string>()),
               markHydrated: jest.fn(),
               schedule: jest.fn(),
               remove: jest.fn(),

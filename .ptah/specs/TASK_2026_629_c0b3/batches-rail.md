@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 8/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 9/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -465,7 +465,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   checks: keyboard 6/6, rail 4/4, rail card 4/4, focus header 4/4; canvas project 30 suites / 365 tests;
   typecheck pass; lint 0 errors (20 warnings, 7 new in R5 specs).
 
-## Batch R6: Focus area, Rail board, rail geometry, render metrics (canvas) — COMPLETE (commit: the `batch R6` commit; SHA recorded at R7 acceptance)
+## Batch R6: Focus area, Rail board, rail geometry, render metrics (canvas) — COMPLETE (commit b6ffa30c1)
 
 - Goal: one keyed live view per board, the smart Rail board per retained workspace (collapse, density, scroll anchor,
   live region, D4 hidden-mounts-nothing, D19 bands), the pure geometry guard and the new metrics (plan Components 12,
@@ -523,7 +523,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   focus area 2/2, board 14/14; canvas project 33 suites / 387 tests; typecheck pass; lint 0 errors
   (20 warnings, unchanged from R5).
 
-## Batch R7: Board toggle and OrchestraCanvas integration (canvas) — PENDING
+## Batch R7: Board toggle and OrchestraCanvas integration (canvas) — COMPLETE (commit: the `batch R7` commit; SHA recorded at R8 acceptance)
 
 - Goal: per-path `@if` Rail/Grid mount, the Board toggle in the dock, Grid-only layout controls and empty overlay,
   `detailTabId` gate, mode-routed keys, dock notes (plan Component 15, `:901-952`; D1).
@@ -564,7 +564,24 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader: only the 5 listed files changed (toggle + spec, rail
+  spec created; orchestra component + spec modified); `canvas/src/index.ts` unchanged; no TODO/stub markers;
+  no `--state-ink-*` use. A3/K3: the orchestra spec diff is fixture-only (two imports into the dock fixture,
+  both persistence `load` stubs gain a `grid` board and `readOnlyReason: null`, both stubs gain `writeFailed`
+  and `readOnlyPaths`); no `it` body or assertion changed. K4: `orchestra-canvas.detail.spec.ts` unedited
+  and passes 3/3; Grid key path runs when `detailTabId()` is non-null, the Rail branch is
+  `this.activeRailBoards?.().find(visible)` and returns when absent. A4: the rail-spec draft case types a
+  draft, switches to Grid (input removed), back to Rail (new input instance, text restored); the chat-input
+  destroy-save backstop spec is unedited. Toggle is `role="group" aria-label="Board"` with `aria-pressed`,
+  placed before layout controls and queue (asserted); `setBoardMode` only calls the store, and the spec
+  asserts no close/stop/reload. Case (4) judgement: accepted with a note. The integration spec stubs
+  `ptah-canvas-rail-board` and counts the stub's draft input (1 of 2 boards), so it proves the orchestra
+  binds `[visible]` to the active path only; the real board's "hidden mounts nothing" (D4) is pinned in the
+  R6 board spec. "One transcript in the DOM in total" against real children is left to the phase review and
+  visual check. Notes for the phase review: the dock stays visible for an empty Rail board (so the toggle
+  is reachable); `switchMode('rail')` in the spec clicks Grid then Rail. Re-run checks: toggle 1/1, rail 10/10,
+  orchestra 34/34, detail 3/3; canvas project 35 suites / 398 tests; typecheck pass; lint 0 errors
+  (20 warnings, unchanged from R6).
 
 ## Batch R8: State-ink tokens and contrast spec (webview) — PENDING
 
