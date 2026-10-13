@@ -23,6 +23,7 @@ import {
 } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { CanvasStore } from '../canvas.store';
+import { freezeSessionOverrides } from '../canvas-session-overrides';
 
 @Component({
   selector: 'ptah-canvas-detail-transcript',
@@ -41,23 +42,24 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
   readonly tabId = input.required<string>();
   readonly chatView = ChatViewComponent;
   private readonly tabIdSignal = computed<string | null>(() => this.tabId());
-  private readonly visible = signal(true);
+  private readonly active = inject(SURFACE_ACTIVE, { optional: true }) ?? signal(true);
   readonly childInjector = createEnvironmentInjector(
     [
       { provide: SESSION_CONTEXT, useValue: this.tabIdSignal },
-      { provide: SESSION_VISIBLE, useValue: this.visible },
-      { provide: SESSION_FOCUSED, useValue: this.visible },
+      { provide: SESSION_VISIBLE, useValue: this.active },
+      { provide: SESSION_FOCUSED, useValue: this.active },
       {
         provide: SESSION_START_GUARD,
         useValue: () => this.canvasStore.startBlockReason(this.tabId()),
       },
-      { provide: SURFACE_ACTIVE, useValue: this.visible },
+      { provide: SURFACE_ACTIVE, useValue: this.active },
       { provide: HIDE_AGENT_SIDEBAR, useValue: true },
     ],
     this.parentInjector,
   );
   private readonly registration = effect((onCleanup) => {
     const id = this.tabId();
+    if (!this.active()) return;
     const registered = untracked(() => {
       if (this.tabManager.visibleTabIds().has(id)) return false;
       this.tabManager.registerVisibleTab(id);
@@ -67,6 +69,8 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
       onCleanup(() => this.tabManager.unregisterVisibleTab(id));
     }
   });
+
+  private readonly frozenOverrides = freezeSessionOverrides(this.tabId);
 
   ngOnDestroy(): void {
     this.childInjector.destroy();

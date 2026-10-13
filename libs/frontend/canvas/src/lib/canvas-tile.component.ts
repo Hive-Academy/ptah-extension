@@ -9,7 +9,6 @@ import {
   signal,
   computed,
   effect,
-  untracked,
   viewChild,
   ElementRef,
   EnvironmentInjector,
@@ -31,8 +30,6 @@ import {
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import {
-  EffortStateService,
-  ModelStateService,
   SURFACE_ACTIVE,
 } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
@@ -53,6 +50,8 @@ import {
 } from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
+import { freezeSessionOverrides } from './canvas-session-overrides';
+import { isIgnoredCardClick } from './canvas-card-click';
 import {
   clampCompactHeightUnits,
   DEFAULT_TILE_WIDTH,
@@ -508,8 +507,6 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   private readonly canvasStore = inject(CanvasStore, { optional: true });
   private readonly detail = inject(CanvasDetailService, { optional: true });
   private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly effortState = inject(EffortStateService);
-  private readonly modelState = inject(ModelStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
 
   /**
@@ -533,33 +530,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     () => this.canvasSurfaceActive() && this.visible(),
   );
 
-  private readonly _freezeEffort = effect(() => {
-    if (!this.effortState.isLoaded()) return;
-    untracked(() => {
-      const id = this.tabId();
-      const tab = this.tabManager.tabs().find((t) => t.id === id);
-      if (tab && tab.overrideEffort === undefined) {
-        this.tabManager.setOverrideEffort(
-          id,
-          this.effortState.currentEffort() ?? null,
-        );
-      }
-    });
-  });
-
-  private readonly _freezeModel = effect(() => {
-    if (!this.modelState.isLoaded()) return;
-    untracked(() => {
-      const id = this.tabId();
-      const tab = this.tabManager.tabs().find((t) => t.id === id);
-      if (tab && tab.overrideModel === undefined) {
-        const current = this.modelState.currentModel();
-        if (current) {
-          this.tabManager.setOverrideModel(id, current);
-        }
-      }
-    });
-  });
+  private readonly frozenOverrides = freezeSessionOverrides(this.tabId);
 
   /**
    * Register this tile's tab as visible only while its workspace grid is
@@ -691,16 +662,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
    */
   onTileClick(event?: MouseEvent): void {
     if (this.cardMode()) {
-      if (event && this.isInteractiveTarget(event.target)) return;
-      const selection = window.getSelection();
-      if (
-        selection &&
-        !selection.isCollapsed &&
-        selection.toString().trim() &&
-        selection.anchorNode &&
-        this.hostRef.nativeElement.contains(selection.anchorNode)
-      )
-        return;
+      if (event && isIgnoredCardClick(event, this.hostRef.nativeElement)) return;
       this.openCardSession();
     } else this.focusRequested.emit(this.tabId());
   }
@@ -714,16 +676,6 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
       return;
     event.preventDefault();
     this.openCardSession();
-  }
-
-  /** True for a control inside the tile; the card-mode host is itself a role="button". */
-  private isInteractiveTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return false;
-    if (target instanceof HTMLElement && target.isContentEditable) return true;
-    const control = target.closest(
-      'button, a, input, textarea, select, [role="button"], [contenteditable="true"]',
-    );
-    return control !== null && control !== this.hostRef.nativeElement;
   }
 
   /**
