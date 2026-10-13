@@ -439,6 +439,29 @@ describe.each([true, false])(
       },
     );
 
+    // Regression: an earlier line can hide a plain error line that ends the output.
+    it.each([
+      ['an unclosed HTML comment', '# Log\n<!--\nfatal disk full'],
+      ['an open fence', '# Log\n```\nfatal disk full'],
+      ['a heading only', '# Log\nfatal disk full'],
+    ])(
+      'keeps the Error block when markdown output ends with the error after %s',
+      async (_case, toolOutput) => {
+        const host = render({
+          toolName: 'mcp__server__run',
+          status: 'error',
+          toolOutput,
+          error: 'fatal disk full',
+        });
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        const block = host.querySelector('[data-testid="tool-error"]');
+        expect(block).not.toBeNull();
+        expect(block?.textContent).toContain('fatal disk full');
+      },
+    );
+
     it('keeps the Error block when markdown output only mentions the error incidentally', async () => {
       const host = render({
         toolName: 'mcp__server__run',

@@ -135,9 +135,11 @@ export class ToolOutputDisplayComponent {
    * Markdown output (MCP results that use markdown syntax, `.md` content) is
    * parsed and sanitised before display. Emphasis, headings and list markers
    * drop only their markers, so the block is left out for markdown output
-   * too, but only for a one-line error free of syntax whose rendering can
-   * hide words (`MARKDOWN_MAY_HIDE_TEXT`); otherwise the block stays, even
-   * when that shows the message twice.
+   * too, but only when the WHOLE output is one line free of syntax whose
+   * rendering can hide words (`MARKDOWN_MAY_HIDE_TEXT`). The guard reads the
+   * output, not only the error, because an earlier line (an unclosed `<!--`,
+   * a fence) can hide a later one. Otherwise the block stays, even when that
+   * shows the message twice.
    * A whitespace-only error still shows the block, with a stated fallback.
    */
   readonly errorMessage = computed((): string | null => {
@@ -145,14 +147,15 @@ export class ToolOutputDisplayComponent {
     const { error, toolOutput } = node;
     if (!error) return null;
     if (!error.trim()) return 'The tool reported an error without a message.';
+    const output = toolOutputPlainText(toolOutput);
     const renderingMayHideIt =
-      MARKDOWN_MAY_HIDE_TEXT.test(error) &&
-      detectToolLanguage(node) === 'markdown';
+      detectToolLanguage(node) === 'markdown' &&
+      MARKDOWN_MAY_HIDE_TEXT.test(output.trim());
     const shownAsOutput =
       !this.todoInput() &&
       !this.editInput() &&
       !renderingMayHideIt &&
-      outputShowsError(toolOutputPlainText(toolOutput), error);
+      outputShowsError(output, error);
     return shownAsOutput ? null : error;
   });
 
