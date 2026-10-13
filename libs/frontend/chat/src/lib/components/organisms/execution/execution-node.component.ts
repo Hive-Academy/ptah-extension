@@ -19,6 +19,7 @@ import { LoggingService, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from '../../../services/scroll-dirty.service';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
+import { SubagentTileComponent } from './subagent-tile.component';
 import {
   AgentSummaryComponent,
   ThinkingBlockComponent,
@@ -149,6 +150,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
     MarkdownModule,
     LucideAngularModule,
     InlineAgentBubbleComponent, // Required in imports even with @defer - Angular needs to know about it
+    SubagentTileComponent,
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
@@ -296,6 +298,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                       [isStreaming]="isStreaming()"
                       [isFinalizing]="isFinalizing()"
                       [getPermissionForTool]="getPermissionForTool()"
+                      [agentTileMode]="agentTileMode()"
                       (permissionResponded)="permissionResponded.emit($event)"
                     />
                   }
@@ -325,6 +328,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                     [isStreaming]="isStreaming()"
                     [isFinalizing]="isFinalizing()"
                     [getPermissionForTool]="getPermissionForTool()"
+                    [agentTileMode]="agentTileMode()"
                     (permissionResponded)="permissionResponded.emit($event)"
                   />
                 }
@@ -334,6 +338,14 @@ function scheduleFrame(cb: () => void): FrameHandle {
         }
       }
       @case ('agent') {
+        @if (agentTileMode()) {
+          <div [class.exec-fade-in]="!isFinalizing()">
+            <ptah-subagent-tile
+              [node]="node()"
+              [getPermissionForTool]="getPermissionForTool()"
+            />
+          </div>
+        } @else {
         <!--
       Pass nodeTemplate so the bubble can render its children recursively
       without importing ExecutionNodeComponent. @defer was previously used
@@ -360,9 +372,11 @@ function scheduleFrame(cb: () => void): FrameHandle {
             [isStreaming]="isStreaming()"
             [isFinalizing]="isFinalizing()"
             [getPermissionForTool]="getPermissionForTool()"
+            [agentTileMode]="agentTileMode()"
             (permissionResponded)="permissionResponded.emit($event)"
           />
         </ng-template>
+        }
       }
       @case ('message') {
         <!-- Message node unwraps to its children. The ptah-ui context is
@@ -377,6 +391,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
               [isStreaming]="isStreaming()"
               [isFinalizing]="isFinalizing()"
               [getPermissionForTool]="getPermissionForTool()"
+              [agentTileMode]="agentTileMode()"
               [ptahUi]="ptahUi()"
               (permissionResponded)="permissionResponded.emit($event)"
             />
@@ -437,6 +452,8 @@ function scheduleFrame(cb: () => void): FrameHandle {
 })
 export class ExecutionNodeComponent {
   readonly node = input.required<ExecutionNode>();
+  /** Main-transcript opt-in. Other execution-tree hosts retain inline agents. */
+  readonly agentTileMode = input<boolean>(false);
 
   /** Global streaming state passed from parent */
   readonly isStreaming = input<boolean>(false);

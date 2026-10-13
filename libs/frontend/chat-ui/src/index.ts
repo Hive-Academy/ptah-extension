@@ -36,6 +36,7 @@ export { ActivityTickerComponent } from './lib/molecules/activity-ticker/activit
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
 export {
   BackgroundAgentStripComponent,
+  formatAgentElapsed,
   type BackgroundAgentStripEntry,
   type BackgroundAgentStripStatus,
   type BackgroundAgentSteerRequest,
