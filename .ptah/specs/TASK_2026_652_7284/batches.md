@@ -357,7 +357,7 @@ tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping erro
   re-review disposition"). One exception: the prettier drift is fixed in 8afe14ce5.
 - Batch 17 COMPLETE (94eb0149d). Batch 9 (Phase 2B) COMPLETE (9f98ea07c). Phase 2B review
   APPROVED 8.5/10 (`code-logic-review-phase-2b.md`; see "Phase 2B review disposition").
-  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 COMPLETE (27bf6b468). Batch 11 COMPLETE (93fe34db7). Batch 12 COMPLETE. Batch 13 IN_PROGRESS.
+  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 COMPLETE (27bf6b468). Batch 11 COMPLETE (93fe34db7). Batch 12 COMPLETE (54f4932c0). Batch 13 COMPLETE. Phase 3 review due (Batches 10-13).
 - FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
   Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
   confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
@@ -1024,7 +1024,7 @@ pin the name contract that the dispatcher depends on.
   di-lint OK (1825 sites, 793 tokens). Minor for the phase review: the selection loop reads
   `manifest.json` twice before `readManifest` (`analysis-freshness.service.ts:165-176`).
 
-## Batch 12: v4 writer and SDK session capture - COMPLETE
+## Batch 12: v4 writer and SDK session capture - COMPLETE (commit 54f4932c0)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1089,7 +1089,7 @@ pin the name contract that the dispatcher depends on.
   now archives a v3 slug on every open, not only on resume (`analysis-run-checkpoint.ts:58`);
   the batch deleted most method doc comments in `analysis-run-checkpoint.ts`.
 
-## Batch 13: `wizard:analysis-status` RPC - IN_PROGRESS
+## Batch 13: `wizard:analysis-status` RPC - COMPLETE
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1098,7 +1098,7 @@ pin the name contract that the dispatcher depends on.
 - Tasks: 3 | Depends on: Batches 5, 11, 12
 - Phase: 3 - Manifest v4 and freshness (last batch of the phase) | Phase review: code-logic, plus style
 
-### Task 13.1: Register the method (F18) - IN_PROGRESS
+### Task 13.1: Register the method (F18) - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc.types.ts` (second owner, after Batch 5),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts` (second owner),
@@ -1106,7 +1106,7 @@ pin the name contract that the dispatcher depends on.
 - Pattern to follow: `'wizard:get-resumable-run'` at `rpc.types.ts:1005-1008,3795`, `baseline.ts:409`, `setup-rpc.schema.ts:26`
 - Quality requirements: the registry entry uses the Task 1.3 types. `WizardAnalysisStatusParamsSchema = z.object({})`.
 
-### Task 13.2: Handler and spec - IN_PROGRESS
+### Task 13.2: Handler and spec - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.spec.ts`
@@ -1114,7 +1114,7 @@ pin the name contract that the dispatcher depends on.
 - Pattern to follow: `registerGetResumableRun` (`setup-rpc.handlers.ts:405-449`), `METHODS` (`:86`)
 - Quality requirements: add the method to `METHODS`, then bind. Resolve via `AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE`. No workspace returns missing. Read-only. `get-resumable-run` keeps its response type, and its spec reflects that v3 is not resumable. The spec covers params validation, no disk mutation, and no workspace.
 
-### Task 13.3: CLI surface confirmation (F19) - IN_PROGRESS
+### Task 13.3: CLI surface confirmation (F19) - COMPLETE
 
 - File: none edited. Same rule as Task 5.4.
 
@@ -1125,6 +1125,12 @@ pin the name contract that the dispatcher depends on.
   `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers --parallel=1 && npx nx run-many -t test -p @ptah-extension/cli-engine --parallel=1`
 - After commit: the Phase 3 review is due (Batches 10-13, combined diff).
+- Verified (team-leader, 2026-10-14, report `batch-13-report.md`): only the five listed
+  shared and rpc-handlers files changed; no frontend file and no cli-engine file touched;
+  prettier check clean; shared and rpc-handlers typecheck, lint and test pass ("2 projects");
+  cli-engine test passes with no edit (F19); di-lint OK (1826 sites, 793 tokens).
+  Minor for the style review: `'wizard:analysis-status'` sits out of alphabetical order in
+  `host-source-registry.baseline.ts:411`.
 
 ## Batch 14: Agent generation falls back to gathered context - PENDING
 

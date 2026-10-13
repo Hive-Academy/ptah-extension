@@ -408,6 +408,7 @@ export const BASELINE_RPC_METHOD_NAMES: readonly string[] = [
   'wizard:cancel-analysis',
   'wizard:deep-analyze',
   'wizard:get-resumable-run',
+  'wizard:analysis-status',
   'wizard:install-pack-agents',
   'wizard:list-agent-packs',
   'wizard:list-analyses',
