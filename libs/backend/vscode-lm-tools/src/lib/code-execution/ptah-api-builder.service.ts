@@ -39,7 +39,10 @@ import {
 } from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  NON_AUTH_PROVIDER_KEY_SLOT_IDS,
+} from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
@@ -319,14 +322,9 @@ interface PtahCliRegistryLike {
  */
 export const BROWSER_CAPABILITIES_TOKEN = Symbol.for('BrowserCapabilities');
 
-/**
- * SecretStorage slot for the Smithery API key. Duplicated as a literal to avoid
- * importing rpc-handlers (forbidden cycle); must match SMITHERY_API_KEY_SECRET_ID
- * in libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.schema.ts.
- *
- * @warning Keep this string value in sync with the canonical definition.
- */
-const SMITHERY_API_KEY_SECRET_ID = 'smithery.apiKey';
+/** SecretStorage slot for the Smithery API key (a non-auth connector slot). */
+const SMITHERY_API_KEY_SECRET_ID =
+  NON_AUTH_PROVIDER_KEY_SLOT_IDS.smitheryApiKey;
 
 @injectable()
 export class PtahAPIBuilder {

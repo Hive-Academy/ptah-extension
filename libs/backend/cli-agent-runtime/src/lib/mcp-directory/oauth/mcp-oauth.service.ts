@@ -142,6 +142,15 @@ export class McpOAuthService {
   private readonly callbackTimeoutMs: number;
   private readonly discoveryDeadlineMs: number;
   private readonly probeDeadlineMs: number;
+  /**
+   * One refresh per server at a time. Concurrent session starts would each
+   * send the same refresh token; with rotating refresh tokens the second is
+   * rejected, and every refresh is a secret write.
+   */
+  private readonly refreshesInFlight = new Map<
+    string,
+    Promise<McpOAuthTokenRecord | null>
+  >();
 
   constructor(deps: McpOAuthServiceDeps) {
     this.httpServerProvider = deps.httpServerProvider;
@@ -395,7 +404,19 @@ export class McpOAuthService {
   }
 
   /** Exchange the stored refresh token for a new access token. */
-  async refresh(serverKey: string): Promise<McpOAuthTokenRecord | null> {
+  refresh(serverKey: string): Promise<McpOAuthTokenRecord | null> {
+    const inFlight = this.refreshesInFlight.get(serverKey);
+    if (inFlight) return inFlight;
+    const attempt = this.refreshOnce(serverKey).finally(() => {
+      this.refreshesInFlight.delete(serverKey);
+    });
+    this.refreshesInFlight.set(serverKey, attempt);
+    return attempt;
+  }
+
+  private async refreshOnce(
+    serverKey: string,
+  ): Promise<McpOAuthTokenRecord | null> {
     const token = await this.tokenStore.getToken(serverKey);
     if (!token?.refreshToken) return null;
 

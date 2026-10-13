@@ -99,6 +99,7 @@ function makeFakeCallbackListener(opts?: {
 function makeService(overrides?: {
   manifestPath?: string;
   now?: () => number;
+  fetchImpl?: FetchLike;
 }) {
   const secrets = makeSecrets();
   const tokenStore = createMcpOAuthTokenStore(secrets);
@@ -121,7 +122,7 @@ function makeService(overrides?: {
     openExternal,
     tokenStore,
     manifest,
-    fetchImpl,
+    fetchImpl: overrides?.fetchImpl ?? fetchImpl,
     now: overrides?.now ?? (() => 1_000_000),
     callbackTimeoutMs: 5000,
   });
@@ -201,6 +202,34 @@ describe('McpOAuthService', () => {
     t = 1_000_000 + 3600 * 1000 + 1;
     const fresh = await service.getFreshAccessToken(serverKey);
     expect(fresh).toBe('AT2');
+  });
+
+  it('concurrent session starts share one refresh per server', async () => {
+    let t = 1_000_000;
+    let refreshRequests = 0;
+    const countingFetch: FetchLike = async (url, init) => {
+      const body = new URLSearchParams(init?.body ?? '');
+      if (body.get('grant_type') === 'refresh_token') refreshRequests++;
+      return fetchImpl(url, init);
+    };
+    const { service, manifestPath } = makeService({
+      now: () => t,
+      fetchImpl: countingFetch,
+    });
+    cleanup.push(manifestPath);
+    const { serverKey } = await service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+    });
+
+    t = 1_000_000 + 3600 * 1000 + 1;
+    const tokens = await Promise.all([
+      service.getFreshAccessToken(serverKey),
+      service.getFreshAccessToken(serverKey),
+      service.getFreshAccessToken(serverKey),
+    ]);
+
+    expect(tokens).toEqual(['AT2', 'AT2', 'AT2']);
+    expect(refreshRequests).toBe(1);
   });
 
   /**

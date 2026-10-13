@@ -55,7 +55,9 @@ describe('ConfigWatcher secret filter', () => {
   it.each([
     'ptah.auth.provider.mcp.oauth.oauth-mcp.heygen.com-mcp-hyperframes',
     'ptah.auth.provider.smithery.config.github',
+    'ptah.auth.provider.smithery.apiKey',
     'ptah.auth.provider.ptahCli.pc-1234',
+    'ptah.auth.provider.cursor',
   ])('does not emit configChanged for the non-auth slot %s', (key) => {
     const w = makeWatcher();
     w.fireSecret(key);

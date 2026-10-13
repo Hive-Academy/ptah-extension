@@ -360,5 +360,6 @@ export { resolveAuthProviderKey } from './settings-auth-key';
 export {
   PROVIDER_KEY_SECRET_PREFIX,
   NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES,
+  NON_AUTH_PROVIDER_KEY_SLOT_IDS,
   isSdkAuthSecretKey,
 } from './provider-key-slots';
