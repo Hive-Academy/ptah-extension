@@ -355,8 +355,9 @@ tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping erro
   678f0d632 returned code-logic APPROVED WITH FIXES 8/10 (3 Minor) and style APPROVED 8/10
   (4 Minor). Under the one-fix-round rule the Minors are recorded, not fixed (see "Phase 1
   re-review disposition"). One exception: the prettier drift is fixed in 8afe14ce5.
-- Batch 17 COMPLETE (94eb0149d). Batch 9 (Phase 2B) COMPLETE in the commit after it; the
-  Phase 2B code-logic review on that commit is due. Batch 10 (Phase 3, backend) is next.
+- Batch 17 COMPLETE (94eb0149d). Batch 9 (Phase 2B) COMPLETE (9f98ea07c). Phase 2B review
+  APPROVED 8.5/10 (`code-logic-review-phase-2b.md`; see "Phase 2B review disposition").
+  Test-only fix Batch 18 runs next, then Batch 10 (Phase 3, backend).
 - FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
   Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
   confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
@@ -709,7 +710,7 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
 - After commit: the Phase 2F review is due (Batches 6-8, combined diff of their commits).
 
-## Batch 9: Session-scoped MCP proposal writer - COMPLETE (commit: the `feat(shared,vscode-lm-tools)` batch 9 commit directly after 94eb0149d; Phase 2B review pending)
+## Batch 9: Session-scoped MCP proposal writer - COMPLETE (commit 9f98ea07c; Phase 2B ACCEPTED: code-logic-review-phase-2b.md)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -851,6 +852,58 @@ path with correction guidance` (`protocol-dispatcher.spec.ts:639`). Checks re-ru
   `npx nx run-many -t lint,test -p @ptah-extension/rpc-handlers --parallel=1` (tailed).
 - Then the team-leader commits Batch 17, then Batch 9 (already verified), then requests the
   Phase 2B review on the Batch 9 commit.
+
+## Phase 2B review disposition (2026-10-14)
+
+Review: `code-logic-review-phase-2b.md` (antigravity family; implementer codex), APPROVED
+8.5/10, no Critical, Blocking or Serious finding. Phase 2B is ACCEPTED. Per the fix-round rule,
+only the test gaps go into one small test-only fix batch (Batch 18), because they are cheap and
+pin the name contract that the dispatcher depends on.
+
+| Finding                                                       | Severity       | Disposition                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 Dispatcher specs never use the real error classes' `name`   | Moderate, test | Fixed in Batch 18 (Task 18.1): the builder spec asserts the real `.name` values `HarnessConfigUpdatesError` and `HarnessProposalNoSessionError`, so a rename breaks a test on the producer side as well as the dispatcher side                                                             |
+| 2 `ZodError` branch may miss a zod 4 `$ZodError` name         | Minor          | Verified, no change. The orchestrator checked this repo's zod 4: `z.string().parse(1)` throws an error whose `name` and constructor name are both `ZodError`, so `error.name === 'ZodError'` (`protocol-dispatcher.ts:2739`) matches. Batch 18 adds a dispatcher spec case for this branch |
+| 3 "proposal store unavailable" falls into the generic message | Minor          | No change. The generic text ("Retry if the session and storage are available") is accurate for that state and leaks nothing; the specific text stays in the host log                                                                                                                       |
+| 4 Dispatcher spec covers 3 of 7 branches                      | Minor, test    | Fixed in Batch 18 (Task 18.2): cases for `HARNESS_PROPOSAL_NO_WORKSPACE`, an fs `code` (for example `EACCES`), and a real `ZodError`                                                                                                                                                       |
+| 5 `getLaneLimits` reflow; webview ignores `sessionId`         | Minor          | No change. The reflow is formatting only. Filtering by `sessionId` in the webview is Task 7.2, held with the frontend (D7)                                                                                                                                                                 |
+| 6 `broadcast?.` on a required dep                             | Minor          | No change. Harmless; the proposal is already persisted before the broadcast, so a missing webview manager loses no data                                                                                                                                                                    |
+
+## Batch 18: Phase 2B review test fixes (error-name contract and dispatcher branches) - IN_PROGRESS
+
+- Recommended executor: implementation CLI lane, one lane
+- Fallback executor: senior-tester sub-agent
+- Execution mode: sequential
+- Rationale: two spec files in one lib; test-only, no production change.
+- Tasks: 2 | Depends on: Batch 9
+- Phase: 2B fix (test-only) | Phase review: none (tests only)
+
+### Task 18.1: Builder spec asserts the real error names - IN_PROGRESS
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.spec.ts`
+- Pattern to follow: the existing `rejects.toThrow(/Invalid configUpdates/)` (`:424`) and
+  `rejects.toThrow(/no SDK session/)` (`:463`) cases.
+- Quality requirements: in those two cases (or beside them), also assert the rejection's
+  `name` is exactly `'HarnessConfigUpdatesError'` and `'HarnessProposalNoSessionError'`
+  (for example `rejects.toMatchObject({ name: '...' })`). No production file changes; the
+  classes stay non-exported.
+
+### Task 18.2: Dispatcher spec covers the remaining branches - IN_PROGRESS
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
+- Pattern to follow: the existing `ptah_harness_propose_config` error cases (`:615-650`).
+- Quality requirements: three cases through `harnessProposalErrorMessage`
+  (`protocol-dispatcher.ts:2728-2758`): an error with `code: 'HARNESS_PROPOSAL_NO_WORKSPACE'`
+  gives the "no workspace is available" text; an error with an fs `code` such as `'EACCES'`
+  gives the file-system text naming the code and not echoing the error message or a path; a
+  real `ZodError` (from `z.string().parse(1)` or similar, not a hand-set name) gives the
+  "invalid SDK session id" text and no Zod issue dump.
+
+### Batch 18 verification
+
+- `npx prettier --check` on the two specs.
+- `npx jest -c libs/backend/vscode-lm-tools/jest.config.ts <the two specs> --coverage=false --maxWorkers=2`
+- Test-only: no phase review. After commit, Batch 10 starts.
 
 ## Batch 10: Manifest v4 types and validated read path (behavior-neutral) - PENDING
 
@@ -1107,13 +1160,13 @@ path with correction guidance` (`protocol-dispatcher.spec.ts:639`). Checks re-ru
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
 
-| Phase                            | Batches                   | Review                                                                                                                                                                                                                 | State                                                      | Reviewer (roster)                                                                                  |
-| -------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 1 - Proposal backend             | 1-5, fix 16               | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | fix round in progress                                      | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
-| 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8) | code-logic                                                                                                                                                                                                             | pending                                                    | same                                                                                               |
-| 3 - Manifest v4 and freshness    | 10-13                     | code-logic, plus style (new RPC, exported service)                                                                                                                                                                     | pending                                                    | same                                                                                               |
-| 4 - Self-gathering generation    | 14-15                     | code-logic                                                                                                                                                                                                             | pending                                                    | same                                                                                               |
-| 2F - Builder adapters (frontend) | 6-8                       | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7) | same                                                                                               |
+| Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                            | Reviewer (roster)                                                                                  |
+| -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1 - Proposal backend             | 1-5, fix 16                            | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | ACCEPTED (code-logic-rereview.md, code-style-rereview.md)        | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
+| 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8), test fix 18 | code-logic                                                                                                                                                                                                             | ACCEPTED (code-logic-review-phase-2b.md); Batch 18 test-only fix | same                                                                                               |
+| 3 - Manifest v4 and freshness    | 10-13                                  | code-logic, plus style (new RPC, exported service)                                                                                                                                                                     | pending                                                          | same                                                                                               |
+| 4 - Self-gathering generation    | 14-15                                  | code-logic                                                                                                                                                                                                             | pending                                                          | same                                                                                               |
+| 2F - Builder adapters (frontend) | 6-8                                    | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7)       | same                                                                                               |
 
 Mode 3 completion also needs:
 
