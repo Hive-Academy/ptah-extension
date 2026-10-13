@@ -395,8 +395,8 @@ describe.each([true, false])(
       expect(host.querySelector('[data-testid="tool-error"]')).not.toBeNull();
     });
 
-    it('drops the Error block for markdown (MCP) output that equals the error', async () => {
-      const message = '## Failed\n- **fatal**: build stopped';
+    it('drops the Error block for one-line markdown (MCP) output that equals the error', async () => {
+      const message = '**fatal**: build stopped';
       const host = render({
         toolName: 'mcp__server__run',
         status: 'error',
@@ -410,9 +410,14 @@ describe.each([true, false])(
       expect(host.textContent).toContain('build stopped');
     });
 
-    // Regression: an image moves its text into a non-visible alt attribute.
+    // Regression: an image moves its text into a non-visible alt attribute,
+    // and a fence info string becomes a CSS class.
     it.each([
       ['an image', '![fatal: disk full](https://example.com/icon.png)'],
+      ['a ~~~ fence info string', '~~~fatal-disk-full\nbody\n~~~'],
+      ['a ``` fence info string', '```fatal-disk-full\nbody\n```'],
+      ['an unclosed one-line fence', '```fatal-disk-full'],
+      ['more than one line', '## Failed\n- **fatal**: build stopped'],
       ['a link', '## Failed\nsee [the log](https://example.com/log) for why'],
       ['an entity', '## Failed\n- **fatal**: &lt;eof&gt; reached'],
       ['a backslash escape', '## Failed\n- **fatal**: C:\\temp is full'],

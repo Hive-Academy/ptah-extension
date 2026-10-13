@@ -23,12 +23,14 @@ import {
 import { detectToolLanguage } from '../../utils/tool-language.utils';
 
 /**
- * Markdown syntax whose rendering can hide text, not only drop markers:
- * HTML (`<b>`, removed or sanitised), entities (`&lt;` renders as `<`),
- * backslash escapes, and links and images (`[label](url)` hides the URL,
- * `![alt](url)` moves the text into a non-visible `alt` attribute).
+ * Markdown whose rendering can hide words, not only drop markers: more than
+ * one line (a fence info string becomes a CSS class, setext underlines and
+ * tables restructure lines), HTML (`<b>`, removed or sanitised), entities
+ * (`&lt;` renders as `<`), backslash escapes, links and images
+ * (`[label](url)` hides the URL, `![alt](url)` moves the text into a
+ * non-visible `alt` attribute), and code fences (`` ` ``, `~`).
  */
-const MARKDOWN_MAY_HIDE_TEXT = /[<&\\[\]]/;
+const MARKDOWN_MAY_HIDE_TEXT = /[\r\n<&\\[\]`~]/;
 
 /**
  * ToolOutputDisplayComponent - Output section orchestrator
@@ -133,8 +135,9 @@ export class ToolOutputDisplayComponent {
    * Markdown output (MCP results that use markdown syntax, `.md` content) is
    * parsed and sanitised before display. Emphasis, headings and list markers
    * drop only their markers, so the block is left out for markdown output
-   * too, unless the error text holds syntax whose rendering can hide text
-   * (`MARKDOWN_MAY_HIDE_TEXT`): then the output may not show the message.
+   * too, but only for a one-line error free of syntax whose rendering can
+   * hide words (`MARKDOWN_MAY_HIDE_TEXT`); otherwise the block stays, even
+   * when that shows the message twice.
    * A whitespace-only error still shows the block, with a stated fallback.
    */
   readonly errorMessage = computed((): string | null => {
