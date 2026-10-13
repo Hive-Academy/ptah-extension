@@ -147,7 +147,7 @@ Edge cases:
   agent-lanes §4/§5/§6, template, and the missing `fleet.md`. Any other failure = NOT ACCEPTED.
 - No per-batch review.
 
-## Batch 2: Lanes-first policy in orchestration and agent-lanes (A) — COMPLETE
+## Batch 2: Lanes-first policy in orchestration and agent-lanes (A) — COMPLETE (commit 3c107d09c)
 
 - Executed by: CLI lanes x 2 (codex fe63b168 for 2.1, codex f821d912 for 2.2). Report:
   `batch-2-report.md`.
@@ -259,7 +259,7 @@ Edge cases:
   `P/skills/tribunal/references/relay.md`: escalation sentences survive; no CLI-author-to-subagent code rule.
 - No per-batch review.
 
-## Batch 3: Generic fleet mode in the plugin (B) — PENDING
+## Batch 3: Generic fleet mode in the plugin (B) — IN_PROGRESS
 
 - Recommended executor: CLI lane (capability: technical writing)
 - Fallback executor: per the fallback order
@@ -268,7 +268,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 2 (SKILL.md fleet entry)
 - Phase: 1 Shipped policy | Phase review: none at this batch
 
-### Task 3.1: Create `fleet.md` — PENDING
+### Task 3.1: Create `fleet.md` — IN_PROGRESS
 
 - File: `P/skills/orchestration/references/fleet.md` (new)
 - Plan reference: implementation-plan.md:57-71 (parity table §1, §3, §4, §8, §9 rows)
@@ -284,14 +284,14 @@ Edge cases:
 - Validation notes: generic for all users — no vendor roster, no Nx command, no local commitlint enum.
 - Implementation details: new file.
 
-### Task 3.2: git-standards quiet commit window and local commitlint pointer — PENDING
+### Task 3.2: git-standards quiet commit window and local commitlint pointer — IN_PROGRESS
 
 - File: `P/skills/orchestration/references/git-standards.md`
 - Plan reference: implementation-plan.md:57,65-66 (`:50-64,153-180`)
 - Quality requirements: quiet commit window (generic); "read the repository's commitlint config" rather
   than any scope enum.
 
-### Task 3.3: Orchestrate commands select fleet mode — PENDING
+### Task 3.3: Orchestrate commands select fleet mode — IN_PROGRESS
 
 - Files: `P/commands/orchestrate.md`, `P/commands/orchestrate-help.md`
 - Plan reference: implementation-plan.md:57,61 (`orchestrate.md:11-30`)
