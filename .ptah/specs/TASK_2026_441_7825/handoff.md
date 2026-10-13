@@ -63,7 +63,7 @@ Checks at handoff: `npm run validate-skill` = 0 errors, 0 warnings (9 files). Po
 - **L2** plugin `orchestration/SKILL.md:150` names `nx run-many` in a stack-neutral plugin.
 - **Runtime follow-up** (plan revision 2, finding 5): expose `failureKind` in `ptah_agent_status`
   formatting; optional session record of an exhausted lane in memory.
-- **TASK_2026_646_136a** (backlog, untracked folder in this worktree, not committed): optional decision
+- **TASK_2026_646_136a** (backlog, committed on this branch): optional decision
   model + `ptah_route_decide`. Depends on this task.
 
 ## Lane notes from session 1 (useful for routing)
