@@ -89,3 +89,26 @@ The skip condition at `fleet-fix.js:136` skips implementation when `status` is `
 The fixture, v2 labels and parity work are correct. The one Serious finding is the blocked-implementation resume path in `fleet-fix.js`.
 
 **Verdict: REVISE (0 Blocking, 1 Serious: fix S1, then APPROVED; M1-M4 recommended).**
+
+## Round 2 (fix commit 6804d0c23)
+
+Scope: `git show 6804d0c23 -- CLAUDE.md .claude/workflows/fleet-fix.js` and `batch-6f-report.md`. No tests were run. The report's `node --check` pass was taken as given.
+
+| Finding | Fixed | Evidence |
+| --- | --- | --- |
+| S1 (blocked implementation resumes as finished) | yes | `fleet-fix.js:14` says the caller sets stage 'implement' only for `implementation.json` with `blocked:false`. A blocked or missing file leaves the stage at 'plan', so line 136 does not skip implementation on resume. The blocked early return at `:151` now reports `finalStage: 'plan'`, so the returned state cannot be fed back as 'implement'. `hasContext` stays true, so only implementation re-runs. |
+| M1 (multi-scope commas rule) | yes | `CLAUDE.md:23` states that a multi-scope subject with commas is allowed, e.g. `fix(agent-sdk,chat): ...`. |
+| M2 (status trusted without artifact check) | yes | `fleet-fix.js:16` says in_review/done is trusted only after the orchestrator verified `implementation.json` with `blocked:false`, and that status alone is not evidence. The line-136 skip logic is unchanged. This is a documented caller contract only, since the sandbox cannot read disk. |
+| M4 (prompts vs read-only judge) | yes | The judge prompt (`:158`) now says "Read-only: write only the verdict path; never edit source files or task.md". The revise prompt (`:174`) now says "Do not edit task.md status; the caller updates it". |
+
+Checks on the fix for new problems:
+- **Blocked-work loop:** the return value 'plan' with `blocked:true` makes the caller re-run implementation. If the blocker is persistent, this retries, but the caller sees `blocked` and decides. This is not a defect.
+- **Prompt text:** the judge prompt names `verdictPath` twice. This is redundant, not wrong.
+- **Header and code consistency:** header lines 14-16 match the condition at line 136 and the return at line 151.
+- **Hunks and scope:** the other hunks are comment, prompt and doc changes only. No new Blocking or Serious finding.
+
+Deferred by the orchestrator and not re-raised: M3, m1, m2.
+
+Score: 8/10. All four targeted findings are fixed and the contract is now consistent. It is not higher because M3 is still open, and the stage checkpoints depend on the caller following the header.
+
+**Verdict: APPROVED (0 Blocking, 0 Serious).**

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 23 | Batches: 10 | Complete: 7/10
+Total tasks: 23 | Batches: 10 | Complete: 9/11
 
 Phase 1 review: APPROVED 7/10 (`code-logic-review.md`, diff `2e0811f0a~1..5991b51be`, Batches 1-4 +
 Batch 3 fix). Fix round Batch 4F committed; re-review scoped to the Batch 4F commit PENDING,
@@ -527,6 +527,14 @@ Edge cases:
   fallback ("No lane available at all -> do the work in-process and label it as not an outside lane").
   Recorded, not fixed (lean fix-round rule: Minor). File for a follow-up task.
 
+## Later task L3 (deferred, not in this run) — fleet-fix revise checkpoint
+
+- Source: code-logic-review-phase2.md M3. A resume after a failed judge round and before the revision
+  finishes goes straight to the next judge round. Add a `revisedRound` arg (or a caller rule from
+  `revision-round-N.json`) so the revise stage is skipped only when its artifact exists.
+- Also recorded (Minor): m1 `version: 'v1'` in three synthetic mcp-bench specs; m2 `TASK_A TASK_B`
+  placeholders in prompt suggestions.
+
 ## Later task L2 (deferred, not in this run) — Nx command in the generic plugin
 
 - Source: decisions.md row 21. `P/skills/orchestration/SKILL.md:150` (Token economy) names
@@ -635,7 +643,12 @@ Edge cases:
   junction; the Jest `marked` mapper is an absolute worktree path). `npx nx typecheck mcp-bench` success.
 - Phase 2 review due after commit.
 
-## Batch 7: Plugin version and content manifest (H2) — PENDING
+## Batch 6F: Phase 2 review fixes — COMPLETE (codex lane 7ffb65c6, commit 6804d0c23; re-review APPROVED 8/10)
+
+- Review `code-logic-review-phase2.md` (antigravity): S1, M1, M2, M4 fixed; M3 -> later task L3;
+  m1, m2 recorded (decisions.md #29-30).
+
+## Batch 7: Plugin version and content manifest (H2) — COMPLETE (in-process, decisions.md #31)
 
 - Recommended executor: CLI lane (capability: run node scripts)
 - Fallback executor: per the fallback order
@@ -644,12 +657,12 @@ Edge cases:
 - Tasks: 2 | Depends on: Batches 1-6, Phase 1 and Phase 2 reviews accepted
 - Phase: 3 Packaging | Phase review: none — packaging only
 
-### Task 7.1: Bump plugin version — PENDING
+### Task 7.1: Bump plugin version — COMPLETE
 
 - File: `P/.claude-plugin/plugin.json`
 - Quality requirements: `1.6.0` -> `1.7.0` (minor: new fleet mode and policy).
 
-### Task 7.2: Regenerate the content manifest once — PENDING
+### Task 7.2: Regenerate the content manifest once — COMPLETE
 
 - Depends on: Task 7.1
 - File: `content-manifest.json`
