@@ -1,6 +1,9 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 18 | Batches: 8 | Complete: 3/8
+Total tasks: 18 | Batches: 8 | Complete: 4/8
+
+Phase 1 review: PENDING — code-logic, diff `2e0811f0a~1..5991b51be` (Batches 1-4 + Batch 3 fix),
+reviewer family must not be codex.
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8` (branch
 `task-441-lanes-first`). All paths below are relative to it unless absolute. `P` =
@@ -282,6 +285,16 @@ Edge cases:
   non-existent `/validate-*` commands, "no parallel Task()"). Strategies and agent list remain in
   `orchestrate.md` Quick Reference. Reviewer should confirm no generic capability was lost.
 - Phase 1 implementer families so far: codex (Batches 1, 2, 3).
+- Fix (decisions.md #12, user-approved): CLI lane (codex, 76cdc99a), report `batch-3-fix-report.md`,
+  commit f52ba626e. Restored generically: default types and valid/invalid examples, branch operations
+  (new/continue branch, commit, PR), pre-commit checks (discover hooks), hook option actions, agent
+  behavior rules, bypass documentation, example scenarios. Team-leader compared each against
+  `git show 314813c3e~1:<path>`; grep for `nx`, `npx`, `scope-enum`, `webview`, `vscode`,
+  `lint-staged`, `typecheck:affected` and vendor names -> no match; `#hook-failure-protocol` and
+  `#quiet-commit-window` intact; `npm run validate-skill` -> 0 errors. Not restored by design: repo
+  scope list, subject length/case limits presented as enforced, stack hook table. The old
+  destructive-commands table is condensed to one sentence (not in the user's restore list) — note for
+  the Phase 1 reviewer.
 
 - Recommended executor: CLI lane (capability: technical writing)
 - Fallback executor: per the fallback order
@@ -327,7 +340,17 @@ Edge cases:
 - Inspect `fleet.md` for vendor names, `npx nx`, or scope enums (none allowed).
 - No per-batch review.
 
-## Batch 4: team-leader template lanes-first schema and policy spec (C) — IN_PROGRESS
+## Batch 4: team-leader template lanes-first schema and policy spec (C) — COMPLETE (commit 5991b51be)
+
+- Executed by: CLI lane (codex, d5d42d2a). Report: `batch-4-report.md`.
+- Team-leader verification: diff read — CLI-lane default incl. sequential coupled and cross-file work,
+  parallel only file-disjoint, subagent only with a specific `Subagent reason`, exact cap sentence,
+  the five schema keys, cross-family shipping review with same-family exception + weaker-evidence
+  label; no vendor names; task/commit ownership sections untouched. Policy spec Jest -> 4/4 passed;
+  `npx nx lint agent-generation --parallel=1` -> pass; `ptah_get_diagnostics` on the spec -> 0
+  errors; `npm run validate-skill` -> 0 errors, 0 warnings (expected-red list fully retired). Hooks
+  passed on commit.
+- Phase 1 implementer families: codex only (Batches 1-4 and the Batch 3 fix).
 
 - Recommended executor: CLI lane (capability: TypeScript + Jest)
 - Fallback executor: per the fallback order
@@ -340,7 +363,7 @@ Edge cases:
 - Phase: 1 Shipped policy (last batch) | Phase review: code-logic on Batches 1-4 combined diff, by a
   family different from every Phase 1 implementer; style review not required (no new public API)
 
-### Task 4.1: Executor matrix, cap and `batches.md` schema — IN_PROGRESS
+### Task 4.1: Executor matrix, cap and `batches.md` schema — COMPLETE
 
 - File: `libs/backend/agent-generation/templates/agents/team-leader.template.md`
 - Plan reference: implementation-plan.md:52 (`:140-171,198-205`)
@@ -353,7 +376,7 @@ Edge cases:
   implementer | exception reason`. Keep task/commit ownership (`:165-171,242-315`).
 - Validation notes: no vendor names; `_shared/cli-delegation.md` unchanged.
 
-### Task 4.2: Template policy spec — IN_PROGRESS
+### Task 4.2: Template policy spec — COMPLETE
 
 - Depends on: Task 4.1
 - File: `libs/backend/agent-generation/src/lib/team-leader-template.policy.spec.ts` (new)
