@@ -74,6 +74,10 @@ Evidence is from a read-only trace on 2026-10-13; the architect must verify each
    with mostly empty space; the Grid detail panel opens below the fold. Find the cause (gridstack cellHeight, default
    `h`, compact-card host height, TASK_2026_583 free tile height). Fix: default summary-tile height fits the card; the
    detail panel is visible without scrolling at 1600x1000 and 1280; a user-resized height persists; no layout shift.
+   **Cause traced:** `grid-height-trace.md` (auto-card tiles keep the 6-row full height plus the 90 % row floor; the
+   detail panel has a 70 % height floor). Recommended: Fix 1 (card height for all tiles above the live budget) + Fix 2
+   (detail height = space left). ASK THE USER the two product decisions at its end (may the focused live Grid tile
+   shrink — row 43 vs row 72; default card rows 2 or 3) before the plan is final.
 
 Out of scope (row 66, `TASK_2026_653_2931` in the main checkout `.ptah/specs`): left sidebar collapse-to-strip,
 Details column resizer, app-wide cursor audit.
