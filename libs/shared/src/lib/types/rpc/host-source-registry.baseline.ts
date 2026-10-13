@@ -177,6 +177,7 @@ export const BASELINE_RPC_METHOD_NAMES: readonly string[] = [
   'harness:search-skills',
   'harness:set-skill-selection',
   'harness:start-new-project',
+  'harness:get-proposal',
   'harness:suggest-config',
   'harness:workflow-prompt',
   'indexing:acknowledgeDisclosure',

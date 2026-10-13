@@ -23,7 +23,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 }));
 
 import { probeStackToolchain } from '@ptah-extension/workspace-intelligence';
-import type { ToolchainProbeResult } from '@ptah-extension/shared';
+import type { HarnessStartNewProjectResult, ToolchainProbeResult } from '@ptah-extension/shared';
 
 import type {
   Logger,
@@ -50,8 +50,12 @@ import {
 } from '@ptah-extension/platform-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { DependencyContainer } from 'tsyringe';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { HarnessRpcHandlers } from './harness-rpc.handlers';
+import { HarnessProposalStore } from '../harness/config/harness-proposal-store.service';
 import type { HarnessHealthRpcService } from '../harness/health/harness-health-rpc.service';
 import type { HarnessSkillSelectionRpcService } from '../harness/selection/harness-skill-selection-rpc.service';
 import type { HarnessWorkspaceContextService } from '../harness/workspace/harness-workspace-context.service';
@@ -654,7 +658,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       'WizardWebviewLifecycleService',
     );
 
-    it('enables the SaaS plugin, reconciles the harness, focuses chat, broadcasts, and disposes the wizard panel', async () => {
+    it('returns the handoff after enabling plugins, reconciliation, focus and disposal', async () => {
       const suite = buildSuite();
       const broadcastMessage = jest.fn().mockResolvedValue(undefined);
       const disposeWebview = jest.fn();
@@ -672,7 +676,16 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         'harness:start-new-project',
       )({ intake: VALID_INTAKE });
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual(expect.objectContaining({
+        success: true,
+        intake: VALID_INTAKE,
+        seedPrompt: expect.stringContaining('saas-workspace-initializer'),
+        plugins: {
+          enabledBundled: ['ptah-nx-saas'],
+          missingExternal: [],
+          availableSkillIds: NODE_TS_SKILLS,
+        },
+      }));
       expect(suite.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalledWith(
         {
           enabledPluginIds: ['ptah-nx-saas'],
@@ -688,14 +701,9 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         'harness:start-new-project',
       );
       expect(suite.platformCommands.focusChat).toHaveBeenCalled();
-      expect(broadcastMessage).toHaveBeenCalledWith(
-        'harness:open-workflow',
-        expect.objectContaining({
-          mode: 'new-project',
-          seedPrompt: expect.stringContaining('saas-workspace-initializer'),
-        }),
-      );
+      expect(broadcastMessage).not.toHaveBeenCalled();
       expect(disposeWebview).toHaveBeenCalledWith('ptah.setupWizard');
+      expect(suite.platformCommands.focusChat.mock.invocationCallOrder[0]).toBeLessThan(disposeWebview.mock.invocationCallOrder[0]);
     });
 
     it('skips plugin enablement + harness reconcile when ptah-nx-saas is already enabled', async () => {
@@ -717,14 +725,14 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         'harness:start-new-project',
       )({ intake: VALID_INTAKE });
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual(expect.objectContaining({ success: true }));
       expect(
         suite.pluginLoader.saveWorkspacePluginConfig,
       ).not.toHaveBeenCalled();
       expect(suite.harnessPropagation.propagate).not.toHaveBeenCalled();
     });
 
-    it('returns success even when broadcast / dispose services are missing (best-effort)', async () => {
+    it('returns success when the wizard disposal service is missing', async () => {
       const suite = buildSuite();
       suite.handlers.register();
 
@@ -733,7 +741,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         'harness:start-new-project',
       )({ intake: VALID_INTAKE });
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual(expect.objectContaining({ success: true }));
       expect(suite.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalled();
     });
 
@@ -754,13 +762,13 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       });
     });
 
-    it('broadcasts the intake alongside a seed prompt built from it', async () => {
+    it('returns the intake alongside a seed prompt built from it', async () => {
       const suite = buildSuite();
       const broadcastMessage = jest.fn().mockResolvedValue(undefined);
       suite.container.__register(WEBVIEW_MANAGER, { broadcastMessage });
       suite.handlers.register();
 
-      await getHandler(
+      const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
       )({
@@ -772,7 +780,8 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         },
       });
 
-      const [, payload] = broadcastMessage.mock.calls[0];
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
       // The user's own words must survive into the agent's first turn …
       expect(payload.seedPrompt).toContain(
         'A booking tool for physiotherapy clinics',
@@ -841,7 +850,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       const broadcastMessage = withBroadcast(suite);
       suite.handlers.register();
 
-      await getHandler(
+      const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
       )({ intake: DOTNET_INTAKE });
@@ -855,7 +864,12 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         'external:dotnet/skills/dotnet',
       );
 
-      const [, payload] = broadcastMessage.mock.calls[0];
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
+      expect(payload.plugins.enabledBundled).toEqual(['ptah-dotnet']);
+      expect(payload.plugins.missingExternal).toEqual(expect.arrayContaining([
+        expect.objectContaining({ plugin: 'dotnet-template-engine' }),
+      ]));
       expect(payload.seedPrompt).toContain('`dotnet-template-engine`');
       expect(payload.seedPrompt).toContain('do not try to install or invoke');
     });
@@ -870,12 +884,13 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       });
       suite.handlers.register();
 
-      await getHandler(
+      const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
       )({ intake: DOTNET_INTAKE });
 
-      const [, payload] = broadcastMessage.mock.calls[0];
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
       expect(payload.seedPrompt).not.toContain('are NOT installed');
     });
 
@@ -887,7 +902,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       );
       suite.handlers.register();
 
-      await getHandler(
+      const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
       )({ intake: DOTNET_INTAKE });
@@ -895,11 +910,13 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(probeStackToolchain).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'dotnet' }),
       );
-      const [, payload] = broadcastMessage.mock.calls[0];
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
       expect(payload.seedPrompt).toContain('is NOT installed');
       expect(payload.seedPrompt).toContain(
         'Install the .NET SDK 8.0 or newer.',
       );
+      expect(payload.toolchain).toEqual(DOTNET_NOT_INSTALLED);
     });
 
     it('does NOT probe for Node/TypeScript, whose runtime is already running', async () => {
@@ -939,7 +956,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       const broadcastMessage = withBroadcast(suite);
       suite.handlers.register();
 
-      await getHandler(
+      const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
       )({
@@ -955,7 +972,8 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         suite.pluginLoader.saveWorkspacePluginConfig,
       ).not.toHaveBeenCalled();
       expect(probeStackToolchain).not.toHaveBeenCalled();
-      const [, payload] = broadcastMessage.mock.calls[0];
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
       expect(payload.seedPrompt).toContain('Elixir + Phoenix');
     });
 
@@ -993,12 +1011,13 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       );
       suite.handlers.register();
 
-      await getHandler(
+      const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
       )({ intake: VALID_INTAKE });
 
-      const [, payload] = broadcastMessage.mock.calls[0];
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
       expect(payload.seedPrompt).not.toContain('saas-workspace-initializer');
       expect(payload.seedPrompt).toContain(
         'No preset Stage A skill is installed',
@@ -1017,12 +1036,13 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       );
       suite.handlers.register();
 
-      await getHandler(
+      const result = await getHandler(
         suite.rpc,
         'harness:start-new-project',
       )({ intake: VALID_INTAKE });
 
-      const [, payload] = broadcastMessage.mock.calls[0];
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
       expect(payload.seedPrompt).not.toContain('saas-workspace-initializer');
       // The architect is still enabled, so it is still named — the two skills
       // are gated independently.
@@ -1042,8 +1062,9 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         'harness:start-new-project',
       )({ intake: VALID_INTAKE });
 
-      expect(result).toEqual({ success: true });
-      const [, payload] = broadcastMessage.mock.calls[0];
+      expect(result).toEqual(expect.objectContaining({ success: true }));
+      const payload = result as Extract<HarnessStartNewProjectResult, { success: true }>;
+      expect(broadcastMessage).not.toHaveBeenCalled();
       expect(payload.seedPrompt).toContain(
         'No preset Stage A skill is installed',
       );
@@ -1066,6 +1087,47 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         suite.pluginLoader.saveWorkspacePluginConfig,
       ).not.toHaveBeenCalled();
       expect(suite.platformCommands.focusChat).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('harness:get-proposal', () => {
+    it.each([
+      {},
+      { sessionId: '' },
+      { sessionId: '   ' },
+      { sessionId: 'x'.repeat(257) },
+      { sessionId: 'valid', workspaceRoot: '/other' },
+    ])('rejects invalid params before resolving the store', async (params) => {
+      const suite = buildSuite();
+      suite.handlers.register();
+      await expect(getHandler(suite.rpc, 'harness:get-proposal')(params)).rejects.toThrow();
+      expect(suite.container.resolve).not.toHaveBeenCalledWith(
+        Symbol.for('PlatformHarnessProposalStore'),
+      );
+    });
+
+    it('reads the proposal from the same workspace root used for the write', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'ptah-proposal-rpc-'));
+      try {
+        const suite = buildSuite();
+        const provider = createMockWorkspaceProvider({ folders: [root] });
+        const store = new HarnessProposalStore(
+          suite.logger as unknown as Logger,
+          provider as unknown as IWorkspaceProvider,
+        );
+        const written = await store.save('sdk-session', {}, false);
+        suite.container.__register(Symbol.for('PlatformHarnessProposalStore'), store);
+        suite.handlers.register();
+
+        await expect(getHandler(suite.rpc, 'harness:get-proposal')({
+          sessionId: ' sdk-session ',
+        })).resolves.toEqual({ proposal: written });
+        await expect(getHandler(suite.rpc, 'harness:get-proposal')({
+          sessionId: 'absent',
+        })).resolves.toEqual({ proposal: null });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     });
   });
 

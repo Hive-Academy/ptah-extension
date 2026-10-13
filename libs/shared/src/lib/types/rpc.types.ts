@@ -561,6 +561,10 @@ import type {
   HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
 } from './rpc/rpc-harness.types';
+import type {
+  HarnessGetProposalParams,
+  HarnessGetProposalResult,
+} from './rpc/rpc-harness-proposal.types';
 
 // The reconciler's own surface (TASK_2026_278 Batch 4). It shares the
 // `harness:` namespace with the setup builder above but not its types: these
@@ -1794,6 +1798,10 @@ export interface RpcMethodRegistry {
   'harness:start-new-project': {
     params: HarnessStartNewProjectParams;
     result: HarnessStartNewProjectResult;
+  };
+  'harness:get-proposal': {
+    params: HarnessGetProposalParams;
+    result: HarnessGetProposalResult;
   };
   'harness:workflow-prompt': {
     params: HarnessWorkflowPromptParams;
@@ -3977,6 +3985,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:generate-document': true,
   'harness:analyze-intent': true,
   'harness:start-new-project': true,
+  'harness:get-proposal': true,
   'harness:workflow-prompt': true,
   'harness:health': true,
   'harness:reconcile': true,

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 40 | Batches: 15 | Complete: 3/15
+Total tasks: 40 | Batches: 15 | Complete: 4/15
 
 Worktree root (every command runs here):
 `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`
@@ -238,7 +238,7 @@ Edge cases:
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/platform-core --parallel=1`
 
-## Batch 4: Workspace proposal store - IN_PROGRESS
+## Batch 4: Workspace proposal store - COMPLETE (commit 7e6d98bd2)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -247,7 +247,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 1, 2, 3
 - Phase: 1 - Proposal backend | Phase review: code-logic, plus style
 
-### Task 4.1: `HarnessProposalStore` service - IMPLEMENTED
+### Task 4.1: `HarnessProposalStore` service - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.ts` (new)
 - Plan reference: implementation-plan.md:24, 46 (store, lock, retention)
@@ -255,12 +255,12 @@ Edge cases:
 - Quality requirements: implements `IHarnessProposalStore`. Root comes from `PLATFORM_TOKENS.WORKSPACE_PROVIDER`, the same for read and write. Path is `<root>/.ptah/harness/proposals/<sha256(sessionId)>.json`. Per-session serial queue. Bounded `wx` lock file with expiry recovery, then re-read the latest record. Merge with `mergeHarnessConfigUpdates`. Atomic temp-write and rename. Lock failure rejects. Stored identity and root must match on read. Corrupt or mismatched records are logged and return null. Prune records older than 30 days during access. No workspace means a typed error.
 - Validation notes: R6, R7.
 
-### Task 4.2: Store spec - IMPLEMENTED
+### Task 4.2: Store spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.spec.ts` (new)
 - Quality requirements: concurrent partial writes, same-session merge, distinct-session isolation, read after restart (new instance), corrupt record rejection, 30-day pruning, two-process lock (a pre-held lock file), lock expiry recovery.
 
-### Task 4.3: DI registration - IMPLEMENTED
+### Task 4.3: DI registration - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/di.ts`
 - Quality requirements: `container.registerSingleton(PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE, HarnessProposalStore)` inside `registerHarnessServices`, beside `CONFIG_STORE` (`di.ts:57`).
@@ -280,7 +280,7 @@ Edge cases:
     as stale (5 s), turning a successful write into a rejected save.
   - Stale recovery unlinks by path, so two processes recovering the same stale lock can race.
 
-## Batch 5: New Project handoff result and `harness:get-proposal` RPC - PENDING
+## Batch 5: New Project handoff result and `harness:get-proposal` RPC - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -290,7 +290,7 @@ Edge cases:
 - Tasks: 4 | Depends on: Batches 1, 4
 - Phase: 1 - Proposal backend (last batch of the phase) | Phase review: code-logic, plus style
 
-### Task 5.1: Return the handoff from `harness:start-new-project`; drop only its broadcast - PENDING
+### Task 5.1: Return the handoff from `harness:start-new-project`; drop only its broadcast - IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-harness.types.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.handlers.ts`
@@ -299,7 +299,7 @@ Edge cases:
 - Quality requirements: `HarnessStartNewProjectResult` (`rpc-harness.types.ts:512-515`) becomes the success/failure union with `seedPrompt`, `intake`, `plugins {enabledBundled, missingExternal, availableSkillIds}` and `toolchain?`. Reuse existing exported types. Intake Zod runs before side effects. Keep plugin enable and reconcile, `focusChat` and wizard-panel disposal before returning. Remove only the `HARNESS_OPEN_WORKFLOW` broadcast at `:872`. Keep the constant, payload, baseline entry and relay. If `harness:apply` params already carry a session id, delete that session's proposal after a successful apply. Otherwise wire nothing (30-day prune covers it) and say so in the report.
 - Validation notes: R9. Plugin write failure stays a failed RPC.
 
-### Task 5.2: Register `harness:get-proposal` - PENDING
+### Task 5.2: Register `harness:get-proposal` - IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc.types.ts` (first owner),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts` (first owner),
@@ -309,12 +309,12 @@ Edge cases:
 - Pattern to follow: `'harness:start-new-project'` at `rpc.types.ts:1794,3979`, `baseline.ts:179`, `HarnessRpcHandlers.METHODS` at `harness-rpc.handlers.ts:171`
 - Quality requirements: `HarnessGetProposalParamsSchema = z.object({sessionId: z.string().trim().min(1).max(256)}).strict()`. Add to the METHODS list, then bind. Resolve the store via `PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE`. Return `{proposal}`, which is null when absent or corrupt. Do NOT add `wizard:analysis-status` (F18, Batch 13). The baseline may be regenerated with `npx tsx scripts/generate-host-source-registry-baseline.ts`. Only the baseline file may change.
 
-### Task 5.3: Handler spec - PENDING
+### Task 5.3: Handler spec - IMPLEMENTED
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.handlers.spec.ts`
 - Quality requirements: intake validated before plugin effects. Enabled and missing plugin diagnostics are in the result. Required success fields are present. No `HARNESS_OPEN_WORKFLOW` broadcast. Focus and dispose happen before the response. get-proposal param rejection. get-proposal reads the same root the store wrote.
 
-### Task 5.4: CLI surface confirmation (F19) - PENDING
+### Task 5.4: CLI surface confirmation (F19) - IMPLEMENTED
 
 - File: none edited. Decision recorded above: the CLI serves `harness:get-proposal`.
 - Quality requirements: the cli-engine test passes with no cli-engine edit. If it fails, report it and stop. Do not edit `CLI_EXPECTED_ABSENT_METHODS`.

@@ -8,6 +8,7 @@
 import type { FlatStreamEventUnion } from '../execution';
 import type { McpInstallTarget, McpServerConfig } from '../mcp-directory.types';
 import type { StackProfileId } from '../stack-profile.types';
+import type { ExternalPluginRef, ToolchainProbeResult } from '../stack-profile.types';
 
 /** Workspace context describing the current project environment for harness operations */
 export interface HarnessWorkspaceContext {
@@ -509,10 +510,19 @@ export interface NewProjectIntake {
 export interface HarnessStartNewProjectParams {
   intake: NewProjectIntake;
 }
-export interface HarnessStartNewProjectResult {
-  success: boolean;
-  error?: string;
-}
+export type HarnessStartNewProjectResult =
+  | {
+      success: true;
+      seedPrompt: string;
+      intake: NewProjectIntake;
+      plugins: {
+        enabledBundled: string[];
+        missingExternal: ExternalPluginRef[];
+        availableSkillIds: string[];
+      };
+      toolchain?: ToolchainProbeResult;
+    }
+  | { success: false; error: string };
 
 /** harness:workflow-prompt — compose the seed prompt for an agent-driven harness workflow */
 export interface HarnessWorkflowPromptParams {
