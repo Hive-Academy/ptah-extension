@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 0/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 1/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -136,7 +136,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
 
 ---
 
-## Batch R0: Terminal failure sequence (chat-types, chat-state) — PENDING
+## Batch R0: Terminal failure sequence (chat-types, chat-state) — COMPLETE
 
 - Goal: every newly stamped terminal reason advances a per-tab `terminalFailureSeq` inside the same store update, on
   every path including `StopFailure` (plan Component 7a, `implementation-plan-rail.md:468-520`; D10).
@@ -176,7 +176,11 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader; re-run checks: pure spec 6/6, store spec 3/3, chat-state
+  project 24 suites / 572 tests, typecheck and lint pass for chat-state and chat-types (2 pre-existing lint
+  warnings, 0 errors). Reset block leaves the counter; `NON_PERSISTED_TAB_KEYS` unchanged; no barrel export.
+  A5: `tab-restore-sanitize.ts` does not exist; the restore path `tab-persistence.ts` spreads the tab, so the field
+  survives (lane-R0-report.md).
 
 ## Batch R1: CompactRailCardComponent and shared rail types (chat-ui) — PENDING
 

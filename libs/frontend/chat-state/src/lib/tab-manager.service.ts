@@ -48,6 +48,7 @@ import {
 import { TabSessionBinding } from './tab-session-binding.service';
 import { ConversationRegistry } from './conversation-registry.service';
 import { TabId } from './identity/ids';
+import { withTerminalFailureSeq } from './terminal-failure-seq';
 import {
   buildPersistedTabState,
   nextPersistFailure,
@@ -1355,6 +1356,7 @@ export class TabManagerService {
         );
       }
 
+      updates = withTerminalFailureSeq(existingTab, updates);
       let differs = false;
       for (const key in updates) {
         const field = key as keyof TabState;

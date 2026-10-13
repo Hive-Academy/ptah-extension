@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { TabState } from '@ptah-extension/chat-types';
+import { withTerminalFailureSeq } from './terminal-failure-seq';
 import {
   buildPersistedTabState,
   persistNeeded,
@@ -384,6 +385,7 @@ export class TabWorkspacePartitionService {
         ) {
           return true; // No-op but tab was found
         }
+        updates = withTerminalFailureSeq(existingTab, updates);
         const updatedTab = {
           ...existingTab,
           ...updates,

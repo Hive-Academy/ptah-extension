@@ -782,6 +782,9 @@ export interface TabState {
    */
   lastTerminalReason?: SdkTerminalReason | null;
 
+  /** Advances once per newly stamped terminal reason; never decreases; meaningful only per tab. */
+  terminalFailureSeq?: number;
+
   /**
    * Revision of the last backend `turn_state` event applied to this tab
    * (`TabManagerService.applyTurnState`). An event whose `revision` is `<=`
