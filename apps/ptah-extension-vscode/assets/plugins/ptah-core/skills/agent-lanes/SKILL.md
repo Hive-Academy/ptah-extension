@@ -117,8 +117,12 @@ Act on its `verdict`, never on the exit code alone:
 **The pushed `<agent-lane-completed>` signal is the wake.** After it arrives, read status and
 output with `ptah_agent_status({ agentId })` and `ptah_agent_read({ agentId })`, then verify the
 declared deliverables' contents. A missing or empty file is not complete. If push is unavailable
-(for example, no live spawning session, no parent session, or no chat runtime), make one
-status/read check. Do not use a timer, watcher, or repeated status checks as a substitute.
+(for example, no live spawning session, no parent session, or no chat runtime), make one status/read
+check. If it reports `running`, continue other independent work and re-check with at most 5 status
+checks per lane, at least 60 s apart. Do not use a tight loop, timer, or watcher. If the fifth check still reports
+`running`, stop waiting: tell the user the lane is still running (include its agent ID and lane) and
+end the turn, or, if it has clearly exceeded its expected duration, use `ptah_agent_stop` and
+recover per §5 as a non-limit timeout, never as a usage limit.
 For a verdict other than `delivered`, read the output and recover per §5.
 
 A message queued with `ptah_agent_message` runs as a new turn after a `delivered` signal and can change the deliverable again.

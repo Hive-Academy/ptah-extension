@@ -622,9 +622,13 @@ function validateLanesFirstRules(): ValidationError[] {
   const checkpoints = path.join(REFERENCES_DIR, 'checkpoints.md');
   const assignment = path.join(REFERENCES_DIR, 'lane-assignment.md');
   const fleet = path.join(REFERENCES_DIR, 'fleet.md');
+  const gitStandards = path.join(REFERENCES_DIR, 'git-standards.md');
   return [
     ...validateRuleMarkers(checkpoints, 'Checkpoint 0.1: CLI Lane Mode', [
       'ptah_memory_search', 'no recorded preference | `enabled`', 'No spawnable lane', '`disabled`',
+    ]),
+    ...validateRuleMarkers(checkpoints, 'Checkpoint 0.1: CLI Lane Mode', [
+      '"use lanes more"', '`lane-review` with a spawnable lane, unless "gate me"',
     ]),
     ...validateRuleMarkers(checkpoints, 'Approval mode', [
       'Escalate to the user', 'REVISE', 'same-side', 'removal',
@@ -633,8 +637,15 @@ function validateLanesFirstRules(): ValidationError[] {
     ...validateRuleMarkers(TEAM_LEADER_TEMPLATE, 'Mode 1 — Decomposition', [
       'Recommended executor: CLI lane', 'Subagent reason:',
     ]),
+    ...validateRuleMarkers(TEAM_LEADER_TEMPLATE, 'Batch', [
+      'Recommend `CLI lane` for every bounded batch by default', 'Put that reason in `Subagent reason`',
+    ]),
     ...validateRuleMarkers(LANE_SKILL_FILE, '4. Run', [
       'one `<agent-lane-completed>` signal per lane turn', 'queued', 'later signal', 'supersedes', 'pending',
+    ]),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '4. Run', [
+      'push is unavailable', 'make one status/read check', 'at most 5 status checks per lane',
+      'at least 60 s apart', 'fifth check',
     ]),
     ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', [
       'AT LIMIT', 'reset unknown',
@@ -657,6 +668,10 @@ function validateLanesFirstRules(): ValidationError[] {
     ]),
     ...validateRuleMarkers(fleet, 'Checkpoints', [
       'taskId', 'round', 'pass', 'defects', 'testsRan', 'mentorNote',
+    ]),
+    ...validateRuleMarkers(gitStandards, 'Destructive operations', [
+      'Ask first', 'git reset --hard', 'git clean -fd', 'git checkout .', 'git restore .',
+      'git branch -D', 'git push --force', 'git rebase', 'git stash drop', 'git stash clear',
     ]),
   ];
 }

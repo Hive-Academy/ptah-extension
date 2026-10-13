@@ -85,7 +85,19 @@ When the user chooses a bypass, record **who chose it**, **why**, and **which ho
 
 ## Destructive operations
 
-Do not discard or overwrite work with reset, clean, force push, or equivalent commands without explicit authorization. Inspect the exact paths and current git state before a branch operation, rebase, or restore.
+Ask first before running these or equivalent commands: they can discard or rewrite work, so act only on explicit user authorization.
+
+| Command | What it can lose |
+| --- | --- |
+| `git reset --hard` | Uncommitted changes in tracked files and commits moved out of the current branch. |
+| `git clean -fd` | Untracked files and directories. |
+| `git checkout .` or `git restore .` | Uncommitted changes in tracked files. |
+| `git branch -D` | An unmerged branch and commits reachable only from it. |
+| `git push --force` (including `--force-with-lease`) | Remote commits replaced by the push. |
+| `git rebase` on a shared or already-pushed branch | Published commit history and other collaborators' work based on it. |
+| `git stash drop` or `git stash clear` | Saved changes in one stash entry or every stash entry. |
+
+Before asking, inspect state with `git status`, `git log`, and `git stash list`, inspect the exact paths or branch the command touches, and show the user what would be lost.
 
 ## Related references
 

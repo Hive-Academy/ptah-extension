@@ -1,8 +1,9 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 22 | Batches: 9 | Complete: 4/9
+Total tasks: 22 | Batches: 9 | Complete: 5/9
 
-Phase 1 review: PENDING — code-logic, diff `2e0811f0a~1..5991b51be` (Batches 1-4 + Batch 3 fix),
+Phase 1 review: APPROVED 7/10 (`code-logic-review.md`, diff `2e0811f0a~1..5991b51be`, Batches 1-4 +
+Batch 3 fix). Fix round Batch 4F committed; re-review scoped to the Batch 4F commit PENDING,
 reviewer family must not be codex.
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8` (branch
@@ -408,7 +409,23 @@ Edge cases:
   | 5 checkpoints "use lanes more" row vs Gate 0.1 approval table | Minor (raised) | FIX in Batch 4F: two rules give different approval modes, so an orchestrator can pick the wrong lane config |
   | 6 agent-lanes §5 lost the in-process end-state row | Minor | DEFERRED to Later task L1 below; the rule survives at agent-lanes §1 and lane-assignment.md:128-129 |
 
-## Batch 4F: Phase 1 review fixes — IN_PROGRESS
+## Batch 4F: Phase 1 review fixes — COMPLETE (commit recorded in the follow-up docs commit; re-review PENDING)
+
+- Executed by: CLI lane (codex, 5cd6d8ba, exit 0, delivered). Report: `batch-4f-report.md`.
+- Team-leader verification: read all 4 diffs. 4F.1 generic seven-row table with `Ask first`, the
+  "or equivalent commands" catch-all and the inspect-state sentence; heading unchanged; no repo names.
+  4F.2 bounded re-check (one status/read check, then at most 5 checks per lane, >= 60 s apart, "no
+  tight loop, timer, or watcher", fifth-check stop with end-of-turn notice or `ptah_agent_stop` + §5
+  non-limit recovery); no `queued`/`later signal`/`supersedes`/`pending` in the new text. 4F.3 cell
+  matches Gate 0.1 row (`checkpoints.md:177`) and the Approval mode table. 4F.4 four additive
+  `validateRuleMarkers` calls, no existing call changed; the template `### Batch` heading
+  (`team-leader.template.md:145`) is the only heading named `Batch`, markers at `:157,:163` sit before
+  the first fence (`:182`). `npm run validate-skill` -> 0 errors, 0 warnings, exit 0;
+  `git diff --name-only` -> exactly the 4 files; template unchanged (`git diff --quiet` exit 0);
+  `ptah_get_diagnostics` on the validator script -> 0 errors in the requested file.
+- Note for the re-review: `orchestration/SKILL.md:153` still says "one status check at most, then
+  wait", which reads narrower than the new agent-lanes §4 no-push path (out of 4F scope; reviewer to
+  judge whether it is a contradiction).
 
 - Recommended executor: CLI lane (capability: precise technical writing + TypeScript scripting)
 - Fallback executor: per the fallback order; last resort one sequential backend-developer subagent
@@ -424,7 +441,7 @@ Edge cases:
   commit, non-codex family; no style review (no new public API)
 - Do NOT touch `libs/backend/agent-generation/templates/agents/team-leader.template.md` or any other file.
 
-### Task 4F.1: Restore the named destructive-command list (decisions.md #17) — IN_PROGRESS
+### Task 4F.1: Restore the named destructive-command list (decisions.md #17) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\orchestration\references\git-standards.md`
 - Plan reference: code-logic-review.md Finding 2; decisions.md #17; old table at `git show 314813c3e~1:apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/references/git-standards.md`
@@ -441,7 +458,7 @@ Edge cases:
 - Validation notes: generic only — no repository names, scopes, vendors or this repo's paths. Do not
   change any other section.
 
-### Task 4F.2: Bounded re-check when push is unavailable (Finding 4) — IN_PROGRESS
+### Task 4F.2: Bounded re-check when push is unavailable (Finding 4) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\agent-lanes\SKILL.md`
 - Plan reference: code-logic-review.md Finding 4; old bounded poll at `git show 2e0811f0a~1:apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/agent-lanes/SKILL.md` §4
@@ -458,7 +475,7 @@ Edge cases:
   signal per lane turn`, `queued`, `later signal`, `supersedes`, `pending`); the new text must not
   contain the words `queued`, `later signal`, `supersedes` or `pending`. No vendor names.
 
-### Task 4F.3: Align the "use lanes more" approval with Gate 0.1 (Finding 5) — IN_PROGRESS
+### Task 4F.3: Align the "use lanes more" approval with Gate 0.1 (Finding 5) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\orchestration\references\checkpoints.md`
 - Plan reference: code-logic-review.md Finding 5; Gate 0.1 table `:174-179`, Response Handling `:195-203`
@@ -470,7 +487,7 @@ Edge cases:
 - Validation notes: no other row or checkpoint changes; the existing Checkpoint 0.1 markers must still
   pass.
 
-### Task 4F.4: Validator asserts the prose rules, not only the fenced example — IN_PROGRESS
+### Task 4F.4: Validator asserts the prose rules, not only the fenced example — COMPLETE
 
 - Depends on: Tasks 4F.1-4F.3
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\scripts\validate-orchestration-skill.ts`

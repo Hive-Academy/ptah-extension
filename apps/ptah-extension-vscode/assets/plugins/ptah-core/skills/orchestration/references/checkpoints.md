@@ -198,7 +198,7 @@ Reply "no lanes" to work without lanes, or "gate me" to approve each document yo
 | ---------------- | ---------- | -------- |
 | "no lanes"       | `disabled` | `user`   |
 | "gate me"        | unchanged  | `user`   |
-| "use lanes more" | `enabled`  | unchanged |
+| "use lanes more" | `enabled`  | `lane-review` with a spawnable lane, unless "gate me" was given; otherwise `user` |
 
 A change applies from the next phase on; work already approved stays approved.
 
