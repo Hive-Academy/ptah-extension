@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 9/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 10/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -112,6 +112,11 @@ The next batch starts only after the previous one is committed.
   `compact-lane.types.ts`, `compact-rail-card.component.ts`, `compact-session-card.component.ts` inputs/outputs.
   Canvas adds no public API (Rail components stay internal).
 - No per-batch review. One fix round at most, then one re-review scoped to the fixes.
+- Fix-round item (recorded at R8, orchestrator-acknowledged): `no-alpha-base-content.spec.ts` fails on ten
+  `text-base-content/60|70` uses in libs/frontend/canvas — `canvas-detail/canvas-lane-tabs.component.ts` x2,
+  `canvas-detail/canvas-lane-view.component.ts` x1, `canvas-needs-you-queue.component.ts` x2 (present at
+  fe9ab1c91), `canvas-rail/canvas-focus-area.component.ts:32` x1, `canvas-rail/canvas-rail.component.ts:38,48,63,78`
+  x4 (R5/R6). Replace with `text-base-content-muted` (or the spec's allowed form) in the phase fix batch.
 - Completion (Mode 3) also needs the Electron re-check list (plan `## Electron re-check list`) and visual-reviewer
   screenshots in dark (`anubis`) and light (`anubis-light`) against the approved prototype
   `prototypes/02-focus-rail.html`, plus parity against `parity-inventory-layout.md` rows 1-44 and the write-path trace
@@ -523,7 +528,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   focus area 2/2, board 14/14; canvas project 33 suites / 387 tests; typecheck pass; lint 0 errors
   (20 warnings, unchanged from R5).
 
-## Batch R7: Board toggle and OrchestraCanvas integration (canvas) — COMPLETE (commit: the `batch R7` commit; SHA recorded at R8 acceptance)
+## Batch R7: Board toggle and OrchestraCanvas integration (canvas) — COMPLETE (commit 4353047f4)
 
 - Goal: per-path `@if` Rail/Grid mount, the Board toggle in the dock, Grid-only layout controls and empty overlay,
   `detailTabId` gate, mode-routed keys, dock notes (plan Component 15, `:901-952`; D1).
@@ -583,7 +588,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   orchestra 34/34, detail 3/3; canvas project 35 suites / 398 tests; typecheck pass; lint 0 errors
   (20 warnings, unchanged from R6).
 
-## Batch R8: State-ink tokens and contrast spec (webview) — PENDING
+## Batch R8: State-ink tokens and contrast spec (webview) — COMPLETE (commit: the `batch R8` commit)
 
 - Goal: `--state-ink-run|need|err|done|idle` per anubis theme with `state-*` colours and a 3:1 contrast spec (plan
   Component 17, `:964-984`; D13, D14 dark error `#ef4444`).
@@ -615,7 +620,14 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk: five variables `--state-ink-run|need|err|done|idle` per anubis theme (names
+  match chat-ui `compact-rail-card` and canvas rail/focus consumers), ten hex values as accepted, `state-*`
+  colours in the fallback form; `base-content-muted.spec.ts` unedited. Checks: state-ink 40/40,
+  base-content-muted 179/179, lint pass (typecheck skipped, decisions row 35). Project run 474/475: the one
+  failure is `no-alpha-base-content.spec.ts`, caused only by `text-base-content/60|70` in libs/frontend/canvas
+  (pre-Rail: `canvas-lane-tabs` x2, `canvas-lane-view` x1, `canvas-needs-you-queue` x2; R5/R6:
+  `canvas-focus-area` x1, `canvas-rail` x4). Outside R8's file list; orchestrator-acknowledged fix-round item
+  (see Review).
 
 ## Recorded defaults
 

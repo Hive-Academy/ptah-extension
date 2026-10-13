@@ -29,6 +29,11 @@ module.exports = {
          * "fails contrast".
          */
         'base-content-muted': 'oklch(var(--bcm, var(--bc)) / <alpha-value>)',
+        'state-run': 'var(--state-ink-run, oklch(var(--in)))',
+        'state-need': 'var(--state-ink-need, oklch(var(--wa)))',
+        'state-err': 'var(--state-ink-err, oklch(var(--er)))',
+        'state-done': 'var(--state-ink-done, oklch(var(--su)))',
+        'state-idle': 'var(--state-ink-idle, oklch(var(--bc)))',
         'surface-0': 'var(--surface-0)',
         'surface-1': 'var(--surface-1)',
         'surface-2': 'var(--surface-2)',
@@ -103,6 +108,11 @@ module.exports = {
           // was 4.37:1 on base-300). See the `colors` block above and
           // base-content-muted.spec.ts.
           '--bcm': '66.509856% 0.007403 31.090978',
+          '--state-ink-run': '#3b82f6',
+          '--state-ink-need': '#f97316',
+          '--state-ink-err': '#ef4444',
+          '--state-ink-done': '#16a34a',
+          '--state-ink-idle': '#6b7280',
 
           // SEMANTIC COLORS
           info: '#3b82f6',
@@ -172,6 +182,11 @@ module.exports = {
           // was 4.47:1 on base-200). See the `colors` block above and
           // base-content-muted.spec.ts.
           '--bcm': '48.955188% 0.044796 348.478612',
+          '--state-ink-run': '#2a56c6',
+          '--state-ink-need': '#8f5200',
+          '--state-ink-err': '#b4232a',
+          '--state-ink-done': '#13713a',
+          '--state-ink-idle': '#6b6570',
 
           // SEMANTIC COLORS (cupcake exact match)
           info: 'oklch(68% 0.169 237.323)',
