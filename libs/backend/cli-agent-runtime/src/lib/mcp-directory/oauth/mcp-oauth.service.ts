@@ -431,7 +431,9 @@ export class McpOAuthService {
    */
   async getFreshAccessToken(serverKey: string): Promise<string | null> {
     const token = await this.tokenStore.getToken(serverKey);
-    if (!token) return null;
+    // Checked after the read: `disconnect` removes the manifest record first,
+    // so a token still in the store while its deletion runs is not handed out.
+    if (!token || !this.manifest.has(serverKey)) return null;
     if (token.expiresAt && token.expiresAt - this.now() < EXPIRY_SKEW_MS) {
       const refreshed = await this.refresh(serverKey);
       return refreshed?.accessToken ?? null;

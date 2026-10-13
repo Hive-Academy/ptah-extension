@@ -308,6 +308,30 @@ describe('McpOAuthService', () => {
     });
   });
 
+  it('hands out no token while a disconnect is still deleting it', async () => {
+    const h = makeService();
+    cleanup.push(h.manifestPath);
+    const { serverKey } = await h.service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+    });
+    const realDelete = h.tokenStore.deleteToken.bind(h.tokenStore);
+    let releaseDelete: () => void = () => undefined;
+    h.tokenStore.deleteToken = async (key) => {
+      await new Promise<void>((resolve) => {
+        releaseDelete = resolve;
+      });
+      return realDelete(key);
+    };
+
+    const disconnecting = h.service.disconnect(serverKey);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(await h.tokenStore.getToken(serverKey)).not.toBeNull();
+    expect(await h.service.getFreshAccessToken(serverKey)).toBeNull();
+    releaseDelete();
+    await disconnecting;
+  });
+
   describe('connection changes while a refresh is in flight', () => {
     async function startDeferredRefresh() {
       let t = 1_000_000;
