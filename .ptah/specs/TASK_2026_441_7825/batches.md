@@ -409,7 +409,7 @@ Edge cases:
   | 5 checkpoints "use lanes more" row vs Gate 0.1 approval table | Minor (raised) | FIX in Batch 4F: two rules give different approval modes, so an orchestrator can pick the wrong lane config |
   | 6 agent-lanes §5 lost the in-process end-state row | Minor | DEFERRED to Later task L1 below; the rule survives at agent-lanes §1 and lane-assignment.md:128-129 |
 
-## Batch 4F: Phase 1 review fixes — COMPLETE (commit recorded in the follow-up docs commit; re-review PENDING)
+## Batch 4F: Phase 1 review fixes — COMPLETE (commit 6c57bf67e; re-review of `6c57bf67e~1..6c57bf67e` PENDING, non-codex family)
 
 - Executed by: CLI lane (codex, 5cd6d8ba, exit 0, delivered). Report: `batch-4f-report.md`.
 - Team-leader verification: read all 4 diffs. 4F.1 generic seven-row table with `Ask first`, the
