@@ -102,6 +102,9 @@ interface LogContext {
 /** Context keys `logWithContext` already writes on their own lines. */
 const CONTEXT_LINE_KEYS = new Set(['service', 'operation', 'error']);
 
+/** Upper bound for one serialized `Context:` line in the log file. */
+const MAX_CONTEXT_CHARS = 8_192;
+
 export class ElectronLoggerAdapter {
   private static readonly CHANNEL_NAME = 'Ptah';
 
@@ -247,6 +250,10 @@ export class ElectronLoggerAdapter {
         // degradation-audit: optional-capability - an unserializable context
         // keeps the log line itself; only the detail payload is replaced.
         serialized = '[Unserializable]';
+      }
+      if (serialized.length > MAX_CONTEXT_CHARS) {
+        const dropped = serialized.length - MAX_CONTEXT_CHARS;
+        serialized = `${serialized.slice(0, MAX_CONTEXT_CHARS)}…[truncated ${dropped} chars]`;
       }
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,

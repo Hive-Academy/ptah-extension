@@ -57,6 +57,16 @@ describe('ElectronLoggerAdapter.error context', () => {
     expect(lines).toContain('  Context: {"metadata":{"sessionId":"s1"}}');
   });
 
+  it('caps an oversized context line', () => {
+    const { logger, lines } = makeLogger();
+
+    logger.error('huge', { payload: 'x'.repeat(50_000) });
+
+    const context = lines.find((l) => l.startsWith('  Context: ')) ?? '';
+    expect(context.length).toBeLessThan(8_300);
+    expect(context).toMatch(/…\[truncated \d+ chars\]$/);
+  });
+
   it('writes no context line when there is no context', () => {
     const { logger, lines } = makeLogger();
 

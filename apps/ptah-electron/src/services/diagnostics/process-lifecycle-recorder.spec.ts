@@ -8,6 +8,7 @@ import {
   CONSOLE_WINDOW_MS,
   ProcessLifecycleRecorder,
   pruneCrashDumps,
+  redactConsoleText,
   startLocalCrashReporter,
   truncateUtf8,
   type LifecycleLogger,
@@ -409,5 +410,27 @@ describe('pruneCrashDumps', () => {
 describe('truncateUtf8', () => {
   it('returns short text unchanged', () => {
     expect(truncateUtf8('hello', 2_048)).toBe('hello');
+  });
+});
+
+describe('redactConsoleText', () => {
+  it.each([
+    [
+      'callback failed: http://127.0.0.1:51820/callback?code=abc123&state=xyz',
+      'callback failed: http://127.0.0.1:51820/callback?code=[REDACTED]&state=[REDACTED]',
+    ],
+    [
+      'GET https://api.example.com/v1?api_key=SECRETVALUE failed',
+      'GET https://api.example.com/v1?api_key=[REDACTED] failed',
+    ],
+    ['Authorization: Bearer eyJhbGciOi.payload.sig', 'Authorization: Bearer [REDACTED]'],
+    ['bad key sk-ant-api03-ABCDEFGHIJKLMNOPQRST', 'bad key [REDACTED]'],
+  ])('redacts %s', (input, expected) => {
+    expect(redactConsoleText(input)).toBe(expected);
+  });
+
+  it('leaves ordinary error text unchanged', () => {
+    const text = 'TypeError: Cannot read properties of undefined (reading "id")';
+    expect(redactConsoleText(text)).toBe(text);
   });
 });

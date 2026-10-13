@@ -469,6 +469,14 @@ export class McpOAuthService {
       expiresAt: expiresIn ? this.now() + expiresIn * 1000 : undefined,
       scope: str(data['scope']) ?? token.scope,
     };
+    // The connection may have changed while the token endpoint answered. A
+    // disconnect must not be undone, and a reconnect's newer token must not be
+    // overwritten by this refresh of the old one.
+    if (!this.manifest.has(serverKey)) return null;
+    const current = await this.tokenStore.getToken(serverKey);
+    if (!current || current.refreshToken !== token.refreshToken) {
+      return current;
+    }
     await this.tokenStore.setToken(serverKey, updated);
     return updated;
   }

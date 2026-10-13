@@ -63,6 +63,29 @@ export const CONSOLE_WINDOW_MS = 10_000;
 /** Per-message truncation bound for forwarded console text. */
 export const CONSOLE_MAX_BYTES = 2_048;
 
+/**
+ * Credential shapes stripped from forwarded console text before it reaches the
+ * persistent log: OAuth/API-key query parameters (callback URLs), bearer
+ * headers, and `sk-`-style API keys. Renderer text is untrusted input.
+ */
+const CONSOLE_REDACTIONS: ReadonlyArray<[RegExp, string]> = [
+  [
+    /([?&#](?:code|state|token|access_token|refresh_token|id_token|client_secret|api_key|apikey|key)=)[^&#\s"'<>]+/gi,
+    '$1[REDACTED]',
+  ],
+  [/\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]'],
+  [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, '[REDACTED]'],
+];
+
+/** Strip credential-shaped substrings from renderer console text. */
+export function redactConsoleText(text: string): string {
+  let redacted = text;
+  for (const [pattern, replacement] of CONSOLE_REDACTIONS) {
+    redacted = redacted.replace(pattern, replacement);
+  }
+  return redacted;
+}
+
 /** Crash dumps kept after the startup prune (user decision Q5 / D9). */
 export const CRASH_DUMPS_TO_KEEP = 5;
 
@@ -195,8 +218,11 @@ export class ProcessLifecycleRecorder {
       `[renderer] console.${details.level}`,
       {
         windowId,
-        message: truncateUtf8(details.message, CONSOLE_MAX_BYTES),
-        source: `${details.sourceId}:${details.lineNumber}`,
+        message: truncateUtf8(
+          redactConsoleText(details.message),
+          CONSOLE_MAX_BYTES,
+        ),
+        source: `${redactConsoleText(details.sourceId)}:${details.lineNumber}`,
       },
     );
   }

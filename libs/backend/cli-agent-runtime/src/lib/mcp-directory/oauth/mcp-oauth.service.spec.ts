@@ -232,6 +232,62 @@ describe('McpOAuthService', () => {
     expect(refreshRequests).toBe(1);
   });
 
+  describe('connection changes while a refresh is in flight', () => {
+    async function startDeferredRefresh() {
+      let t = 1_000_000;
+      let releaseRefresh: () => void = () => undefined;
+      const deferredFetch: FetchLike = async (url, init) => {
+        const body = new URLSearchParams(init?.body ?? '');
+        if (body.get('grant_type') === 'refresh_token') {
+          await new Promise<void>((resolve) => {
+            releaseRefresh = resolve;
+          });
+        }
+        return fetchImpl(url, init);
+      };
+      const h = makeService({ now: () => t, fetchImpl: deferredFetch });
+      cleanup.push(h.manifestPath);
+      const { serverKey } = await h.service.connect({
+        serverUrl: 'https://mcp.example.com/mcp',
+      });
+      t = 1_000_000 + 3600 * 1000 + 1;
+      const refreshing = h.service.getFreshAccessToken(serverKey);
+      // Let the refresh reach the token endpoint before the connection changes.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      return { ...h, serverKey, refreshing, release: () => releaseRefresh() };
+    }
+
+    it('does not restore a token after a disconnect', async () => {
+      const r = await startDeferredRefresh();
+
+      await r.service.disconnect(r.serverKey);
+      r.release();
+
+      expect(await r.refreshing).toBeNull();
+      expect(await r.tokenStore.getToken(r.serverKey)).toBeNull();
+      expect(await r.service.status(r.serverKey)).toBe('disconnected');
+    });
+
+    it('does not overwrite the token of a newer connection', async () => {
+      const r = await startDeferredRefresh();
+      const stored = await r.tokenStore.getToken(r.serverKey);
+      if (!stored) throw new Error('connect() stored no token');
+      const reconnected = {
+        ...stored,
+        accessToken: 'AT-NEW',
+        refreshToken: 'RT-NEW',
+      };
+      await r.tokenStore.setToken(r.serverKey, reconnected);
+
+      r.release();
+
+      expect(await r.refreshing).toBe('AT-NEW');
+      expect((await r.tokenStore.getToken(r.serverKey))?.accessToken).toBe(
+        'AT-NEW',
+      );
+    });
+  });
+
   /**
    * Fake fetch for an authorization server that does NOT advertise a
    * `registration_endpoint` (no dynamic client registration). Captures the token
