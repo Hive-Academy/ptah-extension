@@ -1,155 +1,138 @@
 # Handoff: TASK_2026_629_c0b3 — Orchestra Canvas mission board
 
-Date: 2026-10-13. Branch: `feat/task-629-canvas-board` (local only, not pushed yet).
+Date: 2026-10-13 (second handoff). Branch: `feat/task-629-canvas-board` (local only, NOT pushed).
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
-Base: `43803ee7e`. `origin/main` is 77+ commits ahead (TASK_2026_628 PR #715 merged as `0d892085c`).
+Base: rebased onto `origin/main` `736b0ad84` (TASK_2026_628 merged). HEAD: `06c1f09cb`. Tree clean
+except the git-ignored `.ptah/tmp/final-run/`.
 
 ## 1. Approvals and user decisions
 
-- `task-description.md` and `implementation-plan.md` are approved. One commit per batch after
-  its scoped checks pass. Do not stop at gates. Push + PR at the end (global CLAUDE.md rule).
+- `task-description.md` and `implementation-plan.md` are approved. One commit per batch after its
+  scoped checks pass. Do not stop at gates. Push + PR at the end (global CLAUDE.md rule).
 - Implementation runs on CLI lanes (codex, role `frontend-developer`). Review is cross-side:
-  lane-written code → Claude sub-agents (`code-logic-reviewer`, `code-style-reviewer`);
-  orchestrator-written (in-process) code → a codex lane, read-only.
-- 2026-10-13: the todos and git +/- metrics ARE in scope → new batch BM (decisions.md row 27).
-- 2026-10-13: the orchestrator records video of the real Electron app itself at the end to
-  find defects, then fixes them (decisions.md row 28). The user may still test by hand after.
+  lane code → Claude sub-agents; orchestrator (in-process) code → a codex lane, read-only.
+- Todos and git +/- metrics are in scope (row 27). The orchestrator records video of the real
+  Electron app at the end, finds defects, fixes them in one round (row 28).
+- 2026-10-13: the user REJECTED a `git status` / `git diff` command run inside the scratch
+  workspace `D:\projects\ptah-final-run-ws`, then interrupted the session and asked for this
+  handoff. Do not run git commands in that workspace without asking the user first.
 
 ## 2. Documents (all in `.ptah/specs/TASK_2026_629_c0b3/`)
 
-1. `decisions.md` — rows 1-28. The source of truth for every decision, deferral and open item.
-2. `implementation-plan.md` (§1 D1-D8, §4, §5, §7), then `batches.md` (task text; its PENDING
-   states are NOT updated — use §3 below).
-3. `plan-part-1..4.md`, `task-description.md` (acceptance criteria), `prototypes/01-board.html`.
-4. Reviews: `code-logic-review*.md`, `code-style-review*.md`, `*-rereview-*.md`, lane reports
-   `lane-*.md`, `spike-detail-row.md`.
+1. `decisions.md` — rows 1-39 (row 8 is at the end of the table). Source of truth for every
+   decision, deferral and open item.
+2. `implementation-plan.md`, `batches.md` (its PENDING states are not updated — use §3 below),
+   `BM-design.md` (+ §6 amendments A1, A2), `task-description.md`, `prototypes/01-board.html`.
+3. Reviews: `code-logic-review*.md`, `code-style-review*.md`, `*-rereview-*.md`,
+   `code-logic-check-3a2a6f28e.md`, `BM-design-review.md`, `BM-design-rereview.md`. Lane reports `lane-*.md`.
 
 ## 3. Progress
 
-| Batch / step | State | Commit |
+| Step | State | Commit (after rebase) |
 |---|---|---|
-| docs, B0, B1, B2a, B2b, B2c | done | `c7ca2dec4` `5e843c69f` `74adfd690` `b8f529c74` `15bf287d5` `df07eb2b5` |
-| Phase A review + Fix-1, Fix-2, re-review | done (PASS) | `46fce6a69` `fa90d4920` `6f3542c7d` |
-| B3 cap of 9 running sessions, B4 needs-you queue | done | `4b3f0b411` `d498dd294` |
-| Phase B review + Fix-B + correction | done | `8f1334415` `0ce422101` |
-| B5a forced-card token, B5b live budget | done | `599deb687` `fd290fac9` |
-| Phase C review + Fix-C1, Fix-C2, re-review | done | `2d9da4357` `b65fdd59e` `06e888c70` |
-| B6 detail-row spike (PROVISIONAL GO, option b) | done | `f5fe143b9` |
-| B7a detail service/panel, B7b wiring, B7c card callouts | done | `be6dc1744` `b9c12a173` `1ddb4f705` |
-| B8a lane tabs/views, B8b mini panel responder | done | `110fdc635` `d1cf223d7` |
-| BL detached tile leak (ran late, see row 23) | done, Phase E review PASS | `d7042e545` |
-| Phase D review → Fix-D1 | done | `e80021cab` |
-| **Fix-D2** | **NEXT** | — |
-| Re-review of Fix-D1 + Fix-D2 (one, read-only) | pending | — |
-| Rebase onto `origin/main` | pending | — |
-| B10 send-path cap guard + canvas-tile buildTree test | pending | — |
-| BM todos + git +/- metrics (new) | pending | — |
-| Phase F review (B10 + BM) | pending | — |
-| Final: Electron run, video recording, defect round | pending | — |
-| B9 manual perf record | pending (user, or recorded in the final run) | — |
+| docs, B0-B8b, BL, Phase A-E reviews and fixes | done | see `git log origin/main..HEAD` |
+| Fix-D2 (skyline row, frozen geometry, release while locked) | done | `6d62b80e7` |
+| Re-review D/E → bounded correction N1 loop, N2, N4 → check PASS | done | `01ecf09ee` |
+| Rebase onto `origin/main` (2 conflicts in chat-view, main side kept) | done | `a1114b8df` |
+| B10 cap guard in the composer send (`SESSION_START_GUARD`) | done | `21ac21552` |
+| BM design + cross-side review + amendments | done | in `41a51010e` |
+| BM1 todo marker, selector, fixed card slots | done | `41a51010e` |
+| BM2 `SessionGitStatsStore` + card wiring | done | `360ac92d2` |
+| BM3 detail column todos/changes | done | `4208fc840` |
+| Phase F review (logic PASS 7, style REVISE 7, in-process PASS 8) → fix round → re-review PASS | done | `94484635a`, `06c1f09cb` |
+| **Final Electron run with video** | **IN PROGRESS (interrupted)** | — |
+| `final-run-review.md` + one defect fix round + re-check | pending | — |
+| B9 perf record | pending (during the final run, else user) | — |
 | Push + PR, tell the 628 session | pending | — |
 
-Check results at `e80021cab`: canvas 24 suites / 308 tests pass; canvas and chat typecheck
-pass; lint 0 errors (canvas 11 warnings, chat 38, chat-ui 8 — all warnings, mostly old or spec `any`).
+Last check results (before the Electron build): canvas 26 suites / 322 tests, chat 200 / 3626
+(+2 skip), chat-ui 70 / 1115, chat-streaming 26 / 630 (+1 skip); typecheck pass and lint 0
+errors on all four; chat-types typecheck + lint pass. The Electron dev build (which includes the
+webview build) passed, so the `app.config.ts` handler line compiles.
 
-## 4. Next steps in order
+## 4. Final run — state and how to resume
 
-1. **Fix-D2** (one codex lane, canvas only). Items, from decisions.md rows 24 and 25:
-   - Phase D M2: detail-slot geometry uses a skyline row: the row bottom is the closure over
-     tiles that overlap the opened tile vertically (`canvas-detail-geometry.ts`, `belowIds`).
-   - Phase D M3: slot geometry reads the same frozen measurements the grid uses while the
-     detail is open (`canvas-workspace-grid.component.ts`).
-   - Phase E M1: release stale Gridstack nodes when the tile set shrinks even while the canvas
-     is locked or inactive (release only, no layout apply).
-   - Phase E M3: real-engine spec case that moves a pinned node to a new target (close a middle tile).
-   - Phase E M4: fix the stale gravity comment in the grid (~:216-219).
-   - Keep the grid file at or under its current size (877 lines; it is over the 700 limit from
-     before this task — do not grow it; put logic in `canvas-detail-geometry.ts` /
-     `canvas-grid-release.ts`).
-2. **One re-review** of `e80021cab` + Fix-D2 (Claude `code-logic-reviewer`, read-only, no
-   checks). No second fix round: record new findings in decisions.md.
-3. **Rebase** onto `origin/main` (`git fetch origin main`, `git rebase origin/main`, clean tree,
-   no lane running). The 628 session expects no textual conflicts in 629 files. After the
-   rebase run the scoped checks once per changed project (canvas, chat, chat-ui, chat-streaming).
-4. **B10** (batches.md "B10"): the running-cap guard in the chat send / start-turn path, NOT in
-   the `AGENT_SUMMARY_CHUNK` handler. A turn started from an existing idle canvas tile must be
-   refused at the cap (decisions.md row 17). May need an optional token so `chat` can read the
-   canvas count without importing canvas. Also add the canvas-tile level test "one buildTree
-   per published tab snapshot" on the `tab-<id>` key (628 handoff, row 16).
-5. **BM metrics** (row 27): first a short `software-architect` step (or researcher) to find the
-   sources: todos = latest `TodoWrite` tool input of the session (frontend), git +/- = host data
-   (check existing git RPCs and `libs/frontend/git-ui` first; a new RPC needs the shared
-   contract in `libs/shared` and an implementation in all three platform adapters). Then lanes.
-   Show the values in the card metrics zone (chat-ui activity / stats) and the detail details
-   column (`canvas-session-details.component.ts`), replacing the "—".
-6. **Phase F review** of B10 + BM (cross-side), one fix round, one re-review.
-7. **Final run with video** (row 28): no lane or check running. Start the Electron dev instance
-   from the worktree (`npx nx serve ptah-electron`: rebuild-native, build-dev, copy-renderer-dev,
-   launch). Find how to drive and record the renderer first (remote debugging port + the
-   `ptah_browser_*` record tools, or the `run` skill). Record in dark and light themes. Check:
-   - card zones vs `prototypes/01-board.html`; "+N more lanes" fits a 244 px tile;
-   - 3+ tiles → unfocused tiles show cards; drafts survive a card flip; dock stays in a user-chosen compact mode;
-   - cap of 9 (button disabled with reason; frees after a hidden-workspace turn ends);
-   - needs-you queue: Allow/Deny, Open session → detail;
-   - detail row (B6 manual gate): panel top within 8 px of the row bottom, rows below visible
-     and clickable, scroll height grows — a FAIL means NO-GO → option (c) bottom panel;
-   - Esc / ←/→ in the detail, lane tabs, CLI lane card, sub-agent transcript, Stop, permissions;
-   - drag release or text selection in card mode must not open the detail (Phase D M7);
-   - BL heap snapshot: no detached `ptah-canvas-tile` / `gridstack-item` tree after a tile
-     closes (steps in `lane-BL-report.md` / plan-part-4.md §5); Phase E M2 says BL may be a no-op;
-   - streaming continues in a tile after the detail closes (Phase D S1).
-   Write `final-run-review.md` with defects, fix them in one round, re-check.
-   Note: `rebuild-native` switches `better-sqlite3` to the Electron ABI; run all Jest checks
-   BEFORE starting the instance (node_modules is a junction to the main checkout).
-8. **B9** perf record (plan-part-3.md procedure) during the final run if possible, else leave to the user.
-9. **Push** the branch and **open the PR** to `main` with `gh` (title < 70 chars, `## Summary`
-   + `## Test plan`, end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`).
-   Tell the 628 session that 629 merged-ready / merged (it runs one combined M-final measurement).
+Tools (git-ignored, in `.ptah/tmp/final-run/`):
+- `launch.mjs <workspace>`: Playwright `_electron.launch` of `dist/apps/ptah-electron/main.mjs`
+  with `recordVideo` (1600x1000) and `--remote-debugging-port=9333`. Writes `ready`, then waits;
+  creating the file `stop` closes the app and finalizes the video into `video/`.
+- `step.mjs <step.mjs> [shot]`: connects over CDP to port 9333, runs one step file
+  (`export default async (page) => result`), saves `shots/<shot>.png`, prints JSON.
+- Step files: `s-theme.mjs` (`THEME=anubis|anubis-light`, clicks `button[data-theme=…]` in the
+  DOM), `s-new.mjs` (`NAME=…`, New Session popover → Create), `s-send.mjs` (`TILE=i TEXT=… WAIT=ms`),
+  `s-look.mjs` (text of every tile), `s-probe.mjs`.
+- The dist build in the worktree is current (built from `06c1f09cb`). Rebuild only if code changes:
+  `node apps/ptah-electron/scripts/rebuild-native.js && npx nx build-dev ptah-electron --parallel=1 && node scripts/copy-wasm.js dist/apps/ptah-electron && npx nx copy-renderer-dev ptah-electron --parallel=1`.
+- The previous app instance and its launcher were stopped when the session ended. The video
+  `video/page@6b6e89ded225e46f822d2e25fdf4ef1d.webm` may be incomplete (no clean `stop`).
+  Start a new run: delete `ready`, run `node launch.mjs "D:\projects\ptah-final-run-ws"` in the
+  background, wait for `ready`, drive with `step.mjs`, and create `stop` at the end.
+- Dev profile is `%APPDATA%/Ptah Dev`; the provider works there (Claude CLI, Opus 5.5). Real
+  sessions cost money: keep prompts very short.
+- IMPORTANT: `rebuild-native` switched the shared `node_modules` `better-sqlite3` to the Electron
+  ABI (node_modules is a junction to the main checkout). Frontend Jest is not affected; backend
+  Jest that loads better-sqlite3 fails until it is rebuilt for Node. Restore it after the run
+  (ask the user before running `npm rebuild better-sqlite3`; the task rules forbid npm install).
+  The 628 session was told about this.
+
+Done so far in the run (dark theme, Anubis): start screen, theme switch, S1 created and sent two
+prompts plus one file edit (`math.js` +5), S2 and S3 created, 3 tiles → S2/S3 render as cards.
+Screenshots `shots/01-start.png` … `08-cards.png`.
+
+Findings so far (put them in `final-run-review.md`):
+- **F1 (Serious, scope):** the SDK in this build exposes no `TodoWrite` tool to Claude sessions
+  (the session lists only `mcp__ptah__ptah_task_create` / `ptah_task_update`; Ptah does not remove
+  TodoWrite — only the Codex adapter still emits `TodoWrite`). So the BM todos metric always shows
+  "No todos" for Claude sessions. A fix needs a new source decision (e.g. SDK task tools, or
+  `ptah_task_*` calls) — a user decision; record, do not silently redesign.
+- **F2 (to verify):** S2 and S3 cards show git `+177 −0` while S1's change was `math.js +5`.
+  Cause not checked (the user rejected the git command in the scratch workspace). Check from the
+  app side instead (e.g. the S1 "1 file changed" block, the Git panel, or ask the user), and check
+  whether untracked files (the 200-file / 1 MiB numstat caps) or session files are counted.
+
+Remaining check list (handoff §4 step 7 of the first handoff, unchanged):
+- card zones vs `prototypes/01-board.html`; "+N more lanes" fits a 244 px tile;
+- 3+ tiles → unfocused tiles show cards (seen); drafts survive a card flip; dock keeps a user-chosen compact mode;
+- cap of 9 (New session disabled with the reason; idle-tile send refused with the same text;
+  resume/wrap-up refused; frees after a hidden-workspace turn ends);
+- needs-you queue: Allow/Deny, Open session → detail;
+- detail row (B6 manual gate): panel top within 8 px of the row bottom, rows below visible and
+  clickable, scroll height grows — FAIL means NO-GO → option (c) bottom panel;
+- Esc / ←/→ in the detail (Esc also from a lane tab), lane tabs, CLI lane card, sub-agent
+  transcript, Stop, permissions; drag release / text selection in card mode must not open the detail;
+- todos and git values on the card and in the detail details column (see F1, F2);
+- BL heap snapshot: no detached `ptah-canvas-tile` / `gridstack-item` after a tile closes
+  (TASK_2026_645 item 5 also records this; send the result to the 628 session);
+- streaming continues in a tile after the detail closes;
+- repeat the key screens in the light theme (`THEME=anubis-light`).
+Then write `final-run-review.md`, fix defects in one round (lane), re-check, B9 if possible.
 
 ## 5. Open items carried (do not lose)
 
-- Recorded, not fixed (see decisions.md): pulse target list (row 10), sampler spec coverage and
-  Retry (row 11), N1-N3 (row 14), M3 refused external new-session request (row 18), partition
-  map not a signal + 1 s poll (rows 19, 21), Phase C N2-N4 (row 21), Phase D M5, M7 and Minors
-  (row 24), BL M2 + Minors (row 25), standalone background Stop (row 26), activity component
-  over 700 lines, tile component 871 lines.
-- Real-card screenshots in dark and light (row 13) are now part of the final video run.
+See decisions.md. Main ones: rows 10, 11, 14, 18, 19/21 (hidden-workspace partition not a
+signal), 24 (M5, M7, Minors), 25, 26 (standalone background Stop), 30 (N3, N5, N6), 31 (detail
+visible-tab ownership), 33 (`StreamPresentationStore` export, probe-only buildTree test),
+37-39 (M1 flicker, M5 re-read, agent feedback sender not guarded, details `todos` unthrottled).
+Large files: compact-session-activity 1279, chat-view 1897, canvas-tile 877, grid 874 lines.
 
-## 6. TASK_2026_628 coordination
+## 6. TASK_2026_628 / 645 coordination
 
-- 628 is MERGED (`0d892085c`). Its files are now normal main files, but keep the 629 diff away
-  from them unless a batch needs it: `compact-session-summary.ts`, `chat-transcript.component.ts`,
-  `libs/frontend/markdown`, `batched-update.service.ts`, the execution tree builder,
-  `chat-lifecycle.service.ts`, `agent-monitor.store.ts`, agent-card output files,
-  `tab-manager.service.ts`, `stream-presentation-store.service.ts`,
-  `apps/ptah-extension-webview/src/styles.css`.
-- After the merge, `AgentMonitorStore.onAgentOutputBatch` stays public; 629 does not call it.
-- 628 session name: `ptah-ptah-extension-task-628-follow-up-v-14993500006vo2qb1g1i30j`.
-  `ptah_agent_report` returns `unattributed-caller`; send reports with `SendMessage` instead.
-  Tell it when 629 merges (combined M-final measurement).
+- 628 is merged and done. The combined M-final measurement is TASK_2026_645_6aaa (blocked on 629).
+- Notify session `ptah-ptah-extension-task-628-follow-up-v-14993500006vo2qb1g1i30x` with
+  `SendMessage` (`ptah_agent_report` is unattributed) when 629 merges. It already has phase
+  reports up to "Phase F closed".
 
-## 7. How to run lanes
+## 7. How to run lanes and checks
 
 - Load the `orchestration` and `agent-lanes` skills first.
-- `ptah_agent_spawn`: `cli: codex`, `role: frontend-developer` (or `backend-developer` for a
-  host RPC), `workingDirectory` = the worktree, `taskFolder: .ptah/specs/TASK_2026_629_c0b3`,
-  `deliverables: ["lane-<batch>-report.md"]`, `timeout: 1200000`, at most 40 tool calls.
-- One lane that runs checks at a time. Read-only reviewers may run in parallel.
-- After a lane: read its report, `git diff -w`, run the scoped checks yourself, then commit
-  with commitlint `type(scope): subject` (scopes: canvas, chat, chat-ui, chat-streaming, and
-  others in `.commitlintrc.json`). End with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- To resume a lane, read its real CLI Session ID with one `ptah_agent_status` call. Never type a session id by hand.
-- Lessons: lanes often miss one real-runtime case (spec models a flat signal, a guard that
-  matches the host itself, an effect created in a reactive context). Read the diff, not only the report.
-
-## 8. Verification rules (STRICT, CLAUDE.md — repeat in every lane and sub-agent prompt)
-
-- Only the changed project:
-  `npx nx test <project> --testFile=<spec-file-name> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
-  (never `--testPathPattern`), the whole changed project with
-  `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`,
-  then `npx nx typecheck <project> --parallel=1 --skip-nx-cache` and
-  `npx nx lint <project> --parallel=1 --skip-nx-cache`.
-- One heavy check at a time. No workspace-wide runs, no `nx run-many` over unchanged projects,
-  no build/serve/dev/e2e/package (the final Electron run is the one user-approved exception),
-  no npm install, no `--max-old-space-size`, no `content-visibility`. Filter output.
+- `ptah_agent_spawn`: `cli: codex`, `role: frontend-developer`, `workingDirectory` = the worktree,
+  `taskFolder: .ptah/specs/TASK_2026_629_c0b3`, `deliverables: ["lane-<batch>-report.md"]`,
+  `timeout: 1200000`, at most 40 tool calls. Resumes above 60k tokens start fresh: give full instructions.
+- One lane with checks at a time. Read the diff yourself, run the scoped checks, commit in the
+  foreground (`type(scope): subject`, end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`).
+- Checks (STRICT, repeat in every prompt): `npx nx test <project> --testFile=<spec> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
+  (never `--testPathPattern`), then the project once, then `npx nx typecheck|lint <project> --parallel=1 --skip-nx-cache`.
+  One heavy check at a time; no workspace-wide runs, no build/serve/dev/e2e/package except the
+  final Electron run, no npm install, no `--max-old-space-size`, no `content-visibility`. Filter output.
+- Push in the background (`git push -u origin feat/task-629-canvas-board && gh pr create …`);
+  the pre-push hook runs di-lint and the Electron validate-deps gate.
