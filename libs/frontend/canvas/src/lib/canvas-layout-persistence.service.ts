@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, inject } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import { z } from 'zod';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -7,11 +7,12 @@ import {
   logicalRows,
   type TileIntent,
 } from './canvas-layout-intent';
+import { type CanvasBoardState } from './canvas-board-mode';
 
 /** Delay that coalesces a burst of intent mutations into one storage write. */
 export const CANVAS_LAYOUT_SAVE_DEBOUNCE_MS = 250;
 
-const LATEST_VERSION = 2;
+const LATEST_VERSION = 3;
 
 const tabIdSchema = z.string().min(1);
 const orderSchema = z.number().int().nonnegative();
@@ -25,9 +26,7 @@ const widthSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('auto'), weight: weightSchema }),
 ]);
 
-const v2Schema = z.strictObject({
-  version: z.literal(2),
-  tiles: z
+const tilesSchema = z
     .array(
       z.strictObject({
         tabId: tabIdSchema,
@@ -37,7 +36,24 @@ const v2Schema = z.strictObject({
       }),
     )
     .max(MAX_CANVAS_TILES)
-    .refine(uniqueIds, 'duplicate tab ids'),
+    .refine(uniqueIds, 'duplicate tab ids');
+
+const v2Schema = z.strictObject({
+  version: z.literal(2),
+  tiles: tilesSchema,
+});
+
+const boardSchema = z.strictObject({
+  mode: z.enum(['rail', 'grid']).catch('rail'),
+  railCollapsed: z.boolean().catch(false),
+  railDensity: z.enum(['comfortable', 'dense']).catch('comfortable'),
+  railScrollTop: z.number().int().nonnegative().max(1_000_000).catch(0),
+});
+
+const v3Schema = z.strictObject({
+  version: z.literal(3),
+  tiles: tilesSchema,
+  board: boardSchema,
 });
 
 const v1Schema = z.strictObject({
@@ -63,6 +79,12 @@ const v1Schema = z.strictObject({
 
 export type CanvasWorkspaceIntentV1 = z.infer<typeof v1Schema>;
 export type CanvasWorkspaceIntentV2 = z.infer<typeof v2Schema>;
+export type CanvasWorkspaceIntentV3 = z.infer<typeof v3Schema>;
+
+export interface CanvasWorkspaceRecord {
+  readonly tiles: readonly TileIntent[];
+  readonly board: CanvasBoardState;
+}
 
 export interface CanvasLayoutLoadResult {
   /** Validated, migrated intent; `null` when nothing usable is stored. */
@@ -71,6 +93,8 @@ export interface CanvasLayoutLoadResult {
   readonly writable: boolean;
   /** True when a validated legacy record should be rewritten as v2. */
   readonly needsWrite: boolean;
+  readonly board: CanvasBoardState | null;
+  readonly readOnlyReason: 'newer-version' | null;
 }
 
 type WarningKind = 'read' | 'parse' | 'write' | 'remove';
@@ -126,10 +150,14 @@ export class CanvasLayoutPersistenceService {
   private readonly vscode = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly writable = new Set<string>();
-  private readonly pending = new Map<string, () => readonly TileIntent[]>();
+  private readonly pending = new Map<string, () => CanvasWorkspaceRecord>();
   private readonly lastWritten = new Map<string, string>();
   private readonly warned = new Set<WarningKind>();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly _writeFailed = signal(false);
+  readonly writeFailed = this._writeFailed.asReadonly();
+  private readonly _readOnlyPaths = signal<ReadonlySet<string>>(new Set());
+  readonly readOnlyPaths = this._readOnlyPaths.asReadonly();
 
   constructor() {
     const flush = (): void => this.flush();
@@ -157,23 +185,23 @@ export class CanvasLayoutPersistenceService {
   /** Read, validate and migrate one workspace record. Never writes. */
   load(workspacePath: string): CanvasLayoutLoadResult {
     if (workspacePath === '') {
-      return { tiles: null, writable: false, needsWrite: false };
+      return { tiles: null, board: null, writable: false, needsWrite: false, readOnlyReason: null };
     }
     let raw: string | null;
     try {
       raw = localStorage.getItem(this.storageKey(workspacePath));
     } catch (error: unknown) {
       this.warn('read', error);
-      return { tiles: null, writable: false, needsWrite: false };
+      return { tiles: null, board: null, writable: false, needsWrite: false, readOnlyReason: null };
     }
-    if (raw === null) return { tiles: null, writable: true, needsWrite: false };
+    if (raw === null) return { tiles: null, board: null, writable: true, needsWrite: false, readOnlyReason: null };
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch (error: unknown) {
       this.warn('parse', error);
-      return { tiles: null, writable: true, needsWrite: false };
+      return { tiles: null, board: null, writable: true, needsWrite: false, readOnlyReason: null };
     }
 
     const version =
@@ -182,31 +210,41 @@ export class CanvasLayoutPersistenceService {
         : undefined;
     if (
       typeof version === 'number' &&
-      version > LATEST_VERSION
+      (version > LATEST_VERSION || !Number.isInteger(version))
     ) {
       // A newer client owns this record: render defaults, keep the bytes.
-      return { tiles: null, writable: false, needsWrite: false };
+      this._readOnlyPaths.update((paths) => new Set(paths).add(workspacePath));
+      return { tiles: null, board: null, writable: false, needsWrite: false, readOnlyReason: 'newer-version' };
+    }
+
+    const v3 = v3Schema.safeParse(parsed);
+    if (v3.success) {
+      this.lastWritten.set(workspacePath, raw);
+      return { tiles: normalize(v3.data.tiles), board: v3.data.board, writable: true, needsWrite: false, readOnlyReason: null };
     }
 
     const v2 = v2Schema.safeParse(parsed);
     if (v2.success) {
-      this.lastWritten.set(workspacePath, raw);
       return {
         tiles: normalize(v2.data.tiles),
+        board: null,
         writable: true,
         needsWrite: false,
+        readOnlyReason: null,
       };
     }
     const v1 = v1Schema.safeParse(parsed);
     if (v1.success) {
       return {
         tiles: migrateCanvasIntentV1(v1.data),
+        board: null,
         writable: true,
         needsWrite: true,
+        readOnlyReason: null,
       };
     }
-    this.warn('parse', v2.error);
-    return { tiles: null, writable: true, needsWrite: false };
+    this.warn('parse', v3.error);
+    return { tiles: null, board: null, writable: true, needsWrite: false, readOnlyReason: null };
   }
 
   /** Hydration finished for this workspace; enable writes when allowed. */
@@ -228,7 +266,7 @@ export class CanvasLayoutPersistenceService {
    */
   schedule(
     workspacePath: string,
-    snapshot: () => readonly TileIntent[],
+    snapshot: () => CanvasWorkspaceRecord,
   ): void {
     if (!this.writable.has(workspacePath)) return;
     this.pending.set(workspacePath, snapshot);
@@ -254,6 +292,12 @@ export class CanvasLayoutPersistenceService {
     this.pending.delete(workspacePath);
     this.writable.delete(workspacePath);
     this.lastWritten.delete(workspacePath);
+    this._readOnlyPaths.update((paths) => {
+      if (!paths.has(workspacePath)) return paths;
+      const next = new Set(paths);
+      next.delete(workspacePath);
+      return next;
+    });
     if (workspacePath === '') return;
     try {
       localStorage.removeItem(this.storageKey(workspacePath));
@@ -262,11 +306,11 @@ export class CanvasLayoutPersistenceService {
     }
   }
 
-  private write(workspacePath: string, tiles: readonly TileIntent[]): void {
+  private write(workspacePath: string, snapshot: CanvasWorkspaceRecord): void {
     if (!this.writable.has(workspacePath)) return;
-    const record: CanvasWorkspaceIntentV2 = {
-      version: 2,
-      tiles: tiles.map((tile) => ({
+    const record: CanvasWorkspaceIntentV3 = {
+      version: 3,
+      tiles: snapshot.tiles.map((tile) => ({
         tabId: tile.tabId,
         order: tile.order,
         width:
@@ -275,13 +319,16 @@ export class CanvasLayoutPersistenceService {
             : { kind: 'auto', weight: tile.width.weight },
         rowBreakBefore: tile.rowBreakBefore,
       })),
+      board: snapshot.board,
     };
     const serialized = JSON.stringify(record);
     if (this.lastWritten.get(workspacePath) === serialized) return;
     try {
       localStorage.setItem(this.storageKey(workspacePath), serialized);
       this.lastWritten.set(workspacePath, serialized);
+      this._writeFailed.set(false);
     } catch (error: unknown) {
+      this._writeFailed.set(true);
       this.warn('write', error);
     }
   }

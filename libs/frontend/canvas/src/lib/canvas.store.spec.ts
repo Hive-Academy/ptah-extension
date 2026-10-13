@@ -34,6 +34,7 @@ import { TabManagerService } from '@ptah-extension/chat';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { CanvasStore, RETAINED_WORKSPACE_CAP } from './canvas.store';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
+import { DEFAULT_BOARD_STATE } from './canvas-board-mode';
 import type { CanvasLayoutLoadResult } from './canvas-layout-persistence.service';
 import type { TileIntent } from './canvas-layout-intent';
 
@@ -83,6 +84,8 @@ describe('CanvasStore', () => {
         tiles: null,
         writable: true,
         needsWrite: false,
+        board: null,
+        readOnlyReason: null,
       })),
       markHydrated: jest.fn(),
       schedule: jest.fn(),
@@ -300,6 +303,8 @@ describe('CanvasStore', () => {
       tiles: persisted,
       writable: true,
       needsWrite: false,
+      board: null,
+      readOnlyReason: null,
     });
     store.hydrateWorkspace('/ws/a', ['kept', 'new']);
     store.hydrateWorkspace('/ws/a', ['kept', 'new']);
@@ -307,6 +312,57 @@ describe('CanvasStore', () => {
     expect(store.tiles().map((tile) => tile.tabId)).toEqual(['kept', 'new']);
     expect(persistence.markHydrated).toHaveBeenCalledWith('/ws/a', true);
     expect(persistence.schedule).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrates v2 tiles with Rail defaults and upgrades on the first board change', () => {
+    const tiles: TileIntent[] = [{ tabId: 'A', order: 0, width: { kind: 'auto', weight: 1 }, rowBreakBefore: false }];
+    persistence.load.mockReturnValue({ tiles, board: null, writable: true, needsWrite: false, readOnlyReason: null });
+    store.hydrateWorkspace('/ws/a', ['A']);
+    expect(store.boardFor('/ws/a')).toEqual(DEFAULT_BOARD_STATE);
+    expect(store.tiles()).toEqual(tiles);
+    expect(persistence.schedule).not.toHaveBeenCalled();
+    store.setBoardMode('/ws/a', 'grid');
+    expect(persistence.schedule).toHaveBeenCalledTimes(1);
+    expect(persistence.schedule.mock.calls[0][1]()).toEqual({ tiles, board: { ...DEFAULT_BOARD_STATE, mode: 'grid' } });
+  });
+
+  it('persists each changed board field once without changing tile identity or revision', () => {
+    hydrate('/ws/a', ['A']);
+    persistence.schedule.mockClear();
+    const tiles = store.tilesFor('/ws/a')();
+    const tileSignal = store.tilesFor('/ws/a');
+    const revision = store.workspaceRevision('/ws/a');
+    store.setBoardMode('/ws/a', 'grid');
+    store.setRailCollapsed('/ws/a', true);
+    store.setRailDensity('/ws/a', 'dense');
+    store.setRailScrollTop('/ws/a', 12.6);
+    expect(persistence.schedule).toHaveBeenCalledTimes(4);
+    expect(store.boardFor('/ws/a')).toEqual({ mode: 'grid', railCollapsed: true, railDensity: 'dense', railScrollTop: 13 });
+    store.setRailScrollTop('/ws/a', 13);
+    expect(persistence.schedule).toHaveBeenCalledTimes(4);
+    expect(store.tilesFor('/ws/a')).toBe(tileSignal);
+    expect(store.tilesFor('/ws/a')()).toBe(tiles);
+    expect(store.workspaceRevision('/ws/a')).toBe(revision);
+  });
+
+  it('keeps hidden workspace board state and drops it on removal', () => {
+    hydrate('/ws/a', ['A']);
+    store.setBoardMode('/ws/a', 'grid');
+    hydrate('/ws/b', ['B']);
+    store.setRailDensity('/ws/b', 'dense');
+    hydrate('/ws/a', ['A']);
+    expect(store.boardFor('/ws/a').mode).toBe('grid');
+    expect(store.boardFor('/ws/b').railDensity).toBe('dense');
+    store.removeWorkspaceTileState('/ws/a');
+    expect(store.boardFor('/ws/a')).toEqual(DEFAULT_BOARD_STATE);
+  });
+
+  it('migrates implicit board state to the first real workspace', () => {
+    store.hydrateWorkspace(null, []);
+    store.setBoardMode('', 'grid');
+    store.hydrateWorkspace('/ws/a', []);
+    expect(store.boardFor('/ws/a').mode).toBe('grid');
+    expect(store.boardFor('')).toEqual(DEFAULT_BOARD_STATE);
   });
 
   it('sets only the requested span and bumps one revision', () => {
@@ -358,6 +414,8 @@ describe('CanvasStore', () => {
       tiles: migrated,
       writable: true,
       needsWrite: true,
+      board: null,
+      readOnlyReason: null,
     });
     store.hydrateWorkspace('/ws/a', ['A']);
     expect(store.tiles()).toEqual(migrated);

@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 3/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 4/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -227,7 +227,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   24 px `::after` hit area; the error-callout button's name "Show output of <title>" does not start with the
   visible word "Output".
 
-## Batch R2: Smart card rail variant, request identity, carried #1/#2 (chat) — COMPLETE
+## Batch R2: Smart card rail variant, request identity, carried #1/#2 (chat) — COMPLETE (commit f0462a870)
 
 - Goal: one data source for tile and rail cards; ended lanes newest first (#1); full-field lane summary equality (#2);
   request ids for every callout, error id from `terminalFailureSeq`; `answerQuestion(shownId)` (plan Component 7,
@@ -271,7 +271,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   the phase review: `respond` now refuses any callout that is no longer `callout()` for the tile too (stricter
   than the plan's "session: unchanged"; consistent with R2-1, posts nothing stale).
 
-## Batch R3: Board state model, v3 record, store board state (canvas) — PENDING
+## Batch R3: Board state model, v3 record, store board state (canvas) — COMPLETE
 
 - Goal: per-workspace `CanvasBoardState` persisted in a v3 record; v1/v2 still read; store setters that never touch
   tile intent (plan Components 1-2, `:128-229`; D16, D17).
@@ -309,7 +309,15 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader: only the 5 listed files changed; `canvas/src/index.ts` and
+  `orchestra-canvas.component.spec.ts` untouched; persistence spec edits are the schedule-signature migration,
+  the D16 round-trip/future-version fields and plan cases (1)-(7); store cases (1)-(5) present. K6 hydration is
+  `loaded.board ?? existing ?? DEFAULT_BOARD_STATE` (`canvas.store.ts:575`). Re-run checks: persistence spec
+  22/22, store spec 23/23, canvas project 26 suites / 336 passed, typecheck pass, lint 0 errors / 14 warnings
+  (none in R3 files). Minor for the phase review: board state carried from the implicit path to the first real
+  workspace is not scheduled for persist at hydration (only tile diffs schedule), so it is written on the next
+  board or tile change; `boardFor` is a plain signal read, not a memoized per-path signal (return type matches
+  the plan).
 
 ## Batch R4a: Per-tab lane selection, lane strip reveal, queue Escape (canvas) — PENDING
 

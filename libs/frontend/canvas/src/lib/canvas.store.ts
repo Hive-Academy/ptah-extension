@@ -29,6 +29,12 @@ import {
   type TileSpan,
 } from './canvas-layout-intent';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
+import {
+  DEFAULT_BOARD_STATE,
+  type CanvasBoardMode,
+  type CanvasBoardState,
+  type CanvasRailDensity,
+} from './canvas-board-mode';
 
 /**
  * A canvas tile is stored as intent only — where it sits in reading order, how
@@ -107,6 +113,7 @@ export class CanvasStore {
   private readonly _workspaceTiles = signal<
     ReadonlyMap<string, readonly CanvasTile[]>
   >(new Map());
+  private readonly _workspaceBoard = signal<ReadonlyMap<string, CanvasBoardState>>(new Map());
   private readonly _workspaceFocusedTabId = signal<
     ReadonlyMap<string, string | null>
   >(new Map());
@@ -146,6 +153,10 @@ export class CanvasStore {
     return path !== null
       ? (this._workspaceTiles().get(path) ?? EMPTY_TILES)
       : EMPTY_TILES;
+  });
+  readonly activeBoard = computed(() => {
+    const path = this._activeWorkspacePath();
+    return path === null ? DEFAULT_BOARD_STATE : this.boardFor(path);
   });
   readonly focusedTabId = computed<string | null>(() => {
     const path = this._activeWorkspacePath();
@@ -247,6 +258,33 @@ export class CanvasStore {
       this._tilesForCache.set(path, sig);
     }
     return sig;
+  }
+
+  boardFor(path: string): CanvasBoardState {
+    return this._workspaceBoard().get(path) ?? DEFAULT_BOARD_STATE;
+  }
+
+  setBoardMode(path: string, mode: CanvasBoardMode): void {
+    this.updateBoard(path, { mode });
+  }
+
+  setRailCollapsed(path: string, collapsed: boolean): void {
+    this.updateBoard(path, { railCollapsed: collapsed });
+  }
+
+  setRailDensity(path: string, density: CanvasRailDensity): void {
+    this.updateBoard(path, { railDensity: density });
+  }
+
+  setRailScrollTop(path: string, px: number): void {
+    this.updateBoard(path, { railScrollTop: Number.isFinite(px) ? Math.max(0, Math.round(px)) : 0 });
+  }
+
+  private updateBoard(path: string, change: Partial<CanvasBoardState>): void {
+    const current = this.boardFor(path);
+    if (Object.entries(change).every(([key, value]) => current[key as keyof CanvasBoardState] === value)) return;
+    setIn(this._workspaceBoard, path, { ...current, ...change });
+    this.schedulePersist(path);
   }
 
   workspaceRevision(path: string): number {
@@ -495,11 +533,13 @@ export class CanvasStore {
         prev === IMPLICIT_WORKSPACE_PATH &&
         path !== IMPLICIT_WORKSPACE_PATH &&
         !this._workspaceTiles().has(path) &&
-        (this._workspaceTiles().get(IMPLICIT_WORKSPACE_PATH)?.length ?? 0) > 0
+        ((this._workspaceTiles().get(IMPLICIT_WORKSPACE_PATH)?.length ?? 0) > 0 ||
+          this._workspaceBoard().has(IMPLICIT_WORKSPACE_PATH))
       ) {
         // First real workspace after bootstrap: carry implicit tiles over so
         // tiles created before any path arrived aren't orphaned.
         moveIn(this._workspaceTiles, IMPLICIT_WORKSPACE_PATH, path);
+        moveIn(this._workspaceBoard, IMPLICIT_WORKSPACE_PATH, path);
         moveIn(this._workspaceFocusedTabId, IMPLICIT_WORKSPACE_PATH, path);
         moveIn(this._workspaceLayoutFocus, IMPLICIT_WORKSPACE_PATH, path);
         moveIn(this._workspaceRevisions, IMPLICIT_WORKSPACE_PATH, path);
@@ -509,6 +549,7 @@ export class CanvasStore {
         path !== IMPLICIT_WORKSPACE_PATH
       ) {
         deleteIn(this._workspaceTiles, IMPLICIT_WORKSPACE_PATH);
+        deleteIn(this._workspaceBoard, IMPLICIT_WORKSPACE_PATH);
         deleteIn(this._workspaceFocusedTabId, IMPLICIT_WORKSPACE_PATH);
         deleteIn(this._workspaceLayoutFocus, IMPLICIT_WORKSPACE_PATH);
         deleteIn(this._workspaceRevisions, IMPLICIT_WORKSPACE_PATH);
@@ -531,6 +572,7 @@ export class CanvasStore {
       (tiles.some((tile) => tile.tabId === activeTabId) ? activeTabId : null);
 
     setIn(this._workspaceTiles, path, tiles);
+    setIn(this._workspaceBoard, path, loaded.board ?? this._workspaceBoard().get(path) ?? DEFAULT_BOARD_STATE);
     setIn(this._workspaceFocusedTabId, path, focused);
     const layoutFocus = this.layoutFocusTabIdFor(path);
     if (
@@ -573,6 +615,7 @@ export class CanvasStore {
    */
   removeWorkspaceTileState(workspacePath: string): void {
     deleteIn(this._workspaceTiles, workspacePath);
+    deleteIn(this._workspaceBoard, workspacePath);
     deleteIn(this._workspaceFocusedTabId, workspacePath);
     deleteIn(this._workspaceLayoutFocus, workspacePath);
     deleteIn(this._workspaceRevisions, workspacePath);
@@ -655,7 +698,10 @@ export class CanvasStore {
   private schedulePersist(workspacePath: string): void {
     this.persistence.schedule(
       workspacePath,
-      () => this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES,
+      () => ({
+        tiles: this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES,
+        board: this.boardFor(workspacePath),
+      }),
     );
   }
 
