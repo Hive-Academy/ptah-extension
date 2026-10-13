@@ -1,6 +1,11 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 40 | Batches: 15 | Complete: 5/15
+Total tasks: 44 | Batches: 16 | Complete: 5/16
+
+Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
+only) → Batch 9 (with Task 9.0, moved from 7.1) → Phase 2B review → Batches 10-13 → Phase 3
+review → Batches 14-15 → Phase 4 review → wait for TASK_2026_629 to merge and the user to
+confirm → Batches 6, 7, 8 → Phase 2F review → Mode 3. Batch numbers are ids, not run order.
 
 Worktree root (every command runs here):
 `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`
@@ -70,7 +75,8 @@ Assumptions:
 - The `HARNESS_CONFIG_PROPOSED` payload has one producer, which is untyped
   (`harness-namespace.builder.ts:1078`). Its typed consumers are
   `harness-workflow-message.handler.ts:145` and a constant-only webview spec. Verified. Making
-  `sessionId` required in Task 7.1 breaks no unowned file.
+  `sessionId` required in Task 9.0 (moved from Task 7.1, D8) breaks no unowned file. Re-checked
+  2026-10-13: the frontend handler only casts the payload (`:145`); nothing constructs it.
 - Rehydration lives in `HarnessWorkflowService` (`harness-workflow.service.ts:148-229`), which
   exposes `sessionId` as a computed signal (`:172`). Task 7.2 keeps hydration in the message
   handler, keyed on that signal. Unverified that this needs no workflow-service edit. Batch 7
@@ -90,11 +96,11 @@ Assumptions:
 | R3: S1 changes `MultiPhaseAnalysisResponse.manifest` to a v3/v4 union in shared. That type is consumed by setup-wizard (`wizard-rpc.service.ts`, `wizard-analysis-state.ts`), ptah-cli (`setup.ts:54,132-137`), agent-generation (`analysis-storage.service.ts:491-525`) and rpc-handlers. | MEDIUM | Task 1.3 keeps the v3 member byte-identical and every common field present on v4. Batch 1 runs a typecheck of the four consumers. |
 | R4: Proposal hydration and a live event race. A stale snapshot applied after a newer live event could revert fields. | MEDIUM | Task 7.2 buffers live events for the active session while `getProposal` is in flight, applies the snapshot first, then replays the buffer. Events for another session, or before the active session id is known, are dropped and recovered by hydration. Spec covers both orders. |
 | R5: Session identity. A tab id must never be persisted. | HIGH | Task 9.1/9.2: an unresolved caller returns a tool error with no write and no broadcast. The spec covers the correlation-id path after lifecycle assigns `realSessionId`. |
-| R6: Cross-process proposal writes. | MEDIUM | Task 4.1: per-session in-process queue plus a bounded `wx` lock file with expiry recovery. Re-read after the lock. A lock timeout rejects with no broadcast. Node `fs/promises` temp-write plus rename is available in rpc-handlers (precedent `handlers/file-edit-rpc.handlers.ts:349`). |
+| R6: Cross-process proposal writes. | MEDIUM | Task 4.1: per-session in-process queue plus a bounded `wx` lock file with expiry recovery. Re-read after the lock. A lock timeout rejects with no broadcast. Node `fs/promises` temp-write plus rename is available in rpc-handlers (precedent `handlers/file-edit-rpc.handlers.ts:349`). Phase 1 review: the hand-rolled lock had three defects (release ENOENT, stale double-holder, wait < stale); Task 16.1 replaces it with `serializeByKey` + `withFileLock` from `@ptah-extension/harness-sync`, wait > stale. Residual (pre-existing in harness-sync, recorded as FU-1 below): `breakIfStale` is check-then-remove and `release` removes by path. |
 | R7: `HarnessConfigStore` writes under `~/.ptah`, but proposals must use the host workspace provider root, never `resolveSessionWorkspaceRoot`. | MEDIUM | Task 4.1 resolves the root from `PLATFORM_TOKENS.WORKSPACE_PROVIDER` for both write and read. Task 5.2 spec: get-proposal reads the same root the writer used. No caller-selected root. |
 | R8: A new `@inject` token without a registration fails the pre-push di-lint. | LOW | Batches 4, 12 and 15 append `npx nx run di-lint:lint` to their check. |
 | R9: Removing the New Project broadcast (Batch 5) breaks four Electron e2e event-injection specs and the 629-owned webview routing spec. | LOW | Producer only. The constant, payload, baseline entry and relay stay. e2e is not run (CLAUDE.md). Retargeting stays in the plan's Deferred review items until TASK_2026_629 merges. |
-| R10: D1 duplicates the relay logic until D2 makes the relay delegate. | LOW | Task 7.2 deletes the handler's copy and delegates to `HarnessWorkflowRequestService`. Phase 2 review checks there is one implementation. |
+| R10: D1 duplicates the relay logic until D2 makes the relay delegate. | LOW | Task 7.2 deletes the handler's copy and delegates to `HarnessWorkflowRequestService`. Phase 2F review checks there is one implementation. |
 | R11: Visual evidence. D1 changes Setup Hub modal timing (no new surface, no prototype). | MEDIUM | Mode 3 requires before/after visual-reviewer screenshots (dark and light) of the Setup Hub New Project intake. The before set is taken from base commit `2464e6922`. |
 
 Edge cases:
@@ -123,8 +129,9 @@ Edge cases:
 
 ## Write-path register (for Mode 3 trace)
 
-- `<host-workspace>/.ptah/harness/proposals/<sha256(sessionId)>.json` (+ `.lock`, temp files).
-  Writer: Task 9.1 through the Task 4.1 store. Readers: Task 5.2 RPC, then Task 7.2 hydration.
+- `<host-workspace>/.ptah/harness/proposals/<sha256(trimmed sessionId)>.json` (+ `.lock`, temp
+  files). Writer: Task 9.1 through the Task 4.1 store (lock from Task 16.1: harness-sync
+  `withFileLock`, lock payload `{pid, at}`). Readers: Task 5.2 RPC, then Task 7.2 hydration.
 - `<workspace>/.ptah/analysis/<slug>/manifest.json` v4. Writer: Task 12.2. Readers: Tasks 10.2,
   11.1, 13.2, 14.1, 15.2, `wizard-generation-checkpoint.service.ts:133`.
 - `<workspace>/.ptah/analysis/<archival-slug>/` (v3 archive). Writer: Task 10.2, called by
@@ -288,7 +295,11 @@ Edge cases:
 - Rationale: contract, registry, baseline, schema and handler must change together, or the
   allowlist and host-source contract specs fail.
 - Tasks: 4 | Depends on: Batches 1, 4
-- Phase: 1 - Proposal backend (last batch of the phase) | Phase review: code-logic, plus style
+- Phase: 1 - Proposal backend | Phase review: code-logic, plus style
+- Phase 1 review (combined diff `58d543298^..48fbb5673`): code-logic APPROVED WITH FIXES 5.5/10
+  (`code-logic-review.md`, antigravity lane); style APPROVED WITH FIXES 7/10
+  (`code-style-review.md`, claude sub-agent). Treated as a revision verdict: fix Batch 16 added
+  to Phase 1. Batch 16 is now the last batch of Phase 1.
 
 ### Task 5.1: Return the handoff from `harness:start-new-project`; drop only its broadcast - COMPLETE
 
@@ -337,16 +348,206 @@ Edge cases:
   New Project returns success and focuses chat, but no workflow or seed prompt opens. Do not
   merge or release this branch between Batch 5 and Batch 6.
 
-## Run status (paused after Batch 5 at the user's request)
+## Run status (2026-10-13, after the Phase 1 review)
 
-- Batches 1-5 (Phase 1 - Proposal backend) are COMPLETE and committed.
-- NEXT STEP: the Phase 1 code-logic review plus style review (new platform port, new RPC,
-  shared contracts) on the combined diff `58d543298^..48fbb5673` (the parent of the Batch 1
-  commit to the Batch 5 commit). The review covers the Batch 4 notes above (prune error
-  handling, lock release ENOENT, stale-lock recovery race) and the interim state above.
-- Then re-invoke team-leader in Mode 2 with the review paths and verdicts. On APPROVED,
-  Batch 6 starts. On NEEDS_REVISION, one fix batch is added to Phase 1 first.
-- Batch 6 stays PENDING until the Phase 1 review accepts.
+- Batches 1-5 are COMPLETE and committed. The Phase 1 review returned APPROVED WITH FIXES from
+  both reviewers. Under the one-fix-round rule, fix Batch 16 (below) is IN_PROGRESS and is the
+  last batch of Phase 1.
+- NEXT STEP: run Batch 16 on one codex implementation lane. Then team-leader Mode 2 verifies
+  and commits it. Then the one Phase 1 re-review, scoped to the Batch 16 commit only
+  (code-logic, plus style because the store's public error surface changes).
+- After the Phase 1 re-review accepts: Batch 9 (Phase 2B). It no longer waits for Batch 7 (D8).
+- FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
+  Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
+  confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
+  chat-types}` or `apps/ptah-extension-webview` in any batch. The orchestrator asks the user
+  before it starts Batch 6.
+- New Project stays broken on this branch until Batch 6 lands (Batch 5 interim state above).
+  No merge, release or PR before Phase 2F is accepted.
+
+## Phase 1 review disposition (one fix round)
+
+Rule: Blocking and Serious are fixed. Moderate is fixed only if it can break a lane config or
+lose data; otherwise it gets a named follow-up. Minor is recorded. `L` = code-logic finding
+number, `S` = style finding number.
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| L1 release ENOENT turns a good save into a failure | Serious | Fixed, Task 16.1. harness-sync `heldHandle.release` uses `rmSync(..., {force: true})` in a try/catch, so it never throws (`file-lock.ts:212-223`). Spec: Task 16.2 |
+| L2 two holders after stale recovery | Serious | Fixed for this diff, Task 16.1: the store's own recovery code is deleted. Residual, verified in `file-lock.ts:181-210`: `breakIfStale` reads the payload and then calls `rmSync` (check-then-remove), and `release` removes by path, so two processes breaking the same crash-left lock at the same instant can still both proceed. This code predates this task and every `withFileLock` caller shares it. It needs a lock older than 10 s left by a crashed process. Worst case is one lost partial merge, never a torn file (atomic rename). Not fixed here: FU-1 |
+| L3 one corrupt record stops prune | Moderate | Fixed, Task 16.1 (same file, small): log and continue per file; drop invalid records older than retention |
+| L4 sessionId not trimmed or validated before hashing | Moderate, data loss | Fixed, Tasks 16.1 and 16.3 |
+| L5 wait (1 s) < stale (5 s) | Moderate | Fixed, Task 16.1: stale 10 s, wait 12 s (harness-sync defaults 30 s / 5 s would keep the defect) |
+| L6 prune on every get and save | Moderate | Recorded, FU-3 (cost, no data loss) |
+| L7 explicit `undefined` overwrites saved fields in the merge | Moderate, data loss | Fixed, Tasks 16.3 and 16.4 (in the shared merge, so Batch 8 inherits it) |
+| L8 apply-time delete not wired | Moderate | As planned: Task 5.1 recorded that `harness:apply` params carry no session id; the 30-day prune covers it. No fix |
+| L9 `seedPrompt` consumed only from Batch 6 | Minor | As planned: Batch 6 (held, D7) |
+| L10 merge output aliases input arrays | Minor | Recorded, FU-4 |
+| Check 8 (no multi-process or concurrent-stale test) | Moderate | Partly closed: Task 16.1 moves locking to harness-sync, which owns its lock tests. A real two-process test is part of FU-1 |
+| S1 hand-rolled lock and queue | Serious | Fixed, Task 16.1 (`serializeByKey` + `withFileLock`; `HarnessProposalLockError` removed in favour of `FileLockTimeoutError`) |
+| S2 typed errors outside the port contract | Moderate | Partly, Task 16.1: the store class JSDoc lists every rejection and its type or code. The port and barrel docs in platform-core are FU-2 (a third lib; docs only) |
+| S3 thin port and token docs | Moderate | Recorded, FU-2 |
+| S4 `z.custom` on `configUpdates` | Moderate | Recorded. The existing round-trip spec (`store.spec:148-162`) pins a normalised record. FU-5 for aligning the schema output type |
+| S5 `as` casts in the merge | Moderate | Recorded, FU-4 (Batch 8 deletes the frontend copy; held) |
+| S6 sessionId constraint duplicated | Minor | Partly, Task 16.3: `HarnessSessionIdSchema` exported from shared and used by the stored-record schema and the store. Switching `HarnessGetProposalParamsSchema` (`harness-rpc.schema.ts:195-197`) to it is FU-6 |
+| S7 DI header comment | Minor | Recorded, FU-6 |
+| S8 stale doc comments | Minor | Recorded; the frontend comment goes with Batch 6, the shared union JSDoc is FU-6 |
+| S9 static queue on a singleton | Minor | Fixed as a side effect of S1 (`serializeByKey` owns the map) |
+
+Named follow-ups, all outside this run's batches; Mode 3 lists them in the handoff:
+
+- FU-1 harness-sync `file-lock.ts`: owner-token release (remove only if the payload is still
+  ours, ignore ENOENT) and rename-based stale break (rename to a unique name, re-check `at`,
+  then delete), plus a two-process test. Affects every `withFileLock` caller, so it gets its
+  own task, not a fix batch here.
+- FU-2 platform-core: `IHarnessProposalStore` header (adapter, registration site, merge
+  semantics, meaning of `complete`, rejection cases and codes) and the
+  `HARNESS_PROPOSAL_STORE` token JSDoc to match `SESSION_ORGANIZATION_RECORDER`.
+- FU-3 throttle the proposal prune (for example once per hour per directory).
+- FU-4 merge utility: copy output arrays (L10); type `merged` as `Partial<HarnessConfig>` with
+  one commented cast per section (S5); decide whether `name: ''` may clear.
+- FU-5 align `HarnessConfigUpdatesSchema` output with `Partial<HarnessConfig>` so the
+  `z.custom` bridge can go.
+- FU-6 small docs and reuse: `HarnessGetProposalParamsSchema` uses `HarnessSessionIdSchema` and
+  `satisfies z.ZodType<HarnessGetProposalParams>`; `harness/di.ts` header and DAG note for the
+  platform-token binding; JSDoc on the `HarnessStartNewProjectResult` union.
+
+## Batch 16: Phase 1 review fixes (proposal store lock reuse, sessionId, merge) - IN_PROGRESS
+
+- Recommended executor: implementation CLI lane (codex, roster in context.md), one lane
+- Fallback executor: backend-developer sub-agent
+- Execution mode: sequential
+- Rationale: the store rewrite, its spec and the shared schema and merge it depends on are one
+  coupled change. 5 files in 2 libs, one verification command.
+- Tasks: 4 | Depends on: Batches 1-5
+- Phase: 1 - Proposal backend (fix batch; last batch of the phase) | Phase review: the one
+  re-review, scoped to this batch's commit: code-logic, plus style (public error surface)
+- Lane limits: at most 40 tool calls. No git commands. Do not edit `batches.md`, `task.md` or
+  any file not listed in this batch. Never touch `libs/frontend/**` or
+  `apps/ptah-extension-webview/**`.
+- Worktree root, every command runs here:
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`. Never `cd` to
+  `D:/projects/ptah-extension`. `node_modules` is a junction to the main repo; keep it.
+
+### Task 16.1: Store reuses the harness-sync lock; validated sessionId; prune survives bad files - IMPLEMENTED
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.ts`
+- Depends on: Task 16.3 (`HarnessSessionIdSchema`)
+- Review reference: `code-logic-review.md` findings 1-5; `code-style-review.md` findings 1, 2, 9
+- Pattern to follow: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/harness-sync/src/lib/lock/file-lock.ts`
+  (`serializeByKey` `:135`, `acquireFileLock` `:234`, `withFileLock` `:298`, all exported from
+  `@ptah-extension/harness-sync`, barrel `src/index.ts:114-122`). `rpc-handlers` already
+  imports that barrel (`handlers/harness-rpc.handlers.ts:38`).
+- Quality requirements:
+  - Delete the static `queues` map, `acquireLock`, `HarnessProposalLockError` and the
+    `LOCK_STALE_MS`, `LOCK_WAIT_MS`, `LOCK_RETRY_MS` constants. Replace them with
+    `serializeByKey(file, ...)` around the work, and inside it
+    `withFileLock(`${file}.lock`, task, { staleAfterMs: PROPOSAL_LOCK_STALE_MS, maxWaitMs: PROPOSAL_LOCK_WAIT_MS })`.
+  - `PROPOSAL_LOCK_STALE_MS = 10_000` and `PROPOSAL_LOCK_WAIT_MS = 12_000`, each with a
+    one-line comment: wait is longer than stale, so a lock left by a crashed process is
+    broken inside one call (L5); stale is far above the critical section (one read, merge,
+    temp write, rename). Do not use the harness-sync defaults (30 s stale, 5 s wait): they
+    keep the L5 defect.
+  - A lock timeout now rejects with harness-sync `FileLockTimeoutError`, with nothing written.
+  - `save` and `get` first parse the id with `HarnessSessionIdSchema` (Task 16.3), before
+    `requireRoot()` and before any file system effect (no `mkdir`, no prune, no lock). Use the
+    trimmed id everywhere: the file-name hash, the stored `sessionId`, and the read-time
+    identity comparison. An empty, whitespace-only or over-256-character id rejects (ZodError
+    from the parse).
+  - Order inside `save`: validate id, resolve root, then `serializeByKey(file, async () => { mkdir; prune; return withFileLock(lock, async () => { re-read; merge; HarnessProposalSchema.parse; atomic write; return }) })`.
+    Keep the existing `read` (corrupt or mismatched record warns and returns null) and the
+    existing `write` (`wx` temp file plus rename, temp removed on failure). Keep the merge call
+    `mergeHarnessConfigUpdates(current?.configUpdates ?? {}, mergeHarnessConfigUpdates({}, update))`.
+  - `prune` (L3): only the outer `readdir` failure is caught at the outer level (ENOENT silent,
+    others warn). Each file is handled in its own try/catch that logs a warning with the file
+    name and continues. It never rethrows, so one bad file never stops the loop. Keep the skip
+    when `${file}.lock` exists. Valid records older than 30 days by `updatedAt` are deleted, as
+    today. Records that fail JSON parse or schema validation are deleted when the file's
+    `mtimeMs` (from `fs.stat`) is older than 30 days, and kept (warned) otherwise.
+  - Class JSDoc (S2): root comes from the workspace provider; merge, not replace; and the
+    rejections: `HarnessProposalWorkspaceError` (`code` `HARNESS_PROPOSAL_NO_WORKSPACE`), a
+    ZodError for an invalid session id, `FileLockTimeoutError` from `@ptah-extension/harness-sync`,
+    and file system errors. Keep `HarnessProposalWorkspaceError` exported where it is.
+  - Constructor and `@inject` list unchanged (no DI change). Net result should be shorter than
+    today's 223 lines. No TODO, stub or placeholder.
+- Validation notes: L2 residual is FU-1 (not in this batch). Do not edit `file-lock.ts`. The
+  lock directory comes from `acquireFileLock` (`mkdirSync` of the lock's parent), so the
+  `no-lock-directory` path runs unlocked by design (the write then fails on the same
+  directory); do not add handling for it.
+
+### Task 16.2: Store spec for the fixes - IMPLEMENTED
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.spec.ts`
+- Depends on: Task 16.1
+- Quality requirements:
+  - Keep every existing case passing. Replace the `HarnessProposalLockError` import with
+    `FileLockTimeoutError` from `@ptah-extension/harness-sync`.
+  - Lock files now hold the harness-sync payload `{"pid": <n>, "at": <epoch ms>}`, and
+    staleness is read from `at`, not from mtime. A lock file whose content is not that JSON is
+    treated as stale and broken at once (`file-lock.ts:181-210`). So:
+    - held-lock case: write `{pid: 999999, at: Date.now() + 60_000}` so it is never stale
+      within the wait; assert `FileLockTimeoutError` and that no record file exists.
+    - expired-lock case: write `{pid: 999999, at: Date.now() - 11_000}`; assert the save
+      succeeds and the lock file is gone afterwards.
+  - No test may wait 12 s of real time. Control time with `jest.spyOn(Date, 'now')` (the
+    harness-sync deadline and staleness read `Date.now()`) or Jest modern fake timers, and
+    restore them in `afterEach`. Each case finishes in well under 2 s.
+  - New cases:
+    - L1: the lock file is removed while the save holds it (for example a spy on the
+      `fs/promises` `rename` that deletes `${file}.lock` and then calls through); the save
+      resolves and a new store instance reads the record.
+    - L4: `save(' a ', ...)` stores `sessionId: 'a'` in the file named by `sha256('a')`;
+      `get('a')` and `get(' a ')` both return it. `save('')`, `save('   ')` and a
+      257-character id reject, and the `.ptah/harness/proposals` directory was not created.
+    - L3: an unparseable `<64 hex>.json` whose mtime is older than 30 days (`fs.utimes`) is
+      deleted, an expired valid record in the same directory is still deleted in the same
+      pass, and an unparseable recent file is kept.
+    - L7 at the store level: save `persona` with a label, then save
+      `{persona: {label: undefined}}` (cast as needed); a new store instance still reads the
+      first label.
+
+### Task 16.3: Shared `HarnessSessionIdSchema`; merge ignores explicit `undefined` - IMPLEMENTED
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-harness.schemas.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.ts`
+- Review reference: `code-logic-review.md` findings 4 and 7; `code-style-review.md` finding 6
+- Quality requirements:
+  - In `rpc-harness.schemas.ts`, export
+    `HarnessSessionIdSchema = z.string().trim().min(1).max(256)` with a JSDoc (the real SDK
+    session id; trimmed; the proposal store hashes the trimmed value). Use it for
+    `HarnessProposalSchema.sessionId` (`:466`). It reaches `@ptah-extension/shared/schemas`
+    through the existing `export *` (`libs/shared/src/schemas.ts:28`); add no barrel line.
+  - In the merge, add one small module-private helper that copies an object without its
+    `undefined`-valued keys. Apply it to the update side of the `persona`, `prompt` and
+    `claudeMd` spreads and of the `agents.enabledAgents` and `mcp.enabledTools` spreads, so an
+    explicit `undefined` never replaces a base value. Change nothing else: array replacement,
+    the `name` truthiness check and the `selectedSkillRefs` logic stay as they are (FU-4).
+    Add no new `as` cast. Do not add `null` handling; if you find that
+    `HarnessConfigUpdatesSchema` accepts `null` for any section field, say so in the report.
+- Validation notes: the frontend keeps its own merge copy until Batch 8 (held); do not touch it.
+
+### Task 16.4: Merge spec - IMPLEMENTED
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.spec.ts`
+- Depends on: Task 16.3
+- Quality requirements: the four existing cases pass unchanged. Add: an explicit `undefined`
+  in `persona`, `prompt` and `claudeMd` keys keeps the base values; `undefined` values in
+  `agents.enabledAgents` and `mcp.enabledTools` keep the base entries; neither input is
+  mutated.
+
+### Batch 16 verification
+
+- Command (foreground, long timeout, output tailed; one heavy check at a time):
+  `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -40`
+  Confirm the header says "Running targets typecheck, test, lint for 2 projects".
+- No DI change is expected. If the store's constructor or any `@inject` changes, also run
+  `npx nx run di-lint:lint`.
+- Memory-safe rules (CLAUDE.md): only these projects; `--parallel=1`; for a single spec use
+  `npx jest -c libs/backend/rpc-handlers/jest.config.ts <spec> --coverage=false --maxWorkers=2`;
+  never `build`, `serve`, `e2e` or `package`; never a workspace-wide run.
+- Lane report: every file path changed, the evidence per task, how L1-L5, L7 and S1 are closed,
+  and the answer on `null` from Task 16.3.
+- After commit: the Phase 1 re-review is due, scoped to the Batch 16 commit.
 
 ## Batch 6: Direct New Project handoff in Setup Hub - PENDING
 
@@ -355,8 +556,10 @@ Edge cases:
 - Execution mode: sequential
 - Rationale: extracting a service, adding its spec and wiring its one caller is cross-file and
   coupled.
-- Tasks: 3 | Depends on: Batch 5
-- Phase: 2 - Builder adapters and MCP writer | Phase review: code-logic
+- Tasks: 3 | Depends on: Batches 5, 16
+- Phase: 2F - Builder adapters (frontend) | Phase review: code-logic, after Batch 8
+- HELD (D7, user 2026-10-13): does not start until TASK_2026_629 merges and the user confirms.
+  The orchestrator asks the user first.
 
 ### Task 6.1: RPC wrapper: typed handoff result and `getProposal` (F21) - PENDING
 
@@ -391,14 +594,13 @@ Edge cases:
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: frontend-developer sub-agent
 - Execution mode: sequential
-- Rationale: the payload contract and its only typed consumer change together.
-- Tasks: 3 | Depends on: Batch 6
-- Phase: 2 - Builder adapters and MCP writer | Phase review: code-logic
+- Rationale: the session filter, hydration and relay delegation live in one handler and its
+  spec. The payload contract they read lands earlier, in Batch 9 (Task 9.0).
+- Tasks: 2 | Depends on: Batches 6, 9 (Task 9.0 adds the `sessionId` this batch filters on)
+- Phase: 2F - Builder adapters (frontend) | Phase review: code-logic, after Batch 8
+- HELD (D7, user 2026-10-13): does not start until TASK_2026_629 merges and the user confirms.
 
-### Task 7.1: `sessionId` on the config-proposed payload - PENDING
-
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/messages/payload-map.ts`
-- Quality requirements: required `sessionId: string` on `HarnessConfigProposedPayload` only. `HarnessOpenWorkflowPayload` (`:199-200`) and its map entry (`:417`) are unchanged.
+Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Task 9.0 (D8).
 
 ### Task 7.2: Filter, hydrate and delegate the relay - PENDING
 
@@ -416,7 +618,8 @@ Edge cases:
 
 ### Batch 7 verification
 
-- Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder @ptah-extension/shared --parallel=1`
+- Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
+  (shared is no longer changed here; it moved to Batch 9 with Task 9.0)
 
 ## Batch 8: Frontend adopts the shared merge - PENDING
 
@@ -424,8 +627,9 @@ Edge cases:
 - Fallback executor: frontend-developer sub-agent
 - Execution mode: sequential
 - Rationale: one service and its existing spec.
-- Tasks: 1 | Depends on: Batches 2, 7
-- Phase: 2 - Builder adapters and MCP writer | Phase review: code-logic
+- Tasks: 1 | Depends on: Batches 2, 7, 16 (Task 16.3 changes the shared merge it adopts)
+- Phase: 2F - Builder adapters (frontend), last batch of the phase | Phase review: code-logic
+- HELD (D7, user 2026-10-13): does not start until TASK_2026_629 merges and the user confirms.
 
 ### Task 8.1: Replace the local merge with `mergeHarnessConfigUpdates` - PENDING
 
@@ -437,16 +641,29 @@ Edge cases:
 ### Batch 8 verification
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
+- After commit: the Phase 2F review is due (Batches 6-8, combined diff of their commits).
 
 ## Batch 9: Session-scoped MCP proposal writer - PENDING
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
 - Execution mode: sequential
-- Rationale: the namespace dependency, its builder wiring and the dispatcher path are one call
-  chain.
-- Tasks: 3 | Depends on: Batches 3, 4, 7
-- Phase: 2 - Builder adapters and MCP writer (last batch of the phase) | Phase review: code-logic
+- Rationale: the payload contract (Task 9.0), the namespace dependency, its builder wiring and
+  the dispatcher path are one call chain.
+- Tasks: 4 | Depends on: Batches 3, 4, 16 (no longer Batch 7, D8)
+- Phase: 2B - MCP writer (backend; the only batch of the phase) | Phase review: code-logic
+- Size note: 7 files in 2 libs (shared, vscode-lm-tools), one over the 6-file cap. Accepted
+  because the user moved Task 9.0 in (D8) and it is a one-field type change.
+- Starts only after the Phase 1 re-review accepts Batch 16.
+
+### Task 9.0: `sessionId` on the config-proposed payload (moved from Task 7.1, D8) - PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/messages/payload-map.ts`
+- Quality requirements: required `sessionId: string` on `HarnessConfigProposedPayload` (`:217`)
+  only, with a JSDoc (the real SDK session id the proposal was saved under). `HarnessOpenWorkflowPayload` (`:199-200`) and its map entry (`:417`) are unchanged.
+- Validation notes: the only typed consumer, `libs/frontend/harness-builder/.../harness-workflow-message.handler.ts:145`,
+  only casts the payload, so it still compiles. Do not edit any frontend file (D7); the
+  harness-builder typecheck below is read-only confirmation.
 
 ### Task 9.1: `proposeConfig` persists, then broadcasts with `sessionId` - PENDING
 
@@ -455,7 +672,10 @@ Edge cases:
 - Plan reference: implementation-plan.md:24, 46
 - Pattern to follow: the current `proposeConfig` at `harness-namespace.builder.ts:1066-1090`
 - Quality requirements: add `getCallerSdkSessionId` and `saveProposal` to `HarnessNamespaceDependencies`. Validate with Zod first. A missing session id throws a tool error, with no save and no broadcast. Await `saveProposal`, and on failure throw with no broadcast. Then broadcast `{sessionId, configUpdates, isConfigComplete}`. A missing broadcaster is non-fatal. The spec covers absent id, save failure, persist-before-broadcast order and the `sessionId` in the payload (F17).
-- Validation notes: R5.
+- Validation notes: R5. Type the broadcast payload as `HarnessConfigProposedPayload` (Task 9.0)
+  and broadcast the `sessionId` of the record `saveProposal` returned (the store trims it,
+  Task 16.1). A store rejection (`FileLockTimeoutError`, invalid id, no workspace) is a save
+  failure: no broadcast.
 
 ### Task 9.2: `PtahAPIBuilder` wiring - PENDING
 
@@ -473,8 +693,10 @@ Edge cases:
 
 ### Batch 9 verification
 
-- Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-lm-tools --parallel=1`
-- After commit: the Phase 2 review is due (Batches 6-9, combined diff).
+- Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-lm-tools --parallel=1 && npx nx typecheck @ptah-extension/harness-builder`
+  Confirm the first header says "for 2 projects". The harness-builder typecheck is a
+  read-only consumer check of Task 9.0; it edits nothing.
+- After commit: the Phase 2B review is due (Batch 9 only, its commit).
 
 ## Batch 10: Manifest v4 types and validated read path (behavior-neutral) - PENDING
 
@@ -704,21 +926,28 @@ Edge cases:
 ### Batch 15 verification
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1 && npx nx typecheck ptah-cli && npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src/cli/commands/prompts.spec.ts apps/ptah-cli/src/cli/commands/setup.spec.ts apps/ptah-cli/src/cli/commands/wizard.spec.ts --coverage=false --maxWorkers=2 && npx nx run di-lint:lint`
-- After commit: the Phase 4 review is due (Batches 14-15, combined diff).
+- After commit: the Phase 4 review is due (Batches 14-15, combined diff). After it accepts, the
+  run waits for TASK_2026_629 to merge and the user to confirm before Batch 6 (D7).
 
 ---
 
 ## Phases
 
-| Phase | Batches | Review | Reviewer (roster) |
-| --- | --- | --- | --- |
-| 1 - Proposal backend | 1-5 | code-logic, plus style (new platform port, new RPC, shared contracts) | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
-| 2 - Builder adapters and MCP writer | 6-9 | code-logic | same |
-| 3 - Manifest v4 and freshness | 10-13 | code-logic, plus style (new RPC, exported service) | same |
-| 4 - Self-gathering generation | 14-15 | code-logic | same |
+Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
+
+| Phase | Batches | Review | State | Reviewer (roster) |
+| --- | --- | --- | --- | --- |
+| 1 - Proposal backend | 1-5, fix 16 | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | fix round in progress | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
+| 2B - MCP writer (backend) | 9 (includes Task 9.0, D8) | code-logic | pending | same |
+| 3 - Manifest v4 and freshness | 10-13 | code-logic, plus style (new RPC, exported service) | pending | same |
+| 4 - Self-gathering generation | 14-15 | code-logic | pending | same |
+| 2F - Builder adapters (frontend) | 6-8 | code-logic, after Batch 8 | HELD until TASK_2026_629 merges and the user confirms (D7) | same |
 
 Mode 3 completion also needs:
 - parity-inventory.md, checked row by row;
 - before/after Setup Hub screenshots in dark and light (R11);
 - the write-path trace (register above);
-- the follow-up note for R1 (port `rename`).
+- the follow-up note for R1 (port `rename`);
+- the Phase 1 follow-ups FU-1 to FU-6 (section "Phase 1 review disposition"), carried into the
+  QA handoff;
+- every phase review accepted, including Phase 2F, which runs only after TASK_2026_629.

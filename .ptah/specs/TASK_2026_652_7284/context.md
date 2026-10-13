@@ -84,3 +84,12 @@ PM phase skipped: requirements, decisions and research already exist in the epic
   baseline entries into G, move `agent-generation/src/index.ts` from G to E; F19: scoped
   `cli-engine` test after the RPC batches; F20: E keeps `loadManifest` compatible for
   `wizard-generation-checkpoint.service.ts:133`; F21: D1 owns the frontend `getProposal` wrapper).
+
+## Frontend hold (user, 2026-10-13)
+
+- No frontend work until TASK_2026_629 merges and the user confirms it. Held: Batches 6, 7
+  (Tasks 7.2, 7.3) and 8 (`libs/frontend/harness-builder`). Ask the user before starting them.
+- Order now: Phase 1 review and fix round → Batch 9 (with Task 7.1 moved in, D8) → Phase 2B
+  review → Batches 10-13 → Phase 3 review → Batches 14-15 → Phase 4 review → wait for 629 →
+  Batches 6, 7, 8 → Phase 2F review → Mode 3 → push and PR (decisions D7-D9).
+- New Project stays broken on this branch until Batch 6 lands. No merge, release or PR before then.

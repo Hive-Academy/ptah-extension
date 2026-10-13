@@ -6,8 +6,8 @@ import * as path from 'path';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { FileLockTimeoutError } from '@ptah-extension/harness-sync';
 import {
-  HarnessProposalLockError,
   HarnessProposalStore,
   HarnessProposalWorkspaceError,
 } from './harness-proposal-store.service';
@@ -37,6 +37,7 @@ describe('HarnessProposalStore', () => {
   });
 
   afterEach(async () => {
+    jest.restoreAllMocks();
     await fs.rm(root, { recursive: true, force: true });
   });
 
@@ -113,9 +114,11 @@ describe('HarnessProposalStore', () => {
   it('rejects when another process holds the lock past the deadline', async () => {
     const file = fileFor('one');
     await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(`${file}.lock`, 'held', { flag: 'wx' });
+    await fs.writeFile(`${file}.lock`, JSON.stringify({ pid: 999999, at: Date.now() + 60_000 }), { flag: 'wx' });
+    let clock = Date.now();
+    jest.spyOn(Date, 'now').mockImplementation(() => (clock += 1_000));
     await expect(store.save('one', { name: 'Blocked' }, false)).rejects.toBeInstanceOf(
-      HarnessProposalLockError,
+      FileLockTimeoutError,
     );
     await expect(fs.access(file)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -123,9 +126,7 @@ describe('HarnessProposalStore', () => {
   it('recovers an expired lock', async () => {
     const file = fileFor('one');
     await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(`${file}.lock`, 'stale', { flag: 'wx' });
-    const stale = new Date(Date.now() - 10_000);
-    await fs.utimes(`${file}.lock`, stale, stale);
+    await fs.writeFile(`${file}.lock`, JSON.stringify({ pid: 999999, at: Date.now() - 11_000 }), { flag: 'wx' });
     expect((await store.save('one', { name: 'Recovered' }, false)).configUpdates.name).toBe(
       'Recovered',
     );
@@ -159,5 +160,63 @@ describe('HarnessProposalStore', () => {
     );
     expect(await store.get('one')).toEqual(saved);
     expect(JSON.parse(await fs.readFile(fileFor('one'), 'utf8'))).toEqual(saved);
+  });
+
+  it('completes a save when its lock disappears before release', async () => {
+    const file = fileFor('one');
+    const rename = fs.rename;
+    jest.spyOn(require('fs/promises') as typeof import('fs/promises'), 'rename').mockImplementation(async (from, to) => {
+      await fs.rm(`${file}.lock`, { force: true });
+      return rename(from, to);
+    });
+    const saved = await store.save('one', { name: 'Persisted' }, false);
+    const restarted = new HarnessProposalStore(logger as unknown as Logger, workspaceProvider);
+    expect(await restarted.get('one')).toEqual(saved);
+  });
+
+  it('trims session ids before hashing and rejects invalid ids before file access', async () => {
+    const saved = await store.save(' a ', { name: 'Trimmed' }, false);
+    expect(saved.sessionId).toBe('a');
+    expect(JSON.parse(await fs.readFile(fileFor('a'), 'utf8')).sessionId).toBe('a');
+    expect(await store.get('a')).toEqual(saved);
+    expect(await store.get(' a ')).toEqual(saved);
+
+    const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'harness-invalid-id-'));
+    try {
+      const invalidStore = new HarnessProposalStore(
+        logger as unknown as Logger,
+        { getWorkspaceRoot: () => otherRoot } as IWorkspaceProvider,
+      );
+      for (const id of ['', '   ', 'x'.repeat(257)]) {
+        await expect(invalidStore.save(id, {}, false)).rejects.toThrow();
+        await expect(invalidStore.get(id)).rejects.toThrow();
+      }
+      await expect(fs.access(path.join(otherRoot, '.ptah', 'harness', 'proposals')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await fs.rm(otherRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('prunes old corrupt and expired valid records while retaining recent corrupt files', async () => {
+    const old = await store.save('old', { name: 'Old' }, false);
+    await fs.writeFile(fileFor('old'), JSON.stringify({ ...old, updatedAt: '2020-01-01T00:00:00.000Z' }));
+    const staleCorrupt = fileFor('corrupt');
+    const recentCorrupt = fileFor('recent');
+    await fs.writeFile(staleCorrupt, '{broken');
+    await fs.writeFile(recentCorrupt, '{broken');
+    const oldTime = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    await fs.utimes(staleCorrupt, oldTime, oldTime);
+    await store.save('new', { name: 'New' }, false);
+    await expect(fs.access(staleCorrupt)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.access(fileFor('old'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.access(recentCorrupt)).resolves.toBeUndefined();
+  });
+
+  it('keeps a saved label when a later update explicitly contains undefined', async () => {
+    await store.save('one', { persona: { label: 'Reviewer' } as never }, false);
+    await store.save('one', { persona: { label: undefined } } as never, false);
+    const restarted = new HarnessProposalStore(logger as unknown as Logger, workspaceProvider);
+    expect((await restarted.get('one'))?.configUpdates.persona?.label).toBe('Reviewer');
   });
 });

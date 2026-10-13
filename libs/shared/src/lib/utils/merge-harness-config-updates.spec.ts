@@ -115,4 +115,33 @@ describe('mergeHarnessConfigUpdates', () => {
     expect(JSON.stringify(base)).toBe(baseBefore);
     expect(JSON.stringify(update)).toBe(updateBefore);
   });
+
+  it('ignores explicit undefined in section updates without mutating inputs', () => {
+    const base: Partial<HarnessConfig> = {
+      persona: { label: 'Reviewer', description: 'Reviews', goals: [] },
+      prompt: { systemPrompt: 'Keep', enhancedSections: {} },
+      claudeMd: { generateProjectClaudeMd: true, customSections: {}, previewContent: 'Keep' },
+      agents: { enabledAgents: { reviewer: { enabled: true } } },
+      mcp: { servers: [], enabledTools: { search: ['query'] } },
+    };
+    const update = {
+      persona: { label: undefined },
+      prompt: { systemPrompt: undefined },
+      claudeMd: { previewContent: undefined },
+      agents: { enabledAgents: { reviewer: undefined } },
+      mcp: { enabledTools: { search: undefined } },
+    } as unknown as Partial<HarnessConfig>;
+    const beforeBase = structuredClone(base);
+    const beforeUpdate = structuredClone(update);
+
+    const result = mergeHarnessConfigUpdates(base, update);
+
+    expect(result.persona?.label).toBe('Reviewer');
+    expect(result.prompt?.systemPrompt).toBe('Keep');
+    expect(result.claudeMd?.previewContent).toBe('Keep');
+    expect(result.agents?.enabledAgents?.['reviewer']).toEqual({ enabled: true });
+    expect(result.mcp?.enabledTools?.['search']).toEqual(['query']);
+    expect(base).toEqual(beforeBase);
+    expect(update).toEqual(beforeUpdate);
+  });
 });

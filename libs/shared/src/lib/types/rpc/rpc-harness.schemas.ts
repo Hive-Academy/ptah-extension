@@ -458,11 +458,14 @@ export const HarnessConfigUpdatesSchema = z
   .partial()
   .strict();
 
+/** Real SDK session id, trimmed before the proposal store hashes it. */
+export const HarnessSessionIdSchema = z.string().trim().min(1).max(256);
+
 /** Validates a proposal loaded from workspace storage. */
 export const HarnessProposalSchema: z.ZodType<HarnessProposal> = z.strictObject({
   version: z.literal(1),
   workspaceRoot: z.string().min(1),
-  sessionId: z.string().trim().min(1).max(256),
+  sessionId: HarnessSessionIdSchema,
   // Updates can contain partial nested sections; validate with the existing
   // update schema while preserving the public Partial<HarnessConfig> contract.
   configUpdates: z.custom<Partial<HarnessConfig>>(
