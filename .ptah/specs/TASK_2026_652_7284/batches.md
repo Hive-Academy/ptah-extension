@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 40 | Batches: 15 | Complete: 1/15
+Total tasks: 40 | Batches: 15 | Complete: 2/15
 
 Worktree root (every command runs here):
 `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`
@@ -186,7 +186,7 @@ Edge cases:
   Confirm that each header names the requested project count (1, then 4).
 - No per-batch review. The Phase 1 review covers this batch.
 
-## Batch 2: Shared field-aware merge utility - IN_PROGRESS
+## Batch 2: Shared field-aware merge utility - COMPLETE (commit 0e9813f89)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -195,7 +195,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1
 - Phase: 1 - Proposal backend | Phase review: code-logic, plus style
 
-### Task 2.1: `mergeHarnessConfigUpdates` - IMPLEMENTED
+### Task 2.1: `mergeHarnessConfigUpdates` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/index.ts`
@@ -205,7 +205,7 @@ Edge cases:
 - Validation notes: Task 8.1 must be able to replace the frontend logic with no behavior change.
 - Implementation details: export from `utils/index.ts`, which is re-exported at `libs/shared/src/index.ts:59`.
 
-### Task 2.2: Merge spec - IMPLEMENTED
+### Task 2.2: Merge spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.spec.ts` (new)
 - Depends on: Task 2.1
@@ -215,7 +215,7 @@ Edge cases:
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared --parallel=1`
 
-## Batch 3: Platform proposal store port - PENDING
+## Batch 3: Platform proposal store port - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -224,7 +224,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1
 - Phase: 1 - Proposal backend | Phase review: code-logic, plus style
 
-### Task 3.1: `IHarnessProposalStore` and `PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE` - PENDING
+### Task 3.1: `IHarnessProposalStore` and `PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE` - IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/platform-core/src/interfaces/harness-proposal-store.interface.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/platform-core/src/di/tokens.ts`,

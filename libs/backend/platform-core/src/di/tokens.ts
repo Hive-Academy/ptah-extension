@@ -75,6 +75,9 @@ export const PLATFORM_TOKENS = {
     'PlatformSessionOrganizationRecorder',
   ),
 
+  /** IHarnessProposalStore — durable proposals keyed by SDK session id. */
+  HARNESS_PROPOSAL_STORE: Symbol.for('PlatformHarnessProposalStore'),
+
   /**
    * ISessionRecordRepository — one session store for every project (MP-1).
    * Adapter: @ptah-extension/persistence-sqlite, registered on Electron and
