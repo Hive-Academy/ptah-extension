@@ -103,7 +103,7 @@ const REQUIRED_STRATEGIES: readonly string[] = [
  * NOTE: this is the orchestration skill's roster, NOT the full agent-template
  * set. Standalone templates such as `video-director` are intentionally absent
  * here — they are not part of the /orchestrate workflow and must not be forced
- * into agent-catalog.md or .claude/agents by this validator.
+ * into agent-catalog.md or the shipped agent templates by this validator.
  */
 const REQUIRED_AGENTS: readonly string[] = [
   'project-manager',
@@ -140,17 +140,31 @@ const REQUIRED_REFERENCES: readonly string[] = [
   'checkpoints.md',
   'git-standards.md',
   'lane-assignment.md',
+  'fleet.md',
 ] as const;
 
 /** Target line count for SKILL.md */
 const TARGET_SKILL_LINES = 300;
 const SKILL_ROOT: string = path.join(
   process.cwd(),
-  '.claude',
+  'apps',
+  'ptah-extension-vscode',
+  'assets',
+  'plugins',
+  'ptah-core',
   'skills',
   'orchestration',
 );
-const AGENTS_DIR: string = path.join(process.cwd(), '.claude', 'agents');
+const AGENTS_DIR: string = path.join(
+  process.cwd(),
+  'libs',
+  'backend',
+  'agent-generation',
+  'templates',
+  'agents',
+);
+const LANE_SKILL_FILE = path.join(path.dirname(SKILL_ROOT), 'agent-lanes', 'SKILL.md');
+const TEAM_LEADER_TEMPLATE = path.join(AGENTS_DIR, 'team-leader.template.md');
 const REFERENCES_DIR: string = path.join(SKILL_ROOT, 'references');
 
 /**
@@ -402,21 +416,21 @@ function validateAgentsDocumented(
 }
 
 /**
- * Validates agent files exist in .claude/agents/.
+ * Validates that every orchestration agent has a shipped template.
  * @returns Array of content validation errors
  */
 function validateAgentFilesExist(): ValidationError[] {
   const errors: ValidationError[] = [];
 
   for (const agent of REQUIRED_AGENTS) {
-    const agentFile = path.join(AGENTS_DIR, `${agent}.md`);
+    const agentFile = path.join(AGENTS_DIR, `${agent}.template.md`);
 
     if (!fs.existsSync(agentFile)) {
       errors.push({
-        file: `.claude/agents/${agent}.md`,
+        file: path.relative(process.cwd(), agentFile),
         type: 'content',
-        message: `Agent file missing: ${agent}.md`,
-        suggestion: `Create agent file at .claude/agents/${agent}.md`,
+        message: `Agent template missing: ${agent}.template.md`,
+        suggestion: `Create agent template at ${path.relative(process.cwd(), agentFile)}`,
       });
     }
   }
@@ -500,10 +514,10 @@ function validateReferenceFilesExist(): ValidationError[] {
 
     if (!fs.existsSync(refPath)) {
       errors.push({
-        file: `references/${refFile}`,
+        file: path.relative(process.cwd(), refPath),
         type: 'content',
         message: `Required reference file missing: ${refFile}`,
-        suggestion: `Create reference file at .claude/skills/orchestration/references/${refFile}`,
+        suggestion: `Create reference file at ${path.relative(process.cwd(), refPath)}`,
       });
     }
   }
@@ -536,6 +550,117 @@ function validateSkillLineCount(
   return warnings;
 }
 
+/** Checks ordered policy markers only inside the named Markdown section. */
+function validateRuleMarkers(
+  filePath: string,
+  section: string,
+  markers: readonly string[],
+  stopAtNextBoldBullet = false,
+): ValidationError[] {
+  const file = path.relative(process.cwd(), filePath);
+  if (!fs.existsSync(filePath)) {
+    // The required-file checks report missing references and agent templates.
+    return filePath === LANE_SKILL_FILE
+      ? [{ file, type: 'content', message: 'Agent-lanes skill missing', suggestion: `Create ${file}` }]
+      : [];
+  }
+
+  const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
+  const start = lines.findIndex((line) => {
+    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line.trim());
+    return heading?.[2]?.toLowerCase() === section.toLowerCase();
+  });
+  if (start < 0) {
+    return [{ file, type: 'content', message: `Missing policy section: ${section}`, suggestion: `Add the ${section} section` }];
+  }
+
+  const level = /^(#+)/.exec((lines[start] ?? '').trim())?.[1]?.length ?? 6;
+  let end = lines.length;
+  let inFence = false;
+  for (let index = start + 1; index < lines.length; index++) {
+    const line = (lines[index] ?? '').trim();
+    if (/^(?:`{3,}|~{3,})/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const next = /^(#{1,6})\s+/.exec(line);
+    if (next?.[1] && next[1].length <= level) {
+      end = index;
+      break;
+    }
+  }
+
+  let sectionContent = lines.slice(start + 1, end).join('\n');
+  if (stopAtNextBoldBullet) {
+    const first = sectionContent.indexOf(markers[0] ?? '');
+    const next = sectionContent.indexOf('\n- **', first + (markers[0]?.length ?? 0));
+    if (first >= 0 && next >= 0) sectionContent = sectionContent.slice(0, next);
+  }
+  const content = sectionContent.replace(/\s+/g, ' ');
+  const errors: ValidationError[] = [];
+  let cursor = 0;
+  for (const marker of markers) {
+    const found = content.indexOf(marker, cursor);
+    if (found < 0) {
+      errors.push({
+        file,
+        type: 'content',
+        message: `Missing or out-of-order policy marker in ${section}: ${marker}`,
+        suggestion: `Place "${marker}" in ${section}, after the preceding required marker`,
+        line: start + 1,
+      });
+    } else {
+      cursor = found + marker.length;
+    }
+  }
+  return errors;
+}
+
+/** Validates the lanes-first rules in the shipped plugin and team-leader template. */
+function validateLanesFirstRules(): ValidationError[] {
+  const checkpoints = path.join(REFERENCES_DIR, 'checkpoints.md');
+  const assignment = path.join(REFERENCES_DIR, 'lane-assignment.md');
+  const fleet = path.join(REFERENCES_DIR, 'fleet.md');
+  return [
+    ...validateRuleMarkers(checkpoints, 'Checkpoint 0.1: CLI Lane Mode', [
+      'ptah_memory_search', 'no recorded preference | `enabled`', 'No spawnable lane', '`disabled`',
+    ]),
+    ...validateRuleMarkers(checkpoints, 'Approval mode', [
+      'Escalate to the user', 'REVISE', 'same-side', 'removal',
+    ]),
+    ...validateRuleMarkers(assignment, 'Batches on lanes', ['CLI lane', 'Subagent reason']),
+    ...validateRuleMarkers(TEAM_LEADER_TEMPLATE, 'Mode 1 — Decomposition', [
+      'Recommended executor: CLI lane', 'Subagent reason:',
+    ]),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '4. Run', [
+      'one `<agent-lane-completed>` signal per lane turn', 'queued', 'later signal', 'supersedes', 'pending',
+    ]),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', [
+      'AT LIMIT', 'reset unknown',
+    ]),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', [
+      'other family same capability', 'same family other provider/model', 'subagent',
+    ]),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', ['reset unknown', 'skip']),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '6. Verify and revise', [
+      '**Document gates', '**Shipping code',
+    ]),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '6. Verify and revise', [
+      '**Shipping code', 'different family', 'specific reason', 'weaker-evidence label',
+    ], true),
+    ...validateRuleMarkers(LANE_SKILL_FILE, '6. Verify and revise', [
+      'same-side', 'REVISE at the cap', 'removal', 'user',
+    ]),
+    ...validateRuleMarkers(fleet, 'Disjoint batching', [
+      'At most 6 files across at most 2 libraries/projects per batch, with one scoped verification command',
+    ]),
+    ...validateRuleMarkers(fleet, 'Checkpoints', [
+      'taskId', 'round', 'pass', 'defects', 'testsRan', 'mentorNote',
+    ]),
+  ];
+}
+
 /**
  * Main validation function that orchestrates all checks.
  * @returns Complete validation result
@@ -556,8 +681,7 @@ function validateOrchestrationSkill(): ValidationResult {
       file: SKILL_ROOT,
       type: 'content',
       message: 'Skill directory does not exist',
-      suggestion:
-        'Create .claude/skills/orchestration/ directory with SKILL.md',
+      suggestion: `Create ${path.relative(process.cwd(), SKILL_ROOT)} with SKILL.md`,
     });
     result.passed = false;
     return result;
@@ -590,6 +714,7 @@ function validateOrchestrationSkill(): ValidationResult {
   }
   result.errors.push(...validateAgentFilesExist());
   result.errors.push(...validateReferenceFilesExist());
+  result.errors.push(...validateLanesFirstRules());
   result.passed = result.errors.length === 0;
 
   return result;
