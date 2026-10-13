@@ -1,6 +1,6 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 18 | Batches: 8 | Complete: 2/8
+Total tasks: 18 | Batches: 8 | Complete: 3/8
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8` (branch
 `task-441-lanes-first`). All paths below are relative to it unless absolute. `P` =
@@ -259,7 +259,29 @@ Edge cases:
   `P/skills/tribunal/references/relay.md`: escalation sentences survive; no CLI-author-to-subagent code rule.
 - No per-batch review.
 
-## Batch 3: Generic fleet mode in the plugin (B) — IN_PROGRESS
+## Batch 3: Generic fleet mode in the plugin (B) — COMPLETE (commit 314813c3e)
+
+- Executed by: CLI lane (codex, 16c926e9). Report: `batch-3-report.md`.
+- Team-leader verification: `npm run validate-skill` run once -> 2 errors, 0 warnings, both the
+  team-leader template markers (`Recommended executor: CLI lane`, `Subagent reason:`) that Batch 4
+  retires; the three `fleet.md` errors are gone. Link anchors `lane-assignment.md#batches-on-lanes`,
+  `agent-lanes/SKILL.md#8-cost`, `git-standards.md#quiet-commit-window` and
+  `#hook-failure-protocol` resolve. Genericity grep over the 4 plugin files for vendor names, `nx`,
+  `npx`, `run-many`, `scope-enum`, repo scopes (`webview`, `vscode`), `fleet-fix` and `.claude/`
+  returned no match. `.claude/skills/fleet-orchestration` unchanged (Batch 5 owns deletion).
+- Fleet parity (plan :59-69): §1 -> `fleet.md` Entry + `orchestrate.md` "Select the workflow"; §2
+  generic part -> `fleet.md` Resume from disk (repo-local caveat stays with Batch 5); §3 ->
+  Checkpoints (all six judge keys, `judge-round-<round>.json`, respawn no-op); §4 -> Disjoint
+  batching (exact cap sentence); §5 -> `git-standards.md` Quiet commit window; §6 generic pointer ->
+  `git-standards.md` Repository commit rules (repo enum -> Batch 5); §7 -> Batch 5; §8 -> Judge
+  protocol (read-only, cited defects, two-round cap, never edits `task.md`); §9 -> link to agent-lanes
+  §§1,3,4,8. Status ownership sentence present (`fleet.md:36`).
+- Removed content noted for the Phase 1 review: `git-standards.md` dropped this repo's commit
+  examples, `typecheck:affected`/lint-staged hook table and the branch/PR command snippets (repo-
+  specific or outside fleet scope); `orchestrate-help.md` dropped stale phases (`progress.md`,
+  non-existent `/validate-*` commands, "no parallel Task()"). Strategies and agent list remain in
+  `orchestrate.md` Quick Reference. Reviewer should confirm no generic capability was lost.
+- Phase 1 implementer families so far: codex (Batches 1, 2, 3).
 
 - Recommended executor: CLI lane (capability: technical writing)
 - Fallback executor: per the fallback order
@@ -268,7 +290,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 2 (SKILL.md fleet entry)
 - Phase: 1 Shipped policy | Phase review: none at this batch
 
-### Task 3.1: Create `fleet.md` — IN_PROGRESS
+### Task 3.1: Create `fleet.md` — COMPLETE
 
 - File: `P/skills/orchestration/references/fleet.md` (new)
 - Plan reference: implementation-plan.md:57-71 (parity table §1, §3, §4, §8, §9 rows)
@@ -284,14 +306,14 @@ Edge cases:
 - Validation notes: generic for all users — no vendor roster, no Nx command, no local commitlint enum.
 - Implementation details: new file.
 
-### Task 3.2: git-standards quiet commit window and local commitlint pointer — IN_PROGRESS
+### Task 3.2: git-standards quiet commit window and local commitlint pointer — COMPLETE
 
 - File: `P/skills/orchestration/references/git-standards.md`
 - Plan reference: implementation-plan.md:57,65-66 (`:50-64,153-180`)
 - Quality requirements: quiet commit window (generic); "read the repository's commitlint config" rather
   than any scope enum.
 
-### Task 3.3: Orchestrate commands select fleet mode — IN_PROGRESS
+### Task 3.3: Orchestrate commands select fleet mode — COMPLETE
 
 - Files: `P/commands/orchestrate.md`, `P/commands/orchestrate-help.md`
 - Plan reference: implementation-plan.md:57,61 (`orchestrate.md:11-30`)
@@ -305,17 +327,20 @@ Edge cases:
 - Inspect `fleet.md` for vendor names, `npx nx`, or scope enums (none allowed).
 - No per-batch review.
 
-## Batch 4: team-leader template lanes-first schema and policy spec (C) — PENDING
+## Batch 4: team-leader template lanes-first schema and policy spec (C) — IN_PROGRESS
 
 - Recommended executor: CLI lane (capability: TypeScript + Jest)
 - Fallback executor: per the fallback order
 - Execution mode: sequential
 - Rationale: the spec asserts strings the template edit writes.
+- Lane note (2026-10-13 list: codex, antigravity, opencode, Glm ptah-cli installed; grok AT LIMIT
+  until 17:40 UTC): prefer a codex lane so Phase 1 implementers stay one family and antigravity,
+  opencode or Glm stays free for the cross-family Phase 1 review. Resolve from the live list at spawn.
 - Tasks: 2 | Depends on: Batch 2 (shared vocabulary)
 - Phase: 1 Shipped policy (last batch) | Phase review: code-logic on Batches 1-4 combined diff, by a
   family different from every Phase 1 implementer; style review not required (no new public API)
 
-### Task 4.1: Executor matrix, cap and `batches.md` schema — PENDING
+### Task 4.1: Executor matrix, cap and `batches.md` schema — IN_PROGRESS
 
 - File: `libs/backend/agent-generation/templates/agents/team-leader.template.md`
 - Plan reference: implementation-plan.md:52 (`:140-171,198-205`)
@@ -328,7 +353,7 @@ Edge cases:
   implementer | exception reason`. Keep task/commit ownership (`:165-171,242-315`).
 - Validation notes: no vendor names; `_shared/cli-delegation.md` unchanged.
 
-### Task 4.2: Template policy spec — PENDING
+### Task 4.2: Template policy spec — IN_PROGRESS
 
 - Depends on: Task 4.1
 - File: `libs/backend/agent-generation/src/lib/team-leader-template.policy.spec.ts` (new)
