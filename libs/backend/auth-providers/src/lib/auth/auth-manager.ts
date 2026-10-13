@@ -139,6 +139,10 @@ export class AuthManager implements IAuthEnvProvider {
     return this.activeProviderResolver.resolveActiveAuth();
   }
 
+  resolveActiveAuthForPath(workspacePath: string): ActiveAuth {
+    return this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
+  }
+
   /**
    * Which provider the shared AuthEnv is configured for, or `null` when it
    * holds no usable configuration (none yet, failed, cleared, or mid-change).

@@ -84,6 +84,12 @@ export interface IAuthSecretsService {
   /**
    * Store API key for a specific Anthropic-compatible provider
    * Each provider gets its own isolated storage slot.
+   *
+   * A write to a provider-id-shaped slot ends live chat sessions: all of them
+   * (SDK adapter re-initialization) when it is the active provider's key,
+   * else those whose workspace uses that provider. Connector data (MCP, CLI agents, …)
+   * MUST use a dotted `<family>.<id>` slot id — see `isSdkAuthSecretKey` in
+   * `@ptah-extension/platform-core`.
    * @param providerId - Provider ID
    * @param value - API key to store. Empty string deletes the key.
    */

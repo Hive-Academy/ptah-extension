@@ -118,6 +118,47 @@ export interface ConnectOptions {
   clientSecret?: string;
 }
 
+/**
+ * Process-wide, per-server lock for token-store commits. The MCP directory
+ * handler and the chat-start resolver each build their own `McpOAuthService`
+ * over the same secret slots, so an instance field could not order a
+ * disconnect in one against a refresh commit in the other.
+ */
+const serverCommitLocks = new Map<string, Promise<void>>();
+
+async function withServerCommitLock<T>(
+  serverKey: string,
+  commit: () => Promise<T>,
+): Promise<T> {
+  const previous = serverCommitLocks.get(serverKey) ?? Promise.resolve();
+  let release: () => void = () => undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  serverCommitLocks.set(serverKey, tail);
+  await previous;
+  try {
+    return await commit();
+  } finally {
+    release();
+    if (serverCommitLocks.get(serverKey) === tail) {
+      serverCommitLocks.delete(serverKey);
+    }
+  }
+}
+
+/**
+ * One refresh per server at a time, process-wide for the same reason as
+ * {@link serverCommitLocks}. Concurrent session starts would each send the
+ * same refresh token; with rotating refresh tokens the second is rejected,
+ * and every refresh is a secret write.
+ */
+const refreshesInFlight = new Map<
+  string,
+  Promise<McpOAuthTokenRecord | null>
+>();
+
 /** Build a stable, filesystem/config-safe key from a server URL. */
 export function deriveMcpOAuthServerKey(serverUrl: string): string {
   const u = new URL(serverUrl);
@@ -325,8 +366,10 @@ export class McpOAuthService {
         }),
       );
 
-      await this.tokenStore.setToken(serverKey, token);
-      this.manifest.record({ serverKey, name, serverUrl });
+      await withServerCommitLock(serverKey, async () => {
+        await this.tokenStore.setToken(serverKey, token);
+        this.manifest.record({ serverKey, name, serverUrl });
+      });
       this.logger?.debug('MCP OAuth: connected', { serverKey });
       return { serverKey };
     } finally {
@@ -375,8 +418,10 @@ export class McpOAuthService {
 
   /** Delete the tokens and manifest record for a server. */
   async disconnect(serverKey: string): Promise<void> {
-    this.manifest.remove(serverKey);
-    await this.tokenStore.deleteToken(serverKey);
+    await withServerCommitLock(serverKey, async () => {
+      this.manifest.remove(serverKey);
+      await this.tokenStore.deleteToken(serverKey);
+    });
   }
 
   /**
@@ -386,7 +431,9 @@ export class McpOAuthService {
    */
   async getFreshAccessToken(serverKey: string): Promise<string | null> {
     const token = await this.tokenStore.getToken(serverKey);
-    if (!token) return null;
+    // Checked after the read: `disconnect` removes the manifest record first,
+    // so a token still in the store while its deletion runs is not handed out.
+    if (!token || !this.manifest.has(serverKey)) return null;
     if (token.expiresAt && token.expiresAt - this.now() < EXPIRY_SKEW_MS) {
       const refreshed = await this.refresh(serverKey);
       return refreshed?.accessToken ?? null;
@@ -395,7 +442,21 @@ export class McpOAuthService {
   }
 
   /** Exchange the stored refresh token for a new access token. */
-  async refresh(serverKey: string): Promise<McpOAuthTokenRecord | null> {
+  refresh(serverKey: string): Promise<McpOAuthTokenRecord | null> {
+    const inFlight = refreshesInFlight.get(serverKey);
+    if (inFlight !== undefined) return inFlight;
+    const attempt = this.refreshOnce(serverKey).finally(() => {
+      if (refreshesInFlight.get(serverKey) === attempt) {
+        refreshesInFlight.delete(serverKey);
+      }
+    });
+    refreshesInFlight.set(serverKey, attempt);
+    return attempt;
+  }
+
+  private async refreshOnce(
+    serverKey: string,
+  ): Promise<McpOAuthTokenRecord | null> {
     const token = await this.tokenStore.getToken(serverKey);
     if (!token?.refreshToken) return null;
 
@@ -434,7 +495,18 @@ export class McpOAuthService {
         serverKey,
         status: resp.status,
       });
-      return null;
+      // Another window or process may have rotated the refresh token first,
+      // which is why this one was rejected; its stored result is still valid
+      // while the server stays connected and the token is unexpired.
+      return withServerCommitLock(serverKey, async () => {
+        if (!this.manifest.has(serverKey)) return null;
+        const stored = await this.tokenStore.getToken(serverKey);
+        if (!stored || stored.refreshToken === token.refreshToken) return null;
+        if (stored.expiresAt && stored.expiresAt - this.now() < EXPIRY_SKEW_MS) {
+          return null;
+        }
+        return stored;
+      });
     }
 
     const data = asRecord(await resp.json());
@@ -448,8 +520,19 @@ export class McpOAuthService {
       expiresAt: expiresIn ? this.now() + expiresIn * 1000 : undefined,
       scope: str(data['scope']) ?? token.scope,
     };
-    await this.tokenStore.setToken(serverKey, updated);
-    return updated;
+    // The connection may have changed while the token endpoint answered. A
+    // disconnect must not be undone, and a reconnect's newer token must not be
+    // overwritten by this refresh of the old one. The check and the write run
+    // under the same lock as connect/disconnect, so nothing interleaves.
+    return withServerCommitLock(serverKey, async () => {
+      if (!this.manifest.has(serverKey)) return null;
+      const current = await this.tokenStore.getToken(serverKey);
+      if (current?.refreshToken !== token.refreshToken) {
+        return current;
+      }
+      await this.tokenStore.setToken(serverKey, updated);
+      return updated;
+    });
   }
 
   private buildAuthorizeUrl(

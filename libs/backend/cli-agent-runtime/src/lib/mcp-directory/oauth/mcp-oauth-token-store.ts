@@ -8,8 +8,14 @@
  * plaintext config file.
  */
 
-/** Prefix for the per-server encrypted OAuth-token slot id. */
-export const MCP_OAUTH_TOKEN_SECRET_PREFIX = 'mcp.oauth.';
+import { NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES } from '@ptah-extension/platform-core';
+
+/**
+ * Prefix for the per-server encrypted OAuth-token slot id. Declared as a
+ * non-auth slot so a token refresh does not re-initialize the SDK adapter.
+ */
+export const MCP_OAUTH_TOKEN_SECRET_PREFIX =
+  NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES.mcpOAuthToken;
 
 /**
  * The full secret-bearing OAuth record for one connected server. Persisted only

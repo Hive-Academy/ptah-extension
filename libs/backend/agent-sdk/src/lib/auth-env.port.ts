@@ -17,6 +17,11 @@ export interface IAuthEnvProvider {
   configureAuthentication(rawAuthMethod?: string): Promise<AuthResult>;
   clearAuthentication(): void;
   resolveActiveAuth(): { authMethod: string; providerId: string };
+  /** Auth of an explicit workspace, which may differ from the active one. */
+  resolveActiveAuthForPath(workspacePath: string): {
+    authMethod: string;
+    providerId: string;
+  };
 }
 
 /**

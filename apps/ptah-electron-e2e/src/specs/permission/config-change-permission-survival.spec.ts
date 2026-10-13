@@ -71,14 +71,16 @@ test.describe('Config-change permission survival (TASK_2026_264, pins TASK_2026_
     // Disposing all active sessions..." appeared but neither ConfigWatcher log
     // line ever did. That is a real, if inert, gap in the watcher's own
     // reachability via that RPC — reported as a finding, not silently worked
-    // around.)
+    // around.) The key is the ACTIVE provider's (`anthropic` under the default
+    // API-key auth): a key change for a provider no session uses keeps every
+    // session and never reaches `disposeAllSessions()` (PR 720).
     const setKeyResponse = (await rpcBridge.sendRpc(
       'rpc',
       {
         type: 'rpc:call',
         payload: {
           method: 'auth:setApiKey',
-          params: { provider: 'lm-studio', apiKey: 'e2e-dummy-test-key' },
+          params: { provider: 'anthropic', apiKey: 'e2e-dummy-test-key' },
         },
       },
       15_000,

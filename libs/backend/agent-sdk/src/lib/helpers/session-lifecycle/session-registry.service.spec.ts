@@ -18,7 +18,6 @@
  *    ordering puts _lastActiveTabId first when multiple sessions exist.
  * 7. _lastActiveTabId fallback: register two sessions, remove the most recent;
  *    find for the removed one returns undefined while the other remains intact.
- * 8. clearAll() empties byTabId, bySessionId, and resets _lastActiveTabId to null.
  *
  * The registry is a plain class (not injectable); tests instantiate it directly.
  * Logger is a stub satisfying the nominal Logger interface.
@@ -468,51 +467,6 @@ describe('SessionRegistry', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Case 8: clearAll() empties all state
-  // -------------------------------------------------------------------------
-
-  describe('clearAll()', () => {
-    it('empties byTabId and bySessionId and resets _lastActiveTabId to null', () => {
-      const { registry } = makeRegistry();
-      registry.register('tab_clear_1', makeConfig(), new AbortController());
-      registry.register('tab_clear_2', makeConfig(), new AbortController());
-      registry.bindRealSessionId('tab_clear_1', 'real-clear-1');
-
-      registry.clearAll();
-
-      const r = registry as unknown as {
-        byTabId: Map<string, SessionRecord>;
-        bySessionId: Map<string, SessionRecord>;
-        _lastActiveTabId: string | null;
-      };
-      expect(r.byTabId.size).toBe(0);
-      expect(r.bySessionId.size).toBe(0);
-      expect(r._lastActiveTabId).toBeNull();
-    });
-
-    it('find() returns undefined for any key after clearAll()', () => {
-      const { registry } = makeRegistry();
-      registry.register('tab_gone', makeConfig(), new AbortController());
-      registry.bindRealSessionId('tab_gone', 'real-gone');
-
-      registry.clearAll();
-
-      expect(registry.find('tab_gone')).toBeUndefined();
-      expect(registry.find('real-gone')).toBeUndefined();
-    });
-
-    it('getActiveSessionIds() returns empty array after clearAll()', () => {
-      const { registry } = makeRegistry();
-      registry.register('tab_c1', makeConfig(), new AbortController());
-      registry.register('tab_c2', makeConfig(), new AbortController());
-
-      registry.clearAll();
-
-      expect(registry.getActiveSessionIds()).toEqual([]);
-    });
-  });
-
-  // -------------------------------------------------------------------------
   // Additional: entries() and getActiveSessionCount()
   // -------------------------------------------------------------------------
 
@@ -706,15 +660,15 @@ describe('SessionRegistry', () => {
     });
   });
 
-  // Gap 3 — register() after clearAll() produces a fresh record
-  describe('register() after clearAll() produces a fresh record (audit gap 3)', () => {
-    it('re-registering a previously cleared tabId returns a NEW record with realSessionId=null', () => {
+  // Gap 3 — register() after remove() produces a fresh record
+  describe('register() after remove() produces a fresh record (audit gap 3)', () => {
+    it('re-registering a previously removed tabId returns a NEW record with realSessionId=null', () => {
       const { registry } = makeRegistry();
       const firstCtrl = new AbortController();
       const firstRec = registry.register('tab_a', makeConfig(), firstCtrl);
       registry.bindRealSessionId('tab_a', 'old-real-uuid');
 
-      registry.clearAll();
+      registry.remove(firstRec);
 
       const secondCtrl = new AbortController();
       const secondRec = registry.register('tab_a', makeConfig(), secondCtrl);
