@@ -57,6 +57,8 @@ export {
   type CompactGitState,
 } from './lib/molecules/compact-session/compact-session-metrics';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
+export { CompactRailCardComponent } from './lib/molecules/compact-session/compact-rail-card.component';
+export { COMPACT_RAIL_CARD_HEIGHT } from './lib/molecules/compact-session/compact-lane.types';
 export type {
   CompactCallout,
   CompactErrorCallout,
@@ -66,6 +68,8 @@ export type {
   CompactLaneSummary,
   CompactPermissionCallout,
   CompactQuestionCallout,
+  CompactRailDensity,
+  CompactRailState,
 } from './lib/molecules/compact-session/compact-lane.types';
 export {
   summarizeFinalized,

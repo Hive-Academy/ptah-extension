@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 1/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 2/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -136,7 +136,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
 
 ---
 
-## Batch R0: Terminal failure sequence (chat-types, chat-state) — COMPLETE
+## Batch R0: Terminal failure sequence (chat-types, chat-state) — COMPLETE (commit 6bf6073bb)
 
 - Goal: every newly stamped terminal reason advances a per-tab `terminalFailureSeq` inside the same store update, on
   every path including `StopFailure` (plan Component 7a, `implementation-plan-rail.md:468-520`; D10).
@@ -182,7 +182,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   A5: `tab-restore-sanitize.ts` does not exist; the restore path `tab-persistence.ts` spreads the tab, so the field
   survives (lane-R0-report.md).
 
-## Batch R1: CompactRailCardComponent and shared rail types (chat-ui) — PENDING
+## Batch R1: CompactRailCardComponent and shared rail types (chat-ui) — COMPLETE
 
 - Goal: the presentational rail card in comfortable (176) and dense (96) density, with request-bound actions and the
   shared height pair (plan Component 8, `:521-620`; Rev 1 findings 1, 4, 5).
@@ -217,7 +217,15 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader; re-run checks: rail-card spec 15/15, chat-ui project
+  71 suites / 1130 tests, typecheck pass, lint 0 errors / 7 warnings (none in R1 files). State colours all use
+  `var(--state-ink-<x>, oklch(var(--<daisy>)))` (DaisyUI 4.12, plan :975). No chat/chat-state/canvas import, no
+  timers, no Retry, no hover close. Carried to R2: making `requestId` required leaves
+  `@ptah-extension/chat` `compact-session-card.component.ts:164-165` failing typecheck until R2 adds the ids; and
+  `compact-session-activity.component.spec.ts:1339,1375` (chat-ui spec fixtures, outside the typecheck target)
+  lack `requestId` (Minor, recorded). Minor for the phase review: comfortable lane-row buttons are 18 px with no
+  24 px `::after` hit area; the error-callout button's name "Show output of <title>" does not start with the
+  visible word "Output".
 
 ## Batch R2: Smart card rail variant, request identity, carried #1/#2 (chat) — PENDING
 

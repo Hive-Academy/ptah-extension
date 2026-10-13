@@ -44,12 +44,14 @@ export interface CompactPermissionCallout {
 
 export interface CompactQuestionCallout {
   readonly kind: 'question';
+  readonly requestId: string;
   readonly text: string;
   readonly moreCount?: number;
 }
 
 export interface CompactErrorCallout {
   readonly kind: 'error';
+  readonly requestId: string;
   readonly text: string;
   /** True only where a retry action exists for this error. */
   readonly canRetry: boolean;
@@ -60,3 +62,10 @@ export type CompactCallout =
   | CompactQuestionCallout
   | CompactErrorCallout
   | null;
+
+export type CompactRailState = 'running' | 'needs' | 'error' | 'done' | 'idle';
+export type CompactRailDensity = 'comfortable' | 'dense';
+export const COMPACT_RAIL_CARD_HEIGHT: Readonly<Record<CompactRailDensity, number>> = {
+  comfortable: 176,
+  dense: 96,
+};
