@@ -96,6 +96,31 @@ describe('CanvasNeedsYouQueueComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('1 need you');
   });
 
+  it('closes from an outside pointer or Escape and removes document listeners on close', () => {
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(false);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(false);
+  });
+
+  it('closes after the last request is answered', () => {
+    permissions.set([request('one', 'a')]);
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('button.btn-success') as HTMLButtonElement).click();
+    permissions.set([]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(false);
+  });
+
   it('removes a request answered elsewhere and opens a question session', () => {
     permissions.set([request('one', 'a')]);
     questions.set([

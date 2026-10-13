@@ -156,7 +156,9 @@ export class CompactSessionCardComponent {
   readonly laneSummary = computed(() =>
     buildLaneSummary(
       this.sessionAgents(),
-      this.agentStore.sessionSubagentsForSession(this.sessionIdentity()),
+      [...this.agentStore.subagents().values()].filter(
+        (agent) => agent.parentSessionId === this.sessionIdentity(),
+      ),
       this.sessionIdentity(),
     ),
   );

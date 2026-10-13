@@ -1420,6 +1420,27 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     expect(detail.toggle).toHaveBeenCalledWith('tile-1');
   });
 
+  it('keeps a card text selection without opening detail', () => {
+    detail.toggle.mockClear();
+    const fixture = mountFocused(false, true);
+    fixture.componentRef.setInput('autoCard', true);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const text = document.createTextNode('Selectable card text');
+    host.appendChild(text);
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    try {
+      host.click();
+      expect(detail.toggle).not.toHaveBeenCalled();
+    } finally {
+      selection?.removeAllRanges();
+    }
+  });
+
   it('keeps live tile clicks focusable and ignores editable card content', () => {
     const live = mountFocused(true, true);
     const focus = jest.fn();

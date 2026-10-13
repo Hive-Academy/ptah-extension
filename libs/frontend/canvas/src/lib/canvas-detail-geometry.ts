@@ -32,7 +32,7 @@ export function canvasDetailGeometry(
     }
   } while (rowEnd !== previousEnd);
   const heightPx = Math.max(
-    320,
+    Math.round(containerHeight * 0.7),
     containerHeight - selected.h * cellHeight - 16,
   );
   return {

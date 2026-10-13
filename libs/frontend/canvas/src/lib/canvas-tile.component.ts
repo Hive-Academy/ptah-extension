@@ -692,6 +692,15 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   onTileClick(event?: MouseEvent): void {
     if (this.cardMode()) {
       if (event && this.isInteractiveTarget(event.target)) return;
+      const selection = window.getSelection();
+      if (
+        selection &&
+        !selection.isCollapsed &&
+        selection.toString().trim() &&
+        selection.anchorNode &&
+        this.hostRef.nativeElement.contains(selection.anchorNode)
+      )
+        return;
       this.openCardSession();
     } else this.focusRequested.emit(this.tabId());
   }

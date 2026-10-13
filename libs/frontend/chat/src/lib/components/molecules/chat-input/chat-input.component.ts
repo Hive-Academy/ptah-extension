@@ -686,6 +686,11 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _pastedImages = signal<PastedImage[]>([]);
   private draftTabId: string | null = null;
+  private lastDraft: {
+    text: string;
+    files: ChatFile[];
+    images: PastedImage[];
+  } | null = null;
   private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
   private readonly _isPickingFiles = signal(false);
@@ -1564,18 +1569,28 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private saveDraft(): void {
     if (!this.draftTabId) return;
     if (!this.tabManager.findTabByIdAcrossWorkspaces(this.draftTabId)) return;
+    const text = this._currentMessage();
+    const files = this._selectedFiles();
+    const images = this._pastedImages();
     if (
-      !this._currentMessage() &&
-      this._selectedFiles().length === 0 &&
-      this._pastedImages().length === 0
+      this.lastDraft?.text === text &&
+      this.lastDraft.files === files &&
+      this.lastDraft.images === images
+    )
+      return;
+    this.lastDraft = { text, files, images };
+    if (
+      !text &&
+      files.length === 0 &&
+      images.length === 0
     ) {
       this.draftStore.clear(this.draftTabId);
       return;
     }
     this.draftStore.save(this.draftTabId, {
-      text: this._currentMessage(),
-      files: this._selectedFiles(),
-      images: this._pastedImages(),
+      text,
+      files,
+      images,
     });
   }
 
@@ -1584,11 +1599,17 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     this._currentMessage.set(draft?.text ?? '');
     this._selectedFiles.set(draft?.files ?? []);
     this._pastedImages.set(draft?.images ?? []);
+    this.lastDraft = {
+      text: this._currentMessage(),
+      files: this._selectedFiles(),
+      images: this._pastedImages(),
+    };
   }
 
   private clearLocalDraft(): void {
     this._currentMessage.set('');
     this._selectedFiles.set([]);
     this._pastedImages.set([]);
+    this.lastDraft = null;
   }
 }

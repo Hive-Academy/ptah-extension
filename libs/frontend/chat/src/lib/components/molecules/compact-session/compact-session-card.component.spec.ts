@@ -11,6 +11,7 @@ import {
   AgentMonitorStore,
   PermissionHandlerService,
   type MonitoredAgent,
+  type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import * as chatUi from '@ptah-extension/chat-ui';
 import {
@@ -95,7 +96,7 @@ describe(CompactSessionCardComponent.name, () => {
   const permissions = signal<readonly PermissionRequest[]>([]);
   const questions = signal<readonly AskUserQuestionRequest[]>([]);
   const agents = signal<MonitoredAgent[]>([]);
-  const subagents = signal<[]>([]);
+  const subagents = signal<ReadonlyMap<string, SubagentRecord>>(new Map());
   const respondSession = jest.fn();
   const respondLane = jest.fn();
   const releaseGit = jest.fn();
@@ -142,14 +143,14 @@ describe(CompactSessionCardComponent.name, () => {
     agentsForSession: () => agents(),
     agentsOwnedBySession: (sessionId: string) =>
       agents().filter((agent) => agent.parentSessionId === sessionId),
-    sessionSubagentsForSession: () => subagents(),
+    subagents,
   };
 
   beforeEach(() => {
     permissions.set([]);
     questions.set([]);
     agents.set([]);
-    subagents.set([]);
+    subagents.set(new Map());
     respondSession.mockClear();
     respondLane.mockClear();
     trackGit.mockClear();
@@ -386,6 +387,24 @@ describe(CompactSessionCardComponent.name, () => {
       ) as HTMLButtonElement
     ).click();
     expect(openLane).toHaveBeenCalledWith('cli:agent-1');
+  });
+
+  it('shows foreground Task sub-agents while running and after completion', () => {
+    const record: SubagentRecord = {
+      parentToolUseId: 'task-1',
+      parentSessionId: 'session-1',
+      agentType: 'general-purpose',
+      status: 'running',
+    };
+    subagents.set(new Map([['task-1', record]]));
+    const fixture = render();
+    expect(fixture.nativeElement.textContent).toContain('general-purpose');
+    subagents.set(new Map([['task-1', { ...record, status: 'completed' }]]));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('general-purpose');
+    subagents.set(new Map([['task-1', { ...record, parentSessionId: 'other' }]]));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('general-purpose');
   });
 
   it('routes forced card actions through the host without expanding', () => {

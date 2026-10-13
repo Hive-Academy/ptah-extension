@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   effect,
   inject,
@@ -31,8 +32,7 @@ import {
     <ptah-native-popover
       [isOpen]="open()"
       placement="bottom-end"
-      [hasBackdrop]="true"
-      backdropClass="transparent"
+      [hasBackdrop]="false"
       (closed)="open.set(false)"
     >
       <button
@@ -111,6 +111,7 @@ import {
   `,
 })
 export class CanvasNeedsYouQueueComponent {
+  private readonly host = inject(ElementRef<HTMLElement>);
   private readonly permissions = inject(PermissionHandlerService);
   private readonly agents = inject(AgentMonitorStore);
   private readonly responder = inject(AgentPermissionResponder);
@@ -141,6 +142,30 @@ export class CanvasNeedsYouQueueComponent {
       (id) => this.permissions.questionTargetTabsFor(id),
     );
     return items;
+  });
+
+  private readonly closeOutside = effect((onCleanup) => {
+    if (!this.open()) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!this.host.nativeElement.contains(event.target as Node))
+        this.open.set(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') this.open.set(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    onCleanup(() => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    });
+  });
+
+  private hadItems = false;
+  private readonly closeWhenAnswered = effect(() => {
+    const hasItems = this.items().length > 0;
+    if (this.hadItems && !hasItems) this.open.set(false);
+    this.hadItems = hasItems;
   });
 
   private readonly clearAnsweredItems = effect(() => {

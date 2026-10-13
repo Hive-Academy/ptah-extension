@@ -316,6 +316,20 @@ describe('ChatInputComponent', () => {
     expect(TestBed.inject(ComposerDraftStore).get('tile-A')).toBeUndefined();
   });
 
+  it('preserves a draft when a second empty composer mounts before the first unmounts', () => {
+    createComponent({ sessionContextTabId: 'tile-A' });
+    tabsSignal.set([{ id: 'tile-A', status: 'loaded' }]);
+    const first = component;
+    first.handleInput({
+      target: { value: 'draft typed' },
+    } as unknown as Event);
+    const second = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    first.ngOnDestroy();
+    second.ngOnDestroy();
+    component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    expect(component.currentMessage()).toBe('draft typed');
+  });
+
   it('restores attachments and clears the draft when its tab closes', () => {
     createComponent({ sessionContextTabId: 'tile-A' });
     tabsSignal.set([{ id: 'tile-A', status: 'loaded' }]);
