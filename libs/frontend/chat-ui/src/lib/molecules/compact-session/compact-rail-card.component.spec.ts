@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TestBed } from '@angular/core/testing';
 import { CompactRailCardComponent } from './compact-rail-card.component';
 import {
@@ -51,6 +53,25 @@ const permission = (requestId: string): CompactPermissionCallout => ({
   tabId: 'tab',
   text: 'Run command',
 });
+
+/** Hover may repaint, never resize: these properties cannot move layout. */
+const PAINT_ONLY = ['background-color', 'border-color', 'box-shadow', 'color'];
+// jest-preset-angular strips component styles, so read the inline CSS source.
+const cssRules = () =>
+  [
+    ...readFileSync(
+      join(__dirname, 'compact-rail-card.component.ts'),
+      'utf8',
+    ).matchAll(/([^{}]*)\{([^{}]*)\}/g),
+  ].map(([, selector, body]) => ({
+    selector: selector.replace(/\/\*[\s\S]*?\*\//g, '').trim(),
+    declarations: body
+      .split(';')
+      .map((part) => part.split(':').map((s) => s.trim()))
+      .filter(([prop]) => prop),
+  }));
+const hoverRules = () =>
+  cssRules().filter((rule) => rule.selector.includes(':hover'));
 
 describe(CompactRailCardComponent.name, () => {
   beforeEach(() =>
@@ -116,6 +137,49 @@ describe(CompactRailCardComponent.name, () => {
       true,
     );
     expect(16 + rows.length * 18).toBe(70);
+  });
+
+  it('shows paint-only hover on the card, lane rows and actions without a geometry shift', () => {
+    const f = render();
+    f.componentRef.setInput('lanes', lanes(4));
+    f.detectChanges();
+    const rules = hoverRules();
+    expect(rules.map((rule) => rule.selector)).toEqual([
+      ':host(:hover)',
+      '.rc-action:hover',
+      '.rc-lane-row:hover',
+    ]);
+    for (const rule of rules) {
+      for (const [prop] of rule.declarations) expect(PAINT_ONLY).toContain(prop);
+    }
+    const rows = [
+      ...f.nativeElement.querySelectorAll('.rc-lane-buttons > button'),
+    ] as HTMLElement[];
+    expect(rows).toHaveLength(3);
+    expect(
+      rows.every(
+        (row) =>
+          row.classList.contains('rc-lane-row') &&
+          row.classList.contains('h-[18px]'),
+      ),
+    ).toBe(true);
+    expect(f.nativeElement.style.height).toBe(
+      `${COMPACT_RAIL_CARD_HEIGHT.comfortable}px`,
+    );
+  });
+
+  it('keeps rc-lane-overflow as a 16px action that shares the action hover', () => {
+    const f = render();
+    f.componentRef.setInput('lanes', lanes(5));
+    f.detectChanges();
+    const overflow = button(f.nativeElement, '+2 more');
+    expect(overflow?.classList.contains('rc-action')).toBe(true);
+    expect(overflow?.classList.contains('rc-lane-overflow')).toBe(true);
+    const sizing = cssRules().find(
+      (rule) => rule.selector === '.rc-action.rc-lane-overflow',
+    );
+    expect(sizing?.declarations).toContainEqual(['height', '16px']);
+    expect(sizing?.declarations).toContainEqual(['line-height', '16px']);
   });
 
   it('updates every inner tabindex with unchanged request data', () => {

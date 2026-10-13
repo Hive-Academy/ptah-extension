@@ -139,6 +139,22 @@ const EMPTY_LANES: CompactLaneSummary = {
         outline: 2px solid var(--rail-state-ink);
         outline-offset: 1px;
       }
+      /* Hover changes paint only (no padding, border width or size), so the
+         176/96 px card and the 70 px lane block never shift. The state inks
+         clear 3:1 on base-100/200/300 in both themes (state-ink-contrast.spec). */
+      :host(:hover) {
+        border-color: var(--rail-state-ink);
+      }
+      .rc-action:hover {
+        box-shadow: inset 0 0 0 1px currentColor;
+      }
+      .rc-lane-row:hover {
+        background-color: oklch(var(--bc) / 0.1);
+      }
+      .rc-lane-row:focus-visible {
+        outline: 2px solid var(--rail-state-ink);
+        outline-offset: -2px;
+      }
       .rc-callout {
         min-width: 0;
         border: 1px solid var(--rail-state-ink);
@@ -308,7 +324,7 @@ const EMPTY_LANES: CompactLaneSummary = {
               @for (row of lanes().rows.slice(0, 3); track row.id) {
                 <button
                   type="button"
-                  class="rc-line h-[18px] w-full text-left text-[11px]"
+                  class="rc-line rc-lane-row h-[18px] w-full rounded-sm text-left text-[11px]"
                   [attr.aria-label]="
                     'Open ' + row.name + ' output, ' + row.status
                   "

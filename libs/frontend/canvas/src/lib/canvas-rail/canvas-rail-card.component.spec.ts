@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -21,8 +23,27 @@ import {
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasRailCardComponent } from './canvas-rail-card.component';
+import { focusRailSelectButton } from './canvas-rail-keyboard';
 
 const tabState = signal<CompactRailState>('idle');
+/** Hover may repaint, never resize: these properties cannot move layout. */
+const PAINT_ONLY = ['background-color', 'border-color', 'box-shadow', 'color'];
+// jest-preset-angular strips component styles, so read the inline CSS source.
+const hoverRules = () =>
+  [
+    ...readFileSync(
+      join(__dirname, 'canvas-rail-card.component.ts'),
+      'utf8',
+    ).matchAll(/([^{}]*)\{([^{}]*)\}/g),
+  ]
+    .map(([, selector, body]) => ({
+      selector: selector.replace(/\/\*[\s\S]*?\*\//g, '').trim(),
+      props: body
+        .split(';')
+        .map((part) => part.split(':')[0].trim())
+        .filter(Boolean),
+    }))
+    .filter((rule) => rule.selector.includes(':hover'));
 
 @Component({
   selector: 'ptah-compact-session-card',
@@ -158,6 +179,50 @@ describe('CanvasRailCardComponent', () => {
       .click();
     expect(lanes).toHaveBeenCalledWith('a');
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('makes the host a pointer listitem whose keyboard equivalent is a button', () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.getAttribute('role')).toBe('listitem');
+    expect(host.classList.contains('cursor-pointer')).toBe(true);
+    expect(host.querySelector('button.rc-select')).not.toBeNull();
+  });
+
+  it('gives the collapsed button a paint-only hover and keeps its 56px height', () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const collapsed = host.querySelector<HTMLButtonElement>(
+      'button.rail-collapsed',
+    );
+    expect(collapsed?.classList.contains('h-14')).toBe(true);
+    expect(host.style.height).toBe('56px');
+    const rules = hoverRules();
+    expect(rules.map((rule) => rule.selector)).toEqual([
+      '.rail-collapsed:hover',
+    ]);
+    for (const rule of rules) {
+      for (const prop of rule.props) expect(PAINT_ONLY).toContain(prop);
+    }
+    collapsed?.click();
+    expect(focusTile).toHaveBeenCalledTimes(1);
+    expect(focusTile).toHaveBeenCalledWith('a');
+  });
+
+  it('keeps focusRailSelectButton reaching the select and collapsed buttons', () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    focusRailSelectButton(host);
+    expect(document.activeElement?.classList.contains('rc-select')).toBe(true);
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    focusRailSelectButton(host);
+    expect(document.activeElement?.classList.contains('rail-collapsed')).toBe(
+      true,
+    );
   });
 
   it('keeps the state producer mounted while collapsed and updates the dot', () => {

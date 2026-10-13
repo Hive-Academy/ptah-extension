@@ -44,7 +44,10 @@ import { isIgnoredCardClick } from '../canvas-card-click';
     '[attr.data-tab-id]': 'tabId()',
     '[attr.data-state]': 'state()',
     '[style.height.px]': 'collapsed() ? 56 : cardHeight()',
-    class: 'block relative',
+    // The host click is a pointer shortcut; its keyboard equivalent is the
+    // card's select button (or the collapsed button), so the li stays a listitem.
+    role: 'listitem',
+    class: 'block relative cursor-pointer',
     '(click)': 'onClick($event)',
     '(keydown)': 'onKeydown($event)',
   },
@@ -65,9 +68,13 @@ import { isIgnoredCardClick } from '../canvas-card-click';
       :host([data-state='done']) {
         --rail-state-ink: var(--state-ink-done, oklch(var(--su)));
       }
-      :host(:has(.rc-select:focus-visible)) {
+      :host(:has(.rc-select:focus-visible, .rail-collapsed:focus-visible)) {
         outline: 2px solid var(--ring, oklch(var(--bc)));
         outline-offset: 2px;
+      }
+      /* Paint-only hover: the 56 px collapsed control never changes size. */
+      .rail-collapsed:hover {
+        border-color: var(--rail-state-ink);
       }
     `,
   ],
@@ -86,7 +93,7 @@ import { isIgnoredCardClick } from '../canvas-card-click';
         />
         <button
           type="button"
-          class="flex h-14 w-full items-center justify-center gap-1 rounded-lg border border-base-content/10 bg-base-200 text-xs"
+          class="rail-collapsed flex h-14 w-full items-center justify-center gap-1 rounded-lg border border-base-content/10 bg-base-200 text-xs"
           [attr.aria-label]="current.title + ', ' + state() + ', in focus'"
           [attr.aria-current]="focused() ? 'true' : null"
           [attr.title]="current.title + ', ' + state()"
