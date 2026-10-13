@@ -30,6 +30,17 @@ function sub(
 }
 
 describe('compact lane rows', () => {
+  it('orders ended lanes by latest end and preserves active start order', () => {
+    const result = buildLaneSummary([
+      { ...cli('ended-early', 'completed', 900), completedAt: 10 },
+      { ...cli('ended-late', 'completed', 100), completedAt: 20 },
+      cli('active-early', 'running', 10),
+      cli('active-late', 'running', 20),
+    ], [], 's', 10);
+    expect(result.rows.map((row) => row.id)).toEqual([
+      'cli:active-late', 'cli:active-early', 'cli:ended-late', 'cli:ended-early',
+    ]);
+  });
   it('uses canvas lane key prefixes', () => {
     expect(laneKey('cli', 'a')).toBe('cli:a');
     expect(laneKey('subagent', 'b')).toBe('sub:b');

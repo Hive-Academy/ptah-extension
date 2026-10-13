@@ -235,6 +235,121 @@ describe(CompactSessionCardComponent.name, () => {
     } as MonitoredAgent;
   }
 
+  it('keeps lane summary identity for unrelated events and changes it for every row field', () => {
+    agents.set([lane({ startedAt: 10 })]);
+    const fixture = render();
+    const first = fixture.componentInstance.laneSummary();
+    agents.set([lane({ startedAt: 10 }), lane({ agentId: 'other', parentSessionId: 'other' })]);
+    expect(fixture.componentInstance.laneSummary()).toBe(first);
+    agents.set([lane({ startedAt: 11 })]);
+    const changedStart = fixture.componentInstance.laneSummary();
+    expect(changedStart).not.toBe(first);
+    expect(changedStart.rows[0].startedAt).toBe(11);
+    const record = { parentToolUseId: 'sub-1', parentSessionId: 'session-1', status: 'running', lastEventAt: 1 } as SubagentRecord;
+    agents.set([]);
+    subagents.set(new Map([['sub-1', record]]));
+    const subFirst = fixture.componentInstance.laneSummary();
+    subagents.set(new Map([['sub-1', { ...record, status: 'background' }]]));
+    const subChanged = fixture.componentInstance.laneSummary();
+    expect(subChanged).not.toBe(subFirst);
+    expect(subChanged.rows[0].kind).toBe('background');
+  });
+
+  it('identifies equal-text terminal failures by terminal failure sequence', () => {
+    const fixture = render(tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 1 }));
+    expect(fixture.componentInstance.callout()?.requestId).toBe('err:tab-1:1');
+    fixture.componentRef.setInput('tab', tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 1 }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.callout()?.requestId).toBe('err:tab-1:1');
+    fixture.componentRef.setInput('tab', tab({ lastTerminalReason: 'api_error', terminalFailureSeq: 2 }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.callout()?.requestId).toBe('err:tab-1:2');
+  });
+
+  it('refuses a CLI Allow after its request leaves the queue', () => {
+    agents.set([lane({ permissionQueue: [{ requestId: 'cli-1', timestamp: 1, description: 'Allow?' } as MonitoredAgent['permissionQueue'][number]] })]);
+    const fixture = render();
+    const stale = jest.fn();
+    fixture.componentInstance.staleAction.subscribe(stale);
+    const shown = fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
+    agents.set([lane()]);
+    fixture.componentInstance.respond(shown, 'allow');
+    expect(respondLane).not.toHaveBeenCalled();
+    expect(stale).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a replaced session permission and stale shown navigation id', () => {
+    permissions.set([permission({ id: 'old' })]);
+    const fixture = render();
+    const stale = jest.fn();
+    const expanded = jest.fn();
+    fixture.componentInstance.staleAction.subscribe(stale);
+    fixture.componentInstance.expandToFull.subscribe(expanded);
+    const shown = fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
+    permissions.set([permission({ id: 'new' })]);
+    fixture.componentInstance.respond(shown, 'allow');
+    fixture.componentInstance.openRequest(shown);
+    fixture.componentInstance.openFullView('old');
+    fixture.componentInstance.openLane('orchestrator', 'old');
+    expect(respondSession).not.toHaveBeenCalled();
+    expect(expanded).not.toHaveBeenCalled();
+    expect(stale).toHaveBeenCalledTimes(4);
+  });
+
+  it('renders the rail variant with shared state and retains the tile activity', () => {
+    const fixture = render();
+    expect(fixture.debugElement.query(By.directive(chatUi.CompactSessionActivityComponent))).not.toBeNull();
+    fixture.componentRef.setInput('variant', 'rail');
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(chatUi.CompactRailCardComponent))).not.toBeNull();
+    expect(fixture.debugElement.query(By.directive(chatUi.CompactSessionActivityComponent))).toBeNull();
+    const lanesRequested = jest.fn();
+    const expanded = jest.fn();
+    fixture.componentInstance.lanesRequested.subscribe(lanesRequested);
+    fixture.componentInstance.expandToFull.subscribe(expanded);
+    fixture.componentInstance.requestLanes();
+    expect(lanesRequested).toHaveBeenCalledTimes(1);
+    expect(expanded).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits rail state as needs when a permission arrives', () => {
+    const fixture = render();
+    const states: chatUi.CompactRailState[] = [];
+    fixture.componentInstance.railState.subscribe((state) => states.push(state));
+    permissions.set([permission()]);
+    fixture.detectChanges();
+    expect(states).toContain('needs');
+  });
+
+  it('routes the shown question to the orchestrator and rejects a replaced id', () => {
+    const openLane = jest.fn();
+    TestBed.overrideProvider(SESSION_FORCED_CARD, { useValue: signal(true) });
+    TestBed.overrideProvider(SESSION_CARD_ACTIONS, { useValue: { openLane, openSession: jest.fn() } });
+    questions.set([question({ id: 'old' })]);
+    const fixture = render();
+    const stale = jest.fn();
+    fixture.componentInstance.staleAction.subscribe(stale);
+    expect(fixture.componentInstance.callout()?.requestId).toBe('old');
+    questions.set([question({ id: 'new' })]);
+    fixture.componentInstance.answerQuestion('old');
+    expect(stale).toHaveBeenCalledTimes(1);
+    expect(openLane).not.toHaveBeenCalled();
+    fixture.componentInstance.answerQuestion('new');
+    expect(openLane).toHaveBeenCalledTimes(1);
+    expect(openLane).toHaveBeenCalledWith('orchestrator');
+  });
+
+  it('keeps tile answer opening the full view', () => {
+    const fixture = render();
+    const expanded = jest.fn();
+    fixture.componentInstance.expandToFull.subscribe(expanded);
+    questions.set([question()]);
+    fixture.detectChanges();
+    const answer = fixture.nativeElement.querySelector('[data-testid="cs-callout-question"] button') as HTMLButtonElement;
+    answer.click();
+    expect(expanded).toHaveBeenCalledTimes(1);
+  });
+
   it('swaps session, CLI and error callouts in priority order', () => {
     agents.set([
       lane({

@@ -12,12 +12,16 @@ import {
 } from '@angular/core';
 import {
   CompactSessionActivityComponent,
+  CompactRailCardComponent,
   summarizeTodos,
   sameGitState,
   summarizeFinalized,
   summarizeLive,
   type CompactCallout,
   type CompactPermissionCallout,
+  type CompactLaneSummary,
+  type CompactRailDensity,
+  type CompactRailState,
   type CompactSessionSummary,
   type CompactSummaryContext,
   type CompactSummaryMetrics,
@@ -71,17 +75,57 @@ function sameMetrics(a: CompactSummaryMetrics, b: CompactSummaryMetrics) {
   );
 }
 
+function sameLaneSummary(a: CompactLaneSummary, b: CompactLaneSummary): boolean {
+  return a.moreCount === b.moreCount && a.total === b.total &&
+    a.counts.waiting === b.counts.waiting && a.counts.error === b.counts.error &&
+    a.counts.running === b.counts.running && a.counts.done === b.counts.done &&
+    a.counts.stopped === b.counts.stopped && a.rows.length === b.rows.length &&
+    a.rows.every((row, index) => {
+      const other = b.rows[index];
+      return row.id === other.id && row.name === other.name &&
+        row.kind === other.kind && row.status === other.status &&
+        row.startedAt === other.startedAt && row.endedAt === other.endedAt;
+    });
+}
+
 /** Smart orchestration for the summary-only compact session card. */
 @Component({
   selector: 'ptah-compact-session-card',
   standalone: true,
-  imports: [CompactSessionActivityComponent],
+  imports: [CompactSessionActivityComponent, CompactRailCardComponent],
   host: {
     class: 'block h-full min-h-0 overflow-hidden',
     'data-ptah-file-links': '',
     '[attr.data-ptah-tab-id]': 'tabId()',
   },
   template: `
+    @if (variant() === 'rail') {
+      <ptah-compact-rail-card
+        [title]="tab().title"
+        [summary]="summary()"
+        [lanes]="laneSummary()"
+        [callout]="callout()"
+        [branch]="branch()"
+        [model]="summary().metrics.model"
+        [elapsed]="railElapsed()"
+        [contextPercent]="contextPercent()"
+        [todos]="todos()"
+        [gitStats]="gitStats()"
+        [state]="railStateValue()"
+        [density]="density()"
+        [focused]="focused()"
+        [innerTabbable]="focused()"
+        [holdText]="holdText()"
+        (selectRequested)="openFullView()"
+        (allow)="respond($event, 'allow')"
+        (deny)="respond($event, 'deny')"
+        (openRequest)="openRequest($event)"
+        (answer)="answerQuestion($event)"
+        (showOutput)="openFullView($event)"
+        (laneSelected)="openLane($event)"
+        (moreLanes)="requestLanes()"
+      />
+    } @else {
     <div
       class="h-full min-h-0 overflow-hidden border border-base-content/10 bg-base-200/30"
       data-testid="compact-session-card"
@@ -106,6 +150,7 @@ function sameMetrics(a: CompactSummaryMetrics, b: CompactSummaryMetrics) {
         (laneSelected)="openLane($event)"
       />
     </div>
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -124,7 +169,14 @@ export class CompactSessionCardComponent {
   private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
 
   readonly tab = input.required<TabState>();
+  readonly variant = input<'tile' | 'rail'>('tile');
+  readonly density = input<CompactRailDensity>('comfortable');
+  readonly focused = input(false);
+  readonly holdText = input(false);
   readonly expandToFull = output<void>();
+  readonly railState = output<CompactRailState>();
+  readonly staleAction = output<void>();
+  readonly lanesRequested = output<void>();
 
   /**
    * Every stream flush hands the card a new `tab` object. Each part below
@@ -145,6 +197,12 @@ export class CompactSessionCardComponent {
     const startedAt = this.tab().agentOrigin?.startedAt;
     return startedAt === undefined ? null : Math.max(0, this.now() - startedAt);
   });
+  readonly railElapsed = computed(() => {
+    const elapsed = this.elapsed();
+    if (elapsed === null) return '—';
+    const seconds = Math.floor(elapsed / 1000);
+    return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  });
   readonly contextPercent = computed(() =>
     this.tab().liveModelStats?.contextKnown
       ? (this.tab().liveModelStats?.contextPercent ?? null)
@@ -161,6 +219,7 @@ export class CompactSessionCardComponent {
       ),
       this.sessionIdentity(),
     ),
+    { equal: sameLaneSummary },
   );
   readonly callout = computed<CompactCallout>(() => {
     const pending: {
@@ -181,6 +240,7 @@ export class CompactSessionCardComponent {
         timestamp: request.timestamp,
         callout: {
           kind: 'question' as const,
+          requestId: request.id,
           text:
             request.questions.map((item) => item.question).join('; ') ||
             'Question requires an answer',
@@ -216,6 +276,7 @@ export class CompactSessionCardComponent {
     if (reason && this.summary().status.tone === 'error') {
       return {
         kind: 'error',
+        requestId: `err:${this.tabId()}:${this.tab().terminalFailureSeq ?? 0}`,
         text: reason.replaceAll('_', ' '),
         canRetry: false,
       };
@@ -351,6 +412,15 @@ export class CompactSessionCardComponent {
       : summarizeFinalized(this.messages(), context);
   });
 
+  readonly railStateValue = computed<CompactRailState>(() => {
+    const callout = this.callout();
+    if (callout?.kind === 'permission' || callout?.kind === 'question') return 'needs';
+    if (this.summary().status.tone === 'error') return 'error';
+    if (this.sessionStatus() === 'streaming' || this.sessionStatus() === 'resuming' ||
+      this.laneSummary().counts.running > 0) return 'running';
+    return this.messages().length > 0 ? 'done' : 'idle';
+  });
+
   constructor() {
     effect((onCleanup) => {
       const root = this.gitRoot();
@@ -358,6 +428,7 @@ export class CompactSessionCardComponent {
       if (root) onCleanup(this.gitStore.track(root, tabId));
     });
     effect(() => this.sampleStream(this.tab()));
+    effect(() => this.railState.emit(this.railStateValue()));
     effect(() => {
       if (this.streaming() || this.laneSummary().counts.running > 0) {
         if (this.elapsedTimer === null) {
@@ -375,14 +446,27 @@ export class CompactSessionCardComponent {
   }
 
   respond(callout: CompactPermissionCallout, decision: 'allow' | 'deny'): void {
+    if (this.callout()?.requestId !== callout.requestId) {
+      this.staleAction.emit();
+      return;
+    }
     if (callout.source === 'session') {
       const request = this.sessionPermissions().find(
         (candidate) => candidate.id === callout.requestId,
       );
       if (request && callout.tabId) {
         this.responder.respondSession(request, decision, callout.tabId);
+      } else {
+        this.staleAction.emit();
       }
     } else if (callout.agentId) {
+      const stillQueued = this.agentStore.agentsOwnedBySession(this.sessionIdentity())
+        .some((agent) => agent.agentId === callout.agentId &&
+          agent.permissionQueue.some((request) => request.requestId === callout.requestId));
+      if (!stillQueued) {
+        this.staleAction.emit();
+        return;
+      }
       this.responder.respondLane(
         callout.agentId,
         callout.requestId,
@@ -393,6 +477,10 @@ export class CompactSessionCardComponent {
   }
 
   openRequest(callout: CompactPermissionCallout): void {
+    if (this.callout()?.requestId !== callout.requestId) {
+      this.staleAction.emit();
+      return;
+    }
     if (callout.source === 'cli' && callout.agentId) {
       this.openLane(laneKey('cli', callout.agentId));
     } else {
@@ -400,7 +488,25 @@ export class CompactSessionCardComponent {
     }
   }
 
-  openLane(key: string): void {
+  answerQuestion(shownId: string): void {
+    const current = this.callout();
+    if (current?.kind !== 'question' || current.requestId !== shownId) {
+      this.staleAction.emit();
+      return;
+    }
+    this.openLane('orchestrator');
+  }
+
+  requestLanes(): void {
+    this.openFullView();
+    this.lanesRequested.emit();
+  }
+
+  openLane(key: string, shownId?: string): void {
+    if (shownId !== undefined && this.callout()?.requestId !== shownId) {
+      this.staleAction.emit();
+      return;
+    }
     if (this.forcedCard?.()) {
       this.cardActions?.openLane(key);
     } else if (this.cardActions) {
@@ -410,7 +516,11 @@ export class CompactSessionCardComponent {
     }
   }
 
-  openFullView(): void {
+  openFullView(shownId?: string): void {
+    if (shownId !== undefined && this.callout()?.requestId !== shownId) {
+      this.staleAction.emit();
+      return;
+    }
     if (this.forcedCard?.()) {
       this.cardActions?.openSession();
     } else {

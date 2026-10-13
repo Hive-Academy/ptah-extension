@@ -90,7 +90,10 @@ export function buildLaneSummary(
   rows.sort(
     (a, b) =>
       statusOrder[a.status] - statusOrder[b.status] ||
-      (b.startedAt ?? 0) - (a.startedAt ?? 0),
+      (['done', 'error', 'stopped'].includes(a.status) &&
+      ['done', 'error', 'stopped'].includes(b.status)
+        ? (b.endedAt ?? 0) - (a.endedAt ?? 0)
+        : (b.startedAt ?? 0) - (a.startedAt ?? 0)),
   );
   const counts: Record<CompactLaneStatus, number> = {
     waiting: 0,

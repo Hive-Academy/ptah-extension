@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 2/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 3/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -182,7 +182,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   A5: `tab-restore-sanitize.ts` does not exist; the restore path `tab-persistence.ts` spreads the tab, so the field
   survives (lane-R0-report.md).
 
-## Batch R1: CompactRailCardComponent and shared rail types (chat-ui) — COMPLETE
+## Batch R1: CompactRailCardComponent and shared rail types (chat-ui) — COMPLETE (commit e877d0c91)
 
 - Goal: the presentational rail card in comfortable (176) and dense (96) density, with request-bound actions and the
   shared height pair (plan Component 8, `:521-620`; Rev 1 findings 1, 4, 5).
@@ -227,7 +227,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   24 px `::after` hit area; the error-callout button's name "Show output of <title>" does not start with the
   visible word "Output".
 
-## Batch R2: Smart card rail variant, request identity, carried #1/#2 (chat) — PENDING
+## Batch R2: Smart card rail variant, request identity, carried #1/#2 (chat) — COMPLETE
 
 - Goal: one data source for tile and rail cards; ended lanes newest first (#1); full-field lane summary equality (#2);
   request ids for every callout, error id from `terminalFailureSeq`; `answerQuestion(shownId)` (plan Component 7,
@@ -264,7 +264,12 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader: only the 4 listed files changed; tile branch byte-identical
+  to the old `:85-108` (now `:129-152`); no removed spec lines; plan cases (1)-(8) present. A1 recorded in
+  lane-R2-report.md. Re-run checks: lane-rows spec 6/6, card spec 43/43, chat project 200 suites / 3637 passed
+  (2 skipped), typecheck pass (R1 carry-over closed), lint 0 errors / 37 warnings (none in R2 files). Minor for
+  the phase review: `respond` now refuses any callout that is no longer `callout()` for the tile too (stricter
+  than the plan's "session: unchanged"; consistent with R2-1, posts nothing stale).
 
 ## Batch R3: Board state model, v3 record, store board state (canvas) — PENDING
 
