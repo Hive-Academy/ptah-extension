@@ -36,6 +36,7 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ExecutionNodeComponent } from './execution-node.component';
 import {
   FILE_LINK_OPENER,
@@ -212,43 +213,64 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
     expect(host.querySelector('markdown')).not.toBeNull();
   });
 
-  it('renders a text child with a later sibling as settled markdown while the turn streams', () => {
-    const message = {
-      id: 'm1',
-      type: 'message',
-      status: 'streaming',
-      content: '',
-      children: [
-        {
-          id: 't1',
-          type: 'text',
-          status: 'complete',
-          content: 'Done.\n> [!WARNING]\n> Careful.',
-          children: [],
-        },
-        {
-          id: 't2',
-          type: 'text',
-          status: 'streaming',
-          content: 'Still\n\nopen',
-          children: [],
-        },
-      ],
-    } as unknown as ExecutionNode;
-    fixture.componentRef.setInput('node', message);
-    fixture.componentRef.setInput('isStreaming', true);
-    fixture.detectChanges();
-    for (const frame of frames.splice(0)) frame();
-    fixture.detectChanges();
+  describe('a text child with a later sibling while the turn streams', () => {
+    /** A streaming message: text `first`, then a streaming text sibling. */
+    function streamMessage(first: string): void {
+      const message = {
+        id: 'm1',
+        type: 'message',
+        status: 'streaming',
+        content: '',
+        children: [
+          { id: 't1', type: 'text', status: 'complete', content: first, children: [] },
+          { id: 't2', type: 'text', status: 'streaming', content: 'Still\n\nopen', children: [] },
+        ],
+      } as unknown as ExecutionNode;
+      fixture.componentRef.setInput('node', message);
+      fixture.componentRef.setInput('isStreaming', true);
+      fixture.detectChanges();
+      for (const frame of frames.splice(0)) frame();
+      fixture.detectChanges();
+    }
 
-    const children = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>(
-        '.exec-text-branch',
-      ),
-    );
-    expect(children).toHaveLength(2);
-    expect(children[0].querySelector('.ptah-markdown-root')).toBeNull();
-    expect(children[0].querySelector('markdown')).not.toBeNull();
-    expect(children[1].querySelector('.ptah-markdown-root')).not.toBeNull();
+    function textBranches(): HTMLElement[] {
+      return Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.exec-text-branch'),
+      );
+    }
+
+    /** The protected view state of the first child node. */
+    function firstChild(): { mermaidHost(): boolean; renderedContent(): string } {
+      const nodes = fixture.debugElement.queryAll(By.directive(ExecutionNodeComponent));
+      return nodes[0].componentInstance as unknown as {
+        mermaidHost(): boolean;
+        renderedContent(): string;
+      };
+    }
+
+    it('renders the closed text as settled markdown', () => {
+      streamMessage('Done.\n> [!WARNING]\n> Careful.');
+
+      const branches = textBranches();
+      expect(branches).toHaveLength(2);
+      expect(branches[0].querySelector('.ptah-markdown-root')).toBeNull();
+      expect(branches[0].querySelector('markdown')).not.toBeNull();
+      expect(branches[1].querySelector('.ptah-markdown-root')).not.toBeNull();
+    });
+
+    it('does not mount Mermaid before the turn ends', () => {
+      streamMessage('Diagram:\n\n```mermaid\ngraph TD; A-->B\n```\n');
+
+      expect(firstChild().mermaidHost()).toBe(false);
+      expect(textBranches()[0].querySelector('markdown')).not.toBeNull();
+    });
+
+    it('renders a late delta to the closed text at once', () => {
+      streamMessage('Done.');
+      streamMessage('Done. And more.');
+
+      expect(firstChild().renderedContent()).toBe('Done. And more.');
+      expect(textBranches()[0].querySelector('.ptah-markdown-root')).toBeNull();
+    });
   });
 });
