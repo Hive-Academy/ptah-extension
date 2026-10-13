@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import type { CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
@@ -11,25 +19,52 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 @Component({
   selector: 'ptah-canvas-focus-area',
   standalone: true,
-  imports: [CanvasFocusHeaderComponent, CanvasLaneTabsComponent, CanvasLaneViewComponent],
+  imports: [
+    CanvasFocusHeaderComponent,
+    CanvasLaneTabsComponent,
+    CanvasLaneViewComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0 min-w-0' },
   template: `
-    <section aria-label="Focused session" class="flex h-full min-h-0 flex-col bg-base-100">
+    <section
+      aria-label="Focused session"
+      class="flex h-full min-h-0 flex-col bg-base-100"
+    >
       @if (focusedTabId(); as id) {
-        <ptah-canvas-focus-header [tabId]="id" [title]="tab()?.title ?? ''" [state]="state()"
-          [running]="canvasStore.isSessionRunning(id)" [viewMode]="tab()?.viewMode ?? 'full'" [band]="band()"
-          (stop)="stop(id)" (toggleViewMode)="tabs.toggleTabViewMode(id)" (closeRequested)="closeRequested.emit(id)" />
-        <ptah-canvas-lane-tabs [sessionId]="tab()?.claudeSessionId ?? null" [laneKey]="detail.laneKeyFor(id)"
-          (laneSelected)="detail.selectLaneFor(id, $event)" />
+        <ptah-canvas-focus-header
+          [tabId]="id"
+          [title]="tab()?.title ?? ''"
+          [state]="state()"
+          [branch]="tab()?.agentOrigin?.branch ?? null"
+          [model]="tab()?.liveModelStats?.model ?? tab()?.sessionModel ?? null"
+          [running]="canvasStore.isSessionRunning(id)"
+          [viewMode]="tab()?.viewMode ?? 'full'"
+          [band]="band()"
+          (stop)="stop(id)"
+          (toggleViewMode)="tabs.toggleTabViewMode(id)"
+          (closeRequested)="closeRequested.emit(id)"
+        />
+        <ptah-canvas-lane-tabs
+          [sessionId]="tab()?.claudeSessionId ?? null"
+          [laneKey]="detail.laneKeyFor(id)"
+          (laneSelected)="detail.selectLaneFor(id, $event)"
+        />
         <div class="min-h-0 flex-1">
           @for (focused of focusedIds(); track focused) {
-            <ptah-canvas-lane-view [tabId]="focused" [sessionId]="tab()?.claudeSessionId ?? null"
-              [laneKey]="detail.laneKeyFor(focused)" />
+            <ptah-canvas-lane-view
+              [tabId]="focused"
+              [sessionId]="tab()?.claudeSessionId ?? null"
+              [laneKey]="detail.laneKeyFor(focused)"
+            />
           }
         </div>
       } @else {
-        <div class="flex h-full items-center justify-center text-sm text-base-content/60">No session in focus</div>
+        <div
+          class="flex h-full items-center justify-center text-sm text-base-content-muted"
+        >
+          No session in focus
+        </div>
       }
     </section>
   `,
@@ -48,7 +83,11 @@ export class CanvasFocusAreaComponent {
     const id = this.focusedTabId();
     return id ? [id] : [];
   });
-  readonly tab = computed(() => this.tabs.findTabByIdAcrossWorkspaces(this.focusedTabId() ?? '')?.tab ?? null);
+  readonly tab = computed(
+    () =>
+      this.tabs.findTabByIdAcrossWorkspaces(this.focusedTabId() ?? '')?.tab ??
+      null,
+  );
   private previousId: string | null = null;
 
   constructor() {
@@ -65,7 +104,10 @@ export class CanvasFocusAreaComponent {
 
   async stop(id: string): Promise<void> {
     if (this.tabs.activeTabId() !== id) this.canvasStore.focusTile(id);
-    try { await this.chatStore.abortWithConfirmation(); }
-    catch (error) { console.error('Could not stop session', error); }
+    try {
+      await this.chatStore.abortWithConfirmation();
+    } catch (error) {
+      console.error('Could not stop session', error);
+    }
   }
 }

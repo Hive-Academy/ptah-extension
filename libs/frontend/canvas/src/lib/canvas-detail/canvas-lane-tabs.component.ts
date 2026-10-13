@@ -47,7 +47,7 @@ interface LaneGroup {
         @if (group.label !== 'Orchestrator') {
           <span
             role="presentation"
-            class="self-center px-2 text-[10px] font-semibold uppercase tracking-wider text-base-content/60 whitespace-nowrap"
+            class="self-center px-2 text-[10px] font-semibold uppercase tracking-wider text-base-content-muted whitespace-nowrap"
             >{{ group.label }}</span
           >
         }
@@ -60,7 +60,7 @@ interface LaneGroup {
             [class.border-primary]="selectedKey() === tab.key"
             [class.border-transparent]="selectedKey() !== tab.key"
             [class.text-base-content]="selectedKey() === tab.key"
-            [class.text-base-content/60]="selectedKey() !== tab.key"
+            [class.text-base-content-muted]="selectedKey() !== tab.key"
             [attr.aria-selected]="selectedKey() === tab.key"
             [attr.aria-controls]="panelId()"
             [tabIndex]="selectedKey() === tab.key ? 0 : -1"
@@ -87,8 +87,9 @@ export class CanvasLaneTabsComponent {
   private readonly strip = viewChild.required<ElementRef<HTMLElement>>('strip');
   private readonly cutLeft = signal(false);
   private readonly cutRight = signal(false);
-  readonly edgeMask = computed(() =>
-    `linear-gradient(to right, ${this.cutLeft() ? 'transparent' : 'black'} 0, black 32px, black calc(100% - 32px), ${this.cutRight() ? 'transparent' : 'black'} 100%)`,
+  readonly edgeMask = computed(
+    () =>
+      `linear-gradient(to right, ${this.cutLeft() ? 'transparent' : 'black'} 0, black 32px, black calc(100% - 32px), ${this.cutRight() ? 'transparent' : 'black'} 100%)`,
   );
   readonly sessionId = input<string | null>(null);
   readonly panelId = input('canvas-lane-panel');
@@ -191,15 +192,22 @@ export class CanvasLaneTabsComponent {
   updateEdges(): void {
     const strip = this.strip().nativeElement;
     this.cutLeft.set(strip.scrollLeft > 0);
-    this.cutRight.set(strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1);
+    this.cutRight.set(
+      strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1,
+    );
   }
 
   private revealSelected(): void {
-    afterNextRender(() => {
-      const selected = this.strip().nativeElement.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-      selected?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-      this.updateEdges();
-    }, { injector: this.injector });
+    afterNextRender(
+      () => {
+        const selected = this.strip().nativeElement.querySelector<HTMLElement>(
+          '[role="tab"][aria-selected="true"]',
+        );
+        selected?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+        this.updateEdges();
+      },
+      { injector: this.injector },
+    );
   }
 
   onKeydown(event: KeyboardEvent, key: string): void {

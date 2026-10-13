@@ -1,34 +1,165 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Injector,
+  OnDestroy,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { TabManagerService, ChatStore } from '@ptah-extension/chat';
+import { By } from '@angular/platform-browser';
+import {
+  TabManagerService,
+  ChatStore,
+  StreamPresentationStore,
+} from '@ptah-extension/chat';
+import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
+import type { StreamingState, TabState } from '@ptah-extension/chat-types';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
 
 const destroyed: string[] = [];
+const snapshots = signal(new Map<string, TabState>());
+const buildTree = jest.fn(() => []);
 
-@Component({ selector: 'ptah-canvas-focus-header', standalone: true, template: '<header>{{ title() }}</header>', changeDetection: ChangeDetectionStrategy.OnPush })
+@Component({
+  selector: 'ptah-canvas-focus-header',
+  standalone: true,
+  template:
+    '<header>{{ title() }}<span class="branch-chip">{{ branch() }}</span><span class="model-chip">{{ model() }}</span></header>',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
 class HeaderStub {
-  readonly tabId = input.required<string>(); readonly title = input(''); readonly state = input('idle');
-  readonly running = input(false); readonly viewMode = input('full'); readonly band = input('lg');
-  readonly stop = output<void>(); readonly toggleViewMode = output<void>(); readonly closeRequested = output<void>();
+  readonly tabId = input.required<string>();
+  readonly title = input('');
+  readonly state = input('idle');
+  readonly branch = input<string | null>(null);
+  readonly model = input<string | null>(null);
+  readonly running = input(false);
+  readonly viewMode = input('full');
+  readonly band = input('lg');
+  readonly stop = output<void>();
+  readonly toggleViewMode = output<void>();
+  readonly closeRequested = output<void>();
 }
-@Component({ selector: 'ptah-canvas-lane-tabs', standalone: true, template: '<button role="tab" aria-selected="true">Orchestrator</button>' })
+@Component({
+  selector: 'ptah-canvas-lane-tabs',
+  standalone: true,
+  template: '<button role="tab" aria-selected="true">Orchestrator</button>',
+})
 class TabsStub {
-  readonly sessionId = input<string | null>(null); readonly laneKey = input('orchestrator'); readonly laneSelected = output<string>();
+  readonly sessionId = input<string | null>(null);
+  readonly laneKey = input('orchestrator');
+  readonly laneSelected = output<string>();
 }
-@Component({ selector: 'ptah-canvas-lane-view', standalone: true, template: '<div class="transcript">{{ tabId() }}:{{ laneKey() }}</div>' })
+@Component({
+  selector: 'ptah-canvas-lane-view',
+  standalone: true,
+  template: '<div class="transcript">{{ tabId() }}:{{ laneKey() }}</div>',
+})
 class ViewStub implements OnDestroy {
-  readonly tabId = input.required<string>(); readonly sessionId = input<string | null>(null); readonly laneKey = input('orchestrator');
-  ngOnDestroy(): void { destroyed.push(this.tabId()); }
+  private readonly injector = inject(Injector);
+  readonly tabId = input.required<string>();
+  readonly sessionId = input<string | null>(null);
+  readonly laneKey = input('orchestrator');
+  constructor() {
+    effect(() => {
+      const tab = snapshots().get(this.tabId());
+      if (tab) this.injector.get(StreamPresentationStore).sync(tab);
+    });
+  }
+  ngOnDestroy(): void {
+    destroyed.push(this.tabId());
+  }
 }
 
 describe('CanvasFocusAreaComponent', () => {
+  beforeEach(() => {
+    snapshots.set(new Map());
+    buildTree.mockClear();
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: ExecutionTreeBuilderService, useValue: { buildTree } },
+      ],
+    });
+  });
+  function mountWithLanes() {
+    const lanes = new Map([
+      ['a', 'cli:agent-a'],
+      ['b', 'orchestrator'],
+    ]);
+    const selectLaneFor = jest.fn((id: string, key: string) =>
+      lanes.set(id, key),
+    );
+    const tabs = signal(
+      new Map([
+        [
+          'a',
+          {
+            title: 'A',
+            viewMode: 'full',
+            claudeSessionId: null,
+            agentOrigin: { branch: 'feature/a' },
+            liveModelStats: { model: 'model-a' },
+          },
+        ],
+        [
+          'b',
+          {
+            title: 'B',
+            viewMode: 'full',
+            claudeSessionId: null,
+            agentOrigin: { branch: 'feature/b' },
+            liveModelStats: { model: 'model-b' },
+          },
+        ],
+      ]),
+    );
+    TestBed.configureTestingModule({
+      imports: [CanvasFocusAreaComponent],
+      providers: [
+        CanvasRenderMetricsService,
+        { provide: CanvasStore, useValue: { isSessionRunning: () => false } },
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([]),
+            findTabByIdAcrossWorkspaces: (id: string) => ({
+              tab: tabs().get(id),
+            }),
+            toggleTabViewMode: jest.fn(),
+          },
+        },
+        { provide: ChatStore, useValue: { abortWithConfirmation: jest.fn() } },
+        {
+          provide: CanvasDetailService,
+          useValue: {
+            laneKeyFor: (id: string) => lanes.get(id) ?? 'orchestrator',
+            selectLaneFor,
+          },
+        },
+      ],
+    });
+    TestBed.overrideComponent(CanvasFocusAreaComponent, {
+      set: { imports: [HeaderStub, TabsStub, ViewStub] },
+    });
+    const fixture = TestBed.createComponent(CanvasFocusAreaComponent);
+    fixture.componentRef.setInput('focusedTabId', 'a');
+    fixture.detectChanges();
+    return { fixture, lanes, tabs, selectLaneFor };
+  }
+
   it('activates an inactive tab before stopping its session', async () => {
     const focus = jest.fn();
     const abort = jest.fn().mockResolvedValue(undefined);
-    const area = Object.create(CanvasFocusAreaComponent.prototype) as CanvasFocusAreaComponent;
+    const area = Object.create(
+      CanvasFocusAreaComponent.prototype,
+    ) as CanvasFocusAreaComponent;
     Object.assign(area, {
       tabs: { activeTabId: () => 'other' },
       canvasStore: { focusTile: focus },
@@ -41,32 +172,130 @@ describe('CanvasFocusAreaComponent', () => {
 
   it('mounts one keyed view and keeps the header element across swaps', () => {
     destroyed.length = 0;
-    const lanes = new Map([['a', 'cli:agent-a'], ['b', 'orchestrator']]);
+    const lanes = new Map([
+      ['a', 'cli:agent-a'],
+      ['b', 'orchestrator'],
+    ]);
     TestBed.configureTestingModule({
       imports: [CanvasFocusAreaComponent],
       providers: [
         CanvasRenderMetricsService,
         { provide: CanvasStore, useValue: { isSessionRunning: () => false } },
-        { provide: TabManagerService, useValue: { findTabByIdAcrossWorkspaces: (id: string) => ({ tab: { title: id, viewMode: 'full', claudeSessionId: null } }) } },
+        {
+          provide: TabManagerService,
+          useValue: {
+            findTabByIdAcrossWorkspaces: (id: string) => ({
+              tab: { title: id, viewMode: 'full', claudeSessionId: null },
+            }),
+          },
+        },
         { provide: ChatStore, useValue: { abortWithConfirmation: jest.fn() } },
-        { provide: CanvasDetailService, useValue: { laneKeyFor: (id: string) => lanes.get(id) ?? 'orchestrator', selectLaneFor: jest.fn() } },
+        {
+          provide: CanvasDetailService,
+          useValue: {
+            laneKeyFor: (id: string) => lanes.get(id) ?? 'orchestrator',
+            selectLaneFor: jest.fn(),
+          },
+        },
       ],
     });
-    TestBed.overrideComponent(CanvasFocusAreaComponent, { set: { imports: [HeaderStub, TabsStub, ViewStub] } });
+    TestBed.overrideComponent(CanvasFocusAreaComponent, {
+      set: { imports: [HeaderStub, TabsStub, ViewStub] },
+    });
     const fixture = TestBed.createComponent(CanvasFocusAreaComponent);
-    fixture.componentRef.setInput('focusedTabId', 'a'); fixture.detectChanges();
+    fixture.componentRef.setInput('focusedTabId', 'a');
+    fixture.detectChanges();
     const header = fixture.nativeElement.querySelector('header');
-    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(1);
-    expect(fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent).toContain('a:cli:agent-a');
-    fixture.componentRef.setInput('focusedTabId', 'b'); fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
+    ).toHaveLength(1);
+    expect(
+      fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent,
+    ).toContain('a:cli:agent-a');
+    fixture.componentRef.setInput('focusedTabId', 'b');
+    fixture.detectChanges();
     expect(destroyed).toEqual(['a']);
     expect(fixture.nativeElement.querySelector('header')).toBe(header);
-    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(1);
-    fixture.componentRef.setInput('focusedTabId', 'a'); fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
+    ).toHaveLength(1);
+    fixture.componentRef.setInput('focusedTabId', 'a');
+    fixture.detectChanges();
     expect(destroyed).toEqual(['a', 'b']);
-    expect(fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent).toContain('a:cli:agent-a');
-    const metrics = fixture.debugElement.injector.get(CanvasRenderMetricsService).snapshot();
+    expect(
+      fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent,
+    ).toContain('a:cli:agent-a');
+    const metrics = fixture.debugElement.injector
+      .get(CanvasRenderMetricsService)
+      .snapshot();
     expect(metrics.focusSwaps).toBe(2);
     expect(metrics.liveViewMounts).toBe(3);
+  });
+
+  it('passes the focused tab branch and live model into header chips', () => {
+    const { fixture } = mountWithLanes();
+    expect(
+      fixture.nativeElement.querySelector('.branch-chip')?.textContent,
+    ).toBe('feature/a');
+    expect(
+      fixture.nativeElement.querySelector('.model-chip')?.textContent,
+    ).toBe('model-a');
+  });
+
+  it('processes one snapshot for the focused view and none for an unfocused tab', () => {
+    const { fixture } = mountWithLanes();
+    const snapshot = (id: string) =>
+      ({
+        id,
+        claudeSessionId: `session-${id}`,
+        status: 'streaming',
+        messages: [],
+        streamingState: { pendingStats: null } as StreamingState,
+      }) as unknown as TabState;
+    snapshots.set(
+      new Map([
+        ['a', snapshot('a')],
+        ['b', snapshot('b')],
+      ]),
+    );
+    fixture.detectChanges();
+    expect(buildTree).toHaveBeenCalledTimes(1);
+    expect(buildTree).toHaveBeenCalledWith(expect.anything(), 'tab-a');
+    snapshots.set(
+      new Map([
+        ['a', snapshot('a')],
+        ['b', snapshot('b')],
+      ]),
+    );
+    fixture.detectChanges();
+    expect(buildTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('restores the lane selected for each tab after a focus swap', () => {
+    const { fixture } = mountWithLanes();
+    fixture.componentRef.setInput('focusedTabId', 'b');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('focusedTabId', 'a');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent,
+    ).toContain('a:cli:agent-a');
+  });
+
+  it('falls back to Orchestrator when the selected lane is removed', () => {
+    const { fixture, lanes, selectLaneFor } = mountWithLanes();
+    lanes.delete('a');
+    fixture.componentRef.setInput('focusedTabId', 'b');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('focusedTabId', 'a');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent,
+    ).toContain('a:orchestrator');
+    (
+      fixture.debugElement.query(By.directive(TabsStub))
+        .componentInstance as TabsStub
+    ).laneSelected.emit('orchestrator');
+    expect(selectLaneFor).toHaveBeenCalledWith('a', 'orchestrator');
   });
 });

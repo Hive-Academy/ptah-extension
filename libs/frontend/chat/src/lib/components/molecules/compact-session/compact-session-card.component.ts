@@ -75,17 +75,31 @@ function sameMetrics(a: CompactSummaryMetrics, b: CompactSummaryMetrics) {
   );
 }
 
-function sameLaneSummary(a: CompactLaneSummary, b: CompactLaneSummary): boolean {
-  return a.moreCount === b.moreCount && a.total === b.total &&
-    a.counts.waiting === b.counts.waiting && a.counts.error === b.counts.error &&
-    a.counts.running === b.counts.running && a.counts.done === b.counts.done &&
-    a.counts.stopped === b.counts.stopped && a.rows.length === b.rows.length &&
+function sameLaneSummary(
+  a: CompactLaneSummary,
+  b: CompactLaneSummary,
+): boolean {
+  return (
+    a.moreCount === b.moreCount &&
+    a.total === b.total &&
+    a.counts.waiting === b.counts.waiting &&
+    a.counts.error === b.counts.error &&
+    a.counts.running === b.counts.running &&
+    a.counts.done === b.counts.done &&
+    a.counts.stopped === b.counts.stopped &&
+    a.rows.length === b.rows.length &&
     a.rows.every((row, index) => {
       const other = b.rows[index];
-      return row.id === other.id && row.name === other.name &&
-        row.kind === other.kind && row.status === other.status &&
-        row.startedAt === other.startedAt && row.endedAt === other.endedAt;
-    });
+      return (
+        row.id === other.id &&
+        row.name === other.name &&
+        row.kind === other.kind &&
+        row.status === other.status &&
+        row.startedAt === other.startedAt &&
+        row.endedAt === other.endedAt
+      );
+    })
+  );
 }
 
 /** Smart orchestration for the summary-only compact session card. */
@@ -126,30 +140,30 @@ function sameLaneSummary(a: CompactLaneSummary, b: CompactLaneSummary): boolean 
         (moreLanes)="requestLanes()"
       />
     } @else {
-    <div
-      class="h-full min-h-0 overflow-hidden border border-base-content/10 bg-base-200/30"
-      data-testid="compact-session-card"
-    >
-      <ptah-compact-session-activity
-        class="h-full"
-        [summary]="summary()"
-        [lanes]="laneSummary()"
-        [callout]="callout()"
-        [now]="now()"
-        [branch]="branch()"
-        [elapsed]="elapsed()"
-        [contextPercent]="contextPercent()"
-        [todos]="todos()"
-        [gitStats]="gitStats()"
-        (openFullView)="openFullView()"
-        (allow)="respond($event, 'allow')"
-        (deny)="respond($event, 'deny')"
-        (answer)="openFullView()"
-        (openRequest)="openRequest($event)"
-        (showOutput)="openFullView()"
-        (laneSelected)="openLane($event)"
-      />
-    </div>
+      <div
+        class="h-full min-h-0 overflow-hidden border border-base-content/10 bg-base-200/30"
+        data-testid="compact-session-card"
+      >
+        <ptah-compact-session-activity
+          class="h-full"
+          [summary]="summary()"
+          [lanes]="laneSummary()"
+          [callout]="callout()"
+          [now]="now()"
+          [branch]="branch()"
+          [elapsed]="elapsed()"
+          [contextPercent]="contextPercent()"
+          [todos]="todos()"
+          [gitStats]="gitStats()"
+          (openFullView)="openFullView()"
+          (allow)="respond($event, 'allow')"
+          (deny)="respond($event, 'deny')"
+          (answer)="openFullView()"
+          (openRequest)="openRequest($event)"
+          (showOutput)="openFullView()"
+          (laneSelected)="openLane($event)"
+        />
+      </div>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -201,7 +215,9 @@ export class CompactSessionCardComponent {
     const elapsed = this.elapsed();
     if (elapsed === null) return '—';
     const seconds = Math.floor(elapsed / 1000);
-    return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return seconds < 60
+      ? `${seconds}s`
+      : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   });
   readonly contextPercent = computed(() =>
     this.tab().liveModelStats?.contextKnown
@@ -211,14 +227,15 @@ export class CompactSessionCardComponent {
   private readonly sessionAgents = computed(() =>
     this.agentStore.agentsForSession(this.sessionIdentity()),
   );
-  readonly laneSummary = computed(() =>
-    buildLaneSummary(
-      this.sessionAgents(),
-      [...this.agentStore.subagents().values()].filter(
-        (agent) => agent.parentSessionId === this.sessionIdentity(),
+  readonly laneSummary = computed(
+    () =>
+      buildLaneSummary(
+        this.sessionAgents(),
+        [...this.agentStore.subagents().values()].filter(
+          (agent) => agent.parentSessionId === this.sessionIdentity(),
+        ),
+        this.sessionIdentity(),
       ),
-      this.sessionIdentity(),
-    ),
     { equal: sameLaneSummary },
   );
   readonly callout = computed<CompactCallout>(() => {
@@ -414,10 +431,15 @@ export class CompactSessionCardComponent {
 
   readonly railStateValue = computed<CompactRailState>(() => {
     const callout = this.callout();
-    if (callout?.kind === 'permission' || callout?.kind === 'question') return 'needs';
+    if (callout?.kind === 'permission' || callout?.kind === 'question')
+      return 'needs';
     if (this.summary().status.tone === 'error') return 'error';
-    if (this.sessionStatus() === 'streaming' || this.sessionStatus() === 'resuming' ||
-      this.laneSummary().counts.running > 0) return 'running';
+    if (
+      this.sessionStatus() === 'streaming' ||
+      this.sessionStatus() === 'resuming' ||
+      this.laneSummary().counts.running > 0
+    )
+      return 'running';
     return this.messages().length > 0 ? 'done' : 'idle';
   });
 
@@ -460,9 +482,15 @@ export class CompactSessionCardComponent {
         this.staleAction.emit();
       }
     } else if (callout.agentId) {
-      const stillQueued = this.agentStore.agentsOwnedBySession(this.sessionIdentity())
-        .some((agent) => agent.agentId === callout.agentId &&
-          agent.permissionQueue.some((request) => request.requestId === callout.requestId));
+      const stillQueued = this.agentStore
+        .agentsOwnedBySession(this.sessionIdentity())
+        .some(
+          (agent) =>
+            agent.agentId === callout.agentId &&
+            agent.permissionQueue.some(
+              (request) => request.requestId === callout.requestId,
+            ),
+        );
       if (!stillQueued) {
         this.staleAction.emit();
         return;

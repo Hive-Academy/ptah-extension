@@ -65,7 +65,9 @@ export type CompactCallout =
 
 export type CompactRailState = 'running' | 'needs' | 'error' | 'done' | 'idle';
 export type CompactRailDensity = 'comfortable' | 'dense';
-export const COMPACT_RAIL_CARD_HEIGHT: Readonly<Record<CompactRailDensity, number>> = {
+export const COMPACT_RAIL_CARD_HEIGHT: Readonly<
+  Record<CompactRailDensity, number>
+> = {
   comfortable: 176,
   dense: 96,
 };

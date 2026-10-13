@@ -117,6 +117,29 @@ The next batch starts only after the previous one is committed.
   `canvas-detail/canvas-lane-view.component.ts` x1, `canvas-needs-you-queue.component.ts` x2 (present at
   fe9ab1c91), `canvas-rail/canvas-focus-area.component.ts:32` x1, `canvas-rail/canvas-rail.component.ts:38,48,63,78`
   x4 (R5/R6). Replace with `text-base-content-muted` (or the spec's allowed form) in the phase fix batch.
+- Phase reviews: `code-logic-review-rail.md` APPROVED WITH FIXES 6/10 (0 Blocking, 3 Serious);
+  `code-style-review-rail.md` APPROVED WITH FIXES 7/10 (0 Blocking/Serious). Fix-round scope = decisions.md row 62.
+- Fix round (codex lane, `lane-rail-fix-report.md`) — IMPLEMENTED and verified by team-leader Mode 2, committed as
+  `fix(canvas,chat-ui): rail review fix round` (SHA in `git log`, recorded in decisions.md by the orchestrator):
+  - S1: collapsed `canvas-rail-card` keeps a hidden (`display: none`) smart card as the `railState` producer;
+    rail-card spec proves the producer and dot, board spec drives user collapse and the below-1120 auto-collapse
+    and asserts the dot and the live region (needs, error).
+  - S2: focus header gets `agentOrigin?.branch` and `liveModelStats?.model ?? sessionModel` (same sources as
+    `compact-session-card.component.ts:208,398`); focus-area spec asserts both chips.
+  - S3: `+N more` moved onto the 16 px counts line; three lane rows at `h-[18px]` (16 + 54 = 70); spec asserts it.
+  - Ten alpha classes → `text-base-content-muted`; webview `no-alpha-base-content.spec.ts` green.
+  - M6: `data-canvas-live-views` = measured count of mounted `ptah-canvas-lane-view` in the after-render effect.
+    Re-review note (Minor): the effect does not read `focusedId()` directly, so a focus swap that changes no other
+    tracked signal may leave the count one render behind; the spec's swap case expects 1 both before and after.
+  - M1: `setBoardMode(activeWorkspacePath() ?? '')`; `''` is never written (`load('')` unwritable,
+    `markHydrated('')` refuses, `schedule` skips) and never enters `readOnlyPaths`.
+  - Prettier on the 3 R1/R2 files (chat `compact-session-card` and `compact-lane.types.ts`: formatting only,
+    confirmed by diffing Prettier-normalised HEAD) plus every file the round touched.
+  - R6 spec gaps: focus-area (2)-(4), board (6)/(8), exact `defaultSessionName()` (the only edited existing `it`).
+  - Checks: 5 changed specs green one by one; canvas 407/407, chat-ui 1131/1131, webview 475/475; typecheck and
+    lint green for canvas, chat-ui, chat. No state-ink hex change, no bare `var(--state-ink-x)`, no TODO/stub.
+  - Recorded, not fixed (row 62): M5, M2, M3, M4, M7, M8, m1-m7, style Moderates 2-5.
+- Next: one re-review scoped to the fix commit.
 - Completion (Mode 3) also needs the Electron re-check list (plan `## Electron re-check list`) and visual-reviewer
   screenshots in dark (`anubis`) and light (`anubis-light`) against the approved prototype
   `prototypes/02-focus-rail.html`, plus parity against `parity-inventory-layout.md` rows 1-44 and the write-path trace
@@ -588,7 +611,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   orchestra 34/34, detail 3/3; canvas project 35 suites / 398 tests; typecheck pass; lint 0 errors
   (20 warnings, unchanged from R6).
 
-## Batch R8: State-ink tokens and contrast spec (webview) — COMPLETE (commit: the `batch R8` commit)
+## Batch R8: State-ink tokens and contrast spec (webview) — COMPLETE (commit a7a753eff)
 
 - Goal: `--state-ink-run|need|err|done|idle` per anubis theme with `state-*` colours and a 3:1 contrast spec (plan
   Component 17, `:964-984`; D13, D14 dark error `#ef4444`).

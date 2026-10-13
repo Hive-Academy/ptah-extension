@@ -173,7 +173,7 @@ import { ownedBySession } from './lane-owner';
                 (refresh)="loadTranscript(sub.agentId, sub.parentSessionId!)"
               />
             } @else {
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-base-content-muted">
                 Transcript is not available yet
               </p>
             }

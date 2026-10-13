@@ -58,7 +58,9 @@ import {
         aria-label="Requests that need you"
       >
         @if (items().length === 0) {
-          <p class="p-3 text-sm text-base-content/70">No session needs you.</p>
+          <p class="p-3 text-sm text-base-content-muted">
+            No session needs you.
+          </p>
         } @else {
           <ul
             aria-label="Requests that need you"
@@ -69,7 +71,7 @@ import {
                 <div class="font-semibold text-sm truncate">
                   {{ item.sessionLabel }}
                 </div>
-                <div class="text-xs text-base-content/70">
+                <div class="text-xs text-base-content-muted">
                   {{ item.requester }}
                 </div>
                 <p class="text-sm break-words">{{ item.summary }}</p>
@@ -117,7 +119,8 @@ import {
 export class CanvasNeedsYouQueueComponent {
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly injector = inject(Injector);
-  private readonly trigger = viewChild.required<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly trigger =
+    viewChild.required<ElementRef<HTMLButtonElement>>('trigger');
   private readonly permissions = inject(PermissionHandlerService);
   private readonly agents = inject(AgentMonitorStore);
   private readonly responder = inject(AgentPermissionResponder);
@@ -160,7 +163,9 @@ export class CanvasNeedsYouQueueComponent {
       if (event.key === 'Escape') {
         this.open.set(false);
         event.preventDefault();
-        afterNextRender(() => this.trigger().nativeElement.focus(), { injector: this.injector });
+        afterNextRender(() => this.trigger().nativeElement.focus(), {
+          injector: this.injector,
+        });
       }
     };
     document.addEventListener('pointerdown', onPointerDown);

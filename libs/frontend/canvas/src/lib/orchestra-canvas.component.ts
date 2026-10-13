@@ -98,7 +98,10 @@ import { handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
       class="flex flex-col h-full bg-base-100 relative"
       data-testid="canvas-grid"
     >
-      @if (canvasStore.tiles().length > 0 || canvasStore.activeBoard().mode === 'rail') {
+      @if (
+        canvasStore.tiles().length > 0 ||
+        canvasStore.activeBoard().mode === 'rail'
+      ) {
         <!-- Reserved canvas control dock outside measured session viewport -->
         <div
           class="canvas-dock flex items-center gap-2 px-3 py-1.5 border-b border-surface-border shrink-0 bg-surface-1 backdrop-blur-sm z-20"
@@ -126,24 +129,34 @@ import { handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
             }
           </div>
 
-          <ptah-canvas-board-toggle [mode]="canvasStore.activeBoard().mode"
-            (modeChanged)="setBoardMode($event)" />
-          @if (canvasStore.activeBoard().mode === 'grid') {
-          <ptah-canvas-layout-controls
-            [locked]="locked()"
-            [tileCount]="canvasStore.tiles().length"
-            (lockToggled)="toggleLock()"
-            (presetRequested)="applyPreset($event)"
+          <ptah-canvas-board-toggle
+            [mode]="canvasStore.activeBoard().mode"
+            (modeChanged)="setBoardMode($event)"
           />
+          @if (canvasStore.activeBoard().mode === 'grid') {
+            <ptah-canvas-layout-controls
+              [locked]="locked()"
+              [tileCount]="canvasStore.tiles().length"
+              (lockToggled)="toggleLock()"
+              (presetRequested)="applyPreset($event)"
+            />
           }
           <ptah-canvas-needs-you-queue />
           @if (layoutPersistence.writeFailed()) {
-            <span class="text-xs text-warning" role="status">Board layout could not be saved. Changes stay for this session.</span>
+            <span class="text-xs text-warning" role="status"
+              >Board layout could not be saved. Changes stay for this
+              session.</span
+            >
           }
-          @if (canvasStore.activeWorkspacePath(); as activePath) {
-            @if (layoutPersistence.readOnlyPaths().has(activePath)) {
-              <span class="text-xs text-warning" role="status">This board layout was saved by a newer Ptah version. Changes here are not saved.</span>
-            }
+          @if (
+            layoutPersistence
+              .readOnlyPaths()
+              .has(canvasStore.activeWorkspacePath() ?? '')
+          ) {
+            <span class="text-xs text-warning" role="status"
+              >This board layout was saved by a newer Ptah version. Changes here
+              are not saved.</span
+            >
           }
           @if (headerMessage()) {
             <span class="text-xs text-warning" role="status">{{
@@ -151,7 +164,10 @@ import { handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
             }}</span>
           }
 
-          @if (canvasStore.activeBoard().mode === 'grid' && canvasStore.canAddTile()) {
+          @if (
+            canvasStore.activeBoard().mode === 'grid' &&
+            canvasStore.canAddTile()
+          ) {
             <ptah-native-popover
               [isOpen]="sessionPopoverOpen()"
               [placement]="'bottom-end'"
@@ -249,29 +265,36 @@ import { handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
       >
         @for (path of canvasStore.workspacePaths(); track path) {
           @if (canvasStore.boardFor(path).mode === 'rail') {
-            <ptah-canvas-rail-board [workspacePath]="path"
-              [visible]="path === canvasStore.activeWorkspacePath()" />
+            <ptah-canvas-rail-board
+              [workspacePath]="path"
+              [visible]="path === canvasStore.activeWorkspacePath()"
+            />
           } @else {
-          <ptah-canvas-workspace-grid
-            class="h-full overflow-auto w-full"
-            [workspacePath]="path"
-            [visible]="path === canvasStore.activeWorkspacePath()"
-            [locked]="locked() || detailTabId() !== null"
-            [detailTabId]="
-              path === canvasStore.activeWorkspacePath() ? detailTabId() : null
-            "
-          >
-            @if (
-              path === canvasStore.activeWorkspacePath() && detailTabId();
-              as id
-            ) {
-              <ptah-canvas-detail-panel ptahCanvasDetail [tabId]="id" />
-            }
-          </ptah-canvas-workspace-grid>
+            <ptah-canvas-workspace-grid
+              class="h-full overflow-auto w-full"
+              [workspacePath]="path"
+              [visible]="path === canvasStore.activeWorkspacePath()"
+              [locked]="locked() || detailTabId() !== null"
+              [detailTabId]="
+                path === canvasStore.activeWorkspacePath()
+                  ? detailTabId()
+                  : null
+              "
+            >
+              @if (
+                path === canvasStore.activeWorkspacePath() && detailTabId();
+                as id
+              ) {
+                <ptah-canvas-detail-panel ptahCanvasDetail [tabId]="id" />
+              }
+            </ptah-canvas-workspace-grid>
           }
         }
 
-        @if (canvasStore.activeBoard().mode === 'grid' && canvasStore.tiles().length === 0) {
+        @if (
+          canvasStore.activeBoard().mode === 'grid' &&
+          canvasStore.tiles().length === 0
+        ) {
           <!-- Empty state overlay: the active workspace has no tiles -->
           <ptah-canvas-empty-state
             class="absolute inset-0 z-10"
@@ -281,7 +304,11 @@ import { handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
       </div>
 
       <!-- Standalone popover for empty state (no FAB to anchor to) -->
-      @if (canvasStore.activeBoard().mode === 'grid' && canvasStore.tiles().length === 0 && sessionPopoverOpen()) {
+      @if (
+        canvasStore.activeBoard().mode === 'grid' &&
+        canvasStore.tiles().length === 0 &&
+        sessionPopoverOpen()
+      ) {
         <div
           class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50"
         >
@@ -358,7 +385,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly activeRailBoards = viewChildren(CanvasRailBoardComponent);
   protected readonly detailTabId = computed(() => {
     const id = this.detail.detailTabId();
-    return id && this.canvasStore.activeBoard().mode === 'grid' &&
+    return id &&
+      this.canvasStore.activeBoard().mode === 'grid' &&
       this.canvasStore.tiles().length > CANVAS_LIVE_BUDGET &&
       this.canvasStore.tiles().some((tile) => tile.tabId === id)
       ? id
@@ -368,27 +396,39 @@ export class OrchestraCanvasComponent implements OnDestroy {
   protected onDetailKeydown(event: KeyboardEvent): void {
     const detailId = this.detailTabId();
     if (detailId) {
-      handleCanvasDetailKeydown(event, this.surfaceActive(), detailId, this.detail);
+      handleCanvasDetailKeydown(
+        event,
+        this.surfaceActive(),
+        detailId,
+        this.detail,
+      );
       return;
     }
-    const board = this.activeRailBoards?.().find(candidate => candidate.visible());
+    const board = this.activeRailBoards?.().find((candidate) =>
+      candidate.visible(),
+    );
     if (!board) return;
     handleCanvasRailKeydown(event, {
       surfaceActive: this.surfaceActive(),
-      orderedIds: board.orderedTiles().map(tile => tile.tabId),
+      orderedIds: board.orderedTiles().map((tile) => tile.tabId),
       focusedId: board.focusedId(),
-      focus: id => board.focus(id),
-      focusSelectButton: id => {
-        const card = [...(this.sessionViewport()?.nativeElement.querySelectorAll<HTMLElement>('[data-rail-card]') ?? [])]
-          .find(item => item.dataset['tabId'] === id);
+      focus: (id) => board.focus(id),
+      focusSelectButton: (id) => {
+        const card = [
+          ...(this.sessionViewport()?.nativeElement.querySelectorAll<HTMLElement>(
+            '[data-rail-card]',
+          ) ?? []),
+        ].find((item) => item.dataset['tabId'] === id);
         card?.querySelector<HTMLButtonElement>('.rc-select, button')?.focus();
       },
       focusInnerButtons: true,
     });
   }
   protected setBoardMode(mode: 'rail' | 'grid'): void {
-    const path = this.canvasStore.activeWorkspacePath();
-    if (path) this.canvasStore.setBoardMode(path, mode);
+    this.canvasStore.setBoardMode(
+      this.canvasStore.activeWorkspacePath() ?? '',
+      mode,
+    );
   }
   private readonly appState = inject(AppStateManager);
   private readonly surfaceActive =
