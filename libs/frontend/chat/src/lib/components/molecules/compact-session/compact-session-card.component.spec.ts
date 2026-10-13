@@ -1,4 +1,5 @@
 import { signal } from '@angular/core';
+import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import {
@@ -25,6 +26,7 @@ import {
   CompactSessionCardComponent,
 } from './compact-session-card.component';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
+import { SessionGitStatsStore } from '../../../services/session-git-stats/session-git-stats.store';
 import {
   SESSION_CARD_ACTIONS,
   SESSION_FORCED_CARD,
@@ -96,6 +98,9 @@ describe(CompactSessionCardComponent.name, () => {
   const subagents = signal<[]>([]);
   const respondSession = jest.fn();
   const respondLane = jest.fn();
+  const releaseGit = jest.fn();
+  const trackGit = jest.fn(() => releaseGit);
+  const gitState = signal<chatUi.CompactGitState>({ kind: 'none' });
   const routingRevision = signal(0);
   const permissionTargets = new Map<string, readonly string[]>();
   const questionTargets = new Map<string, readonly string[]>();
@@ -147,6 +152,9 @@ describe(CompactSessionCardComponent.name, () => {
     subagents.set([]);
     respondSession.mockClear();
     respondLane.mockClear();
+    trackGit.mockClear();
+    releaseGit.mockClear();
+    gitState.set({ kind: 'none' });
     routingRevision.set(0);
     permissionTargets.clear();
     questionTargets.clear();
@@ -170,6 +178,10 @@ describe(CompactSessionCardComponent.name, () => {
         { provide: ConversationRegistry, useValue: conversations },
         { provide: AgentMonitorStore, useValue: agentStore },
         {
+          provide: SessionGitStatsStore,
+          useValue: { track: trackGit, stateFor: () => gitState() },
+        },
+        {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },
         },
@@ -190,6 +202,24 @@ describe(CompactSessionCardComponent.name, () => {
     fixture.detectChanges();
     return fixture;
   }
+
+  it('binds todo and git states and releases root tracking on destroy', () => {
+    gitState.set({ kind: 'known', additions: 4, deletions: 2, partial: false });
+    const fixture = render();
+    const activity = fixture.debugElement.query(
+      By.directive(chatUi.CompactSessionActivityComponent),
+    ).componentInstance as chatUi.CompactSessionActivityComponent;
+    expect(trackGit).toHaveBeenCalledWith('C:\\work\\ptah', 'tab-1');
+    expect(activity.todos()).toEqual({ kind: 'none' });
+    expect(activity.gitStats()).toEqual({
+      kind: 'known',
+      additions: 4,
+      deletions: 2,
+      partial: false,
+    });
+    fixture.destroy();
+    expect(releaseGit).toHaveBeenCalledTimes(1);
+  });
 
   function lane(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
     return {
@@ -335,6 +365,10 @@ describe(CompactSessionCardComponent.name, () => {
         { provide: TabSessionBinding, useValue: sessionBinding },
         { provide: ConversationRegistry, useValue: conversations },
         { provide: AgentMonitorStore, useValue: agentStore },
+        {
+          provide: SessionGitStatsStore,
+          useValue: { track: trackGit, stateFor: () => gitState() },
+        },
         {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },

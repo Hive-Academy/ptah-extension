@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import {
   CompactSessionActivityComponent,
+  summarizeTodos,
   summarizeFinalized,
   summarizeLive,
   type CompactCallout,
@@ -20,6 +21,7 @@ import {
   type CompactSummaryContext,
   type CompactSummaryMetrics,
 } from '@ptah-extension/chat-ui';
+import { VSCodeService } from '@ptah-extension/core';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -36,6 +38,10 @@ import type {
   PermissionRequest,
 } from '@ptah-extension/shared';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
+import {
+  SessionGitStatsStore,
+  sessionWorkingRoot,
+} from '../../../services/session-git-stats/session-git-stats.store';
 import {
   SESSION_CARD_ACTIONS,
   SESSION_FORCED_CARD,
@@ -88,6 +94,8 @@ function sameMetrics(a: CompactSummaryMetrics, b: CompactSummaryMetrics) {
         [branch]="branch()"
         [elapsed]="elapsed()"
         [contextPercent]="contextPercent()"
+        [todos]="todos()"
+        [gitStats]="gitStats()"
         (openFullView)="openFullView()"
         (allow)="respond($event, 'allow')"
         (deny)="respond($event, 'deny')"
@@ -107,6 +115,8 @@ export class CompactSessionCardComponent {
   private readonly conversations = inject(ConversationRegistry);
   private readonly agentStore = inject(AgentMonitorStore);
   private readonly responder = inject(AgentPermissionResponder);
+  private readonly gitStore = inject(SessionGitStatsStore);
+  private readonly vscode = inject(VSCodeService);
   private readonly cardActions = inject(SESSION_CARD_ACTIONS, {
     optional: true,
   });
@@ -216,6 +226,18 @@ export class CompactSessionCardComponent {
 
   /** Last sampled stream state; `null` once the stream has ended. */
   private readonly sampledStreaming = signal<StreamingState | null>(null);
+  readonly todos = computed(
+    () => summarizeTodos(this.messages(), this.sampledStreaming()),
+    {
+      equal: (a, b) =>
+        a.kind === b.kind &&
+        (a.kind !== 'known' ||
+          (b.kind === 'known' &&
+            a.done === b.done &&
+            a.total === b.total &&
+            a.active === b.active)),
+    },
+  );
   private sampledTabId: string | null = null;
   private lastSampleAt = 0;
   private pendingSample: ReturnType<typeof setTimeout> | null = null;
@@ -228,6 +250,14 @@ export class CompactSessionCardComponent {
   private readonly tabLookup = computed(() =>
     this.tabManager.findTabByIdAcrossWorkspaces(this.tabId()),
   );
+  readonly gitRoot = computed(() =>
+    sessionWorkingRoot(
+      this.tab(),
+      this.tabLookup()?.workspacePath ?? null,
+      this.vscode.config().workspaceRoot,
+    ),
+  );
+  readonly gitStats = computed(() => this.gitStore.stateFor(this.gitRoot()));
 
   private readonly workspacePath = computed(
     () => this.tabLookup()?.workspacePath ?? '',
@@ -312,6 +342,11 @@ export class CompactSessionCardComponent {
   });
 
   constructor() {
+    effect((onCleanup) => {
+      const root = this.gitRoot();
+      const tabId = this.tabId();
+      if (root) onCleanup(this.gitStore.track(root, tabId));
+    });
     effect(() => this.sampleStream(this.tab()));
     effect(() => {
       if (this.streaming() || this.laneSummary().counts.running > 0) {
