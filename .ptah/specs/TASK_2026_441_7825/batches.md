@@ -409,7 +409,7 @@ Edge cases:
   | 5 checkpoints "use lanes more" row vs Gate 0.1 approval table | Minor (raised) | FIX in Batch 4F: two rules give different approval modes, so an orchestrator can pick the wrong lane config |
   | 6 agent-lanes §5 lost the in-process end-state row | Minor | DEFERRED to Later task L1 below; the rule survives at agent-lanes §1 and lane-assignment.md:128-129 |
 
-## Batch 4F: Phase 1 review fixes — COMPLETE (commit 6c57bf67e; re-review of `6c57bf67e~1..6c57bf67e` PENDING, non-codex family)
+## Batch 4F: Phase 1 review fixes — COMPLETE (commit 6c57bf67e; re-review `code-logic-rereview.md` by Glm: round 1 REVISE on R1 `orchestration/SKILL.md:153`, orchestrator applied R1 verbatim, round 2 APPROVED; Phase 1 CLOSED)
 
 - Executed by: CLI lane (codex, 5cd6d8ba, exit 0, delivered). Report: `batch-4f-report.md`.
 - Team-leader verification: read all 4 diffs. 4F.1 generic seven-row table with `Ask first`, the
@@ -526,6 +526,13 @@ Edge cases:
 - Source: code-logic-review.md Finding 6 (Minor). Add one sentence to agent-lanes §5 naming the final
   fallback ("No lane available at all -> do the work in-process and label it as not an outside lane").
   Recorded, not fixed (lean fix-round rule: Minor). File for a follow-up task.
+
+## Later task L2 (deferred, not in this run) — Nx command in the generic plugin
+
+- Source: decisions.md row 21. `P/skills/orchestration/SKILL.md:150` (Token economy) names
+  `nx run-many -t <target> -p <changed projects>` in the shipped plugin, which must stay stack-neutral.
+  Pre-existing, outside this task's scope. Replace with a stack-neutral "scoped to the changed projects
+  with the repository's own task runner" rule in a follow-up task.
 
 ## Batch 5: Repo-local fleet migration (G1) — PENDING
 

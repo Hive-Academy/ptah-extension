@@ -150,7 +150,9 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
 - Verification is scoped: `nx run-many -t <target> -p <changed projects>`, output tailed or
   filtered to the header, failures and summary.
 - Keep tool output small: no full logs, no whole-directory listings, no `cat` of large files.
-- No polling loops: act on the completion signal; one status check at most, then wait.
+- No polling loops: act on the completion signal. If push is unavailable, re-check at most 5 times
+  per lane, at least 60 s apart, then tell the user the lane is still running or stop it
+  (agent-lanes §4).
 - Lanes are narrow and get their file list up front (agent-lanes §8 batch cap and tool-call
   ceiling); a lane that explores the workspace is the expensive lane.
 - Use `ptah_ast_analyze` / `ptah_context_enrich_file` before a full `Read`; read whole files only

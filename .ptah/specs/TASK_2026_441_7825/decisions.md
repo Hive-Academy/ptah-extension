@@ -19,4 +19,9 @@
 | 16 | Phase 1 code-logic review (Glm, resumed lane 73fea0bf): APPROVED 7/10, 0 Blocking, 0 Serious, 4 Moderate, 2 Minor | Peer | `code-logic-review.md` |
 | 17 | Restore a short generic named list of destructive git commands in plugin `git-standards.md` | User | AskUserQuestion 2026-10-13: "Restore the named list" |
 | 18 | Drop the old orchestrate-help code-quality standards (no `any`, < 30-line functions, > 80% coverage): stack opinion, not a generic plugin rule | User | AskUserQuestion 2026-10-13: "Drop them" |
+| 19 | 4F re-review (Glm 5ecda434): REVISE, 1 Serious R1 — `orchestration/SKILL.md:153` still caps status checks at one | Peer | `code-logic-rereview.md` |
+| 20 | Orchestrator applied R1 verbatim as a bounded post-cap correction (one sentence; fix round already used); validator 0 errors; independent review by a non-Claude family before commit | Evidence | SKILL.md § Orchestration "bounded post-cap code correction"; reviewer's exact replacement text |
+| 21 | Noted, not fixed: plugin `orchestration/SKILL.md:150` names `nx run-many` in the shipped generic plugin (pre-existing, outside scope) → later task L2 | Evidence | Read of SKILL.md:150 |
+| 22 | R1 fix confirmed: re-review round 2 APPROVED (fresh Glm lane b798249a; resume refused at 214,878 tokens). Phase 1 closed | Peer | `code-logic-rereview.md` Round 2 |
+| 23 | Session handoff after Phase 1; branch pushed with a draft PR per the user's no-orphaned-branch rule | User | "once we finish this round lets create a handoff document" |
 | 4 | Two skills (`orchestration` + internal `agent-lanes`); fleet becomes a mode | User | Approved in session 2026-10-13 ("lets do that in a new worktree") |
