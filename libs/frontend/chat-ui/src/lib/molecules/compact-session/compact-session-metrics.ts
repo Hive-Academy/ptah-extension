@@ -49,7 +49,7 @@ export function todoTitle(todo: CompactTodoState | null): string {
     ? todo.active || 'Todos'
     : todo?.kind === 'unknown'
       ? 'Todos unknown'
-      : 'No todos';
+      : 'Todos not reported by this session';
 }
 
 export function gitTitle(git: CompactGitState | null): string {

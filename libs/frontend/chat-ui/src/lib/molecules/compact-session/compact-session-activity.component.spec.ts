@@ -1237,7 +1237,7 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     const metrics = zone(fixture.nativeElement as HTMLElement, 'metrics');
     expect(
       metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
-    ).toBe('No todos');
+    ).toBe('Todos not reported by this session');
     expect(
       metrics?.querySelector('[aria-label="Context usage"]')?.textContent,
     ).toContain('—');

@@ -138,7 +138,7 @@ describe('compact todo metrics', () => {
     expect(gitTitle({ kind: 'unknown', reason: 'failed' })).toBe(
       'Could not read git status',
     );
-    expect(todoTitle({ kind: 'none' })).toBe('No todos');
+    expect(todoTitle({ kind: 'none' })).toBe('Todos not reported by this session');
   });
 
   it('ignores agent-nested finalized writes and uses the newest top-level tool', () => {

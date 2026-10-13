@@ -171,7 +171,7 @@ describe('CanvasSessionDetailsComponent', () => {
     fixture.componentRef.setInput('tabId', 'a');
     fixture.detectChanges();
     expect(row(fixture, 'Todos').textContent?.trim()).toBe('—');
-    expect(row(fixture, 'Todos').title).toBe('No todos');
+    expect(row(fixture, 'Todos').title).toBe('Todos not reported by this session');
     expect(row(fixture, 'Changes').textContent?.trim()).toBe('—');
     expect(row(fixture, 'Changes').title).toBe('Git changes unknown');
 
