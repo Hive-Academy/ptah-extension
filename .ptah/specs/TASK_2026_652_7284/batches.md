@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 44 | Batches: 16 | Complete: 5/16
+Total tasks: 44 | Batches: 16 | Complete: 6/16
 
 Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
 only) → Batch 9 (with Task 9.0, moved from 7.1) → Phase 2B review → Batches 10-13 → Phase 3
@@ -89,19 +89,19 @@ Assumptions:
   between Batch 10 and Batch 12. The branch merges as one PR. Mode 3 verifies end-to-end behavior.
 - The plan's "atomic directory move" assumption (implementation-plan.md:88) is FALSE. See R1.
 
-| Risk | Severity | Mitigation |
-| --- | --- | --- |
-| R1: `IFileSystemProvider` has no rename/move (`libs/backend/platform-core/src/interfaces/file-system-provider.interface.ts:22-140`: read, write, delete, createDirectory, copy only). The v3 archive cannot be an atomic move, and checkpoint writes cannot use temp-rename through the port. The mock `copy` is file-only (`platform-core/src/testing/mocks/file-system-provider.mock.ts:202-216`). | HIGH | Task 10.2: `archiveLegacyRun` copies file by file into a unique archival slug, re-reads the copied manifest, and must validate it as v3 before `delete(original, {recursive})`. Any failure aborts with a typed error and leaves v3 untouched. Data is never deleted before a verified copy. A crash between copy and delete leaves two legacy listings, never a loss. Manifest writes stay single `writeFile`, as today, so there is no regression. Readers fail closed (malformed means null or `unreadable`, never fresh). Follow-up recorded for Mode 3: add `rename` to the port in a later task. |
-| R2: The plan's E batch would fail its own gate. `multi-phase-analysis.service.spec.ts:261,394,705` (F-owned) asserts v3 writes. That spec drives the real `AnalysisStorageService` over the in-memory FS (`spec:5,206-207`), and no checkpoint spec exists. | HIGH | Re-split: Batch 10 is a behavior-neutral read path. It adds v4 types and `readManifest`, keeps `loadManifest`, `createSlugDir`, `writeManifest` and the constructor unchanged for existing callers, and only adds methods. The v4 writer switch moves to Batch 12, together with `multi-phase-analysis.service.ts` and its spec. |
-| R3: S1 changes `MultiPhaseAnalysisResponse.manifest` to a v3/v4 union in shared. That type is consumed by setup-wizard (`wizard-rpc.service.ts`, `wizard-analysis-state.ts`), ptah-cli (`setup.ts:54,132-137`), agent-generation (`analysis-storage.service.ts:491-525`) and rpc-handlers. | MEDIUM | Task 1.3 keeps the v3 member byte-identical and every common field present on v4. Batch 1 runs a typecheck of the four consumers. |
-| R4: Proposal hydration and a live event race. A stale snapshot applied after a newer live event could revert fields. | MEDIUM | Task 7.2 buffers live events for the active session while `getProposal` is in flight, applies the snapshot first, then replays the buffer. Events for another session, or before the active session id is known, are dropped and recovered by hydration. Spec covers both orders. |
-| R5: Session identity. A tab id must never be persisted. | HIGH | Task 9.1/9.2: an unresolved caller returns a tool error with no write and no broadcast. The spec covers the correlation-id path after lifecycle assigns `realSessionId`. |
-| R6: Cross-process proposal writes. | MEDIUM | Task 4.1: per-session in-process queue plus a bounded `wx` lock file with expiry recovery. Re-read after the lock. A lock timeout rejects with no broadcast. Node `fs/promises` temp-write plus rename is available in rpc-handlers (precedent `handlers/file-edit-rpc.handlers.ts:349`). Phase 1 review: the hand-rolled lock had three defects (release ENOENT, stale double-holder, wait < stale); Task 16.1 replaces it with `serializeByKey` + `withFileLock` from `@ptah-extension/harness-sync`, wait > stale. Residual (pre-existing in harness-sync, recorded as FU-1 below): `breakIfStale` is check-then-remove and `release` removes by path. |
-| R7: `HarnessConfigStore` writes under `~/.ptah`, but proposals must use the host workspace provider root, never `resolveSessionWorkspaceRoot`. | MEDIUM | Task 4.1 resolves the root from `PLATFORM_TOKENS.WORKSPACE_PROVIDER` for both write and read. Task 5.2 spec: get-proposal reads the same root the writer used. No caller-selected root. |
-| R8: A new `@inject` token without a registration fails the pre-push di-lint. | LOW | Batches 4, 12 and 15 append `npx nx run di-lint:lint` to their check. |
-| R9: Removing the New Project broadcast (Batch 5) breaks four Electron e2e event-injection specs and the 629-owned webview routing spec. | LOW | Producer only. The constant, payload, baseline entry and relay stay. e2e is not run (CLAUDE.md). Retargeting stays in the plan's Deferred review items until TASK_2026_629 merges. |
-| R10: D1 duplicates the relay logic until D2 makes the relay delegate. | LOW | Task 7.2 deletes the handler's copy and delegates to `HarnessWorkflowRequestService`. Phase 2F review checks there is one implementation. |
-| R11: Visual evidence. D1 changes Setup Hub modal timing (no new surface, no prototype). | MEDIUM | Mode 3 requires before/after visual-reviewer screenshots (dark and light) of the Setup Hub New Project intake. The before set is taken from base commit `2464e6922`. |
+| Risk                                                                                                                                                                                                                                                                                                                                                                                                 | Severity | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1: `IFileSystemProvider` has no rename/move (`libs/backend/platform-core/src/interfaces/file-system-provider.interface.ts:22-140`: read, write, delete, createDirectory, copy only). The v3 archive cannot be an atomic move, and checkpoint writes cannot use temp-rename through the port. The mock `copy` is file-only (`platform-core/src/testing/mocks/file-system-provider.mock.ts:202-216`). | HIGH     | Task 10.2: `archiveLegacyRun` copies file by file into a unique archival slug, re-reads the copied manifest, and must validate it as v3 before `delete(original, {recursive})`. Any failure aborts with a typed error and leaves v3 untouched. Data is never deleted before a verified copy. A crash between copy and delete leaves two legacy listings, never a loss. Manifest writes stay single `writeFile`, as today, so there is no regression. Readers fail closed (malformed means null or `unreadable`, never fresh). Follow-up recorded for Mode 3: add `rename` to the port in a later task.                                                    |
+| R2: The plan's E batch would fail its own gate. `multi-phase-analysis.service.spec.ts:261,394,705` (F-owned) asserts v3 writes. That spec drives the real `AnalysisStorageService` over the in-memory FS (`spec:5,206-207`), and no checkpoint spec exists.                                                                                                                                          | HIGH     | Re-split: Batch 10 is a behavior-neutral read path. It adds v4 types and `readManifest`, keeps `loadManifest`, `createSlugDir`, `writeManifest` and the constructor unchanged for existing callers, and only adds methods. The v4 writer switch moves to Batch 12, together with `multi-phase-analysis.service.ts` and its spec.                                                                                                                                                                                                                                                                                                                          |
+| R3: S1 changes `MultiPhaseAnalysisResponse.manifest` to a v3/v4 union in shared. That type is consumed by setup-wizard (`wizard-rpc.service.ts`, `wizard-analysis-state.ts`), ptah-cli (`setup.ts:54,132-137`), agent-generation (`analysis-storage.service.ts:491-525`) and rpc-handlers.                                                                                                           | MEDIUM   | Task 1.3 keeps the v3 member byte-identical and every common field present on v4. Batch 1 runs a typecheck of the four consumers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| R4: Proposal hydration and a live event race. A stale snapshot applied after a newer live event could revert fields.                                                                                                                                                                                                                                                                                 | MEDIUM   | Task 7.2 buffers live events for the active session while `getProposal` is in flight, applies the snapshot first, then replays the buffer. Events for another session, or before the active session id is known, are dropped and recovered by hydration. Spec covers both orders.                                                                                                                                                                                                                                                                                                                                                                         |
+| R5: Session identity. A tab id must never be persisted.                                                                                                                                                                                                                                                                                                                                              | HIGH     | Task 9.1/9.2: an unresolved caller returns a tool error with no write and no broadcast. The spec covers the correlation-id path after lifecycle assigns `realSessionId`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| R6: Cross-process proposal writes.                                                                                                                                                                                                                                                                                                                                                                   | MEDIUM   | Task 4.1: per-session in-process queue plus a bounded `wx` lock file with expiry recovery. Re-read after the lock. A lock timeout rejects with no broadcast. Node `fs/promises` temp-write plus rename is available in rpc-handlers (precedent `handlers/file-edit-rpc.handlers.ts:349`). Phase 1 review: the hand-rolled lock had three defects (release ENOENT, stale double-holder, wait < stale); Task 16.1 replaces it with `serializeByKey` + `withFileLock` from `@ptah-extension/harness-sync`, wait > stale. Residual (pre-existing in harness-sync, recorded as FU-1 below): `breakIfStale` is check-then-remove and `release` removes by path. |
+| R7: `HarnessConfigStore` writes under `~/.ptah`, but proposals must use the host workspace provider root, never `resolveSessionWorkspaceRoot`.                                                                                                                                                                                                                                                       | MEDIUM   | Task 4.1 resolves the root from `PLATFORM_TOKENS.WORKSPACE_PROVIDER` for both write and read. Task 5.2 spec: get-proposal reads the same root the writer used. No caller-selected root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| R8: A new `@inject` token without a registration fails the pre-push di-lint.                                                                                                                                                                                                                                                                                                                         | LOW      | Batches 4, 12 and 15 append `npx nx run di-lint:lint` to their check.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| R9: Removing the New Project broadcast (Batch 5) breaks four Electron e2e event-injection specs and the 629-owned webview routing spec.                                                                                                                                                                                                                                                              | LOW      | Producer only. The constant, payload, baseline entry and relay stay. e2e is not run (CLAUDE.md). Retargeting stays in the plan's Deferred review items until TASK_2026_629 merges.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| R10: D1 duplicates the relay logic until D2 makes the relay delegate.                                                                                                                                                                                                                                                                                                                                | LOW      | Task 7.2 deletes the handler's copy and delegates to `HarnessWorkflowRequestService`. Phase 2F review checks there is one implementation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| R11: Visual evidence. D1 changes Setup Hub modal timing (no new surface, no prototype).                                                                                                                                                                                                                                                                                                              | MEDIUM   | Mode 3 requires before/after visual-reviewer screenshots (dark and light) of the Setup Hub New Project intake. The before set is taken from base commit `2464e6922`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 Edge cases:
 
@@ -278,7 +278,7 @@ Edge cases:
 - Result (team-leader re-run, `--skip-nx-cache`, node_modules junction in place): Nx
   "Successfully ran targets typecheck, test, lint for project @ptah-extension/rpc-handlers"
   (one project); `di-lint OK: 1823 @inject sites all resolve to a registered token (792
-  tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping errors from the
+tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping errors from the
   missing worktree node_modules, not from this batch; they pass with the junction.
 - Notes for the Phase 1 code-logic review (not blocking this batch):
   - `prune()` rethrows a non-ENOENT inner error (e.g. a `JSON.parse` SyntaxError on one corrupt
@@ -348,19 +348,17 @@ Edge cases:
   New Project returns success and focuses chat, but no workflow or seed prompt opens. Do not
   merge or release this branch between Batch 5 and Batch 6.
 
-## Run status (2026-10-13, after the Phase 1 review)
+## Run status (2026-10-13, Phase 1 accepted)
 
-- Batches 1-5 are COMPLETE and committed. The Phase 1 review returned APPROVED WITH FIXES from
-  both reviewers. Under the one-fix-round rule, fix Batch 16 (below) is IN_PROGRESS and is the
-  last batch of Phase 1.
-- NEXT STEP: run Batch 16 on one codex implementation lane. Then team-leader Mode 2 verifies
-  and commits it. Then the one Phase 1 re-review, scoped to the Batch 16 commit only
-  (code-logic, plus style because the store's public error surface changes).
-- After the Phase 1 re-review accepts: Batch 9 (Phase 2B). It no longer waits for Batch 7 (D8).
+- Phase 1 (Batches 1-5 plus fix Batch 16) is COMPLETE and ACCEPTED. The re-review of commit
+  678f0d632 returned code-logic APPROVED WITH FIXES 8/10 (3 Minor) and style APPROVED 8/10
+  (4 Minor). Under the one-fix-round rule the Minors are recorded, not fixed (see "Phase 1
+  re-review disposition"). One exception: the prettier drift is fixed in 8afe14ce5.
+- Batch 9 (Phase 2B) is now IN_PROGRESS. It no longer waits for Batch 7 (D8).
 - FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
   Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
   confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
-  chat-types}` or `apps/ptah-extension-webview` in any batch. The orchestrator asks the user
+chat-types}` or `apps/ptah-extension-webview` in any batch. The orchestrator asks the user
   before it starts Batch 6.
 - New Project stays broken on this branch until Batch 6 lands (Batch 5 interim state above).
   No merge, release or PR before Phase 2F is accepted.
@@ -371,28 +369,28 @@ Rule: Blocking and Serious are fixed. Moderate is fixed only if it can break a l
 lose data; otherwise it gets a named follow-up. Minor is recorded. `L` = code-logic finding
 number, `S` = style finding number.
 
-| Finding | Severity | Disposition |
-| --- | --- | --- |
-| L1 release ENOENT turns a good save into a failure | Serious | Fixed, Task 16.1. harness-sync `heldHandle.release` uses `rmSync(..., {force: true})` in a try/catch, so it never throws (`file-lock.ts:212-223`). Spec: Task 16.2 |
-| L2 two holders after stale recovery | Serious | Fixed for this diff, Task 16.1: the store's own recovery code is deleted. Residual, verified in `file-lock.ts:181-210`: `breakIfStale` reads the payload and then calls `rmSync` (check-then-remove), and `release` removes by path, so two processes breaking the same crash-left lock at the same instant can still both proceed. This code predates this task and every `withFileLock` caller shares it. It needs a lock older than 10 s left by a crashed process. Worst case is one lost partial merge, never a torn file (atomic rename). Not fixed here: FU-1 |
-| L3 one corrupt record stops prune | Moderate | Fixed, Task 16.1 (same file, small): log and continue per file; drop invalid records older than retention |
-| L4 sessionId not trimmed or validated before hashing | Moderate, data loss | Fixed, Tasks 16.1 and 16.3 |
-| L5 wait (1 s) < stale (5 s) | Moderate | Fixed, Task 16.1: stale 10 s, wait 12 s (harness-sync defaults 30 s / 5 s would keep the defect) |
-| L6 prune on every get and save | Moderate | Recorded, FU-3 (cost, no data loss) |
-| L7 explicit `undefined` overwrites saved fields in the merge | Moderate, data loss | Fixed, Tasks 16.3 and 16.4 (in the shared merge, so Batch 8 inherits it) |
-| L8 apply-time delete not wired | Moderate | As planned: Task 5.1 recorded that `harness:apply` params carry no session id; the 30-day prune covers it. No fix |
-| L9 `seedPrompt` consumed only from Batch 6 | Minor | As planned: Batch 6 (held, D7) |
-| L10 merge output aliases input arrays | Minor | Recorded, FU-4 |
-| Check 8 (no multi-process or concurrent-stale test) | Moderate | Partly closed: Task 16.1 moves locking to harness-sync, which owns its lock tests. A real two-process test is part of FU-1 |
-| S1 hand-rolled lock and queue | Serious | Fixed, Task 16.1 (`serializeByKey` + `withFileLock`; `HarnessProposalLockError` removed in favour of `FileLockTimeoutError`) |
-| S2 typed errors outside the port contract | Moderate | Partly, Task 16.1: the store class JSDoc lists every rejection and its type or code. The port and barrel docs in platform-core are FU-2 (a third lib; docs only) |
-| S3 thin port and token docs | Moderate | Recorded, FU-2 |
-| S4 `z.custom` on `configUpdates` | Moderate | Recorded. The existing round-trip spec (`store.spec:148-162`) pins a normalised record. FU-5 for aligning the schema output type |
-| S5 `as` casts in the merge | Moderate | Recorded, FU-4 (Batch 8 deletes the frontend copy; held) |
-| S6 sessionId constraint duplicated | Minor | Partly, Task 16.3: `HarnessSessionIdSchema` exported from shared and used by the stored-record schema and the store. Switching `HarnessGetProposalParamsSchema` (`harness-rpc.schema.ts:195-197`) to it is FU-6 |
-| S7 DI header comment | Minor | Recorded, FU-6 |
-| S8 stale doc comments | Minor | Recorded; the frontend comment goes with Batch 6, the shared union JSDoc is FU-6 |
-| S9 static queue on a singleton | Minor | Fixed as a side effect of S1 (`serializeByKey` owns the map) |
+| Finding                                                      | Severity            | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------ | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L1 release ENOENT turns a good save into a failure           | Serious             | Fixed, Task 16.1. harness-sync `heldHandle.release` uses `rmSync(..., {force: true})` in a try/catch, so it never throws (`file-lock.ts:212-223`). Spec: Task 16.2                                                                                                                                                                                                                                                                                                                                                                                                   |
+| L2 two holders after stale recovery                          | Serious             | Fixed for this diff, Task 16.1: the store's own recovery code is deleted. Residual, verified in `file-lock.ts:181-210`: `breakIfStale` reads the payload and then calls `rmSync` (check-then-remove), and `release` removes by path, so two processes breaking the same crash-left lock at the same instant can still both proceed. This code predates this task and every `withFileLock` caller shares it. It needs a lock older than 10 s left by a crashed process. Worst case is one lost partial merge, never a torn file (atomic rename). Not fixed here: FU-1 |
+| L3 one corrupt record stops prune                            | Moderate            | Fixed, Task 16.1 (same file, small): log and continue per file; drop invalid records older than retention                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| L4 sessionId not trimmed or validated before hashing         | Moderate, data loss | Fixed, Tasks 16.1 and 16.3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| L5 wait (1 s) < stale (5 s)                                  | Moderate            | Fixed, Task 16.1: stale 10 s, wait 12 s (harness-sync defaults 30 s / 5 s would keep the defect)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| L6 prune on every get and save                               | Moderate            | Recorded, FU-3 (cost, no data loss)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| L7 explicit `undefined` overwrites saved fields in the merge | Moderate, data loss | Fixed, Tasks 16.3 and 16.4 (in the shared merge, so Batch 8 inherits it)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| L8 apply-time delete not wired                               | Moderate            | As planned: Task 5.1 recorded that `harness:apply` params carry no session id; the 30-day prune covers it. No fix                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| L9 `seedPrompt` consumed only from Batch 6                   | Minor               | As planned: Batch 6 (held, D7)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| L10 merge output aliases input arrays                        | Minor               | Recorded, FU-4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Check 8 (no multi-process or concurrent-stale test)          | Moderate            | Partly closed: Task 16.1 moves locking to harness-sync, which owns its lock tests. A real two-process test is part of FU-1                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| S1 hand-rolled lock and queue                                | Serious             | Fixed, Task 16.1 (`serializeByKey` + `withFileLock`; `HarnessProposalLockError` removed in favour of `FileLockTimeoutError`)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| S2 typed errors outside the port contract                    | Moderate            | Partly, Task 16.1: the store class JSDoc lists every rejection and its type or code. The port and barrel docs in platform-core are FU-2 (a third lib; docs only)                                                                                                                                                                                                                                                                                                                                                                                                     |
+| S3 thin port and token docs                                  | Moderate            | Recorded, FU-2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| S4 `z.custom` on `configUpdates`                             | Moderate            | Recorded. The existing round-trip spec (`store.spec:148-162`) pins a normalised record. FU-5 for aligning the schema output type                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| S5 `as` casts in the merge                                   | Moderate            | Recorded, FU-4 (Batch 8 deletes the frontend copy; held)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| S6 sessionId constraint duplicated                           | Minor               | Partly, Task 16.3: `HarnessSessionIdSchema` exported from shared and used by the stored-record schema and the store. Switching `HarnessGetProposalParamsSchema` (`harness-rpc.schema.ts:195-197`) to it is FU-6                                                                                                                                                                                                                                                                                                                                                      |
+| S7 DI header comment                                         | Minor               | Recorded, FU-6                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| S8 stale doc comments                                        | Minor               | Recorded; the frontend comment goes with Batch 6, the shared union JSDoc is FU-6                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| S9 static queue on a singleton                               | Minor               | Fixed as a side effect of S1 (`serializeByKey` owns the map)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Named follow-ups, all outside this run's batches; Mode 3 lists them in the handoff:
 
@@ -412,7 +410,51 @@ Named follow-ups, all outside this run's batches; Mode 3 lists them in the hando
   `satisfies z.ZodType<HarnessGetProposalParams>`; `harness/di.ts` header and DAG note for the
   platform-token binding; JSDoc on the `HarnessStartNewProjectResult` union.
 
-## Batch 16: Phase 1 review fixes (proposal store lock reuse, sessionId, merge) - IN_PROGRESS
+## Phase 1 re-review disposition (fixes only, commit 678f0d632)
+
+Reviews: `code-logic-rereview.md` (APPROVED WITH FIXES, 8/10; L1-L5 and L7 Closed) and
+`code-style-rereview.md` (APPROVED, 8/10; S1, S2 as scoped, finding 6 and finding 9 Closed).
+This was the one re-review. Its Minors are recorded, not fixed, except the formatting item.
+`RL` = logic re-review finding, `RS` = style re-review finding.
+
+| Finding                                                                                      | Severity | Disposition                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RL1 spec does not pin wait > stale                                                           | Minor    | Recorded, FU-7                                                                                                                                                                                                                                                                                             |
+| RL2 callers now see `ZodError` / `FileLockTimeoutError`, not `HarnessProposalLockError`      | Minor    | Routed to Task 9.3. The only `save` caller is the MCP `proposeConfig` path (Batch 9), and Task 9.3 maps every store rejection to a clear `isError` result. `harness:get-proposal` validates its params before `get`. The orchestrator confirmed no `HarnessProposalLockError` reference remains in `libs/` |
+| RL3 in-process queue held during the 12 s cross-process wait                                 | Minor    | Recorded, FU-8                                                                                                                                                                                                                                                                                             |
+| RS1 class JSDoc sits between `@injectable()` and the class                                   | Minor    | Recorded, added to FU-6                                                                                                                                                                                                                                                                                    |
+| RS2 Phase 1 files not prettier-clean                                                         | Minor    | Fixed in 8afe14ce5 (9 files, formatting only; shared and rpc-handlers typecheck, test and lint pass). Cause and prevention: "Git hooks inactive in this worktree" below                                                                                                                                    |
+| RS3 `prune` is three nested `try` blocks                                                     | Minor    | Recorded, added to FU-3 (extract `pruneRecord`)                                                                                                                                                                                                                                                            |
+| RS4 specs hard-code harness-sync's lock payload and the 10 s stale value; bare `require` spy | Minor    | Recorded, added to FU-7                                                                                                                                                                                                                                                                                    |
+
+Named follow-ups added by the re-review (outside this run's batches; Mode 3 lists them):
+
+- FU-3 (extended): extract `pruneRecord(file, cutoff)` from the per-file loop (RS3).
+- FU-6 (extended): move the store's class JSDoc above `@injectable()` (RS1).
+- FU-7 store spec hygiene: pin wait > stale with exported constants or a 9 s-old lock recovered
+  in one call (RL1); name the stale value as a constant, and add one comment line on why
+  `require('fs/promises')` is spied (RS4).
+- FU-8 measure the 12 s worst-case in-process wait against the RPC/MCP call timeout; shorten
+  `PROPOSAL_LOCK_WAIT_MS` or fail fast if it can exceed it (RL3).
+
+## Git hooks inactive in this worktree (found 2026-10-13)
+
+- `core.hooksPath` is the relative path `.husky/_`, which git resolves per working tree. The main
+  checkout has `.husky/_` (generated by husky from `npm install`'s `prepare` script). This
+  worktree has no `.husky/_`, because `npm install` never ran here (`node_modules` is a
+  junction). So git finds no hooks: pre-commit (lint-staged `nx format:write` plus affected
+  lint), commit-msg (commitlint) and pre-push (di-lint, Electron `validate-deps`) were all
+  skipped for every commit on this branch. Commit 8afe14ce5 also ran with no hook output.
+- Mitigation for the rest of this run (hooks are not changed): every remaining batch's
+  verification now includes `npx prettier --check` on its changed files. The team-leader
+  re-checks that before each commit and runs `npx commitlint --edit <msg file>` on each
+  message. Because pre-push would not run either, the di-lint and `validate-deps` gates must be
+  run explicitly before any push.
+- Recommendation for the orchestrator or user: run `npx husky` once in this worktree to
+  regenerate `.husky/_`. This restores the hooks without changing them. Until that happens, the
+  manual checks above stand in for the hooks.
+
+## Batch 16: Phase 1 review fixes (proposal store lock reuse, sessionId, merge) - COMPLETE (commit 678f0d632; formatting 8afe14ce5; Phase 1 ACCEPTED: code-logic-rereview.md, code-style-rereview.md)
 
 - Recommended executor: implementation CLI lane (codex, roster in context.md), one lane
 - Fallback executor: backend-developer sub-agent
@@ -429,7 +471,7 @@ Named follow-ups, all outside this run's batches; Mode 3 lists them in the hando
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`. Never `cd` to
   `D:/projects/ptah-extension`. `node_modules` is a junction to the main repo; keep it.
 
-### Task 16.1: Store reuses the harness-sync lock; validated sessionId; prune survives bad files - IMPLEMENTED
+### Task 16.1: Store reuses the harness-sync lock; validated sessionId; prune survives bad files - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.ts`
 - Depends on: Task 16.3 (`HarnessSessionIdSchema`)
@@ -475,7 +517,7 @@ Named follow-ups, all outside this run's batches; Mode 3 lists them in the hando
   `no-lock-directory` path runs unlocked by design (the write then fails on the same
   directory); do not add handling for it.
 
-### Task 16.2: Store spec for the fixes - IMPLEMENTED
+### Task 16.2: Store spec for the fixes - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.spec.ts`
 - Depends on: Task 16.1
@@ -506,7 +548,7 @@ Named follow-ups, all outside this run's batches; Mode 3 lists them in the hando
       `{persona: {label: undefined}}` (cast as needed); a new store instance still reads the
       first label.
 
-### Task 16.3: Shared `HarnessSessionIdSchema`; merge ignores explicit `undefined` - IMPLEMENTED
+### Task 16.3: Shared `HarnessSessionIdSchema`; merge ignores explicit `undefined` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-harness.schemas.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.ts`
@@ -526,7 +568,7 @@ Named follow-ups, all outside this run's batches; Mode 3 lists them in the hando
     `HarnessConfigUpdatesSchema` accepts `null` for any section field, say so in the report.
 - Validation notes: the frontend keeps its own merge copy until Batch 8 (held); do not touch it.
 
-### Task 16.4: Merge spec - IMPLEMENTED
+### Task 16.4: Merge spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.spec.ts`
 - Depends on: Task 16.3
@@ -547,7 +589,8 @@ Named follow-ups, all outside this run's batches; Mode 3 lists them in the hando
   never `build`, `serve`, `e2e` or `package`; never a workspace-wide run.
 - Lane report: every file path changed, the evidence per task, how L1-L5, L7 and S1 are closed,
   and the answer on `null` from Task 16.3.
-- After commit: the Phase 1 re-review is due, scoped to the Batch 16 commit.
+- After commit: the Phase 1 re-review is due, scoped to the Batch 16 commit. Done: accepted
+  (code-logic-rereview.md, code-style-rereview.md). Formatting follow-up 8afe14ce5.
 
 ## Batch 6: Direct New Project handoff in Setup Hub - PENDING
 
@@ -587,6 +630,9 @@ Named follow-ups, all outside this run's batches; Mode 3 lists them in the hando
 
 ### Batch 6 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
 
 ## Batch 7: Session-filtered proposal consumer, hydration and compatibility relay - PENDING
@@ -618,6 +664,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 7 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
   (shared is no longer changed here; it moved to Batch 9 with Task 9.0)
 
@@ -640,10 +689,13 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 8 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
 - After commit: the Phase 2F review is due (Batches 6-8, combined diff of their commits).
 
-## Batch 9: Session-scoped MCP proposal writer - PENDING
+## Batch 9: Session-scoped MCP proposal writer - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -654,9 +706,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 - Phase: 2B - MCP writer (backend; the only batch of the phase) | Phase review: code-logic
 - Size note: 7 files in 2 libs (shared, vscode-lm-tools), one over the 6-file cap. Accepted
   because the user moved Task 9.0 in (D8) and it is a one-field type change.
-- Starts only after the Phase 1 re-review accepts Batch 16.
+- Starts only after the Phase 1 re-review accepts Batch 16. Accepted 2026-10-13; started.
 
-### Task 9.0: `sessionId` on the config-proposed payload (moved from Task 7.1, D8) - PENDING
+### Task 9.0: `sessionId` on the config-proposed payload (moved from Task 7.1, D8) - IN_PROGRESS
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/messages/payload-map.ts`
 - Quality requirements: required `sessionId: string` on `HarnessConfigProposedPayload` (`:217`)
@@ -665,7 +717,7 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
   only casts the payload, so it still compiles. Do not edit any frontend file (D7); the
   harness-builder typecheck below is read-only confirmation.
 
-### Task 9.1: `proposeConfig` persists, then broadcasts with `sessionId` - PENDING
+### Task 9.1: `proposeConfig` persists, then broadcasts with `sessionId` - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.spec.ts`
@@ -677,25 +729,37 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
   Task 16.1). A store rejection (`FileLockTimeoutError`, invalid id, no workspace) is a save
   failure: no broadcast.
 
-### Task 9.2: `PtahAPIBuilder` wiring - PENDING
+### Task 9.2: `PtahAPIBuilder` wiring - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.spec.ts`
 - Pattern to follow: the per-call container lookup (`:509-516`), `resolveCallerSdkSessionId` (`:1035-1066`), harness wiring (`:860-883`)
 - Quality requirements: `getCallerSdkSessionId: () => this.resolveCallerSdkSessionId()`. `saveProposal` resolves `PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE` from `this.container` per call, and an absent container or store is a thrown error. Never use `resolveSessionWorkspaceRoot` for proposals. The spec covers the builder correlation id resolving after lifecycle assigns `realSessionId`, and a tab id never persisted.
 
-### Task 9.3: Dispatcher error path - PENDING
+### Task 9.3: Dispatcher error path - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Pattern to follow: `protocol-dispatcher.ts:2222-2249`
 - Quality requirements: an unresolved-session or persistence rejection comes back as an `isError` tool result with a clear message, not a crash. Edit the dispatcher only if the existing throw path does not already produce that. Add a spec case either way.
+- Validation notes (Phase 1 re-review RL2): the store now rejects with `ZodError` (invalid or
+  blank session id), `FileLockTimeoutError` from `@ptah-extension/harness-sync` (lock held past
+  12 s), `HarnessProposalWorkspaceError` (code `HARNESS_PROPOSAL_NO_WORKSPACE`) and file system
+  errors. `HarnessProposalLockError` no longer exists. Each must reach the agent as an `isError`
+  result whose text says what failed and whether a retry can help. A lock timeout is retryable.
+  Never surface a raw Zod issue dump. Spec: at least the lock-timeout and the no-session cases.
 
 ### Batch 9 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-lm-tools --parallel=1 && npx nx typecheck @ptah-extension/harness-builder`
   Confirm the first header says "for 2 projects". The harness-builder typecheck is a
   read-only consumer check of Task 9.0; it edits nothing.
+- If any constructor, `@inject` or DI token use changes (for example in
+  `ptah-api-builder.service.ts`), also run `npx nx run di-lint:lint`. The pre-push hook that
+  would run it is inactive in this worktree.
 - After commit: the Phase 2B review is due (Batch 9 only, its commit).
 
 ## Batch 10: Manifest v4 types and validated read path (behavior-neutral) - PENDING
@@ -738,6 +802,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 10 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command:
   `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1 && npx nx typecheck @ptah-extension/rpc-handlers && npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.spec.ts --coverage=false --maxWorkers=2 && npx nx run-many -t typecheck -p @ptah-extension/setup-wizard ptah-cli --parallel=1`
 - The F-owned `multi-phase-analysis.service.spec.ts` must pass unchanged inside the agent-generation run (R2).
@@ -777,6 +844,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 11 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1`
 
 ## Batch 12: v4 writer and SDK session capture - PENDING
@@ -821,6 +891,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 12 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command:
   `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1 && npx nx typecheck @ptah-extension/rpc-handlers && npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.spec.ts --coverage=false --maxWorkers=2 && npx nx run-many -t typecheck,test -p @ptah-extension/setup-wizard --parallel=1 && npx nx typecheck ptah-cli && npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src/cli/commands/analyze.spec.ts --coverage=false --maxWorkers=2 && npx nx run di-lint:lint`
 - This covers the parity row "CLI deep analysis" (the plan's batch E CLI verification).
@@ -856,6 +929,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 13 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers --parallel=1 && npx nx run-many -t test -p @ptah-extension/cli-engine --parallel=1`
 - After commit: the Phase 3 review is due (Batches 10-13, combined diff).
 
@@ -885,6 +961,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 14 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/agent-generation --parallel=1`
 
 ## Batch 15: Prompt and content generation fall back to gathered context - PENDING
@@ -925,6 +1004,9 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 ### Batch 15 verification
 
+- Formatting (git hooks are inactive in this worktree; see "Git hooks inactive in this
+  worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
+  `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1 && npx nx typecheck ptah-cli && npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src/cli/commands/prompts.spec.ts apps/ptah-cli/src/cli/commands/setup.spec.ts apps/ptah-cli/src/cli/commands/wizard.spec.ts --coverage=false --maxWorkers=2 && npx nx run di-lint:lint`
 - After commit: the Phase 4 review is due (Batches 14-15, combined diff). After it accepts, the
   run waits for TASK_2026_629 to merge and the user to confirm before Batch 6 (D7).
@@ -935,15 +1017,16 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
 
-| Phase | Batches | Review | State | Reviewer (roster) |
-| --- | --- | --- | --- | --- |
-| 1 - Proposal backend | 1-5, fix 16 | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | fix round in progress | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
-| 2B - MCP writer (backend) | 9 (includes Task 9.0, D8) | code-logic | pending | same |
-| 3 - Manifest v4 and freshness | 10-13 | code-logic, plus style (new RPC, exported service) | pending | same |
-| 4 - Self-gathering generation | 14-15 | code-logic | pending | same |
-| 2F - Builder adapters (frontend) | 6-8 | code-logic, after Batch 8 | HELD until TASK_2026_629 merges and the user confirms (D7) | same |
+| Phase                            | Batches                   | Review                                                                                                                                                                                                                 | State                                                      | Reviewer (roster)                                                                                  |
+| -------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1 - Proposal backend             | 1-5, fix 16               | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | fix round in progress                                      | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
+| 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8) | code-logic                                                                                                                                                                                                             | pending                                                    | same                                                                                               |
+| 3 - Manifest v4 and freshness    | 10-13                     | code-logic, plus style (new RPC, exported service)                                                                                                                                                                     | pending                                                    | same                                                                                               |
+| 4 - Self-gathering generation    | 14-15                     | code-logic                                                                                                                                                                                                             | pending                                                    | same                                                                                               |
+| 2F - Builder adapters (frontend) | 6-8                       | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7) | same                                                                                               |
 
 Mode 3 completion also needs:
+
 - parity-inventory.md, checked row by row;
 - before/after Setup Hub screenshots in dark and light (R11);
 - the write-path trace (register above);
