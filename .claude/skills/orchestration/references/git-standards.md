@@ -1,303 +1,106 @@
 # Git Standards Reference
 
-This reference documents the commitlint rules, commit message format, and pre-commit hook handling for the orchestration workflow.
+Use this reference when orchestration needs to create a commit or handle a hook failure. The orchestrator owns git operations. Executors and judges report their work and leave the working tree for the orchestrator to verify.
 
-**CRITICAL**: All commits MUST follow these rules to pass pre-commit hooks.
+## Repository commit rules
 
----
+Before composing a commit, **read the repository's commitlint config** and any local contributor instructions. Look for the configuration used by that repository, such as a commitlint config file or a `commitlint` entry in its package metadata. Apply the actual type, scope, subject, length, and body rules found there. If a rule is absent, do not invent an enum or claim it is enforced. Use recent accepted commits as a style guide only after checking the configured rules.
 
-## Commit Message Format
+Check the repository's hook configuration before relying on a hook to run lint, tests, or commit message validation. Run the task's scoped verification even if no hook exists. State which checks ran and their outcome in the batch report. A proposed message must describe the staged change, and the staged paths must be inspected before committing.
 
-```
-<type>(<scope>): <subject>
+### Default commit types and examples
 
-[optional body]
+Use the repository's commitlint configuration whenever it exists; it overrides every example and default below. If there is no commitlint configuration, use these conventional commit types as a starting point: `feat` (feature), `fix` (bug fix), `docs` (documentation), `style` (formatting), `refactor` (internal restructuring), `perf` (performance), `test` (tests), `build` (build or dependencies), `ci` (automation), `chore` (maintenance), and `revert` (reversal). Check local contributor instructions and recent accepted commits for any additional format conventions. Do not assume that a scope, subject case, or length limit is required without a repository rule.
 
-[optional footer]
-```
+The generic form is `type(scope): subject`; omit `(scope)` when the repository does not require it and a scope adds no useful context. Neutral examples for repositories without stricter rules:
 
-### Format Rules
+| Message | Why |
+| --- | --- |
+| `feat(search): add query filters` | Describes a new capability. |
+| `fix(parser): handle empty input` | Describes a corrected behavior. |
+| `docs: clarify setup steps` | Describes a documentation change. |
+| `feature(search): add query filters` | Invalid under the default types: `feature` is not a listed type. |
+| `fix(parser) handle empty input` | Invalid conventional format: missing the colon. |
+| `feat(search):` | Invalid conventional format: missing the subject. |
 
-| Component | Rule                                                        |
-| --------- | ----------------------------------------------------------- |
-| Type      | Required, lowercase, from allowed list                      |
-| Scope     | Required, lowercase, from allowed list                      |
-| Subject   | Required, lowercase, 3-72 chars, no period, imperative mood |
-| Header    | Max 100 characters total (type + scope + subject)           |
-| Body      | Optional, max 100 chars per line                            |
-| Footer    | Optional, max 100 chars per line                            |
+These examples do not override a repository's configured types, scopes, or message rules.
 
----
+## Branch operations
 
-## Allowed Types
+Before any branch operation, inspect the current branch, working tree, and repository instructions. The orchestrator performs these operations in the quiet commit window when shared work is involved.
 
-| Type       | Description        | When to Use                              |
-| ---------- | ------------------ | ---------------------------------------- |
-| `feat`     | New feature        | Adding new functionality                 |
-| `fix`      | Bug fix            | Fixing broken behavior                   |
-| `docs`     | Documentation      | README, comments, CLAUDE.md changes      |
-| `style`    | Code style         | Formatting, whitespace (no logic change) |
-| `refactor` | Code restructuring | Improving code without changing behavior |
-| `perf`     | Performance        | Optimizations, speed improvements        |
-| `test`     | Testing            | Adding/updating test files               |
-| `build`    | Build system       | Webpack, esbuild, dependency changes     |
-| `ci`       | CI configuration   | GitHub Actions, pipeline changes         |
-| `chore`    | Maintenance        | Tooling, config (no src/test changes)    |
-| `revert`   | Revert commit      | Undoing previous commit                  |
+1. **New task branch:** Branch from the repository's intended base using its naming convention. Create a task branch only when the workflow calls for one; verify the base and destination before switching.
+2. **Continue an existing task branch:** Switch to the named task branch after checking for local changes. Fetch its upstream if needed, then integrate remote changes according to the repository's policy. Inspect conflicts before continuing.
+3. **Commit changes:** Inspect the diff and staged paths, run scoped checks, stage only reviewed files, and commit with a message that follows the repository's rules.
+4. **Create a PR:** Use the repository host CLI when available (for example, `gh pr create` for GitHub). Give the PR a descriptive title and a body with `## Summary` and `## Test plan`, including the checks actually run and their results. Verify the base and branch before submitting.
 
----
+Never commit to or merge into the default branch without the user's authorization.
 
-## Allowed Scopes
+## Pre-commit checks
 
-**Scopes are per-repository. Do not invent one, and do not copy a list from
-here.** Read the repository's own commitlint configuration and use a value it
-already allows:
+Discover the hooks configured by this repository and read what each hook runs. Inspect the repository's hook directory or configured hook manager, relevant scripts, and commit message checks; do not infer hook behavior from another repository. Run the task's scoped formatting, lint, type, test, or other applicable checks yourself and record their outcomes. A hook's presence does not prove it ran: inspect the actual commit output, and verify the resulting commit and working tree before reporting success.
 
-- `.commitlintrc.json`, `.commitlintrc.js`, `commitlint.config.js`, or a
-  `commitlint` key in `package.json`
-- The `scope-enum` rule inside it is the authoritative list
+## Quiet commit window
 
-If `scope-enum` is not configured, scopes are unrestricted — prefer the name of
-the package, app, or library you changed, and stay consistent with the recent
-`git log`.
+Commit only after every implementer, reviewer, and judge has stopped writing to the shared worktree. Confirm that no lane has a pending queued turn that can still change a deliverable. Recheck the intended files and status, stage only reviewed paths, then commit while the tree is quiet. Wait for hooks to finish before reopening work on those paths. Hooks or other commit tooling may temporarily save and restore files; simultaneous edits can disappear or be mixed into a commit.
 
-A commit rejected at the hook for an unknown scope is the normal failure here;
-checking first costs one file read.
-
----
-
-## Commit Rules (Enforced by Commitlint)
-
-### Subject Rules
-
-| Rule   | Requirement     | Example                          |
-| ------ | --------------- | -------------------------------- |
-| Case   | Lowercase only  | "add feature" not "Add feature"  |
-| Length | 3-72 characters | Short but descriptive            |
-| Ending | No period       | "add feature" not "add feature." |
-| Mood   | Imperative      | "add" not "added" or "adding"    |
-
-### What NOT to Do
-
-- Sentence-case: "Add new feature"
-- Start-case: "Add New Feature"
-- UPPER-CASE: "ADD NEW FEATURE"
-- Past tense: "added new feature"
-- Present participle: "adding new feature"
-
----
-
-## Valid Examples
-
-```bash
-feat(webview): add semantic search for chat messages
-fix(vscode): resolve webview communication timeout issue
-docs(docs): update component usage examples
-refactor(hooks): simplify pre-commit validation
-chore(deps): update @angular/core to v20.1.2
-perf(webview): optimize message list rendering
-test(vscode): add unit tests for rpc handlers
-build(deps): upgrade esbuild to v0.20.0
-ci(ci): add parallel test execution
-style(webview): format chat component files
-```
-
----
-
-## Invalid Examples
-
-| Example                      | Issue                         |
-| ---------------------------- | ----------------------------- |
-| `Feature: Add search`        | Wrong type format, wrong case |
-| `feat: Add search`           | Missing scope                 |
-| `feat(search): Add search`   | Invalid scope, wrong case     |
-| `feat(webview): Add search.` | Period at end, uppercase      |
-| `feat(webview): Add Search`  | Uppercase in subject          |
-| `feat(WEBVIEW): add search`  | Uppercase scope               |
-| `Feat(webview): add search`  | Uppercase type                |
-| `feat(webview): a`           | Subject too short (< 3 chars) |
-
----
-
-## Branch Operations
-
-### New Task Branch
-
-```bash
-git checkout -b feature/TASK_2026_XXX
-git push -u origin feature/TASK_2026_XXX
-```
-
-### Continue Existing Task
-
-```bash
-git checkout feature/TASK_2026_XXX
-git pull origin feature/TASK_2026_XXX --rebase
-```
-
-### Commit Changes
-
-```bash
-git add [specific files]
-git commit -m "type(scope): description"
-```
-
-### Create PR
-
-```bash
-gh pr create --title "type(scope): description" --body "..."
-```
-
----
-
-## Pre-commit Checks
-
-All commits automatically run these checks in order:
-
-| Check | Tool               | Purpose                         |
-| ----- | ------------------ | ------------------------------- |
-| 1     | lint-staged        | Format & lint staged files only |
-| 2     | typecheck:affected | Type-check changed libraries    |
-| 3     | commitlint         | Validate commit message format  |
-
-### Check Execution
-
-```
-git commit triggered
-     │
-     v
-┌─────────────────┐
-│  lint-staged    │ → Runs prettier, eslint on staged files
-└────────┬────────┘
-         │ Pass
-         v
-┌─────────────────┐
-│  typecheck      │ → Type-checks affected libraries
-└────────┬────────┘
-         │ Pass
-         v
-┌─────────────────┐
-│  commitlint     │ → Validates commit message format
-└────────┬────────┘
-         │ Pass
-         v
-    Commit succeeds
-```
-
----
+Only the orchestrator creates the commit. Do not ask a worker or CLI lane to run git, stage files, or commit. If a task needs another revision, close the commit window, complete and verify that revision, then open a new quiet window.
 
 ## Hook Failure Protocol
 
-**CRITICAL**: When a commit hook fails, ALWAYS stop and present this choice:
+When a commit hook fails, capture its specific error and stop the commit attempt. Present the user with these choices, following the orchestration [hook checkpoint](checkpoints.md):
 
-```markdown
----
-Pre-commit hook failed: [specific error message]
----
+1. **Fix the issue** when it belongs to the current task, verify the fix, and retry.
+2. **Bypass the hook** only with the user's explicit choice and a recorded reason. Do not use `--no-verify` automatically.
+3. **Stop and report** when the failure is unrelated or cannot be resolved within the task.
 
-Please choose how to proceed:
+Record the selected action and its evidence in the task's batch record. A failed hook is never evidence that the commit succeeded. Recheck git status before any retry because a hook may have changed staged or working files.
 
-1. **Fix Issue** - I'll fix the issue if it's related to current work
-   (Use for: lint errors, type errors, commit message format issues in current changes)
+### Option actions
 
-2. **Bypass Hook** - Commit with --no-verify flag
-   (Use for: Unrelated errors in other files, blocking issues outside current scope)
+| Choice | Action |
+| --- | --- |
+| Fix the issue | For a task-related failure, fix the cause, run the relevant scoped check, inspect changed and staged paths, and retry the commit. |
+| Bypass the hook | Only after the user explicitly chooses bypass, use the repository's supported bypass mechanism for this one attempt. Keep the failed check visible in the report. |
+| Stop and report | Stop the commit attempt, record the exact error and affected check in the batch record, and report what blocks progress. |
 
-3. **Stop & Report** - Mark as blocker and escalate
-   (Use for: Critical infrastructure issues, complex errors requiring investigation)
+### Agent behavior rules
 
-## Which option would you like? (1/2/3)
-```
+- Present the specific failure and all three choices; wait for the user's decision before another commit attempt.
+- Do not bypass a hook, fix unrelated work, or switch to an alternative commit path on your own.
+- If the user chooses a fix, work only within the authorized task scope, verify the fix, and restage reviewed paths before retrying.
+- If the user chooses bypass or stop, record the decision and the evidence in the task's batch record. A bypass does not turn a failed check into a passing one.
 
-### Option Actions
+### Documentation when bypassing
 
-| Choice   | Command/Action                                                |
-| -------- | ------------------------------------------------------------- |
-| Option 1 | Fix the issue, run `npm run lint:fix` if needed, retry commit |
-| Option 2 | `git commit --no-verify -m "message"`                         |
-| Option 3 | Mark task BLOCKED, document error in batches.md                 |
+When the user chooses a bypass, record **who chose it**, **why**, and **which hook or check failed**, along with its error, the bypass mechanism used, the resulting commit if one succeeded, and any follow-up needed. For example: "User chose to bypass the pre-commit type check because it fails in an unrelated project; check remains failing and needs separate repair." Use the task's batch record so the decision is visible to reviewers.
 
-### Agent Behavior Rules
+### Example scenarios
 
-- NEVER automatically bypass hooks with `--no-verify`
-- NEVER automatically fix issues without user consent
-- NEVER proceed with alternative approaches without user decision
-- ALWAYS present the 3 options and wait for user choice
-- ALWAYS document the chosen option if option 2 or 3 is selected
+| Failure | Appropriate user choice and action |
+| --- | --- |
+| Lint error in a file changed by this task | **Fix the issue:** correct the file, run the relevant scoped lint check, inspect the staged diff, then retry. |
+| Type error in an unrelated project | **Bypass the hook**, if the user explicitly chooses it: record the failing type check, reason, and decision; then use the supported bypass mechanism for the commit attempt. The user may instead choose to stop. |
+| Complex build failure with multiple unresolved errors | **Stop and report:** capture the errors and affected check in the batch record, then ask for direction before further commit attempts. |
 
-### Documentation When Bypassing
+## Destructive operations
 
-When user chooses option 2, add note to batches.md:
+Ask first before running these or equivalent commands: they can discard or rewrite work, so act only on explicit user authorization.
 
-```markdown
-**Hook Bypass Note**: Batch N committed with --no-verify due to [reason].
-Unrelated issue in [file/library] requires separate fix.
-```
+| Command | What it can lose |
+| --- | --- |
+| `git reset --hard` | Uncommitted changes in tracked files and commits moved out of the current branch. |
+| `git clean -fd` | Untracked files and directories. |
+| `git checkout .` or `git restore .` | Uncommitted changes in tracked files. |
+| `git branch -D` | An unmerged branch and commits reachable only from it. |
+| `git push --force` (including `--force-with-lease`) | Remote commits replaced by the push. |
+| `git rebase` on a shared or already-pushed branch | Published commit history and other collaborators' work based on it. |
+| `git stash drop` or `git stash clear` | Saved changes in one stash entry or every stash entry. |
 
----
+Before asking, inspect state with `git status`, `git log`, and `git stash list`, inspect the exact paths or branch the command touches, and show the user what would be lost.
 
-## Example Scenarios
+## Related references
 
-### Scenario 1: Lint Error in Current File
-
-```
-Error: ESLint found issues in chat.component.ts
-
-User chooses: Option 1 (Fix Issue)
-
-Action:
-1. Run: npm run lint:fix
-2. Verify fix resolved the issue
-3. Stage fixed files: git add chat.component.ts
-4. Retry commit
-```
-
-### Scenario 2: Type Error in Unrelated Library
-
-```
-Error: Type error in libs/analytics/src/metrics.ts (not in current task scope)
-
-User chooses: Option 2 (Bypass Hook)
-
-Action:
-1. Execute: git commit --no-verify -m "feat(webview): add chat feature"
-2. Document in batches.md: "Bypassed hook - type error in analytics lib"
-```
-
-### Scenario 3: Complex Build Failure
-
-```
-Error: Build failed with multiple dependency resolution errors
-
-User chooses: Option 3 (Stop & Report)
-
-Action:
-1. Mark current task status: BLOCKED
-2. Create detailed error report in batches.md
-3. Escalate to user for investigation
-```
-
----
-
-## Destructive Commands Warning
-
-**NEVER run these commands** without explicit user request:
-
-| Command             | Risk                      |
-| ------------------- | ------------------------- |
-| `git reset --hard`  | Loses uncommitted changes |
-| `git push --force`  | Overwrites remote history |
-| `git rebase --hard` | Can lose commits          |
-| `git clean -f`      | Deletes untracked files   |
-| `git branch -D`     | Force deletes branch      |
-| `git checkout .`    | Discards all changes      |
-| `git restore .`     | Discards all changes      |
-
----
-
-## Integration with Other References
-
-- **team-leader-modes.md**: MODE 2 creates commits following these standards
-- **checkpoints.md**: Hook failure protocol is a checkpoint type
-- **task-tracking.md**: Document hook bypasses in batches.md
-- **SKILL.md**: Git operations guidance in workflow completion phase
+- [Fleet mode](fleet.md#commit-window-and-lane-mechanics) uses a quiet window after all fleet work stops.
+- [Team-leader modes](team-leader-modes.md) describes who requests and records commits.
+- [Task tracking](task-tracking.md) defines the task status and batch record.
