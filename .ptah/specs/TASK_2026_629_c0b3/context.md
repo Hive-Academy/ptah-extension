@@ -139,3 +139,18 @@ Follow CLAUDE.md: test only the changed projects (`npx nx test canvas`,
 `npx nx test chat`, `npx nx test chat-ui`, typecheck/lint the same), Jest
 `--maxWorkers=2`, Nx `--parallel=1`, one heavy check at a time, no build,
 serve or e2e targets unless the user asks.
+
+## R9 session (2026-10-14)
+
+- Gate 0.1: lanes enabled (user pinned codex lanes); approval mode lane-review for Gate 2, the Grid removal list goes to the user. `ptah_agent_list`: codex installed, confirmed room (weekly 6%); opencode confirmed room; copilot disabled; antigravity, grok, Glm unknown.
+- R9 architect lane: codex `aa9fd3a0-42ac-4228-af8d-2919347b3169` (software-architect), started 21:20Z.
+- Architect lane delivered (8m 36s): plan 120 lines, parity rows 45-99. CLI Session ID `01a13723-248c-7ce3-8faa-6e711517a151` (resume for the revise round + item 11).
+- Gate 2 reviewer: Claude sub-agent `plan-reviewer` (software-architect type), deliverable `implementation-plan-rail-r9-review.md`.
+- Revise round 1 lane: codex `84a44856` delivered (7m 15s), CLI Session ID `01a13735-5fd2-7d91-af87-bb4106317604`. Re-reviewer: Claude sub-agent `plan-rereviewer`.
+- Revise round 2 lane: codex `c387938d` delivered (3m 28s), CLI Session ID `01a13742-c518-7910-9696-403c2481bc83`. Final check: Claude sub-agent `plan-final-check`.
+- Split addendum lane: codex `c9c0966e` delivered (4m 16s), CLI Session ID `01a1374f-4c52-7572-8281-8d040e6ef224`. Gate 2 reviewer: Claude sub-agent `split-reviewer`. Mode 1: team-leader sub-agent writing `batches-rail-r9.md`.
+- Wave 1 (22:15Z): R9a codex `76113504`, R9d codex `ea025d57`, R9g codex `f2309cce`, R9b Claude fd-R9b, R9c Claude fd-R9c. Writers run specs through `.ptah/tmp/check-run.mjs` (machine-wide mkdir lock `%TEMP%\ptah-629-check.lock`, one heavy check at a time).
+- R9a delivered (session `01a13756-10d6-7200-afdf-6f78060d69c1`), reviewer review-R9a. R9d delivered (session `01a13756-3178-74b1-ae6f-eb6df6686bda`), reviewer review-R9d. Addendum revise round 1: codex `19581dc0` (fresh lane, handoff brief).
+- Session 8 (23:12Z, continuation from HANDOFF.md §3 step 1). Gate 0.1: lanes enabled (user /agent-lanes prompt), approval lane-review. `ptah_agent_list`: codex confirmed room (weekly 10%), opencode confirmed room (monthly 83%), copilot disabled, antigravity/grok/Glm unknown.
+- Wave 1 reviews: R9b codex `ca532d75` (codex-review-R9b.md), R9c codex `e7cdc606` (codex-review-R9c.md), R9g Claude sub-agent reviewer-R9g (code-logic-review-R9g.md). Split addendum re-review: Claude sub-agent reviewer-split-addendum (implementation-plan-rail-r9-split-rereview.md).
+- R9c review delivered: APPROVED 8/10, 1 Minor (keyboard activation test gap) recorded; no fix round. R9b review delivered: REVISE 6/10 (Serious 1 stale popover, Moderate 2 aria-disabled activates) -> fix round Claude sub-agent fd-R9b-fix. R9b reviewer CLI session `01a13789-af29-7293-9ec0-ecb7114899bb` (scoped re-review if needed).
