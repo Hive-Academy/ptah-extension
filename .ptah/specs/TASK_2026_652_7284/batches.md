@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 40 | Batches: 15 | Complete: 0/15
+Total tasks: 40 | Batches: 15 | Complete: 1/15
 
 Worktree root (every command runs here):
 `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`
@@ -132,7 +132,7 @@ Edge cases:
 
 ---
 
-## Batch 1: Shared proposal and status contracts - IN_PROGRESS
+## Batch 1: Shared proposal and status contracts - COMPLETE (commit 58d543298)
 
 - Recommended executor: implementation CLI lane (roster, context.md), one lane
 - Fallback executor: backend-developer sub-agent
@@ -142,7 +142,7 @@ Edge cases:
 - Tasks: 3 | Depends on: none
 - Phase: 1 - Proposal backend | Phase review: code-logic, plus style (new public API)
 
-### Task 1.1: Proposal and get-proposal types - IMPLEMENTED
+### Task 1.1: Proposal and get-proposal types - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-harness-proposal.types.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/index.ts`
@@ -152,7 +152,7 @@ Edge cases:
 - Validation notes: R5 (sessionId is the real SDK id, documented on the field).
 - Implementation details: type-only file, importing `HarnessConfig` from `./rpc-harness.types`. Add one `export *` line.
 
-### Task 1.2: Stored proposal record schema - IMPLEMENTED
+### Task 1.2: Stored proposal record schema - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-harness.schemas.ts`
 - Plan reference: implementation-plan.md:46 (boundary Zod paragraph)
@@ -169,7 +169,7 @@ Edge cases:
   already-normalized update. Phase 1 code-logic review must check this; Task 4.2 should pin a
   round-trip of a normalized record.
 
-### Task 1.3: Analysis status types and v3/v4 manifest response union - IMPLEMENTED
+### Task 1.3: Analysis status types and v3/v4 manifest response union - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-setup.types.ts`
 - Plan reference: implementation-plan.md:62-103 (sections 3-4: `PhaseResultV4`, `MultiPhaseManifestV4`, `WorkspaceFingerprint`, `AnalysisStatus`)
@@ -186,7 +186,7 @@ Edge cases:
   Confirm that each header names the requested project count (1, then 4).
 - No per-batch review. The Phase 1 review covers this batch.
 
-## Batch 2: Shared field-aware merge utility - PENDING
+## Batch 2: Shared field-aware merge utility - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -195,7 +195,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1
 - Phase: 1 - Proposal backend | Phase review: code-logic, plus style
 
-### Task 2.1: `mergeHarnessConfigUpdates` - PENDING
+### Task 2.1: `mergeHarnessConfigUpdates` - IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/index.ts`
@@ -205,7 +205,7 @@ Edge cases:
 - Validation notes: Task 8.1 must be able to replace the frontend logic with no behavior change.
 - Implementation details: export from `utils/index.ts`, which is re-exported at `libs/shared/src/index.ts:59`.
 
-### Task 2.2: Merge spec - PENDING
+### Task 2.2: Merge spec - IMPLEMENTED
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/utils/merge-harness-config-updates.spec.ts` (new)
 - Depends on: Task 2.1
