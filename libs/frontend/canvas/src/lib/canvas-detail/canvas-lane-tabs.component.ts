@@ -1,11 +1,17 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
   input,
   output,
+  signal,
+  viewChild,
 } from '@angular/core';
 import { laneKey } from '@ptah-extension/chat';
 import {
@@ -30,9 +36,12 @@ interface LaneGroup {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
+      #strip
       role="tablist"
       aria-label="Lanes"
-      class="flex items-center gap-0.5 overflow-x-auto px-2 bg-base-200"
+      class="relative flex items-center gap-0.5 overflow-x-auto px-2 bg-base-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      (scroll)="updateEdges()"
+      [style.mask-image]="edgeMask()"
     >
       @for (group of groups(); track group.label) {
         @if (group.label !== 'Orchestrator') {
@@ -73,6 +82,14 @@ interface LaneGroup {
 export class CanvasLaneTabsComponent {
   private readonly monitor = inject(AgentMonitorStore);
   private readonly background = inject(BackgroundAgentStore);
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly strip = viewChild.required<ElementRef<HTMLElement>>('strip');
+  private readonly cutLeft = signal(false);
+  private readonly cutRight = signal(false);
+  readonly edgeMask = computed(() =>
+    `linear-gradient(to right, ${this.cutLeft() ? 'transparent' : 'black'} 0, black 32px, black calc(100% - 32px), ${this.cutRight() ? 'transparent' : 'black'} 100%)`,
+  );
   readonly sessionId = input<string | null>(null);
   readonly panelId = input('canvas-lane-panel');
   readonly laneKey = input('orchestrator');
@@ -154,6 +171,35 @@ export class CanvasLaneTabsComponent {
       if (this.laneKey() !== this.selectedKey())
         this.laneSelected.emit('orchestrator');
     });
+    effect(() => {
+      this.selectedKey();
+      this.groups();
+      this.revealSelected();
+    });
+    afterNextRender(() => {
+      this.updateEdges();
+      if (typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver(() => {
+        this.updateEdges();
+        this.revealSelected();
+      });
+      observer.observe(this.strip().nativeElement);
+      this.destroyRef.onDestroy(() => observer.disconnect());
+    });
+  }
+
+  updateEdges(): void {
+    const strip = this.strip().nativeElement;
+    this.cutLeft.set(strip.scrollLeft > 0);
+    this.cutRight.set(strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1);
+  }
+
+  private revealSelected(): void {
+    afterNextRender(() => {
+      const selected = this.strip().nativeElement.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      selected?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+      this.updateEdges();
+    }, { injector: this.injector });
   }
 
   onKeydown(event: KeyboardEvent, key: string): void {

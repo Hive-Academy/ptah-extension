@@ -2,10 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import {
   AgentMonitorStore,
@@ -36,6 +39,7 @@ import {
       (closed)="open.set(false)"
     >
       <button
+        #trigger
         trigger
         type="button"
         class="btn btn-xs gap-1 border border-base-300"
@@ -112,6 +116,8 @@ import {
 })
 export class CanvasNeedsYouQueueComponent {
   private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly injector = inject(Injector);
+  private readonly trigger = viewChild.required<ElementRef<HTMLButtonElement>>('trigger');
   private readonly permissions = inject(PermissionHandlerService);
   private readonly agents = inject(AgentMonitorStore);
   private readonly responder = inject(AgentPermissionResponder);
@@ -151,7 +157,11 @@ export class CanvasNeedsYouQueueComponent {
         this.open.set(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') this.open.set(false);
+      if (event.key === 'Escape') {
+        this.open.set(false);
+        event.preventDefault();
+        afterNextRender(() => this.trigger().nativeElement.focus(), { injector: this.injector });
+      }
     };
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);

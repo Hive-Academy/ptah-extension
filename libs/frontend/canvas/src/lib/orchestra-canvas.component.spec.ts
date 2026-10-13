@@ -248,6 +248,8 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       canStartRunningSession,
       workspacePaths: signal<string[]>([]),
       activeWorkspacePath: signal<string | null>(null),
+      boardFor: jest.fn(() => ({ mode: 'grid' })),
+      activeBoard: signal({ mode: 'grid' }),
       switchWorkspaceTiles: switchWorkspaceTilesMock,
       removeWorkspaceTileState: removeWorkspaceTileStateMock,
       removeTileOnly: removeTileOnlyMock,

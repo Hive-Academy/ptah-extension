@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 4/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 5/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -271,7 +271,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   the phase review: `respond` now refuses any callout that is no longer `callout()` for the tile too (stricter
   than the plan's "session: unchanged"; consistent with R2-1, posts nothing stale).
 
-## Batch R3: Board state model, v3 record, store board state (canvas) — COMPLETE
+## Batch R3: Board state model, v3 record, store board state (canvas) — COMPLETE (commit deab106e1)
 
 - Goal: per-workspace `CanvasBoardState` persisted in a v3 record; v1/v2 still read; store setters that never touch
   tile intent (plan Components 1-2, `:128-229`; D16, D17).
@@ -319,7 +319,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   board or tile change; `boardFor` is a plain signal read, not a memoized per-path signal (return type matches
   the plan).
 
-## Batch R4a: Per-tab lane selection, lane strip reveal, queue Escape (canvas) — PENDING
+## Batch R4a: Per-tab lane selection, lane strip reveal, queue Escape (canvas) — COMPLETE
 
 - Goal: `CanvasDetailService` per-tab lane map and mode-aware `open`; lane strip reveals the selected tab on its own
   width change (R2-2); queue Escape closes only the queue (#8) (plan Components 3, 4, 6, `:231-303,344-360`; D6, D18).
@@ -362,7 +362,11 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader: only the 7 listed files changed (orchestra spec: 2 fixture
+  lines on `canvasStoreMock`); K1/K2 edits fixture-only, no existing `it` body changed; `onTabClosed` subscribed
+  lazily on the first lane-map write and released via `DestroyRef`; Escape listener only while open. Re-run checks:
+  detail-service 8/8, lane-tabs 5/5, queue 9/9, orchestra 34/34, canvas project 26 suites / 344 tests, typecheck
+  pass, lint 0 errors (14 pre-existing warnings).
 
 ## Batch R4b: Transcript surface gating, freeze and click helpers (canvas) — PENDING
 

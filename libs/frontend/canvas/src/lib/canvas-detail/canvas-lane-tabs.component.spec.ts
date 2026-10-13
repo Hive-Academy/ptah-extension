@@ -119,4 +119,54 @@ describe('CanvasLaneTabsComponent', () => {
       );
     expect(selected).toHaveBeenCalledWith('cli:c');
   });
+
+  it('reveals the selected tab on strip resize and disconnects on destroy', async () => {
+    const original = globalThis.ResizeObserver;
+    let resize: ResizeObserverCallback = () => undefined;
+    const disconnect = jest.fn();
+    const observe = jest.fn();
+    globalThis.ResizeObserver = jest.fn().mockImplementation((callback: ResizeObserverCallback) => {
+      resize = callback;
+      return { observe, disconnect };
+    });
+    const scrollIntoView = jest.fn();
+    const previous = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('sessionId', 'owner');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(observe).toHaveBeenCalledTimes(1);
+      resize([], {} as ResizeObserver);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+      fixture.destroy();
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.ResizeObserver = original;
+      HTMLElement.prototype.scrollIntoView = previous;
+    }
+  });
+
+  it('reveals a newly selected lane', async () => {
+    agents.set([{ agentId: 'c', parentSessionId: 'owner', cli: 'Codex', status: 'running' }]);
+    const scrollIntoView = jest.fn();
+    const previous = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('sessionId', 'owner');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      scrollIntoView.mockClear();
+      fixture.componentRef.setInput('laneKey', 'cli:c');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = previous;
+    }
+  });
 });

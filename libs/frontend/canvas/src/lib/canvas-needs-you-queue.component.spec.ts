@@ -110,6 +110,24 @@ describe('CanvasNeedsYouQueueComponent', () => {
     expect(fixture.componentInstance.open()).toBe(false);
   });
 
+  it('consumes Escape, keeps detail open, and returns focus to the trigger', async () => {
+    const detailTabId = signal<string | null>('a');
+    TestBed.overrideComponent(CanvasNeedsYouQueueComponent, {
+      add: { providers: [{ provide: CanvasDetailService, useValue: { detailTabId } }] },
+    });
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+    document.dispatchEvent(event);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(fixture.componentInstance.open()).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(detailTabId()).toBe('a');
+    expect(document.activeElement).toBe(fixture.nativeElement.querySelector('button[trigger]'));
+  });
+
   it('closes after the last request is answered', () => {
     permissions.set([request('one', 'a')]);
     const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
