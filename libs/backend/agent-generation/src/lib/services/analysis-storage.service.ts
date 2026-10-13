@@ -15,7 +15,8 @@
  */
 
 import { inject, injectable } from 'tsyringe';
-import { dirname, isAbsolute, join, relative, resolve } from 'path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
+import { ulid } from 'ulid';
 import {
   PLATFORM_TOKENS,
   FileType,
@@ -27,8 +28,11 @@ import type {
   MultiPhaseAnalysisResponse,
 } from '@ptah-extension/shared';
 import {
-  MultiPhaseManifestSchema,
+  MultiPhaseManifestV3Schema,
+  MultiPhaseManifestV4Schema,
   type MultiPhaseManifest,
+  type MultiPhaseManifestV3,
+  type MultiPhaseManifestV4,
 } from '../types/multi-phase.types';
 import {
   GenerationCheckpointManifestSchema,
@@ -50,6 +54,18 @@ export interface ResumableRun {
   manifest: MultiPhaseManifest | null;
   /** Validated generation checkpoint stored beside the analysis, if any. */
   generation: GenerationCheckpointManifest | null;
+}
+
+export type ManifestReadResult =
+  | { kind: 'current'; manifest: MultiPhaseManifestV4 }
+  | { kind: 'legacy-v3'; manifest: MultiPhaseManifestV3 };
+
+/** Archiving failed before a verified v3 copy could replace the source. */
+export class LegacyRunArchiveError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause });
+    this.name = 'LegacyRunArchiveError';
+  }
 }
 
 @injectable()
@@ -273,16 +289,30 @@ export class AnalysisStorageService {
   }
 
   /**
-   * Load and validate the version-3 manifest of a slug directory.
+   * Load and validate a manifest of a slug directory.
    *
    * Returns null when the file is missing, is not valid JSON, or does not
-   * satisfy `MultiPhaseManifestSchema` (a version-2 manifest included). The
+   * satisfy its versioned schema (a version-2 manifest included). The
    * file is left untouched in every one of those cases.
    */
   async loadManifest(slugDir: string): Promise<MultiPhaseManifest | null> {
+    return (await this.readManifest(slugDir))?.manifest ?? null;
+  }
+
+  async readManifest(slugDir: string): Promise<ManifestReadResult | null> {
     const parsed = await this.readJson(join(slugDir, MANIFEST_FILE));
     if (parsed === undefined) return null;
-    const result = MultiPhaseManifestSchema.safeParse(parsed);
+    const version =
+      typeof parsed === 'object' && parsed !== null && 'version' in parsed
+        ? parsed.version
+        : undefined;
+    const result =
+      version === 3
+        ? MultiPhaseManifestV3Schema.safeParse(parsed)
+        : version === 4
+          ? MultiPhaseManifestV4Schema.safeParse(parsed)
+          : null;
+    if (result === null) return null;
     if (!result.success) {
       this.logger.debug(`${SERVICE_TAG} Manifest rejected by schema`, {
         slugDir,
@@ -290,7 +320,90 @@ export class AnalysisStorageService {
       });
       return null;
     }
-    return result.data as MultiPhaseManifest;
+    return version === 3
+      ? { kind: 'legacy-v3', manifest: result.data as MultiPhaseManifestV3 }
+      : { kind: 'current', manifest: result.data as MultiPhaseManifestV4 };
+  }
+
+  /** Copy a v3 run into a unique archive directory before removing its source. */
+  async archiveLegacyRun(
+    workspacePath: string,
+    slugDir: string,
+  ): Promise<string> {
+    const root = resolve(this.getAnalysisDir(workspacePath));
+    const source = resolve(slugDir);
+    if (dirname(source) !== root) {
+      throw new LegacyRunArchiveError(
+        'Analysis run is outside the workspace analysis root.',
+      );
+    }
+    const legacy = await this.readManifest(source);
+    if (legacy?.kind !== 'legacy-v3') {
+      throw new LegacyRunArchiveError(
+        'Analysis run is not a valid v3 manifest.',
+      );
+    }
+
+    const archive = join(root, `${basename(source)}-v3-archive-${ulid()}`);
+    let created = false;
+    try {
+      await this.fs.createDirectoryExclusive(archive);
+      created = true;
+      await this.copyDirectoryVerified(source, archive);
+      const copied = await this.readManifest(archive);
+      if (
+        copied?.kind !== 'legacy-v3' ||
+        JSON.stringify(copied.manifest) !== JSON.stringify(legacy.manifest)
+      ) {
+        throw new Error('Archived manifest failed v3 validation.');
+      }
+      try {
+        await this.fs.delete(source, { recursive: true });
+      } catch (error: unknown) {
+        // A provider may have deleted some files before failing. Restore from
+        // the verified archive and retain that copy if restoration also fails.
+        await this.fs.createDirectory(source);
+        await this.copyDirectoryVerified(archive, source);
+        throw error;
+      }
+      return archive;
+    } catch (error: unknown) {
+      if (created && (await this.readManifest(source))?.kind === 'legacy-v3') {
+        try {
+          await this.fs.delete(archive, { recursive: true });
+        } catch {
+          // Keep the partial archive when its cleanup fails; the v3 source remains.
+        }
+      }
+      throw new LegacyRunArchiveError(
+        'Could not archive the legacy analysis run.',
+        error,
+      );
+    }
+  }
+
+  private async copyDirectoryVerified(
+    source: string,
+    destination: string,
+  ): Promise<void> {
+    const entries = await this.fs.readDirectory(source);
+    for (const entry of entries) {
+      const from = join(source, entry.name);
+      const to = join(destination, entry.name);
+      if (entry.type === FileType.Directory) {
+        await this.fs.createDirectory(to);
+        await this.copyDirectoryVerified(from, to);
+      } else if (entry.type === FileType.File) {
+        await this.fs.copy(from, to, { overwrite: true });
+        const original = await this.fs.readFileBytes(from);
+        const copied = await this.fs.readFileBytes(to);
+        if (!Buffer.from(original).equals(Buffer.from(copied))) {
+          throw new Error('Archived file failed byte verification.');
+        }
+      } else {
+        throw new Error('Unsupported entry in analysis run.');
+      }
+    }
   }
 
   /**
@@ -329,6 +442,7 @@ export class AnalysisStorageService {
     );
 
     for (const run of runs) {
+      if (run.manifest.version === 3) continue;
       const generation = await this.loadGenerationManifest(
         workspacePath,
         run.slugDir,
@@ -525,17 +639,7 @@ export class AnalysisStorageService {
   ): MultiPhaseAnalysisResponse {
     return {
       isMultiPhase: true,
-      manifest: {
-        version: manifest.version,
-        runId: manifest.runId,
-        slug: manifest.slug,
-        analyzedAt: manifest.analyzedAt,
-        updatedAt: manifest.updatedAt,
-        lifecycle: manifest.lifecycle,
-        model: manifest.model,
-        totalDurationMs: manifest.totalDurationMs,
-        phases: manifest.phases,
-      },
+      manifest,
       phaseContents,
       analysisDir: slugDir,
     };

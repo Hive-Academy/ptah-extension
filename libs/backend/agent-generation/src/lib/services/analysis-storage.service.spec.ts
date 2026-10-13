@@ -25,16 +25,23 @@ import {
   createMockFileSystemProvider,
   type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
-import { AnalysisStorageService } from './analysis-storage.service';
-import type { MultiPhaseManifest } from '../types/multi-phase.types';
+import {
+  AnalysisStorageService,
+  LegacyRunArchiveError,
+} from './analysis-storage.service';
+import {
+  MultiPhaseManifestV4Schema,
+  type MultiPhaseManifestV3,
+  type MultiPhaseManifestV4,
+} from '../types/multi-phase.types';
 import type { GenerationCheckpointManifest } from '../types/generation-checkpoint.types';
 
 const WORKSPACE = resolve('/ws/demo');
 const ANALYSIS_ROOT = join(WORKSPACE, '.ptah', 'analysis');
 
 function manifestV3(
-  overrides: Partial<MultiPhaseManifest> = {},
-): MultiPhaseManifest {
+  overrides: Partial<MultiPhaseManifestV3> = {},
+): MultiPhaseManifestV3 {
   return {
     version: 3,
     runId: 'RUN-1',
@@ -66,6 +73,44 @@ function manifestV3(
         durationMs: 10,
       },
     },
+    ...overrides,
+  };
+}
+
+function manifestV4(
+  overrides: Partial<MultiPhaseManifestV4> = {},
+): MultiPhaseManifestV4 {
+  const hash = 'a'.repeat(64);
+  const phases = Object.fromEntries(
+    Object.entries(manifestV3().phases).map(([id, phase]) => [
+      id,
+      {
+        ...phase,
+        attempt: 1,
+        sessionId: 'sdk-session',
+        input: {
+          workspaceSha256: hash,
+          promptSha256: hash,
+          priorPhaseSha256: null,
+          model: 'test-model',
+        },
+        verification: {
+          status: 'verified' as const,
+          outputSha256: hash,
+          checkedAt: '2026-08-30T10:05:00.000Z',
+        },
+      },
+    ]),
+  ) as MultiPhaseManifestV4['phases'];
+  return {
+    ...manifestV3(),
+    version: 4,
+    workspaceFingerprint: {
+      algorithm: 'sha256-v1',
+      digest: hash,
+      capturedAt: '2026-08-30T10:00:00.000Z',
+    },
+    phases,
     ...overrides,
   };
 }
@@ -199,6 +244,10 @@ describe('AnalysisStorageService', () => {
       const loaded = await service.loadManifest(slugDir);
 
       expect(loaded).toEqual(manifest);
+      expect(await service.readManifest(slugDir)).toEqual({
+        kind: 'legacy-v3',
+        manifest,
+      });
       expect(fs.createDirectory).toHaveBeenCalledWith(slugDir);
     });
 
@@ -214,6 +263,7 @@ describe('AnalysisStorageService', () => {
       await fs.writeFile(join(slugDir, 'manifest.json'), v2);
 
       expect(await service.loadManifest(slugDir)).toBeNull();
+      expect(await service.readManifest(slugDir)).toBeNull();
       expect(fs.delete).not.toHaveBeenCalled();
       expect(fs.writeFile).toHaveBeenCalledTimes(1);
       expect(await fs.readFile(join(slugDir, 'manifest.json'))).toBe(v2);
@@ -223,6 +273,7 @@ describe('AnalysisStorageService', () => {
       await fs.writeFile(join(slugDir, 'manifest.json'), '{ not json');
 
       expect(await service.loadManifest(slugDir)).toBeNull();
+      expect(await service.readManifest(slugDir)).toBeNull();
       expect(fs.delete).not.toHaveBeenCalled();
       expect(await fs.readFile(join(slugDir, 'manifest.json'))).toBe(
         '{ not json',
@@ -246,6 +297,126 @@ describe('AnalysisStorageService', () => {
 
     it('returns null when there is no manifest', async () => {
       expect(await service.loadManifest(slugDir)).toBeNull();
+    });
+
+    it('rejects an unknown version without changing the file', async () => {
+      const bytes = JSON.stringify({ ...manifestV3(), version: 5 });
+      await fs.writeFile(join(slugDir, 'manifest.json'), bytes);
+      expect(await service.readManifest(slugDir)).toBeNull();
+      expect(await fs.readFile(join(slugDir, 'manifest.json'))).toBe(bytes);
+    });
+  });
+
+  describe('analysis manifest (v4)', () => {
+    const slugDir = join(ANALYSIS_ROOT, 'current');
+
+    it('round-trips and exposes the run ID through both read APIs', async () => {
+      const manifest = manifestV4();
+      await service.writeManifest(slugDir, manifest);
+      expect(await service.readManifest(slugDir)).toEqual({
+        kind: 'current',
+        manifest,
+      });
+      expect((await service.loadManifest(slugDir))?.runId).toBe(manifest.runId);
+    });
+
+    it('requires completed phase identity and verified hashes', () => {
+      const manifest = manifestV4();
+      expect(MultiPhaseManifestV4Schema.safeParse(manifest).success).toBe(true);
+      manifest.phases['quality-audit'].sessionId = null;
+      expect(MultiPhaseManifestV4Schema.safeParse(manifest).success).toBe(
+        false,
+      );
+      manifest.phases['quality-audit'].sessionId = 'sdk-session';
+      manifest.phases['quality-audit'].input = null;
+      expect(MultiPhaseManifestV4Schema.safeParse(manifest).success).toBe(
+        false,
+      );
+      manifest.phases['quality-audit'].input =
+        manifestV4().phases['quality-audit'].input;
+      manifest.phases['quality-audit'].verification.status = 'pending';
+      expect(MultiPhaseManifestV4Schema.safeParse(manifest).success).toBe(
+        false,
+      );
+      manifest.phases['quality-audit'].verification.status = 'verified';
+      manifest.workspaceFingerprint.digest = 'A'.repeat(64);
+      expect(MultiPhaseManifestV4Schema.safeParse(manifest).success).toBe(
+        false,
+      );
+    });
+
+    it('requires a non-empty error for failed phases', () => {
+      const manifest = manifestV4();
+      manifest.phases['quality-audit'].status = 'failed';
+      manifest.phases['quality-audit'].error = '   ';
+      expect(MultiPhaseManifestV4Schema.safeParse(manifest).success).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('legacy archive', () => {
+    const slugDir = join(ANALYSIS_ROOT, 'demo');
+
+    it('copies all files before deleting the source and keeps the archive listed', async () => {
+      await service.writeManifest(slugDir, manifestV3());
+      await fs.writeFile(join(slugDir, '01-project-profile.md'), 'phase');
+      await fs.createDirectory(join(slugDir, 'nested'));
+      await fs.writeFile(join(slugDir, 'nested', 'note.txt'), 'nested');
+      const original = await fs.readFile(join(slugDir, 'manifest.json'));
+
+      const archive = await service.archiveLegacyRun(WORKSPACE, slugDir);
+
+      expect(archive).toContain('demo-v3-archive-');
+      expect(await fs.exists(slugDir)).toBe(false);
+      expect(await fs.readFile(join(archive, 'manifest.json'))).toBe(original);
+      expect(await fs.readFile(join(archive, '01-project-profile.md'))).toBe(
+        'phase',
+      );
+      expect(await fs.readFile(join(archive, 'nested', 'note.txt'))).toBe(
+        'nested',
+      );
+      expect(
+        (await service.list(WORKSPACE)).map((item) => item.filename),
+      ).toContain(archive.split(/[\\/]/).at(-1));
+    });
+
+    it('leaves v3 intact when a file copy fails', async () => {
+      await service.writeManifest(slugDir, manifestV3());
+      await fs.writeFile(join(slugDir, '01-project-profile.md'), 'phase');
+      const copy = fs.copy;
+      copy.mockRejectedValueOnce(new Error('copy failed'));
+
+      await expect(
+        service.archiveLegacyRun(WORKSPACE, slugDir),
+      ).rejects.toBeInstanceOf(LegacyRunArchiveError);
+      expect(await fs.readFile(join(slugDir, '01-project-profile.md'))).toBe(
+        'phase',
+      );
+      expect((await service.readManifest(slugDir))?.kind).toBe('legacy-v3');
+      expect(fs.delete).not.toHaveBeenCalledWith(slugDir, { recursive: true });
+    });
+
+    it('keeps the source when removing it fails after a verified copy', async () => {
+      await service.writeManifest(slugDir, manifestV3());
+      await fs.writeFile(join(slugDir, 'phase.md'), 'phase');
+      fs.delete.mockRejectedValueOnce(new Error('delete failed'));
+
+      await expect(
+        service.archiveLegacyRun(WORKSPACE, slugDir),
+      ).rejects.toBeInstanceOf(LegacyRunArchiveError);
+      expect(await fs.readFile(join(slugDir, 'phase.md'))).toBe('phase');
+      expect((await service.readManifest(slugDir))?.kind).toBe('legacy-v3');
+    });
+
+    it('uses the source directory name when a legacy slug contains path syntax', async () => {
+      await service.writeManifest(
+        slugDir,
+        manifestV3({ slug: '../elsewhere' }),
+      );
+      const archive = await service.archiveLegacyRun(WORKSPACE, slugDir);
+      expect(archive).toContain('demo-v3-archive-');
+      expect(resolve(archive).startsWith(resolve(ANALYSIS_ROOT))).toBe(true);
     });
   });
 
@@ -335,7 +506,7 @@ describe('AnalysisStorageService', () => {
       const newerDir = join(ANALYSIS_ROOT, 'newer');
       await service.writeManifest(
         olderDir,
-        manifestV3({
+        manifestV4({
           slug: 'older',
           lifecycle: 'paused',
           updatedAt: '2026-08-29T00:00:00.000Z',
@@ -343,7 +514,7 @@ describe('AnalysisStorageService', () => {
       );
       await service.writeManifest(
         newerDir,
-        manifestV3({
+        manifestV4({
           slug: 'newer',
           lifecycle: 'paused',
           updatedAt: '2026-08-31T00:00:00.000Z',
@@ -364,7 +535,7 @@ describe('AnalysisStorageService', () => {
 
     it('offers a completed analysis when its generation is unfinished', async () => {
       const slugDir = join(ANALYSIS_ROOT, 'demo');
-      await service.writeManifest(slugDir, manifestV3());
+      await service.writeManifest(slugDir, manifestV4());
       await service.writeGenerationManifest(
         WORKSPACE,
         slugDir,
@@ -387,6 +558,18 @@ describe('AnalysisStorageService', () => {
       );
 
       expect(await service.findLatestResumableRun(WORKSPACE)).toBeNull();
+    });
+
+    it('excludes paused v3 while retaining it in saved analyses', async () => {
+      const slugDir = join(ANALYSIS_ROOT, 'legacy-paused');
+      await service.writeManifest(
+        slugDir,
+        manifestV3({ slug: 'legacy-paused', lifecycle: 'paused' }),
+      );
+      expect(await service.findLatestResumableRun(WORKSPACE)).toBeNull();
+      expect(
+        (await service.list(WORKSPACE)).map((item) => item.filename),
+      ).toContain('legacy-paused');
     });
 
     it('ignores version-2 manifests and never deletes them', async () => {

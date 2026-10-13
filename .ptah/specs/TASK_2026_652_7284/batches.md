@@ -357,7 +357,7 @@ tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping erro
   re-review disposition"). One exception: the prettier drift is fixed in 8afe14ce5.
 - Batch 17 COMPLETE (94eb0149d). Batch 9 (Phase 2B) COMPLETE (9f98ea07c). Phase 2B review
   APPROVED 8.5/10 (`code-logic-review-phase-2b.md`; see "Phase 2B review disposition").
-  Test-only fix Batch 18 runs next, then Batch 10 (Phase 3, backend).
+  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 (Phase 3, backend) IN_PROGRESS.
 - FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
   Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
   confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
@@ -869,7 +869,7 @@ pin the name contract that the dispatcher depends on.
 | 5 `getLaneLimits` reflow; webview ignores `sessionId`         | Minor          | No change. The reflow is formatting only. Filtering by `sessionId` in the webview is Task 7.2, held with the frontend (D7)                                                                                                                                                                 |
 | 6 `broadcast?.` on a required dep                             | Minor          | No change. Harmless; the proposal is already persisted before the broadcast, so a missing webview manager loses no data                                                                                                                                                                    |
 
-## Batch 18: Phase 2B review test fixes (error-name contract and dispatcher branches) - IN_PROGRESS
+## Batch 18: Phase 2B review test fixes (error-name contract and dispatcher branches) - COMPLETE (commit ae20af1ca)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: senior-tester sub-agent
@@ -878,7 +878,7 @@ pin the name contract that the dispatcher depends on.
 - Tasks: 2 | Depends on: Batch 9
 - Phase: 2B fix (test-only) | Phase review: none (tests only)
 
-### Task 18.1: Builder spec asserts the real error names - IN_PROGRESS
+### Task 18.1: Builder spec asserts the real error names - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.spec.ts`
 - Pattern to follow: the existing `rejects.toThrow(/Invalid configUpdates/)` (`:424`) and
@@ -888,7 +888,7 @@ pin the name contract that the dispatcher depends on.
   (for example `rejects.toMatchObject({ name: '...' })`). No production file changes; the
   classes stay non-exported.
 
-### Task 18.2: Dispatcher spec covers the remaining branches - IN_PROGRESS
+### Task 18.2: Dispatcher spec covers the remaining branches - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts`
 - Pattern to follow: the existing `ptah_harness_propose_config` error cases (`:615-650`).
@@ -904,8 +904,10 @@ pin the name contract that the dispatcher depends on.
 - `npx prettier --check` on the two specs.
 - `npx jest -c libs/backend/vscode-lm-tools/jest.config.ts <the two specs> --coverage=false --maxWorkers=2`
 - Test-only: no phase review. After commit, Batch 10 starts.
+- Verified (team-leader, 2026-10-14, report `batch-18-report.md`): only the two specs changed;
+  prettier check clean; jest on the two specs "2 passed, 405 passed". Committed ae20af1ca.
 
-## Batch 10: Manifest v4 types and validated read path (behavior-neutral) - PENDING
+## Batch 10: Manifest v4 types and validated read path (behavior-neutral) - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -915,7 +917,7 @@ pin the name contract that the dispatcher depends on.
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 3 - Manifest v4 and freshness | Phase review: code-logic, plus style (new exports)
 
-### Task 10.1: v3/v4 types, schemas and barrels - PENDING
+### Task 10.1: v3/v4 types, schemas and barrels - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/types/multi-phase.types.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/types/index.ts`,
@@ -924,7 +926,7 @@ pin the name contract that the dispatcher depends on.
 - Pattern to follow: `multi-phase.types.ts:34-102`
 - Quality requirements: `MultiPhaseManifestV3` and `MultiPhaseManifestV3Schema` hold today's shape. Add `PhaseResultV4`, `MultiPhaseManifestV4` and a strict `MultiPhaseManifestV4Schema` with the plan's refinements (completed implies session, input and verified hash; failed implies error; 64-hex hashes). Keep the exported name `MultiPhaseManifest` as `V3 | V4` so existing consumers compile (F20). Keep `MultiPhaseManifestSchema` exported. The v4 type must be assignable to the shared v4 response member (Task 1.3).
 
-### Task 10.2: Storage: `readManifest`, compatible `loadManifest`, `archiveLegacyRun`, resumable filter - PENDING
+### Task 10.2: Storage: `readManifest`, compatible `loadManifest`, `archiveLegacyRun`, resumable filter - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.ts`
 - Plan reference: implementation-plan.md:88, 109-111 (data migration)
@@ -938,7 +940,7 @@ pin the name contract that the dispatcher depends on.
   - `createSlugDir`, `writeManifest` and the constructor are unchanged. Nothing calls `archiveLegacyRun` yet (Task 12.2 does).
 - Validation notes: R1, R2, F20.
 
-### Task 10.3: Storage spec - PENDING
+### Task 10.3: Storage spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.spec.ts`
 - Quality requirements: the exact v3 read-only path. Malformed and unsupported versions return null, with the file bytes unchanged. v4 round-trip. Archive preserves every v3 file and deletes only after a verified copy. Archive failure leaves v3 intact. The resumable filter excludes v3. `loadManifest` returns `runId` for both versions.
@@ -951,6 +953,15 @@ pin the name contract that the dispatcher depends on.
 - Command:
   `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1 && npx nx typecheck @ptah-extension/rpc-handlers && npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.spec.ts --coverage=false --maxWorkers=2 && npx nx run-many -t typecheck -p @ptah-extension/setup-wizard ptah-cli --parallel=1`
 - The F-owned `multi-phase-analysis.service.spec.ts` must pass unchanged inside the agent-generation run (R2).
+- Verified (team-leader, 2026-10-14, report `batch-10-report.md`): 5 source/spec files in
+  agent-generation; `multi-phase-analysis.service.spec.ts` untouched. Prettier check clean;
+  agent-generation typecheck, test, lint OK; rpc-handlers typecheck OK; the two RPC specs
+  "2 passed, 100 passed"; setup-wizard and ptah-cli typecheck "for 2 projects" OK.
+  `archiveLegacyRun` copies with byte checks, revalidates v3, deletes the source last and
+  restores it from the archive if deletion fails (R1). Interim state until Batch 12: writers
+  still write v3 and `findLatestResumableRun` now skips v3, so a paused run made before
+  Batch 12 is not offered for resume; Batch 12 (v4 writer, v3 archive on resume) closes it.
+  No merge or release happens before then.
 
 ## Batch 11: Analysis freshness service and DI - PENDING
 
