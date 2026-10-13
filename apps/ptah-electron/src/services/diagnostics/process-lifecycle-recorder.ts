@@ -90,14 +90,24 @@ const CONSOLE_REDACTIONS: ReadonlyArray<[RegExp, string]> = [
   [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, '[REDACTED]'],
 ];
 
-/** The first non-empty line of console text, trimmed. */
-function firstLine(text: string): string {
-  return (
-    text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? ''
+/**
+ * Redact and cap one console line. The input is cut before redaction so the
+ * regex work is bounded; any secret at the cut point lies past the kept bytes.
+ */
+function boundedConsoleLine(line: string): string {
+  return truncateUtf8(
+    redactConsoleText(line.slice(0, CONSOLE_MAX_BYTES * 4)),
+    CONSOLE_MAX_BYTES,
   );
+}
+
+/**
+ * The literal first line of console text, trimmed. An empty first line stays
+ * empty: skipping to a later line would log text the policy excludes.
+ */
+function firstLine(text: string): string {
+  const end = text.search(/\r?\n/);
+  return (end === -1 ? text : text.slice(0, end)).trim();
 }
 
 /** Strip credential-shaped substrings from renderer console text. */
@@ -241,11 +251,8 @@ export class ProcessLifecycleRecorder {
       `[renderer] console.${details.level}`,
       {
         windowId,
-        message: truncateUtf8(
-          redactConsoleText(firstLine(details.message)),
-          CONSOLE_MAX_BYTES,
-        ),
-        source: `${redactConsoleText(details.sourceId)}:${details.lineNumber}`,
+        message: boundedConsoleLine(firstLine(details.message)),
+        source: `${boundedConsoleLine(details.sourceId)}:${details.lineNumber}`,
       },
     );
   }

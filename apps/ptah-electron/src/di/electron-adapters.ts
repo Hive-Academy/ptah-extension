@@ -86,6 +86,94 @@ interface LogContext {
   [key: string]: unknown;
 }
 
+/** Context keys `logWithContext` already writes on their own lines. */
+const CONTEXT_LINE_KEYS: ReadonlySet<string> = new Set([
+  'service',
+  'operation',
+  'error',
+]);
+
+/** Upper bound for one serialized `Context:` line in the log file. */
+const MAX_CONTEXT_CHARS = 8_192;
+
+/** Values copied per `Context:` line; later or deeper values are dropped. */
+const MAX_CONTEXT_NODES = 500;
+
+/** Items kept from one array value in a `Context:` line. */
+const MAX_CONTEXT_ARRAY_ITEMS = 50;
+
+interface ContextBudget {
+  nodes: number;
+  readonly seen: Set<object>;
+}
+
+/**
+ * Copy one context value into plain JSON data with bounded work. It never
+ * calls `toJSON` (caller code), cuts long strings and arrays, and stops
+ * descending once {@link MAX_CONTEXT_NODES} values were copied.
+ */
+function boundContextValue(value: unknown, budget: ContextBudget): unknown {
+  budget.nodes += 1;
+  if (budget.nodes > MAX_CONTEXT_NODES) return '…';
+  if (typeof value === 'string') {
+    return value.length > MAX_CONTEXT_CHARS
+      ? `${value.slice(0, MAX_CONTEXT_CHARS)}…`
+      : value;
+  }
+  if (typeof value === 'bigint') return `${value}n`;
+  if (typeof value === 'function' || typeof value === 'symbol') {
+    return undefined;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  if (budget.seen.has(value)) return '[Circular]';
+  budget.seen.add(value);
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: boundContextValue(value.message, budget),
+    };
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
+  }
+  if (Array.isArray(value)) {
+    const items: unknown[] = [];
+    const kept = Math.min(value.length, MAX_CONTEXT_ARRAY_ITEMS);
+    for (let i = 0; i < kept; i++) {
+      if (budget.nodes >= MAX_CONTEXT_NODES) break;
+      items.push(boundContextValue(value[i], budget) ?? null);
+    }
+    if (value.length > items.length) {
+      items.push(`…[${value.length - items.length} more]`);
+    }
+    return items;
+  }
+  return boundContextEntries(value, budget);
+}
+
+/** Own enumerable entries of `source`, bounded; `skip` keys are left out. */
+function boundContextEntries(
+  source: object,
+  budget: ContextBudget,
+  skip?: ReadonlySet<string>,
+): Record<string, unknown> {
+  const entries: Record<string, unknown> = {};
+  for (const key in source) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    if (skip?.has(key)) continue;
+    if (budget.nodes >= MAX_CONTEXT_NODES) {
+      entries['…'] = 'more keys dropped';
+      break;
+    }
+    const bounded = boundContextValue(
+      (source as Record<string, unknown>)[key],
+      budget,
+    );
+    if (bounded !== undefined) entries[key] = bounded;
+  }
+  return entries;
+}
+
 /**
  * Electron-compatible Logger adapter.
  *
@@ -99,43 +187,6 @@ interface LogContext {
  * This class is registered as a plain value (useValue), not via @injectable(),
  * so it does not need tsyringe decorators.
  */
-/** Context keys `logWithContext` already writes on their own lines. */
-const CONTEXT_LINE_KEYS = new Set(['service', 'operation', 'error']);
-
-/** Upper bound for one serialized `Context:` line in the log file. */
-const MAX_CONTEXT_CHARS = 8_192;
-
-/** Values serialized per `Context:` line; deeper or later values are dropped. */
-const MAX_CONTEXT_NODES = 500;
-
-/** Items kept from one array value in a `Context:` line. */
-const MAX_CONTEXT_ARRAY_ITEMS = 50;
-
-/**
- * Serialize log context with bounded work: strings are cut to the line budget
- * and nothing past {@link MAX_CONTEXT_NODES} values is descended into, so a
- * huge or deeply nested object cannot stall the main process.
- */
-function serializeContext(details: Record<string, unknown>): string {
-  let nodes = 0;
-  return JSON.stringify(details, (_key, value: unknown) => {
-    nodes += 1;
-    if (nodes > MAX_CONTEXT_NODES) return undefined;
-    if (typeof value === 'string' && value.length > MAX_CONTEXT_CHARS) {
-      return `${value.slice(0, MAX_CONTEXT_CHARS)}…`;
-    }
-    // A value dropped inside an array serializes as `null`, so a long array
-    // is cut here rather than left to the node budget.
-    if (Array.isArray(value) && value.length > MAX_CONTEXT_ARRAY_ITEMS) {
-      return [
-        ...value.slice(0, MAX_CONTEXT_ARRAY_ITEMS),
-        `…[${value.length - MAX_CONTEXT_ARRAY_ITEMS} more]`,
-      ];
-    }
-    return value;
-  });
-}
-
 export class ElectronLoggerAdapter {
   private static readonly CHANNEL_NAME = 'Ptah';
 
@@ -267,21 +318,20 @@ export class ElectronLoggerAdapter {
     // Structured context (`logger.error(msg, { ... })`) is the only place a
     // caller's details live — the renderer console forwarder puts the console
     // text here. Mirrors vscode-core `Logger.writeLogEntry`.
-    const details: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(context)) {
-      if (!CONTEXT_LINE_KEYS.has(key) && value !== undefined) {
-        details[key] = value;
-      }
+    let details: Record<string, unknown>;
+    try {
+      details = boundContextEntries(
+        context,
+        { nodes: 0, seen: new Set() },
+        CONTEXT_LINE_KEYS,
+      );
+    } catch {
+      // degradation-audit: optional-capability - a throwing getter in caller
+      // context keeps the log line itself; only the detail payload is replaced.
+      details = { context: '[Unreadable]' };
     }
     if (Object.keys(details).length > 0) {
-      let serialized: string;
-      try {
-        serialized = serializeContext(details);
-      } catch {
-        // degradation-audit: optional-capability - an unserializable context
-        // keeps the log line itself; only the detail payload is replaced.
-        serialized = '[Unserializable]';
-      }
+      let serialized = JSON.stringify(details);
       if (serialized.length > MAX_CONTEXT_CHARS) {
         const dropped = serialized.length - MAX_CONTEXT_CHARS;
         serialized = `${serialized.slice(0, MAX_CONTEXT_CHARS)}…[truncated ${dropped} chars]`;

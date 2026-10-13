@@ -242,7 +242,7 @@ describe('ProcessLifecycleRecorder', () => {
       'console-message',
       consoleMessage(
         'error',
-        '\n  OAuth callback failed for ?code=abc123\n    at body {"apiKey":"k-1"}\n',
+        '  OAuth callback failed for ?code=abc123\n    at body {"apiKey":"k-1"}\n',
       ),
     );
 
@@ -251,6 +251,34 @@ describe('ProcessLifecycleRecorder', () => {
       message: 'OAuth callback failed for ?code=[REDACTED]',
       source: 'app://main.js:7',
     });
+  });
+
+  it('keeps an empty first line empty instead of logging a later line', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit(
+      'console-message',
+      consoleMessage('error', '\nclient secret is xyz'),
+    );
+
+    const context = logger.error.mock.calls[0][1] as { message: string };
+    expect(context.message).toBe('');
+  });
+
+  it('caps the forwarded source', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit('console-message', {
+      ...consoleMessage('error'),
+      sourceId: `app://${'a'.repeat(10_000)}.js`,
+    });
+
+    const context = logger.error.mock.calls[0][1] as { source: string };
+    expect(Buffer.byteLength(context.source)).toBeLessThanOrEqual(
+      CONSOLE_MAX_BYTES + 3,
+    );
   });
 
   it('truncates a forwarded console line to the byte bound', () => {

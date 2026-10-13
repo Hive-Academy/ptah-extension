@@ -79,6 +79,36 @@ describe('ElectronLoggerAdapter.error context', () => {
     expect(context).not.toContain('…[truncated');
   });
 
+  it('bounds a very wide object and never calls toJSON', () => {
+    const { logger, lines } = makeLogger();
+    const wide: Record<string, number> = {};
+    for (let i = 0; i < 100_000; i++) wide[`k${i}`] = i;
+    const toJSON = jest.fn(() => 'expensive');
+
+    logger.error('wide', { wide, custom: { toJSON, value: 1 } });
+
+    const context = lines.find((l) => l.startsWith('  Context: ')) ?? '';
+    expect(context.length).toBeLessThan(8_300);
+    expect(context).toContain('"…":"more keys dropped"');
+    expect(toJSON).not.toHaveBeenCalled();
+  });
+
+  it('writes circular, bigint and Error values without throwing', () => {
+    const { logger, lines } = makeLogger();
+    const loop: Record<string, unknown> = { name: 'loop' };
+    loop['self'] = loop;
+
+    logger.error('odd values', {
+      loop,
+      big: BigInt(42),
+      cause: new Error('inner'),
+    });
+
+    expect(lines).toContain(
+      '  Context: {"loop":{"name":"loop","self":"[Circular]"},"big":"42n","cause":{"name":"Error","message":"inner"}}',
+    );
+  });
+
   it('writes no context line when there is no context', () => {
     const { logger, lines } = makeLogger();
 
