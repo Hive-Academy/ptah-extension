@@ -10,6 +10,7 @@ import {
 import {
   AgentMonitorStore,
   PermissionHandlerService,
+  agentVisibleInSession,
   type MonitoredAgent,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
@@ -140,7 +141,8 @@ describe(CompactSessionCardComponent.name, () => {
     compactionMarkerFor: () => marker(),
   };
   const agentStore = {
-    agentsForSession: () => agents(),
+    agentsForSession: (sessionId: string) =>
+      agents().filter((agent) => agentVisibleInSession(agent.parentSessionId, sessionId)),
     agentsOwnedBySession: (sessionId: string) =>
       agents().filter((agent) => agent.parentSessionId === sessionId),
     subagents,
@@ -253,6 +255,46 @@ describe(CompactSessionCardComponent.name, () => {
     const subChanged = fixture.componentInstance.laneSummary();
     expect(subChanged).not.toBe(subFirst);
     expect(subChanged.rows[0].kind).toBe('background');
+  });
+
+  it('keeps unowned CLI agents off other Rail cards, including counts and overflow', () => {
+    TestBed.overrideProvider(SESSION_CARD_ACTIONS, {
+      useValue: { openLane: jest.fn(), openSession: jest.fn() },
+    });
+    agents.set([
+      lane({ agentId: 'unowned', displayName: 'Unowned CLI', parentSessionId: undefined, status: 'failed' }),
+      lane({ agentId: 'foreign', displayName: 'Foreign CLI', parentSessionId: 'session-2' }),
+      lane({ agentId: 'owned-1' }),
+      lane({ agentId: 'owned-2' }),
+      lane({ agentId: 'owned-3' }),
+      lane({ agentId: 'owned-4' }),
+    ]);
+    const fixture = render();
+    fixture.componentRef.setInput('variant', 'rail');
+    fixture.detectChanges();
+    const summary = fixture.componentInstance.laneSummary();
+    expect(summary.total).toBe(4);
+    expect(summary.counts).toEqual({ waiting: 0, error: 0, running: 4, done: 0, stopped: 0 });
+    expect(summary.rows.map((row) => row.id)).toEqual([
+      'cli:owned-1', 'cli:owned-2', 'cli:owned-3',
+    ]);
+    expect(summary.moreCount).toBe(1);
+    expect(fixture.nativeElement.querySelectorAll('button[aria-label^="Open codex output"]')).toHaveLength(3);
+    expect(fixture.nativeElement.textContent).toContain('+1 more');
+    expect(fixture.nativeElement.textContent).not.toContain('Unowned CLI');
+    expect(fixture.nativeElement.textContent).not.toContain('Foreign CLI');
+
+    const other = render(tab({ id: 'tab-2', claudeSessionId: 'session-2' }));
+    expect(other.componentInstance.laneSummary().rows.map((row) => row.id))
+      .toEqual(['cli:foreign']);
+  });
+
+  it('keeps an unresolved CLI agent on an unscoped main-panel compact card', () => {
+    agents.set([lane({ agentId: 'unowned', displayName: 'Unowned CLI', parentSessionId: undefined })]);
+    const fixture = render();
+    expect(fixture.componentInstance.laneSummary().rows.map((row) => row.id))
+      .toEqual(['cli:unowned']);
+    expect(fixture.nativeElement.textContent).toContain('Unowned CLI');
   });
 
   it('identifies equal-text terminal failures by terminal failure sequence', () => {

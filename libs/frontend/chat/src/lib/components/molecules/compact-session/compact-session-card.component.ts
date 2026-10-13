@@ -49,6 +49,7 @@ import {
 } from '../../../services/session-git-stats/session-git-stats.store';
 import {
   SESSION_CARD_ACTIONS,
+  SESSION_CONTEXT,
   SESSION_FORCED_CARD,
 } from '../../../tokens/session-context.token';
 import { buildLaneSummary, laneKey } from './compact-lane-rows';
@@ -180,6 +181,7 @@ export class CompactSessionCardComponent {
   private readonly cardActions = inject(SESSION_CARD_ACTIONS, {
     optional: true,
   });
+  private readonly sessionContext = inject(SESSION_CONTEXT, { optional: true });
   private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
 
   readonly tab = input.required<TabState>();
@@ -225,7 +227,9 @@ export class CompactSessionCardComponent {
       : null,
   );
   private readonly sessionAgents = computed(() =>
-    this.agentStore.agentsForSession(this.sessionIdentity()),
+    this.cardActions || this.sessionContext
+      ? this.agentStore.agentsOwnedBySession(this.sessionIdentity())
+      : this.agentStore.agentsForSession(this.sessionIdentity()),
   );
   readonly laneSummary = computed(
     () =>
@@ -235,6 +239,8 @@ export class CompactSessionCardComponent {
           (agent) => agent.parentSessionId === this.sessionIdentity(),
         ),
         this.sessionIdentity(),
+        3,
+        Boolean(this.cardActions || this.sessionContext),
       ),
     { equal: sameLaneSummary },
   );

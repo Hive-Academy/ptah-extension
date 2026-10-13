@@ -48,16 +48,20 @@ function laneStatus(status: string, waiting: boolean): CompactLaneStatus {
   return 'running';
 }
 
+/** Use strict ownership for canvas-scoped cards; other callers keep tolerant CLI visibility. */
 export function buildLaneSummary(
   agents: readonly MonitoredAgent[],
   subagents: readonly SubagentRecord[],
   sessionId: string,
   max = 3,
+  strictOwnership = false,
 ): CompactLaneSummary {
   const rows: CompactLaneRow[] = [
     ...agents
       .filter((agent) =>
-        agentVisibleInSession(agent.parentSessionId, sessionId),
+        strictOwnership
+          ? Boolean(sessionId) && agent.parentSessionId === sessionId
+          : agentVisibleInSession(agent.parentSessionId, sessionId),
       )
       .map((agent): CompactLaneRow => ({
         id: laneKey('cli', agent.agentId),

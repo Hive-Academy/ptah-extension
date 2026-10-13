@@ -98,6 +98,20 @@ describe('CanvasLaneTabsComponent', () => {
     expect(selected).toHaveBeenCalledWith('orchestrator');
   });
 
+  it('shows an owned CLI lane once while excluding unresolved and foreign lanes', () => {
+    agents.set([
+      { agentId: 'unowned', cli: 'Unowned', status: 'running' },
+      { agentId: 'foreign', parentSessionId: 'other', cli: 'Foreign', status: 'running' },
+      { agentId: 'owned', parentSessionId: 'owner', cli: 'Owned', status: 'running' },
+    ]);
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.detectChanges();
+    const tabs = [...fixture.nativeElement.querySelectorAll('[role="tab"]')] as HTMLElement[];
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['Orchestrator', 'Owned']);
+    expect(tabs.filter((tab) => tab.id.includes('cli:owned'))).toHaveLength(1);
+  });
+
   it('moves between tabs with arrow keys', () => {
     agents.set([
       {

@@ -108,4 +108,36 @@ describe('compact lane rows', () => {
     ]);
     expect(result.moreCount).toBe(0);
   });
+
+  it('excludes unresolved and foreign CLI owners from rows, counts and overflow', () => {
+    const agents = [
+      cli('owned', 'running', 1),
+      { ...cli('unowned', 'failed', 2), parentSessionId: undefined },
+      cli('foreign', 'pending', 3, 'other'),
+    ];
+    const result = buildLaneSummary(agents, [], 's', 1, true);
+    expect(result.rows.map((row) => row.id)).toEqual(['cli:owned']);
+    expect(result.total).toBe(1);
+    expect(result.moreCount).toBe(0);
+    expect(result.counts).toEqual({
+      waiting: 0,
+      error: 0,
+      running: 1,
+      done: 0,
+      stopped: 0,
+    });
+    expect(buildLaneSummary(agents, [], 'other', 3, true).rows.map((row) => row.id))
+      .toEqual(['cli:foreign']);
+  });
+
+  it('keeps unresolved CLI agents visible by default for the main panel', () => {
+    const agents = [
+      cli('owned', 'running', 1),
+      { ...cli('unowned', 'failed', 2), parentSessionId: undefined },
+      cli('foreign', 'running', 3, 'other'),
+    ];
+    const result = buildLaneSummary(agents, [], 's');
+    expect(result.rows.map((row) => row.id)).toEqual(['cli:unowned', 'cli:owned']);
+    expect(result.counts).toEqual({ waiting: 0, error: 1, running: 1, done: 0, stopped: 0 });
+  });
 });
