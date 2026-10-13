@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en" data-theme-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah tool-call styling options</title>
+<style>
+/* Tokens mirror apps/ptah-extension-webview tailwind.config.js (Anubis dark / light) + styles.css */
+:root{
+  --b1:#131317;--b2:#1a1a20;--b3:#242430;--bc:#e8e6e1;--bcm:#a3a1a8;
+  --surface-1:color-mix(in srgb,var(--b2) 88%,var(--b1));
+  --border:rgba(232,230,225,.14);--border-strong:rgba(232,230,225,.22);--hl:rgba(232,230,225,.07);
+  --ok:#16a34a;--err:#dc2626;--info:#3b82f6;--warn:#f97316;
+  --gold:#d4af37;--gold-strong:#f5d97d;--gold-soft:rgba(212,175,55,.12);
+  --add:rgba(22,163,74,.16);--del:rgba(220,38,38,.16);
+}
+[data-theme-mode=light]{
+  --b1:#f8f6f4;--b2:#efebe8;--b3:#e6e3e0;--bc:#2a1f33;--bcm:#5f5668;
+  --surface-1:color-mix(in srgb,var(--b2) 88%,var(--b1));
+  --border:rgba(42,31,51,.14);--border-strong:rgba(42,31,51,.22);--hl:rgba(42,31,51,.06);
+  --ok:#0f8a46;--err:#b91c1c;--info:#1d6fd6;--warn:#c2410c;
+  --gold:#a9781a;--gold-strong:#7a5509;--gold-soft:rgba(169,120,26,.14);
+  --add:rgba(15,138,70,.14);--del:rgba(185,28,28,.12);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--b1);color:var(--bc);font:13px/1.45 "Segoe UI",system-ui,sans-serif}
+.mono{font-family:Consolas,"Cascadia Mono",Menlo,monospace}
+.muted{color:var(--bcm)}
+header.top{position:sticky;top:0;z-index:5;background:var(--b2);border-bottom:1px solid var(--border);padding:8px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top h1{font-size:14px;margin:0 8px 0 0}
+button.ctl{background:var(--b3);color:var(--bc);border:1px solid var(--border-strong);border-radius:6px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer;min-height:28px}
+button.ctl[aria-pressed=true]{outline:2px solid var(--gold);outline-offset:1px}
+label.ctl{font-size:12px;display:flex;gap:4px;align-items:center}
+main{display:grid;gap:16px;padding:12px;grid-template-columns:repeat(3,minmax(0,1fr))}
+main.single{grid-template-columns:minmax(0,1fr)}
+@media(max-width:1100px){main{grid-template-columns:1fr}}
+section.col{min-width:0}
+section.col>h2{font-size:13px;margin:0 0 2px}
+section.col>p{margin:0 0 8px;font-size:12px;color:var(--bcm)}
+.panel{width:var(--w,100%);max-width:100%;border:1px dashed var(--border-strong);border-radius:6px;padding:6px;background:var(--b1)}
+.fam{font-size:11px;color:var(--bcm);margin:12px 2px 4px;text-transform:uppercase;letter-spacing:.06em}
+button.reset{all:unset;cursor:pointer;display:block;width:100%}
+:focus-visible{outline:2px solid var(--bc);outline-offset:2px}
+/* shared pieces */
+.ic{display:inline-block;width:14px;text-align:center;flex:none}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.s-ok{background:var(--ok)}.s-err{background:var(--err)}.s-run{background:var(--info);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.s-run{animation:none}}
+.chip{font:11px/18px Consolas,monospace;height:18px;padding:0 6px;border-radius:4px;background:var(--hl);color:var(--bcm);white-space:nowrap;display:inline-block}
+.gold{color:var(--gold-strong)}
+.gchip{background:var(--gold-soft);color:var(--gold-strong);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent)}
+.dur{font-size:10px;color:var(--bcm);flex:none}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.cmd{font:11px/1.45 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.outhdr{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--bcm);min-height:24px}
+.outhdr .sp{flex:1}
+.mini{background:none;border:0;color:var(--bcm);font:inherit;font-size:11px;cursor:pointer;padding:2px 8px;min-height:24px;border-radius:4px}
+.mini:hover{background:var(--hl);color:var(--bc)}
+.out{font:11px/1.45 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:9.6em;overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 2em),transparent);mask-image:linear-gradient(#000 calc(100% - 2em),transparent)}
+.out.short{max-height:none;-webkit-mask-image:none;mask-image:none}
+.out.full{max-height:24rem;overflow-y:auto;-webkit-mask-image:none;mask-image:none}
+.diffrow{display:grid;grid-template-columns:2.2rem 1.2rem 1fr}
+.diffrow .n{color:var(--bcm);text-align:right;padding-right:6px}
+.diffrow.del{background:var(--del)}.diffrow.add{background:var(--add)}
+.todo{display:flex;gap:6px;align-items:baseline}
+.todo.done{color:var(--bcm);text-decoration:line-through}.todo.cur{font-weight:600}
+.errbox{background:color-mix(in srgb,var(--err) 12%,transparent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font:11px/1.45 Consolas,monospace}
+.kv b{font-weight:400;color:var(--bcm)}
+.hide{display:none!important}
+/* ===== A: quiet log ===== */
+.A .card{padding:0 4px;border-radius:4px;margin:1px 0}
+.A .card:hover{background:var(--hl)}
+.A .hd{display:flex;align-items:baseline;gap:8px;min-height:28px;font-size:12px;padding:4px 0;width:100%;text-align:left}
+.A .hd .name{font-family:Consolas,monospace;color:var(--bcm);flex:none}
+.A .hd .pri{flex:1;min-width:0}
+.A .chev{opacity:0;transition:opacity .15s;color:var(--bcm);font-size:10px}
+.A .card:hover .chev,.A .card:focus-within .chev{opacity:1}
+.A .card.open{margin-left:10px}
+.A .body{margin:0 0 6px 4px;padding:2px 0 2px 10px;border-left:1px solid var(--border-strong);display:grid;gap:6px}
+.A .card.g .body{border-left-color:color-mix(in srgb,var(--gold) 50%,transparent)}
+.A .blk{background:color-mix(in srgb,var(--b3) 40%,transparent);border-radius:4px;padding:6px 8px}
+/* ===== B: structured card ===== */
+.B .card{background:var(--surface-1);border:1px solid var(--border);border-radius:4px;margin:2px 0}
+.B .card.g{border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
+.B .card.e{border-left:2px solid var(--err)}
+.B .hd{display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 8px;font-size:12px;width:100%;text-align:left}
+.B .hd .name{font-family:Consolas,monospace;color:var(--bcm);flex:none}
+.B .hd .pri{flex:1;min-width:0;font-weight:500}
+.B .chips{display:flex;flex-wrap:wrap;gap:4px;padding:0 8px 6px}
+.B .body{border-top:1px solid var(--border);padding:8px;display:grid;gap:8px}
+.B .lbl{font-size:11px;font-weight:500;color:var(--bcm);margin-bottom:2px}
+.B .card.g .lbl{color:var(--gold-strong)}
+.B .box{background:color-mix(in srgb,var(--b3) 50%,transparent);border-radius:4px;padding:6px 8px}
+.B .boxh{border-bottom:1px solid var(--border);margin:-6px -8px 6px;padding:0 8px}
+/* ===== C: rail ===== */
+.C .card{position:relative;padding-left:12px;margin:2px 0;border-radius:4px}
+.C .card::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:3px;border-radius:2px;background:var(--ok);opacity:.75}
+.C .card.e::before{background:var(--err);opacity:1}
+.C .card.r::before{background:var(--info);opacity:1;animation:pulse 1.2s infinite}
+.C .card.g::before{background:var(--gold);opacity:1}
+.C .card.n::before{background:var(--b3);opacity:1}
+.C .card:hover{background:var(--surface-1)}
+.C .hd{display:flex;align-items:center;gap:8px;min-height:32px;font-size:12px;width:100%;text-align:left}
+.C .hd .name{font-family:Consolas,monospace;color:var(--bcm);flex:none;width:5.2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.C .hd .pri{flex:1;min-width:0}
+.C .card.open{background:var(--surface-1)}
+.C .body{display:grid;grid-template-columns:3.2rem 1fr;gap:6px 8px;padding:2px 8px 8px 0;font-size:11px}
+.C .body .k{font:11px Consolas,monospace;color:var(--bcm);padding-top:3px}
+.C .hdrline{padding-bottom:2px}
+.panel.narrow .C .hd .name,.panel.narrow .B .hd .name{display:none}
+.panel.narrow .C .body{grid-template-columns:1fr}
+.panel.narrow .B .hd .chipinline{display:none}
+.panel.narrow .A .hd .chipinline{display:none}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Ptah tool-call styling</h1>
+  <button class="ctl" id="theme" aria-pressed="false">Light theme</button>
+  <button class="ctl" id="expand">Expand all</button>
+  <button class="ctl" id="collapse">Collapse all</button>
+  <label class="ctl">Panel width
+    <select id="width" class="ctl"><option value="100%">fill column</option><option value="800px">800 px</option><option value="520px">520 px</option><option value="360px">360 px (narrow)</option></select>
+  </label>
+  <label class="ctl">View
+    <select id="view" class="ctl"><option value="all">All three</option><option value="A">A Quiet log</option><option value="B">B Structured card</option><option value="C">C Timeline rail</option></select>
+  </label>
+</header>
+<main id="main"></main>
+
+<script>
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const CMD='npx nx run-many -t test --projects=chat,chat-ui,core,shared,markdown,chat-streaming `\n  --parallel=1 --maxWorkers=2';
+const LONGLINES=[
+ 'name=frontend-developer  status=idle   lastTask=TASK_2026_231 workspace=D:\\projects\\ptah-extension\\.claude-worktrees\\tool-call-redesign',
+ 'name=ui-ux-designer      status=running lastTask=TASK_2026_232 workspace=D:\\projects\\ptah-extension\\.claude-worktrees\\tool-call-redesign',
+ 'name=senior-tester       status=idle   lastTask=TASK_2026_229 workspace=D:\\projects\\ptah-extension',
+ 'name=code-logic-reviewer status=idle   lastTask=TASK_2026_228 workspace=D:\\projects\\ptah-extension',
+ 'name=software-architect  status=idle   lastTask=TASK_2026_230 workspace=D:\\projects\\ptah-extension',
+ 'name=team-leader         status=idle   lastTask=TASK_2026_230 workspace=D:\\projects\\ptah-extension'];
+/* Each sample states each fact ONCE: head.pri (header), chips, body.in, args (leftover only), out */
+const S=[
+ {fam:'Command: background run (PowerShell)',tool:'PowerShell',ic:'>_',st:'ok',dur:'0.4s',
+  pri:'Run the test target on the six changed projects again',chips:['background','60 min'],
+  in:{kind:'cmd',text:CMD},out:{kind:'text',label:'Text',text:'Started in background (task id: b3k9x2m1)\nOutput file: C:\\Users\\abdal\\AppData\\Local\\Temp\\claude\\tasks\\b3k9x2m1.output',lines:2}},
+ {fam:'Command: failed (Bash)',tool:'Bash',ic:'>_',st:'err',dur:'18.2s',
+  pri:'Typecheck chat-ui',chips:['60 min'],
+  in:{kind:'cmd',text:'npx nx typecheck chat-ui --parallel=1'},
+  out:{kind:'err',label:'Error',text:"libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-call-header.component.ts:187:9\n  error TS2322: Type 'string | undefined' is not assignable to type 'string'.\n\nNX   Running target typecheck for project chat-ui failed",lines:5}},
+ {fam:'Read',tool:'Read',ic:'▤',st:'ok',dur:'12ms',file:['tool-call-header.component.ts','libs/frontend/chat-ui/src/lib/molecules/tool-execution'],
+  chips:['lines 1-60','TypeScript'],
+  out:{kind:'code',label:'TypeScript',lines:60,text:"import {\n  Component,\n  ElementRef,\n  input,\n  inject,\n  output,\n  computed,\n  viewChild,\n  ChangeDetectionStrategy,\n} from '@angular/core';\nimport { ToolIconComponent } from '../../atoms/tool-icon.component';\n"}},
+ {fam:'Write',tool:'Write',ic:'✎',st:'ok',dur:'31ms',file:['style-options.md','.ptah/specs/tool-call-redesign'],chips:['new file','84 lines','Markdown'],
+  out:{kind:'code',label:'Markdown',lines:84,text:"# Tool-call card styling\n\nMockup: style-options.html\n\n## 0. Shared rules\n\n- One place per fact\n- One scroll container\n- 11px floor\n- Language label once\n- No generic Input / Output headings\n"}},
+ {fam:'Edit (diff)',tool:'Edit',ic:'±',st:'ok',dur:'9ms',file:['tool-output-display.component.ts','libs/frontend/chat-ui/src/lib/molecules/tool-execution'],chips:['1 replacement'],
+  out:{kind:'diff',lines:7,rows:[[48,' ',"    @if (node().toolOutput || editInput()) {"],[49,'-','      <div class="mt-1.5">'],[50,'-','        <div class="text-[10px] font-semibold text-base-content-muted mb-0.5">Output</div>'],[49,'+','      <div class="mt-1.5 space-y-1">'],[50,' ','        @if (todoInput()) {'],[51,' ','          <ptah-todo-list-display [toolInput]="todoInput()!" />']]}},
+ {fam:'Search',tool:'Grep',ic:'⌕',st:'ok',dur:'86ms',pri:'"Plain text"',chips:['libs/frontend','*.ts','-i'],
+  out:{kind:'code',label:'3 files',lines:3,text:"libs/frontend/chat-ui/src/lib/utils/tool-language.utils.ts:41\nlibs/frontend/chat-ui/src/lib/molecules/tool-execution/code-output.component.ts:61\nlibs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-input-display.component.ts:100"}},
+ {fam:'Search',tool:'WebFetch',ic:'⌕',st:'ok',dur:'1.3s',pri:'developer.mozilla.org/en-US/docs/Web/CSS/mask-image',chips:['fetch'],
+  in:{kind:'prose',text:'Does mask-image need the -webkit- prefix in Chromium?'},
+  out:{kind:'text',label:'Text',lines:2,text:'Chromium 120+ supports the unprefixed property; keep -webkit-mask-image for VS Code builds before that.'}},
+ {fam:'TodoWrite',tool:'TodoWrite',ic:'☑',st:'ok',dur:'4ms',pri:'3 of 5 done',chips:[],
+  out:{kind:'todo',lines:5,todos:[['done','Read the six tool-execution components'],['done','Measure contrast pairs'],['done','Draft three directions'],['cur','Build the HTML mockup'],['todo','Hand off to frontend-developer']]}},
+ {fam:'Agent / Task',tool:'Agent',ic:'⛭',st:'ok',dur:'2m 14s',pri:'Map the tool-call molecules',chips:['Explore','sonnet'],
+  in:{kind:'prose',clamp:true,text:'Read every component under tool-execution and report which facts each one renders twice. Do not edit any file. Return a table of component, fact and template line.'},
+  out:{kind:'text',label:'Text',lines:4,text:'Found 4 duplicated facts: tool name (badge + description), command (header row + Input list), language (header badge + code-output header), Output heading (orchestrator + code-output).'}},
+ {fam:'MCP: generic, with args',tool:'ListAgents',server:'agents',ic:'⬡',st:'ok',dur:'212ms',chips:[],
+  args:[['status','all'],['limit','6']],
+  out:{kind:'text',label:'Text',lines:6,text:LONGLINES.join('\n')}},
+ {fam:'MCP: generic, no arguments',tool:'get_status',server:'sonarqube',ic:'⬡',st:'ok',dur:'96ms',chips:[],args:[],
+  out:{kind:'text',label:'Text',lines:2,text:'Quality gate: PASSED\nOpen issues: 0'}},
+ {fam:'MCP: Ptah superpower (gold)',tool:'ptah_workspace_analyze',gold:true,ic:'✦',st:'ok',dur:'1.1s',chips:[],args:[],
+  out:{kind:'text',label:'Text',lines:4,text:'Project type: Nx monorepo\nFrameworks: Angular 22, Electron\nStyling: Tailwind 3 + DaisyUI 4\nFrontend libs: chat, chat-ui, core, shared'}},
+ {fam:'Streaming / running',tool:'Bash',ic:'>_',st:'run',dur:'',pri:'Lint the webview app',chips:['60 min'],
+  in:{kind:'cmd',text:'npx nx lint ptah-extension-webview --parallel=1'},out:null}
+];
+
+function fileHead(s){return `<span class="pri trunc" title="${esc(s.file[1]+'/'+s.file[0])}"><b style="font-weight:600">${esc(s.file[0])}</b> <span class="muted">${esc(s.file[1])}</span></span>`}
+function priHead(s){
+  if(s.file) return fileHead(s);
+  if(s.server) return `<span class="pri trunc"><span class="muted">${esc(s.server)} ·</span> <b style="font-weight:600">${esc(s.tool)}</b>${s.args&&s.args.length?` <span class="muted mono">${s.args.map(a=>a[0]+'='+a[1]).join(' ')}</span>`:''}</span>`;
+  if(s.gold) return `<span class="pri trunc"><span class="chip gchip">Ptah</span> <b style="font-weight:600">${esc(s.tool.replace('ptah_',''))}</b></span>`;
+  return `<span class="pri trunc" title="${esc(s.pri)}">${esc(s.pri)}</span>`;
+}
+function nameCell(s){ return (s.server||s.gold)?'':`<span class="name">${esc(s.tool)}</span>`; }
+function chipsInline(s){return s.chips.slice(0,2).map(c=>`<span class="chip chipinline">${esc(c)}</span>`).join(' ')}
+function chipsAll(s){return s.chips.map(c=>`<span class="chip">${esc(c)}</span>`).join('')}
+function statusIcon(s){
+  const l=s.st==='ok'?'Completed':s.st==='err'?'Failed':'Running';
+  return `<span class="dot s-${s.st}" role="img" aria-label="${l}"></span>`;
+}
+function inputBlock(s,cls){
+  if(!s.in) return '';
+  if(s.in.kind==='cmd') return `<div class="${cls||''}"><div class="cmd"><span class="muted">$ </span>${esc(s.in.text)}</div></div>`;
+  return `<div class="${cls||''} pre" style="font-size:12px;color:var(--bcm)${s.in.clamp?';display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden':''}">${esc(s.in.text)}</div>`;
+}
+function argsBlock(s){
+  if(!s.args||!s.args.length) return '';
+  return `<div class="kv">${s.args.map(a=>`<b>${esc(a[0])}</b><span>${esc(a[1])}</span>`).join('')}</div>`;
+}
+function outBody(o){
+  if(o.kind==='diff') return `<div class="mono" style="font-size:11px">${o.rows.map(r=>`<div class="diffrow ${r[1]==='-'?'del':r[1]==='+'?'add':''}"><span class="n">${r[0]}</span><span aria-label="${r[1]==='-'?'removed':r[1]==='+'?'added':'unchanged'}">${r[1]===' '?'':r[1]}</span><span class="pre">${esc(r[2])}</span></div>`).join('')}</div>`;
+  if(o.kind==='todo') return `<div style="display:grid;gap:2px;font-size:12px">${o.todos.map(t=>`<div class="todo ${t[0]}"><span class="mono">${t[0]==='done'?'[x]':t[0]==='cur'?'[~]':'[ ]'}</span><span>${esc(t[1])}</span></div>`).join('')}</div>`;
+  return `<div class="out-in">${esc(o.text)}</div>`;
+}
+function outBlock(s,pad){
+  const o=s.out; if(!o) return '';
+  const longish=o.lines>3 && o.kind!=='todo';
+  const showHdr=longish||(o.label&&o.label!=='Text')||o.kind==='err';
+  const scroller=(o.kind==='diff'||o.kind==='todo')?'':'out'+(longish?'':' short');
+  const body=outBody(o);
+  const hdr=showHdr?`<div class="outhdr"><span>${esc(o.label||'')}</span>${o.kind==='todo'?'':`<span>· ${o.lines} lines</span>`}<span class="sp"></span>${longish?'<button class="mini" data-full>Show full output</button>':''}<button class="mini" aria-label="Copy">Copy</button></div>`:'';
+  const inner=o.kind==='diff'||o.kind==='todo'?body:`<div class="${scroller} ${o.kind==='err'?'':''}">${body.replace('class="out-in"','')}</div>`;
+  return `<div class="outwrap" ${o.kind==='err'?'data-err':''}>${hdr}${inner}</div>`;
+}
+
+const R={
+A(s,open,i){
+  const body=`<div class="body">
+    ${inputBlock(s,'')}
+    ${s.out?`<div class="blk ${s.out.kind==='err'?'errbox':''}">${outBlock(s)}</div>`:''}
+    ${(!s.in&&!s.out)?'':''}
+    ${s.args&&s.args.length&&!s.server?argsBlock(s):''}
+    ${s.args&&s.args.length&&s.server?`<div class="kv">${s.args.map(a=>`<b>${esc(a[0])}</b><span>${esc(a[1])}</span>`).join('')}</div>`:''}
+  </div>`;
+  return `<div class="card ${s.gold?'g':''} ${open?'open':''}">
+   <button class="reset hd" data-toggle aria-expanded="${open}">
+     ${statusIcon(s)}${nameCell(s)}${priHead(s)}${chipsInline(s)}<span class="chev">${open?'▾':'▸'}</span>${s.dur?`<span class="dur">${s.dur}</span>`:''}
+   </button>${open?body:''}</div>`;
+},
+B(s,open){
+  const body=`<div class="body">
+    ${s.chips.length&&open?'':''}
+    ${s.in?`<div><div class="lbl">${s.in.kind==='cmd'?'Command':'Prompt'}</div><div class="box">${s.in.kind==='cmd'?`<div class="cmd"><span class="muted">$ </span>${esc(s.in.text)}</div>`:`<div class="pre" style="font-size:12px">${esc(s.in.text)}</div>`}</div></div>`:''}
+    ${s.args&&s.args.length?`<div><div class="lbl">Arguments</div><div class="box">${argsBlock(s)}</div></div>`:''}
+    ${s.out?`<div><div class="lbl">${s.out.kind==='err'?'Error':s.out.kind==='diff'?'Diff':s.out.kind==='todo'?'Tasks':(s.file&&s.tool==='Read')?'Content':s.tool==='Grep'?'Matches':'Result'}</div><div class="box ${s.out.kind==='err'?'errbox':''}">${outBlock(s)}</div></div>`:''}
+  </div>`;
+  return `<div class="card ${s.gold?'g':''} ${s.st==='err'?'e':''}">
+   <button class="reset hd" data-toggle aria-expanded="${open}">
+     <span class="muted" style="font-size:10px">${open?'▾':'▸'}</span><span class="ic muted">${s.ic}</span>${nameCell(s)}${priHead(s)}${open?'':chipsInline(s)}${statusIcon(s)}${s.dur?`<span class="dur">${s.dur}</span>`:''}
+   </button>
+   ${open&&s.chips.length?`<div class="chips">${chipsAll(s)}</div>`:''}${open?body:''}</div>`;
+},
+C(s,open){
+  const cls=s.gold?'g':s.st==='err'?'e':s.st==='run'?'r':'';
+  const rows=[];
+  if(s.in) rows.push(['IN',inputBlock(s,'')]);
+  if(s.args&&s.args.length) rows.push(['ARGS',argsBlock(s)]);
+  if(s.out) rows.push([s.out.kind==='err'?'ERR':'OUT',`<div class="${s.out.kind==='err'?'errbox':''}" style="${s.out.kind==='err'?'padding:4px 6px;border-radius:4px':''}">${outBlock(s)}</div>`]);
+  const body=`<div class="body">${rows.map(r=>`<div class="k">${r[0]}</div><div style="min-width:0">${r[1]}</div>`).join('')}</div>`;
+  return `<div class="card ${cls} ${open?'open':''}">
+   <button class="reset hd" data-toggle aria-expanded="${open}">
+     <span class="ic muted">${s.ic}</span>${nameCell(s)||'<span class="name"></span>'}${priHead(s)}${open?'':chipsInline(s)}${s.dur?`<span class="dur">${s.dur}</span>`:''}
+   </button>${open?body:''}</div>`;
+}};
+
+const NAMES={A:['A. Quiet / inline log','One log line per call. No box until expanded; indent rule carries the body.'],
+ B:['B. Structured card','Card with header, param chips, labelled sections. Closest to today.'],
+ C:['C. Timeline / rail','Status rail left, fixed name column, two-column IN / ARGS / OUT grid.']};
+const state={open:new Set(['0','1','2','4','9']),full:new Set()};
+function render(){
+  const view=document.getElementById('view').value;
+  const w=document.getElementById('width').value;
+  const main=document.getElementById('main');
+  main.className=view==='all'?'':'single';
+  const dirs=view==='all'?['A','B','C']:[view];
+  main.innerHTML=dirs.map(d=>`<section class="col"><h2>${NAMES[d][0]}</h2><p>${NAMES[d][1]}</p>
+   <div class="panel ${parseInt(w)<=400?'narrow':''}" style="--w:${w}"><div class="${d}">${S.map((s,i)=>{
+     const fam=(i===0||S[i-1].fam.split(':')[0].split(' (')[0]!==s.fam.split(':')[0].split(' (')[0])?`<div class="fam">${esc(s.fam)}</div>`:`<div class="fam">${esc(s.fam)}</div>`;
+     return fam+`<div data-k="${d}${i}" data-i="${i}">${R[d](s,state.open.has(d+i))}</div>`;}).join('')}</div></div></section>`).join('');
+  // restore "full" state
+  state.full.forEach(k=>{const el=main.querySelector(`[data-k="${k}"] .out`);if(el){el.classList.add('full')}});
+}
+document.getElementById('main').addEventListener('click',e=>{
+  const t=e.target.closest('[data-toggle]');
+  const host=e.target.closest('[data-k]');
+  const full=e.target.closest('[data-full]');
+  if(full&&host){const out=host.querySelector('.out');const on=out.classList.toggle('full');full.textContent=on?'Show less':'Show full output';on?state.full.add(host.dataset.k):state.full.delete(host.dataset.k);return}
+  if(t&&host){const k=host.dataset.k;state.open.has(k)?state.open.delete(k):state.open.add(k);render()}
+});
+document.getElementById('theme').onclick=function(){
+  const light=document.documentElement.dataset.themeMode!=='light';
+  document.documentElement.dataset.themeMode=light?'light':'dark';
+  this.setAttribute('aria-pressed',light);this.textContent=light?'Dark theme':'Light theme';
+};
+document.getElementById('expand').onclick=()=>{['A','B','C'].forEach(d=>S.forEach((_,i)=>state.open.add(d+i)));render()};
+document.getElementById('collapse').onclick=()=>{state.open.clear();render()};
+document.getElementById('width').onchange=render;document.getElementById('view').onchange=render;
+render();
+</script>
+</body>
+</html>

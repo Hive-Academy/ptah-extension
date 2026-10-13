@@ -16,6 +16,27 @@ export const FRESHNESS_MS = 900_000;
 /** Deadline for one limit lookup before it reports "timed out". */
 export const LIMIT_LOOKUP_DEADLINE_MS = 3_000;
 
+/**
+ * Deadline for providers whose read has a slow cold path: the Codex app-server
+ * start-up and the Antigravity OS-keyring read both take 3-6 s.
+ */
+export const SLOW_LIMIT_LOOKUP_DEADLINE_MS = 12_000;
+
+const SLOW_LIMIT_PROVIDERS: ReadonlySet<string> = new Set([
+  'openai-codex',
+  'codex',
+  'antigravity',
+]);
+
+/** The lookup deadline for a provider id or CLI name. */
+export function limitLookupDeadlineMs(
+  ...ids: ReadonlyArray<string | undefined>
+): number {
+  return ids.some((id) => id !== undefined && SLOW_LIMIT_PROVIDERS.has(id))
+    ? SLOW_LIMIT_LOOKUP_DEADLINE_MS
+    : LIMIT_LOOKUP_DEADLINE_MS;
+}
+
 /** The facts about one piece of evidence that precedence depends on. */
 export interface PlanLimitEvidenceStamp {
   /** When the evidence was observed, epoch ms UTC. */

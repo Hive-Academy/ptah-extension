@@ -54,6 +54,21 @@ describe.each([true, false])(
       );
     });
 
+    it('keeps status colour on the sign glyphs and the count numbers in body text', () => {
+      const counts = render(edit).querySelector(
+        '[data-testid="diff-counts"]',
+      ) as HTMLElement;
+
+      const coloured = Array.from(
+        counts.querySelectorAll('.text-error, .text-success'),
+      ).map((el) => el.textContent);
+      expect(coloured).toEqual(['-', '+']);
+      const numbers = Array.from(
+        counts.querySelectorAll('.text-base-content'),
+      ).map((el) => el.textContent);
+      expect(numbers).toEqual(['2', '1']);
+    });
+
     it('renders old lines then new lines with line numbers, named signs and a tint', () => {
       const rows = Array.from(
         render(edit).querySelectorAll<HTMLElement>('.diff-row'),
@@ -120,17 +135,16 @@ describe.each([true, false])(
       ).toBe('TypeScript');
     });
 
-    it('keeps the path link, which opens through FILE_LINK_OPENER', () => {
+    // The tool-call header names the file (with its Open button) once.
+    it('labels the block "Diff" and does not repeat the file path', () => {
       const host = render(edit);
-      const link = host.querySelector(
-        'ptah-file-path-link [title]',
-      ) as HTMLElement;
 
-      expect(link.getAttribute('title')).toBe('/repo/src/source.ts');
-      link.click();
-      expect(open).toHaveBeenCalledWith(
-        expect.objectContaining({ path: '/repo/src/source.ts' }),
-      );
+      expect(
+        host.querySelector('[data-testid="diff-label"]')?.textContent?.trim(),
+      ).toBe('Diff');
+      expect(host.querySelector('ptah-file-path-link')).toBeNull();
+      expect(host.textContent).not.toContain('/repo/src/source.ts');
+      expect(open).not.toHaveBeenCalled();
     });
 
     it('is a focusable, labelled, max-h-64 block that wraps and never scrolls sideways', () => {
@@ -159,7 +173,7 @@ describe.each([true, false])(
       const block = host.querySelector('[role="region"]') as HTMLElement;
 
       expect(caption.textContent?.trim()).toBe('Snippet lines');
-      expect(caption.classList).toContain('text-[10px]');
+      expect(caption.classList).toContain('text-[11px]');
       expect(caption.classList).toContain('text-base-content-muted');
       expect(block.getAttribute('aria-label')).toContain(
         'line numbers count within the replaced snippet',

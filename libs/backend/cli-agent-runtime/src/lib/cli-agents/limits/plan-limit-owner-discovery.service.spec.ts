@@ -677,6 +677,32 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     }
   });
 
+  it('waits for a five-second Codex-home owner in selected and lane sources', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = createHarness(THIRD_PARTY('openai-codex'));
+      h.detection.detectAll.mockResolvedValue(detected('codex'));
+      h.owners.resolveCodexHomeOwner.mockImplementation(
+        () =>
+          new Promise((resolve) => setTimeout(() => resolve(CODEX_A), 5_000)),
+      );
+      let settled = false;
+      const pending = h.service
+        .discoverTargets({ selectedProviderId: 'openai-codex' })
+        .then((entries) => {
+          settled = true;
+          return entries;
+        });
+      await jest.advanceTimersByTimeAsync(LIMIT_LOOKUP_DEADLINE_MS);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect((await pending).map(ownerKeyOf)).toEqual([CODEX_A.key]);
+      expect(h.owners.resolveCodexHomeOwner).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('lists owners with active evidence, skipping unknown owners and providers outside the scope', async () => {
     const h = createHarness(THIRD_PARTY('openai-codex'));
     h.ledger.knownOwners.mockReturnValue([
@@ -746,7 +772,7 @@ describe('PlanLimitOwnerDiscoveryService', () => {
       target: {
         providerId: 'ollama-cloud',
         ownerRef: GLM_LANE,
-        credentialRef: { kind: 'ptah-cli-key', ptahCliId: 'pc-glm' },
+        credentialRef: { kind: 'ollama-cloud-agent-key', ptahCliId: 'pc-glm' },
       },
     });
   });
@@ -819,7 +845,7 @@ describe('PlanLimitOwnerDiscoveryService', () => {
         const snapshot = await usage.service.getOwnerSnapshot(lane.target);
 
         expect(usage.credentials.resolve).toHaveBeenCalledWith({
-          kind: 'ptah-cli-key',
+          kind: 'ollama-cloud-agent-key',
           ptahCliId: 'pc-glm',
         });
         expect(snapshot.status).toBe(status);

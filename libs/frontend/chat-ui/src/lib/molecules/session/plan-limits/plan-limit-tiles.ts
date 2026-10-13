@@ -134,15 +134,26 @@ function localUsageTile(
   ctx: Ctx,
 ): PlanLimitTileModel {
   const usage = snapshot.localUsage!;
+  // A provider API (Ollama Cloud) counts the whole account, and a
+  // request-metered source has no token or cost figure.
+  const fromProvider = usage.source === 'provider-api';
+  const requests = usage.requests;
   return {
     id: `local-usage:${snapshot.owner.key}`,
     kind: 'local-usage',
     label: usage.label,
     ...caption,
-    value: `${usage.tokens.toLocaleString()} tokens · $${usage.estimatedCostUsd.toFixed(2)}`,
-    resetLine: usage.range ? `Range: ${usage.range}` : 'Local CLI accounting',
+    value:
+      requests !== undefined
+        ? `${requests.toLocaleString()} ${requests === 1 ? 'request' : 'requests'}`
+        : `${usage.tokens.toLocaleString()} tokens · $${usage.estimatedCostUsd.toFixed(2)}`,
+    resetLine: usage.range
+      ? `Range: ${usage.range}`
+      : fromProvider
+        ? 'Provider account usage'
+        : 'Local CLI accounting',
     tone: 'neutral',
-    sourceChips: ['Local CLI'],
+    sourceChips: [fromProvider ? 'Provider API' : 'Local CLI'],
     detailLines: [
       `Observed ${formatLocalAbsolute(usage.observedAt, ctx.now, ctx.time)}. This is not a plan percentage or reset.`,
     ],

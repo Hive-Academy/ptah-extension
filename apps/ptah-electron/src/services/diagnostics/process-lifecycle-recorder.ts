@@ -21,8 +21,8 @@
  *   measured unresponsive duration, and `webContents` `console-message`.
  * - Console forwarding takes `warning` and `error` only, at most
  *   {@link CONSOLE_LINES_PER_WINDOW} lines per {@link CONSOLE_WINDOW_MS}, then one
- *   "suppressed N" line; each message is truncated to
- *   {@link CONSOLE_MAX_BYTES}. The renderer's `WebviewErrorHandler` already
+ *   "suppressed N" line; only the source and the redacted first line of each
+ *   message are kept, truncated to {@link CONSOLE_MAX_BYTES}. The renderer's `WebviewErrorHandler` already
  *   logs to its console, so this is the whole bridge — no new IPC channel, and
  *   `contextIsolation` / `sandbox` are untouched.
  *
@@ -53,6 +53,7 @@ import {
   HANG_LOG_MAX_BYTES,
   appendHangLogLine,
 } from '@ptah-extension/vscode-core';
+import { redactSecrets } from './log-redaction';
 
 /** Forwarded renderer console lines allowed per rate window. */
 export const CONSOLE_LINES_PER_WINDOW = 20;
@@ -60,8 +61,36 @@ export const CONSOLE_LINES_PER_WINDOW = 20;
 /** Length of one console rate window. */
 export const CONSOLE_WINDOW_MS = 10_000;
 
-/** Per-message truncation bound for forwarded console text. */
-export const CONSOLE_MAX_BYTES = 2_048;
+/**
+ * Byte bound for the one forwarded console line. Only the console source and
+ * a short, redacted first line reach the persistent log: renderer text is
+ * untrusted, and stack traces or payloads below the first line are where
+ * request bodies and credentials appear.
+ */
+export const CONSOLE_MAX_BYTES = 256;
+
+/**
+ * Redact and cap one console line. The input is cut before redaction so the
+ * regex work is bounded; any secret at the cut point lies past the kept bytes.
+ */
+function boundedConsoleLine(line: string): string {
+  return truncateUtf8(
+    redactSecrets(line.slice(0, CONSOLE_SCAN_CHARS)),
+    CONSOLE_MAX_BYTES,
+  );
+}
+
+/** Characters of console text scanned at all; the rest is never read. */
+const CONSOLE_SCAN_CHARS = CONSOLE_MAX_BYTES * 4;
+
+/**
+ * The literal first line of console text, trimmed. An empty first line stays
+ * empty: skipping to a later line would log text the policy excludes.
+ */
+function firstLine(text: string): string {
+  const end = text.search(/[\r\n]/);
+  return (end === -1 ? text : text.slice(0, end)).trim();
+}
 
 /** Crash dumps kept after the startup prune (user decision Q5 / D9). */
 export const CRASH_DUMPS_TO_KEEP = 5;
@@ -195,8 +224,10 @@ export class ProcessLifecycleRecorder {
       `[renderer] console.${details.level}`,
       {
         windowId,
-        message: truncateUtf8(details.message, CONSOLE_MAX_BYTES),
-        source: `${details.sourceId}:${details.lineNumber}`,
+        message: boundedConsoleLine(
+          firstLine(details.message.slice(0, CONSOLE_SCAN_CHARS)),
+        ),
+        source: `${boundedConsoleLine(details.sourceId)}:${details.lineNumber}`,
       },
     );
   }

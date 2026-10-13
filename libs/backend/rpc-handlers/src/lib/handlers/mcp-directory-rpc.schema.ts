@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { NON_AUTH_PROVIDER_KEY_SLOT_IDS } from '@ptah-extension/platform-core';
 
 /**
  * Validated shape for the `mcpDirectory:setSmitheryApiKey` RPC method.
@@ -182,5 +183,8 @@ export type DisconnectOAuthInput = z.infer<typeof DisconnectOAuthSchema>;
  * `SMITHERY_API_KEY_DEF` descriptor in `@ptah-extension/settings-core`.
  * Routed through `IAuthSecretsService` provider-key slots (each id gets an
  * isolated, encrypted slot), so the key value never leaves the backend.
+ * Declared as a non-auth slot so saving it does not re-initialize the SDK
+ * adapter (which disposes every live chat session).
  */
-export const SMITHERY_API_KEY_SECRET_ID = 'smithery.apiKey';
+export const SMITHERY_API_KEY_SECRET_ID =
+  NON_AUTH_PROVIDER_KEY_SLOT_IDS.smitheryApiKey;

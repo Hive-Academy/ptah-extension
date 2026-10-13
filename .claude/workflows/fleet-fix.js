@@ -5,10 +5,15 @@ export const meta = {
 };
 
 /*
+ * Fleet policy: apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/references/fleet.md.
+ * The caller is the orchestrator: it verifies returned artifacts and alone updates task.md status.
  * Agents never commit; commits happen outside while no implementer is editing.
  * Resume by re-invoking with freshly computed args; never rely on resumeFromRunId
  * (prefix cache + parallel() ordering re-runs finished agents).
  * The sandbox cannot inspect disk, so args carry caller-computed checkpoints.
+ * Caller sets stage 'implement' only when implementation.json exists with blocked:false; a blocked or missing implementation.json leaves stage at 'plan' so implementation runs again.
+ * Caller sets stage 'judge' for a judge-round file, then updates task.md status after verifying the artifact.
+ * Status in_review/done is trusted only after the orchestrator verified implementation.json with blocked:false; status alone is not evidence.
  * Agents persist artifacts before returning; those artifacts are the source of truth.
  * Existing artifacts win, making every stage safe to invoke again.
  * Tasks sharing an area stay sequential; disjoint areas cross a parallel barrier.
@@ -130,9 +135,9 @@ async function runTask(task) {
       finalStage = 'plan';
     }
 
-    if (task.status !== 'in_review' && task.status !== 'done') {
+    if (task.status !== 'in_review' && task.status !== 'done' && task.stage !== 'implement' && task.stage !== 'judge') {
       const implementation = await agent(
-        `Implement ${task.id}: ${task.title}\nArea: ${task.area}\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nRead ${taskFolder}/context.md and ${taskFolder}/task.md. Edit the code, add focused tests, and run npx nx run-many -t test -p <projects> using the Test projects from context.md. Never use positional nx test project names. Edit exactly the status: line in task.md to in_review. Append an Implementation notes section to context.md. Return the implementation result.`,
+        `Implement ${task.id}: ${task.title}\nArea: ${task.area}\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nRead ${taskFolder}/context.md and ${taskFolder}/task.md. Edit the code and add focused tests. For one changed Test project, run npx nx test <project> --parallel=1; for several changed Test projects, run npx nx run-many -t test -p A B --parallel=1 and check the output header says "Running target test for N projects" with the requested N. Never use positional nx test A B. Do not edit task.md status; the caller verifies your artifact and updates it. Append an Implementation notes section to context.md. Write ${taskFolder}/implementation.json with { taskId, summary, filesChanged, testOutcome, typecheckOutcome, blocked } before returning the identical object.`,
         {
           label: `implement:${task.id}`,
           phase: 'Implement',
@@ -143,14 +148,14 @@ async function runTask(task) {
       finalStage = 'implement';
       blocked = implementation.blocked;
       if (blocked) {
-        return { id: task.id, finalStage, pass: false, rounds, blocked };
+        return { id: task.id, finalStage: 'plan', pass: false, rounds, blocked };
       }
     }
 
     for (let round = rounds + 1; round <= maxJudgeRounds; round += 1) {
       const verdictPath = `${taskFolder}/judge-round-${round}.json`;
       const verdict = await agent(
-        `Judge ${task.id}, round ${round}, with a REFUTE stance.\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nRead the plan, implementation notes, changed files, and tests. Seek concrete counterexamples. Run the relevant tests. Write ${verdictPath} with { taskId, round, pass, defects, testsRan, mentorNote } before returning the identical object.`,
+        `Judge ${task.id}, round ${round}, with a REFUTE stance.\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nRead the plan, implementation notes, changed files, and tests. Seek concrete counterexamples. Run the relevant tests. Read-only: write only ${verdictPath}; never edit source files or task.md. Write ${verdictPath} with { taskId, round, pass, defects, testsRan, mentorNote } before returning the identical object.`,
         {
           label: `judge${round}:${task.id}`,
           phase: 'Judge',
@@ -167,7 +172,7 @@ async function runTask(task) {
       if (round < maxJudgeRounds) {
         const revisionPath = `${taskFolder}/revision-round-${round}.json`;
         const revision = await agent(
-          `Revise ${task.id} after judge round ${round}.\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nDefects to fix: ${JSON.stringify(verdict.defects)}\nRead the verdict and implementation context, fix every verified defect, add or update focused tests, and run npx nx run-many -t test -p <projects>. Write ${revisionPath} with the revision result before returning the identical object.`,
+          `Revise ${task.id} after judge round ${round}.\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nDefects to fix: ${JSON.stringify(verdict.defects)}\nRead the verdict and implementation context, fix every verified defect, and add or update focused tests. For one changed Test project, run npx nx test <project> --parallel=1; for several changed Test projects, run npx nx run-many -t test -p A B --parallel=1 and check the output header says "Running target test for N projects" with the requested N. Never use positional nx test A B. Do not edit task.md status; the caller updates it. Write ${revisionPath} with the revision result before returning the identical object.`,
           {
             label: `revise${round}:${task.id}`,
             phase: 'Judge',

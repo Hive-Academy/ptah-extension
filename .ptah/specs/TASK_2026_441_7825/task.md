@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_441_7825
-status: cancelled
+status: done
 type: REFACTORING
 title: >-
   Lanes first: orchestration spends CLI lanes before subagents and falls back only when every lane is at its limit

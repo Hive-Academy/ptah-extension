@@ -12,6 +12,7 @@ import {
   truncateUtf8,
   type LifecycleLogger,
 } from './process-lifecycle-recorder';
+import { redactSecrets } from './log-redaction';
 import { HANG_LOG_FILE_NAME } from '@ptah-extension/vscode-core';
 
 /**
@@ -233,7 +234,67 @@ describe('ProcessLifecycleRecorder', () => {
     expect(logger.error).toHaveBeenCalledTimes(CONSOLE_LINES_PER_WINDOW + 1);
   });
 
-  it('truncates a forwarded console message to 2 KB', () => {
+  it('forwards only the source and the redacted first line of a message', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit(
+      'console-message',
+      consoleMessage(
+        'error',
+        '  OAuth callback failed for ?code=abc123\n    at body {"apiKey":"k-1"}\n',
+      ),
+    );
+
+    expect(logger.error.mock.calls[0][1]).toEqual({
+      windowId: 1,
+      message: 'OAuth callback failed for ?code=[REDACTED]',
+      source: 'app://main.js:7',
+    });
+  });
+
+  it('keeps an empty first line empty instead of logging a later line', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit(
+      'console-message',
+      consoleMessage('error', '\nclient secret is xyz'),
+    );
+
+    const context = logger.error.mock.calls[0][1] as { message: string };
+    expect(context.message).toBe('');
+  });
+
+  it('ends the first line at a bare carriage return', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit(
+      'console-message',
+      consoleMessage('error', 'safe text\rprivate payload'),
+    );
+
+    const context = logger.error.mock.calls[0][1] as { message: string };
+    expect(context.message).toBe('safe text');
+  });
+
+  it('caps the forwarded source', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit('console-message', {
+      ...consoleMessage('error'),
+      sourceId: `app://${'a'.repeat(10_000)}.js`,
+    });
+
+    const context = logger.error.mock.calls[0][1] as { source: string };
+    expect(Buffer.byteLength(context.source)).toBeLessThanOrEqual(
+      CONSOLE_MAX_BYTES + 3,
+    );
+  });
+
+  it('truncates a forwarded console line to the byte bound', () => {
     const window = new FakeWindow(1);
     app.emit('browser-window-created', {}, window);
 
@@ -409,5 +470,55 @@ describe('pruneCrashDumps', () => {
 describe('truncateUtf8', () => {
   it('returns short text unchanged', () => {
     expect(truncateUtf8('hello', 2_048)).toBe('hello');
+  });
+});
+
+describe('redactSecrets', () => {
+  it.each([
+    [
+      'callback failed: http://127.0.0.1:51820/callback?code=abc123&state=xyz',
+      'callback failed: http://127.0.0.1:51820/callback?code=[REDACTED]&state=[REDACTED]',
+    ],
+    [
+      'GET https://api.example.com/v1?api_key=SECRETVALUE failed',
+      'GET https://api.example.com/v1?api_key=[REDACTED] failed',
+    ],
+    ['auth with Bearer eyJhbGciOi.payload.sig', 'auth with Bearer [REDACTED]'],
+    ['auth with Basic dXNlcjpwYXNz', 'auth with Basic [REDACTED]'],
+    ['header X-API-Key: abc123def', 'header X-API-Key: [REDACTED]'],
+    ['header Authorization: Token abc', 'header Authorization: [REDACTED]'],
+    [
+      'header Authorization: Bearer eyJ.p.s',
+      'header Authorization: [REDACTED]',
+    ],
+    ['body {"apiKey":"k-1","name":"x"}', 'body {"apiKey":"[REDACTED]","name":"x"}'],
+    ['body {"access_token":"t-1"}', 'body {"access_token":"[REDACTED]"}'],
+    [
+      'req {"authorization":"AWS4-HMAC-SHA256 Credential=AK/x"}',
+      'req {"authorization":"[REDACTED]"}',
+    ],
+    ['bad key sk-ant-api03-ABCDEFGHIJKLMNOPQRST', 'bad key [REDACTED]'],
+    ['refresh failed token=secret123', 'refresh failed token=[REDACTED]'],
+    ['login password: hunter2 rejected', 'login password: [REDACTED] rejected'],
+    [
+      'GET https://x.example.com/login?user=a&password=hunter2',
+      'GET https://x.example.com/login?user=a&password=[REDACTED]',
+    ],
+    [
+      'cb https://x.example.com/cb?refresh_token=RT1&x=1',
+      'cb https://x.example.com/cb?refresh_token=[REDACTED]&x=1',
+    ],
+  ])('redacts %s', (input, expected) => {
+    expect(redactSecrets(input)).toBe(expected);
+  });
+
+  it('leaves ordinary error text unchanged', () => {
+    const text = 'TypeError: Cannot read properties of undefined (reading "id")';
+    expect(redactSecrets(text)).toBe(text);
+  });
+
+  it('leaves token counters unchanged', () => {
+    const text = 'usage inputTokens: 1200 tokenCount=5';
+    expect(redactSecrets(text)).toBe(text);
   });
 });

@@ -17,163 +17,201 @@ import {
   getLanguageFromPath,
   getLanguageLabel,
 } from '../../utils/tool-language.utils';
-import { type ExecutionNode, isWriteToolInput } from '@ptah-extension/shared';
+import {
+  countLines,
+  describeToolChips,
+  describeToolTarget,
+} from '../../utils/tool-target.utils';
+import {
+  exceedsWrappedRows,
+  stripSystemReminders,
+  toolRetentionMessage,
+} from '../../utils/tool-text.utils';
+import { TOOL_OUTPUT_MARKDOWN_STYLES } from './tool-output-markdown.styles';
+import {
+  type ExecutionNode,
+  isBashToolInput,
+  isWriteToolInput,
+} from '@ptah-extension/shared';
 
-/** Parameter values other than the Bash command and Write content are cut here. */
-const PARAM_PREVIEW_CHARS = 60;
-/** Write content longer than this renders as the highlighted preview. */
-const WRITE_PREVIEW_MIN_CHARS = 200;
-/** Rows visible inside the collapsed Write preview (15.4em at 1.4 line height). */
-const PREVIEW_ROWS = 11;
-/** Approximate characters per wrapped row at the panel's width (as code-output). */
-const WRAP_CHARS = 100;
+/** Argument values longer than this are cut, with "more" to show the rest. */
+const ARG_PREVIEW_CHARS = 120;
+/** Line height of the preview text, in em (rows * this = collapsed height). */
+const LINE_HEIGHT_EM = 1.4;
 
-let nextPreviewId = 0;
+let nextInputId = 0;
 
-/**
- * ToolInputDisplayComponent - Display tool input parameters
- *
- * Complexity Level: 2 (Molecule with conditional expansion)
- * Patterns: Parameter list display with expand/collapse for large content
- *
- * Features:
- * - Hide input section for trivial inputs (e.g., Read tool with only file_path)
- * - Display all parameters as key-value pairs; values wrap, never scroll
- *   sideways
- * - The Bash `command` and the Write `content` are shown in full; other
- *   string parameters are cut to 60 characters
- * - Write content over 200 characters: highlighted preview with a language
- *   label and line count, height-limited with "Show all N lines" / "Show
- *   less" (Escape while expanded collapses it and refocuses the toggle) and
- *   "Copy content"
- */
-
-interface InputParam {
-  key: string;
-  value: string;
-  fullValue: unknown;
+/** The one long input of a call, shown as its own labelled block. */
+interface InputPreview {
+  /** The input key this block presents. */
+  readonly key: string;
+  readonly kind: 'command' | 'content' | 'prompt';
+  /** Section label naming the content. */
+  readonly label: 'Command' | 'Content' | 'Prompt';
+  readonly text: string;
+  /** Rows visible while height-limited. */
+  readonly rows: number;
 }
 
+/** A remaining input parameter, shown as a `key  value` row. */
+interface InputArg {
+  readonly key: string;
+  /** Full display text of the value. */
+  readonly value: string;
+  /** True when the value is longer than the row shows by default. */
+  readonly long: boolean;
+}
+
+/**
+ * ToolInputDisplayComponent - The input facts the header does not show
+ *
+ * Complexity Level: 2 (Molecule with conditional expansion)
+ * Patterns: derived sections, expand/collapse for long content
+ *
+ * Features:
+ * - No generic "Input" heading: each section is labelled by its content
+ * - "Command": a shell command as `$ command`, mono, wrapping, with "Copy
+ *   command" (the header shows the description, or the first line)
+ * - "Content": the Write content, highlighted with its language label and
+ *   "Copy content"; the markdown code block's own header is suppressed
+ * - "Prompt": an Agent or WebFetch prompt as a muted paragraph
+ * - These blocks are height-limited (6 rows for a prompt, 11 otherwise) with
+ *   "Show all N lines" / "Show less"; Escape while expanded collapses the
+ *   block and refocuses its toggle
+ * - "Arguments": every parameter the header does not already show, neither
+ *   as the target (`describeToolTarget().keys`) nor as a chip
+ *   (`describeToolChips().keys`), as `key  value` rows; values wrap, and one
+ *   over 120 characters is cut with "more"
+ * - Nothing left to show: no section at all
+ */
 @Component({
   selector: 'ptah-tool-input-display',
   standalone: true,
   imports: [SurfaceMarkdownPipe, MarkdownModule, CopyTextButtonComponent],
   template: `
-    @if (hasNonTrivialInput()) {
-      <div class="mb-1.5 mt-1.5">
-        <!-- Collapsible Input header -->
-        <button
-          type="button"
-          class="flex items-center gap-1 text-[10px] font-semibold text-base-content-muted mb-0.5 hover:text-base-content transition-colors"
-          [attr.aria-expanded]="!isInputCollapsed()"
-          [attr.aria-controls]="inputBodyId"
-          (click)="toggleInputCollapsed()"
-        >
-          <span
-            class="inline-block transition-transform duration-200"
-            [class.rotate-90]="!isInputCollapsed()"
-            aria-hidden="true"
-            >&#9654;</span
-          >
-          Input
-        </button>
-
-        @if (!isInputCollapsed()) {
+    @if (hasInput()) {
+      <div class="space-y-1.5">
+        @if (preview(); as preview) {
           <div
-            [id]="inputBodyId"
-            class="bg-base-300/50 rounded text-[10px] font-mono"
+            data-testid="input-preview"
+            [attr.data-kind]="preview.kind"
+            (keydown.escape)="collapsePreviewOnEscape($event)"
           >
-            @for (param of inputParams(); track param.key) {
-              <div>
-                @if (shouldExpandParam(param)) {
-                  <!-- Write content: highlighted, height-limited preview -->
-                  <div
-                    class="px-2 py-1"
-                    data-testid="write-preview"
-                    (keydown.escape)="collapsePreviewOnEscape($event)"
-                  >
-                    <div class="flex flex-wrap items-center gap-1 mb-1">
-                      <span class="text-primary/70">{{ param.key }}:</span>
-                      <span
-                        class="badge badge-ghost badge-xs text-[10px] text-base-content-muted"
-                        data-testid="write-preview-language"
-                        >{{ writeLanguageLabel() }}</span
-                      >
-                      <span
-                        class="text-base-content-muted"
-                        data-testid="write-preview-lines"
-                        >{{ writeLineCount() }} line{{
-                          writeLineCount() === 1 ? '' : 's'
-                        }}</span
-                      >
-                      <span class="flex-1"></span>
-                      @if (writePreviewCollapsible()) {
-                        <button
-                          #previewToggle
-                          type="button"
-                          class="btn btn-ghost btn-xs h-7 min-h-0 px-2 text-[10px] font-normal"
-                          [attr.aria-expanded]="isContentExpanded()"
-                          [attr.aria-controls]="previewId"
-                          (click)="toggleContentExpanded($event)"
-                        >
-                          {{
-                            isContentExpanded()
-                              ? 'Show less'
-                              : 'Show all ' + writeLineCount() + ' lines'
-                          }}
-                        </button>
-                      }
-                      <ptah-copy-text-button
-                        [text]="getParamValueAsString(param)"
-                        label="Copy content"
-                      />
-                    </div>
-                    <div
-                      [id]="previewId"
-                      tabindex="0"
-                      role="region"
-                      [attr.aria-label]="writePreviewLabel()"
-                      class="write-preview-block bg-base-300/50 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-                      [class.max-h-96]="!previewClipped()"
-                      [class.overflow-y-auto]="!previewClipped()"
-                      [class.is-clipped]="previewClipped()"
-                    >
-                      <markdown
-                        [data]="
-                          getFormattedParamContent(param)
-                            | surfaceMarkdown: surfaceActive()
-                        "
-                        class="tool-output-markdown prose prose-xs prose-invert max-w-none [&_pre]:my-0 [&_pre]:rounded-none [&_code]:text-[10px] [&_pre]:bg-transparent [&_p]:my-1 [&_p]:text-[10px]"
-                      />
-                    </div>
-                  </div>
-                } @else {
-                  <!-- Normal param display -->
-                  <div class="flex gap-2 px-2 py-1">
-                    <span class="text-primary/70 shrink-0"
-                      >{{ param.key }}:</span
-                    >
-                    <span
-                      class="min-w-0 text-base-content-muted whitespace-pre-wrap break-all"
-                      >{{ param.value }}</span
-                    >
-                  </div>
+            <div
+              class="flex items-center gap-2 min-h-7 text-[11px] text-base-content-muted"
+            >
+              <span class="font-medium" data-testid="input-preview-label">{{
+                preview.label
+              }}</span>
+              @if (preview.kind === 'content') {
+                <span data-testid="input-preview-language">{{
+                  writeLanguageLabel()
+                }}</span>
+              }
+              <span class="flex-1"></span>
+              @if (previewCollapsible()) {
+                <button
+                  #previewToggle
+                  type="button"
+                  class="btn btn-ghost btn-xs h-7 min-h-0 px-2 text-[11px] font-normal"
+                  [attr.aria-expanded]="isPreviewExpanded()"
+                  [attr.aria-controls]="previewId"
+                  (click)="togglePreviewExpanded()"
+                >
+                  {{
+                    isPreviewExpanded()
+                      ? 'Show less'
+                      : 'Show all ' + previewLineCount() + ' lines'
+                  }}
+                </button>
+              }
+              <ptah-copy-text-button
+                [text]="preview.text"
+                [label]="'Copy ' + preview.label.toLowerCase()"
+              />
+            </div>
+            <div
+              [id]="previewId"
+              tabindex="0"
+              role="region"
+              [attr.aria-label]="previewRegionLabel()"
+              class="input-preview-block rounded text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              [class.bg-base-300/50]="preview.kind !== 'prompt'"
+              [class.max-h-96]="!previewClipped()"
+              [class.overflow-y-auto]="!previewClipped()"
+              [class.is-clipped]="previewClipped()"
+              [style.max-height.em]="
+                previewClipped() ? previewMaxHeightEm() : null
+              "
+            >
+              @switch (preview.kind) {
+                @case ('command') {
+                  <pre
+                    class="m-0 p-2 bg-transparent font-mono text-[11px] leading-[1.4] text-base-content whitespace-pre-wrap break-words"
+                    data-testid="input-command"
+                  ><span class="text-base-content-muted select-none" aria-hidden="true">$ </span>{{ preview.text }}</pre>
                 }
-              </div>
-            }
+                @case ('content') {
+                  <markdown
+                    [data]="writeMarkdown() | surfaceMarkdown: surfaceActive()"
+                    class="tool-output-markdown prose prose-xs prose-invert max-w-none"
+                  />
+                }
+                @default {
+                  <p
+                    class="m-0 leading-[1.4] text-base-content-muted whitespace-pre-wrap break-words"
+                    data-testid="input-prompt"
+                  >{{ preview.text }}</p>
+                }
+              }
+            </div>
+          </div>
+        }
+
+        @if (args().length > 0) {
+          <div>
+            <div
+              class="flex items-center min-h-7 text-[11px] font-medium text-base-content-muted"
+              [id]="argsLabelId"
+            >
+              Arguments
+            </div>
+            <dl
+              class="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11px] leading-[1.4]"
+              [attr.aria-labelledby]="argsLabelId"
+              data-testid="tool-input-args"
+            >
+              @for (arg of args(); track arg.key) {
+                <dt class="text-base-content-muted" data-testid="tool-input-arg-key">
+                  {{ arg.key }}
+                </dt>
+                <dd
+                  class="m-0 min-w-0 text-base-content whitespace-pre-wrap break-words"
+                  data-testid="tool-input-arg-value"
+                >{{ argText(arg) }}@if (arg.long) {<button
+                      type="button"
+                      class="ml-1 underline text-base-content-muted hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+                      [attr.aria-expanded]="expandedArgs().has(arg.key)"
+                      [attr.aria-label]="
+                        (expandedArgs().has(arg.key) ? 'Show less of ' : 'Show all of ') + arg.key
+                      "
+                      (click)="toggleArg(arg.key)"
+                    >{{ expandedArgs().has(arg.key) ? 'less' : 'more' }}</button>}</dd>
+              }
+            </dl>
           </div>
         }
       </div>
     }
     <!--
-      Deliberately OUTSIDE the hasNonTrivialInput() guard: a fold that preserved
-      nothing leaves no parameters to show, and that is exactly the case the
-      marker exists for. Real text in the document flow, readable in place by a
+      Deliberately OUTSIDE the hasInput() guard: a fold that preserved nothing
+      leaves no parameters to show, and that is exactly the case the marker
+      exists for. Real text in the document flow, readable in place by a
       screen reader.
     -->
     @if (inputRetentionMessage(); as retentionMessage) {
       <div
-        class="mb-1.5 mt-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] leading-snug text-base-content-muted"
+        class="mt-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] leading-snug text-base-content-muted"
       >
         {{ retentionMessage }}
       </div>
@@ -181,8 +219,10 @@ interface InputParam {
   `,
   styles: [
     `
-      .write-preview-block.is-clipped {
-        max-height: 15.4em;
+      .input-preview-block {
+        overflow-x: hidden;
+      }
+      .input-preview-block.is-clipped {
         overflow-y: hidden;
         -webkit-mask-image: linear-gradient(
           to bottom,
@@ -195,27 +235,8 @@ interface InputParam {
           transparent
         );
       }
-      :host ::ng-deep .tool-output-markdown {
-        pre {
-          margin: 0;
-          padding: 0.5rem;
-          background: transparent !important;
-        }
-        pre,
-        code {
-          white-space: pre-wrap;
-          overflow-wrap: anywhere;
-        }
-        code {
-          font-size: 10px;
-          line-height: 1.4;
-        }
-        p {
-          margin: 0.25rem 0;
-          font-size: 10px;
-        }
-      }
     `,
+    TOOL_OUTPUT_MARKDOWN_STYLES,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -223,89 +244,132 @@ export class ToolInputDisplayComponent {
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
 
   readonly node = input.required<ExecutionNode>();
-  readonly isInputCollapsed = signal(true);
-  /** "Show all N lines" state of the Write preview; it starts height-limited. */
-  readonly isContentExpanded = signal(false);
+  /** "Show all N lines" state of the preview; it starts height-limited. */
+  readonly isPreviewExpanded = signal(false);
+  /** Keys of the long argument values shown in full. */
+  protected readonly expandedArgs = signal<ReadonlySet<string>>(new Set());
 
-  protected readonly inputBodyId = `ptah-tool-input-${nextPreviewId}`;
-  protected readonly previewId = `ptah-write-preview-${nextPreviewId++}`;
+  private readonly idNumber = nextInputId++;
+  protected readonly previewId = `ptah-tool-input-preview-${this.idNumber}`;
+  protected readonly argsLabelId = `ptah-tool-input-args-${this.idNumber}`;
 
   private readonly previewToggle =
     viewChild<ElementRef<HTMLButtonElement>>('previewToggle');
 
   /**
-   * Computed: the truncation notice for this node's INPUT, or null.
-   *
-   * Reads `ExecutionNode.retention`, written by `capFinalizedTree` in
-   * `@ptah-extension/chat-streaming`. chat-ui is `type:feature` like that lib
-   * and may import it, but the typed field in `@ptah-extension/shared` is the
-   * contract between writer and reader, so this molecule needs no predicate
-   * from chat-streaming.
-   *
-   * The copy names the recovery honestly: the bytes are in the session's SDK
-   * transcript and come back when the session is reopened, and that reload is
-   * itself partial. There is no per-message re-fetch to promise.
+   * Computed: the truncation notice for this node's INPUT, or null. Reads
+   * `ExecutionNode.retention` (written by `capFinalizedTree` in
+   * `@ptah-extension/chat-streaming`; the typed field in
+   * `@ptah-extension/shared` is the contract). Copy: `toolRetentionMessage`.
    */
-  readonly inputRetentionMessage = computed((): string | null => {
-    const retention = this.node().retention;
-    if (!retention?.capped.includes('toolInput')) return null;
-
-    const recovery =
-      "The full text is in this session's transcript on disk — reopen the " +
-      'session to reload it (a reload drops anything before the last compaction).';
-
-    if (retention.foldFailed) {
-      const reason = retention.reason ?? 'it could not be converted to text';
-      return `Input could not be preserved (${reason}). ${recovery}`;
-    }
-    return (
-      `Input truncated — ${retention.droppedChars.toLocaleString()} ` +
-      `characters were dropped from this tool call to bound the transcript. ${recovery}`
-    );
-  });
-
-  /**
-   * All input parameters as key-value pairs. The Bash `command` and the Write
-   * `content` keep their full text (R7.2, R7.7); other strings are cut.
-   */
-  protected readonly inputParams = computed((): InputParam[] => {
-    const node = this.node();
-    const toolInput = node?.toolInput;
-    if (!toolInput) return [];
-
-    return Object.entries(toolInput).map(([key, value]) => ({
-      key,
-      value: this.isFullTextParam(node.toolName, key)
-        ? this.formatFullValue(value)
-        : this.formatValue(value),
-      fullValue: value,
-    }));
-  });
-
-  /** The Write `content` string, or '' when this is not a Write call. */
-  private readonly writeContent = computed((): string => {
-    const node = this.node();
-    if (node?.toolName !== 'Write') return '';
-    const content = (node.toolInput as Record<string, unknown> | undefined)?.[
-      'content'
-    ];
-    return typeof content === 'string' ? content : '';
-  });
-
-  /**
-   * The Write content split into lines. Line terminators are CRLF, CR or LF;
-   * a trailing terminator does not start an extra line.
-   */
-  private readonly writeLines = computed((): string[] =>
-    this.writeContent()
-      .replace(/(?:\r\n|\r|\n)$/, '')
-      .split(/\r\n|\r|\n/),
+  readonly inputRetentionMessage = computed((): string | null =>
+    toolRetentionMessage(this.node().retention, 'toolInput'),
   );
 
-  protected readonly writeLineCount = computed(() => this.writeLines().length);
+  /**
+   * The call's one long input: a shell command, the Write content, or an
+   * Agent / WebFetch prompt. TodoWrite and Edit render their input as the
+   * output, so they have none.
+   */
+  protected readonly preview = computed((): InputPreview | null => {
+    const toolInput = this.node().toolInput;
+    if (!toolInput || this.rendersInputAsOutput()) return null;
+    if (isBashToolInput(toolInput)) {
+      return {
+        key: 'command',
+        kind: 'command',
+        label: 'Command',
+        text: toolInput.command,
+        rows: 11,
+      };
+    }
+    const content = this.writeContent();
+    if (content) {
+      return {
+        key: 'content',
+        kind: 'content',
+        label: 'Content',
+        text: content,
+        rows: 11,
+      };
+    }
+    const prompt = toolInput['prompt'];
+    if (typeof prompt === 'string' && prompt) {
+      return {
+        key: 'prompt',
+        kind: 'prompt',
+        label: 'Prompt',
+        text: prompt,
+        rows: 6,
+      };
+    }
+    return null;
+  });
+
+  /** The Write tool's `content` string, or '' for any other call. */
+  private readonly writeContent = computed((): string => {
+    const node = this.node();
+    const content = node.toolInput?.['content'];
+    return node.toolName === 'Write' && typeof content === 'string'
+      ? content
+      : '';
+  });
+
+  /**
+   * Parameters shown nowhere else: not the header target, not a chip and not
+   * the preview block.
+   */
+  protected readonly args = computed((): InputArg[] => {
+    const node = this.node();
+    const toolInput = node.toolInput;
+    if (!toolInput || this.rendersInputAsOutput()) return [];
+
+    const toolName = node.toolName || '';
+    const shown = new Set([
+      ...describeToolTarget(toolName, toolInput).keys,
+      ...describeToolChips(toolName, toolInput).keys,
+    ]);
+    const previewKey = this.preview()?.key;
+    if (previewKey) shown.add(previewKey);
+
+    return Object.entries(toolInput)
+      .filter(([key, value]) => !shown.has(key) && value !== undefined)
+      .map(([key, value]) => {
+        const text = typeof value === 'string' ? value : JSON.stringify(value);
+        return { key, value: text, long: text.length > ARG_PREVIEW_CHARS };
+      });
+  });
+
+  protected readonly hasInput = computed(
+    () => this.preview() !== null || this.args().length > 0,
+  );
+
+  /** Lines in the preview (CRLF, CR or LF; a trailing one adds none). */
+  protected readonly previewLineCount = computed(() =>
+    countLines(this.preview()?.text ?? ''),
+  );
+
+  /**
+   * Whether the preview is taller than its collapsed limit
+   * (`exceedsWrappedRows`, the same estimate as code-output). A preview that
+   * is not collapsible is never clipped: it keeps the `max-h-96` scroll.
+   */
+  protected readonly previewCollapsible = computed(() => {
+    const preview = this.preview();
+    return preview !== null && exceedsWrappedRows(preview.text, preview.rows);
+  });
+
+  protected readonly previewClipped = computed(
+    () => this.previewCollapsible() && !this.isPreviewExpanded(),
+  );
+
+  /** Collapsed height in em, rounded so `11 * 1.4` reads `15.4`, not `15.399…`. */
+  protected readonly previewMaxHeightEm = computed(
+    () => Math.round((this.preview()?.rows ?? 0) * LINE_HEIGHT_EM * 10) / 10,
+  );
 
   protected readonly writeLanguageLabel = computed(() => {
-    const toolInput = this.node()?.toolInput;
+    const toolInput = this.node().toolInput;
     return getLanguageLabel(
       isWriteToolInput(toolInput)
         ? getLanguageFromPath(toolInput.file_path)
@@ -313,175 +377,69 @@ export class ToolInputDisplayComponent {
     );
   });
 
-  protected readonly writePreviewLabel = computed(() => {
-    const toolInput = this.node()?.toolInput;
-    if (!isWriteToolInput(toolInput)) return 'Write content';
+  /** Accessible name of the preview region ("Command", "Content: app.ts"). */
+  protected readonly previewRegionLabel = computed(() => {
+    const preview = this.preview();
+    if (!preview) return '';
+    const toolInput = this.node().toolInput;
+    if (preview.kind !== 'content' || !isWriteToolInput(toolInput)) {
+      return preview.label;
+    }
     const name = toolInput.file_path.replaceAll('\\', '/').split('/').pop();
-    return name ? `Write content: ${name}` : 'Write content';
+    return name ? `Content: ${name}` : preview.label;
   });
 
   /**
-   * Whether the Write preview is taller than its collapsed limit. Estimated
-   * from wrapped rows (no layout measurement), the same rule as code-output
-   * (decision #118), over the same lines as the line count (CRLF, CR or LF
-   * terminators, so a `\r` never widens a row). A preview that is not
-   * collapsible is never clipped: it keeps the `max-h-96` scroll.
+   * The Write content as markdown: a markdown file renders as itself, any
+   * other file as a fenced block in its language; system reminders are
+   * stripped.
    */
-  protected readonly writePreviewCollapsible = computed(() => {
-    let rows = 0;
-    for (const line of this.writeLines()) {
-      rows += Math.max(1, Math.ceil(line.length / WRAP_CHARS));
-      if (rows > PREVIEW_ROWS) return true;
-    }
-    return false;
+  protected readonly writeMarkdown = computed(() => {
+    const content = stripSystemReminders(this.writeContent());
+    if (!content) return '';
+    const filePath = this.node().toolInput?.['file_path'];
+    const language =
+      typeof filePath === 'string' ? getLanguageFromPath(filePath) : 'text';
+    return language === 'markdown'
+      ? content
+      : fenceCodeBlock(content, language);
   });
 
-  protected readonly previewClipped = computed(
-    () => this.writePreviewCollapsible() && !this.isContentExpanded(),
-  );
+  /** An argument's text, cut to 120 characters unless shown in full. */
+  protected argText(arg: InputArg): string {
+    if (!arg.long || this.expandedArgs().has(arg.key)) return arg.value;
+    return arg.value.slice(0, ARG_PREVIEW_CHARS) + '…';
+  }
 
-  /**
-   * Toggle Input section collapsed state
-   */
-  protected toggleInputCollapsed(): void {
-    this.isInputCollapsed.update((val) => !val);
+  protected toggleArg(key: string): void {
+    this.expandedArgs.update((keys) => {
+      const next = new Set(keys);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
+
+  protected togglePreviewExpanded(): void {
+    this.isPreviewExpanded.update((val) => !val);
   }
 
   /**
-   * Get parameter value as string (the copied Write content)
-   */
-  protected getParamValueAsString(param: InputParam): string {
-    return typeof param.fullValue === 'string'
-      ? param.fullValue
-      : String(param.fullValue);
-  }
-
-  /**
-   * Check if tool has non-trivial input to display
-   */
-  protected hasNonTrivialInput(): boolean {
-    const node = this.node();
-    if (!node) return false;
-
-    const toolInput = node.toolInput;
-    if (!toolInput) return false;
-
-    const toolName = node.toolName;
-    if (toolName === 'TodoWrite') {
-      return false;
-    }
-    if (toolName === 'Edit') {
-      return false;
-    }
-    if (['Read'].includes(toolName || '')) {
-      const keys = Object.keys(toolInput).filter((k) => k !== 'file_path');
-      return keys.length > 0;
-    }
-    return Object.keys(toolInput).length > 0;
-  }
-
-  /**
-   * Whether a parameter renders as the Write preview: the Write tool's
-   * `content` when it is longer than 200 characters.
-   */
-  protected shouldExpandParam(param: InputParam): boolean {
-    const node = this.node();
-    if (!node) return false;
-
-    const isWriteTool = node.toolName === 'Write';
-    const isContentParam = param.key === 'content';
-    const isLargeContent =
-      typeof param.fullValue === 'string' &&
-      param.fullValue.length > WRITE_PREVIEW_MIN_CHARS;
-
-    return isWriteTool && isContentParam && isLargeContent;
-  }
-
-  /**
-   * Format parameter content for markdown rendering
-   * Detects language from file_path if available (for Write tool)
-   */
-  protected getFormattedParamContent(param: InputParam): string {
-    let content =
-      typeof param.fullValue === 'string'
-        ? param.fullValue
-        : JSON.stringify(param.fullValue, null, 2);
-    content = this.stripSystemReminders(content);
-    const node = this.node();
-    if (param.key === 'content' && isWriteToolInput(node?.toolInput)) {
-      const language = getLanguageFromPath(node.toolInput.file_path);
-      if (language === 'markdown') {
-        return content;
-      }
-      return fenceCodeBlock(content, language);
-    }
-    return fenceCodeBlock(content, '');
-  }
-
-  /**
-   * Toggle the Write preview between height-limited and full
-   */
-  protected toggleContentExpanded(event: Event): void {
-    event.stopPropagation(); // Prevent collapse toggle
-    this.isContentExpanded.update((val) => !val);
-  }
-
-  /**
-   * Escape inside the expanded Write preview (decision #120(a)): collapse it,
+   * Escape inside the expanded preview (decision #120(a)): collapse it,
    * return focus to its toggle and stop the event so an enclosing expandable
    * does not also collapse. While collapsed the event is left alone.
    */
   protected collapsePreviewOnEscape(event: Event): void {
     const toggle = this.previewToggle();
-    if (!this.isContentExpanded() || toggle === undefined) return;
+    if (!this.isPreviewExpanded() || toggle === undefined) return;
     event.preventDefault();
     event.stopPropagation();
-    this.isContentExpanded.set(false);
+    this.isPreviewExpanded.set(false);
     toggle.nativeElement.focus();
   }
 
-  /** The Bash command and the Write content are never cut (R7.2, R7.7). */
-  private isFullTextParam(toolName: string | undefined, key: string): boolean {
-    return (
-      (toolName === 'Bash' && key === 'command') ||
-      (toolName === 'Write' && key === 'content')
-    );
-  }
-
-  /**
-   * Strip system-reminder tags from content
-   */
-  private stripSystemReminders(content: string): string {
-    return content
-      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-      .trim();
-  }
-
-  /**
-   * Format a full-text parameter value for display (no truncation)
-   */
-  private formatFullValue(value: unknown): string {
-    return typeof value === 'string' ? value : this.formatValue(value);
-  }
-
-  /**
-   * Format parameter value for display
-   */
-  private formatValue(value: unknown): string {
-    if (typeof value === 'string') {
-      return this.truncate(value, PARAM_PREVIEW_CHARS);
-    }
-    if (typeof value === 'boolean' || typeof value === 'number') {
-      return String(value);
-    }
-    return JSON.stringify(value);
-  }
-
-  /**
-   * Truncate string to max length
-   */
-  private truncate(str: string | undefined, maxLen: number): string {
-    if (!str) return '';
-    return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+  /** TodoWrite and Edit render their input as the output. */
+  private rendersInputAsOutput(): boolean {
+    const toolName = this.node().toolName;
+    return toolName === 'TodoWrite' || toolName === 'Edit';
   }
 }

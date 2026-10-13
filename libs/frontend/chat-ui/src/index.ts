@@ -10,7 +10,6 @@ export { CopyButtonComponent } from './lib/atoms/copy-button.component';
 export { CostBadgeComponent } from './lib/atoms/cost-badge.component';
 export { DurationBadgeComponent } from './lib/atoms/duration-badge.component';
 export { ElectronResizeHandleComponent } from './lib/atoms/electron-resize-handle.component';
-export { ErrorAlertComponent } from './lib/atoms/error-alert.component';
 export { ExpandableContentComponent } from './lib/atoms/expandable-content.component';
 export { FilePathLinkComponent } from './lib/atoms/file-path-link.component';
 export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
@@ -152,3 +151,8 @@ export {
   THEME_FALLBACK_OKLCH,
   type OklchColor,
 } from './lib/utils/agent-color.utils';
+export { isPtahMcpToolName } from './lib/utils/tool-target.utils';
+export {
+  toolStatusPresentation,
+  type ToolStatusPresentation,
+} from './lib/utils/tool-status.utils';

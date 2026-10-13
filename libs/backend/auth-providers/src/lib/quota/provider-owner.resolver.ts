@@ -206,15 +206,29 @@ export function readActiveGeminiAccount(
  */
 export function observeAntigravityAccount(email: string | null): string {
   const root = cliStorePath('antigravity');
-  const active = email?.trim().toLowerCase() ?? '';
+  const active = email?.trim() ?? '';
   observedAntigravityAccount = active
     ? {
         root,
-        key: accountOwnerKey('antigravity', `${root}\0${active}`),
+        key: antigravityAccountOwnerKey(active),
         observedAt: antigravityOwnerNow(),
       }
     : undefined;
   return antigravityOwnerRef().key;
+}
+
+/**
+ * The owner key of one Antigravity (Google) account, by its email: the same
+ * key `antigravityOwnerRef` resolves for that account, so a reader that learns
+ * which account a credential belongs to can prove it matches the owner it was
+ * asked for. The email is consumed here and never returned.
+ */
+export function antigravityAccountOwnerKey(email: string): string {
+  const root = cliStorePath('antigravity');
+  return accountOwnerKey(
+    'antigravity',
+    `${root}\0${email.trim().toLowerCase()}`,
+  );
 }
 
 /** Test seam for module-local account observation and account-file cache. */
@@ -373,6 +387,16 @@ export function isPlaceholderCredential(value: string): boolean {
   return PLACEHOLDER_CREDENTIALS.has(value.trim());
 }
 
+/**
+ * True when an Ollama Cloud Ptah CLI agent's own slot holds no key of its own
+ * — it is empty or holds the ollama.com sign-in placeholder — so the agent
+ * bills, and is read through, the shared `ollama-cloud` provider key.
+ */
+export function usesOllamaSignInFallback(raw: string | undefined): boolean {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  return value.length === 0 || value === OLLAMA_AUTH_TOKEN_PLACEHOLDER;
+}
+
 function antigravityOwnerRef(): QuotaOwnerRef {
   const root = cliStorePath('antigravity');
   if (
@@ -384,7 +408,7 @@ function antigravityOwnerRef(): QuotaOwnerRef {
   }
   const active = readActiveGeminiAccount(root);
   return active
-    ? quotaOwnerRefFromKey(accountOwnerKey('antigravity', `${root}\0${active}`))
+    ? quotaOwnerRefFromKey(antigravityAccountOwnerKey(active))
     : quotaOwnerRefFromKey(cliStoreOwnerKey('antigravity', root));
 }
 
@@ -461,10 +485,23 @@ export class ProviderOwnerResolver {
     ptahCliId: string,
     providerId: string,
   ): Promise<QuotaOwnerRef> {
-    const credential = await this.readSecret(
+    const raw = await this.readStoredValue(
       ptahCliKeySlot(ptahCliId),
       providerId,
     );
+    // An Ollama Cloud agent signed in through ollama.com keeps the sign-in
+    // placeholder (or nothing) in its own slot and bills the account behind
+    // the shared `ollama-cloud` provider key; an agent with its own real key
+    // bills that key's account. `PlanCredentialSource` applies the same rule,
+    // so the owner and the key a usage read sends always match.
+    if (
+      raw !== null &&
+      normaliseOwnerProviderId(providerId) === 'ollama-cloud' &&
+      usesOllamaSignInFallback(raw)
+    ) {
+      return this.ownerForProviderKey('ollama-cloud');
+    }
+    const credential = raw === null ? null : realCredential(raw);
     const owner = quotaOwnerRefFromKey(
       credential
         ? credentialOwnerKey(providerId, credential)
@@ -648,8 +685,20 @@ export class ProviderOwnerResolver {
     slot: string,
     providerId: string,
   ): Promise<string | null> {
+    const raw = await this.readStoredValue(slot, providerId);
+    return raw === null ? null : realCredential(raw);
+  }
+
+  /**
+   * What `slot` holds as stored (possibly empty or a placeholder), or `null`
+   * when the store could not be read. A failed read is logged without detail.
+   */
+  private async readStoredValue(
+    slot: string,
+    providerId: string,
+  ): Promise<string | undefined | null> {
     try {
-      return realCredential(await this.authSecrets.getProviderKey(slot));
+      return await this.authSecrets.getProviderKey(slot);
     } catch {
       // degradation-audit: reported - logged at warn with the provider id only;
       // the owner falls back to unknown.

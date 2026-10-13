@@ -17,14 +17,14 @@ How to run any lane (discovery, addressing, prompts, resume, review, revise cap)
 
 ## Gate 0.1 outcome
 
-Record it in `context.md` under `## CLI Lanes`: the mode (`enabled` / `auto` / `disabled`), the
+Record it in `context.md` under `## CLI Lanes`: the preference source, mode (`enabled` / `auto` / `disabled`), the
 approval mode (`Approval: lane-review` / `Approval: user`, per
 [checkpoints.md § Approval mode](checkpoints.md#approval-mode)) and the `ptah_agent_list` rows verbatim. Then, for `enabled` or `auto`, add this block to every subagent
 prompt except team-leader:
 
 ```markdown
 ## CLI Lanes
-Mode: <enabled — delegate focused sub-tasks | auto — delegate when it clearly helps>
+Mode: <enabled — delegate bounded work by default | auto — delegate when it clearly helps>
 Discovered lanes: <the ptah_agent_list rows>
 Run lanes per the agent-lanes skill. You own the synthesis: verify lane output before it enters your deliverable.
 ```
@@ -32,11 +32,16 @@ Run lanes per the agent-lanes skill. You own the synthesis: verify lane output b
 For `disabled`, add nothing and never spawn a lane. Required reviews then use the disclosed same-side
 fallback (agent-lanes §6) and the user approves each document gate; in `auto`, required reviews
 count as useful lane work.
+With `enabled` and a capable spawnable row, scoped tests, research and reviews default to lanes.
+The live `ptah_agent_list` rows decide capability and availability; `AT LIMIT` is unavailable
+even if its reset reads `reset unknown`.
 
 ## Batches on lanes
 
-Team-leader marks a batch `parallel` with lanes as the executor only when its tasks are
-independent and file-disjoint. You spawn and merge them: [team-leader-modes.md](team-leader-modes.md#spawning-a-batch-executor).
+A CLI lane is the default executor for every bounded batch, sequential or parallel, when the batch
+fits the cap and a capable lane is spawnable. Parallel batches still require independent,
+file-disjoint tasks. A subagent executor must carry a `Subagent reason`. You spawn and merge
+parallel lanes: [team-leader-modes.md](team-leader-modes.md#spawning-a-batch-executor).
 
 ## What each role hands off
 
@@ -72,9 +77,10 @@ independent and file-disjoint. You spawn and merge them: [team-leader-modes.md](
 ## Assigning phases to lanes
 
 Any phase can run on a lane instead of a subagent: PM, architect, a batch, a review. When every
-authoring phase is a lane, the whole task runs on external vendors — a relay. Reviews still use the
-opposite execution side unless a disclosed fallback or a user-pinned same-side reviewer applies
-(agent-lanes §6). A whole-phase
+authoring phase is a lane, the whole task runs on external lanes — a relay. Document reviews for
+Gates 1, 1.7 and 2 use an independent reviewer on the opposite execution side unless a disclosed
+fallback or a user-pinned same-side reviewer applies (agent-lanes §6). Shipping-code reviews use
+an independent capable reviewer from a different family than the implementer when available. A whole-phase
 lane still respects the batch cap (≤6 files, ≤2 libs, one scoped verification per batch) and the
 per-lane tool-call ceiling (agent-lanes §8): an implement phase larger than one batch is spawned as
 several sequential lanes, each with its own file list, not one long lane.
@@ -83,30 +89,35 @@ several sequential lanes, each with its own file list, not one long lane.
 | --- | --- | --- |
 | Plan | `task-description.md` | A strong-reasoning lane |
 | Architecture | `implementation-plan.md` | A strong-reasoning lane |
-| Implement | code in place + a report with evidence per task; **you** record `batches.md` after verifying it | The strongest coding lane listed |
-| Review | `code-logic-review.md` | The opposite execution side from the implementer, with the disclosed fallback in agent-lanes §6 |
+| Implement | code in place + a report with evidence per task; **you** record `batches.md` after verifying it | A capable coding lane in the live list |
+| Review | `code-logic-review.md` | An independent capable lane from a different family than the implementer; same-family exception requires a specific reason and weaker-evidence label |
 | Document review | `<artifact-stem>-review.md` per plan, design and architecture artifact | The opposite execution side from the author, with the disclosed fallback in agent-lanes §6 |
 
-### The roster
+### The live roster
 
-- **Pinned** ("codex plans, Claude architects, Ollama GLM implements, codex on another model
-  reviews") → resolve each name against `ptah_agent_list` and spawn exactly that, including the same
-  family twice on different models. A named lane that is not listed → stop and ask.
-- **Not pinned** → assign by role fit, not by family spread.
+- **Pinned** by the current user → resolve the requested lane against `ptah_agent_list` and use it
+  when spawnable and capable. If the named lane is absent, stop and ask; do not invent a row.
+- **Not pinned** → choose a live row by capability and availability. For shipping-code review,
+  select a different family from the implementer. For document review, select the opposite execution
+  side from the author. Record `Review family` and the actual author/reviewer families.
 - Record `phase → lane → model` in `context.md` and announce it as a table before spending.
 
-Worked example (vendor names are illustrations):
+Fill this roster from current `ptah_agent_list` rows, not a fixed vendor list:
 
-| Phase | Lane | spawn args | Deliverable |
+| Phase | Live lane row | Spawn args from row | Deliverable |
 | --- | --- | --- | --- |
-| Plan | Codex | `{ cli: 'codex' }` | `task-description.md` |
-| Architecture | Claude provider | `{ ptahCliId: '<listed id>', modelTier: 'opus' }` | `implementation-plan.md` |
-| Implement | Ollama Cloud GLM | `{ ptahCliId: '<listed id>', model: '<listed glm id>' }` | code + report |
-| Review | Codex, another model | `{ cli: 'codex', model: '<another listed id>' }` | `code-logic-review.md` |
+| Plan | `<spawnable capable row>` | `<listed identifier and supported model>` | `task-description.md` |
+| Architecture | `<spawnable capable row>` | `<listed identifier and supported model>` | `implementation-plan.md` |
+| Implement | `<spawnable capable row>` | `<listed identifier and supported model>` | code + report |
+| Review | `<independent eligible row>` | `<listed identifier and supported model>` | `code-logic-review.md` |
 
-This pinned example uses an independent, same-side CLI review: disclose that override — a different
-family does not make it cross-side. Without a pin or an unavailable opposite side, route CLI-authored
-work to a subagent reviewer.
+For shipping code, try `other family same capability`, then `same family other provider/model`,
+then an independent `subagent` when no eligible lane can review. The latter two require a
+specific exception reason and a weaker-evidence label. Record `Subagent reason` when falling back
+to a subagent; never claim an unavailable review occurred. An in-process subagent reviewing code
+written by an in-process subagent of the same family also needs the reason and label. For document
+Gates 1, 1.7 and 2, keep the opposite-side protocol in [checkpoints.md](checkpoints.md#cross-side-review-protocol):
+a same-side review goes to the user rather than approving the gate in `lane-review` mode.
 
 ### Constraints that survive pinning
 

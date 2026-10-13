@@ -34,9 +34,11 @@ Task({
 - "Re-invoke the same executor" (below) means resume it only if its last activity was under
   5 minutes ago; otherwise start a fresh one with the batch section and the report paths.
 - Risk-based review: no per-batch review; each batch passes its scoped typecheck, lint and tests
-  before commit. One code-logic review per phase on the combined diff, requested by the team-leader
+  before commit. One independent code-logic review per phase on the combined diff, requested by the team-leader
   after the phase's last batch commits; none for a phase whose batches change only types, tests,
-  docs or measurement; a style review only for new public API.
+  docs or measurement; a style review only for new public API. Assign the code-logic review to a
+  capable different-family lane when available. A same-family or subagent fallback needs its
+  specific reason and a weaker-evidence label; record `Review family` and `Subagent reason` when used.
 - At most one fix round: Blocking and Serious fixed; Moderate only if it can break a lane config or
   lose data (else a named later task); Minor recorded, not fixed. Then one re-review scoped to the
   fixes.
@@ -60,6 +62,10 @@ Missing or stale required evidence (including any required design gate) is a blo
 Mode 3 checks that this evidence still applies and that every phase that changed shipping code has its
 accepting code-logic review; it never commissions another document review. When a flow legitimately skips an artifact,
 its approval and review are not required either.
+For each reviewed phase, the `### Next action:` return and Mode 3 summary must identify the actual
+executor, author family, reviewer family, and any same-family reason with its weaker-evidence label.
+If review fell back to an independent subagent, include `Subagent reason` and the unavailable lane
+evidence. Do not describe a same-family review as different-family evidence.
 
 ## Acting on a return
 
@@ -71,7 +77,7 @@ you are in.
 | `DECOMPOSITION COMPLETE`    | Spawn Batch 1's executor (below)                                                                                                                                                                                                                                                                                                                                                                     |
 | `DECOMPOSITION BLOCKED`     | Plan-free BUGFIX: return the blocking questions to the orchestrator, who runs Gate SR or commissions researcher-expert, then re-invokes Mode 1; no software-architect/Gate 2 for a flow without a plan. Planned flows: re-invoke software-architect with the blocking issues, refresh the document review, then Gate 2 again.                                                                        |
 | `BATCH [N] PARTIAL FAILURE` | Re-invoke the same executor for the missing tasks only                                                                                                                                                                                                                                                                                                                                               |
-| `NEEDS REVIEW`              | A phase review is due. Pick each reviewer's execution side per agent-lanes §6. Obtain the phase's code-logic review of the combined diff (`code-logic-review.md`; reuse an eligible existing review) and invoke any additional named reviewer. Re-invoke Mode 2 with each review's actual report path (`code-logic-review.md`, `code-style-review.md`, `visual-review.md` as applicable) and verdict |
+| `NEEDS REVIEW`              | A phase review is due. For shipping code, select an independent capable reviewer from a different family than the implementer when available (agent-lanes §6). Use an eligible existing review if present; otherwise obtain the combined-diff `code-logic-review.md` and any additional named review. Record actual executor, author/reviewer families and any same-family weaker-evidence reason or `Subagent reason`. Re-invoke Mode 2 with each actual report path (`code-logic-review.md`, `code-style-review.md`, `visual-review.md` as applicable) and verdict |
 | `BATCH [N] NOT ACCEPTED`    | Re-invoke the same executor with the listed issues (a failing scoped check, or the fix batch for a rejected phase review), then Mode 2 again                                                                                                                                                                                                                                                         |
 | `BATCH [N] COMPLETE`        | Spawn the next batch's executor                                                                                                                                                                                                                                                                                                                                                                      |
 | `ALL BATCHES COMPLETE`      | Invoke Mode 3                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -84,6 +90,8 @@ A hook failure during its commit is your gate: [git-standards.md](git-standards.
 Read the batch's `Recommended executor` and `Execution mode` in `batches.md`.
 
 - **Sequential, subagent** → one `Task()` with the executor prompt from the return.
+- **Sequential, CLI lane** → one capable lane for the bounded batch, including coupled files;
+  give it the self-contained task prompt and verify its report before Mode 2.
 - **Parallel, CLI lanes** → one lane per task, file-disjoint, each with a self-contained prompt built
   from that task's entry. Run them per the `agent-lanes` skill; merge the lane results into **one**
   implementation report; re-invoke Mode 2 with it.

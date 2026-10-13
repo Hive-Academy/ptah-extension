@@ -4,8 +4,6 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, FileEdit, CheckCircle } from 'lucide-angular';
-import { FilePathLinkComponent } from '../../atoms/file-path-link.component';
 import type { EditToolInput } from '@ptah-extension/shared';
 import {
   getLanguageFromPath,
@@ -38,8 +36,9 @@ function splitLines(value: string | undefined): string[] {
  * Patterns: signal-derived rows, OnPush
  *
  * Features:
- * - Header: file path link (opens through `FILE_LINK_OPENER`), language label,
- *   removed and added line counts, replacement count badge
+ * - One header row: "Diff", the language label, removed and added line
+ *   counts, the replacement count and the gutter caption. The file is named
+ *   once, in the tool-call header (with its Open button), not again here
  * - Body: old lines then new lines, each with a line-number gutter, a sign
  *   gutter (`-` / `+` glyph named "removed" / "added") and a row tint, so
  *   colour is never the only signal
@@ -49,45 +48,36 @@ function splitLines(value: string | undefined): string[] {
 @Component({
   selector: 'ptah-diff-display',
   standalone: true,
-  imports: [LucideAngularModule, FilePathLinkComponent],
   template: `
-    <div class="mt-1.5">
+    <div>
       <div
-        class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-base-content-muted mb-1"
+        class="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-h-7 text-[11px] text-base-content-muted"
       >
-        <lucide-angular
-          [img]="FileEditIcon"
-          class="w-3 h-3"
-          aria-hidden="true"
-        />
-        <ptah-file-path-link [fullPath]="filePath()" />
-        <span
-          class="badge badge-ghost badge-xs text-[10px]"
-          data-testid="diff-language"
-          >{{ languageLabel() }}</span
-        >
+        <span class="font-medium" data-testid="diff-label">Diff</span>
+        <span data-testid="diff-language">{{ languageLabel() }}</span>
         <span class="font-mono" data-testid="diff-counts">
-          <span class="text-error" aria-hidden="true"
-            >-{{ removedCount() }}</span
+          <!-- Status colour on the sign glyph only (icon contrast); the
+               number is body text, so it is text-base-content -->
+          <span aria-hidden="true"
+            ><span class="text-error">-</span
+            ><span class="text-base-content">{{ removedCount() }}</span></span
           >
-          <span class="text-success ml-1" aria-hidden="true"
-            >+{{ addedCount() }}</span
+          <span class="ml-1" aria-hidden="true"
+            ><span class="text-success">+</span
+            ><span class="text-base-content">{{ addedCount() }}</span></span
           >
           <span class="sr-only">{{ countsLabel() }}</span>
         </span>
         @if (replacements() > 0) {
-          <span class="badge badge-xs badge-success gap-0.5">
-            <lucide-angular
-              [img]="CheckCircleIcon"
-              class="w-2.5 h-2.5"
-              aria-hidden="true"
-            />
-            {{ replacements() }} replacement{{ replacements() > 1 ? 's' : '' }}
-          </span>
+          <span data-testid="diff-replacements"
+            >{{ replacements() }} replacement{{
+              replacements() > 1 ? 's' : ''
+            }}</span
+          >
         }
         <!-- Gutter numbers count within the snippet; Edit input has no file offset -->
         <span
-          class="text-[10px] text-base-content-muted"
+          class="text-[11px] text-base-content-muted"
           data-testid="diff-gutter-caption"
           >Snippet lines</span
         >
@@ -97,7 +87,7 @@ function splitLines(value: string | undefined): string[] {
         tabindex="0"
         role="region"
         [attr.aria-label]="blockLabel()"
-        class="diff-container bg-base-300/50 rounded max-h-64 overflow-y-auto font-mono text-[10px] leading-normal py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        class="diff-container bg-base-300/50 rounded max-h-64 overflow-y-auto font-mono text-[11px] leading-normal py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
       >
         @for (row of rows(); track $index) {
           <div
@@ -141,9 +131,6 @@ function splitLines(value: string | undefined): string[] {
 export class DiffDisplayComponent {
   readonly toolInput = input.required<EditToolInput>();
   readonly replacements = input<number>(1);
-
-  readonly FileEditIcon = FileEdit;
-  readonly CheckCircleIcon = CheckCircle;
 
   /**
    * Get file path from tool input

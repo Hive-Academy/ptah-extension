@@ -37,8 +37,8 @@
  *
  * ## Deadline
  *
- * The sources run together, each bounded by the shared lookup deadline
- * (`LIMIT_LOOKUP_DEADLINE_MS`), so one call takes at most that long. A source
+ * The sources run together, each bounded by its lookup deadline (12 seconds
+ * for Codex-home sources, 3 seconds otherwise). A source
  * that throws or misses the deadline is dropped alone, logged at debug; the
  * others still return. `discoverTargets` never rejects.
  */
@@ -66,6 +66,8 @@ import {
 } from '@ptah-extension/auth-providers';
 import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
+  SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+  limitLookupDeadlineMs,
   LIMIT_LOOKUP_DEADLINE_MS,
   getAllAnthropicProviders,
   type AnthropicProvider,
@@ -248,6 +250,7 @@ export class PlanLimitOwnerDiscoveryService {
           ),
         ],
         () => (this.retainNextCodexHomeOwner = true),
+        limitLookupDeadlineMs(request.selectedProviderId),
       ),
       this.fromSource('cli-store', async () =>
         this.cliStores((await detected) ?? []),
@@ -258,6 +261,7 @@ export class PlanLimitOwnerDiscoveryService {
         async () =>
           this.detectedLanes((await detected) ?? [], cachedCodexHomeOwner),
         () => (this.retainNextCodexHomeOwner = true),
+        SLOW_LIMIT_LOOKUP_DEADLINE_MS,
       ),
       this.fromSource('ptah-cli', () => this.ptahCliLanes()),
       this.fromSource('owner-key', () =>
@@ -617,10 +621,11 @@ export class PlanLimitOwnerDiscoveryService {
     source: string,
     read: () => Promise<T>,
     onTimeout?: () => void,
+    deadlineMs = LIMIT_LOOKUP_DEADLINE_MS,
   ): Promise<T | undefined> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMED_OUT), LIMIT_LOOKUP_DEADLINE_MS);
+      timer = setTimeout(() => resolve(TIMED_OUT), deadlineMs);
       timer.unref?.();
     });
     try {

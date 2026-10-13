@@ -8,15 +8,17 @@
  * `PlanLimitOwnerDiscoveryService.discoverTargets` names the owners. Each
  * entry is either:
  * - `read` — read through `PlanUsageService.getOwnerSnapshot(target)`, every
- *   owner in parallel, each under its own {@link LIMIT_LOOKUP_DEADLINE_MS}
- *   deadline. A read that misses it is cancelled and the owner is still
+ *   owner in parallel, each under its provider's `limitLookupDeadlineMs`
+ *   (3 s, or 12 s for Codex and Antigravity cold starts). A read that misses
+ *   it is cancelled and the owner is still
  *   listed, as `service-unavailable` with the ledger's evidence;
  * - `known` — the snapshot is already complete and is passed through
  *   unchanged. It is never read.
  *
- * Discovery bounds each of its own sources by the same deadline and never
+ * Discovery bounds each of its own sources by the same deadlines and never
  * rejects, so one call takes about two deadlines at worst (discovery, then
- * the parallel reads).
+ * the parallel reads): up to ~24 s on a first, cold Codex read, while the
+ * Codex owner is not yet cached.
  *
  * The single-owner lookup behind `provider:getAccountUsage`
  * (`ownerSnapshotForProvider`) is the exception: it reads without that
@@ -52,7 +54,7 @@ import {
   type SelectedProviderDiscovery,
 } from '@ptah-extension/cli-agent-runtime';
 import {
-  LIMIT_LOOKUP_DEADLINE_MS,
+  limitLookupDeadlineMs,
   type PlanLimitOwnerSnapshot,
   type PlanLimitSessionOwner,
   type PlanLimitsSnapshot,
@@ -166,7 +168,7 @@ export class PlanLimitsSnapshotService {
   }
 
   /**
-   * One owner's read, under its own {@link LIMIT_LOOKUP_DEADLINE_MS} deadline
+   * One owner's read, under its provider-specific deadline
    * when `withDeadline` is set (otherwise under the reader's own limits). A
    * read that times out or fails still lists the owner, from ledger evidence
    * alone.
@@ -178,7 +180,10 @@ export class PlanLimitsSnapshotService {
   ): Promise<PlanLimitOwnerSnapshot> {
     const controller = withDeadline ? new AbortController() : undefined;
     const timer = controller
-      ? setTimeout(() => controller.abort(), LIMIT_LOOKUP_DEADLINE_MS)
+      ? setTimeout(
+          () => controller.abort(),
+          limitLookupDeadlineMs(target.providerId),
+        )
       : undefined;
     timer?.unref?.();
     try {

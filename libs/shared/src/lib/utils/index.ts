@@ -92,6 +92,8 @@ export {
   formatToolUtc,
   formatUsed,
   FRESHNESS_MS,
+  limitLookupDeadlineMs,
+  SLOW_LIMIT_LOOKUP_DEADLINE_MS,
   groupAlternatives,
   isActiveLimitEvidence,
   LIMIT_LOOKUP_DEADLINE_MS,

@@ -1,6 +1,9 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  isSdkAuthSecretKey,
+} from '@ptah-extension/platform-core';
 import type {
   ISecretStorage,
   IDisposable,
@@ -41,7 +44,7 @@ export class ConfigWatcher {
       this.watchers.push(watcher);
     }
     this.secretsDisposable = this.secretStorage.onDidChange((event) => {
-      if (event.key.startsWith('ptah.auth.')) {
+      if (isSdkAuthSecretKey(event.key)) {
         this.logger.info('[ConfigWatcher] Secret changed', { key: event.key });
         void this.handleConfigChange(event.key, reinitCallback);
       }
@@ -64,7 +67,9 @@ export class ConfigWatcher {
       this.watchers.push(watcher);
     }
     this.secretsDisposable = this.secretStorage.onDidChange((event) => {
-      if (event.key.startsWith('ptah.auth.')) {
+      // A non-auth provider-key slot (MCP OAuth token, Smithery config) must
+      // not re-initialize the adapter: that disposes every live session.
+      if (isSdkAuthSecretKey(event.key)) {
         this.logger.info('[ConfigWatcher] Secret changed', { key: event.key });
         void this.handleConfigChangeViaBus(event.key);
       }

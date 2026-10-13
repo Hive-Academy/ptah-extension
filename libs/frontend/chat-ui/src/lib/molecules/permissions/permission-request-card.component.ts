@@ -101,7 +101,7 @@ import {
 
       <!-- Action buttons - compact row -->
       <div
-        class="flex gap-1.5 px-2 py-1.5 border-t border-base-300/30 bg-base-100/20"
+        class="flex flex-wrap gap-1.5 px-2 py-1.5 border-t border-base-300/30 bg-base-100/20"
       >
         <button
           class="btn btn-xs btn-success gap-0.5 px-2"

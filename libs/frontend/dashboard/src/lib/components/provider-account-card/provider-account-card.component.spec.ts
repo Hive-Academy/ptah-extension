@@ -285,13 +285,17 @@ describe('ProviderAccountCardComponent', () => {
       rows(el).map((r) => textOf(r.querySelector('.text-\\[13px\\]'))),
     ).toEqual(['5-hour session', 'Weekly']);
     expect(chipsIn(el, 'state-chip')).toEqual([]);
-    expect(chipsIn(el, 'source-chip')).toEqual(['Provider API']);
+    // every window cell carries its own source under its reset line
+    expect(rows(el).map((r) => chipsIn(r, 'source-chip'))).toEqual([
+      ['Provider API'],
+      ['Provider API'],
+    ]);
     expect(textOf(el)).toContain('Lifetime tokens: 9007199254740993');
     expect(textOf(el)).toContain(
       'Activity is not remaining messages, credits, or billing.',
     );
     expect(textOf(el)).toContain('Plan: plus');
-    expect(el.querySelector('section')?.getAttribute('aria-label')).toBe(
+    expect(sections(el)[0]?.getAttribute('aria-label')).toBe(
       'Codex account · cdef usage',
     );
   });
@@ -350,7 +354,8 @@ describe('ProviderAccountCardComponent', () => {
     );
     expect(textOf(el)).toContain('○ No usage source');
     expect(el.querySelector('[role="progressbar"]')).toBeNull();
-    expect(textOf(el)).not.toContain('%');
+    // the section heading names the 90% tick; the row itself shows no percent
+    expect(textOf(sections(el)[0])).not.toContain('%');
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
       '○ No usage source',
     );
@@ -378,6 +383,45 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(stat)).toContain('1,234 tokens · $5.67');
     expect(stat?.querySelector('.radial-progress')).toBeNull();
     expect(el.querySelector('[data-testid="window-progress"]')).toBeNull();
+    expect(textOf(el.querySelector('[data-testid="local-usage-note"]'))).toBe(
+      'Local CLI accounting · not a plan percentage or reset',
+    );
+  });
+
+  it('renders Ollama Cloud request counts without tokens, cost or a plan percentage', () => {
+    const el = render(
+      snapshotOf(
+        owner('ollama-cloud', 'Ollama Cloud API key', {
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Ollama Cloud requests',
+            tokens: 0,
+            estimatedCostUsd: 0,
+            requests: 2588,
+            observedAt: NOW,
+            source: 'provider-api',
+            range: 'last 7 days',
+          },
+        }),
+      ),
+    );
+    const stat = el.querySelector('[data-testid="local-usage-stat"]');
+
+    expect(
+      textOf(stat?.querySelector('[data-testid="local-usage-value"]') ?? null),
+    ).toBe('2,588 requests');
+    expect(textOf(stat)).not.toContain('tokens');
+    expect(textOf(stat)).not.toContain('$');
+    expect(
+      textOf(stat?.querySelector('[data-testid="local-usage-range"]') ?? null),
+    ).toBe('Range: last 7 days');
+    expect(
+      textOf(stat?.querySelector('[data-testid="local-usage-note"]') ?? null),
+    ).toBe(
+      'Account request count from the provider · no plan percentage or reset',
+    );
+    expect(el.querySelector('[role="progressbar"]')).toBeNull();
   });
 
   it('labels the local usage range "last N days", with the exact range in the tooltip (revise-2)', () => {
@@ -780,6 +824,32 @@ describe('ProviderAccountCardComponent', () => {
     );
   });
 
+  it('tells a rejected Antigravity sign-in apart from a closed app', () => {
+    const el = render(
+      snapshotOf(
+        owner(
+          'antigravity',
+          'Antigravity account',
+          { status: 'unsupported-auth' },
+          '0123456789abcdea',
+        ),
+        owner(
+          'antigravity',
+          'Antigravity account',
+          { status: 'service-unavailable' },
+          '0123456789abcdeb',
+        ),
+      ),
+    );
+    expect(textOf(sections(el)[0])).toContain(
+      'Antigravity sign-in rejected — sign in to Antigravity again',
+    );
+    expect(textOf(sections(el)[0])).not.toContain('Open Antigravity');
+    expect(textOf(sections(el)[1])).toContain(
+      'Open Antigravity to read local quota',
+    );
+  });
+
   it('shows distinct unknown-owner reasons and a short key suffix', () => {
     const cases = [
       ['missing-account-email', 'Signed in · account email not shared'],
@@ -834,7 +904,7 @@ describe('ProviderAccountCardComponent', () => {
     const el = render(snapshotOf(owner('opencode', 'OpenCode account')));
     expect(textOf(el)).toContain('No plan limits reported');
     expect(rows(el)).toHaveLength(0);
-    expect(el.querySelector('section')?.className).not.toContain('h-full');
+    expect(sections(el)[0]?.className).not.toContain('h-full');
   });
 
   it('16. service-unavailable: raw status name and sentence; other failure statuses name themselves', () => {
@@ -900,17 +970,24 @@ describe('ProviderAccountCardComponent', () => {
     const stat = section.querySelector(
       '[data-testid="local-usage-stat"]',
     ) as HTMLElement;
-    // The stat is its own grid area of the row, a sibling of the identity —
-    // it can never squeeze the name column (the prototype's narrow defect).
-    expect(stat.parentElement).toBe(section);
+    // The stat is a window-like cell of the shared windows area, a sibling
+    // grid area of the identity — it can never squeeze the name column, and
+    // it is never right-aligned at the far edge of the row.
+    expect(stat.parentElement?.getAttribute('data-testid')).toBe(
+      'section-body',
+    );
+    expect(stat.classList.contains('win')).toBe(true);
     expect(stat.closest('[data-testid="section-header"]')).toBeNull();
-    expect(identity.className).toContain('min-w-0');
+    expect(identity.className).not.toContain('text-right');
     expect(
       identity.compareDocumentPosition(stat) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(
-      el.querySelector('[data-testid="status-chip"]')?.className,
-    ).toContain('whitespace-normal');
+    // the status chip spaces its glyph from its word with a flex gap, so the
+    // glyph never collides with the text ("○No usage source")
+    const chip = el.querySelector('[data-testid="status-chip"]');
+    expect(chip?.className).toContain('gap-1');
+    expect(chip?.className).toContain('whitespace-nowrap');
+    expect(chip?.closest('[data-testid="section-header"]')).toBeNull();
   });
 
   // ---- TASK_2026_631: provider list layout ----
@@ -929,6 +1006,81 @@ describe('ProviderAccountCardComponent', () => {
     expect(Array.from(el.querySelector('ul')?.children ?? [])).toEqual(items);
   });
 
+  it('is its own titled Dashboard section, independent of session analytics', () => {
+    const el = render(snapshotOf(owner('anthropic', 'Claude account')));
+    const section = el.querySelector(
+      '[data-testid="dashboard-section-provider-accounts"]',
+    );
+    expect(section?.className).toContain('surface-1');
+    const heading = section?.querySelector('#provider-accounts-heading');
+    expect(textOf(heading)).toBe('Provider accounts & plan limits');
+    expect(section?.getAttribute('aria-labelledby')).toBe(
+      'provider-accounts-heading',
+    );
+    expect(textOf(section)).toMatch(/marks 90%/);
+  });
+
+  it('lays every provider on the same identity | windows | actions grid', () => {
+    const longName = 'Ollama Cloud (owner unknown) (key unavailable) · 229f';
+    const el = render(
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour session',
+              used: { kind: 'percent', percent: 41 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + HOUR,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - HOUR,
+            }),
+          ],
+        }),
+        owner('ollama-cloud', longName, { status: 'unsupported-auth' }),
+      ),
+    );
+    const [claude, ollama] = sections(el);
+    for (const section of [claude, ollama]) {
+      const children = Array.from(section.children).map((c) =>
+        c.classList.contains('identity')
+          ? 'identity'
+          : c.classList.contains('body')
+            ? 'body'
+            : c.classList.contains('actions')
+              ? 'actions'
+              : c.className,
+      );
+      expect(children.slice(0, 3)).toEqual(['identity', 'body', 'actions']);
+    }
+    // windows and the status line both live in the shared windows area
+    expect(
+      claude.querySelector(
+        '[data-testid="section-body"] [data-testid="window-row"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      ollama.querySelector(
+        '[data-testid="section-body"] [data-testid="status-line"]',
+      ),
+    ).not.toBeNull();
+    // a long owner title truncates on one line with the full name as tooltip
+    const title = ollama.querySelector('[data-testid="section-title"]');
+    expect(title?.classList.contains('truncate')).toBe(true);
+    expect(title?.getAttribute('title')).toContain('(owner unknown)');
+    expect(
+      ollama
+        .querySelector('[data-testid="section-subtitle"]')
+        ?.classList.contains('truncate'),
+    ).toBe(true);
+    // the percent sits in its own right-aligned, tabular value column
+    const value = claude.querySelector('[data-testid="window-value"]');
+    expect(value?.classList.contains('win-value')).toBe(true);
+    expect(value?.classList.contains('tabular-nums')).toBe(true);
+    expect(textOf(value)).toBe('41%');
+  });
+
   it('renders a compact one-line reason row for an owner without windows', () => {
     const el = render(
       snapshotOf(
@@ -942,8 +1094,18 @@ describe('ProviderAccountCardComponent', () => {
     expect(section.classList.contains('owner-row--compact')).toBe(true);
     expect(section.querySelector('.wins')).toBeNull();
     const reason = section.querySelector('[data-testid="compact-reason"]');
-    // the reason occupies the mid grid area, never an auto-placed cell
-    expect(reason?.classList.contains('mid')).toBe(true);
+    // the reason is one status line inside the shared windows area, never
+    // in the identity subtitle and never pushed to the far edge
+    const line = reason?.closest('[data-testid="status-line"]');
+    expect(line?.classList.contains('status-line')).toBe(true);
+    expect(line?.parentElement?.getAttribute('data-testid')).toBe(
+      'section-body',
+    );
+    expect(
+      section
+        .querySelector('[data-testid="section-header"]')
+        ?.querySelector('[data-testid="status-chip"]'),
+    ).toBeNull();
     expect(textOf(reason)).toBe('No plan limits (API key)');
     expect(section.querySelector('button[type="button"]')).not.toBeNull();
   });
@@ -1179,9 +1341,11 @@ describe('ProviderAccountCardComponent', () => {
         }),
       ),
     );
+    const line = el.querySelector('[data-testid="status-line"]');
     const reason = el.querySelector('[data-testid="compact-reason"]');
-    expect(reason?.getAttribute('role')).toBe('status');
-    expect(reason?.classList.contains('border-warning')).toBe(true);
+    expect(line?.getAttribute('role')).toBe('status');
+    expect(line?.classList.contains('border-warning')).toBe(true);
+    expect(reason?.closest('[data-testid="status-line"]')).toBe(line);
     expect(textOf(reason)).toContain('Showing cached account data');
     expect(textOf(el.querySelector('[data-testid="status-chip"]'))).toBe(
       '◷ Cached data',
@@ -1480,7 +1644,7 @@ describe('ProviderAccountCardComponent', () => {
         imports: [ProviderAccountCardComponent],
         providers: [
           { provide: ClaudeRpcService, useValue: rpc },
-        { provide: AppStateManager, useValue: appState },
+          { provide: AppStateManager, useValue: appState },
           {
             provide: AuthStateService,
             useValue: { persistedProviderId: signal('anthropic') },

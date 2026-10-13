@@ -96,6 +96,11 @@ you are in.
   last batch is committed (Mode 2 step 5); none for a phase whose batches change only types, tests,
   docs or measurement; a style review only for new public API. A phase is the group of batches
   `batches.md` assigns to it; when none are named, the whole run is one phase.
+- Shipping code review uses an independent reviewer from a different family than the implementer
+  when available. Record the implementer and reviewer families. A same-family review needs a
+  specific exception reason and a weaker-evidence label in the phase summary; this also applies
+  when an in-process subagent reviews code written by an in-process subagent. Keep document gate
+  review on its separate opposite-execution-side protocol.
 - At most one fix round: Blocking and Serious fixed; Moderate only if it can break a lane config or
   lose data (else a named later task); Minor recorded, not fixed. Then one re-review scoped to the
   fixes.
@@ -139,23 +144,23 @@ unverified but plausible and a mitigation task can carry it.
 
 ### Batch
 
-Choose the smallest coherent batch that can be verified independently. A batch is
-at most 6 files across at most 2 libs, with one scoped verification command
-(`-p <project>`, never workspace-wide); split larger work into more batches so
+Choose the smallest coherent batch that can be verified independently.
+At most 6 files across at most 2 libraries/projects per batch, with one scoped verification command.
+Scope that command to
+the changed project (`-p <project>`, never workspace-wide); split larger work into more batches so
 each lane stays short. Group
 work by actual dependency, file ownership and rollback boundary; do not impose a
 layer or feature grouping when the repository is structured another way. Keep
 dependent tasks in order inside the batch, and put tasks of similar difficulty
 together so one hard task does not stall four easy ones.
 
-Set `Recommended Executor` and `Execution Mode` on every batch:
-
-| Batch shape                                                     | Recommended executor    | Mode       |
-| --------------------------------------------------------------- | ----------------------- | ---------- |
-| Three or more independent tasks, repetitive or scaffolding work | CLI lanes, one per task | parallel   |
-| Tightly coupled tasks in one file                               | Sub-agent developer     | sequential |
-| Cross-file refactoring                                          | Sub-agent developer     | sequential |
-| Work that needs a design decision mid-flight                    | Sub-agent developer     | sequential |
+Recommend `CLI lane` for every bounded batch by default, including sequential coupled tasks in
+one file and sequential cross-file work. Use capable live lanes for bounded tests, research and
+reviews as well as implementation. The orchestrator resolves the live lane rows at spawn time;
+recommend capability rather than a vendor. Recommend a subagent only with a specific reason:
+the needed capability is missing from live lanes, the work requires interaction, visual work or
+git operations that a lane cannot do, the user pinned a subagent, or eligible lanes are exhausted
+after the fallback order. Put that reason in `Subagent reason` and the actual fallback in the batch.
 
 Mark a batch parallel only when every task writes to different files, no task
 depends on another, each task is describable in one self-contained prompt, and
@@ -197,9 +202,11 @@ Edge cases:
 
 ## Batch 1: [name] — PENDING
 
-- Recommended executor: [sub-agent type, or CLI lanes x N]
-- Fallback executor: [what to use if the primary fails]
-- Execution mode: [sequential | parallel]
+- Recommended executor: CLI lane [capability]
+- Execution mode: sequential | parallel
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: <specific reason | N/A>
+- Review family: different from implementer | exception reason
 - Rationale: [why this executor and mode fit this batch shape]
 - Tasks: [N] | Depends on: [none, or batch numbers]
 - Phase: [name] | Phase review: [code-logic, plus style for new public API | none — types, tests,
