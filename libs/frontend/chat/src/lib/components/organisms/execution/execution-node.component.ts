@@ -369,12 +369,14 @@ function scheduleFrame(cb: () => void): FrameHandle {
              forwarded HERE ONLY: agent, tool and SendMessage recursions above
              never pass it, so subagent, tool and nested text stay code. The
              turn-source snapshot rides INSIDE the context (PR C), so it
-             reaches this message's assistant text only — never a subagent's. -->
+             reaches this message's assistant text only — never a subagent's.
+             A text child with a later sibling is complete, so it renders as
+             settled markdown instead of keeping a raw streaming tail. -->
         <div class="exec-children">
           @for (child of node().children; track child.id) {
             <ptah-execution-node
               [node]="child"
-              [isStreaming]="isStreaming()"
+              [isStreaming]="isStreaming() && ($last || child.type !== 'text')"
               [isFinalizing]="isFinalizing()"
               [getPermissionForTool]="getPermissionForTool()"
               [ptahUi]="ptahUi()"

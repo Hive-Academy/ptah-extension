@@ -62,7 +62,9 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
         frames.push(() => cb(0));
         return frames.length;
       });
-    jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
 
     TestBed.configureTestingModule({
       imports: [ExecutionNodeComponent],
@@ -93,15 +95,18 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
   }
 
   function root(): HTMLElement {
-    const element = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
-      '.ptah-markdown-root',
-    );
-    if (element === null) throw new Error('streaming containment root not rendered');
+    const element = (
+      fixture.nativeElement as HTMLElement
+    ).querySelector<HTMLElement>('.ptah-markdown-root');
+    if (element === null)
+      throw new Error('streaming containment root not rendered');
     return element;
   }
 
   function blockHosts(): HTMLElement[] {
-    return Array.from(root().querySelectorAll<HTMLElement>(':scope > div.contents'));
+    return Array.from(
+      root().querySelectorAll<HTMLElement>(':scope > div.contents'),
+    );
   }
 
   function tail(): HTMLElement | null {
@@ -148,11 +153,14 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('img')).toBeNull();
     expect(host.querySelector('script')).toBeNull();
-    expect(tail()?.textContent).toBe('<img src=x onerror=alert(1)><script>alert(2)</script>');
+    expect(tail()?.textContent).toBe(
+      '<img src=x onerror=alert(1)><script>alert(2)</script>',
+    );
   });
 
   it('a payload split across a block boundary never yields an active element', () => {
-    const source = '<img src=x\n\nonerror=alert(1)>\n\n<a href="java\n\nscript:alert(1)">x</a>\n\n';
+    const source =
+      '<img src=x\n\nonerror=alert(1)>\n\n<a href="java\n\nscript:alert(1)">x</a>\n\n';
     for (let end = 1; end <= source.length; end++) {
       streamFrame(source.slice(0, end));
       const host = fixture.nativeElement as HTMLElement;
@@ -192,12 +200,55 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
     streamFrame('Block.\n\ntail');
     expect(root()).toBeTruthy();
 
-    fixture.componentRef.setInput('node', makeNode('Block.\n\ntail', 'complete'));
+    fixture.componentRef.setInput(
+      'node',
+      makeNode('Block.\n\ntail', 'complete'),
+    );
     fixture.componentRef.setInput('isStreaming', false);
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.ptah-markdown-root')).toBeNull();
     expect(host.querySelector('markdown')).not.toBeNull();
+  });
+
+  it('renders a text child with a later sibling as settled markdown while the turn streams', () => {
+    const message = {
+      id: 'm1',
+      type: 'message',
+      status: 'streaming',
+      content: '',
+      children: [
+        {
+          id: 't1',
+          type: 'text',
+          status: 'complete',
+          content: 'Done.\n> [!WARNING]\n> Careful.',
+          children: [],
+        },
+        {
+          id: 't2',
+          type: 'text',
+          status: 'streaming',
+          content: 'Still\n\nopen',
+          children: [],
+        },
+      ],
+    } as unknown as ExecutionNode;
+    fixture.componentRef.setInput('node', message);
+    fixture.componentRef.setInput('isStreaming', true);
+    fixture.detectChanges();
+    for (const frame of frames.splice(0)) frame();
+    fixture.detectChanges();
+
+    const children = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>(
+        '.exec-text-branch',
+      ),
+    );
+    expect(children).toHaveLength(2);
+    expect(children[0].querySelector('.ptah-markdown-root')).toBeNull();
+    expect(children[0].querySelector('markdown')).not.toBeNull();
+    expect(children[1].querySelector('.ptah-markdown-root')).not.toBeNull();
   });
 });
