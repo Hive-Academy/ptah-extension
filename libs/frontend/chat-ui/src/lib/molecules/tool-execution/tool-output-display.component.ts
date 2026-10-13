@@ -22,8 +22,13 @@ import {
 } from '../../utils/tool-text.utils';
 import { detectToolLanguage } from '../../utils/tool-language.utils';
 
-/** A tag, comment or declaration opener (`<b`, `</`, `<!`, `<?`) in text. */
-const HTML_LIKE_MARKUP = /<[a-z!/?]/i;
+/**
+ * Markdown syntax whose rendering can hide text, not only drop markers:
+ * HTML (`<b>`, removed or sanitised), entities (`&lt;` renders as `<`),
+ * backslash escapes, and links and images (`[label](url)` hides the URL,
+ * `![alt](url)` moves the text into a non-visible `alt` attribute).
+ */
+const MARKDOWN_MAY_HIDE_TEXT = /[<&\\[\]]/;
 
 /**
  * ToolOutputDisplayComponent - Output section orchestrator
@@ -126,10 +131,10 @@ export class ToolOutputDisplayComponent {
    * block, as displayed, already holds the same message whole
    * (`outputShowsError`); an incidental mention in the output does not count.
    * Markdown output (MCP results that use markdown syntax, `.md` content) is
-   * parsed and sanitised before display. Sanitising only drops markup, so the
-   * block is left out for markdown output too, unless the error text itself
-   * holds HTML-like markup (`HTML_LIKE_MARKUP`): that part may not survive
-   * sanitising, so the output may not show the message whole.
+   * parsed and sanitised before display. Emphasis, headings and list markers
+   * drop only their markers, so the block is left out for markdown output
+   * too, unless the error text holds syntax whose rendering can hide text
+   * (`MARKDOWN_MAY_HIDE_TEXT`): then the output may not show the message.
    * A whitespace-only error still shows the block, with a stated fallback.
    */
   readonly errorMessage = computed((): string | null => {
@@ -137,12 +142,13 @@ export class ToolOutputDisplayComponent {
     const { error, toolOutput } = node;
     if (!error) return null;
     if (!error.trim()) return 'The tool reported an error without a message.';
-    const sanitisingMayDropIt =
-      HTML_LIKE_MARKUP.test(error) && detectToolLanguage(node) === 'markdown';
+    const renderingMayHideIt =
+      MARKDOWN_MAY_HIDE_TEXT.test(error) &&
+      detectToolLanguage(node) === 'markdown';
     const shownAsOutput =
       !this.todoInput() &&
       !this.editInput() &&
-      !sanitisingMayDropIt &&
+      !renderingMayHideIt &&
       outputShowsError(toolOutputPlainText(toolOutput), error);
     return shownAsOutput ? null : error;
   });

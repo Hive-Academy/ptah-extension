@@ -255,6 +255,8 @@ function stringChip(key: string, value: string, isSearch: boolean): ChipEntry {
 
 const MCP_PREFIX = 'mcp__';
 const MCP_SEPARATOR = '__';
+/** A line terminator; a tool name holding one is not split (one-line header). */
+const LINE_BREAK = /[\r\n\p{Zl}\p{Zp}]/u;
 
 /**
  * An MCP tool from another server split into its server and tool names
@@ -267,7 +269,9 @@ export function splitMcpToolName(
   toolName: string,
 ): { readonly server: string; readonly tool: string } | null {
   if (isPtahMcpToolName(toolName)) return null;
-  if (!toolName.startsWith(MCP_PREFIX)) return null;
+  if (!toolName.startsWith(MCP_PREFIX) || LINE_BREAK.test(toolName)) {
+    return null;
+  }
   const rest = toolName.slice(MCP_PREFIX.length);
   const separator = rest.indexOf(MCP_SEPARATOR, 1);
   if (separator < 0) return null;

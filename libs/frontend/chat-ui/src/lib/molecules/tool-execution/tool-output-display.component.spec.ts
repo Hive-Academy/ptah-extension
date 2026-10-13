@@ -407,7 +407,32 @@ describe.each([true, false])(
       fixture.detectChanges();
 
       expect(host.querySelector('[data-testid="tool-error"]')).toBeNull();
+      expect(host.textContent).toContain('build stopped');
     });
+
+    // Regression: an image moves its text into a non-visible alt attribute.
+    it.each([
+      ['an image', '![fatal: disk full](https://example.com/icon.png)'],
+      ['a link', '## Failed\nsee [the log](https://example.com/log) for why'],
+      ['an entity', '## Failed\n- **fatal**: &lt;eof&gt; reached'],
+      ['a backslash escape', '## Failed\n- **fatal**: C:\\temp is full'],
+    ])(
+      'keeps the Error block for markdown output whose error holds %s',
+      async (_case, message) => {
+        const host = render({
+          toolName: 'mcp__server__run',
+          status: 'error',
+          toolOutput: message,
+          error: message,
+        });
+        await fixture.whenStable();
+        fixture.detectChanges();
+
+        const block = host.querySelector('[data-testid="tool-error"]');
+        expect(block).not.toBeNull();
+        expect(block?.textContent).toContain(message);
+      },
+    );
 
     it('keeps the Error block when markdown output only mentions the error incidentally', async () => {
       const host = render({
