@@ -11,7 +11,11 @@ import { CanvasRailComponent } from './canvas-rail.component';
   // Match the real component's native list-item host.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'li[ptah-canvas-rail-card]', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[attr.data-tab-id]': 'tabId()' }, template: '<button class="rc-select">Select</button>',
+  host: { '[attr.data-tab-id]': 'tabId()', 'data-rail-card': '' },
+  template: `@if (collapsed()) {
+    <div aria-hidden="true" style="display: none"><button class="rc-select">Hidden</button></div>
+    <button type="button">Select</button>
+  } @else { <button class="rc-select">Select</button> }`,
 })
 class CardStub {
   readonly tabId = input.required<string>(); readonly density = input<CompactRailDensity>('comfortable');
@@ -68,5 +72,18 @@ describe('CanvasRailComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('No sessions yet');
     (fixture.nativeElement as HTMLElement).querySelector('footer button')!.dispatchEvent(new MouseEvent('click'));
     expect(emit).toHaveBeenCalledTimes(1);
+  });
+  it('moves DOM focus through collapsed cards with repeated ArrowDown and ArrowUp', () => {
+    const fixture = mount([tile('a', 0), tile('b', 1), tile('c', 2)]);
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.componentRef.setInput('surfaceActive', true);
+    fixture.detectChanges();
+    const cards = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[data-rail-card]')];
+    const visible = (index: number) => cards[index].querySelector<HTMLButtonElement>('button:not(.rc-select)') as HTMLButtonElement;
+    visible(0).focus();
+    for (const [key, index] of [['ArrowDown', 1], ['ArrowDown', 2], ['ArrowUp', 1], ['ArrowUp', 0]] as const) {
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      expect(document.activeElement).toBe(visible(index));
+    }
   });
 });

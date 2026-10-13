@@ -18,7 +18,7 @@ import {
   RUNNING_CAP_MESSAGE,
 } from '../canvas-running-cap';
 import { CanvasRailCardComponent } from './canvas-rail-card.component';
-import { handleCanvasRailKeydown } from './canvas-rail-keyboard';
+import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
 
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
 const CHIP_STATES = [
@@ -262,7 +262,7 @@ export class CanvasRailComponent {
             '[data-rail-card]',
           ),
         ].find((item) => item.dataset['tabId'] === id);
-        card?.querySelector<HTMLButtonElement>('.rc-select, button')?.focus();
+        focusRailSelectButton(card);
       },
       focusInnerButtons: true,
     });

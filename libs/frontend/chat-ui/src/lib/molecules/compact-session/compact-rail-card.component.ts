@@ -122,6 +122,13 @@ const EMPTY_LANES: CompactLaneSummary = {
         font-size: 10px;
         line-height: 18px;
       }
+      .rc-action.rc-lane-overflow {
+        height: 16px;
+        line-height: 16px;
+      }
+      .rc-action.rc-lane-overflow:focus-visible {
+        outline-offset: -2px;
+      }
       .rc-action::after {
         content: '';
         position: absolute;
@@ -283,7 +290,7 @@ const EMPTY_LANES: CompactLaneSummary = {
               @if (lanes().moreCount > 0) {
                 <button
                   type="button"
-                  class="rc-action ml-auto bg-base-300 text-base-content"
+                  class="rc-action rc-lane-overflow ml-auto bg-base-300 text-base-content"
                   [attr.aria-label]="
                     'Open ' +
                     lanes().moreCount +

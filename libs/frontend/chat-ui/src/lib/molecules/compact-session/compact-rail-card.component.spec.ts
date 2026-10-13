@@ -110,6 +110,7 @@ describe(CompactRailCardComponent.name, () => {
     ) as NodeListOf<HTMLElement>;
     expect(header.classList.contains('h-4')).toBe(true);
     expect(header.querySelector('button')?.textContent?.trim()).toBe('+1 more');
+    expect(header.querySelector('button')?.classList.contains('rc-lane-overflow')).toBe(true);
     expect(rows).toHaveLength(3);
     expect([...rows].every((row) => row.classList.contains('h-[18px]'))).toBe(
       true,

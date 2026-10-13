@@ -62,6 +62,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import {
   AppStateManager,
   BackOfficeActivityService,
+  SURFACE_ACTIVE,
 } from '@ptah-extension/core';
 import { ChatStore, TabManagerService } from '@ptah-extension/chat';
 import type { OrchestraCanvasComponent as OrchestraCanvasType } from './orchestra-canvas.component';
@@ -86,13 +87,16 @@ const canStart = signal(true);
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CanvasRailComponent],
   template:
-    '@if (visible()) { <ptah-canvas-rail [canStart]="canStart()" /> <div class="rail-draft"><input aria-label="Rail draft" [value]="draft()" (input)="onInput($event)" /></div> }',
+    '@if (visible()) { <ptah-canvas-rail [canStart]="canStart()" /> <div data-rail-card data-tab-id="a"><div aria-hidden="true" style="display: none"><button class="rc-select">Hidden</button></div><button class="rail-visible">Visible</button><button class="rail-inner">Inner</button></div><div class="rail-draft"><input aria-label="Rail draft" [value]="draft()" (input)="onInput($event)" /></div> }',
 })
 class RailStub implements OnDestroy {
   readonly workspacePath = input.required<string>();
   readonly visible = input.required<boolean>();
   readonly draft = signal(savedDraft());
   readonly canStart = canStart;
+  readonly orderedTiles = () => tiles();
+  readonly focusedId = () => 'a';
+  readonly focus = jest.fn();
   onInput(event: Event): void {
     if (event.target instanceof HTMLInputElement)
       this.draft.set(event.target.value);
@@ -221,6 +225,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     TestBed.configureTestingModule({
       imports: [OrchestraCanvasComponent],
       providers: [
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
         {
           provide: TabManagerService,
           useValue: {
@@ -377,6 +382,16 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     event.preventDefault();
     find('ptah-canvas-needs-you-queue')?.dispatchEvent(event);
     expect(close).not.toHaveBeenCalled();
+  });
+  it('returns Escape focus to the visible collapsed Rail button', () => {
+    Object.defineProperty(fixture.componentInstance, 'activeRailBoards', {
+      value: () => [{ visible: () => true, orderedTiles: () => tiles(), focusedId: () => 'a', focus: jest.fn() }],
+    });
+    const inner = find('.rail-inner') as HTMLButtonElement;
+    const visible = find('.rail-visible') as HTMLButtonElement;
+    inner.focus();
+    inner.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(visible);
   });
   it('shows persistence notes without blocking an in-memory switch', () => {
     writeFailed.set(true);

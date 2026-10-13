@@ -48,7 +48,7 @@ import { CanvasDetailPanelComponent } from './canvas-detail/canvas-detail-panel.
 import { handleCanvasDetailKeydown } from './canvas-detail/canvas-detail-keyboard';
 import { CanvasBoardToggleComponent } from './canvas-board-toggle.component';
 import { CanvasRailBoardComponent } from './canvas-rail/canvas-rail-board.component';
-import { handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
+import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -419,7 +419,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
             '[data-rail-card]',
           ) ?? []),
         ].find((item) => item.dataset['tabId'] === id);
-        card?.querySelector<HTMLButtonElement>('.rc-select, button')?.focus();
+        focusRailSelectButton(card);
       },
       focusInnerButtons: true,
     });

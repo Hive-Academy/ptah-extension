@@ -658,3 +658,32 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   lane, one heavy check at a time). R8 is independent and may be pulled forward only if the orchestrator says so.
 - Statuses are left PENDING as requested; the orchestrator's first spawn moves R0 to IN_PROGRESS through the
   team-leader.
+
+## Correction N1/N2 (after 039dfc5a7)
+
+- Scope: `code-logic-rereview-rail.md` N1 (Serious) and N2 (Minor); decisions row 63. One codex
+  `frontend-developer` lane, report `lane-rail-correction-report.md`.
+- Status: COMPLETE. Commit: the commit that adds this section,
+  `fix(canvas,chat-ui): rail keyboard focus and +N more fit` (to find its SHA, run
+  `git log -1 --format=%h -- .ptah/specs/TASK_2026_629_c0b3/batches-rail.md`).
+- Verified on disk by team-leader Mode 2:
+  - N1: `focusRailSelectButton` in `canvas-rail-keyboard.ts` (the `.rc-select, button` order, skipping
+    descendants of `[aria-hidden="true"]`) is now the only focus path at both sites,
+    `canvas-rail.component.ts` and `orchestra-canvas.component.ts`. The hidden smart card in
+    `canvas-rail-card.component.ts` (`style="display: none"` with `aria-hidden="true"`) is unchanged.
+  - N2: only the `+N more` button has the `rc-lane-overflow` modifier (16 px height and line height, focus
+    outline offset -2 px). The counts line is 16 px plus 3 x 18 px lanes = 70 px. Card heights are still
+    176 px (comfortable) and 96 px (dense). The aria-label and `moreLanes` output are unchanged.
+  - Specs: `canvas-rail.component.spec.ts` (ArrowDown/ArrowUp through collapsed cards),
+    `orchestra-canvas.rail.spec.ts` (Escape returns focus to the visible button) and
+    `compact-rail-card.component.spec.ts` (overflow marker). Only the stubs and fixtures were edited.
+    `orchestra-canvas.detail.spec.ts` was not edited, and no file outside the report's seven changed.
+- Checks (run by team-leader, sequential, `--parallel=1 --skip-nx-cache`, tests with
+  `--coverage=false --maxWorkers=2`):
+  - test canvas: Test Suites 35/35 passed, Tests 409/409 passed
+  - test chat-ui: Test Suites 71/71 passed, Tests 1131/1131 passed
+  - typecheck canvas: pass. typecheck chat-ui: pass.
+  - lint canvas: pass, 0 errors and 20 warnings. The three warnings in `canvas-rail.component.spec.ts` are
+    on pre-existing lines. lint chat-ui: pass, 0 errors and 7 warnings, none in `compact-rail-card`.
+- Next: one Claude `code-logic-reviewer` review of this correction only (decisions row 63; the cap is not
+  reset).

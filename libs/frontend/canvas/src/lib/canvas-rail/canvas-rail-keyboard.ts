@@ -7,6 +7,12 @@ export interface CanvasRailKeyboardContext {
   readonly focusInnerButtons: boolean;
 }
 
+export function focusRailSelectButton(card: HTMLElement | undefined): void {
+  [...(card?.querySelectorAll<HTMLElement>('.rc-select, button') ?? [])]
+    .find((element) => !element.closest('[aria-hidden="true"]'))
+    ?.focus();
+}
+
 const IGNORED_TARGET =
   'input, textarea, select, [contenteditable], [role="menu"], [role="listbox"], [role="dialog"], [popover]';
 
