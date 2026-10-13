@@ -24,9 +24,18 @@ session and REPLACES `handoff-5.md` §3 and §5. Still valid: `handoff-5.md` §2
 Uncommitted on purpose: none of `.claude/commands/orchestrate*.md` now differs from HEAD (they equalled origin/main
 and the merge brought that content in; backup in `%TEMP%\629-cmd-backup-1791922037`).
 
-## 2. R9 scope — 8 items (user decisions rows 65, 69-72)
+## 2. R9 scope — items 1, 2-3, 5, 6, 7, 9, 10 (user decisions rows 65, 69-74; 4 and 8 dropped)
 
 Evidence is from a read-only trace on 2026-10-13; the architect must verify each.
+
+> **SCOPE CHANGE — user decision rows 73-74 (read first).** The user drops the Grid layout ("I don't want the hassle of
+> maintaining that grid layout; I want the sessions Rail view") and wants smooth, light session switches ("the load is
+> very harsh"). Effect on the items below:
+> - Item 4 (Grid lane memory) and item 8 (Grid tile height) are DROPPED — Grid goes away. `grid-height-trace.md` is
+>   kept only as a map of the Grid code to delete.
+> - Items 2-3: restore the dock for the focused session in Rail only (no Grid detail panel).
+> - Item 7: click targets are the Rail lane tab and the single chat view only.
+> - NEW item 9 (Grid removal) and NEW item 10 (smooth switching), below item 8.
 
 1. **Rail "New session" has no name popover.** `orchestra-canvas.component.ts:167-170` renders the dock popover only
    when `activeBoard().mode === 'grid'`; the Rail footer button `canvas-rail.component.ts:179-187` →
@@ -70,14 +79,51 @@ Evidence is from a read-only trace on 2026-10-13; the architect must verify each
    the nested render uses so it stays live; a real backend need becomes a `TASK_2026_633_21fa` finding. Parity rows
    for every nested-view capability (tool calls, permission prompts inside a sub-agent, errors, results,
    expand/collapse, copy); removals go to the user. Reuse the background-agent tile visual, no new designer pass.
+   **Render traced:** `subagent-render-trace.md` (21-row parity list). Plan-changing facts: (a) the existing full views
+   (overlay, canvas `sub:` lane) are text-only RPC snapshots — the live full view must render the agent's
+   `ExecutionNode` subtree with `ptah-execution-node`; (b) sub-agent permission prompts show ONLY inline and are
+   excluded from the fallback badge — the tile must surface a pending prompt and the full view must keep it; (c) the
+   `agent` branch is shared by 4 other hosts and CLI agent cards — make tile mode opt-in for the main transcript;
+   (d) `canvas-detail-transcript.component.ts` does not provide `SESSION_CARD_ACTIONS` — add a lane-routing provider;
+   (e) backgrounded sub-agents use lane key `bg:`; (f) `ptah-agent-execution` is dead code.
 8. **Grid summary tiles are too tall** (row 72). Summary (compact-card) tiles stretch to the full grid row (~700-900 px)
    with mostly empty space; the Grid detail panel opens below the fold. Find the cause (gridstack cellHeight, default
    `h`, compact-card host height, TASK_2026_583 free tile height). Fix: default summary-tile height fits the card; the
    detail panel is visible without scrolling at 1600x1000 and 1280; a user-resized height persists; no layout shift.
    **Cause traced:** `grid-height-trace.md` (auto-card tiles keep the 6-row full height plus the 90 % row floor; the
    detail panel has a 70 % height floor). Recommended: Fix 1 (card height for all tiles above the live budget) + Fix 2
-   (detail height = space left). ASK THE USER the two product decisions at its end (may the focused live Grid tile
+   (detail height = space left). (MOOT after row 73 — Grid is removed; the two product questions at its end no longer apply. Was: may the focused live Grid tile
    shrink — row 43 vs row 72; default card rows 2 or 3) before the plan is final.
+
+9. **Remove Grid mode completely** (row 73, user-approved removal of the mode). Rail is the only canvas board.
+   Delete, do not hide: the board toggle (`canvas-board-toggle.component.ts`), the Grid path in
+   `orchestra-canvas.component.ts` (incl. the Grid-only dock popover branch — item 1 keeps the popover for Rail), the
+   gridstack board (`canvas-workspace-grid.*`, `canvas-grid-items.ts`, `canvas-grid-release.engine.ts`,
+   `canvas-live-budget.ts`, `canvas-detail-geometry.ts`, `canvas-workspace-grid.styles.ts`, the Grid detail panel),
+   Grid-only layout code in `canvas-layout.service.ts` / `canvas-layout-intent.ts` / `canvas-layout-controls`, the Grid
+   tile host if nothing else uses it, their specs, and the `gridstack` dependency if no other project imports it (no
+   `npm install` — edit `package.json` only if the user agrees; record otherwise). Persistence: a stored `mode: 'grid'`
+   record (v2 from main and v3) opens as Rail without data loss (collapse, density, scroll kept); old Grid layout data is
+   ignored or dropped by a tested migration. `orchestra-canvas.detail.spec.ts` (K1) is deleted or rewritten with the
+   Grid detail panel — the plan states which. Parity: the planner lists every Grid-only capability (examples: several
+   live chats side by side, drag reorder, per-tile compact height, Layout menu, tile pop-out/close, the Grid detail
+   panel, per-tile mini agent panel, `s-heap` `gridstack-item` baseline) with keep-in-Rail / move / remove-proposed; the
+   user confirms the removal list in ONE bundled question at Gate 2 (removals always go to the user). Use
+   `grid-height-trace.md` as the map of Grid geometry code and specs.
+10. **Smooth, light session switching in Rail** (row 74). Today a focus swap destroys and recreates the lane view and its
+    ChatView (`canvas-focus-area.component.ts` `@for track`, M6 in `code-logic-rereview-rail.md`), so every switch
+    re-paints the whole transcript — "harsh". Plan with measurement, not guesses:
+    - Measure first: `CanvasRenderMetricsService` / `data-canvas-*` metrics and a CDP performance trace of 10 focus
+      swaps (long tasks, layout/paint time, DOM nodes created) on the current build; record the baseline.
+    - Options to evaluate (pick with evidence): keep ONE ChatView instance and switch its tab input instead of
+      destroy/create; a small retained-transcript LRU with frozen snapshots like the single chat view's
+      `TranscriptRetentionService` (memory: `RETAINED_TRANSCRIPT_CAP=8`, hidden transcripts freeze their `vm`) — but
+      reconcile with the BL rule "at most one live ChatView"; `content-visibility:auto` / deferred markdown for
+      off-screen messages; a short cross-fade (~150-200 ms, View Transitions or CSS opacity/transform only, no layout
+      properties) that respects `prefers-reduced-motion`.
+    - Acceptance: no long task > 50 ms on a switch for a typical transcript, no layout shift of the rail cards, the
+      focused card stays in view, draft restore (F5) still passes, BL heap stays at 0 detached nodes. Record the
+      before/after numbers in the plan and the re-check.
 
 Out of scope (row 66, `TASK_2026_653_2931` in the main checkout `.ptah/specs`): left sidebar collapse-to-strip,
 Details column resizer, app-wide cursor audit.
@@ -86,7 +132,7 @@ Details column resizer, app-wide cursor audit.
 
 1. **R9 plan.** Ask the user which executor writes it (the user stopped the Claude architect; the orchestrator's
    recommendation: a codex `software-architect` lane, then a Claude sub-agent cross-side review). One prompt with all
-   8 items from §2 — do not add items by mid-run messages. Deliverables: `implementation-plan-rail-r9.md` (verified
+   active items from §2 (1, 2-3, 5, 6, 7, 9, 10) — do not add items by mid-run messages. Deliverables: `implementation-plan-rail-r9.md` (verified
    contracts, data flow for the dock and the sub-agent tiles, failure cases, file-disjoint batches R9a.. of ≤ 8 files
    with codex lanes and which batches can run in parallel (max 3), named spec cases, updated Electron re-check list)
    and parity rows 45+ in `parity-inventory-layout.md`. Then Gate 2 cross-side review (`implementation-plan-rail-r9-review.md`),
@@ -103,8 +149,9 @@ Details column resizer, app-wide cursor audit.
    background `node .ptah/tmp/final-run/launch.mjs "D:\projects\ptah-final-run-ws"`), give the user the step list
    (the plan's re-check list + R9 items), and wait for "done". Then, with the app still open, run the script checks over
    CDP: `s-heap` (0 detached `ptah-canvas-tile` / `gridstack-item` / `ptah-canvas-lane-view`, at most one live ChatView),
-   contrast #10 in both themes (include M5), and "after" screenshots `after-r9-{rail,grid}-{anubis,anubis-light}.png`
-   (`s-theme`, new `s-board.mjs` with `BOARD=rail|grid`). Note: `s-panels.mjs` TOGGLES the side panels. Show the user
+   contrast #10 in both themes (include M5), and "after" screenshots `after-r9-rail-{anubis,anubis-light}.png`
+   (`s-theme`; `s-board.mjs` is obsolete once Grid is removed) plus the item-10 switching trace (10 focus swaps).
+   Note: `s-panels.mjs` TOGGLES the side panels. Show the user
    before/after screenshots. Write a "Re-check" section in `final-run-review.md`.
 6. **Ask the user** before `npm rebuild better-sqlite3`.
 7. **Team-leader Mode 3** (parity rows 1-44 + the R9 rows, v3 write-path trace, screenshots shown to the user).
@@ -113,7 +160,7 @@ Details column resizer, app-wide cursor audit.
    `🤖 Generated with [Claude Code](https://claude.com/claude-code)`). The pre-push hook runs di-lint + Electron
    validate-deps; a failed gate needs a fix commit on top, then push again.
 9. **When 629 merges:** `SendMessage` to `ptah-ptah-extension-task-628-follow-up-v-14993500006vo2qb1g1i30x` with the
-   NEW BL heap result (0 detached `ptah-canvas-tile` / `gridstack-item`, if the R9 run confirms it).
+   NEW BL heap result from the Rail-only build (0 detached `ptah-canvas-lane-view` / `ptah-canvas-detail-transcript`, at most one live ChatView) and say that Grid mode, `ptah-canvas-tile` grid hosting and `gridstack-item` were REMOVED in 629 (row 73), so the 645 M-final measurement must use the Rail board.
 
 ## 4. Rules (repeat in every lane and sub-agent prompt)
 
