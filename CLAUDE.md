@@ -14,3 +14,13 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
 - One heavy check at a time across all lanes. Never start a second one while one is in flight.
 - Prefer one foreground run with a long timeout. Filter its output (`| tail`, `grep`) instead of
   re-running the command to read it.
+
+## Repo-local fleet rules
+
+- The commitlint scope enum and other enforced commit rules live in `.commitlintrc.json`.
+  Read that config before committing. Keep the subject at most 72 characters and every body
+  line at most 100 characters; wrap body text at 72. `security` and `git` are not scopes.
+- For one changed project, run `npx nx test <project> --parallel=1`. For several changed
+  projects, run `npx nx run-many -t test -p A B --parallel=1` and confirm that the output
+  header says "Running target test for N projects" with N equal to the number requested.
+  Never use positional `nx test A B` because those names become Jest path filters.
