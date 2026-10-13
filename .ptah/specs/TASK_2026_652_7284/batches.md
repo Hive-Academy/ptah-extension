@@ -1191,7 +1191,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - Phase: 3 fix round (Batches 19-22) | Phase review: the one re-review, logic and style, scoped
   to the Batch 19-22 commits
 
-### Task 19.1: Archive keeps its verified copy; fallback folder API; archive exclusion - IN_PROGRESS
+### Task 19.1: Archive keeps its verified copy; fallback folder API; archive exclusion - IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.spec.ts`

@@ -27,7 +27,10 @@ import {
 } from '@ptah-extension/platform-core/testing';
 import {
   AnalysisStorageService,
+  LEGACY_ARCHIVE_MARKER,
+  LEGACY_FALLBACK_SUFFIX,
   LegacyRunArchiveError,
+  isLegacyArchiveDirName,
 } from './analysis-storage.service';
 import {
   MultiPhaseManifestV4Schema,
@@ -196,6 +199,62 @@ describe('AnalysisStorageService', () => {
   });
 
   describe('slug directories', () => {
+    it('uses a distinct fallback directory while keeping legacy bytes intact', async () => {
+      const primary = service.getRunDir(WORKSPACE, 'Demo');
+      const fallback = service.getRunDir(WORKSPACE, 'Demo', 'legacy-fallback');
+      expect(primary).toEqual({
+        slugDir: join(ANALYSIS_ROOT, 'demo'),
+        slug: 'demo',
+      });
+      expect(fallback).toEqual({
+        slugDir: join(ANALYSIS_ROOT, `demo${LEGACY_FALLBACK_SUFFIX}`),
+        slug: `demo${LEGACY_FALLBACK_SUFFIX}`,
+      });
+      expect(fs.exists).not.toHaveBeenCalled();
+
+      await service.writeManifest(primary.slugDir, manifestV3());
+      await fs.writeFileBytes(
+        join(primary.slugDir, 'phase.md'),
+        Uint8Array.from([0, 255, 42]),
+      );
+      const legacyManifest = await fs.readFileBytes(
+        join(primary.slugDir, 'manifest.json'),
+      );
+      const legacyPhase = await fs.readFileBytes(
+        join(primary.slugDir, 'phase.md'),
+      );
+      expect(
+        await service.createSlugDir(WORKSPACE, 'Demo', 'legacy-fallback'),
+      ).toEqual(fallback);
+      await service.writeManifest(
+        fallback.slugDir,
+        manifestV4({
+          slug: fallback.slug,
+          lifecycle: 'paused',
+          analyzedAt: '2026-09-01T00:00:00.000Z',
+        }),
+      );
+
+      expect(
+        (await service.list(WORKSPACE)).map((run) => run.filename),
+      ).toContain(fallback.slug);
+      expect(
+        (await service.findLatestMultiPhaseAnalysis(WORKSPACE))?.slugDir,
+      ).toBe(fallback.slugDir);
+      expect((await service.findLatestResumableRun(WORKSPACE))?.slugDir).toBe(
+        fallback.slugDir,
+      );
+      expect(
+        await fs.readFileBytes(join(primary.slugDir, 'manifest.json')),
+      ).toEqual(legacyManifest);
+      expect(await fs.readFileBytes(join(primary.slugDir, 'phase.md'))).toEqual(
+        legacyPhase,
+      );
+      expect(fs.delete).not.toHaveBeenCalledWith(primary.slugDir, {
+        recursive: true,
+      });
+    });
+
     it('createSlugDir removes previous content', async () => {
       const slugDir = join(ANALYSIS_ROOT, 'demo');
       await fs.writeFile(join(slugDir, 'stale.md'), 'stale');
@@ -389,12 +448,17 @@ describe('AnalysisStorageService', () => {
 
       await expect(
         service.archiveLegacyRun(WORKSPACE, slugDir),
-      ).rejects.toBeInstanceOf(LegacyRunArchiveError);
+      ).rejects.toMatchObject({
+        archiveDir: null,
+      });
       expect(await fs.readFile(join(slugDir, '01-project-profile.md'))).toBe(
         'phase',
       );
       expect((await service.readManifest(slugDir))?.kind).toBe('legacy-v3');
       expect(fs.delete).not.toHaveBeenCalledWith(slugDir, { recursive: true });
+      expect(
+        (await fs.readDirectory(ANALYSIS_ROOT)).map((entry) => entry.name),
+      ).toEqual(['demo']);
     });
 
     it('keeps the source when removing it fails after a verified copy', async () => {
@@ -402,11 +466,69 @@ describe('AnalysisStorageService', () => {
       await fs.writeFile(join(slugDir, 'phase.md'), 'phase');
       fs.delete.mockRejectedValueOnce(new Error('delete failed'));
 
-      await expect(
-        service.archiveLegacyRun(WORKSPACE, slugDir),
-      ).rejects.toBeInstanceOf(LegacyRunArchiveError);
+      const error = await service.archiveLegacyRun(WORKSPACE, slugDir).then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+      expect(error).toBeInstanceOf(LegacyRunArchiveError);
+      if (
+        !(error instanceof LegacyRunArchiveError) ||
+        error.archiveDir === null
+      ) {
+        throw new Error('Expected a retained archive path');
+      }
+      expect(error.message).toContain(error.archiveDir);
+      expect(await fs.exists(error.archiveDir)).toBe(true);
       expect(await fs.readFile(join(slugDir, 'phase.md'))).toBe('phase');
       expect((await service.readManifest(slugDir))?.kind).toBe('legacy-v3');
+    });
+
+    it('keeps every verified archive byte when delete and restore both fail', async () => {
+      await service.writeManifest(slugDir, manifestV3());
+      await fs.writeFileBytes(
+        join(slugDir, '01-project-profile.md'),
+        Uint8Array.from([0, 255, 42]),
+      );
+      await fs.writeFile(join(slugDir, 'second.md'), 'second phase');
+      const originalFiles = [
+        'manifest.json',
+        '01-project-profile.md',
+        'second.md',
+      ];
+      const originalBytes = await Promise.all(
+        originalFiles.map((name) => fs.readFileBytes(join(slugDir, name))),
+      );
+      fs.delete.mockImplementationOnce(async (path) => {
+        fs.__state.files.delete(join(path, '01-project-profile.md'));
+        throw new Error('partial delete failed');
+      });
+      fs.copy.mockImplementation(async (from, to) => {
+        if (from.includes(LEGACY_ARCHIVE_MARKER))
+          throw new Error('restore failed');
+        await fs.writeFileBytes(to, await fs.readFileBytes(from));
+      });
+
+      const error = await service.archiveLegacyRun(WORKSPACE, slugDir).then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+      expect(error).toBeInstanceOf(LegacyRunArchiveError);
+      if (
+        !(error instanceof LegacyRunArchiveError) ||
+        error.archiveDir === null
+      ) {
+        throw new Error('Expected a retained archive path');
+      }
+      expect(error.message).toContain(error.archiveDir);
+      expect(await fs.exists(error.archiveDir)).toBe(true);
+      for (const [index, name] of originalFiles.entries()) {
+        expect(await fs.readFileBytes(join(error.archiveDir, name))).toEqual(
+          originalBytes[index],
+        );
+      }
+      expect(await fs.exists(join(slugDir, '01-project-profile.md'))).toBe(
+        false,
+      );
     });
 
     it('uses the source directory name when a legacy slug contains path syntax', async () => {
@@ -566,6 +688,11 @@ describe('AnalysisStorageService', () => {
         slugDir,
         manifestV3({ slug: 'legacy-paused', lifecycle: 'paused' }),
       );
+      await service.writeGenerationManifest(
+        WORKSPACE,
+        slugDir,
+        generationManifest({ lifecycle: 'paused' }),
+      );
       expect(await service.findLatestResumableRun(WORKSPACE)).toBeNull();
       expect(
         (await service.list(WORKSPACE)).map((item) => item.filename),
@@ -607,6 +734,50 @@ describe('AnalysisStorageService', () => {
   });
 
   describe('findLatestMultiPhaseAnalysis', () => {
+    it('ignores archive directories for latest and resume while listing them', async () => {
+      const activeDir = join(ANALYSIS_ROOT, 'active');
+      const archiveName = `demo${LEGACY_ARCHIVE_MARKER}newer`;
+      const archiveDir = join(ANALYSIS_ROOT, archiveName);
+      expect(isLegacyArchiveDirName(archiveName)).toBe(true);
+      expect(isLegacyArchiveDirName('active')).toBe(false);
+      await service.writeManifest(
+        activeDir,
+        manifestV4({
+          slug: 'active',
+          lifecycle: 'paused',
+          analyzedAt: '2026-08-01T00:00:00.000Z',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        }),
+      );
+      await service.writeManifest(
+        archiveDir,
+        manifestV4({
+          slug: archiveName,
+          lifecycle: 'paused',
+          analyzedAt: '2026-09-01T00:00:00.000Z',
+          updatedAt: '2026-09-01T00:00:00.000Z',
+        }),
+      );
+      await service.writeGenerationManifest(
+        WORKSPACE,
+        archiveDir,
+        generationManifest({ lifecycle: 'paused' }),
+      );
+
+      expect(
+        (await service.findLatestMultiPhaseAnalysis(WORKSPACE))?.slugDir,
+      ).toBe(activeDir);
+      expect((await service.findLatestResumableRun(WORKSPACE))?.slugDir).toBe(
+        activeDir,
+      );
+      expect(
+        (await service.list(WORKSPACE)).map((run) => run.filename),
+      ).toContain(archiveName);
+      expect(
+        (await service.loadMultiPhase(WORKSPACE, archiveName)).manifest.version,
+      ).toBe(4);
+    });
+
     it('picks the newest analyzedAt among valid manifests', async () => {
       await service.writeManifest(
         join(ANALYSIS_ROOT, 'a'),
