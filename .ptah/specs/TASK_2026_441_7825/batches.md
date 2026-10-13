@@ -1,6 +1,6 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 22 | Batches: 9 | Complete: 5/9
+Total tasks: 23 | Batches: 10 | Complete: 7/10
 
 Phase 1 review: APPROVED 7/10 (`code-logic-review.md`, diff `2e0811f0a~1..5991b51be`, Batches 1-4 +
 Batch 3 fix). Fix round Batch 4F committed; re-review scoped to the Batch 4F commit PENDING,
@@ -534,7 +534,7 @@ Edge cases:
   Pre-existing, outside this task's scope. Replace with a stack-neutral "scoped to the changed projects
   with the repository's own task runner" rule in a follow-up task.
 
-## Batch 5: Repo-local fleet migration (G1) — PENDING
+## Batch 5: Repo-local fleet migration (G1) — COMPLETE (codex lane 93144bc3 + fix 5F lane 91d7415a; report batch-5-report.md, batch-5f-report.md)
 
 - Recommended executor: CLI lane (capability: JS/TS editing)
 - Fallback executor: per the fallback order
@@ -543,7 +543,7 @@ Edge cases:
 - Tasks: 4 | Depends on: Batch 3 (parity transfer to `fleet.md`), Phase 1 review accepted
 - Phase: 2 Repo-local migration | Phase review: none at this batch
 
-### Task 5.1: Repo-local Nx and commitlint rules in CLAUDE.md — PENDING
+### Task 5.1: Repo-local Nx and commitlint rules in CLAUDE.md — COMPLETE
 
 - File: `CLAUDE.md`
 - Plan reference: implementation-plan.md:66-67 (parity §6, §7)
@@ -551,7 +551,7 @@ Edge cases:
   single/multiple-project Nx rule (`npx nx test <project> --parallel=1`; `npx nx run-many -t test -p A B
   --parallel=1` with the "Running target test for N projects" check; never positional `nx test A B`).
 
-### Task 5.2: fleet-fix workflow header and prompts — PENDING
+### Task 5.2: fleet-fix workflow header and prompts — COMPLETE
 
 - File: `.claude/workflows/fleet-fix.js`
 - Plan reference: implementation-plan.md:62,67,71 (`:2,7-15,135,170`)
@@ -561,20 +561,29 @@ Edge cases:
   status-ownership rule if the workflow has its own verification step, else record the divergence in
   the header and in the report.
 
-### Task 5.3: Prompt suggestions — PENDING
+### Task 5.3: Prompt suggestions — COMPLETE
 
 - File: `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/prompt-suggestions.component.ts`
 - Plan reference: implementation-plan.md:71 (`:228,299`)
 - Quality requirements: replace `/fleet-orchestration ...` with `/orchestrate` fleet invocations (multiple
   task ids); labels unchanged in meaning.
 
-### Task 5.4: Delete the old skill — PENDING
+### Task 5.4: Delete the old skill — COMPLETE
 
 - Depends on: Tasks 5.1-5.3
 - File: `.claude/skills/fleet-orchestration/SKILL.md` (delete; the approved exception)
 - Quality requirements: only after every parity row (plan :59-69) is confirmed in its new home.
 
+### Task 5F: fleet-fix.js resume checkpoint (orchestrator finding) — COMPLETE
+
+- Batch 5 removed the worker's `in_review` write (fleet.md status ownership), and the implement stage
+  had no artifact, so a resumed run implemented again. Fix: the implement agent writes
+  `implementation.json`; the skip condition also honours `stage` `implement`/`judge` (decisions.md #27).
+
 ### Batch 5 verification
+
+- Orchestrator re-ran: `npx nx typecheck chat-ui --parallel=1` success; `node --check` OK; search for
+  `fleet-orchestration` outside `.ptah` = 0 hits after Batch 6.
 
 - Scoped command: `npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -20` (typecheck
   exercises the literal change; there is no spec for this component, so the full chat-ui test suite is
@@ -583,7 +592,12 @@ Edge cases:
   `.ptah/specs` returns only the Batch 6 fixture.
 - No per-batch review.
 
-## Batch 6: Benchmark fixture reference (G2) — PENDING
+## Batch 6: Benchmark fixture reference (G2) — COMPLETE (re-scoped to a v2 fixture, decisions.md #25-26; codex lane e281eeb4; report batch-6-report.md)
+
+- Investigation result: the stop condition was met (23 unique skill ids asserted, `orchestration`
+  already row 12, raw-byte hash pinned). User chose "Add a v2 fixture": `skill-triggers.v2.jsonl`
+  (22 rows), v1 deleted, MANIFEST entry replaced (`6c43ca13…`), `TRIGGER_LABELS_TARGET` and specs
+  retargeted.
 
 - Recommended executor: CLI lane (capability: TS/Jest, careful investigation)
 - Fallback executor: per the fallback order
@@ -593,7 +607,7 @@ Edge cases:
 - Phase: 2 Repo-local migration (last batch) | Phase review: code-logic on Batches 5-6 combined diff,
   family different from the Phase 2 implementers
 
-### Task 6.1: Investigate and retarget row 6 — PENDING
+### Task 6.1: Investigate and retarget row 6 — COMPLETE
 
 - File: `tools/mcp-bench/fixtures/memory-skills/skill-triggers.v1.jsonl`
 - Plan reference: implementation-plan.md:71; context.md acceptance 7
@@ -604,7 +618,7 @@ Edge cases:
   Otherwise retarget row 6 so no row names `fleet-orchestration` (fleet triggers move to
   `orchestration`), keeping row count and line order.
 
-### Task 6.2: Update the fixture manifest hash — PENDING
+### Task 6.2: Update the fixture manifest hash — COMPLETE
 
 - Depends on: Task 6.1
 - File: `tools/mcp-bench/fixtures/memory-skills/MANIFEST.json`
@@ -617,6 +631,8 @@ Edge cases:
   tools/mcp-bench/src/memory-skills/ground-truth/committed-u4-labels.spec.ts
   tools/mcp-bench/src/memory-skills/projection.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30`
   (add any other spec that reads MANIFEST.json for this file).
+- Orchestrator re-ran the 5 specs: 5 suites, 72 tests passed (needs the worktree `node_modules`
+  junction; the Jest `marked` mapper is an absolute worktree path). `npx nx typecheck mcp-bench` success.
 - Phase 2 review due after commit.
 
 ## Batch 7: Plugin version and content manifest (H2) — PENDING
