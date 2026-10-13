@@ -31,6 +31,11 @@ export {
   AnalysisStorageService,
   LegacyRunArchiveError,
 } from './lib/services/analysis-storage.service';
+export {
+  AnalysisFreshnessService,
+  computeWorkspaceFingerprint,
+  ANALYSIS_MAX_AGE_MS,
+} from './lib/services/analysis-freshness.service';
 export type {
   ResumableRun,
   ManifestReadResult,

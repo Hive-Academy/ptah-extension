@@ -357,7 +357,7 @@ tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping erro
   re-review disposition"). One exception: the prettier drift is fixed in 8afe14ce5.
 - Batch 17 COMPLETE (94eb0149d). Batch 9 (Phase 2B) COMPLETE (9f98ea07c). Phase 2B review
   APPROVED 8.5/10 (`code-logic-review-phase-2b.md`; see "Phase 2B review disposition").
-  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 (Phase 3, backend) IN_PROGRESS.
+  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 COMPLETE (27bf6b468). Batch 11 IN_PROGRESS.
 - FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
   Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
   confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
@@ -907,7 +907,7 @@ pin the name contract that the dispatcher depends on.
 - Verified (team-leader, 2026-10-14, report `batch-18-report.md`): only the two specs changed;
   prettier check clean; jest on the two specs "2 passed, 405 passed". Committed ae20af1ca.
 
-## Batch 10: Manifest v4 types and validated read path (behavior-neutral) - IN_PROGRESS
+## Batch 10: Manifest v4 types and validated read path (behavior-neutral) - COMPLETE (commit 27bf6b468)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -963,7 +963,7 @@ pin the name contract that the dispatcher depends on.
   Batch 12 is not offered for resume; Batch 12 (v4 writer, v3 archive on resume) closes it.
   No merge or release happens before then.
 
-## Batch 11: Analysis freshness service and DI - PENDING
+## Batch 11: Analysis freshness service and DI - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -972,7 +972,7 @@ pin the name contract that the dispatcher depends on.
 - Tasks: 3 | Depends on: Batch 10
 - Phase: 3 - Manifest v4 and freshness | Phase review: code-logic, plus style
 
-### Task 11.1: `AnalysisFreshnessService` and `computeWorkspaceFingerprint` - PENDING
+### Task 11.1: `AnalysisFreshnessService` and `computeWorkspaceFingerprint` - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-freshness.service.ts` (new)
 - Plan reference: implementation-plan.md:90-103
@@ -984,14 +984,14 @@ pin the name contract that the dispatcher depends on.
   - Reasons match the plan's enum. Any read error gives stale/`unreadable`, never fresh. No root gives missing.
   - Read-only: no disk writes.
 
-### Task 11.2: Token, registration, export - PENDING
+### Task 11.2: Token, registration, export - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/di/tokens.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/di/register.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/index.ts` (second owner, after Batch 10)
 - Quality requirements: `AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE`, registered as a singleton beside `ANALYSIS_STORAGE_SERVICE`. Export the class, `computeWorkspaceFingerprint` and `ANALYSIS_MAX_AGE_MS`.
 
-### Task 11.3: Freshness spec - PENDING
+### Task 11.3: Freshness spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-freshness.service.spec.ts` (new)
 - Quality requirements: the full reason matrix (ok, no-analysis, legacy-v3, incomplete, expired at the boundary, workspace-changed, output-mismatch, unreadable). Fingerprint is stable under directory order and changes with lockfile bytes. No writes (spy on the FS).
@@ -1001,7 +1001,28 @@ pin the name contract that the dispatcher depends on.
 - Formatting (cheap guard, kept after hooks were restored by D10; see "Git hooks in this
   worktree"): `npx prettier --check <every file the batch changed>` must pass. The lane runs
   `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
-- Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-generation --parallel=1`
+- Command (split per orchestrator 2026-10-14, because `--maxWorkers` breaks a combined run):
+  `npx nx run-many -t typecheck,lint -p @ptah-extension/agent-generation --parallel=1`, then
+  `npx nx run-many -t test -p @ptah-extension/agent-generation --parallel=1 --maxWorkers=2`,
+  then `npx nx run di-lint:lint` (new token and registration).
+- Verification 1 (team-leader, 2026-10-14, report `batch-11-report.md`): NOT ACCEPTED, not
+  committed. Tasks 11.2 (token, singleton, exports) verified on disk. Task 11.1 defect:
+  `getStatus` (`analysis-freshness.service.ts:163-172`) returns stale/`unreadable` for the
+  whole workspace as soon as ANY slug dir has a `manifest.json` that `readManifest` rejects.
+  Version-2 and malformed manifests are kept on disk forever by design
+  (`analysis-storage.service.ts:11-12`), so a user with one old v2 run never gets `fresh`,
+  even after a new verified v4 run completes; the freshness gate (Batches 13-15) would be
+  permanently stale. Fix: skip schema-rejected dirs when choosing the latest run (as the
+  saved-analysis listing does); return stale/`unreadable` only when real I/O fails or when no
+  valid run exists and at least one was rejected. Spec: a rejected v2 or malformed dir beside a
+  newer fresh v4 gives `ok`; a rejected dir alone gives `unreadable`. Lane resumed for the fix.
+- Verification 2 (team-leader, 2026-10-14, report `batch-11-fix-report.md`): ACCEPTED.
+  Rejected or undated manifests are skipped when choosing the latest run; `unreadable` only on
+  a non-ENOENT I/O error or when no valid run exists and one was rejected. New specs: rejected
+  v2 and malformed beside a newer fresh v4, a rejected v2 newer than a fresh v4, rejected
+  alone. Prettier check clean; agent-generation typecheck+lint OK; test (`--maxWorkers=2`) OK;
+  di-lint OK (1825 sites, 793 tokens). Minor for the phase review: the selection loop reads
+  `manifest.json` twice before `readManifest` (`analysis-freshness.service.ts:165-176`).
 
 ## Batch 12: v4 writer and SDK session capture - PENDING
 

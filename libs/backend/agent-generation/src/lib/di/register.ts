@@ -40,6 +40,7 @@ import {
   MultiPhaseAnalysisService,
 } from '../services/wizard';
 import { AnalysisStorageService } from '../services/analysis-storage.service';
+import { AnalysisFreshnessService } from '../services/analysis-freshness.service';
 import {
   PromptDesignerAgent,
   PromptCacheService,
@@ -97,6 +98,11 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
     { useClass: AnalysisStorageService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
+    { useClass: AnalysisFreshnessService },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
