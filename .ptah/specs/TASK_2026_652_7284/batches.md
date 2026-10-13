@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 40 | Batches: 15 | Complete: 2/15
+Total tasks: 40 | Batches: 15 | Complete: 3/15
 
 Worktree root (every command runs here):
 `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions`
@@ -215,7 +215,7 @@ Edge cases:
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared --parallel=1`
 
-## Batch 3: Platform proposal store port - IN_PROGRESS
+## Batch 3: Platform proposal store port - COMPLETE (commit b82a94f7c)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -224,7 +224,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1
 - Phase: 1 - Proposal backend | Phase review: code-logic, plus style
 
-### Task 3.1: `IHarnessProposalStore` and `PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE` - IMPLEMENTED
+### Task 3.1: `IHarnessProposalStore` and `PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/platform-core/src/interfaces/harness-proposal-store.interface.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/platform-core/src/di/tokens.ts`,
@@ -238,7 +238,7 @@ Edge cases:
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/platform-core --parallel=1`
 
-## Batch 4: Workspace proposal store - PENDING
+## Batch 4: Workspace proposal store - IN_PROGRESS
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -247,7 +247,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 1, 2, 3
 - Phase: 1 - Proposal backend | Phase review: code-logic, plus style
 
-### Task 4.1: `HarnessProposalStore` service - PENDING
+### Task 4.1: `HarnessProposalStore` service - IMPLEMENTED
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.ts` (new)
 - Plan reference: implementation-plan.md:24, 46 (store, lock, retention)
@@ -255,12 +255,12 @@ Edge cases:
 - Quality requirements: implements `IHarnessProposalStore`. Root comes from `PLATFORM_TOKENS.WORKSPACE_PROVIDER`, the same for read and write. Path is `<root>/.ptah/harness/proposals/<sha256(sessionId)>.json`. Per-session serial queue. Bounded `wx` lock file with expiry recovery, then re-read the latest record. Merge with `mergeHarnessConfigUpdates`. Atomic temp-write and rename. Lock failure rejects. Stored identity and root must match on read. Corrupt or mismatched records are logged and return null. Prune records older than 30 days during access. No workspace means a typed error.
 - Validation notes: R6, R7.
 
-### Task 4.2: Store spec - PENDING
+### Task 4.2: Store spec - IMPLEMENTED
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-store.service.spec.ts` (new)
 - Quality requirements: concurrent partial writes, same-session merge, distinct-session isolation, read after restart (new instance), corrupt record rejection, 30-day pruning, two-process lock (a pre-held lock file), lock expiry recovery.
 
-### Task 4.3: DI registration - PENDING
+### Task 4.3: DI registration - IMPLEMENTED
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/harness/di.ts`
 - Quality requirements: `container.registerSingleton(PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE, HarnessProposalStore)` inside `registerHarnessServices`, beside `CONFIG_STORE` (`di.ts:57`).
@@ -268,6 +268,17 @@ Edge cases:
 ### Batch 4 verification
 
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers --parallel=1 && npx nx run di-lint:lint`
+- Result (team-leader re-run, `--skip-nx-cache`, node_modules junction in place): Nx
+  "Successfully ran targets typecheck, test, lint for project @ptah-extension/rpc-handlers"
+  (one project); `di-lint OK: 1823 @inject sites all resolve to a registered token (792
+  tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping errors from the
+  missing worktree node_modules, not from this batch; they pass with the junction.
+- Notes for the Phase 1 code-logic review (not blocking this batch):
+  - `prune()` rethrows a non-ENOENT inner error (e.g. a `JSON.parse` SyntaxError on one corrupt
+    record) to the outer catch, which logs and stops pruning the remaining files.
+  - Lock release `fs.unlink` in `finally` can throw ENOENT if another process recovered the lock
+    as stale (5 s), turning a successful write into a rejected save.
+  - Stale recovery unlinks by path, so two processes recovering the same stale lock can race.
 
 ## Batch 5: New Project handoff result and `harness:get-proposal` RPC - PENDING
 
