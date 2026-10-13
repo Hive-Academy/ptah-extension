@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES } from '@ptah-extension/platform-core';
 import type {
   AgentRoleChannel,
   AgentRoleDelivery,
@@ -14,9 +15,11 @@ import type {
 
 /**
  * Secret key prefix for Ptah CLI API keys.
- * Full key format: `ptahCli.{agentId}`
+ * Full key format: `ptahCli.{agentId}`. The `ptahCli.` slot family is declared
+ * non-auth so a saved agent key does not re-initialize the SDK adapter.
  */
-export const PTAH_CLI_KEY_PREFIX = 'ptahCli';
+export const PTAH_CLI_KEY_PREFIX =
+  NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES.ptahCliAgentKey.slice(0, -1);
 
 /**
  * Config key for Ptah CLI configurations in ConfigManager

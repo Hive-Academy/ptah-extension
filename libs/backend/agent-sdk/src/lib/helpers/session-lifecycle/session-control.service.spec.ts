@@ -898,3 +898,38 @@ describe('SessionControl.disposeSessionsForWorkspace — one workspace only', ()
     expect(h.notifyAll).not.toHaveBeenCalled();
   });
 });
+
+describe('SessionControl.disposeAllSessions — a session started mid-dispose survives', () => {
+  it('ends the snapshotted sessions and keeps one registered while interrupts were awaited', async () => {
+    const h = makeHarness();
+    const oldAbort = new AbortController();
+    const oldRec = h.registry.register('tab_old', makeConfig(), oldAbort);
+    h.registry.bindRealSessionId('tab_old', 'real-old');
+
+    // The interrupt is still pending when `chat:start` registers a new tab —
+    // the 2026-10-13 race where an MCP OAuth refresh re-initialized the
+    // adapter and the new session was then "not found".
+    let releaseInterrupt: () => void = () => undefined;
+    oldRec.query = {
+      interrupt: jest.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseInterrupt = resolve;
+          }),
+      ),
+    } as unknown as typeof oldRec.query;
+
+    const disposing = h.control.disposeAllSessions();
+    const newAbort = new AbortController();
+    h.registry.register('tab_new', makeConfig(), newAbort);
+    releaseInterrupt();
+    await disposing;
+
+    expect(oldAbort.signal.aborted).toBe(true);
+    expect(h.registry.find('tab_old')).toBeUndefined();
+    expect(h.registry.find('real-old')).toBeUndefined();
+
+    expect(newAbort.signal.aborted).toBe(false);
+    expect(h.registry.find('tab_new')).toBeDefined();
+  });
+});

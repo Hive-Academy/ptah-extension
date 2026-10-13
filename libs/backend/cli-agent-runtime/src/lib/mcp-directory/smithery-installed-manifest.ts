@@ -24,6 +24,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES } from '@ptah-extension/platform-core';
 import type {
   SmitheryInstalledManifest,
   SmitheryInstalledRecord,
@@ -35,8 +36,12 @@ const MANIFEST_PATH = path.join(
   'smithery-installed.json',
 );
 
-/** Prefix for the per-record encrypted config slot id. */
-export const SMITHERY_CONFIG_SECRET_PREFIX = 'smithery.config.';
+/**
+ * Prefix for the per-record encrypted config slot id. Declared as a non-auth
+ * slot so a config write does not re-initialize the SDK adapter.
+ */
+export const SMITHERY_CONFIG_SECRET_PREFIX =
+  NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES.smitheryConfig;
 
 /**
  * Minimal encrypted-store surface for per-server Smithery config blobs. Backed

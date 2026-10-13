@@ -392,7 +392,12 @@ export class SessionControl {
       }
     }
 
-    this.registry.clearAll();
+    // Remove only the records snapshotted above. A session that registered
+    // while the interrupts were awaited (a `chat:start` racing a config-change
+    // re-init) is not part of this dispose and must survive it.
+    for (const rec of records) {
+      this.registry.remove(rec);
+    }
     this.logger.info('[SessionLifecycle] All sessions disposed');
     for (const ended of endedSessions) {
       this.sessionEndRegistry.notifyAll(ended);
