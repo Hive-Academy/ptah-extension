@@ -22,4 +22,12 @@ describe('CanvasRenderMetricsService', () => {
     metrics.publish();
     expect(metrics.version()).toBe(1);
   });
+
+  it.each(['focusSwaps', 'liveViewMounts', 'railShifts'] as const)('saturates %s', (key) => {
+    TestBed.configureTestingModule({ providers: [CanvasRenderMetricsService] });
+    const metrics = TestBed.inject(CanvasRenderMetricsService);
+    metrics.increment(key, Number.MAX_SAFE_INTEGER);
+    metrics.increment(key);
+    expect(metrics.snapshot()[key]).toBe(Number.MAX_SAFE_INTEGER);
+  });
 });

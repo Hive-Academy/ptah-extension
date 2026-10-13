@@ -6,7 +6,7 @@ Earlier phases stay in `batches.md`; this file covers only the Rail phase.
 Worktree root (ROOT): `D:\projects\ptah-extension\.claude-worktrees\feat-task-629-canvas-board-697f422f00f5`.
 Every path below is relative to ROOT. Lanes run all commands from ROOT.
 
-Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 7/10
+Total batches: 10 (R0, R1, R2, R3, R4a, R4b, R5, R6, R7, R8) | Complete: 8/10
 Executor for every batch: `frontend-developer` role on a codex CLI lane (one lane per batch, sequential).
 Fallback executor: `frontend-developer` sub-agent.
 Lanes never commit and never run git that changes anything. The orchestrator verifies on disk, then commits one batch
@@ -411,7 +411,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   additions only (3 new cases). Re-run checks: transcript 5/5, tile 51/51, canvas project 26 suites / 347
   tests, typecheck pass, lint 0 errors (13 warnings).
 
-## Batch R5: Rail column, rail card wrapper, focus header, rail keyboard (canvas) — COMPLETE (commit: the `batch R5` commit; SHA recorded at R6 acceptance)
+## Batch R5: Rail column, rail card wrapper, focus header, rail keyboard (canvas) — COMPLETE (commit f43b0356c)
 
 - Goal: the rail of cards, the per-card canvas wrapper (actions through `detail.open`, stale announcement, `lanesRequested`),
   the dumb focus header with the overflow menu (Send to messaging), and the pure rail keyboard (plan Components 9,
@@ -465,7 +465,7 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   checks: keyboard 6/6, rail 4/4, rail card 4/4, focus header 4/4; canvas project 30 suites / 365 tests;
   typecheck pass; lint 0 errors (20 warnings, 7 new in R5 specs).
 
-## Batch R6: Focus area, Rail board, rail geometry, render metrics (canvas) — PENDING
+## Batch R6: Focus area, Rail board, rail geometry, render metrics (canvas) — COMPLETE (commit: the `batch R6` commit; SHA recorded at R7 acceptance)
 
 - Goal: one keyed live view per board, the smart Rail board per retained workspace (collapse, density, scroll anchor,
   live region, D4 hidden-mounts-nothing, D19 bands), the pure geometry guard and the new metrics (plan Components 12,
@@ -508,7 +508,20 @@ The block each batch carries, with `<project>` and `<spec>` filled in:
   - Filter output: redirect Jest output to a file, strip `\x1b\[[0-9;]*m`, grep `Tests:|Test Suites:|FAIL `.
   - Lanes never commit (the orchestrator commits after verifying).
   - Backend Jest that loads better-sqlite3 fails until the user rebuilds it; frontend Jest is fine.
-- Status: PENDING
+- Status: COMPLETE. Verified on disk by team-leader: only the 8 listed files changed (6 new under
+  `canvas-rail/`, metrics service + spec modified); `orchestra-canvas.component.ts` and `canvas/src/index.ts`
+  unchanged; metrics spec has additions only (one `it.each` saturation case); no TODO/stub markers; the new
+  files use no `--state-ink-*` variable (K10 holds). Focus area: one `ptah-canvas-lane-view` inside
+  `@for (... track focused)`, header outside the keyed block. Board: `@if (visible())` wraps rail, focus area
+  and details (D4); baseline set to `null` only in `toggleCollapse`, `toggleDensity`, `newSession`, `close`;
+  host exposes `data-canvas-rail-shifts`; auto-collapse is `effectiveCollapsed` (no `setRailCollapsed` write);
+  footer uses `addTile(defaultSessionName())` then `focusTile` (D9). Notes for the phase review: in the `sm`
+  band a details toggle flips effective collapse, so the plan's `density|collapsed` key re-baselines (per
+  the plan's key definition, not an explicit reset); spec gaps are focus-area cases (2)-(4) (lane-view
+  double, no `buildTree` count), board (6) "writes once"/hold clear and (8) BL tile count, and the D9 test
+  asserts `expect.any(String)` rather than `defaultSessionName()`. Re-run checks: geometry 3/3, metrics 5/5,
+  focus area 2/2, board 14/14; canvas project 33 suites / 387 tests; typecheck pass; lint 0 errors
+  (20 warnings, unchanged from R5).
 
 ## Batch R7: Board toggle and OrchestraCanvas integration (canvas) — PENDING
 

@@ -12,6 +12,9 @@ export interface CanvasRenderMetrics {
   readonly acceptedGestures: number;
   readonly rejectedGestures: number;
   readonly cancelledGestures: number;
+  readonly focusSwaps: number;
+  readonly liveViewMounts: number;
+  readonly railShifts: number;
 }
 
 type CanvasRenderMetric = keyof CanvasRenderMetrics;
@@ -28,6 +31,9 @@ const EMPTY_METRICS: CanvasRenderMetrics = {
   acceptedGestures: 0,
   rejectedGestures: 0,
   cancelledGestures: 0,
+  focusSwaps: 0,
+  liveViewMounts: 0,
+  railShifts: 0,
 };
 
 /** Canvas-local bounded diagnostic counters; no transcript/session data. */
