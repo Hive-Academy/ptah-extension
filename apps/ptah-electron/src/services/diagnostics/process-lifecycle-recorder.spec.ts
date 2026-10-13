@@ -493,6 +493,10 @@ describe('redactSecrets', () => {
     ],
     ['body {"apiKey":"k-1","name":"x"}', 'body {"apiKey":"[REDACTED]","name":"x"}'],
     ['body {"access_token":"t-1"}', 'body {"access_token":"[REDACTED]"}'],
+    [
+      'req {"authorization":"AWS4-HMAC-SHA256 Credential=AK/x"}',
+      'req {"authorization":"[REDACTED]"}',
+    ],
     ['bad key sk-ant-api03-ABCDEFGHIJKLMNOPQRST', 'bad key [REDACTED]'],
     ['refresh failed token=secret123', 'refresh failed token=[REDACTED]'],
     ['login password: hunter2 rejected', 'login password: [REDACTED] rejected'],

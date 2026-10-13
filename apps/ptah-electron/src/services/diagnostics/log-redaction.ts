@@ -26,7 +26,7 @@ const SECRET_TEXT_PATTERNS: ReadonlyArray<[RegExp, string]> = [
     `$1${REDACTED}`,
   ],
   [
-    /("[a-z_]*(?:token|secret|password|apiKey|api_key)"\s*:\s*")[^"]*/gi,
+    /("[a-z_]*(?:token|secret|password|apiKey|api_key|authorization|cookie)"\s*:\s*")[^"]*/gi,
     `$1${REDACTED}`,
   ],
   [/\b(?:sk|pk|rk)-[\w-]{16,}/g, REDACTED],

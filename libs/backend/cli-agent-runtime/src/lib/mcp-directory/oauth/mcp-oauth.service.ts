@@ -494,11 +494,17 @@ export class McpOAuthService {
         status: resp.status,
       });
       // Another window or process may have rotated the refresh token first,
-      // which is why this one was rejected; its stored result is still valid.
-      const stored = await this.tokenStore.getToken(serverKey);
-      return stored && stored.refreshToken !== token.refreshToken
-        ? stored
-        : null;
+      // which is why this one was rejected; its stored result is still valid
+      // while the server stays connected and the token is unexpired.
+      return withServerCommitLock(serverKey, async () => {
+        if (!this.manifest.has(serverKey)) return null;
+        const stored = await this.tokenStore.getToken(serverKey);
+        if (!stored || stored.refreshToken === token.refreshToken) return null;
+        if (stored.expiresAt && stored.expiresAt - this.now() < EXPIRY_SKEW_MS) {
+          return null;
+        }
+        return stored;
+      });
     }
 
     const data = asRecord(await resp.json());

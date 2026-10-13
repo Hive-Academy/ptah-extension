@@ -263,37 +263,49 @@ describe('McpOAuthService', () => {
     expect(refreshRequests).toBe(1);
   });
 
-  it('a rejected refresh returns the token another window already rotated', async () => {
-    let t = 1_000_000;
-    let serverKey = '';
-    const other: {
-      tokenStore?: ReturnType<typeof makeService>['tokenStore'];
-    } = {};
-    const rotatedElsewhere: FetchLike = async (url, init) => {
-      const body = new URLSearchParams(init?.body ?? '');
-      const tokenStore = other.tokenStore;
-      if (body.get('grant_type') !== 'refresh_token' || !tokenStore) {
-        return fetchImpl(url, init);
-      }
-      const stored = await tokenStore.getToken(serverKey);
-      if (!stored) throw new Error('connect() stored no token');
-      await tokenStore.setToken(serverKey, {
-        ...stored,
-        accessToken: 'AT-OTHER',
-        refreshToken: 'RT-OTHER',
-      });
-      return { ...notFound(), status: 400 };
-    };
-    const h = makeService({ now: () => t, fetchImpl: rotatedElsewhere });
-    cleanup.push(h.manifestPath);
-    ({ serverKey } = await h.service.connect({
-      serverUrl: 'https://mcp.example.com/mcp',
-    }));
-    other.tokenStore = h.tokenStore;
+  describe('a refresh rejected because another window rotated first', () => {
+    async function setup(opts: { disconnectFirst?: boolean }) {
+      let t = 1_000_000;
+      let serverKey = '';
+      const other: { h?: ReturnType<typeof makeService> } = {};
+      const rotatedElsewhere: FetchLike = async (url, init) => {
+        const body = new URLSearchParams(init?.body ?? '');
+        const h = other.h;
+        if (body.get('grant_type') !== 'refresh_token' || !h) {
+          return fetchImpl(url, init);
+        }
+        const stored = await h.tokenStore.getToken(serverKey);
+        if (!stored) throw new Error('connect() stored no token');
+        await h.tokenStore.setToken(serverKey, {
+          ...stored,
+          accessToken: 'AT-OTHER',
+          refreshToken: 'RT-OTHER',
+          expiresAt: t + 3600 * 1000,
+        });
+        if (opts.disconnectFirst) h.manifest.remove(serverKey);
+        return { ...notFound(), status: 400 };
+      };
+      const h = makeService({ now: () => t, fetchImpl: rotatedElsewhere });
+      cleanup.push(h.manifestPath);
+      ({ serverKey } = await h.service.connect({
+        serverUrl: 'https://mcp.example.com/mcp',
+      }));
+      other.h = h;
+      t = 1_000_000 + 3600 * 1000 + 1;
+      return { service: h.service, serverKey };
+    }
 
-    t = 1_000_000 + 3600 * 1000 + 1;
+    it('returns the token the other window stored', async () => {
+      const { service, serverKey } = await setup({});
 
-    expect(await h.service.getFreshAccessToken(serverKey)).toBe('AT-OTHER');
+      expect(await service.getFreshAccessToken(serverKey)).toBe('AT-OTHER');
+    });
+
+    it('returns nothing once the server was disconnected', async () => {
+      const { service, serverKey } = await setup({ disconnectFirst: true });
+
+      expect(await service.getFreshAccessToken(serverKey)).toBeNull();
+    });
   });
 
   describe('connection changes while a refresh is in flight', () => {

@@ -173,7 +173,13 @@ function boundContextArray(
 
 /** Text for a context field written on its own line (`Service:` etc.). */
 function contextLineText(value: unknown): string {
-  if (typeof value === 'string') return redactSecrets(value);
+  if (typeof value === 'string') {
+    return redactSecrets(
+      value.length > MAX_CONTEXT_CHARS
+        ? `${value.slice(0, MAX_CONTEXT_CHARS)}…`
+        : value,
+    );
+  }
   if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }
@@ -386,7 +392,10 @@ export class ElectronLoggerAdapter {
           ElectronLoggerAdapter.CHANNEL_NAME,
           `  Stack trace:`,
         );
-        this.outputManager.write(ElectronLoggerAdapter.CHANNEL_NAME, error.stack);
+        this.outputManager.write(
+          ElectronLoggerAdapter.CHANNEL_NAME,
+          redactSecrets(error.stack),
+        );
       }
     }
 
@@ -408,9 +417,10 @@ export class ElectronLoggerAdapter {
     if (Object.keys(details).length > 0) {
       let serialized = JSON.stringify(details);
       if (serialized.length > MAX_CONTEXT_CHARS) {
-        // Still one JSON value: the head is a string, and half the budget
-        // leaves room for the escaping its quotes and backslashes add.
-        const head = serialized.slice(0, MAX_CONTEXT_CHARS / 2);
+        // Still one JSON value: the head is a string. Escaping can double it
+        // (every char a quote or backslash), so it gets under half the budget,
+        // leaving room for the wrapper keys.
+        const head = serialized.slice(0, MAX_CONTEXT_CHARS / 2 - 64);
         serialized = JSON.stringify({
           truncatedChars: serialized.length - head.length,
           head,

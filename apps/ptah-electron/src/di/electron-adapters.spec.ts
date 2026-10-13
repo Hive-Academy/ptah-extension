@@ -98,6 +98,30 @@ describe('ElectronLoggerAdapter.error context', () => {
     expect(lines).toContain('  Context: {"serverKey":"s1"}');
   });
 
+  it('keeps a context of escape-heavy text under the bound', () => {
+    const { logger, lines } = makeLogger();
+
+    logger.error('escapes', { a: '\\'.repeat(6_000), b: '\\'.repeat(6_000) });
+
+    const context = lines.find((l) => l.startsWith('  Context: ')) ?? '';
+    expect(context.length - '  Context: '.length).toBeLessThanOrEqual(8_192);
+    expect(() => JSON.parse(context.slice('  Context: '.length))).not.toThrow();
+  });
+
+  it('caps a long non-Error error field and redacts the stack', () => {
+    const { logger, lines } = makeLogger();
+    const err = new Error('boom');
+    err.stack = 'Error: boom\n    at cb (https://x.example.com/cb?code=SECRET1)';
+
+    logger.error('long', { error: 'e'.repeat(20_000) });
+    logger.error('stacked', err);
+
+    const errorLine = lines.find((l) => l.startsWith('  Error: eee')) ?? '';
+    expect(errorLine.length).toBeLessThan(8_300);
+    expect(lines.join('\n')).not.toContain('SECRET1');
+    expect(lines.join('\n')).toContain('code=[REDACTED]');
+  });
+
   it('bounds the work for a huge nested context', () => {
     const { logger, lines } = makeLogger();
     const huge = Array.from({ length: 100_000 }, (_, i) => ({ i, nested: { i } }));
