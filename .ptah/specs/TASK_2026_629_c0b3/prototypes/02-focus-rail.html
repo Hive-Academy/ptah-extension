@@ -126,6 +126,30 @@
   .pill.idle { color: var(--muted); background: var(--s3); }
   .dot.idle { background: var(--idle); }
 
+  /* ---------- Dense card (Gate 1.7 addendum): exactly 96 px, chosen by the user toggle only ----------
+     Zones: head 26 + Now 20 + callout-or-lane-summary 22 + metrics 18 = 86, inner padding 4+4, border 1+1 = 96. */
+  .rcard.dense { height: 96px; }
+  .rcard.dense .rc-body { padding: 4px 10px 4px 14px; grid-template-rows: 26px 20px 22px 18px; }
+  .rcard.dense .rc-foot .mini-bar { display: none; }
+  .dn-line { display: flex; align-items: center; gap: 6px; min-width: 0; height: 22px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .dn-line .sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .dn-line .lanes-btn { flex: none; position: relative; height: 20px; padding: 0 7px; font-size: 11px; border: 1px solid var(--line-2); border-radius: 5px; background: transparent; color: var(--text); }
+  .dn-line .lanes-btn:hover { background: var(--s3); }
+  /* Callout: text is base-content on the tint (never muted); the state colour is only the 1 px ring. */
+  .dn-call { display: flex; align-items: center; gap: 4px; min-width: 0; height: 22px; padding: 0 1px 0 6px; border-radius: 6px; font-size: 11px; color: var(--text); }
+  .dn-call.need { background: var(--need-soft); box-shadow: inset 0 0 0 1px var(--need); }
+  .dn-call.err { background: var(--err-soft); box-shadow: inset 0 0 0 1px var(--err); }
+  .dn-call .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dn-call code { font-family: var(--mono); font-size: 11px; }
+  .dn-call .btn { flex: none; position: relative; height: 18px; padding: 0 6px; font-size: 11px; }
+  /* 18 px visual, 24 px hit area (WCAG 2.5.8): the pseudo-element grows the target, not the line. */
+  .dn-call .btn::after, .dn-line .lanes-btn::after { content: ''; position: absolute; inset: -3px -1px; }
+  .dn-line .lanes-btn::after { inset: -2px -1px; }
+  #toggle-density { position: relative; }
+  #toggle-density[aria-pressed='true'] { background: var(--gold-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--gold); }
+  #toggle-density.hint::after { content: ''; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+  .main.rail-collapsed #toggle-density { display: none; }
+
   .main.rail-collapsed .rail-head { padding: 8px 4px 0; }
   .main.rail-collapsed .rail-title > :not(button), .main.rail-collapsed .chips, .main.rail-collapsed .rail-foot .reason { display: none; }
   .main.rail-collapsed .rail-foot { padding: 8px 4px; }
@@ -155,6 +179,13 @@
   .focus-tabs { flex: none; height: 35px; }
   .focus-tabs .lane-tabs { height: 100%; }
   .lane-tab { height: 34px; }
+  /* Tab strip overflow (920 px): one 35 px line, horizontal scroll, no scrollbar, edge fades show what is cut off, the selected tab is scrolled into view. */
+  .focus-tabs .lane-tabs { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; flex-wrap: nowrap; scroll-padding: 0 28px; }
+  .focus-tabs .lane-tabs::-webkit-scrollbar { display: none; }
+  .focus-tabs .lane-tab { flex: none; }
+  .focus-tabs.fade-r .lane-tabs { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
+  .focus-tabs.fade-l .lane-tabs { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
+  .focus-tabs.fade-l.fade-r .lane-tabs { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
   .focus-panel { flex: 1 1 0; min-height: 0; display: flex; position: relative; }
   .focus-panel > .live, .focus-panel > .lane-view { flex: 1; min-width: 0; }
   .focus .live { max-width: 980px; margin: 0 auto; width: 100%; }
@@ -242,10 +273,11 @@
   <div class="stage-wrap">
     <div class="stage" id="stage">
       <div class="main" id="main">
-        <aside class="rail" aria-label="Sessions">
+        <aside class="rail" id="rail-aside" data-density="comfortable" aria-label="Sessions">
           <div class="rail-head">
             <div class="rail-title">
               <button class="icon-btn" id="toggle-rail" type="button" aria-label="Collapse session rail" aria-expanded="true">◧</button>
+              <button class="icon-btn" id="toggle-density" type="button" aria-pressed="false" aria-label="Dense cards" aria-describedby="dens-hint" title="Dense cards">≡</button><span class="sr" id="dens-hint"></span>
               <span>Sessions</span><span class="meter" id="meter"></span>
             </div>
             <div class="chips" id="chips" role="group" aria-label="Jump to a session by state"></div>
@@ -297,6 +329,8 @@
   const laneSel = new Map();          // session id -> 'orch' | agent id (kept across focus swaps)
   let N = 9, mode = localStorage.getItem('proto.board.mode') || 'rail', focused = ALL[0].id;
   let compact = false, forceCap = false, live = null, pressing = false;
+  /* Rail density: a USER choice, never automatic. Persisted per workspace (v3 field railDensity); this page: localStorage proto.rail.density. */
+  let density = localStorage.getItem('proto.rail.density') === 'dense' ? 'dense' : 'comfortable';
 
   const $ = (id) => document.getElementById(id);
   const main = $('main'), railEl = $('rail'), panel = $('focus-panel');
@@ -311,22 +345,61 @@
   const inspector = Proto.createInspector($('inspector'), store, { noHeader: true });
   Proto.createHud(store, () => ({ live: live ? 1 : 0 }));
 
+  /* ---------- Request ids ----------
+     Every permission / error request has an id. Allow, Deny and Retry bind to the id that is SHOWN (data-rid / data-key);
+     a handler acts only while that id is still the current request, else it repaints and does nothing. */
+  const permIds = new WeakMap(), errIds = new Map(); let ridN = 0;
+  function reqKey(s) {
+    if (s.permission) { if (!permIds.has(s.permission)) permIds.set(s.permission, ++ridN); return `p${permIds.get(s.permission)}`; }
+    if (s.error) { const e = errIds.get(s.id); if (!e || e.text !== s.error) errIds.set(s.id, { text: s.error, n: ++ridN }); return `e${errIds.get(s.id).n}`; }
+    return '';
+  }
+  const stale = (s, rid) => { if (rid === reqKey(s)) return false; renderRail(true); announce('That request changed. Review the new one.'); return true; };
+
   /* ---------- Rail card ---------- */
+  /* ---------- Dense rail card (96 px) ---------- */
+  function denseBody(s) {
+    const st = stateOf(s), idle = st === 'idle', rid = reqKey(s);
+    const done = s.todos.filter((t) => t.done).length, known = s.todos.length > 0, n = s.agents.length;
+    const first = (s.agents.find((a) => a.status === 'error') || {}).id || '';
+    const now = idle ? '<b>Waiting for a prompt</b>'
+      : s.permission ? `<b>Waiting</b> · ${E(s.permission.agent)}`
+      : s.error ? '<b>Stopped</b> · a lane failed' : Proto.currentActivity(s);
+    const line = s.permission
+      ? `<div class="dn-call need" title="${E(s.permission.agent)} asks to run ${E(s.permission.cmd)}"><span class="txt"><code>${E(s.permission.cmd)}</code></span>
+          <button type="button" class="btn btn-allow" data-act="allow" data-rid="${rid}" aria-label="Allow ${E(s.permission.agent)} to run ${E(s.permission.cmd)}">Allow</button><button type="button" class="btn btn-deny" data-act="deny" data-rid="${rid}" aria-label="Deny ${E(s.permission.agent)} running ${E(s.permission.cmd)}">Deny</button><button type="button" class="btn" data-act="open" aria-label="Open ${E(s.title)}">Open</button></div>`
+      : s.error
+      ? `<div class="dn-call err" title="${E(s.error)}"><span class="txt">${E(s.error)}</span>
+          <button type="button" class="btn" data-act="retry" data-rid="${rid}">Retry</button><button type="button" class="btn" data-act="lane" data-lane="${E(first)}" aria-label="Output of the failed lane">Output</button></div>`
+      : `<div class="dn-line"><span class="sum" title="${idle ? 'No lanes yet' : Proto.laneSummary(s)}"><span class="z-label">Lanes</span> ${idle ? 'none yet' : Proto.laneSummary(s)}</span>${n > 0 ? `<button type="button" class="lanes-btn" data-act="more" aria-label="Open the ${n} lane${n === 1 ? '' : 's'} of ${E(s.title)}" title="Open the lane tabs">+${n}</button>` : ''}</div>`;
+    return `
+      <div class="rc-head"><span class="dot ${st}"></span><span class="title truncate">${E(s.title)}</span><span class="pill ${st}">${LABEL[st]}</span></div>
+      <div class="rc-now truncate"><span class="z-label">Now</span>${now}</div>
+      ${line}
+      <div class="rc-foot">
+        <span title="${known ? 'Todos' : 'Todos not reported by this session'}">☑ ${known ? `${done}/${s.todos.length}` : '—'}</span>
+        <span title="Context window used">ctx ${Proto.ctxPct(s)}%</span>
+        <span title="Cost">${Proto.fmtCost(s.cost)}</span>
+        <span class="mono" title="${GIT_TITLE}"><span class="git-add">+${s.git.add}</span> <span class="git-del">−${s.git.del}</span></span>
+      </div>`;
+  }
+
   function cardBody(s) {
+    if (density === 'dense') return denseBody(s);
     const st = stateOf(s), idle = st === 'idle';
     const lanes = Proto.cardAgents(s), callout = s.permission || s.error;
     const shown = callout ? [] : lanes.slice(0, 3), hidden = lanes.length - shown.length;
     const done = s.todos.filter((t) => t.done).length, known = s.todos.length > 0;
-    const first = (s.agents.find((a) => a.status === 'error') || {}).id || '';
+    const first = (s.agents.find((a) => a.status === 'error') || {}).id || '', rid = reqKey(s);
     const now = idle ? '<b>Waiting for a prompt</b>'
       : s.permission ? `<b>Waiting</b> · ${E(s.permission.agent)}`
       : s.error ? '<b>Stopped</b> · a lane failed' : Proto.currentActivity(s);
     const calloutHtml = s.permission
       ? `<div class="rc-callout need"><div class="truncate"><b>${E(s.permission.agent)}</b> asks to run <code>${E(s.permission.cmd)}</code></div>
-          <div class="actions"><button type="button" class="btn btn-allow" data-act="allow">Allow</button><button type="button" class="btn btn-deny" data-act="deny">Deny</button><button type="button" class="btn" data-act="open">Open</button></div></div>`
+          <div class="actions"><button type="button" class="btn btn-allow" data-act="allow" data-rid="${rid}">Allow</button><button type="button" class="btn btn-deny" data-act="deny" data-rid="${rid}">Deny</button><button type="button" class="btn" data-act="open">Open</button></div></div>`
       : s.error
       ? `<div class="rc-callout err"><div class="truncate">${E(s.error)}</div>
-          <div class="actions"><button type="button" class="btn" data-act="retry">Retry</button><button type="button" class="btn" data-act="lane" data-lane="${E(first)}">Show output</button></div></div>`
+          <div class="actions"><button type="button" class="btn" data-act="retry" data-rid="${rid}">Retry</button><button type="button" class="btn" data-act="lane" data-lane="${E(first)}">Show output</button></div></div>`
       : '';
     return `
       <div class="rc-head"><span class="dot ${st}"></span><span class="title truncate">${E(s.title)}</span><span class="pill ${st}">${LABEL[st]}</span></div>
@@ -356,26 +429,29 @@
   function patchCard(li, s, force) {
     const st = stateOf(s), idx = visible().indexOf(s) + 1, isF = s.id === focused;
     const html = cardBody(s);
-    const kind = `${st}|${s.permission ? 'p' : s.error ? 'e' : '-'}`;
+    const kind = `${st}|${reqKey(s) || '-'}|${density}`;   // includes the request id: a replacement request repaints at once
     const kindChanged = li._k !== undefined && li._k !== kind;   // a callout appeared or went away: never leave a stale action
     li._k = kind;
-    li.className = `rcard st-${st}${isF ? ' is-focus' : ''}`;
+    li.className = `rcard st-${st}${isF ? ' is-focus' : ''}${density === 'dense' ? ' dense' : ''}`;
     const sel = li.querySelector('.rc-select');
     sel.tabIndex = isF ? 0 : -1;
     if (isF) sel.setAttribute('aria-current', 'true'); else sel.removeAttribute('aria-current');
-    sel.setAttribute('aria-label', `${s.title}, ${LABEL[st]}${s.permission ? `, ${s.permission.agent} asks permission` : ''}${isF ? ', in focus' : ''}`);
+    sel.setAttribute('aria-label', `${s.title}, ${LABEL[st]}${density === 'dense' ? `, branch ${s.branch}` : ''}${s.permission ? `, ${s.permission.agent} asks permission` : ''}${isF ? ', in focus' : ''}`);
     li.querySelector('.rc-mini').innerHTML = `<span class="dot ${st}"></span><span>${idx}</span>`;
-    li.title = main.classList.contains('rail-collapsed') ? `${s.title} · ${LABEL[st]}` : '';
-    if (!force && !kindChanged && li._h === html) return;
+    li.title = main.classList.contains('rail-collapsed') ? `${s.title} · ${LABEL[st]}` : density === 'dense' ? `${s.title} · ⑂ ${s.branch} · ${s.model}` : '';
     const body = li.querySelector('.rc-body');
+    syncTabs(body, isF);   // roving order is updated on EVERY pass, independent of the HTML diff
+    if (!force && !kindChanged && li._h === html) return;
     const selHere = (() => { const g = getSelection(); return g && !g.isCollapsed && body.contains(g.anchorNode); })();
     if (!force && !kindChanged && (pressing || selHere || body.contains(document.activeElement))) return;
     const hadFocus = body.contains(document.activeElement);
     li._h = html;
     body.innerHTML = html;
     if (hadFocus) sel.focus();   // focus moves to a surviving control (the card select button)
-    body.querySelectorAll('button').forEach((b) => { b.tabIndex = isF ? 0 : -1; });
+    syncTabs(body, isF);
   }
+  /* Roving order: inner buttons of the focused card are tabbable, those of every other card are tabindex=-1. */
+  function syncTabs(body, isF) { body.querySelectorAll('button').forEach((b) => { const v = isF ? 0 : -1; if (b.tabIndex !== v) b.tabIndex = v; }); }
 
   function renderRail(force) {
     const vis = visible(), have = [...railEl.querySelectorAll('.rcard')];
@@ -396,6 +472,7 @@
     $('chips').innerHTML = ['needs', 'error', 'running', 'done', 'idle'].filter((k) => c[k])
       .map((k) => `<button type="button" data-jump="${k}" title="${c[k]} ${LABEL[k].toLowerCase()}: jump to the next one" aria-label="${c[k]} ${LABEL[k].toLowerCase()}, jump to the next one"><span class="dot ${k}"></span>${c[k]}${k === 'needs' || k === 'error' ? ' ' + LABEL[k].toLowerCase() : ''}</button>`).join('')
       || '<span class="faint" style="font-size:11px">No sessions</span>';
+    syncDensityHint();
     const m = $('meter'); m.textContent = `${running()} / ${CAP} running`; m.classList.toggle('full', capReached());
   }
   function renderNew() {
@@ -423,15 +500,48 @@
       return `${g}<button type="button" role="tab" class="lane-tab" data-lane="${t.id}" aria-selected="${t.id === sel}" tabindex="${t.id === sel ? 0 : -1}"><span class="dot ${t.status}"></span>${E(t.label)}</button>`;
     }).join('')}</div>`;
     panel.setAttribute('aria-label', 'Lane output');
+    const strip = $('focus-tabs'), bar = strip.firstElementChild;
+    bar.addEventListener('scroll', () => fadeTabs(), { passive: true });
+    revealTab(bar.querySelector('.lane-tab[aria-selected="true"]'));
   }
+  /* Tab strip overflow: the selected tab is always scrolled into view; fades show hidden tabs on either side. */
+  function fadeTabs() {
+    const strip = $('focus-tabs'), bar = strip.firstElementChild; if (!bar) return;
+    strip.classList.toggle('fade-l', bar.scrollLeft > 1);
+    strip.classList.toggle('fade-r', bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1);
+  }
+  function revealTab(t) {
+    const bar = $('focus-tabs').firstElementChild; if (!bar || !t) return;
+    const pad = 36;
+    if (t.offsetLeft - pad < bar.scrollLeft) bar.scrollLeft = Math.max(0, t.offsetLeft - pad);
+    else if (t.offsetLeft + t.offsetWidth + pad > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = t.offsetLeft + t.offsetWidth + pad - bar.clientWidth;
+    fadeTabs();
+  }
+  window.addEventListener('resize', () => { revealTab(document.querySelector('.lane-tab[aria-selected="true"]')); });
+  /* Focus header: patched IN PLACE. The control set is rebuilt only when it changes (session, compact, Stop shown); even then focus
+     is restored to the control with the same data-h key, else to Compact. Text and state change without touching any control. */
   function renderHeader(s) {
+    const h = $('focus-h');
+    if (!s) { h.innerHTML = ''; h._k = ''; return; }
     const st = stateOf(s), runningNow = s.agents.some((a) => a.status === 'running' || a.status === 'waiting');
-    $('focus-h').innerHTML = s ? `<span class="title truncate">${E(s.title)}</span><span class="chip mono">⑂ ${E(s.branch)}</span><span class="chip model">${E(s.model)}</span>
-      <span class="pill ${st}">${LABEL[st]}</span><span class="sp"></span>
+    const key = `${s.id}|${compact}|${runningNow}`;
+    if (h._k !== key) {
+      const hadFocus = h.contains(document.activeElement), fk = hadFocus ? document.activeElement.dataset.h : '';
+      const menuOpen = $('more-menu').classList.contains('open');
+      h._k = key;
+      h.innerHTML = `<span class="title truncate" data-f="title"></span><span class="chip mono" data-f="branch"></span><span class="chip model" data-f="model"></span>
+      <span class="pill" data-f="pill"></span><span class="sp"></span>
       ${runningNow ? '<button type="button" class="btn" data-h="stop" aria-label="Stop session" title="Stop session">■<span class="lbl-t"> Stop</span></button>' : ''}
       <button type="button" class="btn" data-h="compact" aria-pressed="${compact}" aria-label="${compact ? 'Full view' : 'Compact view'}" title="${compact ? 'Full view' : 'Compact view'}">${compact ? '▣' : '▭'}<span class="lbl-t"> ${compact ? 'Full view' : 'Compact view'}</span></button>
-      <button type="button" class="icon-btn" data-h="more" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="More actions">⋯</button>
-      <button type="button" class="icon-btn" data-h="close" aria-label="Close session ${E(s.title)}" title="Close session">✕</button>` : '';
+      <button type="button" class="icon-btn" data-h="more" aria-haspopup="menu" aria-expanded="${menuOpen}" aria-label="More actions" title="More actions">⋯</button>
+      <button type="button" class="icon-btn" data-h="close" data-f="close" title="Close session">✕</button>`;
+      if (hadFocus) (h.querySelector(`[data-h="${fk}"]`) || h.querySelector('[data-h="compact"]')).focus();
+    }
+    const set = (f, fn) => { const el = h.querySelector(`[data-f="${f}"]`); if (el) fn(el); };
+    const txt = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+    set('title', (el) => txt(el, s.title)); set('branch', (el) => txt(el, `⑂ ${s.branch}`)); set('model', (el) => txt(el, s.model));
+    set('pill', (el) => { txt(el, LABEL[st]); const c = `pill ${st}`; if (el.className !== c) el.className = c; });
+    set('close', (el) => el.setAttribute('aria-label', `Close session ${s.title}`));
   }
   function mountPanel(s) {
     live?.destroy(); live = null; panel.innerHTML = '';
@@ -452,7 +562,7 @@
   function renderFocus(remount) {
     const s = ALL.find((x) => x.id === focused);
     if (!s || !visible().includes(s)) {
-      $('focus-h').innerHTML = ''; $('focus-tabs').innerHTML = ''; live?.destroy(); live = null;
+      renderHeader(null); $('focus-tabs').innerHTML = ''; live?.destroy(); live = null;
       panel.innerHTML = '<div class="focus-empty"><b>No session in focus</b><p>Start a session from the rail. This area keeps its size.</p></div>';
       inspector.set(null); return;
     }
@@ -482,14 +592,29 @@
     btn.querySelector('.dot').className = `dot ${needs ? 'needs' : errs ? 'error' : 'done'}`;
     btn.querySelector('[data-count]').textContent = items.length
       ? `${needs ? `${needs} need${needs === 1 ? 's' : ''} you` : ''}${needs && errs ? ' · ' : ''}${errs ? `${errs} error${errs === 1 ? '' : 's'}` : ''}` : 'All clear';
-    const pop = $('att-pop');
-    if (pop.contains(document.activeElement) && pop._n === items.length) return;
-    pop._n = items.length;
-    pop.innerHTML = items.length ? items.map((s) => `<div class="att-item" data-id="${s.id}">
-        <div class="row"><span class="dot ${s.state}"></span><b class="truncate" style="flex:1">${E(s.title)}</b><span class="faint" style="font-size:11px">${s.permission ? Proto.fmtElapsed(Date.now() - s.permission.at) + ' ago' : ''}</span></div>
+    const pop = $('att-pop'), active = document.activeElement, hadFocus = pop.contains(active);
+    const keyOf = (s) => `${s.id}|${reqKey(s)}`, want = items.map(keyOf);
+    const have = new Map([...pop.querySelectorAll('.att-item')].map((el) => [el.dataset.key, el]));
+    const fk = hadFocus ? active.closest('.att-item')?.dataset.key : '';
+    const lostFocus = hadFocus && fk && !want.includes(fk);   // the item under focus was replaced or resolved
+    have.forEach((el, k) => { if (!want.includes(k)) el.remove(); });
+    pop.querySelector('.att-empty')?.remove();
+    items.forEach((s, n) => {
+      const k = keyOf(s); let el = have.get(k);
+      if (!el) { el = document.createElement('div'); el.className = 'att-item'; el.dataset.id = s.id; el.dataset.key = k; el.innerHTML = queueItemHtml(s); }
+      else { const ago = el.querySelector('[data-ago]'), t = s.permission ? Proto.fmtElapsed(Date.now() - s.permission.at) + ' ago' : ''; if (ago && ago.textContent !== t) ago.textContent = t; }
+      if (pop.children[n] !== el) pop.insertBefore(el, pop.children[n] || null);   // reconciled in place: surviving items keep their buttons and focus
+    });
+    if (!items.length) pop.insertAdjacentHTML('beforeend', '<div class="att-empty">No session needs you.</div>');
+    if (lostFocus) {   // focus moves to a surviving control in the queue, else to the queue button
+      const next = pop.querySelector('.att-item button');
+      if (next) next.focus(); else { $('attention').classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
+    }
+  }
+  function queueItemHtml(s) {
+    return `<div class="row"><span class="dot ${s.state}"></span><b class="truncate" style="flex:1">${E(s.title)}</b><span class="faint" style="font-size:11px" data-ago>${s.permission ? Proto.fmtElapsed(Date.now() - s.permission.at) + ' ago' : ''}</span></div>
         <div class="muted" style="font-size:12px">${s.permission ? `<b style="color:var(--text)">${E(s.permission.agent)}</b> asks to run <code class="mono">${E(s.permission.cmd)}</code>` : E(s.error)}</div>
-        <div class="row" style="gap:6px">${s.permission ? '<button type="button" class="btn btn-allow" data-q="allow">Allow</button><button type="button" class="btn btn-deny" data-q="deny">Deny</button>' : '<button type="button" class="btn" data-q="retry">Retry</button>'}<button type="button" class="btn" data-q="open">Open session</button></div>
-      </div>`).join('') : '<div class="att-empty">No session needs you.</div>';
+        <div class="row" style="gap:6px">${s.permission ? '<button type="button" class="btn btn-allow" data-q="allow">Allow</button><button type="button" class="btn btn-deny" data-q="deny">Deny</button>' : '<button type="button" class="btn" data-q="retry">Retry</button>'}<button type="button" class="btn" data-q="open">Open session</button></div>`;
   }
   function setPop(open) {
     $('attention').classList.toggle('open', open); $('att-btn').setAttribute('aria-expanded', String(open));
@@ -500,6 +625,7 @@
     const b = e.target.closest('[data-q]'), item = e.target.closest('[data-id]'); if (!b || !item) return;
     const id = item.dataset.id;
     const s1 = ALL.find((x) => x.id === id);
+    if (b.dataset.q !== 'open' && item.dataset.key !== `${id}|${reqKey(s1)}`) { renderQueue(); renderRail(true); announce('That request changed. Review the new one.'); return; }   // acts only on the request shown
     if (b.dataset.q === 'allow') { if (s1.permission) store.allow(id); } else if (b.dataset.q === 'deny') { if (s1.permission) store.deny(id); } else if (b.dataset.q === 'retry') { if (s1.error) store.retry(id); }
     else { setPop(false); setFocus(id, { domRail: true }); return; }
     afterChange();
@@ -518,6 +644,7 @@
       setFocus(id, id === focused ? { domPanel: true } : {}); return;
     }
     const a = act.dataset.act;
+    if (act.dataset.rid !== undefined && stale(s0, act.dataset.rid)) return;   // acts only on the request shown
     if (a === 'allow') { if (s0.permission) store.allow(id); afterChange(); }   // guarded: already resolved elsewhere = no duplicate
     else if (a === 'deny') { if (s0.permission) store.deny(id); afterChange(); }
     else if (a === 'retry') { if (s0.error) store.retry(id); afterChange(); }
@@ -541,6 +668,19 @@
     if ($('new-btn').getAttribute('aria-disabled') === 'true') { $('new-reason').animate?.([{ opacity: 0.3 }, { opacity: 1 }], 200); return; }
     N = Math.min(ALL.length, N + 1); syncN(); setFocus(ALL[N - 1].id, { domPanel: false });
   });
+  /* Density toggle: a user geometry change. Order stays, every card keeps one height, the focused card stays in view (keepAnchor). */
+  function syncDensityHint() {
+    const b = $('toggle-density'), hint = density === 'comfortable' && visible().length >= 12;
+    b.classList.toggle('hint', hint);
+    b.title = hint ? 'Dense cards: fits more sessions on screen' : 'Dense cards';
+    $('dens-hint').textContent = hint ? 'You have 12 or more sessions; dense cards fit more of them on screen.' : '';
+  }
+  function setDensity(v) {
+    density = v; localStorage.setItem('proto.rail.density', v);
+    $('rail-aside').dataset.density = v; $('toggle-density').setAttribute('aria-pressed', String(v === 'dense'));
+    renderRail(true); resetShiftBaseline(); keepAnchor(); announce(v === 'dense' ? 'Dense cards on' : 'Dense cards off');
+  }
+  $('toggle-density').addEventListener('click', () => setDensity(density === 'dense' ? 'comfortable' : 'dense'));
   $('toggle-rail').addEventListener('click', () => {
     const c = main.classList.toggle('rail-collapsed'); localStorage.setItem('proto.rail.collapsed', c);
     $('toggle-rail').setAttribute('aria-expanded', String(!c)); renderRail(true); keepAnchor();
@@ -634,7 +774,7 @@
      The counter therefore watches order, height and vertical position of the cards (scroll-compensated) and the fixed header/tab
      heights. It is NOT reset by focus changes, rail collapse, details toggle or canvas-width changes; only by add / close / count / mode. */
   let bases = {}, moved = 0;
-  const mode0 = () => main.classList.contains('rail-collapsed');
+  const mode0 = () => `${main.classList.contains('rail-collapsed')}|${density}`;
   const geom = () => JSON.stringify([...railEl.querySelectorAll('.rcard')].map((c) => {
     const r = c.getBoundingClientRect();
     return [c.dataset.id, Math.round(r.top - railEl.getBoundingClientRect().top + railEl.scrollTop), Math.round(r.height)];
@@ -665,6 +805,7 @@
   /* ---------- Init ---------- */
   const q = new URLSearchParams(location.search).get('s'); if (q && ALL.some((s) => s.id === q)) focused = q;
   if (localStorage.getItem('proto.rail.collapsed') === 'true') { main.classList.add('rail-collapsed'); $('toggle-rail').setAttribute('aria-expanded', 'false'); }
+  $('rail-aside').dataset.density = density; $('toggle-density').setAttribute('aria-pressed', String(density === 'dense'));
   syncN(); setMode(mode); renderQueue();
 </script>
 </body>

@@ -225,7 +225,7 @@ none. Rows 2-7, 9, 15-16 exist only in Grid (D9); nothing from the inventory is 
 
 ## Open questions (for the user)
 
-1. Q2: a second dense 96 px card mode at 12+ sessions? Recommended: no; one density, measure real use first.
+1. Q2: a second dense 96 px card mode at 12+ sessions? **User answer (Gate 1.7, decisions row 52): add it** as a user toggle (row 53, section "Dense mode").
 2. Q4: "Send to messaging" in the focus-header overflow menu (prototype proposal) or as an icon button? Recommended: overflow menu.
 3. Q5: direct close on non-focused cards (hover x)? Recommended: defer; focus-header close covers row 33 without accidental closes.
 
@@ -243,3 +243,116 @@ none. Rows 2-7, 9, 15-16 exist only in Grid (D9); nothing from the inventory is 
 | 8 | No-shift boundary | Restated; scroll anchor after panel toggles; counter no longer resets on rail toggle, separate baselines |
 | 9 | Stale callout | Rule in section 2; prototype reconciles, refocuses select button, guards duplicate actions |
 | 10 | Contrast on real tokens | Prototype tokens replaced with real `anubis` / `anubis-light`; ratios recomputed; light state fills fail, ink tokens proposed; Electron items listed |
+
+## Revision 2
+
+Rules added (they bind the implementation, not only the prototype):
+
+- **Roving order after every focus move.** Inner buttons of the focused card are tabbable (`tabindex=0`); inner buttons of every other card are `tabindex=-1`. This is updated on every pass, separately from the card HTML diff.
+- **Actions bind to the request id shown.** Every permission and error request has an id. The card repaint key includes it. Allow, Deny and Retry carry the id that is displayed and act only while that id is still the current request; otherwise the surface repaints at once and the click does nothing (announced politely). A replacement request never inherits the old command text's approval.
+- **Focus header is patched in place.** Text and state (title, branch, model, pill) change without replacing controls. The control set is rebuilt only when it changes (session, compact, Stop shown); then focus returns to the control with the same key, else to Compact. Stop / Compact / overflow / Close never lose keyboard focus on a sample.
+- **Queue reconciles by request id.** Items are keyed `session id | request id`. Surviving items keep their buttons and focus. A replaced or resolved item is removed at once; focus moves to a surviving control in the queue, else to the queue button (the popover closes when it is empty). Actions bind to the shown request id (same rule).
+- **Lane tab strip overflow.** The strip stays one line at 35 px. It scrolls horizontally with no scrollbar and a 32 px edge fade on each cut side. The selected tab is always scrolled into view (also after a width change). Tablist keyboard model unchanged: one tab stop, Left/Right/Home/End, selection scrolled into view.
+
+| Item | What changed | Prototype line(s) |
+|---|---|---|
+| Re-review #2 (roving tabindex) | `syncTabs` runs on every `patchCard` pass before the HTML-diff early return, and again after a repaint | `02-focus-rail.html:388,396,399` |
+| Re-review #9 (replacement permission) | Request ids (`reqKey`); repaint key includes the id; Allow / Deny / Retry carry `data-rid`; `stale()` repaints and does nothing when the id is not current | `:322-330,344,347,377,591` |
+| N1 (header focus loss) | `renderHeader` patches text and pill in place; rebuilds only on key change and restores focus by `data-h` key | `:467-496` |
+| N2 (queue skip, wrong action) | `renderQueue` reconciles items by `session\|request id`, no skip while focused; focus to a surviving control, else the queue button; click handler checks the shown key | `:532-570,572` |
+| Tab strip at 920 px | Horizontal scroll, hidden scrollbar, edge fades, selected tab revealed (render and resize); strip stays 35 px | CSS `:158-165`, `:439-465` |
+| Re-review #10 (contrast) | Unchanged by design | n/a |
+
+Still **needs Electron confirmation** (unchanged): computed `--bcm` after gamut clipping, DaisyUI hover/focus mixes, tint composites over real surfaces, focus ring and callout border pairs, and the new tab-strip edge fades over `--s1` in both themes.
+
+
+## Dense mode (Gate 1.7 addendum)
+
+Source: `decisions.md` rows 52 (Q2: ADD a dense 96 px card mode) and 53 (binding rules). This resolves Q2 above (the recommendation "no" is overridden by the user). Prototype: `prototypes/02-focus-rail.html`, rail attribute `data-density="comfortable|dense"`, toggle `#toggle-density`. Comfortable mode is unchanged. Measured with `.ptah/tmp/final-run/proto-rail-dense.mjs` (12 sessions, one permission, two errors, 1600 px and 920 px, both themes).
+
+### Dense zone table (card = 96 px, gap 8 px, order stable)
+
+Card box: `box-sizing: border-box`, 1 px border, padding 4 px top and bottom (inner 86 px), 10 px right, 14 px left (4 px state bar). Rows are a fixed grid `26 / 20 / 22 / 18`, so a state change repaints and never reflows.
+
+| Zone | Height | Content | Source in comfortable card | Notes |
+|---|---|---|---|---|
+| Head | 26 | State dot, title (ellipsis), state pill | Same zone | Pill word is `--text` on the state tint; the state colour is only the dot, the 4 px bar and the tint. |
+| Now | 20 | `Now` label + activity. Permission: `Waiting · <agent>`. Error: `Stopped · a lane failed`. Idle: `Waiting for a prompt` | Same zone | Branch and model move to the card tooltip (`title`: `Title · ⑂ branch · model`) and to the select button's accessible name (`, branch <name>`). |
+| Request or lanes line | 22 | EITHER the callout OR the lane summary (never both) | Callout 52 px zone / lanes zone 70 px | See below. |
+| Metrics | 18 | `☑ done/total` (or `—`), `ctx n%`, cost, git `+a −d` | Same zone, without the todo mini bar | Git slot is `max-content` and `overflow: visible`: never clipped (measured: 0 clipped at 1600 and 920 px). |
+
+Callout line (permission): ring + tint in the state colour, text `<code>cmd</code>` in `--text` (ellipsis; the full sentence `agent asks to run cmd` is the line tooltip), then three compact buttons `Allow`, `Deny`, `Open` (visual 18 px high, 39-41 px wide). The agent name is already in the Now line, so the line gives its width to the command. Callout line (error): error text (ellipsis, full text in the tooltip) + `Retry`, `Output`.
+
+Lane summary line: `Lanes` label + `3 running · 1 waiting` (same `laneSummary` text as comfortable; ellipsis, full text in the tooltip) and a `+N` button (N = number of lanes of the session, `aria-label` "Open the N lanes of <title>") that selects the card and opens the lane tabs (same action as the comfortable "+N more"). Idle session: `Lanes none yet`, no button.
+
+Dropped from comfortable and why:
+
+| Dropped | Reason | Where the user still gets it |
+|---|---|---|
+| Meta row (branch, model, elapsed) | 16 px, low value while scanning | Branch and model in the card tooltip and in the focus header; elapsed in the details column. |
+| Up to 3 lane rows | 54 px | Lane summary counts + `+N` to the lane tabs; the focus area lane tab strip. |
+| Todo mini progress bar | Decoration; the number stays | Details column. |
+| "Show N" / "+N more" wording | One `+N` button replaces both | n/a |
+
+### Toggle rule
+
+- A USER control only: a small icon toggle (`≡`) in the rail header title row, directly after the collapse button, `aria-pressed`, accessible name "Dense cards", visible pressed state (gold tint + 1 px gold ring) and an announcement "Dense cards on / off". Never changed by session count, canvas width or any event.
+- The rail header stays 72 px. The toggle sits in the title row; the five state chips live in their own 28 px row, so nothing competes for width. Measured at 272 px rail width: header 72 px, chip row 28 px, toggle 22 x 22 px at x = 41, dark and light; chips keep scroll + fade as today.
+- Hidden while the rail is collapsed (56 px strip); the stored preference is kept and applies when the rail is expanded again. Collapsed cards stay 56 px in both densities.
+- Hint: at 12 or more sessions, while the density is comfortable, the toggle shows a 6 px gold dot, its tooltip reads "Dense cards: fits more sessions on screen" and an `aria-describedby` text says the same. No layout change, no automatic switch, no toast.
+- Persistence: per workspace in the v3 layout record, field `railDensity: 'comfortable' | 'dense'`, default `comfortable`, an unknown value reads as `comfortable`. Written only by this toggle, ignored by Grid mode. (Prototype: `localStorage proto.rail.density`.)
+- Switching density is a USER geometry change, like the panel toggles of section 2: every card changes height at once, order does not change, the focused card is scrolled into view with the same anchor rule (`scrollIntoView({block:'nearest'})` after the layout pass), and the shift counter baseline is reset for the new density. Inside each density the no-shift contract holds unchanged: every card is exactly 176 px (comfortable) or exactly 96 px (dense), the gap is 8 px, and a state change, a stream sample, a new callout or a replaced request never changes a height. Measured: one height value per density, shift counter 0 across samples, toggle on and off by keyboard, and the focused last card stayed in view both ways.
+- The toggle forces one repaint of all card bodies, so it is the only repaint allowed to ignore the text-selection and pointer-press guards; keyboard focus on the toggle is not moved.
+
+### Keyboard and accessibility notes
+
+- Same model as comfortable: the card is a `li` in a `role="list"`, one roving select button per card (`tabindex 0` only on the focused card; name = title, state, branch, "asks permission", "in focus"). Up / Down / Home / End move the selection, Esc inside a card returns focus to its select button.
+- Inner buttons (`Allow`, `Deny`, `Open`, `Retry`, `Output`, `+N`) are `tabindex 0` only in the focused card and `-1` in all others (`syncTabs` on every pass). Dense callouts stay actionable for every card by pointer, and by keyboard after selecting the card or from the app bar queue.
+- Actions bind to the shown request id (`data-rid`); a handler acts only while that id is current, otherwise it repaints and announces "That request changed. Review the new one." Verified in dense: an Allow carrying a stale id is refused and the callout stays.
+- Compact buttons keep their visible word at the start of the accessible name (WCAG 2.5.3): "Allow <agent> to run <cmd>", "Deny <agent> running <cmd>", "Open <title>", "Output of the failed lane".
+- Target size (WCAG 2.5.8, 24 px): the 18 px buttons carry a `::after` hit area 24 px high; `+N` is 20 px with a 24 px hit area; widths are at least 39 px; horizontal gaps are 4 px, so hit areas of neighbours do not overlap. The toggle is a 22 px icon button like the collapse button (same pattern as comfortable; Electron to confirm).
+- Text selection guard (F6) unchanged: `.rc-select` has no pointer events, card text is selectable, a click that ends a selection never changes focus.
+
+### Contrast notes (prototype tokens, composited over the real card surface)
+
+Rule: no muted text on a state tint. Every string inside a callout, and the state pill, is `--text`; muted text (`--muted`) appears only on the plain card surface (`--s2`) or the focused surface (`--s3`).
+
+| Pair | Dark | Light |
+|---|---|---|
+| Callout command text on need tint | 10.05:1 | 10.97:1 |
+| Callout error text on error tint | 12.59:1 | 11.77:1 |
+| Allow label on its green tint | 8.63:1 | 9.47:1 |
+| Deny / Open / Retry / `+N` labels (`--text`) | 13.89:1 | 14.21:1 |
+| Pill on needs tint | 10.05:1 | 10.97:1 |
+| Now line, lane summary, metrics (muted on `--s2`) | 5.65:1 | 5.39:1 |
+| Same text on the focused card (muted on `--s3`) | 5.00:1 | 5.01:1 |
+
+Criterion: WCAG 2.2 AA, 1.4.3 (4.5:1 for text) and 1.4.11 (3:1 for the callout ring and the state bar; the light state inks of Revision 1 apply). All text pairs pass. The Now line on a callout card is muted on `--s2` (5.0:1), not on the tint. Electron confirmation of the composites over the real tokens stays with the re-check (decisions row 51, item #10).
+
+### Decisions
+
+| # | Decision | Evidence / reason |
+|---|---|---|
+| D1 | Dense card = head 26 + Now 20 + callout-or-lanes 22 + metrics 18, padding 4, border 1 | Sum is exactly 96; verified with 12 cards: one height (96), gap 8, dark, light, 920 px |
+| D2 | The callout and the lane summary share one 22 px line; a callout replaces the summary | The comfortable card already treats lanes and callout as exclusive; a request outranks lane counts |
+| D3 | The callout shows the command only; the agent name stays in the Now line | At 272 px about 70 px remain after three buttons; repeating the agent would truncate the command to nothing |
+| D4 | `Open` stays in the callout | Parity with comfortable and the queue popover; it is the keyboard route from a callout to the focus area |
+| D5 | Branch and model go to a tooltip and the accessible name; elapsed is dropped from the card | Not needed to scan for attention; a `title` that changes every second would close the tooltip |
+| D6 | One `+N` button (lane count) opens the lane tabs | Replaces the lane rows without losing the route to any lane |
+| D7 | Todo mini bar dropped, number kept | 18 px row; the number carries the information |
+| D8 | Toggle sits in the title row next to the collapse button, not in the chip row | The five chips already use the full chip row; the title row has about 90 px free |
+| D9 | The 12+ hint is a dot + tooltip + SR text, shown only while comfortable | Row 53 allows a hint and forbids an automatic switch |
+| D10 | Density is not applied in the collapsed rail | The strip has no card body; the preference is kept |
+| D11 | Buttons are 18 px visual with a 24 px hit area | Keeps four zones in 96 px while meeting 2.5.8 |
+
+### Parity table
+
+No parity row changes status, so the table is not edited. Rows 25-27 ("card lane row") keep their capability in dense mode: every lane is one click away through `+N` and the lane tab strip. Rows 28, 43 and 44 (callouts, card keyboard model, text selection) behave identically.
+
+### Requirements for the architect
+
+1. Add `railDensity` to the v3 per-workspace layout record (default `comfortable`; unknown reads as `comfortable`); write it only from the toggle.
+2. Card height comes from one density-keyed constant pair (176 / 96); the list, the shift guard and the scroll anchor all read it, never a literal.
+3. The density switch forces one repaint of all card bodies and one scroll-anchor pass, and resets the geometry baseline (one baseline per density and per collapsed state).
+4. Dense callout buttons need an accessible name that starts with the visible label.
+5. Electron re-check: measure the dense card at 272 and 288 px rail widths with long titles, a long command, large git values and the 920 px layout; confirm the pairs above on real tokens.
