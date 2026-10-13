@@ -1,11 +1,11 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 45 | Batches: 17 | Complete: 8/17
+Total tasks: 55 | Batches: 22 | Complete: 13/22
 
 Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
 only) → Batch 9 (with Task 9.0, moved from 7.1; verified, its commit waits for Batch 17) →
 Batch 17 (degradation-audit markers; commits first) → Batch 9 commit → Phase 2B review → Batches 10-13 → Phase 3
-review → Batches 14-15 → Phase 4 review → wait for TASK_2026_629 to merge and the user to
+review → fix Batches 19-22 → Phase 3 re-review → Batches 14-15 → Phase 4 review → wait for TASK_2026_629 to merge and the user to
 confirm → Batches 6, 7, 8 → Phase 2F review → Mode 3. Batch numbers are ids, not run order.
 
 Worktree root (every command runs here):
@@ -357,7 +357,9 @@ tokens)`; exit 0. The executor's 77 failing suites were Jest module-mapping erro
   re-review disposition"). One exception: the prettier drift is fixed in 8afe14ce5.
 - Batch 17 COMPLETE (94eb0149d). Batch 9 (Phase 2B) COMPLETE (9f98ea07c). Phase 2B review
   APPROVED 8.5/10 (`code-logic-review-phase-2b.md`; see "Phase 2B review disposition").
-  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 COMPLETE (27bf6b468). Batch 11 COMPLETE (93fe34db7). Batch 12 COMPLETE (54f4932c0). Batch 13 COMPLETE. Phase 3 review due (Batches 10-13).
+  Test-only fix Batch 18 COMPLETE (ae20af1ca). Batch 10 COMPLETE (27bf6b468). Batch 11 COMPLETE (93fe34db7). Batch 12 COMPLETE (54f4932c0). Batch 13 COMPLETE (29519e705). Phase 3 review: logic APPROVED WITH FIXES 6/10, style
+  APPROVED WITH FIXES 6.5/10 (see "Phase 3 review disposition"). Fix round: Batches 19-22, then
+  one re-review. Batch 14 waits for that re-review to be accepted.
 - FRONTEND HOLD (user, 2026-10-13, binding; context.md "Frontend hold", decisions D7-D9):
   Batches 6, 7 (Tasks 7.2, 7.3) and 8 do not start until TASK_2026_629 merges and the user
   confirms it. Never touch `libs/frontend/{canvas,chat,chat-ui,chat-streaming,chat-state,
@@ -1089,7 +1091,7 @@ pin the name contract that the dispatcher depends on.
   now archives a v3 slug on every open, not only on resume (`analysis-run-checkpoint.ts:58`);
   the batch deleted most method doc comments in `analysis-run-checkpoint.ts`.
 
-## Batch 13: `wizard:analysis-status` RPC - COMPLETE
+## Batch 13: `wizard:analysis-status` RPC - COMPLETE (commit 29519e705)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1132,6 +1134,241 @@ pin the name contract that the dispatcher depends on.
   Minor for the style review: `'wizard:analysis-status'` sits out of alphabetical order in
   `host-source-registry.baseline.ts:411`.
 
+## Phase 3 review disposition (2026-10-14, one fix round)
+
+Reviews of `27bf6b468^..29519e705`: `code-logic-review-phase-3.md` (antigravity family,
+implementer codex), APPROVED WITH FIXES 6/10; `code-style-review-phase-3.md` (claude family),
+APPROVED WITH FIXES 6.5/10. Dispositions are the orchestrator's (binding), with the team-leader
+evidence noted. `L` = logic finding, `S`/`M` = style serious/minor finding. The fix round is
+Batches 19-22 (file-disjoint, run one at a time). Then one re-review, logic and style, scoped to
+the fix commits. Batch 14 does not start until the orchestrator accepts that re-review.
+
+| Finding                                                    | Severity | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L1 archive can delete the only complete copy               | Serious  | Fix, Task 19.1. Once `fs.delete(source)` has started, the verified archive is never deleted; the error names the archive path. Spec: a delete that removes a phase file then rejects, plus a restore copy that rejects; the archive survives with every original byte                                                                                                                                                                                                     |
+| L2 a v3 archive failure blocks a fresh analysis            | Serious  | Fix, Tasks 19.1 (storage) and 21.1 (checkpoint). A fresh run always starts and a v3 run is never erased. On archive failure: log a warning, leave the v3 folder untouched, write the v4 run to the distinct folder `<slug>--v4` (slugify never emits `--`, so it cannot collide with any slug). Resume looks at the primary folder, then `<slug>--v4`. list, findLatest, getResumableRun, freshness and the CLI (`analysisDir` from the run) all find it; each has a spec |
+| L3 hash or markCompleted throw leaves the run `running`    | Moderate | Fix, Task 21.2. The success path catches it and calls `markFailed` with the error text. If the checkpoint write itself fails, `analyzeWorkspace`'s outer catch pauses the open checkpoint (best effort, logged)                                                                                                                                                                                                                                                           |
+| L4 v3 resume restarts silently                             | Moderate | The restart is approved design (implementation-plan.md: v3 is not resumable). The deviation is already closed on disk: `findLatestResumableRun` skips v3 (`analysis-storage.service.ts:445`), pinned by spec `:563` and by the Batch 13 handler spec. Task 19.1 adds a case for a paused v3 with an unfinished generation checkpoint and for archive folders. No frontend change                                                                                          |
+| L5 fingerprint failure aborts the analysis                 | Minor    | Fix (cheap), Task 21.1: a fingerprint read failure gives a degraded fingerprint (a random never-matching digest) plus a warning, so the run starts and freshness reports `workspace-changed` (stale, never falsely fresh). Re-fingerprinting at `finish()` is FU-9                                                                                                                                                                                                        |
+| L6 archives treated as normal runs                         | Minor    | Fix, Tasks 19.1 and 20.2: `-v3-archive-` folders are excluded from findLatest, getResumableRun and freshness. Deviation, recorded: `list` (the saved-analysis browser) keeps them, because it is the only way a user reaches an archived v3 analysis (Task 10.2 requirement, keep-and-fix rule). Reusing or pruning identical archives is FU-13                                                                                                                           |
+| L7 session id compared only against system/init            | Minor    | Follow-up FU-10. The first id plus the init check covers the SDK's real streams; a mid-stream id change has never been observed                                                                                                                                                                                                                                                                                                                                           |
+| L8 newer rejected run hidden behind an older valid run     | Minor    | Follow-up FU-11. Reachable only across slugs or leftover dirs; after L6 archives no longer take part                                                                                                                                                                                                                                                                                                                                                                      |
+| L9 `analysisDir` absolute in `wizard:analysis-status`      | Minor    | Fix, Task 20.2: `AnalysisStatus.analysisDir` is workspace-relative with `/` separators. No consumer needs an absolute path (no frontend consumer yet; the CLI does not call this method; verified by grep). Batches 14-15 resolve it with `storage.resolveAuthorizedAnalysisDir`. Shared doc: Task 22.1                                                                                                                                                                   |
+| S1 130-line `getStatus`, inline type                       | Serious  | Fix, Task 20.2: `findLatestRun` and `qualify` private methods; `ManifestReadResult` imported                                                                                                                                                                                                                                                                                                                                                                              |
+| S2 freshness has no logger                                 | Serious  | Fix, Task 20.2: `TOKENS.LOGGER`; warn in the outer catch, debug on a rejected manifest                                                                                                                                                                                                                                                                                                                                                                                    |
+| S3 SHA-256 open-coded four times                           | Serious  | Fix, Tasks 20.1 (helpers), 20.2 and 21.x (call sites): `sha256Hex` and `hashFileOrNull` in `analysis-fingerprint.ts`                                                                                                                                                                                                                                                                                                                                                      |
+| S4 checkpoint lost its "why" comments                      | Serious  | Fix, Task 21.1                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| S5 `outcome.sessionId!`                                    | Serious  | Fix, Task 21.2 (with L3): guard on null and `markFailed`, no `!`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| S6 misleading `MultiPhaseManifestSchema` alias             | Serious  | Fix, Task 21.3: delete the alias and its barrel line                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| S7 fingerprint in a DI service file; `PHASE_IDS` hand copy | Serious  | Fix, Tasks 20.1 and 20.2: `services/analysis-fingerprint.ts` (no decorator); phase ids derived from `PHASE_CONFIGS`                                                                                                                                                                                                                                                                                                                                                       |
+| M1 baseline out of order                                   | Minor    | Fix, Task 22.1                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| M2 phase error classes style, unused export                | Minor    | Fix, Task 21.2: constructor `this.name`, drop `export`                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| M3 barrel exports with no consumer                         | Minor    | Fix, Tasks 20.3 and 21.3. Checked against batches.md: Batch 14 needs only `AnalysisFreshnessService` (rpc-handlers); Batch 15 is inside agent-generation (relative imports); Batches 6-8 are frontend and cannot import a backend lib. Each removal is grep-checked first                                                                                                                                                                                                 |
+| M4 stale v3 wording, missing docs, register log            | Minor    | Fix, Tasks 19.1 (`readManifest` doc), 20.3 (register log), 22.1 (shared and schema wording)                                                                                                                                                                                                                                                                                                                                                                               |
+| M5 cast ladder, three v4 definitions                       | Minor    | Follow-up FU-12; it follows the existing `as MultiPhaseManifest` precedent                                                                                                                                                                                                                                                                                                                                                                                                |
+
+Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them):
+
+- FU-9 re-fingerprint the workspace at `finish()` so edits made during a long run, or root files
+  the agents create, do not report `workspace-changed` right after completion (L5 rest).
+- FU-10 compare every SDK message `session_id` with the captured one, or document that
+  `system/init` is authoritative (L7).
+- FU-11 report stale/`unreadable` when a rejected run dir is newer than the chosen run (L8).
+- FU-12 derive the backend v4 type from `z.infer` and assert it against the shared type with
+  `satisfies` when a v5 arrives (M5).
+- FU-13 reuse an existing byte-identical archive instead of adding a new `-v3-archive-<ulid>`
+  folder on each attempt, and decide on pruning (L6 rest).
+- FU-14 a `<slug>--v4` run left behind after a later archive succeeds stays as history (older
+  `analyzedAt`, never selected over the newer run); decide whether to fold it back.
+
+## Batch 19: Phase 3 fix - archive safety, v3 fallback folder, run selection (storage) - IN_PROGRESS
+
+- Recommended executor: implementation CLI lane (codex), one lane
+- Fallback executor: backend-developer sub-agent
+- Execution mode: sequential
+- Rationale: one service and its spec; Batches 20 and 21 depend on its API.
+- Tasks: 1 | Depends on: Batch 13
+- Phase: 3 fix round (Batches 19-22) | Phase review: the one re-review, logic and style, scoped
+  to the Batch 19-22 commits
+
+### Task 19.1: Archive keeps its verified copy; fallback folder API; archive exclusion - IN_PROGRESS
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.spec.ts`
+- Findings: L1, L2 (storage half), L4 (pin), L6 (storage half), M4 (`readManifest` doc)
+- Quality requirements:
+  - L1: in `archiveLegacyRun` (`:329-383`) set a `deleteStarted` flag immediately before
+    `fs.delete(source)`. The outer catch may delete the archive only when `!deleteStarted` (and
+    the source still reads as v3, as today). Once the delete started, keep the archive whatever
+    happens (restore failing included). `LegacyRunArchiveError` gains
+    `readonly archiveDir: string | null` (constructor pattern kept) and its message names the
+    kept archive path when there is one.
+  - L2 storage API: exported `LEGACY_FALLBACK_SUFFIX = '--v4'`; a `RunDirVariant` of
+    `'primary' | 'legacy-fallback'`; `getRunDir(workspacePath, projectDescription, variant)`
+    returns `{ slugDir, slug }` without touching disk (fallback slug = slugified name +
+    `--v4`); `createSlugDir(workspacePath, projectDescription, variant = 'primary')` creates or
+    replaces that folder (existing callers unchanged). `ensureSlugDir` unchanged.
+  - L6: exported `LEGACY_ARCHIVE_MARKER = '-v3-archive-'` and `isLegacyArchiveDirName(name)`
+    used by `archiveLegacyRun` to build the name. `findLatestMultiPhaseAnalysis` and
+    `findLatestResumableRun` skip archive folders. `list` and `loadMultiPhase` keep them
+    (recorded deviation, see disposition).
+  - L4: `findLatestResumableRun` keeps skipping v3 (`:445`).
+  - M4: doc comment on `readManifest`; fix the header and `ResumableRun` / `listValidRuns`
+    comments that still say "version-3" only.
+- Spec cases: (a) a delete that removes one phase file and then rejects, plus a restore copy that
+  rejects: `LegacyRunArchiveError` with `archiveDir` set, the archive folder exists with every
+  original file byte-identical; (b) a clean delete rejection with a successful restore keeps both
+  the source and the archive; (c) a copy failure before delete still removes the partial archive
+  and leaves v3 intact (existing); (d) `getRunDir`/`createSlugDir` with `'legacy-fallback'` give
+  `<slug>--v4`, and a v4 run there is returned by `list`, `findLatestMultiPhaseAnalysis` and
+  `findLatestResumableRun` while the v3 folder is untouched; (e) an archive folder holding a
+  newer v3 manifest is ignored by `findLatestMultiPhaseAnalysis` and `findLatestResumableRun`
+  but shown by `list`; (f) a paused v3 with an unfinished generation checkpoint is not resumable.
+
+### Batch 19 verification
+
+- `npx prettier --check` on the two files.
+- One at a time: `npx nx run-many -t typecheck,lint -p @ptah-extension/agent-generation --parallel=1`;
+  `npx nx run-many -t test -p @ptah-extension/agent-generation --parallel=1 --maxWorkers=2`.
+
+## Batch 20: Phase 3 fix - fingerprint module, freshness refactor, barrel - PENDING
+
+- Recommended executor: implementation CLI lane (codex), one lane
+- Fallback executor: backend-developer sub-agent
+- Execution mode: sequential
+- Rationale: moving the fingerprint changes its importers (freshness, checkpoint import line,
+  barrel) in one step; the freshness refactor sits on the new module.
+- Tasks: 3 | Depends on: Batch 19
+- Phase: 3 fix round | Phase review: the one re-review
+- Size note: 6 files, one lib.
+
+### Task 20.1: `analysis-fingerprint.ts` - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-fingerprint.ts` (new),
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/analysis-run-checkpoint.ts` (import line only; Batch 21 owns the rest)
+- Findings: S3 (helpers), S7
+- Quality requirements: move `computeWorkspaceFingerprint`, `ROOT_METADATA_FILES`,
+  `EXCLUDED_TOP_LEVEL_NAMES` and `hashPart` out of the freshness service into a plain module (no
+  decorator, no DI imports). Add `sha256Hex(bytes: Uint8Array): string` and
+  `hashFileOrNull(fs, path): Promise<string | null>` (null on a missing or unreadable file). No
+  re-export shim from the old location.
+
+### Task 20.2: Freshness service: split, logger, derived phase ids, relative dir, archive skip - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-freshness.service.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-freshness.service.spec.ts`
+- Findings: S1, S2, S3, S7, L6 (freshness half), L9
+- Quality requirements: `findLatestRun(analysisRoot)` and `qualify(...)` private methods, typed
+  with `ManifestReadResult`; `@inject(TOKENS.LOGGER)` with warn in the outer catch and debug on a
+  rejected manifest (copy the call shape of `analysis-storage.service.ts`); phase ids from
+  `PHASE_CONFIGS`; the output hash via `sha256Hex`; skip `isLegacyArchiveDirName` folders;
+  `analysisDir` is workspace-relative with `/` separators (the outer-catch value becomes
+  `.ptah/analysis`). Behaviour is otherwise unchanged: every existing reason case still passes.
+- Spec additions: an archive folder with a newer manifest is ignored; a `<slug>--v4` run beside an
+  older v3 folder is the one qualified; `analysisDir` is relative in fresh, stale and unreadable
+  results; the logger warns on an I/O failure.
+
+### Task 20.3: Barrel and register log - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/index.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/di/register.ts`
+- Findings: M3 (package barrel), M4 (register log)
+- Quality requirements: remove `computeWorkspaceFingerprint`, `ANALYSIS_MAX_AGE_MS`,
+  `LegacyRunArchiveError` and `ManifestReadResult` from the package barrel after a grep over
+  `libs` and `apps` shows no importer outside agent-generation. Keep `AnalysisFreshnessService`
+  and `ResumableRun`. Add `'ANALYSIS_FRESHNESS_SERVICE'` to the start-up log list.
+
+### Batch 20 verification
+
+- `npx prettier --check` on the six files.
+- One at a time: agent-generation typecheck+lint, then agent-generation test (`--maxWorkers=2`),
+  then `npx nx typecheck @ptah-extension/rpc-handlers`, then `npx nx run di-lint:lint`
+  (constructor `@inject` added).
+
+## Batch 21: Phase 3 fix - checkpoint fallback, phase recording, types - PENDING
+
+- Recommended executor: implementation CLI lane (codex), one lane
+- Fallback executor: backend-developer sub-agent
+- Execution mode: sequential
+- Rationale: the checkpoint has no spec of its own; it is driven by the multi-phase spec.
+- Tasks: 3 | Depends on: Batches 19, 20
+- Phase: 3 fix round | Phase review: the one re-review
+
+### Task 21.1: Checkpoint open: archive failure falls back; degraded fingerprint; docs - PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/analysis-run-checkpoint.ts` (second owner, after Task 20.1)
+- Findings: L2 (checkpoint half), L5, S3, S4
+- Quality requirements: `open` takes a `Logger`. Primary folder holds v3: try
+  `archiveLegacyRun`; on any error log a warning (with `archiveDir` when set) and use the
+  `'legacy-fallback'` folder for the rest of `open`; the v3 folder is never touched. Resume: the
+  primary folder's current run, else the fallback folder's, under today's rules (not completed,
+  same model). Fresh: `createSlugDir` with the chosen variant. Fingerprint failure: warn and use
+  a degraded fingerprint (`sha256-v1`, digest `sha256Hex` of a random value) so the run starts and
+  can never qualify as fresh. `isCompleted` uses `hashFileOrNull`. Restore one-line docs on every
+  public method plus the model-pinning rationale at `open`.
+
+### Task 21.2: Phase recording never leaves a phase `running` - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/multi-phase-analysis.service.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/multi-phase-analysis.service.spec.ts`
+- Findings: L3, S5, S3, M2, plus the multi-phase specs for L2 and L5
+- Quality requirements: in `recordPhaseOutcome` (`:489-611`) both `markCompleted` sites: a null
+  `sessionId` calls `markFailed(..., 'Phase finished without an SDK session id')`; a throw from
+  hashing or `markCompleted` is caught and calls `markFailed` with the error text. No `!`. The
+  outer catch of `analyzeWorkspace` pauses an open checkpoint (best effort, in its own try/catch,
+  logged). Prompt and prior-phase hashes use the shared helpers. Error classes use constructor
+  `this.name` and are not exported. Pass the logger to `open`.
+- Spec cases: archive failure → warning, v3 folder bytes unchanged, new v4 run in `<slug>--v4`,
+  `analysisDir`/slugDir is that folder; resume of a paused fallback run; fingerprint failure
+  still runs; hash read failure after a phase → phase `failed` with the error text, lifecycle not
+  `running`; a null session id → `failed`.
+
+### Task 21.3: Drop the alias and unused type exports - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/types/multi-phase.types.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/types/index.ts`
+- Findings: S6, M3 (types barrel)
+- Quality requirements: delete `MultiPhaseManifestSchema` and its barrel line. Remove
+  `MultiPhaseManifestV3Schema`, `MultiPhaseManifestV4Schema`, `PhaseResultV4` and
+  `MultiPhaseManifestV3` from the types barrel only where a grep shows no importer through
+  `../types`, `./lib/types` or the package name.
+
+### Batch 21 verification
+
+- `npx prettier --check` on the five files.
+- One at a time: agent-generation typecheck+lint; agent-generation test (`--maxWorkers=2`);
+  `npx nx typecheck @ptah-extension/rpc-handlers`; `npx nx typecheck ptah-cli`;
+  `npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src/cli/commands/analyze.spec.ts --coverage=false --maxWorkers=2`
+  (CLI deep-analysis consumer of `analysisDir`).
+
+## Batch 22: Phase 3 fix - shared docs and baseline order - PENDING
+
+- Recommended executor: implementation CLI lane (codex), one lane
+- Fallback executor: backend-developer sub-agent
+- Execution mode: sequential
+- Rationale: wording and ordering only, in two libs.
+- Tasks: 1 | Depends on: Batch 20 (relative `analysisDir`)
+- Phase: 3 fix round (last batch) | Phase review: the one re-review
+
+### Task 22.1: Wording, docs, baseline order - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-setup.types.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.schema.ts`
+- Findings: M1, M4, L9 (doc)
+- Quality requirements: `'wizard:analysis-status'` moves above `'wizard:cancel'`; "version-3"
+  resume and phase-status wording becomes version-4 where it describes v4 (`rpc-setup.types.ts:34,38`,
+  `setup-rpc.schema.ts:20`); doc comments on `AnalysisStatus` (with `analysisDir`
+  workspace-relative, `/` separators) and on `WizardAnalysisStatusParamsSchema`.
+
+### Batch 22 verification
+
+- `npx prettier --check` on the three files.
+- `npx nx run-many -t typecheck,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers --parallel=1`,
+  then `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/rpc-handlers --parallel=1 --maxWorkers=2`
+  (header must say 2 projects).
+- After commit: the Phase 3 re-review (logic and style) of the Batch 19-22 commits is due.
+
 ## Batch 14: Agent generation falls back to gathered context - PENDING
 
 - Recommended executor: implementation CLI lane, one lane
@@ -1148,6 +1385,9 @@ pin the name contract that the dispatcher depends on.
 - Plan reference: implementation-plan.md:107
 - Pattern to follow: path authorization at `wizard-generation-rpc.handlers.ts:215-295`
 - Quality requirements: authorize first, as today. Pass `preComputedAnalysis` and `analysisDir` only when the status is fresh. Otherwise omit both, report the stale status, and do not reject. Preserve selected ids, overrides, checkpoint, resume and retry. An unauthorized path is still rejected.
+- Validation notes (Phase 3 fix round): `AnalysisStatus.analysisDir` is workspace-relative with
+  `/` separators (Task 20.2). Resolve it with `storage.resolveAuthorizedAnalysisDir` before
+  comparing it with the caller's dir. Starts only after the Phase 3 re-review is accepted.
 
 ### Task 14.2: Orchestrator stale fallback - PENDING
 
@@ -1193,6 +1433,8 @@ pin the name contract that the dispatcher depends on.
   - Forced regenerate still invalidates the cache.
   - Path authorization in `enhanced-prompts-rpc.handlers.ts:231-246` is untouched.
   - No secret-bearing error logs.
+- Validation notes (Phase 3 fix round): the freshness `analysisDir` is workspace-relative; resolve
+  it with `resolveAuthorizedAnalysisDir` before comparing with an explicit dir.
 
 ### Task 15.3: CLI consumer confirmation - PENDING
 
@@ -1218,7 +1460,7 @@ Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and us
 | -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | 1 - Proposal backend             | 1-5, fix 16                            | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | ACCEPTED (code-logic-rereview.md, code-style-rereview.md)        | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
 | 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8), test fix 18 | code-logic                                                                                                                                                                                                             | ACCEPTED (code-logic-review-phase-2b.md); Batch 18 test-only fix | same                                                                                               |
-| 3 - Manifest v4 and freshness    | 10-13                                  | code-logic, plus style (new RPC, exported service)                                                                                                                                                                     | pending                                                          | same                                                                                               |
+| 3 - Manifest v4 and freshness    | 10-13, fix 19-22                       | code-logic, plus style (new RPC, exported service). First review: both APPROVED WITH FIXES (`code-logic-review-phase-3.md`, `code-style-review-phase-3.md`). One re-review after Batch 22, scoped to the fix commits   | fix round in progress                                            | same                                                                                               |
 | 4 - Self-gathering generation    | 14-15                                  | code-logic                                                                                                                                                                                                             | pending                                                          | same                                                                                               |
 | 2F - Builder adapters (frontend) | 6-8                                    | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7)       | same                                                                                               |
 
@@ -1230,4 +1472,5 @@ Mode 3 completion also needs:
 - the follow-up note for R1 (port `rename`);
 - the Phase 1 follow-ups FU-1 to FU-6 (section "Phase 1 review disposition"), carried into the
   QA handoff;
+- the Phase 3 follow-ups FU-9 to FU-14 (section "Phase 3 review disposition");
 - every phase review accepted, including Phase 2F, which runs only after TASK_2026_629.
