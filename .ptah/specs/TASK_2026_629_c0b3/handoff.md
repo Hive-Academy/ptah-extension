@@ -8,7 +8,7 @@ Base: `origin/main` `736b0ad84` (TASK_2026_628 merged). HEAD: see `git log -1` (
 
 The final Electron run is done; its fix round is committed and reviewed. The user then asked for a new
 board layout **inside 629, before the PR**: the "Rail" mode. The Rail design is at **revise round 1 of 2**
-(designer revision done or in flight — see §3 step 1). The user stopped the session here and said the Rail
+(designer revision 1 DONE and committed; orchestrator rendered it: no script errors, chips on one line at 9/12, git `+a −d` visible at 920 px, dark + light OK). The user stopped the session here and said the Rail
 screenshots "look awesome". That is positive feedback, NOT the Gate 1.7 approval: the gate still runs on
 the revised design.
 
@@ -30,7 +30,7 @@ the revised design.
 
 ## 3. Next steps (in order)
 
-1. **Designer revision 1.** Check `layout-design-spec.md` for a `## Revision 1` section and the prototype
+1. **Designer revision 1 — DONE** (committed with this handoff; rendered `shots/rail-*.png`). Note from the designer: in light mode the real DaisyUI state fills measure 2.0-2.6:1 on the cream surfaces (fails 3:1); the spec proposes darker state-ink tokens, to confirm in Electron. Only if something looks wrong: check `layout-design-spec.md` for a `## Revision 1` section and the prototype
    for the fixes listed in `layout-design-spec-review.md` findings 1-10. If the section is missing or the
    files look half-edited, re-run the designer (subagent `ui-ux-designer`) with the findings (the prompt is
    in decisions row 46 + the review). Render the prototype yourself:
