@@ -17,10 +17,12 @@ import {
   HIDE_AGENT_SIDEBAR,
   SESSION_CONTEXT,
   SESSION_FOCUSED,
+  SESSION_START_GUARD,
   SESSION_VISIBLE,
   TabManagerService,
 } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { CanvasStore } from '../canvas.store';
 
 @Component({
   selector: 'ptah-canvas-detail-transcript',
@@ -35,6 +37,7 @@ import { SURFACE_ACTIVE } from '@ptah-extension/core';
 export class CanvasDetailTranscriptComponent implements OnDestroy {
   private readonly parentInjector = inject(EnvironmentInjector);
   private readonly tabManager = inject(TabManagerService);
+  private readonly canvasStore = inject(CanvasStore);
   readonly tabId = input.required<string>();
   readonly chatView = ChatViewComponent;
   private readonly tabIdSignal = computed<string | null>(() => this.tabId());
@@ -44,6 +47,10 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
       { provide: SESSION_CONTEXT, useValue: this.tabIdSignal },
       { provide: SESSION_VISIBLE, useValue: this.visible },
       { provide: SESSION_FOCUSED, useValue: this.visible },
+      {
+        provide: SESSION_START_GUARD,
+        useValue: () => this.canvasStore.startBlockReason(this.tabId()),
+      },
       { provide: SURFACE_ACTIVE, useValue: this.visible },
       { provide: HIDE_AGENT_SIDEBAR, useValue: true },
     ],

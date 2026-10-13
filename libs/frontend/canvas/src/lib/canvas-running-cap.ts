@@ -4,6 +4,7 @@ import type {
 } from '@ptah-extension/chat-streaming';
 
 export const MAX_RUNNING_SESSIONS = 9;
+export const RUNNING_CAP_MESSAGE = `${MAX_RUNNING_SESSIONS} sessions are running. Wait for one to finish to start another.`;
 
 const TERMINAL_SUBAGENT_STATUSES: readonly SubagentRecord['status'][] = [
   'completed',
@@ -25,7 +26,17 @@ export function countRunningSessions(
   agents: readonly MonitoredAgent[],
   subagents: readonly SubagentRecord[],
 ): number {
-  let count = 0;
+  return runningSessionKeys(tabs, isTabTurnInFlight, agents, subagents).size;
+}
+
+/** Session keys counted by the running cap, shared with the send guard. */
+export function runningSessionKeys(
+  tabs: readonly { id: string; claudeSessionId: string | null }[],
+  isTabTurnInFlight: (key: string) => boolean,
+  agents: readonly MonitoredAgent[],
+  subagents: readonly SubagentRecord[],
+): ReadonlySet<string> {
+  const running = new Set<string>();
   const sessions = new Map(
     tabs.map((tab) => [tab.claudeSessionId ?? tab.id, tab.claudeSessionId]),
   );
@@ -45,8 +56,8 @@ export function countRunningSessions(
           agent.parentSessionId === sessionId,
       )
     ) {
-      count++;
+      running.add(key);
     }
   }
-  return count;
+  return running;
 }

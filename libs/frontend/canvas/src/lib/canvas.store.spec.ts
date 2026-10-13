@@ -138,19 +138,30 @@ describe('CanvasStore', () => {
     );
     expect(store.runningSessionCount()).toBe(9);
     expect(store.canStartRunningSession()).toBe(false);
+    expect(store.isSessionRunning('tab-9')).toBe(false);
+    expect(store.startBlockReason('tab-9')).toBe(
+      '9 sessions are running. Wait for one to finish to start another.',
+    );
+    expect(store.isSessionRunning('tab-0')).toBe(true);
+    expect(store.startBlockReason('tab-0')).toBeNull();
     expect(store.canAddTile()).toBe(true);
     tabs.update((list) =>
       list.map((tab, i) => (i === 0 ? { ...tab, status: 'loaded' } : tab)),
     );
     expect(store.runningSessionCount()).toBe(8);
     expect(store.canStartRunningSession()).toBe(true);
+    expect(store.isSessionRunning('tab-9')).toBe(false);
+    expect(store.startBlockReason('tab-9')).toBeNull();
     agents.set([{ parentSessionId: 'session-9', status: 'running' }]);
     expect(store.runningSessionCount()).toBe(9);
+    expect(store.isSessionRunning('tab-9')).toBe(true);
+    expect(store.startBlockReason('tab-9')).toBeNull();
     agents.set([]);
     subagents.set(
       new Map([['agent', { parentSessionId: 'session-9', status: 'running' }]]),
     );
     expect(store.runningSessionCount()).toBe(9);
+    expect(store.isSessionRunning('tab-9')).toBe(true);
   });
 
   it('counts running tiles across all workspaces, reading hidden tabs from the partition', () => {

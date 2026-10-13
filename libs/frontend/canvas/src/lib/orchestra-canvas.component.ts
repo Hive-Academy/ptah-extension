@@ -40,7 +40,7 @@ import { CanvasNeedsYouQueueComponent } from './canvas-needs-you-queue.component
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import type { CanvasLayoutPreset } from './canvas-layout-intent';
-import { MAX_RUNNING_SESSIONS } from './canvas-running-cap';
+import { RUNNING_CAP_MESSAGE } from './canvas-running-cap';
 import { CANVAS_LIVE_BUDGET } from './canvas-live-budget';
 import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import { CanvasDetailPanelComponent } from './canvas-detail/canvas-detail-panel.component';
@@ -378,7 +378,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
   protected readonly sessionPopoverOpen = signal(false);
   protected readonly sessionNameInput = signal('');
-  protected readonly runningCapMessage = `${MAX_RUNNING_SESSIONS} sessions are running. Wait for one to finish to start another.`;
+  protected readonly runningCapMessage = RUNNING_CAP_MESSAGE;
   protected readonly headerMessage = signal<string | null>(null);
   private readonly sessionNameInputRef = viewChild<
     ElementRef<HTMLInputElement>

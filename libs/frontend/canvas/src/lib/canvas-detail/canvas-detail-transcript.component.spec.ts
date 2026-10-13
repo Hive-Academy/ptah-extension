@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { TabManagerService } from '@ptah-extension/chat';
+import { SESSION_START_GUARD, TabManagerService } from '@ptah-extension/chat';
+import { CanvasStore } from '../canvas.store';
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
 
 describe('CanvasDetailTranscriptComponent visibility', () => {
@@ -18,6 +19,16 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       imports: [CanvasDetailTranscriptComponent],
       providers: [
         {
+          provide: CanvasStore,
+          useValue: {
+            startBlockReason: jest
+              .fn()
+              .mockReturnValue(
+                '9 sessions are running. Wait for one to finish to start another.',
+              ),
+          },
+        },
+        {
           provide: TabManagerService,
           useValue: { visibleTabIds, registerVisibleTab, unregisterVisibleTab },
         },
@@ -33,6 +44,11 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
     expect(visibleTabIds().has('tile-1')).toBe(true);
     expect(registerVisibleTab).toHaveBeenCalledTimes(1);
     expect(unregisterVisibleTab).not.toHaveBeenCalled();
+    const guard =
+      fixture.componentInstance.childInjector.get(SESSION_START_GUARD);
+    expect(guard()).toBe(
+      '9 sessions are running. Wait for one to finish to start another.',
+    );
 
     fixture.destroy();
     expect(visibleTabIds().has('tile-1')).toBe(false);
@@ -53,6 +69,12 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
     TestBed.configureTestingModule({
       imports: [CanvasDetailTranscriptComponent],
       providers: [
+        {
+          provide: CanvasStore,
+          useValue: {
+            startBlockReason: jest.fn().mockReturnValue(null),
+          },
+        },
         {
           provide: TabManagerService,
           useValue: { visibleTabIds, registerVisibleTab, unregisterVisibleTab },

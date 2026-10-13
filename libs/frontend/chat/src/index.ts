@@ -33,4 +33,6 @@ export {
 } from './lib/components/molecules/compact-session/compact-lane-rows';
 export { SESSION_CARD_ACTIONS } from './lib/tokens/session-context.token';
 export { SESSION_FORCED_CARD } from './lib/tokens/session-context.token';
+export { SESSION_START_GUARD } from './lib/tokens/session-context.token';
+export { StreamPresentationStore } from './lib/services/stream-presentation-store.service';
 export type { SessionCardActions } from './lib/tokens/session-context.token';

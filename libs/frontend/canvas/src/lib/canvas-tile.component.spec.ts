@@ -39,7 +39,7 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
-import { inject, signal } from '@angular/core';
+import { effect, inject, signal } from '@angular/core';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { CanvasTileComponent } from './canvas-tile.component';
 import { CanvasStore } from './canvas.store';
@@ -49,9 +49,13 @@ import {
   TabManagerService,
   SESSION_FOCUSED,
   SESSION_FORCED_CARD,
+  SESSION_START_GUARD,
   SESSION_CARD_ACTIONS,
   HIDE_AGENT_SIDEBAR,
+  StreamPresentationStore,
 } from '@ptah-extension/chat';
+import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
+import type { StreamingState, TabState } from '@ptah-extension/chat-types';
 import {
   EffortStateService,
   ModelStateService,
@@ -1157,6 +1161,15 @@ describe('CanvasTileComponent SURFACE_ACTIVE for tile content', () => {
 
 describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
   const focusTile = jest.fn();
+  const canStartRunningSession = signal(true);
+  const isSessionRunning = jest.fn().mockReturnValue(false);
+  const startBlockReason = jest.fn((id: string) =>
+    !canStartRunningSession() && !isSessionRunning(id)
+      ? '9 sessions are running. Wait for one to finish to start another.'
+      : null,
+  );
+  const publishedTab = signal<TabState | null>(null);
+  const buildTree = jest.fn(() => []);
   const detail = { toggle: jest.fn(), open: jest.fn() };
   /** Stands in for ChatViewComponent: a SESSION_FOCUSED consumer. */
   @Component({
@@ -1169,6 +1182,22 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     readonly focused = inject(SESSION_FOCUSED);
   }
 
+  @Component({
+    selector: 'ptah-test-tree-probe',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: '',
+  })
+  class TreeBuildProbe {
+    private readonly presentation = inject(StreamPresentationStore);
+    constructor() {
+      effect(() => {
+        const tab = publishedTab();
+        if (tab) this.presentation.sync(tab);
+      });
+    }
+  }
+
   const tabManager = {
     tabs: signal<Array<{ id: string; claudeSessionId: string | null }>>([]),
     setOverrideEffort: jest.fn(),
@@ -1179,7 +1208,11 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     unregisterVisibleTab: jest.fn(),
   };
 
-  function mountFocused(focused: boolean | undefined, withDetail = false) {
+  function mountFocused(
+    focused: boolean | undefined,
+    withDetail = false,
+    chatViewComponent: typeof FocusProbe | typeof TreeBuildProbe = FocusProbe,
+  ) {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [CanvasTileComponent],
@@ -1187,8 +1220,12 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
         ...(withDetail
           ? [{ provide: CanvasDetailService, useValue: detail }]
           : []),
-        { provide: CanvasStore, useValue: { focusTile } },
+        {
+          provide: CanvasStore,
+          useValue: { focusTile, startBlockReason },
+        },
         { provide: TabManagerService, useValue: tabManager },
+        { provide: ExecutionTreeBuilderService, useValue: { buildTree } },
         { provide: SURFACE_ACTIVE, useValue: canvasActive },
         {
           provide: EffortStateService,
@@ -1219,9 +1256,9 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
     const fixture = TestBed.createComponent(CanvasTileComponent);
     (
       fixture.componentInstance as unknown as {
-        chatViewComponent: typeof FocusProbe;
+        chatViewComponent: typeof FocusProbe | typeof TreeBuildProbe;
       }
-    ).chatViewComponent = FocusProbe;
+    ).chatViewComponent = chatViewComponent;
     fixture.componentRef.setInput('tabId', 'tile-1');
     fixture.componentRef.setInput('visible', true);
     // Undefined → the host does not bind `focused` at all.
@@ -1256,6 +1293,39 @@ describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
         ?.textContent?.trim(),
     ).toBe('true');
     expect(host.classList.contains('tile-unfocused')).toBe(false);
+  });
+
+  it('provides the cap guard scoped to this tile session', () => {
+    canStartRunningSession.set(false);
+    isSessionRunning.mockReturnValue(false);
+    const fixture = mountFocused(true);
+    const guard = fixture.componentInstance
+      .childInjector()!
+      .get(SESSION_START_GUARD);
+    expect(guard()).toBe(
+      '9 sessions are running. Wait for one to finish to start another.',
+    );
+    expect(startBlockReason).toHaveBeenCalledWith('tile-1');
+    isSessionRunning.mockReturnValue(true);
+    expect(guard()).toBeNull();
+    canStartRunningSession.set(true);
+    expect(guard()).toBeNull();
+  });
+
+  it('builds one execution tree for one published tab snapshot in a mounted tile', () => {
+    publishedTab.set(null);
+    buildTree.mockClear();
+    const fixture = mountFocused(true, false, TreeBuildProbe);
+    publishedTab.set({
+      id: 'tile-1',
+      claudeSessionId: 'session-1',
+      status: 'streaming',
+      messages: [],
+      streamingState: { pendingStats: null } as StreamingState,
+    } as TabState);
+    fixture.detectChanges();
+    expect(buildTree).toHaveBeenCalledTimes(1);
+    expect(buildTree).toHaveBeenCalledWith(expect.anything(), 'tab-tile-1');
   });
 
   it('treats a tile that does not bind focused as focused', () => {

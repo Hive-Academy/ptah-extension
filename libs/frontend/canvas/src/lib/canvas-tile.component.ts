@@ -25,6 +25,7 @@ import {
   SESSION_VISIBLE,
   SESSION_FOCUSED,
   SESSION_FORCED_CARD,
+  SESSION_START_GUARD,
   SESSION_CARD_ACTIONS,
   HIDE_AGENT_SIDEBAR,
   SendToMessagingComponent,
@@ -638,6 +639,11 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
           { provide: SESSION_VISIBLE, useValue: this.visible },
           { provide: SESSION_FOCUSED, useValue: this.focused },
           { provide: SESSION_FORCED_CARD, useValue: this.autoCard },
+          {
+            provide: SESSION_START_GUARD,
+            useValue: () =>
+              this.canvasStore?.startBlockReason(this.tabId()) ?? null,
+          },
           { provide: HIDE_AGENT_SIDEBAR, useValue: true },
           {
             provide: SESSION_CARD_ACTIONS,

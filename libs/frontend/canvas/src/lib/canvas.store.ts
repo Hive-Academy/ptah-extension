@@ -12,8 +12,9 @@ import { SessionId } from '@ptah-extension/shared';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import {
-  countRunningSessions,
+  runningSessionKeys,
   MAX_RUNNING_SESSIONS,
+  RUNNING_CAP_MESSAGE,
 } from './canvas-running-cap';
 import {
   DEFAULT_TILE_WIDTH,
@@ -184,7 +185,7 @@ export class CanvasStore {
       }
     }
     const canvasTabs = [...byId.values()];
-    const count = countRunningSessions(
+    const keys = runningSessionKeys(
       canvasTabs,
       (key) =>
         canvasTabs.some(
@@ -199,7 +200,7 @@ export class CanvasStore {
     // re-runs this. Poll only while the cap is reached because of them. This
     // lives here, not in an effect: the store can be created inside a reactive
     // context, where an effect cannot be created.
-    if (count >= MAX_RUNNING_SESSIONS && hiddenRunning) {
+    if (keys.size >= MAX_RUNNING_SESSIONS && hiddenRunning) {
       this.hiddenStatusInterval ??= setInterval(() => {
         this.hiddenStatusTick.update((tick) => tick + 1);
         this.runningSnapshot();
@@ -207,12 +208,25 @@ export class CanvasStore {
     } else {
       this.stopHiddenStatusInterval();
     }
-    return { count, hiddenRunning };
+    return { count: keys.size, keys, canvasTabs };
   });
   readonly runningSessionCount = computed(() => this.runningSnapshot().count);
   readonly canStartRunningSession = computed(
     () => this.runningSessionCount() < MAX_RUNNING_SESSIONS,
   );
+
+  /** Whether this tile's session already occupies a running slot. */
+  isSessionRunning(tabId: string): boolean {
+    const { canvasTabs, keys } = this.runningSnapshot();
+    const tab = canvasTabs.find((candidate) => candidate.id === tabId);
+    return tab ? keys.has(tab.claudeSessionId ?? tab.id) : false;
+  }
+
+  startBlockReason(tabId: string): string | null {
+    return !this.canStartRunningSession() && !this.isSessionRunning(tabId)
+      ? RUNNING_CAP_MESSAGE
+      : null;
+  }
 
   private stopHiddenStatusInterval(): void {
     if (this.hiddenStatusInterval === null) return;

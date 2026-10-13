@@ -69,7 +69,10 @@ import {
 } from '@ptah-extension/core';
 import { VoiceInputService } from '../../../services/voice-input.service';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  SESSION_START_GUARD,
+} from '../../../tokens/session-context.token';
 import { CompactionLifecycleService } from '../../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../../services/chat-store/session-loader.service';
 import {
@@ -184,6 +187,7 @@ describe('ChatInputComponent', () => {
       composerTriggerCacheEnabled?: boolean;
       /** Tile tab id for SESSION_CONTEXT; `undefined` = token not provided. */
       sessionContextTabId?: string | null;
+      startGuard?: () => string | null;
     } = {},
   ): void {
     mockIsElectron = opts.isElectron ?? false;
@@ -219,6 +223,9 @@ describe('ChatInputComponent', () => {
                 ).asReadonly(),
               },
             ]),
+        ...(opts.startGuard
+          ? [{ provide: SESSION_START_GUARD, useValue: opts.startGuard }]
+          : []),
       ],
     });
 
@@ -239,6 +246,59 @@ describe('ChatInputComponent', () => {
 
   it('should be created', () => {
     expect(component).toBeTruthy();
+  });
+
+  it('keeps the canvas draft and attachments when nine other sessions run', async () => {
+    const message =
+      '9 sessions are running. Wait for one to finish to start another.';
+    createComponent({
+      sessionContextTabId: 'idle-tile',
+      startGuard: () => message,
+    });
+    component.handleInput({
+      target: { value: 'Keep this' },
+    } as unknown as Event);
+    const attachments = component as unknown as {
+      _selectedFiles: ReturnType<typeof signal<Array<{ path: string }>>>;
+      _pastedImages: ReturnType<typeof signal<Array<{ data: string }>>>;
+    };
+    attachments._selectedFiles.set([{ path: '/project/a.ts' }]);
+    attachments._pastedImages.set([{ data: 'image' }]);
+
+    await component.handleSend();
+
+    expect(mockChatStore.sendOrQueueMessage).not.toHaveBeenCalled();
+    expect(component.currentMessage()).toBe('Keep this');
+    expect(component.selectedFiles()).toHaveLength(1);
+    expect(component.pastedImages()).toHaveLength(1);
+    expect(component.imageAttachmentError()).toBe(message);
+  });
+
+  it.each(['eight running', 'already running and queueing'])(
+    'sends from canvas when %s',
+    async () => {
+      createComponent({
+        sessionContextTabId: 'tile-A',
+        startGuard: () => null,
+      });
+      component.handleInput({
+        target: { value: 'Proceed' },
+      } as unknown as Event);
+      await component.handleSend();
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        'Proceed',
+        expect.objectContaining({ tabId: 'tile-A' }),
+      );
+      expect(component.currentMessage()).toBe('');
+    },
+  );
+
+  it('sends outside canvas without a guard token', async () => {
+    component.handleInput({
+      target: { value: 'Normal chat' },
+    } as unknown as Event);
+    await component.handleSend();
+    expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalled();
   });
 
   it('restores a tab draft after remount and clears it on send', async () => {

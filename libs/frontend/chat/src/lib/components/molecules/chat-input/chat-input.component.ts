@@ -35,7 +35,10 @@ import {
 import { ChatStore } from '../../../services/chat.store';
 import { isTabBusyGenerating } from '../../../services/chat-store/message-dispatch.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  SESSION_START_GUARD,
+} from '../../../tokens/session-context.token';
 import {
   ComposerDraftStore,
   type ComposerDraftImage,
@@ -465,6 +468,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
+  private readonly sessionStartGuard = inject(SESSION_START_GUARD, {
+    optional: true,
+  });
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
@@ -772,7 +778,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Mirrors the signal+timeout pattern used in editor.service.ts showError().
    * Auto-clears after 4 seconds.
    */
-  private showImageAttachmentError(message: string): void {
+  private showComposerError(message: string): void {
     if (this._imageAttachmentErrorTimeout) {
       clearTimeout(this._imageAttachmentErrorTimeout);
     }
@@ -800,7 +806,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         const file = item.getAsFile();
         if (!file) continue;
         if (file.size > MAX_IMAGE_SIZE_BYTES) {
-          this.showImageAttachmentError('Image too large — 5MB max');
+          this.showComposerError('Image too large — 5MB max');
           continue;
         }
 
@@ -810,12 +816,12 @@ export class ChatInputComponent implements OnInit, OnDestroy {
           const base64 = dataUrl.split(',')[1];
           const decodedSize = Math.floor(base64.length * 0.75);
           if (decodedSize > MAX_IMAGE_SIZE_BYTES) {
-            this.showImageAttachmentError('Image too large — 5MB max');
+            this.showComposerError('Image too large — 5MB max');
             return;
           }
           const mediaType = resolveImageMediaType(item.type, base64);
           if (!mediaType) {
-            this.showImageAttachmentError(
+            this.showComposerError(
               'Unsupported image format — use PNG, JPEG, GIF, or WebP',
             );
             return;
@@ -955,7 +961,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       if (result.ok && result.transcript) {
         this.insertTranscript(result.transcript);
       } else if (!result.ok && result.error) {
-        this.showImageAttachmentError(result.error);
+        this.showComposerError(result.error);
       }
       return;
     }
@@ -963,7 +969,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     await this.voiceInput.startRecording();
     const error = this.voiceInput.error();
     if (error) {
-      this.showImageAttachmentError(error);
+      this.showComposerError(error);
     }
   }
 
@@ -1037,7 +1043,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue;
       if (file.size > MAX_IMAGE_SIZE_BYTES) {
-        this.showImageAttachmentError('Image too large — 5MB max');
+        this.showComposerError('Image too large — 5MB max');
         continue;
       }
 
@@ -1047,7 +1053,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         const base64 = dataUrl.split(',')[1];
         const mediaType = resolveImageMediaType(file.type, base64);
         if (!mediaType) {
-          this.showImageAttachmentError(
+          this.showComposerError(
             'Unsupported image format — use PNG, JPEG, GIF, or WebP',
           );
           return;
@@ -1458,6 +1464,8 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
+    const blockReason = this.sessionStartGuard?.();
+    if (blockReason) return this.showComposerError(blockReason);
     const normalizedContent = content;
 
     try {

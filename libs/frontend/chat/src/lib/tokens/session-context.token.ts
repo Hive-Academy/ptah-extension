@@ -52,6 +52,11 @@ export const SESSION_FORCED_CARD = new InjectionToken<Signal<boolean>>(
   'SESSION_FORCED_CARD',
 );
 
+/** Optional composer guard. Null allows the next turn or queued message. */
+export const SESSION_START_GUARD = new InjectionToken<() => string | null>(
+  'SESSION_START_GUARD',
+);
+
 /** Optional actions supplied by a canvas tile to the compact session card. */
 export interface SessionCardActions {
   openLane(laneKey: string): void;
