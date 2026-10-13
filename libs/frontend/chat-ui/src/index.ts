@@ -47,6 +47,12 @@ export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
+export {
+  parseTodoList,
+  summarizeTodos,
+  type CompactTodoState,
+  type CompactGitState,
+} from './lib/molecules/compact-session/compact-session-metrics';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
 export type {
   CompactCallout,

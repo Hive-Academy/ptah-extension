@@ -62,6 +62,8 @@ export interface NodeMaps {
  * Stores all streaming events as flat list with lookup maps for performance.
  */
 export interface StreamingState {
+  /** Latest top-level TodoWrite, retained even when its start event is evicted. */
+  latestTodoWrite?: { readonly toolCallId: string; readonly timestamp: number };
   /** All streaming events indexed by event ID */
   events: Map<string, FlatStreamEventUnion>;
 
@@ -247,6 +249,17 @@ export function setStreamingEventCapped(
   state: StreamingState,
   event: FlatStreamEventUnion,
 ): void {
+  if (
+    event.eventType === 'tool_start' &&
+    event.toolName === 'TodoWrite' &&
+    !event.parentToolUseId &&
+    event.timestamp >= (state.latestTodoWrite?.timestamp ?? -Infinity)
+  ) {
+    state.latestTodoWrite = {
+      toolCallId: event.toolCallId,
+      timestamp: event.timestamp,
+    };
+  }
   bumpRevisions(state, event.messageId);
   if (STRUCTURAL_EVENT_TYPES.has(event.eventType)) {
     markStructuralChange(state);

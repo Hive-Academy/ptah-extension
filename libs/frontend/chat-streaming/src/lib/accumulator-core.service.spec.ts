@@ -905,6 +905,17 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(result.replacementState?.messageEventIds).toHaveLength(0);
     });
 
+    it('retains the live TodoWrite marker across compaction', () => {
+      state.latestTodoWrite = { toolCallId: 'todo-live', timestamp: 5 };
+      const result = core.process(state, compactionComplete(), makeCtx());
+      expect(result.replacementState?.latestTodoWrite).toEqual({
+        toolCallId: 'todo-live',
+        timestamp: 5,
+      });
+      expect(result.replacementState?.events.size).toBe(0);
+      expect(state.latestTodoWrite?.toolCallId).toBe('todo-live');
+    });
+
     it('compaction_complete clears dedup state for the session', () => {
       // Ingest a stream message_start so dedup tracks the messageId.
       core.process(state, msgStart({ source: 'stream' }), makeCtx());

@@ -34,6 +34,10 @@ import {
 import { ToolIconComponent } from '../../atoms/tool-icon.component';
 import { CompactSessionCalloutComponent } from './compact-session-callout.component';
 import type {
+  CompactGitState,
+  CompactTodoState,
+} from './compact-session-metrics';
+import type {
   CompactSemanticMark,
   CompactSemanticMarkKind,
   CompactSessionSummary,
@@ -792,12 +796,66 @@ const FALLBACK_RECAP_HEIGHT = 180;
           class="min-w-0 flex-1"
           [metrics]="boardLayout() ? boardMetrics() : summary().metrics"
         />
-        @if (boardLayout() && contextPercent() !== null) {
+        @if (boardLayout()) {
+          @let todo = todos();
+          @let git = gitStats();
           <span
-            class="shrink-0 pr-3 font-mono text-[10px] text-base-content-muted"
-            aria-label="Context usage"
-            >Context {{ roundedContextPercent() }}%</span
+            class="flex shrink-0 items-center gap-1 font-mono text-[10px]"
+            aria-label="Todos"
+            [title]="
+              todo?.kind === 'known'
+                ? todo.active || 'Todos'
+                : todo?.kind === 'unknown'
+                  ? 'Todos unknown'
+                  : 'No todos'
+            "
           >
+            @if (todo?.kind === 'known') {
+              <span>☑ {{ todo.done }}/{{ todo.total }}</span>
+              <progress
+                class="progress progress-success w-8"
+                [value]="todo.done"
+                [max]="todo.total"
+                aria-label="Todos"
+              ></progress>
+            } @else {
+              <span>—</span>
+            }
+          </span>
+          <span
+            class="shrink-0 px-2 font-mono text-[10px] text-base-content-muted"
+            aria-label="Context usage"
+            [title]="
+              contextPercent() === null ? 'Context unknown' : 'Context usage'
+            "
+            >Context
+            {{
+              contextPercent() === null ? '—' : roundedContextPercent() + '%'
+            }}</span
+          >
+          <span
+            class="shrink-0 pr-3 font-mono text-[10px]"
+            aria-label="Lines added and removed"
+            [title]="
+              git?.kind === 'known'
+                ? git.partial
+                  ? 'Some files could not be counted'
+                  : 'Uncommitted changes'
+                : git?.kind === 'unknown' && git.reason === 'failed'
+                  ? 'Could not read git status'
+                  : 'Git changes unknown'
+            "
+          >
+            @if (git?.kind === 'known') {
+              <span class="text-success">+{{ git.additions }}</span>
+              <span class="text-error"> −{{ git.deletions }}</span>
+              @if (git.partial) {
+                <span>+</span>
+              }
+            } @else {
+              —
+            }
+          </span>
         }
       </div>
     </section>
@@ -821,6 +879,8 @@ export class CompactSessionActivityComponent {
   /** Session elapsed time in ms; `null` shows the placeholder. */
   readonly elapsed = input<number | null>(null);
   readonly contextPercent = input<number | null>(null);
+  readonly todos = input<CompactTodoState | null>(null);
+  readonly gitStats = input<CompactGitState | null>(null);
   readonly roundedContextPercent = computed(() =>
     Math.round(this.contextPercent() ?? 0),
   );

@@ -1142,6 +1142,8 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
       branch?: string | null;
       elapsed?: number | null;
       metricsModel?: string | null;
+      todos?: import('./compact-session-metrics').CompactTodoState | null;
+      gitStats?: import('./compact-session-metrics').CompactGitState | null;
     } = {},
   ) {
     const fixture = TestBed.createComponent(CompactSessionActivityComponent);
@@ -1164,6 +1166,8 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     fixture.componentRef.setInput('now', NOW);
     fixture.componentRef.setInput('branch', inputs.branch ?? null);
     fixture.componentRef.setInput('elapsed', inputs.elapsed ?? null);
+    fixture.componentRef.setInput('todos', inputs.todos ?? null);
+    fixture.componentRef.setInput('gitStats', inputs.gitStats ?? null);
     fixture.detectChanges();
     return fixture;
   }
@@ -1223,6 +1227,63 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
       root.querySelector('[data-testid="cs-lanes-placeholder"]')?.textContent,
     ).toContain('—');
     expect(root.querySelector('[data-testid="cs-lanes-more"]')).toBeNull();
+  });
+
+  it('keeps fixed todo, context, and git slots with state titles', () => {
+    const fixture = renderBoard({
+      todos: { kind: 'none' },
+      gitStats: { kind: 'none' },
+    });
+    const metrics = zone(fixture.nativeElement as HTMLElement, 'metrics');
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
+    ).toBe('No todos');
+    expect(
+      metrics?.querySelector('[aria-label="Context usage"]')?.textContent,
+    ).toContain('—');
+    expect(
+      metrics
+        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.getAttribute('title'),
+    ).toBe('Git changes unknown');
+    fixture.componentRef.setInput('todos', { kind: 'unknown' });
+    fixture.componentRef.setInput('gitStats', {
+      kind: 'unknown',
+      reason: 'failed',
+    });
+    fixture.detectChanges();
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
+    ).toBe('Todos unknown');
+    expect(
+      metrics
+        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.getAttribute('title'),
+    ).toBe('Could not read git status');
+  });
+
+  it('renders known todos, progress, git counts, and the partial marker', () => {
+    const fixture = renderBoard({
+      todos: { kind: 'known', done: 2, total: 3, active: 'Writing tests' },
+      gitStats: { kind: 'known', additions: 12, deletions: 4, partial: true },
+    });
+    const metrics = zone(fixture.nativeElement as HTMLElement, 'metrics');
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.textContent,
+    ).toContain('2/3');
+    expect(metrics?.querySelector('progress')?.getAttribute('value')).toBe('2');
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
+    ).toBe('Writing tests');
+    expect(
+      metrics?.querySelector('[aria-label="Lines added and removed"]')
+        ?.textContent,
+    ).toContain('+12 −4+');
+    expect(
+      metrics
+        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.getAttribute('title'),
+    ).toBe('Some files could not be counted');
   });
 
   it('shows branch, model and elapsed on the sub line', () => {

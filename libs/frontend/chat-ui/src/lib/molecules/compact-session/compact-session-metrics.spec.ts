@@ -1,0 +1,139 @@
+import {
+  createEmptyStreamingState,
+  setStreamingEventCapped,
+} from '@ptah-extension/chat-types';
+import type {
+  ExecutionChatMessage,
+  ExecutionNode,
+  ToolStartEvent,
+} from '@ptah-extension/shared';
+import { parseTodoList, summarizeTodos } from './compact-session-metrics';
+
+const todos = [
+  {
+    content: 'First',
+    activeForm: 'Working on first',
+    status: 'in_progress' as const,
+  },
+  {
+    content: 'Second',
+    activeForm: 'Finishing second',
+    status: 'completed' as const,
+  },
+];
+
+function start(
+  id: string,
+  input?: Record<string, unknown>,
+  parentToolUseId?: string,
+): ToolStartEvent {
+  return {
+    id,
+    eventType: 'tool_start',
+    toolCallId: id,
+    toolName: 'TodoWrite',
+    isTaskTool: false,
+    messageId: 'message',
+    timestamp: 1,
+    parentToolUseId,
+    toolInput: input,
+  };
+}
+
+function node(
+  type: ExecutionNode['type'],
+  children: readonly ExecutionNode[] = [],
+  input?: Record<string, unknown>,
+): ExecutionNode {
+  return {
+    id: `${type}-${children.length}`,
+    type,
+    status: 'completed',
+    content: null,
+    children,
+    isCollapsed: false,
+    toolName: type === 'tool' ? 'TodoWrite' : undefined,
+    toolInput: input,
+  };
+}
+
+function message(root: ExecutionNode): ExecutionChatMessage {
+  return { id: 'final', role: 'assistant', timestamp: 0, streamingState: root };
+}
+
+describe('compact todo metrics', () => {
+  it('validates every item and rejects folded input', () => {
+    expect(parseTodoList({ todos })).toEqual(todos);
+    for (const invalid of [
+      { ...todos[0], status: 'started' },
+      { status: 'pending', activeForm: 'Doing' },
+      { status: 'pending', content: 'Do' },
+    ]) {
+      expect(parseTodoList({ todos: [invalid] })).toBeNull();
+    }
+    expect(parseTodoList({ todos: 'folded' })).toBeNull();
+  });
+
+  it('prefers top-level live TodoWrite over interleaved sub-agent writes', () => {
+    const state = createEmptyStreamingState();
+    setStreamingEventCapped(state, start('parent', { todos }));
+    setStreamingEventCapped(state, start('child', { todos: [] }, 'agent'));
+    expect(summarizeTodos([], state)).toEqual({
+      kind: 'known',
+      done: 1,
+      total: 2,
+      active: 'Working on first',
+    });
+  });
+
+  it('returns unknown for an evicted start or partial streaming JSON despite older finalized data', () => {
+    const older = [message(node('message', [node('tool', [], { todos })]))];
+    const state = createEmptyStreamingState();
+    setStreamingEventCapped(state, start('new'));
+    state.events.delete('new');
+    expect(summarizeTodos(older, state)).toEqual({ kind: 'unknown' });
+    state.toolInputAccumulators.set('new-input', '{"todos":[');
+    expect(summarizeTodos(older, state)).toEqual({ kind: 'unknown' });
+    state.toolInputAccumulators.set('new-input', JSON.stringify({ todos: [] }));
+    expect(summarizeTodos(older, state)).toEqual({ kind: 'none' });
+  });
+
+  it('does not resurrect an older finalized list after a live turn is compacted', () => {
+    const older = [message(node('message', [node('tool', [], { todos })]))];
+    const afterCompaction = createEmptyStreamingState();
+    afterCompaction.latestTodoWrite = { toolCallId: 'live', timestamp: 10 };
+    expect(summarizeTodos(older, afterCompaction)).toEqual({ kind: 'unknown' });
+  });
+
+  it('ignores agent-nested finalized writes and uses the newest top-level tool', () => {
+    const root = node('message', [
+      node('tool', [], { todos: [] }),
+      node('agent', [node('tool', [], { todos })]),
+      node('tool', [], { todos }),
+    ]);
+    expect(summarizeTodos([message(root)], null)).toEqual({
+      kind: 'known',
+      done: 1,
+      total: 2,
+      active: 'Working on first',
+    });
+    expect(
+      summarizeTodos(
+        [
+          message(
+            node('message', [node('agent', [node('tool', [], { todos })])]),
+          ),
+        ],
+        null,
+      ),
+    ).toEqual({ kind: 'none' });
+  });
+
+  it('reports malformed newest finalized input as unknown', () => {
+    const old = message(node('message', [node('tool', [], { todos })]));
+    const recent = message(
+      node('message', [node('tool', [], { todos: 'folded' })]),
+    );
+    expect(summarizeTodos([old, recent], null)).toEqual({ kind: 'unknown' });
+  });
+});
