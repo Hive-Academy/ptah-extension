@@ -22,7 +22,14 @@ import type { PlanSecret } from '../plan-credential.source';
  */
 export type PlanCredentialRef =
   | { readonly kind: 'provider-key'; readonly providerId: string }
-  | { readonly kind: 'ptah-cli-key'; readonly ptahCliId: string };
+  | { readonly kind: 'ptah-cli-key'; readonly ptahCliId: string }
+  /**
+   * An Ollama Cloud Ptah CLI agent: its own key when it holds a real one;
+   * the shared `ollama-cloud` provider key when its slot is empty or holds the
+   * ollama.com sign-in placeholder (`usesOllamaSignInFallback`) — the same
+   * rule `ProviderOwnerResolver.ownerForPtahCli` resolves the owner by.
+   */
+  | { readonly kind: 'ollama-cloud-agent-key'; readonly ptahCliId: string };
 
 /**
  * Selects which live session's query a probe-backed reader calls. A handle,

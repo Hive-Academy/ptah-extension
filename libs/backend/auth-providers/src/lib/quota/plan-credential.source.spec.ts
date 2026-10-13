@@ -66,6 +66,41 @@ describe('PlanCredentialSource', () => {
     );
   });
 
+  it('reads an Ollama Cloud agent through its own real key', async () => {
+    const { source, getProviderKey } = harness({
+      'ptahCli.glm-1': PTAH_CLI_SECRET,
+      'ollama-cloud': PROVIDER_SECRET,
+    });
+    const result = await source.resolve({
+      kind: 'ollama-cloud-agent-key',
+      ptahCliId: 'glm-1',
+    });
+    expect(result.kind === 'available' && result.secret.reveal()).toBe(
+      PTAH_CLI_SECRET,
+    );
+    expect(getProviderKey).not.toHaveBeenCalledWith('ollama-cloud');
+  });
+
+  it.each([
+    ['the sign-in placeholder', OLLAMA_AUTH_TOKEN_PLACEHOLDER],
+    ['nothing', undefined],
+  ])(
+    'reads an Ollama Cloud agent whose slot holds %s through the shared provider key',
+    async (_name, stored) => {
+      const { source } = harness({
+        'ptahCli.glm-1': stored,
+        'ollama-cloud': PROVIDER_SECRET,
+      });
+      const result = await source.resolve({
+        kind: 'ollama-cloud-agent-key',
+        ptahCliId: 'glm-1',
+      });
+      expect(result.kind === 'available' && result.secret.reveal()).toBe(
+        PROVIDER_SECRET,
+      );
+    },
+  );
+
   it.each([
     ['missing', undefined],
     ['blank', '   '],

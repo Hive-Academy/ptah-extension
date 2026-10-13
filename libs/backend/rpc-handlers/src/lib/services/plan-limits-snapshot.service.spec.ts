@@ -210,7 +210,7 @@ describe('PlanLimitsSnapshotService', () => {
       );
     });
 
-    it('a plan-limits snapshot still cuts the read at 3 s', async () => {
+    it('a plan-limits snapshot gives Codex a 12-second deadline', async () => {
       const s = build();
       slowRead(s);
 
@@ -218,35 +218,40 @@ describe('PlanLimitsSnapshotService', () => {
       const pending = s.service
         .snapshot({ providerId: 'openai-codex' })
         .then((value) => (settled = value));
-      await jest.advanceTimersByTimeAsync(2_999);
+      await jest.advanceTimersByTimeAsync(3_000);
       expect(settled).toBeUndefined();
-      await jest.advanceTimersByTimeAsync(1);
+      await jest.advanceTimersByTimeAsync(2_000);
       const result = await pending;
 
-      expect(result.owners).toEqual([
-        {
-          owner: CODEX,
-          status: 'service-unavailable',
-          windowSetEstablished: false,
-          windows: [],
-          ownerEvidence: [],
-        },
-      ]);
-      expect(s.logger.debug).toHaveBeenCalledWith(
-        '[PlanLimitsSnapshot] owner read ended without a snapshot',
-        { providerId: 'openai-codex', reason: 'timeout' },
-      );
+      expect(result.owners).toEqual([available(CODEX)]);
     });
 
-    it('the push still cuts the read at 3 s', async () => {
+    it('the push also gives Codex the longer deadline', async () => {
       const s = build();
       slowRead(s);
 
       const pending = s.service.currentSnapshot();
-      await jest.advanceTimersByTimeAsync(3_000);
+      await jest.advanceTimersByTimeAsync(5_000);
 
       await expect(pending).resolves.toMatchObject({
-        owners: [{ owner: CODEX, status: 'service-unavailable' }],
+        owners: [{ owner: CODEX, status: 'available' }],
+      });
+    });
+
+    it('still cuts a non-Codex owner read at 3 seconds', async () => {
+      const s = build();
+      slowRead(s);
+      s.discoverTargets.mockResolvedValue([
+        {
+          kind: 'read',
+          origin: 'selected-provider',
+          target: { providerId: 'ollama-cloud', ownerRef: OLLAMA },
+        },
+      ]);
+      const pending = s.service.snapshot({ providerId: 'ollama-cloud' });
+      await jest.advanceTimersByTimeAsync(3_000);
+      await expect(pending).resolves.toMatchObject({
+        owners: [{ owner: OLLAMA, status: 'service-unavailable' }],
       });
     });
   });

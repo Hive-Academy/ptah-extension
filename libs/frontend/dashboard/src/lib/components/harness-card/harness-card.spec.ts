@@ -39,6 +39,7 @@ import {
 import { AnalyticsCardComponent } from '../analytics-card/analytics-card.component';
 import { BuildersCardComponent } from '../builders-card/builders-card.component';
 import { DashboardGridComponent } from '../dashboard-grid/dashboard-grid.component';
+import { ProviderAccountCardComponent } from '../provider-account-card/provider-account-card.component';
 import { HarnessCardComponent } from './harness-card.component';
 
 /** Inert stand-ins for the grid's two unrelated cards, which both load session RPC on init. */
@@ -57,6 +58,15 @@ class StubAnalyticsCardComponent {}
   template: '',
 })
 class StubBuildersCardComponent {}
+
+/** The plan-limits section loads `provider:getPlanLimits` on init; unrelated here. */
+@Component({
+  selector: 'ptah-provider-account-card',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: '',
+})
+class StubProviderAccountCardComponent {}
 
 function ok<T>(data: T) {
   return {
@@ -203,8 +213,20 @@ describe('dashboard harness card', () => {
     // the other two grid cards each load session RPC on init and have nothing
     // to do with this batch.
     TestBed.overrideComponent(DashboardGridComponent, {
-      remove: { imports: [AnalyticsCardComponent, BuildersCardComponent] },
-      add: { imports: [StubAnalyticsCardComponent, StubBuildersCardComponent] },
+      remove: {
+        imports: [
+          AnalyticsCardComponent,
+          BuildersCardComponent,
+          ProviderAccountCardComponent,
+        ],
+      },
+      add: {
+        imports: [
+          StubAnalyticsCardComponent,
+          StubBuildersCardComponent,
+          StubProviderAccountCardComponent,
+        ],
+      },
     });
     store = TestBed.inject(HarnessHealthStore);
   });

@@ -9,6 +9,7 @@ import { AppStateManager } from '@ptah-extension/core';
 import { AnalyticsCardComponent } from '../analytics-card/analytics-card.component';
 import { BuildersCardComponent } from '../builders-card/builders-card.component';
 import { HarnessCardComponent } from '../harness-card/harness-card.component';
+import { ProviderAccountCardComponent } from '../provider-account-card/provider-account-card.component';
 import { SkillSelectionCardComponent } from '../skill-selection-card/skill-selection-card.component';
 
 /**
@@ -17,6 +18,11 @@ import { SkillSelectionCardComponent } from '../skill-selection-card/skill-selec
  * Top-level dashboard surface. Page chrome (header, "Back" navigation) lives
  * here; content is the session analytics card (cost, tokens, sessions). The
  * Thoth pillar stat tiles now live on the Thoth page (`ThothShellComponent`).
+ *
+ * `<ptah-provider-account-card />` ("Provider accounts & plan limits") sits
+ * directly under the Tribunal banner as its own section, above every other
+ * card. It reads the shared `PlanLimitsStore`, not session analytics, so it
+ * must not live inside the analytics card or depend on its date range.
  *
  * `<ptah-skill-selection-card />` sits directly under it and is likewise silent
  * unless this workspace has never been asked which skills it wants. It is
@@ -35,6 +41,7 @@ import { SkillSelectionCardComponent } from '../skill-selection-card/skill-selec
   standalone: true,
   imports: [
     LucideAngularModule,
+    ProviderAccountCardComponent,
     HarnessCardComponent,
     SkillSelectionCardComponent,
     AnalyticsCardComponent,

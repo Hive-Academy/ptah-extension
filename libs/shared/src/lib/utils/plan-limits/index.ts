@@ -11,6 +11,8 @@ export {
 export {
   FRESHNESS_MS,
   LIMIT_LOOKUP_DEADLINE_MS,
+  limitLookupDeadlineMs,
+  SLOW_LIMIT_LOOKUP_DEADLINE_MS,
   NEAR_LIMIT_PERCENT,
   supersedes,
   type PlanLimitEvidenceStamp,

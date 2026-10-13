@@ -11,6 +11,9 @@
  *   keys `getProviderKey(providerId)` (`api-key.strategy.ts`,
  *   `configureProxyProvider`).
  * - `{kind:'ptah-cli-key', ptahCliId}` → `getProviderKey('ptahCli.<id>')`.
+ * - `{kind:'ollama-cloud-agent-key', ptahCliId}` → the agent's own slot when it
+ *   holds a real key, else (empty or the ollama.com sign-in placeholder) the
+ *   shared `ollama-cloud` provider key.
  *
  * Nothing is cached: every call reads the store again, so a changed key is
  * seen on the next read (Req 4.3). The secret comes back wrapped in a
@@ -28,6 +31,7 @@ import {
   isPlaceholderCredential,
   normaliseOwnerProviderId,
   ptahCliKeySlot,
+  usesOllamaSignInFallback,
 } from './provider-owner.resolver';
 import type { PlanCredentialRef } from './readers/plan-usage-reader.types';
 
@@ -106,6 +110,14 @@ export class PlanCredentialSource {
         ),
       });
       return { kind: 'unavailable', status: 'service-unavailable' };
+    }
+    // An Ollama Cloud agent signed in through ollama.com bills the shared
+    // provider key; the owner resolver attributes it to that key too.
+    if (
+      ref.kind === 'ollama-cloud-agent-key' &&
+      usesOllamaSignInFallback(raw)
+    ) {
+      return this.resolve({ kind: 'provider-key', providerId: 'ollama-cloud' });
     }
     const value = typeof raw === 'string' ? raw.trim() : '';
     if (value.length === 0) {

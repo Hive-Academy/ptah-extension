@@ -333,9 +333,7 @@ function showsLastKnownEvidence(
   same: boolean,
 ): boolean {
   return (
-    snapshot !== undefined &&
-    !same &&
-    snapshot.status === 'service-unavailable'
+    snapshot !== undefined && !same && snapshot.status === 'service-unavailable'
   );
 }
 
@@ -411,7 +409,11 @@ function ownerStatusNote(
     case 'unsupported-auth':
       return {
         tone: 'neutral',
-        text: 'Plan usage is not reported for this sign-in method',
+        // OpenCode reports a rejected or expired login this way.
+        text:
+          snapshot.owner.providerId === 'opencode'
+            ? 'OpenCode sign-in expired · sign in to OpenCode again'
+            : 'Plan usage is not reported for this sign-in method',
       };
     case 'no-usage-source':
       return {

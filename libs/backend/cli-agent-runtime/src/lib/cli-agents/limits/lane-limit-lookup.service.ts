@@ -8,9 +8,12 @@
  *
  * ## Deadline
  *
- * Every lane races one shared deadline (3 s by default), so a slow reader
- * costs only its own lane: it becomes `lookup: 'timeout'` ("limit lookup
- * timed out") and every other lane is still returned. A lane whose owner or
+ * Each lane races its own deadline (3 s normally, 12 s for Codex and
+ * Antigravity, see `limitLookupDeadlineMs`), so a slow reader is classified
+ * only on its own lane: it becomes `lookup: 'timeout'` ("limit lookup
+ * timed out") and every other lane is still returned. The whole lookup still
+ * waits for the slowest lane, so a cold Codex or Antigravity read can hold the
+ * response for up to 12 s; later reads come from the reader caches. A lane whose owner or
  * snapshot read throws becomes `lookup: 'failed'`. Both are `unknown` and
  * borrow nothing. When the deadline passes or the caller's signal fires, the
  * reads still waiting are cancelled.
@@ -27,6 +30,7 @@ import {
 import {
   FRESHNESS_MS,
   LIMIT_LOOKUP_DEADLINE_MS,
+  limitLookupDeadlineMs,
   NEAR_LIMIT_PERCENT,
   applicableLimits,
   classifyLaneState,
@@ -127,45 +131,52 @@ export class LaneLimitLookupService {
     options: LaneLimitLookupOptions = {},
   ): Promise<Array<LaneLimitResult<R>>> {
     if (rows.length === 0) return [];
+    const outcomes = await Promise.all(
+      rows.map((row) => this.lookupRow(row, options)),
+    );
+    const now = Date.now();
+    return rows.map((row, index) => this.toResult(row, outcomes[index], now));
+  }
+
+  /** Each lane owns its timer and cancellation, so one lane's timeout never fails a peer. */
+  private async lookupRow(
+    row: LaneLimitLookupRow,
+    options: LaneLimitLookupOptions,
+  ): Promise<LaneOutcome> {
     const controller = new AbortController();
     const { signal } = options;
     const onCallerAbort = (): void => controller.abort();
     if (signal?.aborted) controller.abort();
     else signal?.addEventListener('abort', onCallerAbort, { once: true });
-
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<LaneOutcome>((resolve) => {
       timer = setTimeout(
         () => resolve(TIMED_OUT),
-        options.deadlineMs ?? LIMIT_LOOKUP_DEADLINE_MS,
+        options.deadlineMs ??
+          limitLookupDeadlineMs(
+            row.cli,
+            row.providerId,
+            row.quotaOwner?.providerId,
+          ),
       );
       timer.unref?.();
     });
     const cancelled = new Promise<LaneOutcome>((resolve) => {
       if (controller.signal.aborted) resolve(CANCELLED);
-      else {
+      else
         controller.signal.addEventListener('abort', () => resolve(CANCELLED), {
           once: true,
         });
-      }
     });
-
     try {
-      const outcomes = await Promise.all(
-        rows.map((row) =>
-          Promise.race([
-            this.readLane(row, controller.signal),
-            deadline,
-            cancelled,
-          ]),
-        ),
-      );
-      const now = Date.now();
-      return rows.map((row, index) => this.toResult(row, outcomes[index], now));
+      return await Promise.race([
+        this.readLane(row, controller.signal),
+        deadline,
+        cancelled,
+      ]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       signal?.removeEventListener('abort', onCallerAbort);
-      // Releases every read still waiting on a lane that missed the deadline.
       controller.abort();
     }
   }

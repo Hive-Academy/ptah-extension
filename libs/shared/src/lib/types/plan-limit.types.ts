@@ -130,8 +130,9 @@ export interface PlanLimitCooldown {
 }
 
 /**
- * Historical token/cost accounting read from a local CLI. This is deliberately
- * separate from plan windows: it has no allowance percentage or reset time.
+ * Historical usage accounting — token/cost from a local CLI, or a request
+ * count from a provider API. This is deliberately separate from plan windows:
+ * it has no allowance percentage or reset time.
  */
 export interface PlanLocalUsage {
   readonly kind: 'local-usage';
@@ -139,9 +140,20 @@ export interface PlanLocalUsage {
   readonly tokens: number;
   readonly estimatedCostUsd: number;
   readonly observedAt: number;
-  readonly source: 'local-cli';
+  /**
+   * Where the figure came from: `local-cli` is the CLI's own accounting on
+   * this machine; `provider-api` is the provider's account usage endpoint
+   * (Ollama Cloud's `/api/usage`), which counts usage from every machine.
+   */
+  readonly source: 'local-cli' | 'provider-api';
   /** The CLI's reported aggregation range, when it supplies one. */
   readonly range?: string;
+  /**
+   * Request count over `range`, for a source that meters requests rather than
+   * tokens/cost (Ollama Cloud's `/api/usage`). When present, consumers show
+   * this instead of the token/cost figure, which such a source cannot provide.
+   */
+  readonly requests?: number;
 }
 
 /** Why an owner's limits could not be read even though the route supports it. */

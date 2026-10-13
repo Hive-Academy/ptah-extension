@@ -55,7 +55,10 @@ import type {
   PlanCredentialSource,
   PlanSecret,
 } from './plan-credential.source';
-import { normaliseOwnerProviderId } from './provider-owner.resolver';
+import {
+  credentialOwnerKey,
+  normaliseOwnerProviderId,
+} from './provider-owner.resolver';
 import { snapshotWindowsForStatus } from './plan-snapshot-windows';
 import {
   createClaudePlanUsageReader,
@@ -269,6 +272,17 @@ export class PlanUsageService {
         return this.settle(owner, statusOnly(resolution.status));
       }
       credential = resolution.secret;
+      // An Ollama Cloud agent's owner and key are read from its slot at
+      // different times (the slot may switch between its own key and the
+      // shared sign-in key); if it changed in between, this key bills another
+      // account. Only its fingerprint is compared; the key is not kept.
+      if (
+        providerId === 'ollama-cloud' &&
+        owner.identityKind === 'credential' &&
+        credentialOwnerKey(providerId, credential.reveal()) !== owner.key
+      ) {
+        return this.settle(owner, statusOnly('service-unavailable'));
+      }
     }
 
     let reading: PlanUsageReading;
