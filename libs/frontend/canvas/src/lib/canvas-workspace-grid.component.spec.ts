@@ -464,6 +464,26 @@ describe('CanvasWorkspaceGridComponent', () => {
     const counters = () =>
       TestBed.inject(CanvasRenderMetricsService).snapshot();
 
+    it.each(['locked', 'hidden'])(
+      'releases a closed tile while %s without loading',
+      (state) => {
+        mount(['t1', 't2', 't3']);
+        if (state === 'locked') fixture.componentRef.setInput('locked', true);
+        else fixture.componentRef.setInput('visible', false);
+        flush();
+        const closed = nodeOf('t2');
+        grid.removeWidget.mockClear();
+        grid.load.mockClear();
+
+        store.removeTileOnly('t2');
+        flush();
+
+        expect(grid.removeWidget).toHaveBeenCalledWith(closed.el, false, false);
+        expect(grid.load).not.toHaveBeenCalled();
+        expect(grid.engine.nodes).not.toContain(closed);
+      },
+    );
+
     it('removes a closed middle tile before load and restores live locks', () => {
       mount(['t1', 't2', 't3']);
       const closed = nodeOf('t2');
@@ -1355,6 +1375,32 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('lock', () => {
+    it('keeps open detail geometry frozen through a container resize', () => {
+      mount(['t1', 't2', 't3']);
+      fixture.componentRef.setInput('detailTabId', 't2');
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      grid.load.mockClear();
+      const detail = () =>
+        (
+          fixture.componentInstance as unknown as {
+            detailGeometry: () => {
+              rowEnd: number;
+              topPx: number;
+              heightPx: number;
+              belowIds: ReadonlySet<string>;
+            } | null;
+          }
+        ).detailGeometry();
+      const before = detail();
+      expect(before).not.toBeNull();
+
+      measure(TWO_COLUMN_WIDTH, 600);
+      flush();
+
+      expect(detail()).toEqual(before);
+      expect(grid.load).toHaveBeenCalledTimes(0);
+    });
     it('sets the grid static and writes nothing on resize or gesture', () => {
       mount(['t1', 't2', 't3'], { locked: true });
 

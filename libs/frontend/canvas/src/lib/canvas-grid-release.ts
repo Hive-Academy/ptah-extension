@@ -1,4 +1,4 @@
-import type { GridStackNode } from 'gridstack';
+import type { GridStack, GridStackNode } from 'gridstack';
 import { compactResizeBounds } from './canvas-layout-intent';
 
 type Position = { x: number; y: number; w: number; h: number };
@@ -71,6 +71,19 @@ export function restorePinnedNodes(
   pinned: readonly { node: GridStackNode; locked: boolean | undefined }[],
 ): void {
   for (const { node, locked } of pinned) node.locked = locked;
+}
+
+/** Removes stale nodes without a layout pass; returns how many were released. */
+export function releaseStaleNodes(
+  grid: GridStack,
+  liveIds: ReadonlySet<string>,
+): number {
+  const stale = staleGridNodes(grid.engine.nodes, liveIds);
+  for (const node of stale) {
+    if (node.el) grid.removeWidget(node.el, false, false);
+    else grid.engine.removeNode(node, false, false);
+  }
+  return stale.length;
 }
 
 /** Snapshot first: removeNode replaces the engine's nodes array. */

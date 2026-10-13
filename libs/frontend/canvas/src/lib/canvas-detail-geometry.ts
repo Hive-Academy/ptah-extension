@@ -21,11 +21,16 @@ export function canvasDetailGeometry(
   const { tiles, cellHeight } = layout;
   const selected = tiles.find((tile) => tile.tabId === tabId);
   if (!selected) return null;
-  const rowEnd = Math.max(
-    ...tiles
-      .filter((tile) => tile.y === selected.y)
-      .map((tile) => tile.y + tile.h),
-  );
+  let rowEnd = selected.y + selected.h;
+  let previousEnd: number;
+  do {
+    previousEnd = rowEnd;
+    for (const tile of tiles) {
+      if (tile.y < rowEnd && tile.y + tile.h > rowEnd) {
+        rowEnd = tile.y + tile.h;
+      }
+    }
+  } while (rowEnd !== previousEnd);
   const heightPx = Math.max(
     320,
     containerHeight - selected.h * cellHeight - 16,

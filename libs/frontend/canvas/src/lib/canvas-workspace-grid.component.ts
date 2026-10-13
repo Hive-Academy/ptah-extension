@@ -10,7 +10,6 @@ import {
 } from '@angular/core';
 import {
   GridStackOptions,
-  type GridStack,
   type GridStackNode,
   type GridStackWidget,
 } from 'gridstack';
@@ -46,8 +45,8 @@ import {
   geometryDriftCount,
   nodesNeedingLayout,
   pinLiveNodes,
+  releaseStaleNodes,
   restorePinnedNodes,
-  staleGridNodes,
 } from './canvas-grid-release';
 import { canvasDetailGeometry } from './canvas-detail-geometry';
 import {
@@ -75,36 +74,14 @@ interface LayoutMeasurements {
   readonly height: number;
 }
 
-/**
- * CanvasWorkspaceGridComponent — one Gridstack container per workspace.
- *
- * Each workspace keeps its own grid mounted (keep-alive); the parent toggles
- * `[class.hidden]` so switching workspaces hides the outgoing grid instead of
- * destroying its tiles (and their transcript DOM). A shared grid can't be used
- * because Gridstack's engine keeps logical nodes for hidden items, so layout
- * math would run across every workspace's tiles at once. Per-workspace grids
- * keep the layout engine isolated.
- *
- * Layout math is skipped while hidden (0-width container) and re-applied when
- * the grid becomes visible again.
- *
- * This is the only place in the lib that talks to Gridstack. Geometry flows one
- * way — `CanvasStore` intent -> `CanvasLayoutService` -> `grid.load()` — and
- * finished gestures flow back as intent, never as coordinates.
- */
+/** One retained Gridstack per workspace; intent projects to nodes, gestures back to intent. */
 @Component({
   selector: 'ptah-canvas-workspace-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [GridstackComponent, GridstackItemComponent, CanvasTileComponent],
   host: {
-    // Single source of truth for keep-alive visibility. An inline style binding
-    // beats Tailwind's `.hidden` utility AND any `:host { display }` rule no
-    // matter the stylesheet order. The previous mechanism ([class.hidden] on the
-    // parent fighting `:host { display: block }`) was an equal-specificity tie
-    // resolved by source order — it silently flipped in the production bundle,
-    // leaving every retained workspace grid visible at once (all workspaces'
-    // sessions shown, stacked). `display:none` hides the grid without unmounting
-    // its tiles/transcripts, so the keep-alive contract still holds.
+    // Inline display wins over host styles and keeps hidden workspace tiles mounted
+    // ([class.hidden] once lost a source-order tie in prod and showed every grid).
     '[style.display]': "visible() ? 'block' : 'none'",
     '[style.--ptah-detail-h.px]': 'detailGeometry()?.heightPx ?? null',
     '[attr.data-canvas-measured-width]': 'layoutService.containerWidth()',
@@ -204,9 +181,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   readonly gsOptions: GridStackOptions = {
     column: 12,
     cellHeight: 120,
-    // Gravity on: a dragged tile pushes its neighbours and the arrangement
-    // compacts up-and-left, which is also what the derived layout produces —
-    // so the projection and the live gesture agree.
+    // User drags compact by gravity. Programmatic applies pin live nodes so
+    // derived row-break gaps survive until the next gesture settles.
     float: false,
     margin: 8,
     draggable: { handle: '.tile-header' },
@@ -349,13 +325,23 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     );
   });
 
-  protected readonly detailGeometry = computed(() =>
-    canvasDetailGeometry(
+  protected readonly detailGeometry = computed(() => {
+    const measurements = this.locked()
+      ? (this._lockedMeasurements ??
+        this._lastAppliedMeasurements ??
+        this.currentMeasurements())
+      : this.currentMeasurements();
+    return canvasDetailGeometry(
       this.detailTabId(),
-      this.layout(),
-      this.layoutService.containerHeight(),
-    ),
-  );
+      this.layoutService.computeLayout(
+        this.tiles(),
+        this.layoutFocusTabId(),
+        this.viewConstraints(),
+        measurements,
+      ),
+      measurements.height,
+    );
+  });
 
   /**
    * True for the synchronous window in which this component is writing derived
@@ -386,15 +372,17 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   private _lockedMeasurements: LayoutMeasurements | null = null;
 
   constructor() {
-    // Responsive layout: project derived geometry into Gridstack. Skipped while
-    // hidden so Gridstack never runs layout math against a 0-width display:none
-    // grid, and while locked so a frozen arrangement stays frozen — except the
-    // view-mode exception below.
+    // Project active geometry; release stale nodes even while hidden or locked.
     effect(() => {
-      if (!this.active()) return;
+      this.tiles();
+      if (!this.active()) {
+        this.applyAuthoritativeGeometry();
+        return;
+      }
       if (this.locked()) {
         this._lockedMeasurements ??=
           this._lastAppliedMeasurements ?? this.currentMeasurements();
+        this.applyAuthoritativeGeometry();
         if (
           this._geometryDeferred ||
           this.viewFingerprint() !== this._appliedViewFingerprint
@@ -712,13 +700,31 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     force = false,
     frozenMeasurements?: LayoutMeasurements,
   ): void {
-    if (!this.active()) {
-      if (force) this._geometryDeferred = true;
-      return;
-    }
-    if (!force && this.locked()) return;
     if (!force && this._gesture !== null) {
       this._geometryDeferred = true;
+      return;
+    }
+    const active = this.active();
+    const grid = this.gridComp()?.grid;
+    if (!active || (!force && this.locked())) {
+      if (force && !active) this._geometryDeferred = true;
+      if (grid && this._gesture === null) {
+        const liveIds = new Set(this.tiles().map((tile) => tile.tabId));
+        this._applyingLayout = true;
+        const pinned = pinLiveNodes(grid.engine.nodes, liveIds);
+        try {
+          const released = releaseStaleNodes(grid, liveIds);
+          this.metrics.increment('releasedNodes', released);
+          // A locked close is membership only: do not let it force a load.
+          if (released > 0 && this.locked()) {
+            this._appliedViewFingerprint = this.viewFingerprint();
+          }
+        } finally {
+          restorePinnedNodes(pinned);
+          this._applyingLayout = false;
+          this.metrics.publish();
+        }
+      }
       return;
     }
     const measurements = frozenMeasurements ?? this.currentMeasurements();
@@ -732,14 +738,18 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       : this.layout();
     this.metrics.increment('applyChecks');
     const viewFingerprint = this.viewFingerprint();
-    const grid = this.gridComp()?.grid;
     if (!grid) return;
     const liveIds = new Set(this.tiles().map((tile) => tile.tabId));
     this._applyingLayout = true;
     const restoreStatic = this.locked();
     const pinned = pinLiveNodes(grid.engine.nodes, liveIds);
     try {
-      if (this._gesture === null) this.releaseStaleNodes(grid, liveIds);
+      if (this._gesture === null) {
+        this.metrics.increment(
+          'releasedNodes',
+          releaseStaleNodes(grid, liveIds),
+        );
+      }
       if (positioned.length === 0) {
         this._geometryDeferred = false;
         this._appliedViewFingerprint = viewFingerprint;
@@ -759,10 +769,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       if (changed.length > 0) {
         this.metrics.increment('applyPasses');
         grid.cellHeight(cellHeight);
-        // Gridstack's documented all-node path removes matching engine nodes
-        // before re-adding the collision-free authoritative snapshot. Unlike
-        // sequential update(), a growing tile cannot push or swap a neighbour
-        // whose target is being applied later in the same pass.
+        // Pinning preserves derived row-break gaps during this all-node load;
+        // sequential updates could move neighbours before their target applies.
         grid.load(
           positioned.map(({ tabId, x, y, w, h }) => ({
             id: tabId,
@@ -800,17 +808,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         // signal write from inside the computed callback.
         this.metrics.publish();
       }
-    }
-  }
-
-  private releaseStaleNodes(
-    grid: GridStack,
-    liveIds: ReadonlySet<string>,
-  ): void {
-    for (const node of staleGridNodes(grid.engine.nodes, liveIds)) {
-      if (node.el) grid.removeWidget(node.el, false, false);
-      else grid.engine.removeNode(node, false, false);
-      this.metrics.increment('releasedNodes');
     }
   }
 

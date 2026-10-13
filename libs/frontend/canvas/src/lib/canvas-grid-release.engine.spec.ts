@@ -98,7 +98,92 @@ function releaseAndLoad(pin: boolean) {
   return result;
 }
 
+function applyMovingTargets(
+  initial: readonly {
+    tabId: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }[],
+  target: readonly {
+    tabId: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }[],
+  pin = true,
+) {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const grid = GridStack.init(
+    { column: 12, float: false, animate: false },
+    host,
+  );
+  for (const { tabId, x, y, w, h } of initial) {
+    grid.addWidget({ id: tabId, x, y, w, h });
+  }
+  const liveIds = new Set(target.map((tile) => tile.tabId));
+  const pinned = pin ? pinLiveNodes(grid.engine.nodes, liveIds) : [];
+  try {
+    for (const node of staleGridNodes(grid.engine.nodes, liveIds)) {
+      if (node.el) grid.removeWidget(node.el, false, false);
+      else grid.engine.removeNode(node, false, false);
+    }
+    grid.load(
+      target.map(({ tabId, x, y, w, h }) => ({ id: tabId, x, y, w, h })),
+      false,
+    );
+  } finally {
+    restorePinnedNodes(pinned);
+  }
+  const result = new Map(
+    grid.engine.nodes.map((node) => [
+      node.id,
+      { x: node.x, y: node.y, w: node.w, h: node.h },
+    ]),
+  );
+  grid.destroy(false);
+  host.remove();
+  return result;
+}
+
 describe('real GridStack release and load', () => {
+  it('moves pinned neighbours to derived rows after closing a middle tile', () => {
+    const starting = projectTileGeometry(intent, 2, null, [
+      { tabId: 'A', compact: true, heightUnits: 2 },
+    ]);
+    const target = projectTileGeometry(
+      intent.filter((tile) => tile.tabId !== 'B'),
+      2,
+      null,
+      [{ tabId: 'A', compact: true, heightUnits: 2 }],
+    );
+    expect(starting.find((tile) => tile.tabId === 'C')?.y).toBeGreaterThan(
+      target.find((tile) => tile.tabId === 'C')?.y ?? 0,
+    );
+    const result = applyMovingTargets(starting, target);
+    expect(result.has('B')).toBe(false);
+    for (const { tabId, x, y, w, h } of target) {
+      expect(result.get(tabId)).toEqual({ x, y, w, h });
+    }
+    expect(
+      applyMovingTargets(starting, target, false).get('D')?.y,
+    ).toBeLessThan(target.find((tile) => tile.tabId === 'D')?.y ?? 0);
+  });
+
+  it('moves a target into the old cell of another tile', () => {
+    const starting = projectTileGeometry(intent.slice(0, 2), 2);
+    const target = starting.map((tile) => ({
+      ...tile,
+      x: tile.tabId === 'A' ? 6 : 0,
+    }));
+    const result = applyMovingTargets(starting, target);
+    for (const { tabId, x, y, w, h } of target) {
+      expect(result.get(tabId)).toEqual({ x, y, w, h });
+    }
+  });
   it('keeps a derived row-break gap and applies every live position while pinned', () => {
     const b = derivedTile('B');
     const d = derivedTile('D');
