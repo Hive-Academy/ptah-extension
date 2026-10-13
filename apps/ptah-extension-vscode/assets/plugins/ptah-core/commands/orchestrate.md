@@ -1,6 +1,6 @@
 ---
-description: Orchestrate development workflows with specialist agents. Supports FEATURE, BUGFIX, REFACTORING, DOCS, RESEARCH, DEVOPS, and CREATIVE task types.
-argument-hint: '[task description] or TASK_YYYY_NNN'
+description: Orchestrate development workflows with specialist agents, including fleets of existing tasks.
+argument-hint: '[task description] or TASK_YYYY_NNN[_xxxx] [TASK_YYYY_NNN[_xxxx] ...] or fleet request'
 ---
 
 # Orchestrate Development Workflow
@@ -11,8 +11,14 @@ Invoke the orchestration skill for development workflows.
 
 ```
 /orchestrate [task description]     # New task
-/orchestrate TASK_YYYY_NNN          # Continue existing task
+/orchestrate TASK_YYYY_NNN[_xxxx]  # Continue one existing task
+/orchestrate TASK_A TASK_B ...      # Coordinate several existing tasks as a fleet
+/orchestrate fleet [task IDs]       # Explicit fleet request
 ```
+
+## Select the workflow
+
+Resolve every supplied task ID against an existing `.ptah/specs/<id>/task.md` and reject missing, malformed, or duplicate IDs before any agent spawn. Do not create a task for an invalid ID. A single resolved ID continues the ordinary task workflow, including when the request says “fleet.” Multiple resolved IDs or an explicit fleet request covering several tasks selects fleet mode; load `references/fleet.md` from the orchestration skill directory and reconstruct progress from disk artifacts. If an explicit fleet request has no usable task set, resolve it before spawning. A task description without existing IDs starts the normal new-task workflow.
 
 ## Execution
 
@@ -28,6 +34,7 @@ Invoke the orchestration skill for development workflows.
    - `references/checkpoints.md` - User validation templates
    - `references/git-standards.md` - Commit rules and hook handling
    - `references/lane-assignment.md` - CLI lanes: who spawns, per-role hand-offs, phases on lanes
+   - `references/fleet.md` - Multi-task scheduling, artifact checkpoints, resume, and judge rounds
 
 ## Quick Reference
 
@@ -36,6 +43,8 @@ Invoke the orchestration skill for development workflows.
 **Agents** (13): project-manager, software-architect, team-leader, backend-developer, frontend-developer, devops-engineer, senior-tester, code-style-reviewer, code-logic-reviewer, researcher-expert, modernization-detector, ui-ux-designer, technical-content-writer
 
 **Checkpoints**: Scope Clarification, Requirements Validation, Architecture Validation, QA Selection
+
+**Fleet**: several validated task IDs, disjoint batches, disk-based resume, independent judge, quiet commit window
 
 ## Skill
 
