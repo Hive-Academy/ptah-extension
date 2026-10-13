@@ -1,6 +1,6 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 18 | Batches: 8 | Complete: 1/8
+Total tasks: 18 | Batches: 8 | Complete: 2/8
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8` (branch
 `task-441-lanes-first`). All paths below are relative to it unless absolute. `P` =
@@ -147,7 +147,48 @@ Edge cases:
   agent-lanes §4/§5/§6, template, and the missing `fleet.md`. Any other failure = NOT ACCEPTED.
 - No per-batch review.
 
-## Batch 2: Lanes-first policy in orchestration and agent-lanes (A) — IN_PROGRESS
+## Batch 2: Lanes-first policy in orchestration and agent-lanes (A) — COMPLETE
+
+- Executed by: CLI lanes x 2 (codex fe63b168 for 2.1, codex f821d912 for 2.2). Report:
+  `batch-2-report.md`.
+- Team-leader verification round 1 (2026-10-13): NOT ACCEPTED, no commit. `npm run validate-skill`
+  -> 11 errors. Five are expected red (`fleet.md` x3: two broken links plus the missing required
+  reference; team-leader template markers x2). Six belong to this batch:
+  1. `checkpoints.md:158` Checkpoint 0.1: markers `no recorded preference | \`enabled\`` and
+     `No spawnable lane` are missing. The table at `:173-178` says "no preference" and "No spawnable
+     capable lane". Fix: row 1 cell ends `no recorded preference` directly before `| \`enabled\``; row 4
+     reads `No spawnable lane and no lane preference | \`disabled\``.
+  2. `lane-assignment.md:40` `## Batches on lanes`: no `CLI lane` and no `Subagent reason` inside
+     that section. The lanes-first default sits in the previous section (`:34-38`). Fix: state in
+     `## Batches on lanes` that a CLI lane is the default executor for every bounded batch (sequential
+     or parallel; parallel still needs independent, file-disjoint tasks) and that a subagent executor
+     must carry a `Subagent reason`.
+  3. `agent-lanes/SKILL.md:94` §4: `later signal` and `supersedes` fail the order check because the
+     first `queued` sits in the last sentence (`:126`). `:124` says `queue-next-turn`, not `queued`.
+     Fix: use the Task 2.2 wording, "A message queued with `ptah_agent_message` runs as a new turn
+     after a `delivered` signal and can change the deliverable again", before the later-signal sentence.
+- Passed in round 1: Gates 1/1.7/2 are not weakened (checkpoints `:94-113,130-151`: all five
+  escalations kept; agent-lanes §6 `:172-184` keeps opposite-side, same-side -> user, REVISE at cap ->
+  user, removal -> user). All fixed vocabulary is present. No vendor roster remains (the one `Codex`
+  hit, agent-lanes `:239`, is an existing cost measurement and is not new). The plan :77 regression
+  over all 9 files incl. tribunal found no `CLI author -> subagent`, `code that will ship ->
+  cross-side` or `failureKind` text.
+- Acceptance for round 2: the validator shows exactly 5 errors (`fleet.md` x3, template x2).
+- Fix round 1: one codex lane (13070265). Report: `batch-2-fix-report.md`.
+- Team-leader verification round 2 (2026-10-13): ACCEPTED. `npm run validate-skill` run once -> 5
+  errors, 0 warnings, all expected red (`fleet.md` x3: `SKILL.md:50,186` links plus the missing
+  required reference; team-leader template `:103` `Recommended executor: CLI lane`, `Subagent
+  reason:`). Fixed spots on disk: `checkpoints.md:176` `no recorded preference | \`enabled\``,
+  `:179` `No spawnable lane and no lane preference | \`disabled\``; `lane-assignment.md:39-44`
+  `## Batches on lanes` names the CLI-lane default, the file-disjoint parallel condition and `Subagent
+  reason`; `agent-lanes/SKILL.md:124-127` puts the queued-message sentence before the later-signal
+  sentence. Round-1 passes still hold: escalations at checkpoints `:103,107-109,141,146` and
+  agent-lanes `:176-182` (same-side -> user, REVISE at cap -> user, removal -> user); the plan :77
+  grep over all 9 files finds no `CLI author -> subagent` or `failureKind`. The `Code that will ship`
+  row (`agent-lanes:170`) routes to a different family, not cross-side. The only vendor name is the
+  existing `Codex` measurement at `:239`.
+- Phase 1 implementer families so far: codex (Batches 1, 2). The Phase 1 review must use a non-codex
+  family.
 
 - Recommended executor: CLI lanes x 2 (capability: precise technical writing against cited lines)
 - Fallback executor: per the fallback order; last resort one sequential subagent for both tasks
@@ -158,7 +199,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1
 - Phase: 1 Shipped policy | Phase review: none at this batch
 
-### Task 2.1: Orchestration skill and references — IN_PROGRESS
+### Task 2.1: Orchestration skill and references — COMPLETE
 
 - Files: `P/skills/orchestration/SKILL.md`, `P/skills/orchestration/references/checkpoints.md`,
   `P/skills/orchestration/references/lane-assignment.md`,
@@ -181,7 +222,7 @@ Edge cases:
 - Validation notes: R2-4 (roster is example content). Must not weaken Gates 1/1.7/2. Use fixed vocabulary.
 - Implementation details: edit in place; no copies.
 
-### Task 2.2: agent-lanes §4, §5, §6 and completion — IN_PROGRESS
+### Task 2.2: agent-lanes §4, §5, §6 and completion — COMPLETE
 
 - File: `P/skills/agent-lanes/SKILL.md`
 - Plan reference: implementation-plan.md:47-51; review Round 2 R2-1, R2-3; decisions.md #9

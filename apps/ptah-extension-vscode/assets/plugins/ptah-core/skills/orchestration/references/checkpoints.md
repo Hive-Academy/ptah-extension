@@ -8,7 +8,7 @@ This reference documents all user validation checkpoints in the orchestration wo
 > 2. Only the orchestrator (main agent) talks to the user. `AskUserQuestion` is a UI-coupled tool that works only in your context. Subagents and lanes send open questions to you through messaging, or return `## Clarifications Needed` when no channel exists ([§ Agent questions](#agent-questions)).
 > 3. **Document review checkpoints (1, 1.7, 2) use plain text messages, not `AskUserQuestion`.** PM, Designer and Architect deliverables are files on disk that the user must open and read before responding — a modal choice would force a premature decision.
 > 4. When you do ask, use one `AskUserQuestion` call with every open user-reserved question bundled, the recommendation first. If the tool is unavailable in this harness, ask the same question in plain text, listing the same options, and wait for the answer.
-> 5. **Who approves Gates 1, 1.7 and 2 depends on the approval mode** ([§ Approval mode](#approval-mode)). With CLI lanes installed and enabled, the cross-side reviewer approves and you post a notice; the user is asked only when no lane is available, lanes are disabled, or an escalation applies.
+> 5. **Who approves Gates 1, 1.7 and 2 depends on the approval mode** ([§ Approval mode](#approval-mode)). With a capable spawnable CLI lane and `enabled` or `auto` mode, the cross-side reviewer approves and you post a notice; the user is asked when no lane is available, lanes are disabled, or an escalation applies.
 
 ---
 
@@ -93,7 +93,9 @@ record what they decide. A question that stays open, or a user-reserved one, goe
 
 ## Approval mode
 
-Decide it once at Gate 0.1 and record it in `context.md` under `## CLI Lanes` as `Approval: lane-review` or `Approval: user`.
+Decide it once at Gate 0.1 for document Gates 1, 1.7 and 2. Record it in `context.md` under
+`## CLI Lanes` as `Approval: lane-review` or `Approval: user`. Shipping-code review follows
+the independent different-family code-review rule in agent-lanes §6, not this document gate.
 
 | Mode          | When                                                                                                      | Gates 1, 1.7 and 2                                                                                     |
 | ------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -127,7 +129,9 @@ Continuing to [next phase]. Reply with feedback or "stop" at any time to revise.
 
 ## Cross-side review protocol
 
-Runs before Gates 1, 1.7 and 2, for initial artifacts and for every revision of them.
+Runs for document artifacts before Gates 1, 1.7 and 2, for initial artifacts and every revision.
+It does not route reviews of shipping code. The opposite-side document-review requirement and all
+five escalation cases above still apply.
 
 1. When the author returns, invoke an independent reviewer on the other execution side
    (routing and fallback: agent-lanes §6; invocation: [agent-catalog.md § Document review](agent-catalog.md#document-review)).
@@ -160,22 +164,28 @@ question: announce the mode and continue without waiting.
 
 ### Trigger Conditions
 
-Run `ptah_agent_list` at orchestration start (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)).
+Before selecting a lane mode, call `ptah_memory_search` for user execution preference. Then inspect
+the current request, task context/settings and `ptah_agent_list` (how to read its rows: the
+[agent-lanes skill](../../agent-lanes/SKILL.md)). Current explicit instruction wins. For conflicting
+or stale memory, use the most recent unambiguous preference; if unresolved, ask. If memory is
+unavailable, record `preference unknown` and use the no-preference default. A row marked `AT LIMIT`
+is not spawnable, including when its reset is `reset unknown`.
 
-| Situation                                               | Lane mode  | Approval      |
-| ------------------------------------------------------- | ---------- | ------------- |
-| At least one spawnable lane, no recorded preference     | `auto`     | `lane-review` |
-| A preference in project settings or `context.md`        | as recorded | as recorded  |
-| The request pins lanes ("use codex for …")              | `enabled`  | `lane-review` |
-| No spawnable lane                                       | `disabled` | `user`        |
+| Situation | Lane mode | Approval |
+| --- | --- | --- |
+| At least one spawnable capable lane, no recorded preference | `enabled` | `lane-review` |
+| A current explicit instruction or unambiguous stored preference | as instructed (`auto` remains selectable) | `lane-review` if enabled/auto with a spawnable lane; otherwise `user` |
+| A stored preference wants lanes but none is spawnable | `disabled`; tell the user why | `user` (`Approval: user`) |
+| No spawnable lane and no lane preference | `disabled` | `user` |
 
 Skip the notice for a Minimal task (single developer or reviewer) — record the mode silently.
 
 ### Template
 
 ```markdown
-**CLI lanes — TASK_[ID]**: [N] available ([lane names]). Mode `auto`: lanes take work where they
-clearly help and review across sides. Cross-side reviews approve requirements, design and
+**CLI lanes — TASK_[ID]**: [N] spawnable ([live lane rows]). Preference source: [current request /
+settings / context / memory / none / unavailable]. Mode `[enabled | auto | disabled]`:
+[brief consequence of selected mode]. Cross-side document reviews approve requirements, design and
 architecture, and agents settle technical choices from evidence and peer review — every decision
 is logged in `decisions.md`. I stop for you only on decisions that are yours (scope intent,
 removals, irreversible or outward actions, security, cost) or open review items.
@@ -192,7 +202,8 @@ Reply "no lanes" to work without lanes, or "gate me" to approve each document yo
 
 A change applies from the next phase on; work already approved stays approved.
 
-Record the mode, the approval mode and the discovered rows, and brief sub-agents accordingly: [lane-assignment.md § Gate 0.1 outcome](lane-assignment.md#gate-01-outcome).
+Record the preference source, mode, approval mode and discovered rows in `context.md`, and brief
+sub-agents accordingly: [lane-assignment.md § Gate 0.1 outcome](lane-assignment.md#gate-01-outcome).
 
 ---
 

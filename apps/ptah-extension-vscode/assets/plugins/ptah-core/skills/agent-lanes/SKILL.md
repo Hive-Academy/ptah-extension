@@ -19,8 +19,8 @@ The `cli` enum on the `ptah_agent_spawn` schema lists adapters this build ships,
 ```
 | Agent        | Type     | Status        | Capabilities                                              |
 | ------------ | -------- | ------------- | --------------------------------------------------------- |
-| cursor       | cli      | not installed | messaging: none                                           |
-| ollama cloud | ptah-cli | available     | provider: Ollama Cloud, ptahCliId: pc-d8f4…, messaging: … |
+| <cli row>    | cli      | installed     | messaging: <reported capability>                          |
+| <provider>   | ptah-cli | available     | provider: <family>, ptahCliId: <listed id>, messaging: …  |
 ```
 
 That sample is one machine's output at one moment — yours will differ.
@@ -28,10 +28,10 @@ That sample is one machine's output at one moment — yours will differ.
 - `Type: cli` + `installed` → spawnable with `cli`. Any other status (`not installed`, `disabled`) → skip.
 - `Type: ptah-cli` + `available` → spawnable with `ptahCliId`.
 - **Family** = the `cli` value, or the `provider:` token of a ptah-cli row. Families matter for review.
-- A Claude provider is an ordinary ptah-cli row: not privileged, not excluded.
+- Treat every provider as an ordinary ptah-cli row; none is privileged or excluded.
 - The user named a lane that is not listed → say which one is missing and offer the listed
   alternatives. Never substitute silently.
-- Vendor names anywhere in skill text are illustrations, never a roster.
+- The live list, not an example, determines what can be spawned.
 
 ## 2. Address
 
@@ -100,11 +100,10 @@ read    ptah_agent_read({ agentId })                     then Read the deliverab
 stop    ptah_agent_stop({ agentId })                     for a lane you no longer need
 ```
 
-**Do not poll in a loop.** When a lane reaches a terminal status, Ptah pushes one
-`<agent-lane-completed>` turn into the session that spawned it. Spawn, get on with your own work,
-and act when it arrives. The signal carries the agent id, the lane, the terminal status, the exit
-code, the duration, the number of reports the lane sent, the CLI Session ID when there is one, and
-one line per declared deliverable.
+**Do not poll in a loop.** When a lane reaches a terminal status, Ptah pushes one `<agent-lane-completed>` signal per lane turn
+into the session that spawned it. Spawn, get on with your own work, and act when it arrives. The
+signal carries the agent id, lane, terminal status, exit code, duration, report count, CLI Session
+ID when available, and one line per declared deliverable.
 
 Act on its `verdict`, never on the exit code alone:
 
@@ -115,16 +114,17 @@ Act on its `verdict`, never on the exit code alone:
 | `failed`         | Terminal status `failed`, `timeout` or `stopped`                                   | Recover per §5                                                                                                              |
 | `unverified`     | Completed, but nothing was declared, so nothing was checked                        | Read the output and verify it. Declare `deliverables` next time                                                             |
 
-**The `<agent-lane-completed>` signal is the primary wake; status checks are the fallback.** If
-you must check, make one `ptah_agent_status({ agentId })` call, then wait at least 60 s before the
-next — at most 5 checks per lane, never a loop. Use it and `ptah_agent_read({ agentId })` when:
+**The pushed `<agent-lane-completed>` signal is the wake.** After it arrives, read status and
+output with `ptah_agent_status({ agentId })` and `ptah_agent_read({ agentId })`, then verify the
+declared deliverables' contents. A missing or empty file is not complete. If push is unavailable
+(for example, no live spawning session, no parent session, or no chat runtime), make one
+status/read check. Do not use a timer, watcher, or repeated status checks as a substitute.
+For a verdict other than `delivered`, read the output and recover per §5.
 
-- no signal arrived — the signal is refused when the spawning session is no longer live, when the
-  lane was spawned with no parent session, or when this host registered no chat runtime;
-- the lane's adapter reports nothing useful, so the output is the only account of what it did
-  (`opencode` takes a message only as a queued next turn, never mid-turn);
-- the verdict is anything other than `delivered` — the signal says WHETHER a file was written, and
-  the output says how far the lane got.
+A message queued with `ptah_agent_message` runs as a new turn after a `delivered` signal and can change the deliverable again.
+A later signal from the same agent supersedes an earlier one.
+Do not start review of a deliverable while a queued message for that lane is pending; wait for
+that turn's signal, then read and verify the final file.
 
 Status is one of `running`, `completed`, `failed`, `timeout`, `stopped`.
 
@@ -134,19 +134,27 @@ Status is one of `running`, `completed`, `failed`, `timeout`, `stopped`.
 
 ## 5. Recover
 
-**Resume only when `ptah_agent_status` reports a `CLI Session ID`.** Then spawn again on the same
-lane (`cli` or `ptahCliId`) with `resume_session_id: <that id>` and a continuation task ("Continue
-the previous task. Also fix: …"). The resumed lane gets a new `agentId` and the old conversation.
-No session id → that adapter is ephemeral: respawn with the context restated in `task`.
+Classify terminal evidence as quota/usage-limit, auth, crash, timeout, bad/missing output, or
+unknown. After a possible limit failure, read that lane's `ptah_agent_list` row and its own output.
+The readable limit signal is the row's `AT LIMIT` state with a reset time or `reset unknown`,
+together with the lane's output. Never infer a limit from timeout, capacity, or a missing deliverable.
 
-| Situation                                            | Action                                                                |
-| ---------------------------------------------------- | --------------------------------------------------------------------- |
-| `timeout`, or `failed` / `stopped` with partial work | Resume if possible, else respawn with a smaller task                  |
-| `verdict: no-deliverable`                            | Resume naming every missing path, and say the file was never written  |
-| Completed but missed items                           | Resume and name what was missed                                       |
-| Wrong approach or useless output                     | Respawn with a sharper prompt, or do it yourself                      |
-| Same lane fails twice                                | Drop it (say so in the summary) and reassign its work to another lane |
-| No lane available at all                             | Do the work in-process and label it as not an outside lane            |
+On a confirmed limit, record the lane ID (`cli` or `ptahCliId`), family, cause, and row's reset
+time or `reset unknown` in this run's `context.md`. Key exhaustion by lane, not `agentId`: a
+resumed lane gets a new agent ID. Do not force-spawn. Choose fallback in this order:
+**other family same capability** → **same family other provider/model** → **subagent** with a
+`Subagent reason`. Skip a known-reset lane until its limit clears. For `reset unknown`, skip
+that lane for the rest of this run; re-check with `ptah_agent_list` only at the next Gate 0.1 or
+on user request. A fresh list row with confirmed room overrides the exhausted entry.
+
+For a non-limit failure, resume once when `ptah_agent_status` supplies a `CLI Session ID` and
+there is useful work to continue: spawn on the same lane with `resume_session_id` and a specific
+continuation task. Otherwise respawn once with a narrower, self-contained task; an ephemeral
+adapter needs the context restated. Name missing deliverables and missed items explicitly. After
+two non-limit failures on that lane, choose the next eligible lane, then a subagent with a
+`Subagent reason` if no lane is eligible. Report the fallback, cause, and reset time or
+`reset unknown` when a limit was involved. Never silently replace a user pin: disclose that its
+lane is unavailable and get direction before using another executor.
 
 ## 6. Verify and revise
 
@@ -156,27 +164,33 @@ Lane output is evidence, not proof.
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Research, surveys, summaries                          | Spot-check claims against the code                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Scaffolding, stubs                                    | Read it in full — only the files the lane edited                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Decision artifacts (spec, design, plan)               | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list only `lane-proposed` rules under `## Lane-introduced constraints`. Project rules keep their `project-rule` tag and cite their source where they appear; do not list them as lane-introduced. A cross-side review (below) runs first; then orchestration Gate 1, 1.7 or 2 approves the artifact before any lane builds from it — the reviewer in `lane-review` mode, the user in `user` mode or on escalation. |
+| Decision artifacts (spec, design, plan)               | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list only `lane-proposed` rules under `## Lane-introduced constraints`. Project rules keep their `project-rule` tag and cite their source where they appear; do not list them as lane-introduced. A Document gates review (below) runs first; then orchestration Gate 1, 1.7 or 2 approves the artifact before any lane builds from it — the reviewer in `lane-review` mode, the user in `user` mode or on escalation. |
 | Code that deletes, replaces or consolidates a surface | Check the supplied preserve list or `parity-inventory.md` item by item; a missing, unapproved capability blocks the batch. Proposed removals require explicit user approval before the batch is accepted.                                                                                                                                                                                                                                                                                  |
 | UI code                                               | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype (or — for a UI change with no added/redesigned surface and so no prototype — before/after screenshots of the affected screen, the "before" taken from the base commit before the fix lands) and shown to the user before merge.                                                                                                                        |
-| Code that will ship                                   | Independent review routed cross-side (below), recorded in `code-logic-review.md` under the code-review role's own verdict contract. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended.                                                                                                                              |
+| Code that will ship                                   | Independent review by a different family under Shipping code (below), recorded in `code-logic-review.md` under the code-review role's own verdict contract. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended.                                                                                                                              |
 
-- **Independence**: the author never reviews its own work. Same-family review is allowed when
-  the user asks for it or when the fallback below is necessary; label it weaker evidence.
-- **Cross-side review**: _side_ is the execution mode — in-process (orchestrator or subagent) or
-  CLI lane; _family_ is the model family. A different CLI family is still the same side. The
-  orchestrator assigns the reviewer: in-process author → a CLI lane; CLI author → a subagent.
-  Opposite side unavailable, lanes disabled at Gate 0.1, or the user explicitly pins a same-side
-  reviewer → an independent reviewer on that side, reason disclosed; prefer another family unless
-  one is pinned. Never silently replace a pinned reviewer. No independent reviewer can run →
-  report the blocker; never claim a review. Applies to every decision artifact
-  (`task-description.md`, `design-spec.md` + `prototype/`, `implementation-plan.md`) and all
-  shipping code. Document reviews write `<artifact-stem>-review.md` (APPROVED / REVISE); code
-  reviews keep `code-logic-review.md`, and an existing eligible review is not duplicated.
-  Invocation and the review protocol: orchestration `agent-catalog.md` and `checkpoints.md`.
-  An approving cross-side document review passes the gate when lanes are installed and enabled
-  (`lane-review` mode); a same-side review, a REVISE at the cap or a proposed removal always goes to
-  the user. Rules: orchestration `checkpoints.md` § Approval mode.
+- **Document gates**: Decision artifacts (`task-description.md`, `design-spec.md` + `prototype/`,
+  `implementation-plan.md`) use an independent opposite-execution-side reviewer. _Side_ means
+  in-process (orchestrator or subagent) versus CLI lane. The author never reviews its own work;
+  an in-process author uses a CLI lane and a CLI author uses an in-process reviewer. If the
+  opposite side is unavailable, lanes are disabled at Gate 0.1, or the user pins a same-side
+  reviewer, disclose the reason and use an independent same-side reviewer, preferring another
+  family unless pinned. Never silently replace a pinned reviewer. Document reviews write
+  `<artifact-stem>-review.md` (APPROVED / REVISE); an existing eligible review is not duplicated.
+  An approving opposite-side review passes Gate 1/1.7/2 in `lane-review` mode; a same-side
+  review goes to the user rather than approving the gate. REVISE at the cap goes to the user;
+  a proposed removal goes to the user. Keep the document verdict and orchestration
+  `agent-catalog.md` / `checkpoints.md` § Approval mode protocol. If no independent reviewer
+  can run, report the blocker; never claim a review.
+- **Shipping code**: Use an independent code reviewer from a different family than the implementer,
+  regardless of execution side; keep the `code-logic-review.md` verdict contract. _Family_ is
+  the lane's `cli` value or ptah-cli provider token (§1), or the in-process model family.
+  The `Review family` record names the actual reviewer family alongside the implementer family.
+  The author never reviews its own work. A same-family review requires a specific reason and a
+  weaker-evidence label. An in-process subagent reviewing code by an in-process subagent of the
+  same family also requires both. If no eligible lane can review, use an independent subagent
+  only with the same specific reason and weaker-evidence label. Never silently replace a pinned
+  reviewer; if no independent reviewer can run, report the blocker and never claim a review.
 - **Defects** go back to the original lane (resume per §5) as a numbered list, each with
   `file:line`. Drop any defect without a location before relaying it.
 - **Revise cap**: at most 2 revise rounds (author/reviewer revision pairs) after the initial review; announce it

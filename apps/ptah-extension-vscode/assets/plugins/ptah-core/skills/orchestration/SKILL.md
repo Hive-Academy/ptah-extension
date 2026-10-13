@@ -46,6 +46,8 @@ Any flow adding or redesigning a UI surface inserts [designer → prototype → 
 
 - `/orchestrate TASK_YYYY_NNN[_xxxx]` → **continuation**: detect the phase from the folder
   contents ([task-tracking.md § Continuation](references/task-tracking.md#continuation)).
+- `/orchestrate TASK_A TASK_B ...` or an explicit fleet request → validate every task ID before
+  spawning, then load [fleet.md](references/fleet.md). One ID keeps ordinary continuation.
 - Anything else → **new task**: allocate the ID and create `task.md` **first**, then `context.md`
   ([task-tracking.md § New task](references/task-tracking.md#new-task)).
 - `parity-inventory.md` is **REQUIRED** when replacing, consolidating, rebuilding or redesigning
@@ -77,7 +79,7 @@ and the completion summary list them so the user can audit and overturn any of t
 
 | Gate             | When                                                                                                                                                                                            | How                                          |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| 0.1 CLI lanes    | Start; read `ptah_agent_list`                                                                                                                                                                   | Notice, no wait (default `auto`)             |
+| 0.1 CLI lanes    | Start; search execution preference with `ptah_memory_search`, then read request, settings and `ptah_agent_list`                                                                                 | Notice, no wait (no-preference default `enabled` when a capable lane is spawnable) |
 | 0 Scope          | Before PM, if the request is ambiguous                                                                                                                                                          | Decision ladder; ask only for scope intent   |
 | 1 Requirements   | After `task-description.md`                                                                                                                                                                     | Per approval mode (below)                    |
 | 1.5 Technical    | Before architect, if several valid approaches                                                                                                                                                   | Decision ladder; ask only if user-reserved   |
@@ -86,15 +88,26 @@ and the completion summary list them so the user can audit and overturn any of t
 | 3 QA selection   | After team-leader completion                                                                                                                                                                    | Notice, agents chosen by rule                |
 | SR Questions     | An agent messaged a question or returned `## Clarifications Needed`                                                                                                                             | Decision ladder, answer back via messaging   |
 
-**Cross-side review before Gates 1, 1.7 and 2**: you invoke an independent reviewer on the
+At Gate 0.1, a current explicit instruction wins. For conflicting or stale memory, use the most
+recent unambiguous preference; if still unresolved, ask. With no preference and a spawnable capable
+lane, select `enabled`; `auto` stays selectable. If memory is unavailable, record `preference unknown`
+and use that no-preference default. If a stored preference wants lanes but none is spawnable, select
+`disabled`, tell the user why, and set `Approval: user`. Record the preference source, mode,
+approval mode and `ptah_agent_list` rows in `context.md`.
+
+**Document gates** 1, 1.7 and 2 require cross-side review: you invoke an independent reviewer on the
 other execution side (routing and disclosed fallback per [agent-lanes §6](../agent-lanes/SKILL.md)),
 then run the bounded revision protocol in [checkpoints.md](references/checkpoints.md#cross-side-review-protocol).
 The gate shows who wrote it, who reviewed it, the verdict and any open items.
 
-**Approval mode** (set at Gate 0.1, recorded in `context.md`;
+**Shipping code** receives a separate independent code-logic review on the phase diff. Choose a
+capable different-family reviewer when available; record the specific reason and weaker-evidence
+label for any same-family or subagent fallback. Do not apply the document gate approval mode to code.
+
+**Approval mode for document Gates 1, 1.7 and 2** (set at Gate 0.1, recorded in `context.md`;
 [checkpoints.md § Approval mode](references/checkpoints.md#approval-mode)):
 
-- `lane-review` — the default: a spawnable lane exists and lanes are `enabled` or `auto`. The cross-side
+- `lane-review` — a spawnable lane exists and lanes are `enabled` or `auto`. The cross-side
   reviewer's APPROVED passes Gates 1, 1.7 and 2: post a short notice and continue without waiting.
 - `user` — no spawnable lane, lanes `disabled`, or the user asked to approve gates. Present the
   gate as a **plain message** and wait for the user's `APPROVED`.
@@ -151,7 +164,9 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
    activity was under 5 minutes ago. Otherwise start a fresh one with the batch section and the
    report paths.
 3. **Risk-based review.** No per-batch review: each batch passes its scoped typecheck, lint and
-   tests before commit. One code-logic review per phase, on the combined diff. Batches that change
+   tests before commit. One independent code-logic review per phase, on the combined diff, by a
+   capable reviewer from a different family than the implementer when available. Same-family review
+   needs a specific reason and a weaker-evidence label; record the `Review family`. Batches that change
    only types, tests, docs or measurement get no review. Add a style review only for new public API.
 4. **One fix round.** Blocking and Serious are fixed in one round. Moderate is fixed only if it can
    break a lane config or lose data; otherwise it becomes a named later task. Minor is recorded,
@@ -168,6 +183,7 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
 | [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader or acting on its return                 |
 | [task-tracking.md](references/task-tracking.md)         | Creating or continuing a task folder                         |
 | [lane-assignment.md](references/lane-assignment.md)     | Gate 0.1 enabled lanes, or the user pinned a phase to a lane |
+| [fleet.md](references/fleet.md)                         | `/orchestrate TASK_A TASK_B ...` or an explicit fleet request; validate IDs first |
 | [git-standards.md](references/git-standards.md)         | Writing a commit or handling a hook failure                  |
 
 ## Requires
