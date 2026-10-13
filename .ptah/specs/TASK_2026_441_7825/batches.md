@@ -1,10 +1,12 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 23 | Batches: 10 | Complete: 9/11
+Total tasks: 23 | Batches: 10 | Complete: 10/10
 
-Phase 1 review: APPROVED 7/10 (`code-logic-review.md`, diff `2e0811f0a~1..5991b51be`, Batches 1-4 +
-Batch 3 fix). Fix round Batch 4F committed; re-review scoped to the Batch 4F commit PENDING,
-reviewer family must not be codex.
+Phase 1 review: APPROVED 7/10 (`code-logic-review.md`, Glm, diff `2e0811f0a~1..5991b51be`, Batches
+1-4 + Batch 3 fix). Fix round Batch 4F; re-review `code-logic-rereview.md` (Glm) round 2 APPROVED.
+Phase 2 review: `code-logic-review-phase2.md` (antigravity) REVISE 7/10, fix round 6F, round 2
+APPROVED 8/10. Phases 3-4: no review due (packaging; evidence document). Mode 3 record:
+`completion-report.md`.
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8` (branch
 `task-441-lanes-first`). All paths below are relative to it unless absolute. `P` =
@@ -542,7 +544,7 @@ Edge cases:
   Pre-existing, outside this task's scope. Replace with a stack-neutral "scoped to the changed projects
   with the repository's own task runner" rule in a follow-up task.
 
-## Batch 5: Repo-local fleet migration (G1) — COMPLETE (codex lane 93144bc3 + fix 5F lane 91d7415a; report batch-5-report.md, batch-5f-report.md)
+## Batch 5: Repo-local fleet migration (G1) — COMPLETE (commit 403d0907c; codex lane 93144bc3 + fix 5F lane 91d7415a; report batch-5-report.md, batch-5f-report.md)
 
 - Recommended executor: CLI lane (capability: JS/TS editing)
 - Fallback executor: per the fallback order
@@ -600,7 +602,7 @@ Edge cases:
   `.ptah/specs` returns only the Batch 6 fixture.
 - No per-batch review.
 
-## Batch 6: Benchmark fixture reference (G2) — COMPLETE (re-scoped to a v2 fixture, decisions.md #25-26; codex lane e281eeb4; report batch-6-report.md)
+## Batch 6: Benchmark fixture reference (G2) — COMPLETE (commit 672a68797; re-scoped to a v2 fixture, decisions.md #25-26; codex lane e281eeb4; report batch-6-report.md)
 
 - Investigation result: the stop condition was met (23 unique skill ids asserted, `orchestration`
   already row 12, raw-byte hash pinned). User chose "Add a v2 fixture": `skill-triggers.v2.jsonl`
@@ -648,7 +650,7 @@ Edge cases:
 - Review `code-logic-review-phase2.md` (antigravity): S1, M1, M2, M4 fixed; M3 -> later task L3;
   m1, m2 recorded (decisions.md #29-30).
 
-## Batch 7: Plugin version and content manifest (H2) — COMPLETE (in-process, decisions.md #31)
+## Batch 7: Plugin version and content manifest (H2) — COMPLETE (commit c42c86e81; in-process, decisions.md #31)
 
 - Recommended executor: CLI lane (capability: run node scripts)
 - Fallback executor: per the fallback order
@@ -673,7 +675,7 @@ Edge cases:
 - Scoped command: `npm run manifest:check 2>&1 | tail -10`, then final `npm run validate-skill 2>&1 |
   tail -20` green.
 
-## Batch 8: Lanes-First Gate 0.1 and Quota Walkthrough — PENDING
+## Batch 8: Lanes-First Gate 0.1 and Quota Walkthrough — COMPLETE (evidence only, committed with `completion-report.md` in the Mode 3 docs commit; verdict: no FAIL, AC4 PARTIAL, AC6 NOT EXERCISED)
 
 - Recommended executor: orchestrator in-process
 - Subagent reason: the walkthrough needs the live orchestration tools (`ptah_memory_search`,
@@ -685,7 +687,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 7
 - Phase: 4 Acceptance | Phase review: none — evidence document only
 
-### Task 8.1: Record the walkthrough in `test-report.md` — PENDING
+### Task 8.1: Record the walkthrough in `test-report.md` — COMPLETE
 
 - File: `.ptah/specs/TASK_2026_441_7825/test-report.md` (new)
 - Plan reference: implementation-plan.md:95-105
