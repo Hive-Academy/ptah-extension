@@ -1187,11 +1187,15 @@ async function handleIndividualTool(
           ? spawnGateVerdict(preLimits, target, now)
           : undefined;
         if (preLimits && verdict?.kind === 'blocked' && !spawnArgs.force) {
-          logger.info('[MCP] ptah_agent_spawn refused at limit', 'CodeExecutionMCP', {
-            cli: verdict.limit.row.cli,
-            ptahCliId: verdict.limit.row.ptahCliId,
-            reason: verdict.block.kind,
-          });
+          logger.info(
+            '[MCP] ptah_agent_spawn refused at limit',
+            'CodeExecutionMCP',
+            {
+              cli: verdict.limit.row.cli,
+              ptahCliId: verdict.limit.row.ptahCliId,
+              reason: verdict.block.kind,
+            },
+          );
           return toolErrorResponse(
             request,
             `Error: ${formatSpawnRefusal(preLimits, verdict, now)}`,
@@ -2691,7 +2695,11 @@ async function handleIndividualTool(
     }
   } catch (error) {
     const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error';
+      name === 'ptah_harness_propose_config'
+        ? harnessProposalErrorMessage(error)
+        : error instanceof Error
+          ? error.message
+          : 'Unknown error';
     runObserver(() =>
       logger.error(
         `Individual tool ${name} failed: ${errorMessage}`,
@@ -2714,6 +2722,40 @@ async function handleIndividualTool(
       },
     };
   }
+}
+
+/** Keep storage diagnostics and validation issue dumps outside the MCP boundary. */
+function harnessProposalErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.name === 'HarnessConfigUpdatesError') {
+    return `${error.message} Correct configUpdates and try again.`;
+  }
+  if (
+    error instanceof Error &&
+    error.name === 'HarnessProposalNoSessionError'
+  ) {
+    return 'Harness proposal could not be saved: no SDK session is resolved. Retry after the session starts.';
+  }
+  if (error instanceof Error && error.name === 'ZodError') {
+    return 'Harness proposal has an invalid SDK session id. Retry only after a valid session starts.';
+  }
+  if (error instanceof Error && error.name === 'FileLockTimeoutError') {
+    return 'Harness proposal could not be saved because its file lock timed out. Retry the proposal.';
+  }
+  if (
+    error instanceof Error &&
+    'code' in error &&
+    error.code === 'HARNESS_PROPOSAL_NO_WORKSPACE'
+  ) {
+    return 'Harness proposal could not be saved because no workspace is available. Retry after opening a workspace.';
+  }
+  if (
+    error instanceof Error &&
+    'code' in error &&
+    typeof error.code === 'string'
+  ) {
+    return `Harness proposal could not be saved due to a file-system error (${error.code}). Retry after fixing file access.`;
+  }
+  return 'Harness proposal could not be saved. Retry if the session and storage are available.';
 }
 
 /**

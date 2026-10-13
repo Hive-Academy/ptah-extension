@@ -215,6 +215,8 @@ export interface HarnessOpenWorkflowPayload {
 
 /** Payload for MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED ('harness:config-proposed'). */
 export interface HarnessConfigProposedPayload {
+  /** Real SDK session id under which the proposal was saved. */
+  readonly sessionId: string;
   readonly configUpdates: Partial<HarnessConfig>;
   readonly isConfigComplete?: boolean;
 }

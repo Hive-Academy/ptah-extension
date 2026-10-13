@@ -27,12 +27,22 @@ import {
   isCapabilityPolicyUnknownError,
   workspacePluginsDir,
   type HarnessConfig,
+  type HarnessConfigProposedPayload,
+  type HarnessProposal,
   type McpInstallResult,
   type McpInstallTarget,
   type McpServerConfig,
   type PluginConfigState,
   type SkillShEntry,
 } from '@ptah-extension/shared';
+
+class HarnessConfigUpdatesError extends Error {
+  override name = 'HarnessConfigUpdatesError';
+}
+
+class HarnessProposalNoSessionError extends Error {
+  override name = 'HarnessProposalNoSessionError';
+}
 
 /**
  * Minimal skills.sh client surface the harness namespace consumes.
@@ -378,6 +388,12 @@ export interface HarnessNamespaceDependencies {
    * workspace layer.
    */
   getPolicyWorkspaceRoot: () => string | undefined;
+  getCallerSdkSessionId: () => string | undefined;
+  saveProposal: (
+    sessionId: string,
+    update: Partial<HarnessConfig>,
+    complete: boolean,
+  ) => Promise<HarnessProposal>;
   broadcast: (type: string, payload: unknown) => void;
   logger: {
     info(msg: string): void;
@@ -495,6 +511,8 @@ export function buildHarnessNamespace(
     mcpInstaller,
     getWorkspaceRoot,
     getPolicyWorkspaceRoot,
+    getCallerSdkSessionId,
+    saveProposal,
     broadcast,
     logger,
   } = deps;
@@ -1072,13 +1090,28 @@ export function buildHarnessNamespace(
         const issues = parsed.error.issues
           .map((i) => formatHarnessConfigIssue(i.path.join('.'), i.message))
           .join('; ');
-        throw new Error(`Invalid configUpdates: ${issues}`);
+        throw new HarnessConfigUpdatesError(`Invalid configUpdates: ${issues}`);
       }
 
-      broadcast(MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED, {
-        configUpdates: parsed.data,
+      const validatedUpdate = parsed.data as Partial<HarnessConfig>;
+
+      const sessionId = getCallerSdkSessionId();
+      if (!sessionId) {
+        throw new HarnessProposalNoSessionError(
+          'Harness proposal could not be saved: no SDK session is resolved. Retry after the session starts.',
+        );
+      }
+      const proposal = await saveProposal(
+        sessionId,
+        validatedUpdate,
+        isConfigComplete ?? false,
+      );
+      const payload: HarnessConfigProposedPayload = {
+        sessionId: proposal.sessionId,
+        configUpdates: validatedUpdate,
         isConfigComplete: isConfigComplete ?? false,
-      });
+      };
+      broadcast?.(MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED, payload);
 
       const fieldCount = Object.keys(parsed.data).length;
       logger.info(

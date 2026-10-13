@@ -595,6 +595,67 @@ describe('harness tools', () => {
     expect(isError).toBe(true);
     expect(proposeConfig).not.toHaveBeenCalled();
   });
+
+  it('reports a proposal lock timeout as a retryable tool error', async () => {
+    const error = Object.assign(new Error('private lock path'), {
+      name: 'FileLockTimeoutError',
+    });
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'X' } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toMatch(/lock timed out.*Retry/i);
+    expect(text).not.toContain('private lock path');
+  });
+
+  it('reports an unresolved SDK session as a tool error', async () => {
+    const error = Object.assign(
+      new Error(
+        'Harness proposal could not be saved: no SDK session is resolved.',
+      ),
+      { name: 'HarnessProposalNoSessionError' },
+    );
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'X' } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toMatch(/no SDK session.*Retry/i);
+  });
+
+  it('reports an invalid configUpdates field path with correction guidance', async () => {
+    const error = Object.assign(
+      new Error('Invalid configUpdates: mcpServers.0.command: Required'),
+      { name: 'HarnessConfigUpdatesError' },
+    );
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { mcpServers: [{}] } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('mcpServers.0.command: Required');
+    expect(text).toMatch(/Correct configUpdates/i);
+    expect(text).not.toMatch(/Retry if the session and storage/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
