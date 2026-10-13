@@ -462,15 +462,17 @@ export const HarnessConfigUpdatesSchema = z
 export const HarnessSessionIdSchema = z.string().trim().min(1).max(256);
 
 /** Validates a proposal loaded from workspace storage. */
-export const HarnessProposalSchema: z.ZodType<HarnessProposal> = z.strictObject({
-  version: z.literal(1),
-  workspaceRoot: z.string().min(1),
-  sessionId: HarnessSessionIdSchema,
-  // Updates can contain partial nested sections; validate with the existing
-  // update schema while preserving the public Partial<HarnessConfig> contract.
-  configUpdates: z.custom<Partial<HarnessConfig>>(
-    (value) => HarnessConfigUpdatesSchema.safeParse(value).success,
-  ),
-  isConfigComplete: z.boolean(),
-  updatedAt: z.iso.datetime(),
-});
+export const HarnessProposalSchema: z.ZodType<HarnessProposal> = z.strictObject(
+  {
+    version: z.literal(1),
+    workspaceRoot: z.string().min(1),
+    sessionId: HarnessSessionIdSchema,
+    // Updates can contain partial nested sections; validate with the existing
+    // update schema while preserving the public Partial<HarnessConfig> contract.
+    configUpdates: z.custom<Partial<HarnessConfig>>(
+      (value) => HarnessConfigUpdatesSchema.safeParse(value).success,
+    ),
+    isConfigComplete: z.boolean(),
+    updatedAt: z.iso.datetime(),
+  },
+);

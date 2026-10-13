@@ -14,7 +14,10 @@ import {
   type HarnessConfig,
   type HarnessProposal,
 } from '@ptah-extension/shared';
-import { HarnessProposalSchema, HarnessSessionIdSchema } from '@ptah-extension/shared/schemas';
+import {
+  HarnessProposalSchema,
+  HarnessSessionIdSchema,
+} from '@ptah-extension/shared/schemas';
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 // Far above the one-read, merge, temp-write and rename critical section.
@@ -32,8 +35,12 @@ export class HarnessProposalWorkspaceError extends Error {
 }
 
 function isErrno(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null &&
-    'code' in error && error.code === code;
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === code
+  );
 }
 
 @injectable()
@@ -44,7 +51,6 @@ function isErrno(error: unknown, code: string): boolean {
  * @ptah-extension/harness-sync on contention, or a file system error.
  */
 export class HarnessProposalStore implements IHarnessProposalStore {
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -63,26 +69,30 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     return serializeByKey(file, async () => {
       await fs.mkdir(directory, { recursive: true });
       await this.prune(directory);
-      return withFileLock(`${file}.lock`, async () => {
-        const current = await this.read(file, root, sessionId);
-        const proposal: HarnessProposal = {
-          version: 1,
-          workspaceRoot: root,
-          sessionId,
-          configUpdates: mergeHarnessConfigUpdates(
-            current?.configUpdates ?? {},
-            mergeHarnessConfigUpdates({}, update),
-          ),
-          isConfigComplete: complete,
-          updatedAt: new Date().toISOString(),
-        };
-        const validated = HarnessProposalSchema.parse(proposal);
-        await this.write(file, validated);
-        return validated;
-      }, {
-        staleAfterMs: PROPOSAL_LOCK_STALE_MS,
-        maxWaitMs: PROPOSAL_LOCK_WAIT_MS,
-      });
+      return withFileLock(
+        `${file}.lock`,
+        async () => {
+          const current = await this.read(file, root, sessionId);
+          const proposal: HarnessProposal = {
+            version: 1,
+            workspaceRoot: root,
+            sessionId,
+            configUpdates: mergeHarnessConfigUpdates(
+              current?.configUpdates ?? {},
+              mergeHarnessConfigUpdates({}, update),
+            ),
+            isConfigComplete: complete,
+            updatedAt: new Date().toISOString(),
+          };
+          const validated = HarnessProposalSchema.parse(proposal);
+          await this.write(file, validated);
+          return validated;
+        },
+        {
+          staleAfterMs: PROPOSAL_LOCK_STALE_MS,
+          maxWaitMs: PROPOSAL_LOCK_WAIT_MS,
+        },
+      );
     });
   }
 
@@ -155,7 +165,9 @@ export class HarnessProposalStore implements IHarnessProposalStore {
       names = await fs.readdir(directory);
     } catch (error: unknown) {
       if (!isErrno(error, 'ENOENT')) {
-        this.logger.warn('Could not prune harness proposal records', { directory });
+        this.logger.warn('Could not prune harness proposal records', {
+          directory,
+        });
       }
       return;
     }
@@ -183,7 +195,10 @@ export class HarnessProposalStore implements IHarnessProposalStore {
           if (!(error instanceof SyntaxError)) throw error;
         }
         if (!valid) {
-          this.logger.warn('Ignoring invalid harness proposal record during prune', { file });
+          this.logger.warn(
+            'Ignoring invalid harness proposal record during prune',
+            { file },
+          );
           if ((await fs.stat(file)).mtimeMs < cutoff) await fs.unlink(file);
         }
       } catch (error: unknown) {

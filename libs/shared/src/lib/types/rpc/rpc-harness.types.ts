@@ -8,7 +8,10 @@
 import type { FlatStreamEventUnion } from '../execution';
 import type { McpInstallTarget, McpServerConfig } from '../mcp-directory.types';
 import type { StackProfileId } from '../stack-profile.types';
-import type { ExternalPluginRef, ToolchainProbeResult } from '../stack-profile.types';
+import type {
+  ExternalPluginRef,
+  ToolchainProbeResult,
+} from '../stack-profile.types';
 
 /** Workspace context describing the current project environment for harness operations */
 export interface HarnessWorkspaceContext {

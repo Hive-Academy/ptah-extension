@@ -109,25 +109,27 @@ export interface MultiPhaseAnalysisResponse {
   /** Discriminator: always true for multi-phase responses */
   isMultiPhase: true;
   /** Manifest with phase statuses */
-  manifest: {
-    version: 3;
-    runId: string;
-    slug: string;
-    analyzedAt: string;
-    updatedAt: string;
-    lifecycle: 'running' | 'paused' | 'completed' | 'failed';
-    model: string;
-    totalDurationMs: number;
-    phases: Record<
-      string,
-      {
-        status: MultiPhaseAnalysisPhaseStatus;
-        file: string;
-        durationMs: number;
-        error?: string;
+  manifest:
+    | {
+        version: 3;
+        runId: string;
+        slug: string;
+        analyzedAt: string;
+        updatedAt: string;
+        lifecycle: 'running' | 'paused' | 'completed' | 'failed';
+        model: string;
+        totalDurationMs: number;
+        phases: Record<
+          string,
+          {
+            status: MultiPhaseAnalysisPhaseStatus;
+            file: string;
+            durationMs: number;
+            error?: string;
+          }
+        >;
       }
-    >;
-  } | MultiPhaseManifestV4;
+    | MultiPhaseManifestV4;
   /** Phase file contents (markdown) keyed by phase ID */
   phaseContents: Record<string, string>;
   /** Analysis directory path for downstream consumers (generation, enhanced prompts) */

@@ -884,7 +884,11 @@ export class HarnessRpcHandlers {
           success: true,
           seedPrompt,
           intake,
-          plugins: { enabledBundled: bundled, missingExternal, availableSkillIds },
+          plugins: {
+            enabledBundled: bundled,
+            missingExternal,
+            availableSkillIds,
+          },
           ...(toolchain ? { toolchain } : {}),
         };
       } catch (error: unknown) {

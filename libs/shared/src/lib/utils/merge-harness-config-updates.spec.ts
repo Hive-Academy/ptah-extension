@@ -4,8 +4,15 @@ import { mergeHarnessConfigUpdates } from './merge-harness-config-updates';
 describe('mergeHarnessConfigUpdates', () => {
   it('keeps unmentioned persona, prompt, and CLAUDE.md fields', () => {
     const base: Partial<HarnessConfig> = {
-      persona: { label: 'Reviewer', description: 'Reviews code', goals: ['quality'] },
-      prompt: { systemPrompt: 'Be careful', enhancedSections: { review: 'Check' } },
+      persona: {
+        label: 'Reviewer',
+        description: 'Reviews code',
+        goals: ['quality'],
+      },
+      prompt: {
+        systemPrompt: 'Be careful',
+        enhancedSections: { review: 'Check' },
+      },
       claudeMd: {
         generateProjectClaudeMd: true,
         customSections: { notes: 'Keep' },
@@ -13,12 +20,20 @@ describe('mergeHarnessConfigUpdates', () => {
       },
     };
 
-    expect(mergeHarnessConfigUpdates(base, {
-      persona: { label: 'Builder' } as HarnessConfig['persona'],
-      prompt: { systemPrompt: 'Build' } as HarnessConfig['prompt'],
-      claudeMd: { previewContent: 'New preview' } as HarnessConfig['claudeMd'],
-    })).toEqual({
-      persona: { label: 'Builder', description: 'Reviews code', goals: ['quality'] },
+    expect(
+      mergeHarnessConfigUpdates(base, {
+        persona: { label: 'Builder' } as HarnessConfig['persona'],
+        prompt: { systemPrompt: 'Build' } as HarnessConfig['prompt'],
+        claudeMd: {
+          previewContent: 'New preview',
+        } as HarnessConfig['claudeMd'],
+      }),
+    ).toEqual({
+      persona: {
+        label: 'Builder',
+        description: 'Reviews code',
+        goals: ['quality'],
+      },
       prompt: { systemPrompt: 'Build', enhancedSections: { review: 'Check' } },
       claudeMd: {
         generateProjectClaudeMd: true,
@@ -35,13 +50,19 @@ describe('mergeHarnessConfigUpdates', () => {
         harnessSubagents: [],
       },
       mcp: {
-        servers: [{ name: 'search', url: 'https://example.test', enabled: true }],
+        servers: [
+          { name: 'search', url: 'https://example.test', enabled: true },
+        ],
         enabledTools: { search: ['query'] },
       },
     };
     const merged = mergeHarnessConfigUpdates(base, {
-      agents: { enabledAgents: { builder: { enabled: false } } } as HarnessConfig['agents'],
-      mcp: { enabledTools: { files: ['read'] } } as unknown as HarnessConfig['mcp'],
+      agents: {
+        enabledAgents: { builder: { enabled: false } },
+      } as HarnessConfig['agents'],
+      mcp: {
+        enabledTools: { files: ['read'] },
+      } as unknown as HarnessConfig['mcp'],
     });
 
     expect(merged.agents).toEqual({
@@ -62,8 +83,16 @@ describe('mergeHarnessConfigUpdates', () => {
       skills: {
         selectedSkills: ['review', 'triage', 'retired'],
         selectedSkillRefs: [
-          { skillId: 'review', source: 'skills.sh', installSource: 'owner/review' },
-          { skillId: 'triage', source: 'skills.sh', installSource: 'owner/triage' },
+          {
+            skillId: 'review',
+            source: 'skills.sh',
+            installSource: 'owner/review',
+          },
+          {
+            skillId: 'triage',
+            source: 'skills.sh',
+            installSource: 'owner/triage',
+          },
           { skillId: 'retired', source: 'local' },
         ],
         createdSkills: [],
@@ -83,7 +112,11 @@ describe('mergeHarnessConfigUpdates', () => {
     const refsOnly = mergeHarnessConfigUpdates(selected, {
       skills: {
         selectedSkillRefs: [
-          { skillId: 'review', source: 'skills.sh', installSource: 'owner/moved' },
+          {
+            skillId: 'review',
+            source: 'skills.sh',
+            installSource: 'owner/moved',
+          },
         ],
       } as HarnessConfig['skills'],
     });
@@ -108,7 +141,9 @@ describe('mergeHarnessConfigUpdates', () => {
     const empty = mergeHarnessConfigUpdates(base, {});
     expect(empty).toEqual(base);
     expect(empty).not.toBe(base);
-    expect(mergeHarnessConfigUpdates(base, update).agents?.enabledAgents).toEqual({
+    expect(
+      mergeHarnessConfigUpdates(base, update).agents?.enabledAgents,
+    ).toEqual({
       reviewer: { enabled: true },
       builder: { enabled: true },
     });
@@ -120,7 +155,11 @@ describe('mergeHarnessConfigUpdates', () => {
     const base: Partial<HarnessConfig> = {
       persona: { label: 'Reviewer', description: 'Reviews', goals: [] },
       prompt: { systemPrompt: 'Keep', enhancedSections: {} },
-      claudeMd: { generateProjectClaudeMd: true, customSections: {}, previewContent: 'Keep' },
+      claudeMd: {
+        generateProjectClaudeMd: true,
+        customSections: {},
+        previewContent: 'Keep',
+      },
       agents: { enabledAgents: { reviewer: { enabled: true } } },
       mcp: { servers: [], enabledTools: { search: ['query'] } },
     };
@@ -139,7 +178,9 @@ describe('mergeHarnessConfigUpdates', () => {
     expect(result.persona?.label).toBe('Reviewer');
     expect(result.prompt?.systemPrompt).toBe('Keep');
     expect(result.claudeMd?.previewContent).toBe('Keep');
-    expect(result.agents?.enabledAgents?.['reviewer']).toEqual({ enabled: true });
+    expect(result.agents?.enabledAgents?.['reviewer']).toEqual({
+      enabled: true,
+    });
     expect(result.mcp?.enabledTools?.['search']).toEqual(['query']);
     expect(base).toEqual(beforeBase);
     expect(update).toEqual(beforeUpdate);

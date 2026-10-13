@@ -19,7 +19,10 @@ export function mergeHarnessConfigUpdates(
     merged.name = update.name;
   }
   if (update.persona) {
-    merged.persona = { ...base.persona, ...withoutUndefined(update.persona) } as HarnessConfig['persona'];
+    merged.persona = {
+      ...base.persona,
+      ...withoutUndefined(update.persona),
+    } as HarnessConfig['persona'];
   }
   if (update.agents) {
     merged.agents = {
@@ -53,7 +56,10 @@ export function mergeHarnessConfigUpdates(
     };
   }
   if (update.prompt) {
-    merged.prompt = { ...base.prompt, ...withoutUndefined(update.prompt) } as HarnessConfig['prompt'];
+    merged.prompt = {
+      ...base.prompt,
+      ...withoutUndefined(update.prompt),
+    } as HarnessConfig['prompt'];
   }
   if (update.mcp) {
     merged.mcp = {
