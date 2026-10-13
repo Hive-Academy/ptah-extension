@@ -897,6 +897,31 @@ describe('SessionControl.disposeSessionsForWorkspace — one workspace only', ()
     expect(h.registry.find('tab_b')).toBeDefined();
     expect(h.notifyAll).not.toHaveBeenCalled();
   });
+
+  it('groups a worktree child session with the workspace whose auth it uses', async () => {
+    const h = makeHarness();
+    const parent = register(h, 'tab_parent', '/ws/b');
+    const childAbort = new AbortController();
+    h.registry.register(
+      'tab_child',
+      {
+        model: 'test-model',
+        workspaceId: '/ws/b',
+        projectPath: '/ws/b/.claude-worktrees/child',
+      } as AISessionConfig,
+      childAbort,
+    );
+
+    expect(h.control.getLiveWorkspaceRoots()).toEqual(['/ws/b']);
+    expect(
+      h.control.getSessionIdsForWorkspace('/ws/b/.claude-worktrees/child'),
+    ).toEqual([]);
+
+    await h.control.disposeSessionsForWorkspace('/ws/b');
+
+    expect(parent.abort.signal.aborted).toBe(true);
+    expect(childAbort.signal.aborted).toBe(true);
+  });
 });
 
 describe('SessionControl.disposeAllSessions — a session started mid-dispose survives', () => {

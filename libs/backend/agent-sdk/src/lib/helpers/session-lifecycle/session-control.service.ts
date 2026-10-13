@@ -48,6 +48,15 @@ export type EndSessionOutcome = 'ended' | 'already-ended';
 /** Upper bound on one session's live auto-compact window change. */
 const AUTO_COMPACT_APPLY_TIMEOUT_MS = 5000;
 
+/**
+ * The workspace a session's provider and auth were resolved for: its
+ * `workspaceId`, else its `projectPath`. They differ for an agent child
+ * session, which runs in a worktree but uses its parent workspace's auth.
+ */
+function authWorkspaceOf(rec: SessionRecord): string | undefined {
+  return rec.config.workspaceId?.trim() || rec.config.projectPath;
+}
+
 export class SessionControl {
   constructor(
     private readonly logger: Logger,
@@ -405,10 +414,10 @@ export class SessionControl {
   }
 
   /**
-   * Tab ids of the live sessions whose `projectPath` is `workspacePath`
+   * Tab ids of the live sessions whose auth workspace is `workspacePath`
    * (compared through `normalizeWorkspaceRoot`, so separator, trailing-slash
    * and drive-letter case differences do not split one workspace). Sessions
-   * with no `projectPath` belong to no workspace and are never matched.
+   * with no workspace belong to none and are never matched.
    */
   getSessionIdsForWorkspace(workspacePath: string): string[] {
     return this.recordsForWorkspace(workspacePath).map((rec) => rec.tabId);
@@ -443,13 +452,23 @@ export class SessionControl {
     }
   }
 
+  /** Distinct auth workspaces (see {@link authWorkspaceOf}) of the live sessions. */
+  getLiveWorkspaceRoots(): string[] {
+    const roots = new Set<string>();
+    for (const [, rec] of this.registry.entries()) {
+      const root = authWorkspaceOf(rec);
+      if (root) roots.add(root);
+    }
+    return [...roots];
+  }
+
   private recordsForWorkspace(workspacePath: string): SessionRecord[] {
     if (!workspacePath) return [];
     const wanted = normalizeWorkspaceRoot(workspacePath);
     return Array.from(this.registry.entries())
       .map(([, rec]) => rec)
       .filter((rec) => {
-        const root = rec.config.projectPath;
+        const root = authWorkspaceOf(rec);
         return !!root && normalizeWorkspaceRoot(root) === wanted;
       });
   }

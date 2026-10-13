@@ -574,13 +574,9 @@ export class SessionLifecycleManager {
     return this._registry.getSessionWorkspace(idOrTabId);
   }
 
-  /** Distinct workspace roots (projectPath) of the live sessions. */
+  /** Distinct auth workspaces of the live sessions (workspaceId, else projectPath). */
   getLiveWorkspaceRoots(): string[] {
-    const roots = new Set<string>();
-    for (const [, rec] of this._registry.entries()) {
-      if (rec.config.projectPath) roots.add(rec.config.projectPath);
-    }
-    return [...roots];
+    return this._control.getLiveWorkspaceRoots();
   }
 
   /**

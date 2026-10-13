@@ -15,6 +15,12 @@
 
 import type { IOutputChannel } from '@ptah-extension/platform-core';
 
+import {
+  REDACTED,
+  isSecretFieldName,
+  redactSecrets,
+} from '../services/diagnostics/log-redaction';
+
 /**
  * Electron-compatible OutputManager adapter.
  *
@@ -109,16 +115,19 @@ interface ContextBudget {
 
 /**
  * Copy one context value into plain JSON data with bounded work. It never
- * calls `toJSON` (caller code), cuts long strings and arrays, and stops
- * descending once {@link MAX_CONTEXT_NODES} values were copied.
+ * calls `toJSON` (caller code), cuts long strings and arrays, redacts
+ * credentials, and stops descending once {@link MAX_CONTEXT_NODES} values were
+ * copied.
  */
 function boundContextValue(value: unknown, budget: ContextBudget): unknown {
   budget.nodes += 1;
   if (budget.nodes > MAX_CONTEXT_NODES) return '…';
   if (typeof value === 'string') {
-    return value.length > MAX_CONTEXT_CHARS
-      ? `${value.slice(0, MAX_CONTEXT_CHARS)}…`
-      : value;
+    const kept =
+      value.length > MAX_CONTEXT_CHARS
+        ? `${value.slice(0, MAX_CONTEXT_CHARS)}…`
+        : value;
+    return redactSecrets(kept);
   }
   if (typeof value === 'bigint') return `${value}n`;
   if (typeof value === 'function' || typeof value === 'symbol') {
@@ -127,6 +136,10 @@ function boundContextValue(value: unknown, budget: ContextBudget): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (budget.seen.has(value)) return '[Circular]';
   budget.seen.add(value);
+  return boundContextObject(value, budget);
+}
+
+function boundContextObject(value: object, budget: ContextBudget): unknown {
   if (value instanceof Error) {
     return {
       name: value.name,
@@ -138,19 +151,35 @@ function boundContextValue(value: unknown, budget: ContextBudget): unknown {
   }
   if (value instanceof Map) return `[Map size=${value.size}]`;
   if (value instanceof Set) return `[Set size=${value.size}]`;
-  if (Array.isArray(value)) {
-    const items: unknown[] = [];
-    const kept = Math.min(value.length, MAX_CONTEXT_ARRAY_ITEMS);
-    for (let i = 0; i < kept; i++) {
-      if (budget.nodes >= MAX_CONTEXT_NODES) break;
-      items.push(boundContextValue(value[i], budget) ?? null);
-    }
-    if (value.length > items.length) {
-      items.push(`…[${value.length - items.length} more]`);
-    }
-    return items;
-  }
+  if (Array.isArray(value)) return boundContextArray(value, budget);
   return boundContextEntries(value, budget);
+}
+
+function boundContextArray(
+  value: readonly unknown[],
+  budget: ContextBudget,
+): unknown[] {
+  const items: unknown[] = [];
+  const kept = Math.min(value.length, MAX_CONTEXT_ARRAY_ITEMS);
+  for (let i = 0; i < kept; i++) {
+    if (budget.nodes >= MAX_CONTEXT_NODES) break;
+    items.push(boundContextValue(value[i], budget) ?? null);
+  }
+  if (value.length > items.length) {
+    items.push(`…[${value.length - items.length} more]`);
+  }
+  return items;
+}
+
+/** Text for a context field written on its own line (`Service:` etc.). */
+function contextLineText(value: unknown): string {
+  if (typeof value === 'string') return redactSecrets(value);
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return JSON.stringify(
+    boundContextValue(value, { nodes: 0, seen: new Set() }) ?? null,
+  );
 }
 
 /** Read one context field; a throwing getter reads as undefined. */
@@ -164,7 +193,10 @@ function readContextField(source: object, key: string): unknown {
   }
 }
 
-/** Own enumerable entries of `source`, bounded; `skip` keys are left out. */
+/**
+ * Own enumerable entries of `source`, bounded; `skip` keys are left out and a
+ * credential field's value is never read.
+ */
 function boundContextEntries(
   source: object,
   budget: ContextBudget,
@@ -172,11 +204,15 @@ function boundContextEntries(
 ): Record<string, unknown> {
   const entries: Record<string, unknown> = {};
   for (const key in source) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    if (!Object.hasOwn(source, key)) continue;
     if (skip?.has(key)) continue;
     if (budget.nodes >= MAX_CONTEXT_NODES) {
       entries['…'] = 'more keys dropped';
       break;
+    }
+    if (isSecretFieldName(key)) {
+      entries[key] = REDACTED;
+      continue;
     }
     let raw: unknown;
     try {
@@ -319,7 +355,7 @@ export class ElectronLoggerAdapter {
     if (service) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Service: ${String(service)}`,
+        `  Service: ${contextLineText(service)}`,
       );
     }
 
@@ -327,14 +363,23 @@ export class ElectronLoggerAdapter {
     if (operation) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Operation: ${String(operation)}`,
+        `  Operation: ${contextLineText(operation)}`,
+      );
+    }
+
+    // A non-Error `error` field (often `error: err.message`) is still detail.
+    const errorField = error ? undefined : readContextField(context, 'error');
+    if (errorField !== undefined && errorField !== null) {
+      this.outputManager.write(
+        ElectronLoggerAdapter.CHANNEL_NAME,
+        `  Error: ${contextLineText(errorField)}`,
       );
     }
 
     if (error) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Error: ${error.message}`,
+        `  Error: ${redactSecrets(error.message)}`,
       );
       if (error.stack) {
         this.outputManager.write(
@@ -363,8 +408,13 @@ export class ElectronLoggerAdapter {
     if (Object.keys(details).length > 0) {
       let serialized = JSON.stringify(details);
       if (serialized.length > MAX_CONTEXT_CHARS) {
-        const dropped = serialized.length - MAX_CONTEXT_CHARS;
-        serialized = `${serialized.slice(0, MAX_CONTEXT_CHARS)}…[truncated ${dropped} chars]`;
+        // Still one JSON value: the head is a string, and half the budget
+        // leaves room for the escaping its quotes and backslashes add.
+        const head = serialized.slice(0, MAX_CONTEXT_CHARS / 2);
+        serialized = JSON.stringify({
+          truncatedChars: serialized.length - head.length,
+          head,
+        });
       }
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,

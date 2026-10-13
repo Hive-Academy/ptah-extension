@@ -100,8 +100,9 @@ function makeService(overrides?: {
   manifestPath?: string;
   now?: () => number;
   fetchImpl?: FetchLike;
+  secrets?: ReturnType<typeof makeSecrets>;
 }) {
-  const secrets = makeSecrets();
+  const secrets = overrides?.secrets ?? makeSecrets();
   const tokenStore = createMcpOAuthTokenStore(secrets);
   const manifestPath =
     overrides?.manifestPath ??
@@ -126,7 +127,7 @@ function makeService(overrides?: {
     now: overrides?.now ?? (() => 1_000_000),
     callbackTimeoutMs: 5000,
   });
-  return { service, tokenStore, manifest, manifestPath, capture };
+  return { service, tokenStore, manifest, manifestPath, capture, secrets };
 }
 
 describe('McpOAuthService', () => {
@@ -230,6 +231,69 @@ describe('McpOAuthService', () => {
 
     expect(tokens).toEqual(['AT2', 'AT2', 'AT2']);
     expect(refreshRequests).toBe(1);
+  });
+
+  it('two service instances over the same slots share one refresh', async () => {
+    let t = 1_000_000;
+    let refreshRequests = 0;
+    const countingFetch: FetchLike = async (url, init) => {
+      const body = new URLSearchParams(init?.body ?? '');
+      if (body.get('grant_type') === 'refresh_token') refreshRequests++;
+      return fetchImpl(url, init);
+    };
+    const first = makeService({ now: () => t, fetchImpl: countingFetch });
+    cleanup.push(first.manifestPath);
+    const second = makeService({
+      now: () => t,
+      fetchImpl: countingFetch,
+      secrets: first.secrets,
+      manifestPath: first.manifestPath,
+    });
+    const { serverKey } = await first.service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+    });
+
+    t = 1_000_000 + 3600 * 1000 + 1;
+    const tokens = await Promise.all([
+      first.service.getFreshAccessToken(serverKey),
+      second.service.getFreshAccessToken(serverKey),
+    ]);
+
+    expect(tokens).toEqual(['AT2', 'AT2']);
+    expect(refreshRequests).toBe(1);
+  });
+
+  it('a rejected refresh returns the token another window already rotated', async () => {
+    let t = 1_000_000;
+    let serverKey = '';
+    const other: {
+      tokenStore?: ReturnType<typeof makeService>['tokenStore'];
+    } = {};
+    const rotatedElsewhere: FetchLike = async (url, init) => {
+      const body = new URLSearchParams(init?.body ?? '');
+      const tokenStore = other.tokenStore;
+      if (body.get('grant_type') !== 'refresh_token' || !tokenStore) {
+        return fetchImpl(url, init);
+      }
+      const stored = await tokenStore.getToken(serverKey);
+      if (!stored) throw new Error('connect() stored no token');
+      await tokenStore.setToken(serverKey, {
+        ...stored,
+        accessToken: 'AT-OTHER',
+        refreshToken: 'RT-OTHER',
+      });
+      return { ...notFound(), status: 400 };
+    };
+    const h = makeService({ now: () => t, fetchImpl: rotatedElsewhere });
+    cleanup.push(h.manifestPath);
+    ({ serverKey } = await h.service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+    }));
+    other.tokenStore = h.tokenStore;
+
+    t = 1_000_000 + 3600 * 1000 + 1;
+
+    expect(await h.service.getFreshAccessToken(serverKey)).toBe('AT-OTHER');
   });
 
   describe('connection changes while a refresh is in flight', () => {

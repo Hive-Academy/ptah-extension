@@ -8,11 +8,11 @@ import {
   CONSOLE_WINDOW_MS,
   ProcessLifecycleRecorder,
   pruneCrashDumps,
-  redactConsoleText,
   startLocalCrashReporter,
   truncateUtf8,
   type LifecycleLogger,
 } from './process-lifecycle-recorder';
+import { redactSecrets } from './log-redaction';
 import { HANG_LOG_FILE_NAME } from '@ptah-extension/vscode-core';
 
 /**
@@ -266,6 +266,19 @@ describe('ProcessLifecycleRecorder', () => {
     expect(context.message).toBe('');
   });
 
+  it('ends the first line at a bare carriage return', () => {
+    const window = new FakeWindow(1);
+    app.emit('browser-window-created', {}, window);
+
+    window.webContents.emit(
+      'console-message',
+      consoleMessage('error', 'safe text\rprivate payload'),
+    );
+
+    const context = logger.error.mock.calls[0][1] as { message: string };
+    expect(context.message).toBe('safe text');
+  });
+
   it('caps the forwarded source', () => {
     const window = new FakeWindow(1);
     app.emit('browser-window-created', {}, window);
@@ -460,7 +473,7 @@ describe('truncateUtf8', () => {
   });
 });
 
-describe('redactConsoleText', () => {
+describe('redactSecrets', () => {
   it.each([
     [
       'callback failed: http://127.0.0.1:51820/callback?code=abc123&state=xyz',
@@ -481,12 +494,27 @@ describe('redactConsoleText', () => {
     ['body {"apiKey":"k-1","name":"x"}', 'body {"apiKey":"[REDACTED]","name":"x"}'],
     ['body {"access_token":"t-1"}', 'body {"access_token":"[REDACTED]"}'],
     ['bad key sk-ant-api03-ABCDEFGHIJKLMNOPQRST', 'bad key [REDACTED]'],
+    ['refresh failed token=secret123', 'refresh failed token=[REDACTED]'],
+    ['login password: hunter2 rejected', 'login password: [REDACTED] rejected'],
+    [
+      'GET https://x.example.com/login?user=a&password=hunter2',
+      'GET https://x.example.com/login?user=a&password=[REDACTED]',
+    ],
+    [
+      'cb https://x.example.com/cb?refresh_token=RT1&x=1',
+      'cb https://x.example.com/cb?refresh_token=[REDACTED]&x=1',
+    ],
   ])('redacts %s', (input, expected) => {
-    expect(redactConsoleText(input)).toBe(expected);
+    expect(redactSecrets(input)).toBe(expected);
   });
 
   it('leaves ordinary error text unchanged', () => {
     const text = 'TypeError: Cannot read properties of undefined (reading "id")';
-    expect(redactConsoleText(text)).toBe(text);
+    expect(redactSecrets(text)).toBe(text);
+  });
+
+  it('leaves token counters unchanged', () => {
+    const text = 'usage inputTokens: 1200 tokenCount=5';
+    expect(redactSecrets(text)).toBe(text);
   });
 });

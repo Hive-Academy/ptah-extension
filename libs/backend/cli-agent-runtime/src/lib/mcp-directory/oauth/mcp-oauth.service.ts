@@ -148,6 +148,17 @@ async function withServerCommitLock<T>(
   }
 }
 
+/**
+ * One refresh per server at a time, process-wide for the same reason as
+ * {@link serverCommitLocks}. Concurrent session starts would each send the
+ * same refresh token; with rotating refresh tokens the second is rejected,
+ * and every refresh is a secret write.
+ */
+const refreshesInFlight = new Map<
+  string,
+  Promise<McpOAuthTokenRecord | null>
+>();
+
 /** Build a stable, filesystem/config-safe key from a server URL. */
 export function deriveMcpOAuthServerKey(serverUrl: string): string {
   const u = new URL(serverUrl);
@@ -172,15 +183,6 @@ export class McpOAuthService {
   private readonly callbackTimeoutMs: number;
   private readonly discoveryDeadlineMs: number;
   private readonly probeDeadlineMs: number;
-  /**
-   * One refresh per server at a time. Concurrent session starts would each
-   * send the same refresh token; with rotating refresh tokens the second is
-   * rejected, and every refresh is a secret write.
-   */
-  private readonly refreshesInFlight = new Map<
-    string,
-    Promise<McpOAuthTokenRecord | null>
-  >();
 
   constructor(deps: McpOAuthServiceDeps) {
     this.httpServerProvider = deps.httpServerProvider;
@@ -439,12 +441,14 @@ export class McpOAuthService {
 
   /** Exchange the stored refresh token for a new access token. */
   refresh(serverKey: string): Promise<McpOAuthTokenRecord | null> {
-    const inFlight = this.refreshesInFlight.get(serverKey);
-    if (inFlight) return inFlight;
+    const inFlight = refreshesInFlight.get(serverKey);
+    if (inFlight !== undefined) return inFlight;
     const attempt = this.refreshOnce(serverKey).finally(() => {
-      this.refreshesInFlight.delete(serverKey);
+      if (refreshesInFlight.get(serverKey) === attempt) {
+        refreshesInFlight.delete(serverKey);
+      }
     });
-    this.refreshesInFlight.set(serverKey, attempt);
+    refreshesInFlight.set(serverKey, attempt);
     return attempt;
   }
 
@@ -489,7 +493,12 @@ export class McpOAuthService {
         serverKey,
         status: resp.status,
       });
-      return null;
+      // Another window or process may have rotated the refresh token first,
+      // which is why this one was rejected; its stored result is still valid.
+      const stored = await this.tokenStore.getToken(serverKey);
+      return stored && stored.refreshToken !== token.refreshToken
+        ? stored
+        : null;
     }
 
     const data = asRecord(await resp.json());
@@ -510,7 +519,7 @@ export class McpOAuthService {
     return withServerCommitLock(serverKey, async () => {
       if (!this.manifest.has(serverKey)) return null;
       const current = await this.tokenStore.getToken(serverKey);
-      if (!current || current.refreshToken !== token.refreshToken) {
+      if (current?.refreshToken !== token.refreshToken) {
         return current;
       }
       await this.tokenStore.setToken(serverKey, updated);

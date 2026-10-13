@@ -1244,6 +1244,20 @@ describe('SdkAgentAdapter', () => {
       // Config pass initializes first, then the reset's own pass.
       expect(order).toEqual(['config:dispose', 'configure', 'configure']);
     });
+
+    it('a failed reset rejects to its caller and does not block later passes', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      jest.spyOn(h.adapter, 'dispose').mockImplementationOnce(() => {
+        throw new Error('dispose failed');
+      });
+
+      await expect(h.adapter.reset()).rejects.toThrow('dispose failed');
+
+      h.authManager.configureAuthentication.mockClear();
+      await h.adapter.reset();
+      expect(h.authManager.configureAuthentication).toHaveBeenCalled();
+    });
   });
 
   describe('startChatSession()', () => {

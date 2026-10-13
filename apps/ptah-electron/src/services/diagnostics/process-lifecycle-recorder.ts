@@ -53,6 +53,7 @@ import {
   HANG_LOG_MAX_BYTES,
   appendHangLogLine,
 } from '@ptah-extension/vscode-core';
+import { redactSecrets } from './log-redaction';
 
 /** Forwarded renderer console lines allowed per rate window. */
 export const CONSOLE_LINES_PER_WINDOW = 20;
@@ -69,34 +70,12 @@ export const CONSOLE_WINDOW_MS = 10_000;
 export const CONSOLE_MAX_BYTES = 256;
 
 /**
- * Credential shapes stripped from forwarded console text before it reaches the
- * persistent log: OAuth/API-key query parameters (callback URLs), bearer
- * headers, and `sk-`-style API keys. Renderer text is untrusted input.
- */
-const CONSOLE_REDACTIONS: ReadonlyArray<[RegExp, string]> = [
-  [
-    /([?&#](?:code|state|token|access_token|refresh_token|id_token|client_secret|api_key|apikey|key)=)[^&#\s"'<>]+/gi,
-    '$1[REDACTED]',
-  ],
-  [/\b((?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]'],
-  [
-    /\b((?:x-api-key|api-key|authorization|cookie)\s*[:=]\s*)[^\r\n;"']+/gi,
-    '$1[REDACTED]',
-  ],
-  [
-    /("(?:[A-Za-z_]*(?:token|secret|password|apiKey|api_key))"\s*:\s*")[^"]*/gi,
-    '$1[REDACTED]',
-  ],
-  [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, '[REDACTED]'],
-];
-
-/**
  * Redact and cap one console line. The input is cut before redaction so the
  * regex work is bounded; any secret at the cut point lies past the kept bytes.
  */
 function boundedConsoleLine(line: string): string {
   return truncateUtf8(
-    redactConsoleText(line.slice(0, CONSOLE_SCAN_CHARS)),
+    redactSecrets(line.slice(0, CONSOLE_SCAN_CHARS)),
     CONSOLE_MAX_BYTES,
   );
 }
@@ -109,17 +88,8 @@ const CONSOLE_SCAN_CHARS = CONSOLE_MAX_BYTES * 4;
  * empty: skipping to a later line would log text the policy excludes.
  */
 function firstLine(text: string): string {
-  const end = text.search(/\r?\n/);
+  const end = text.search(/[\r\n]/);
   return (end === -1 ? text : text.slice(0, end)).trim();
-}
-
-/** Strip credential-shaped substrings from renderer console text. */
-export function redactConsoleText(text: string): string {
-  let redacted = text;
-  for (const [pattern, replacement] of CONSOLE_REDACTIONS) {
-    redacted = redacted.replace(pattern, replacement);
-  }
-  return redacted;
 }
 
 /** Crash dumps kept after the startup prune (user decision Q5 / D9). */

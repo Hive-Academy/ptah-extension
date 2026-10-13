@@ -355,6 +355,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
   /**
    * End the live sessions of every workspace whose own auth resolves to
    * `providerId` (a workspace can use a provider other than the active one).
+   * A session is grouped by the workspace its provider was resolved for, so a
+   * child session running in a worktree goes with its parent workspace.
    * Their running queries hold the old key; a new session reads the new one.
    */
   private async endSessionsUsingProvider(providerId: string): Promise<void> {
@@ -397,7 +399,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * them); a change during a running pass queues exactly one more.
    */
   private requestConfigReinit(): Promise<void> {
-    if (this.configReinitQueued) return this.configReinitQueued;
+    if (this.configReinitQueued !== null) return this.configReinitQueued;
     const pass = this.queueAdapterPass(async () => {
       this.configReinitQueued = null;
       this.logger.info(
@@ -427,8 +429,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
   private queueAdapterPass(work: () => Promise<void>): Promise<void> {
     const previous = this.resetChain;
     const pass: Promise<void> = (async () => {
-      // A failed pass must not wedge the chain shut for the ones behind it;
-      // its own caller already received that rejection.
+      // degradation-audit: reported - a failed pass must not wedge the chain
+      // shut for the ones behind it; its own caller already received that
+      // rejection.
       await (previous ?? Promise.resolve()).catch(() => undefined);
       await work();
     })();

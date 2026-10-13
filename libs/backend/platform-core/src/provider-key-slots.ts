@@ -2,8 +2,10 @@
  * Secret-storage naming for `IAuthSecretsService` provider-key slots.
  *
  * Every provider-key slot is stored as `ptah.auth.provider.<slotId>`. A change
- * to an SDK auth secret re-initializes the SDK adapter, and that
- * re-initialization disposes EVERY live chat session. Connectors (MCP OAuth,
+ * to the key of the provider the active auth uses re-initializes the SDK
+ * adapter, which disposes EVERY live chat session; a change to another
+ * provider's key ends only the sessions whose workspace uses that provider.
+ * Either way a misclassified write ends live sessions. Connectors (MCP OAuth,
  * Smithery, CLI agents) reuse the same encrypted slots for data that SDK auth
  * never reads, and an MCP OAuth token refresh runs inside `chat:start`. So the
  * classification below is deliberately positive:

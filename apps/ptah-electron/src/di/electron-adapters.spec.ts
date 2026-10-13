@@ -57,14 +57,45 @@ describe('ElectronLoggerAdapter.error context', () => {
     expect(lines).toContain('  Context: {"metadata":{"sessionId":"s1"}}');
   });
 
-  it('caps an oversized context line', () => {
+  it('caps an oversized context line and keeps it valid JSON', () => {
     const { logger, lines } = makeLogger();
 
-    logger.error('huge', { payload: 'x'.repeat(50_000) });
+    logger.error('huge', {
+      payload: 'x'.repeat(50_000),
+      quoted: '"'.repeat(5_000),
+    });
 
     const context = lines.find((l) => l.startsWith('  Context: ')) ?? '';
     expect(context.length).toBeLessThan(8_300);
-    expect(context).toMatch(/…\[truncated \d+ chars\]$/);
+    const parsed = JSON.parse(context.slice('  Context: '.length)) as {
+      truncatedChars: number;
+      head: string;
+    };
+    expect(parsed.truncatedChars).toBeGreaterThan(0);
+    expect(parsed.head.startsWith('{"payload":"xxx')).toBe(true);
+  });
+
+  it('redacts credential fields and credential-shaped text', () => {
+    const { logger, lines } = makeLogger();
+
+    logger.error('auth failed', {
+      apiKey: 'sk-ant-api03-ABCDEFGHIJKLMNOPQRST',
+      metadata: { refresh_token: 'RT1', inputTokens: 12 },
+      url: 'https://x.example.com/cb?code=abc&ok=1',
+    });
+
+    expect(lines).toContain(
+      '  Context: {"apiKey":"[REDACTED]","metadata":{"refresh_token":"[REDACTED]","inputTokens":12},"url":"https://x.example.com/cb?code=[REDACTED]&ok=1"}',
+    );
+  });
+
+  it('writes a non-Error error field on its own line', () => {
+    const { logger, lines } = makeLogger();
+
+    logger.error('refresh failed', { error: 'HTTP 400', serverKey: 's1' });
+
+    expect(lines).toContain('  Error: HTTP 400');
+    expect(lines).toContain('  Context: {"serverKey":"s1"}');
   });
 
   it('bounds the work for a huge nested context', () => {
@@ -76,7 +107,7 @@ describe('ElectronLoggerAdapter.error context', () => {
     const context = lines.find((l) => l.startsWith('  Context: ')) ?? '';
     expect(context.length).toBeLessThan(8_300);
     expect(context).toContain('…[99950 more]');
-    expect(context).not.toContain('…[truncated');
+    expect(context).not.toContain('truncatedChars');
   });
 
   it('bounds a very wide object and never calls toJSON', () => {
