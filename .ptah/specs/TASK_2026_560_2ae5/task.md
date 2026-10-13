@@ -4,14 +4,13 @@ status: backlog
 type: FEATURE
 title: Per-workspace and global on/off controls for MCP servers and skills, enforced for every provider
 description: >-
-  Users cannot turn MCP servers or skills off per workspace from Ptah, cannot see whether a server
-  comes from global or workspace scope, and Ptah does not enforce an effective set when it builds
-  Claude SDK, proxied or CLI-lane sessions. Proxied sessions carry every schema on every request
-  (about 49k unused tokens per request measured). Add the settings contract, the Marketplace UI and
-  the enforcement.
+  Users cannot turn MCP servers or skills off per workspace from Ptah, cannot see whether a server comes from global or workspace scope, and Ptah does not enforce an effective set when it builds Claude SDK, proxied or CLI-lane sessions. Proxied sessions carry every schema on every request (about 49k unused tokens per request measured). Add the settings contract, the Marketplace UI and the enforcement.
 depends_on: []
 created: 2026-09-25T00:00:00.000Z
-updated: 2026-09-25T00:00:00.000Z
+updated: '2026-10-12T19:41:51.738Z'
+parent: TASK_2026_640_11a5
+labels:
+  - P3
 ---
 
 ## Description

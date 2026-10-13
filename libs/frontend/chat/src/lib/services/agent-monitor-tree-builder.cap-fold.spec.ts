@@ -183,6 +183,8 @@ describe('agent monitor — the 2 000-event cap keeps the card renderable', () =
       agentId,
       streamEvents: [...events],
     } as AgentOutputDelta);
+    // Output is applied once per frame; read the applied state.
+    store.flushPendingOutput();
     const agent = store.agents().find((a) => a.agentId === agentId);
     if (!agent) throw new Error(`missing agent ${agentId}`);
     return agent.streamEvents;

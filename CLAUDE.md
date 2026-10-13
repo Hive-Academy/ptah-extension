@@ -15,6 +15,17 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
 - Prefer one foreground run with a long timeout. Filter its output (`| tail`, `grep`) instead of
   re-running the command to read it.
 
+## Git: commit in the foreground, push in the background
+
+- Run `git commit` in the foreground. Never run it in the background: lint-staged hides
+  unstaged changes during the hook and restores them afterwards, so a file edited while the
+  hook runs can be committed or lost (see the TASK_2026_224 comment in `.husky/pre-commit`).
+  The pre-commit hook is lint-staged only, so it is fast.
+- Run `git push` (chained with `gh pr create` when a PR is due) as one background command
+  (the Bash tool's `run_in_background`) and continue with other work; act on the result when
+  it completes. The pre-push hook runs di-lint and the Electron `validate-deps` build gate on
+  every push. A failed gate needs a fix commit on top, then push again.
+
 ## Repo-local fleet rules
 
 - The commitlint scope enum and other enforced commit rules live in `.commitlintrc.json`.

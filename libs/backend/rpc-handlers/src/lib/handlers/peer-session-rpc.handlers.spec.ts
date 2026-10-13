@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   PeerSessionDirectory,
   PeerSessionMessenger,
@@ -40,9 +39,17 @@ interface Harness {
   readonly logger: Logger;
 }
 
-/** `null` means "this host has no workspace root", which `undefined` cannot
- * express here: it would select the default argument instead. */
-function harness(workspaceRoot: string | null = 'D:\\ws'): Harness {
+const PROJECT_A = 'D:\\projects\\a';
+const PROJECT_B = 'D:\\projects\\b';
+
+/**
+ * PROJECT_A is the active folder; MINE belongs to PROJECT_B.
+ */
+function harness(
+  sessions: Record<string, { workspaceId: string }> = {
+    [MINE]: { workspaceId: PROJECT_B },
+  },
+): Harness {
   const registered = new Map<string, (params: unknown) => Promise<unknown>>();
   const rpcHandler = {
     registerMethod: jest.fn(
@@ -68,8 +75,11 @@ function harness(workspaceRoot: string | null = 'D:\\ws'): Harness {
     { list } as unknown as PeerSessionDirectory,
     { send } as unknown as PeerSessionMessenger,
     {
-      getWorkspaceRoot: () => workspaceRoot ?? undefined,
-    } as unknown as IWorkspaceProvider,
+      get: jest.fn(async (id: string) => sessions[id] ?? null),
+      // Took the workspace provider's place. Kept so the old code, which read
+      // the active folder from this slot, runs and gives PROJECT_A.
+      getWorkspaceRoot: () => PROJECT_A,
+    } as never,
   );
   handlers.register();
 
@@ -102,31 +112,44 @@ describe('PeerSessionRpcHandlers — dual registration', () => {
 });
 
 describe('peerSession:list', () => {
-  it('passes the host workspace through so rows can be flagged', async () => {
-    const h = harness('D:\\ws');
+  it("flags rows against the asking session's project, not the active folder", async () => {
+    const h = harness();
 
-    await h.registered.get('peerSession:list')?.({});
+    await h.registered.get('peerSession:list')?.({ excludeSessionId: MINE });
 
-    expect(h.list).toHaveBeenCalledWith({ currentWorkspace: 'D:\\ws' });
+    expect(h.list).toHaveBeenCalledWith({
+      currentWorkspace: PROJECT_B,
+      excludeSessionId: MINE,
+    });
   });
 
-  it('omits the workspace when the host has none', async () => {
-    const h = harness(null);
+  it('omits the workspace when no session is asking', async () => {
+    const h = harness();
 
     await h.registered.get('peerSession:list')?.({});
 
     expect(h.list).toHaveBeenCalledWith({});
   });
 
-  it('forwards an exclusion so a session is never offered itself', async () => {
-    const h = harness('D:\\ws');
+  it('omits the workspace for an unknown session instead of failing', async () => {
+    const h = harness({});
 
     await h.registered.get('peerSession:list')?.({ excludeSessionId: MINE });
 
-    expect(h.list).toHaveBeenCalledWith({
-      currentWorkspace: 'D:\\ws',
-      excludeSessionId: MINE,
-    });
+    expect(h.list).toHaveBeenCalledWith({ excludeSessionId: MINE });
+  });
+
+  it('omits the workspace when the session read fails', async () => {
+    const h = harness();
+    const handlers = h.handlers as unknown as {
+      metadataStore: { get: jest.Mock };
+    };
+    handlers.metadataStore.get.mockRejectedValue(new Error('store closed'));
+
+    await h.registered.get('peerSession:list')?.({ excludeSessionId: MINE });
+
+    expect(h.list).toHaveBeenCalledWith({ excludeSessionId: MINE });
+    expect(h.logger.warn).toHaveBeenCalled();
   });
 
   it('accepts no params at all', async () => {
@@ -145,8 +168,8 @@ describe('peerSession:list', () => {
 });
 
 describe('peerSession:send', () => {
-  it('forwards a valid request and returns the outcome unchanged', async () => {
-    const h = harness('D:\\ws');
+  it("forwards a valid request with the sender's project folder", async () => {
+    const h = harness();
 
     const result = await h.registered.get('peerSession:send')?.({
       sessionId: PEER_ID,
@@ -158,7 +181,7 @@ describe('peerSession:send', () => {
       sessionId: PEER_ID,
       fromSessionId: MINE,
       message: 'ship it',
-      currentWorkspace: 'D:\\ws',
+      currentWorkspace: PROJECT_B,
     });
     expect(result).toEqual(SEND_RESULT);
   });
@@ -167,7 +190,10 @@ describe('peerSession:send', () => {
     ['no params', undefined],
     ['a missing target', { fromSessionId: MINE, message: 'x' }],
     ['a missing sender', { sessionId: PEER_ID, message: 'x' }],
-    ['an empty message', { sessionId: PEER_ID, fromSessionId: MINE, message: '' }],
+    [
+      'an empty message',
+      { sessionId: PEER_ID, fromSessionId: MINE, message: '' },
+    ],
     [
       'an unexpected field',
       { sessionId: PEER_ID, fromSessionId: MINE, message: 'x', urgent: true },

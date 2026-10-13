@@ -38,10 +38,7 @@ import type {
   LaneStopReason,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
-import {
-  claudeModelFamily,
-  SessionHandoverCoordinator,
-} from '@ptah-extension/agent-sdk';
+import { claudeModelFamily } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   type PlanLimitBilling,
@@ -289,9 +286,6 @@ export class AgentProcessManager {
   /** EventEmitter for agent lifecycle events (spawned, output, exited) */
   readonly events = new EventEmitter();
 
-  /** Unregisters the lane count from the handover coordinator; run in {@link disposeAll}. */
-  private releaseLaneWorkProvider: (() => void) | null = null;
-
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
@@ -335,41 +329,8 @@ export class AgentProcessManager {
      */
     @inject(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER)
     private readonly planLimits: LanePlanLimitLedger,
-    /**
-     * An automatic session handover waits for the source's running lanes
-     * (TASK_2026_627). Absent → no lane count is reported and the handover
-     * does not wait on lanes.
-     */
-    @inject(SessionHandoverCoordinator, { isOptional: true })
-    handoverCoordinator: SessionHandoverCoordinator | null = null,
   ) {
-    if (handoverCoordinator) {
-      this.releaseLaneWorkProvider = handoverCoordinator.setLaneWorkProvider(
-        ({ sessionId, tabId }) => this.countRunningLanes(sessionId, tabId),
-      );
-    }
     this.logger.info('[AgentProcessManager] Initialized');
-  }
-
-  /**
-   * Running lanes whose parent is the session's real id or its tab id: a lane
-   * spawned before the SDK id bound keeps the tab id until
-   * {@link resolveParentSessionId} re-parents it. `'running'` is the only
-   * non-terminal `AgentStatus`.
-   */
-  private countRunningLanes(sessionId: string, tabId: string): number {
-    let running = 0;
-    for (const tracked of this.agents.values()) {
-      const { status, parentSessionId } = tracked.info;
-      if (
-        status === 'running' &&
-        parentSessionId &&
-        (parentSessionId === sessionId || parentSessionId === tabId)
-      ) {
-        running += 1;
-      }
-    }
-    return running;
   }
 
   /**
@@ -2009,8 +1970,6 @@ export class AgentProcessManager {
    * tree-kill and the host stops waiting on it.
    */
   async disposeAll(): Promise<void> {
-    this.releaseLaneWorkProvider?.();
-    this.releaseLaneWorkProvider = null;
     const entries = Array.from(this.agents.entries());
     this.logger.info('[AgentProcessManager] Disposing all agents...', {
       agents: entries.length,

@@ -7,7 +7,6 @@ import {
 import { TodoListDisplayComponent } from './todo-list-display.component';
 import { DiffDisplayComponent } from './diff-display.component';
 import { CodeOutputComponent } from './code-output.component';
-import { ErrorAlertComponent } from '../../atoms/error-alert.component';
 import {
   type ExecutionNode,
   isTodoWriteToolInput,
@@ -16,6 +15,23 @@ import {
   type TodoWriteToolInput,
   type EditToolInput,
 } from '@ptah-extension/shared';
+import {
+  outputShowsError,
+  toolOutputCollapses,
+  toolOutputPlainText,
+  toolRetentionMessage,
+} from '../../utils/tool-text.utils';
+import { detectToolLanguage } from '../../utils/tool-language.utils';
+
+/**
+ * Markdown whose rendering can hide words, not only drop markers: more than
+ * one line (a fence info string becomes a CSS class, setext underlines and
+ * tables restructure lines), HTML (`<b>`, removed or sanitised), entities
+ * (`&lt;` renders as `<`), backslash escapes, links and images
+ * (`[label](url)` hides the URL, `![alt](url)` moves the text into a
+ * non-visible `alt` attribute), and code fences (`` ` ``, `~`).
+ */
+const MARKDOWN_MAY_HIDE_TEXT = /[\r\n<&\\[\]`~]/;
 
 /**
  * ToolOutputDisplayComponent - Output section orchestrator
@@ -24,11 +40,14 @@ import {
  * Patterns: Conditional rendering based on tool type
  *
  * Features:
- * - Route TodoWrite tool to TodoListDisplayComponent
- * - Route Edit tool to DiffDisplayComponent (VS Code-style diff view)
- * - Route all other tools to CodeOutputComponent
- * - Display error alerts below output section
- * - Show "Output" header above content
+ * - Route TodoWrite tool to TodoListDisplayComponent, under a "Tasks" label
+ * - Route Edit tool to DiffDisplayComponent (labelled "Diff" in its own row)
+ * - Route all other tools to CodeOutputComponent, which labels itself
+ *   ("Result", "Content", "Matches", "Error") in its one header row
+ * - No generic "Output" heading: each section is named by its content
+ * - A call's `error` renders as one "Error" block (`bg-error/10`, text in
+ *   `text-base-content`), left out only when the displayed output already
+ *   holds the same message whole
  *
  * Routing Logic:
  * - TodoWrite → TodoListDisplayComponent (specialized task list UI)
@@ -38,20 +57,16 @@ import {
 @Component({
   selector: 'ptah-tool-output-display',
   standalone: true,
-  imports: [
-    TodoListDisplayComponent,
-    DiffDisplayComponent,
-    CodeOutputComponent,
-    ErrorAlertComponent,
-  ],
+  imports: [TodoListDisplayComponent, DiffDisplayComponent, CodeOutputComponent],
   template: `
     @if (node().toolOutput || editInput()) {
-      <div class="mt-1.5">
-        <div class="text-[10px] font-semibold text-base-content-muted mb-0.5">
-          Output
-        </div>
-
+      <div>
         @if (todoInput()) {
+          <div
+            class="flex items-center min-h-7 text-[11px] font-medium text-base-content-muted"
+          >
+            Tasks
+          </div>
           <ptah-todo-list-display [toolInput]="todoInput()!" />
         } @else if (editInput()) {
           <ptah-diff-display
@@ -59,7 +74,10 @@ import {
             [replacements]="editReplacements()"
           />
         } @else {
-          <ptah-code-output [node]="node()" />
+          <ptah-code-output
+            [node]="node()"
+            [awaitingPermission]="awaitingPermission()"
+          />
         }
       </div>
     }
@@ -71,13 +89,23 @@ import {
     -->
     @if (outputRetentionMessage(); as retentionMessage) {
       <div
-        class="mt-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] leading-snug text-base-content-muted"
+        class="mt-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] leading-snug text-base-content-muted"
       >
         {{ retentionMessage }}
       </div>
     }
-    @if (node().error) {
-      <ptah-error-alert [errorMessage]="node().error!" />
+    @if (errorMessage(); as message) {
+      <div data-testid="tool-error">
+        <div
+          class="flex items-center min-h-7 text-[11px] font-medium text-base-content"
+        >
+          Error
+        </div>
+        <div
+          class="rounded bg-error/10 px-2 py-1.5 font-mono text-[11px] leading-snug text-base-content whitespace-pre-wrap break-words"
+          >{{ message }}</div
+        >
+      </div>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -86,34 +114,53 @@ export class ToolOutputDisplayComponent {
   readonly node = input.required<ExecutionNode>();
 
   /**
-   * Computed: the truncation notice for this node's OUTPUT, or null.
-   *
-   * Reads `ExecutionNode.retention`, written by `capFinalizedTree` in
-   * `@ptah-extension/chat-streaming`. chat-ui is `type:feature` like that lib
-   * and may import it, but the typed field in `@ptah-extension/shared` is the
-   * contract between writer and reader, so this molecule needs no predicate
-   * from chat-streaming.
-   *
-   * The copy names the recovery honestly: the bytes are in the session's SDK
-   * transcript and come back when the session is reopened, and that reload is
-   * itself partial. There is no per-message re-fetch to promise.
+   * A permission request for this call is waiting on the user; forwarded to
+   * `ptah-code-output` so its output is not styled as a failure.
    */
-  readonly outputRetentionMessage = computed((): string | null => {
-    const retention = this.node().retention;
-    if (!retention?.capped.includes('toolOutput')) return null;
+  readonly awaitingPermission = input(false);
 
-    const recovery =
-      "The full text is in this session's transcript on disk — reopen the " +
-      'session to reload it (a reload drops anything before the last compaction).';
+  /**
+   * Computed: the truncation notice for this node's OUTPUT, or null. Reads
+   * `ExecutionNode.retention` (written by `capFinalizedTree` in
+   * `@ptah-extension/chat-streaming`; the typed field in
+   * `@ptah-extension/shared` is the contract). Copy: `toolRetentionMessage`.
+   */
+  readonly outputRetentionMessage = computed((): string | null =>
+    toolRetentionMessage(this.node().retention, 'toolOutput'),
+  );
 
-    if (retention.foldFailed) {
-      const reason = retention.reason ?? 'it could not be converted to text';
-      return `Output could not be preserved (${reason}). ${recovery}`;
-    }
-    return (
-      `Output truncated — ${retention.droppedChars.toLocaleString()} ` +
-      `characters were dropped from this tool call to bound the transcript. ${recovery}`
-    );
+  /**
+   * The call's error text, or null. It is left out only when the output
+   * block, as displayed, already holds the same message whole
+   * (`outputShowsError`); an incidental mention in the output does not count.
+   * Markdown output (MCP results that use markdown syntax, `.md` content) is
+   * parsed and sanitised before display. Emphasis, headings and list markers
+   * drop only their markers, so the block is left out for markdown output
+   * too, but only when the WHOLE output is one line free of syntax whose
+   * rendering can hide words (`MARKDOWN_MAY_HIDE_TEXT`). The guard reads the
+   * output, not only the error, because an earlier line (an unclosed `<!--`,
+   * a fence) can hide a later one. Otherwise the block stays, even when that
+   * shows the message twice.
+   * Output that collapses (`toolOutputCollapses`) also keeps the block: its
+   * last lines, where the error usually sits, are out of view until expanded.
+   * A whitespace-only error still shows the block, with a stated fallback.
+   */
+  readonly errorMessage = computed((): string | null => {
+    const node = this.node();
+    const { error, toolOutput } = node;
+    if (!error) return null;
+    if (!error.trim()) return 'The tool reported an error without a message.';
+    const output = toolOutputPlainText(toolOutput);
+    const renderingMayHideIt =
+      detectToolLanguage(node) === 'markdown' &&
+      MARKDOWN_MAY_HIDE_TEXT.test(output.trim());
+    const shownAsOutput =
+      !this.todoInput() &&
+      !this.editInput() &&
+      !renderingMayHideIt &&
+      !toolOutputCollapses(output) &&
+      outputShowsError(output, error);
+    return shownAsOutput ? null : error;
   });
 
   /**

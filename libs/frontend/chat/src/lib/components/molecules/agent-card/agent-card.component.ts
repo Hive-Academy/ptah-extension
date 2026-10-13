@@ -24,11 +24,11 @@ import { CliAgentOutputComponent } from './cli-agent-output.component';
 import { AgentCardHeaderComponent } from './agent-card-header.component';
 import { CliLaneUsageSummaryComponent } from './cli-lane-usage-summary.component';
 import {
+  createAgentOutputParser,
+  createStderrParser,
   formatElapsed,
-  parseAgentOutput,
-  parseStderr,
 } from './agent-card.utils';
-import type { RenderSegment } from '@ptah-extension/chat-ui';
+import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 
 @Component({
   selector: 'ptah-agent-card',
@@ -148,19 +148,29 @@ export class AgentCardComponent {
     return formatElapsed(Date.now() - a.startedAt);
   });
 
+  /**
+   * Per-card parsers. Output only grows by appending between trims, so each
+   * update re-parses the tail instead of the whole 50-100 KB buffer.
+   */
+  private readonly parseStdout = createAgentOutputParser();
+  private readonly parseStderrBuffer = createStderrParser();
+
+  /** The raw buffers, so a change to any other agent field does not re-parse. */
+  private readonly stdout = computed(() => this.agent().stdout);
+  private readonly stderr = computed(() => this.agent().stderr);
+
   /** Keep raw stdout available alongside structured output. */
   readonly parsedOutput = computed((): RenderSegment[] => {
-    const stdout = this.agent().stdout;
-    return stdout ? parseAgentOutput(stdout) : [];
+    const stdout = this.stdout();
+    return stdout ? this.parseStdout(stdout) : [];
   });
 
   /**
    * Parse stderr into informational vs error segments.
    */
-  readonly parsedStderr = computed(() => {
-    const stderr = this.agent().stderr;
-    if (!stderr) return [];
-    return parseStderr(stderr);
+  readonly parsedStderr = computed((): StderrSegment[] => {
+    const stderr = this.stderr();
+    return stderr ? this.parseStderrBuffer(stderr) : [];
   });
 
   /** Trigger for auto-scroll in the output component */

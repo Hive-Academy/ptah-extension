@@ -4,6 +4,7 @@ import {
   isReadToolInput,
   isWriteToolInput,
 } from '@ptah-extension/shared';
+import { toolOutputPlainText } from './tool-text.utils';
 
 /**
  * Which highlight language a tool's output or file is shown in, and the
@@ -55,7 +56,7 @@ const LANGUAGE_LABELS: Readonly<Record<string, string>> = {
   xml: 'XML',
   sql: 'SQL',
   bash: 'Bash',
-  text: 'Plain text',
+  text: 'Text',
 };
 
 /** The tool facts language detection reads. */
@@ -72,10 +73,59 @@ export function getLanguageFromPath(filePath: string): string {
 }
 
 /**
+ * Markdown syntax that changes how text renders: a heading, a list item, a
+ * code fence, `**bold**` or a `[link](url)` (a table separator row is
+ * `isTableSeparatorRow`). Text with none of these renders as plain text,
+ * which keeps its line breaks (markdown would join single newlines into one
+ * paragraph).
+ *
+ * Every pattern runs in linear time: line-start patterns use `[ \t]` (never
+ * `\s`, which would cross lines under `/m`) with a CommonMark `{0,3}` indent,
+ * and the inline ones exclude their own opening delimiter from the spans
+ * they repeat, so a failed match never rescans the same text.
+ */
+const MARKDOWN_SIGNALS: readonly RegExp[] = [
+  /^#{1,6}[ \t]+\S/m,
+  /^[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+\S/m,
+  /^[ \t]{0,3}(?:```|~~~)/m,
+  /\*\*[^*\n]+\*\*/,
+  /\[[^[\]\n]+\]\([^)[\s]+\)/,
+];
+
+/** One cell of a table separator row: `---`, `:---`, `---:` or `:---:`. */
+const TABLE_SEPARATOR_CELL = /^:?-{3,}:?$/;
+
+/**
+ * Whether a line is a table separator row (`| --- | :---: |`): two or more
+ * separator cells split by `|`, with optional outer pipes.
+ */
+function isTableSeparatorRow(line: string): boolean {
+  let row = line.trim();
+  if (row.startsWith('|')) row = row.slice(1);
+  if (row.endsWith('|')) row = row.slice(0, -1);
+  const cells = row.split('|');
+  return (
+    cells.length >= 2 &&
+    cells.every((cell) => TABLE_SEPARATOR_CELL.test(cell.trim()))
+  );
+}
+
+/** Whether text uses markdown syntax (`MARKDOWN_SIGNALS`, a table separator row). */
+export function looksLikeMarkdown(text: string): boolean {
+  return (
+    MARKDOWN_SIGNALS.some((signal) => signal.test(text)) ||
+    text.split('\n').some(isTableSeparatorRow)
+  );
+}
+
+/**
  * Highlight language id for a tool call's output:
- * - `mcp__*` tools render as markdown;
+ * - `mcp__*` tools are `markdown` when their displayed text uses markdown
+ *   syntax (`looksLikeMarkdown`), otherwise `text`, so a plain-text result
+ *   keeps its line breaks;
  * - Read, Write and Edit use the file's extension;
- * - Bash is `bash`; Grep, Glob and anything else are `text`;
+ * - Bash, PowerShell, Grep, Glob and anything else are `text`: command
+ *   output is not shell code, so it is not highlighted as such;
  * - string output that parses as one JSON object or array is `json`.
  *   Output that only starts with `{` or `[` (JSONL, `[NX] ...` log lines,
  *   truncated streams) is not JSON and keeps the tool's language.
@@ -84,7 +134,9 @@ export function detectToolLanguage(source: ToolLanguageSource): string {
   const { toolName, toolInput, toolOutput } = source;
   let language = 'text';
   if (toolName?.startsWith('mcp__')) {
-    return 'markdown';
+    return looksLikeMarkdown(toolOutputPlainText(toolOutput))
+      ? 'markdown'
+      : 'text';
   }
   if (
     isReadToolInput(toolInput) ||
@@ -92,8 +144,6 @@ export function detectToolLanguage(source: ToolLanguageSource): string {
     isEditToolInput(toolInput)
   ) {
     language = getLanguageFromPath(toolInput.file_path);
-  } else if (toolName === 'Bash') {
-    language = 'bash';
   }
   const str = typeof toolOutput === 'string' ? toolOutput : '';
   const trimmed = str.trim();

@@ -121,7 +121,7 @@
 }
 
 .banner-enter {
-  animation: ptahFadeSlideIn 260ms var(--ptah-ease-soft) both;
+  animation: ptahFadeSlideIn 260ms var(--ptah-ease-soft) backwards;
 }
 
 .banner-leave {

@@ -26,8 +26,10 @@ import type {
   SubagentRegistryService,
   SentryService,
 } from '@ptah-extension/vscode-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { SdkAgentAdapter, SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import type {
+  SdkAgentAdapter,
+  SessionMetadataStore,
+} from '@ptah-extension/agent-sdk';
 import { SessionTurnStateRegistry } from '@ptah-extension/agent-sdk';
 import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
 import type { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -56,6 +58,8 @@ import type { ChatSdkContextService } from '../session/chat-sdk-context.service'
 
 const SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' as SessionId;
 const TAB_ID = 'tab-1';
+/** The folder chat:start ran the Ptah CLI session in. */
+const START_FOLDER = '/projects/b';
 
 function createMockLogger(): jest.Mocked<
   Pick<Logger, 'info' | 'debug' | 'warn' | 'error'>
@@ -88,6 +92,7 @@ interface Harness {
       | 'deleteSession'
       | 'getAgentId'
       | 'getSessionName'
+      | 'getWorkspacePath'
       | 'setSdkSessionId'
     >
   >;
@@ -127,14 +132,12 @@ function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
   const sessionMetadataStore = {
     createChild: jest.fn().mockResolvedValue(undefined),
   } as jest.Mocked<Pick<SessionMetadataStore, 'createChild'>>;
-  const workspaceProvider = {
-    getWorkspaceRoot: jest.fn().mockReturnValue('/fake/workspace'),
-  } as unknown as IWorkspaceProvider;
   const ptahCli = {
     hasSession: jest.fn().mockReturnValue(false),
     deleteSession: jest.fn(),
     getAgentId: jest.fn().mockReturnValue(undefined),
     getSessionName: jest.fn().mockReturnValue(undefined),
+    getWorkspacePath: jest.fn().mockReturnValue(START_FOLDER),
     setSdkSessionId: jest.fn(),
   } as jest.Mocked<
     Pick<
@@ -143,6 +146,7 @@ function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
       | 'deleteSession'
       | 'getAgentId'
       | 'getSessionName'
+      | 'getWorkspacePath'
       | 'setSdkSessionId'
     >
   >;
@@ -158,7 +162,6 @@ function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
     subagentRegistry,
     sentryService,
     sessionMetadataStore as unknown as SessionMetadataStore,
-    workspaceProvider,
     ptahCliOverride ?? (ptahCli as unknown as ChatPtahCliService),
     turnState,
   );
@@ -197,8 +200,27 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
 
     expect(h.sessionMetadataStore.createChild).toHaveBeenCalledWith(
       SESSION_ID,
-      '/fake/workspace',
+      START_FOLDER,
       'Review the billing flow',
+    );
+  });
+
+  it('does not save child metadata when the start folder is unknown', async () => {
+    const h = makeHarness();
+    h.ptahCli.hasSession.mockReturnValue(true);
+    h.ptahCli.getSessionName.mockReturnValue('Review the billing flow');
+    h.ptahCli.getWorkspacePath.mockReturnValue(undefined);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(h.sessionMetadataStore.createChild).not.toHaveBeenCalled();
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('folder unknown'),
+      expect.objectContaining({ tabId: TAB_ID, sessionId: SESSION_ID }),
     );
   });
 
@@ -240,7 +262,7 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
       const params = {
         prompt: 'hi',
         tabId: TAB_ID,
-        workspacePath: '/fake/workspace',
+        workspacePath: START_FOLDER,
         ptahCliId: 'configured-agent-id',
       } as ChatStartParams;
 
@@ -253,7 +275,9 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
       );
 
       clock.advanceBy(1_000);
-      expect(`Session ${new Date().toLocaleDateString()}`).not.toBe(fallbackName);
+      expect(`Session ${new Date().toLocaleDateString()}`).not.toBe(
+        fallbackName,
+      );
 
       const h = makeHarness(ptahCli);
       async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
@@ -267,7 +291,7 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
 
       expect(h.sessionMetadataStore.createChild).toHaveBeenCalledWith(
         SESSION_ID,
-        '/fake/workspace',
+        START_FOLDER,
         fallbackName,
       );
     } finally {
@@ -966,7 +990,9 @@ describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_36
     const h = makeHarness();
     // The record existed at loop start and is gone by the time the finally
     // block runs — `chat:abort` tore it down.
-    h.sdkAdapter.getSessionToken.mockReturnValueOnce('T1').mockReturnValue(null);
+    h.sdkAdapter.getSessionToken
+      .mockReturnValueOnce('T1')
+      .mockReturnValue(null);
     h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
     h.turnState.markGenerating(SESSION_ID);
 
@@ -989,7 +1015,9 @@ describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_36
   // its own.
   it('leaves the aborted session above the revision its last turn ended on', async () => {
     const h = makeHarness();
-    h.sdkAdapter.getSessionToken.mockReturnValueOnce('T1').mockReturnValue(null);
+    h.sdkAdapter.getSessionToken
+      .mockReturnValueOnce('T1')
+      .mockReturnValue(null);
     h.sdkAdapter.endSessionIfTokenMatches.mockResolvedValue(false);
     h.turnState.markGenerating(SESSION_ID);
 

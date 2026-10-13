@@ -53,7 +53,6 @@ export {
   IndexingRpcHandlers,
   TasksRpcHandlers,
   SessionOrganizationRpcHandlers,
-  SessionBudgetRpcHandlers,
   LanePlanLimitsRpcHandlers,
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,
@@ -105,7 +104,10 @@ export {
  * Key prefix of the per-session turn change sets. Exported for the Electron
  * worker storage, which keeps keys with this prefix out of its startup cache.
  */
-export { TURN_CHANGE_SETS_KEY_PREFIX } from './lib/chat/change-set/turn-change-set.store';
+export {
+  TURN_CHANGE_SETS_BLOB,
+  TURN_CHANGE_SETS_KEY_PREFIX,
+} from './lib/chat/change-set/turn-change-set.store';
 export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';
 export { CHAT_TOKENS, registerChatServices } from './lib/chat';
 export { isAuthorizedWorkspace } from './lib/utils/workspace-authorization';

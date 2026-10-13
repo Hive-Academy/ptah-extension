@@ -239,7 +239,6 @@ export const SESSION_BUDGET_SETTINGS_FIXTURE: Readonly<
   'sessionBudget.handoffPercent': 80,
   'sessionBudget.handoffAfterCompactions': 3,
   'sessionBudget.tightenWindowTokens': null,
-  'sessionBudget.blockAtLimit': true,
 };
 
 function settingsGetResolver(params: unknown): {

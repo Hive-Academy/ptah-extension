@@ -185,15 +185,6 @@ export function sessionStartReply(
   result: SessionChildStartResult,
 ): SessionToolReply {
   if (result.ok) {
-    if ('successor' in result) {
-      return {
-        isError: false,
-        text:
-          'Successor handover requested. It waits for the user to approve it in the session ' +
-          'banner; nothing changes until then. Keep working normally. If the user cancels, ' +
-          'this session continues.',
-      };
-    }
     const child = result.child;
     return {
       isError: false,
@@ -234,9 +225,7 @@ export function sessionSendReply(
   if (result.delivered) {
     return {
       isError: false,
-      text:
-        `Message delivered to ${childSessionId}: ${SEND_EFFECTS[result.effect]}.` +
-        (result.code ? ` ${result.code}` : ''),
+      text: `Message delivered to ${childSessionId}: ${SEND_EFFECTS[result.effect]}.`,
     };
   }
   return {

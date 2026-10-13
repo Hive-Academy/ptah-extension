@@ -97,6 +97,8 @@ function makeHarness(): Harness {
     {
       hasProviderKey: jest.fn().mockResolvedValue(false),
     } as unknown as IAuthSecretsService,
+    { exists: jest.fn().mockResolvedValue(true) } as never,
+    { type: 'electron', extensionPath: '/ptah-app' } as never,
   );
   handlers.register();
 

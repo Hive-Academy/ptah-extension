@@ -18,8 +18,8 @@
  *
  * Stage: the highest percent band reached (`< tighten`, `≥ tighten`,
  * `≥ handoff`, `≥ 100`), raised to `handoff` once the main loop compacted
- * `handoffAfterCompactions` times. Stages only rise, except after `extend`
- * or a settings change (the caller passes `resetStage`).
+ * `handoffAfterCompactions` times. Stages only rise, except after a settings
+ * change (the caller passes `resetStage`).
  */
 
 import type {
@@ -30,9 +30,6 @@ import type {
   SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { weightedSessionTokens } from './weighted-tokens';
-
-/** Each "Allow 20% more" adds this fraction of the configured limit. */
-export const SESSION_BUDGET_EXTENSION_FRACTION = 0.2;
 
 const STAGE_RANK: Readonly<Record<SessionBudgetStage, number>> = {
   unknown: 0,
@@ -54,25 +51,16 @@ export function higherSessionBudgetStage(
   return STAGE_RANK[a] >= STAGE_RANK[b] ? a : b;
 }
 
-/** The configured limit plus 20% of it per extension. */
-export function effectiveSessionBudgetLimit(
-  base: number,
-  extensions: number,
-): number {
-  return base * (1 + SESSION_BUDGET_EXTENSION_FRACTION * extensions);
-}
-
 export interface SessionBudgetMeasurement {
   readonly measure: SessionBudgetMeasure;
   /** `null` when the snapshot carries no figure for the measure. */
   readonly used: number | null;
-  /** Effective limit in the measure's unit, extensions included. */
+  /** Configured limit in the measure's unit. */
   readonly limit: number;
   readonly lowerBound: boolean;
 }
 
 export interface SessionBudgetMeasureOptions {
-  readonly extensions: number;
   /** Keep `weighted-fallback` (the session already entered it). */
   readonly stickyWeightedFallback: boolean;
 }
@@ -89,7 +77,7 @@ export function measureSessionBudget(
     return {
       measure: 'tokens',
       used: snapshot.tokenCount ?? null,
-      limit: effectiveSessionBudgetLimit(config.tokens, options.extensions),
+      limit: config.tokens,
       lowerBound: partialCoverage,
     };
   }
@@ -97,16 +85,13 @@ export function measureSessionBudget(
   const weightedFallback = (): SessionBudgetMeasurement => ({
     measure: 'weighted-fallback',
     used: weightedSessionTokens(snapshot.tokens),
-    limit: effectiveSessionBudgetLimit(
-      config.fallbackWeightedTokens,
-      options.extensions,
-    ),
+    limit: config.fallbackWeightedTokens,
     lowerBound: partialCoverage,
   });
 
   if (options.stickyWeightedFallback) return weightedFallback();
 
-  const usdLimit = effectiveSessionBudgetLimit(config.usd, options.extensions);
+  const usdLimit = config.usd;
   if (snapshot.totalCost !== null) {
     return {
       measure: 'cost',
@@ -159,7 +144,7 @@ export interface SessionBudgetStageInput {
   readonly handoffAfterCompactions: number;
   /** The stage before this evaluation; `null` when there is none. */
   readonly previous: SessionBudgetStage | null;
-  /** True after `extend` or a settings change: the floor is dropped. */
+  /** True after a settings change: the floor is dropped. */
   readonly resetStage: boolean;
 }
 
@@ -203,8 +188,7 @@ export interface SessionBudgetEvaluationInput {
   /** The state before this evaluation; `null` before the first figure. */
   readonly previous: SessionBudgetState | null;
   readonly compactions: number;
-  readonly extensions: number;
-  /** Drop the stage floor (after `extend` or a settings change). */
+  /** Drop the stage floor (after a settings change). */
   readonly resetStage: boolean;
   /** Drop the sticky `weighted-fallback` measure (a settings change). */
   readonly resetMeasure: boolean;
@@ -222,21 +206,18 @@ export type SessionBudgetFigure = Pick<
   | 'lowerBound'
   | 'revision'
   | 'compactions'
-  | 'extensions'
-  | 'blocked'
 >;
 
 /**
  * A measurement with no figure keeps the previous figure (same measure: only
- * `used` is carried, so a new extension still moves the limit). A settings
- * change drops it: the old figure may be in another unit.
+ * `used` is carried). A settings change drops it: the old figure may be in
+ * another unit.
  */
 function keepPreviousFigure(
   measured: SessionBudgetMeasurement,
   previous: SessionBudgetState | null,
   resetMeasure: boolean,
   config: SessionBudgetConfig,
-  extensions: number,
 ): SessionBudgetMeasurement {
   if (measured.used !== null || previous === null || previous.used === null) {
     return measured;
@@ -249,9 +230,8 @@ function keepPreviousFigure(
       lowerBound: previous.lowerBound,
     };
   }
-  // The kept measure's limit is rebuilt from the current settings and
-  // extensions: `previous.limit` predates any extension granted since.
-  const base =
+  // The kept measure's limit is rebuilt from the current settings.
+  const limit =
     previous.measure === 'tokens'
       ? config.tokens
       : previous.measure === 'weighted-fallback'
@@ -260,7 +240,7 @@ function keepPreviousFigure(
   return {
     measure: previous.measure,
     used: previous.used,
-    limit: effectiveSessionBudgetLimit(base, extensions),
+    limit,
     lowerBound: previous.lowerBound,
   };
 }
@@ -275,7 +255,6 @@ export function evaluateSessionBudget(
 ): SessionBudgetFigure {
   const { snapshot, config, previous } = input;
   const measured = measureSessionBudget(snapshot, config, {
-    extensions: input.extensions,
     stickyWeightedFallback:
       !input.resetMeasure && previous?.measure === 'weighted-fallback',
   });
@@ -284,7 +263,6 @@ export function evaluateSessionBudget(
     previous,
     input.resetMeasure,
     config,
-    input.extensions,
   );
 
   const stage = nextSessionBudgetStage({
@@ -305,7 +283,5 @@ export function evaluateSessionBudget(
     lowerBound: figure.lowerBound,
     revision: snapshot.revision ?? previous?.revision ?? null,
     compactions: input.compactions,
-    extensions: input.extensions,
-    blocked: stage === 'limit' && config.blockAtLimit,
   };
 }

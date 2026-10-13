@@ -4,16 +4,18 @@ import {
   InjectionToken,
   Signal,
   WritableSignal,
+  computed,
   effect,
   inject,
   signal,
 } from '@angular/core';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import type { TabState } from '@ptah-extension/chat-types';
+import type { StreamingState, TabState } from '@ptah-extension/chat-types';
 import {
   createExecutionChatMessage,
   type ExecutionChatMessage,
+  type ExecutionNode,
 } from '@ptah-extension/shared';
 import { filterCompactionNoise } from '../components/organisms/transcript/transcript-filter.utils';
 
@@ -54,12 +56,30 @@ const EMPTY_STRUCTURE: StreamPresentationStructure = {
   orderKeys: new Map(),
 };
 
+interface StreamingMessageMemo {
+  readonly tree: ExecutionNode;
+  readonly stats: StreamingState['pendingStats'];
+  readonly sessionId: string | null | undefined;
+  readonly message: ExecutionChatMessage;
+}
+
 interface TabRecords {
   readonly records: Map<string, WritableSignal<ExecutionChatMessage>>;
   readonly slots: Map<string, StreamPresentationSlot>;
   readonly structure: WritableSignal<StreamPresentationStructure>;
   previous: StreamPresentationStructure;
   source: TabState | null;
+  /** `tab.messages` the finalized memo below was derived from. */
+  finalizedSource: readonly ExecutionChatMessage[] | null;
+  finalized: readonly ExecutionChatMessage[];
+  finalizedIds: ReadonlySet<string>;
+  /** Last message built per streaming tree id, reused while its inputs hold. */
+  readonly streamingMemo: Map<string, StreamingMessageMemo>;
+  /** Inputs and result of the last merge, reused when every input is identical. */
+  mergedFinalized: readonly ExecutionChatMessage[] | null;
+  mergedStreaming: readonly ExecutionChatMessage[];
+  merged: readonly ExecutionChatMessage[];
+  mergedIds: readonly string[];
 }
 
 /**
@@ -70,6 +90,11 @@ interface TabRecords {
  * updates only the affected record signals and publishes the slot list only
  * when ids/order/finalization change. It intentionally owns no event semantics:
  * replay and live events keep using the existing handler and tree builder.
+ *
+ * This store is the single entry for every transcript surface of a tab (main
+ * panel, canvas tile, a detail row): each reads `structureFor(tabId)` and calls
+ * `sync(tab)`. A surface must not call `ExecutionTreeBuilderService.buildTree`
+ * with a key of its own, or the tab's tree is built once per surface.
  */
 @Injectable({ providedIn: 'root' })
 export class StreamPresentationStore {
@@ -77,9 +102,18 @@ export class StreamPresentationStore {
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly tabs = new Map<string, TabRecords>();
+  /**
+   * Open tab ids. `tabs()` emits a new array on every streaming flush; this
+   * computed only notifies when the id list itself changes, so closed-tab
+   * release runs on open/close, not per frame.
+   */
+  private readonly tabIds = computed(
+    () => this.tabManager.tabs().map((tab) => tab.id),
+    { equal: sameRefs },
+  );
 
   constructor() {
-    effect(() => this.releaseClosedTabs(this.tabManager.tabs()));
+    effect(() => this.releaseClosedTabs(this.tabIds()));
     this.destroyRef.onDestroy(() => this.tabs.clear());
   }
 
@@ -101,13 +135,21 @@ export class StreamPresentationStore {
       structure,
       previous: EMPTY_STRUCTURE,
       source: null,
+      finalizedSource: null,
+      finalized: [],
+      finalizedIds: new Set(),
+      streamingMemo: new Map(),
+      mergedFinalized: null,
+      mergedStreaming: [],
+      merged: [],
+      mergedIds: [],
     };
     this.tabs.set(tabId, created);
     return created;
   }
 
-  private releaseClosedTabs(tabs: readonly TabState[]): void {
-    const present = new Set<string>(tabs.map((tab) => tab.id));
+  private releaseClosedTabs(tabIds: readonly string[]): void {
+    const present = new Set<string>(tabIds);
     for (const tabId of this.tabs.keys()) {
       if (!present.has(tabId)) this.tabs.delete(tabId);
     }
@@ -120,21 +162,42 @@ export class StreamPresentationStore {
     // this avoids rebuilding the execution tree for the same publication.
     if (records.source === tab) return;
     records.source = tab;
-    const finalized = filterCompactionNoise(tab.messages);
-    const finalizedIds = new Set(finalized.map((message) => message.id));
-    const streaming = this.streamingMessages(tab, finalizedIds);
-    const messages = mergeByTime(finalized, streaming);
-    const ids = messages.map((message) => message.id);
+    // While a turn streams only `streamingState` moves; `messages` keeps its
+    // reference, so the finalized list and its id set are derived once.
+    if (records.finalizedSource !== tab.messages) {
+      records.finalizedSource = tab.messages;
+      records.finalized = filterCompactionNoise(tab.messages);
+      records.finalizedIds = new Set(
+        records.finalized.map((message) => message.id),
+      );
+    }
+    const finalized = records.finalized;
+    const streaming = this.streamingMessages(tab, records);
+    const reuseMerge =
+      records.mergedFinalized === finalized &&
+      sameRefs(records.mergedStreaming, streaming);
+    if (!reuseMerge) {
+      records.mergedFinalized = finalized;
+      records.mergedStreaming = streaming;
+      records.merged = mergeByTime(finalized, streaming);
+      records.mergedIds = records.merged.map((message) => message.id);
+    }
+    const messages = records.merged;
+    const ids = records.mergedIds;
 
-    for (const message of messages) {
-      const record = records.records.get(message.id);
-      if (record) {
-        if (!sameMessage(record(), message)) record.set(message);
-        continue;
+    // Identical inputs were already written to the record signals by the
+    // sync that produced this merge, so the record pass is skipped.
+    if (!reuseMerge) {
+      for (const message of messages) {
+        const record = records.records.get(message.id);
+        if (record) {
+          if (!sameMessage(record(), message)) record.set(message);
+          continue;
+        }
+        const created = signal(message);
+        records.records.set(message.id, created);
+        records.slots.set(message.id, { id: message.id, record: created });
       }
-      const created = signal(message);
-      records.records.set(message.id, created);
-      records.slots.set(message.id, { id: message.id, record: created });
     }
 
     const previous = records.previous;
@@ -171,31 +234,57 @@ export class StreamPresentationStore {
     }
   }
 
+  /**
+   * One message per streaming tree. A tree the builder returns by the same
+   * reference, with the same stats and session, keeps its previous message
+   * object, so only the live tree allocates per frame.
+   */
   private streamingMessages(
     tab: TabState,
-    finalizedIds: ReadonlySet<string>,
+    records: TabRecords,
   ): readonly ExecutionChatMessage[] {
+    const memo = records.streamingMemo;
     const state = tab.streamingState;
-    if (!state) return [];
-    const trees = this.treeBuilder.buildTree(state, `tab-${tab.id}`);
-    if (trees.length === 0) return [];
-    const pendingStats = state.pendingStats;
+    const trees = state
+      ? this.treeBuilder.buildTree(state, `tab-${tab.id}`)
+      : [];
+    if (trees.length === 0) {
+      memo.clear();
+      return [];
+    }
+    const pendingStats = state?.pendingStats;
+    const sessionId = tab.claudeSessionId;
     const messages: ExecutionChatMessage[] = [];
+    const built = new Set<string>();
     for (const tree of trees) {
-      if (finalizedIds.has(tree.id)) continue;
-      messages.push(
-        createExecutionChatMessage({
-          id: tree.id,
-          role: 'assistant',
-          streamingState: tree,
-          sessionId: tab.claudeSessionId ?? undefined,
-          ...(pendingStats && {
-            tokens: pendingStats.tokens,
-            cost: pendingStats.cost,
-            duration: pendingStats.duration,
-          }),
+      if (records.finalizedIds.has(tree.id)) continue;
+      built.add(tree.id);
+      const previous = memo.get(tree.id);
+      if (
+        previous &&
+        previous.tree === tree &&
+        previous.stats === pendingStats &&
+        previous.sessionId === sessionId
+      ) {
+        messages.push(previous.message);
+        continue;
+      }
+      const message = createExecutionChatMessage({
+        id: tree.id,
+        role: 'assistant',
+        streamingState: tree,
+        sessionId: sessionId ?? undefined,
+        ...(pendingStats && {
+          tokens: pendingStats.tokens,
+          cost: pendingStats.cost,
+          duration: pendingStats.duration,
         }),
-      );
+      });
+      memo.set(tree.id, { tree, stats: pendingStats, sessionId, message });
+      messages.push(message);
+    }
+    for (const treeId of memo.keys()) {
+      if (!built.has(treeId)) memo.delete(treeId);
     }
     return messages;
   }
@@ -229,6 +318,10 @@ function mergeByTime(
 
 function orderKey(message: ExecutionChatMessage): number {
   return message.streamingState?.startTime ?? message.timestamp;
+}
+
+function sameRefs<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 function sameIds(slots: readonly StreamPresentationSlot[], ids: readonly string[]): boolean {

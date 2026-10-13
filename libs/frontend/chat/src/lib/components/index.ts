@@ -31,7 +31,6 @@ export {
   CostBadgeComponent,
   DurationBadgeComponent,
   ElectronResizeHandleComponent,
-  ErrorAlertComponent,
   ExpandableContentComponent,
   FilePathLinkComponent,
   SidebarTabComponent,

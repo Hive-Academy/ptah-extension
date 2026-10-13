@@ -255,3 +255,6 @@ tools/video-editor/projects/*/graphics/**/node_modules/
 .github/skills/
 # ptah:harness:end
 .ptah/specs/**/*.log
+
+# tools/perf probe output (traces can be hundreds of MB)
+tools/perf/out/

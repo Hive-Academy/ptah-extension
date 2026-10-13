@@ -109,7 +109,7 @@ describe('SessionBudgetSettingsComponent', () => {
   afterEach(() => fixture?.destroy());
 
   describe('load', () => {
-    it('reads all ten sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
+    it('reads all nine sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
       await create();
       const read = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
@@ -120,7 +120,7 @@ describe('SessionBudgetSettingsComponent', () => {
           .map((setting) => setting.key)
           .sort(),
       );
-      expect(read).toHaveLength(10);
+      expect(read).toHaveLength(9);
       expect(field('tokens').value).toBe('50000000');
       expect(field('tokens').className).toContain('input-sm');
       expect(field('tokens').className).toContain('flex-1');
@@ -133,7 +133,6 @@ describe('SessionBudgetSettingsComponent', () => {
         'tokens',
       );
       expect(field('enabled').checked).toBe(true);
-      expect(field('blockAtLimit').checked).toBe(true);
       expect(field('enabled').className).toContain('toggle-sm');
       expect(writes()).toEqual([]);
     });
@@ -143,7 +142,7 @@ describe('SessionBudgetSettingsComponent', () => {
       const readTimeouts = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
         .map((call) => call[3]);
-      expect(readTimeouts).toEqual(Array(10).fill(5_000));
+      expect(readTimeouts).toEqual(Array(9).fill(5_000));
     });
 
     it('shows a load error with Retry when a read fails, and Retry reads again', async () => {
@@ -444,16 +443,15 @@ describe('SessionBudgetSettingsComponent', () => {
   describe('toggles and unit', () => {
     it('writes a toggle and shows the read-back value', async () => {
       await create();
-      const box = field('blockAtLimit');
+      const box = field('enabled');
       box.checked = false;
       box.dispatchEvent(new Event('change'));
       await settle();
       expect(writes()).toEqual([
-        { key: 'sessionBudget.blockAtLimit', value: false },
+        { key: 'sessionBudget.enabled', value: false },
       ]);
       expect(box.checked).toBe(false);
       expect(byTestId('session-budget-status')?.textContent).toContain('Saved');
-      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
     });
 
     // TASK_2026_614 F.4 / F-D: turning the budget off clears every tab's banner.

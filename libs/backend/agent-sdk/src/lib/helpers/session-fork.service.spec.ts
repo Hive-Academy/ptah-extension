@@ -22,10 +22,7 @@ import {
   createFakeAsyncGenerator,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import type {
-  ISessionOrganizationRecorder,
-  IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
+import type { ISessionOrganizationRecorder } from '@ptah-extension/platform-core';
 
 import { SessionForkService } from './session-fork.service';
 import { SdkError, SessionNotActiveError } from '../errors';
@@ -44,12 +41,19 @@ function createMockSentry(): jest.Mocked<
   return { captureException: jest.fn() };
 }
 
+/** The source session's own project. Never the active folder. */
+const SOURCE_PROJECT = '/projects/b';
+
 function createMockMetadataStore(): jest.Mocked<
   Pick<SessionMetadataStore, 'create' | 'get' | 'touch'>
 > {
   return {
     create: jest.fn().mockResolvedValue(undefined),
-    get: jest.fn().mockResolvedValue(null),
+    get: jest.fn().mockResolvedValue({
+      sessionId: 'src',
+      workspaceId: SOURCE_PROJECT,
+      name: 'Source',
+    }),
     touch: jest.fn().mockResolvedValue(undefined),
   };
 }
@@ -69,14 +73,6 @@ function createMockSessionLifecycle(): jest.Mocked<
 > {
   return {
     find: jest.fn().mockReturnValue(undefined),
-  };
-}
-
-function createMockWorkspaceProvider(): jest.Mocked<
-  Pick<IWorkspaceProvider, 'getWorkspaceRoot'>
-> {
-  return {
-    getWorkspaceRoot: jest.fn().mockReturnValue('/fake/workspace'),
   };
 }
 
@@ -103,7 +99,6 @@ interface Harness {
   metadataStore: ReturnType<typeof createMockMetadataStore>;
   historyReader: ReturnType<typeof createMockHistoryReader>;
   sessionLifecycle: ReturnType<typeof createMockSessionLifecycle>;
-  workspaceProvider: ReturnType<typeof createMockWorkspaceProvider>;
   recorder: ReturnType<typeof createMockRecorder>;
 }
 
@@ -120,7 +115,6 @@ function makeService(options: { withRecorder?: boolean } = {}): Harness {
   const metadataStore = createMockMetadataStore();
   const historyReader = createMockHistoryReader();
   const sessionLifecycle = createMockSessionLifecycle();
-  const workspaceProvider = createMockWorkspaceProvider();
   const recorder = createMockRecorder();
 
   const service = new SessionForkService(
@@ -128,7 +122,6 @@ function makeService(options: { withRecorder?: boolean } = {}): Harness {
     metadataStore as unknown as SessionMetadataStore,
     historyReader as unknown as SessionHistoryReaderService,
     sessionLifecycle as unknown as SessionLifecycleManager,
-    workspaceProvider as unknown as IWorkspaceProvider,
     sentry as unknown as SentryService,
     withRecorder ? (recorder as unknown as ISessionOrganizationRecorder) : null,
   );
@@ -140,7 +133,6 @@ function makeService(options: { withRecorder?: boolean } = {}): Harness {
     metadataStore,
     historyReader,
     sessionLifecycle,
-    workspaceProvider,
     recorder,
   };
 }
@@ -172,7 +164,7 @@ describe('SessionForkService', () => {
       expect(getMockedForkSession()).toHaveBeenCalledWith('source-uuid', {
         upToMessageId: 'msg-uuid-50',
         title: 'My Fork',
-        dir: '/fake/workspace',
+        dir: SOURCE_PROJECT,
       });
     });
 
@@ -185,7 +177,7 @@ describe('SessionForkService', () => {
       expect(getMockedForkSession()).toHaveBeenCalledWith('src', {
         upToMessageId: undefined,
         title: undefined,
-        dir: '/fake/workspace',
+        dir: SOURCE_PROJECT,
       });
     });
 
@@ -233,7 +225,7 @@ describe('SessionForkService', () => {
       expect(getMockedForkSession()).toHaveBeenCalledWith('source-session-id', {
         upToMessageId: nativeId,
         title: 'Branch',
-        dir: '/fake/workspace',
+        dir: SOURCE_PROJECT,
       });
     });
 
@@ -252,7 +244,7 @@ describe('SessionForkService', () => {
       expect(getMockedForkSession()).toHaveBeenCalledWith('src-session', {
         upToMessageId: nativeId,
         title: undefined,
-        dir: '/fake/workspace',
+        dir: SOURCE_PROJECT,
       });
     });
 
@@ -360,17 +352,16 @@ describe('SessionForkService', () => {
       );
     });
 
-    it('throws SdkError when source has no workspaceId and no active workspace folder', async () => {
+    it('refuses a source with no saved project folder, before calling the SDK', async () => {
       const h = makeService();
-      h.workspaceProvider.getWorkspaceRoot.mockReturnValue(
-        undefined as unknown as string,
-      );
       h.metadataStore.get.mockResolvedValueOnce(null);
       getMockedForkSession().mockResolvedValueOnce({ sessionId: 'fork-x' });
 
       await expect(
         h.service.forkSession({ sessionId: 'src' as SessionId }),
       ).rejects.toBeInstanceOf(SdkError);
+      expect(getMockedForkSession()).not.toHaveBeenCalled();
+      expect(h.metadataStore.create).not.toHaveBeenCalled();
       expect(h.recorder.recordLineage).not.toHaveBeenCalled();
     });
 
@@ -408,7 +399,7 @@ describe('SessionForkService', () => {
         expect(result).toEqual({ sessionId: 'forked-uuid-123' });
       });
 
-      it('falls back to the active workspace root as the hint when the source has no metadata', async () => {
+      it("uses the source's own project as the hint", async () => {
         const h = makeService();
         getMockedForkSession().mockResolvedValueOnce({ sessionId: 'fork-2' });
 
@@ -417,8 +408,14 @@ describe('SessionForkService', () => {
         expect(h.recorder.recordLineage).toHaveBeenCalledWith({
           sessionId: 'fork-2',
           forkOfSessionId: 'src',
-          workspaceRootHint: '/fake/workspace',
+          workspaceRootHint: SOURCE_PROJECT,
         });
+        expect(h.metadataStore.create).toHaveBeenCalledWith(
+          'fork-2',
+          SOURCE_PROJECT,
+          'Source (fork)',
+          'forked',
+        );
       });
 
       it('records nothing when the SDK fork fails', async () => {
@@ -496,6 +493,52 @@ describe('SessionForkService', () => {
           userMessageId: 'msg-1',
         }),
       ).rejects.toBeInstanceOf(SessionNotActiveError);
+    });
+
+    describe("resolves the anchor in the session's own project (PTAH-37)", () => {
+      function liveHarness(): Harness {
+        const h = makeService();
+        h.sessionLifecycle.find.mockReturnValueOnce({
+          tabId: 'live',
+          realSessionId: null,
+          query: createFakeQuery(),
+          config: baseSessionConfig,
+          abortController: new AbortController(),
+          messageQueue: [],
+          resolveNext: null,
+          currentModel: 'claude-sonnet-4-20250514',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+        return h;
+      }
+
+      it('reads the transcript of the session project', async () => {
+        const h = liveHarness();
+
+        await h.service.rewindFiles({
+          sessionId: 'live' as SessionId,
+          userMessageId: 'user-msg-uuid',
+        });
+
+        expect(h.historyReader.resolveNativeMessageId).toHaveBeenCalledWith(
+          'live',
+          SOURCE_PROJECT,
+          'user-msg-uuid',
+          undefined,
+        );
+      });
+
+      it('keeps the raw id when the session has no project, never the active folder', async () => {
+        const h = liveHarness();
+        h.metadataStore.get.mockResolvedValueOnce(null);
+
+        await h.service.rewindFiles({
+          sessionId: 'live' as SessionId,
+          userMessageId: 'user-msg-uuid',
+        });
+
+        expect(h.historyReader.resolveNativeMessageId).not.toHaveBeenCalled();
+      });
     });
 
     it('delegates to query.rewindFiles with userMessageId and dryRun', async () => {

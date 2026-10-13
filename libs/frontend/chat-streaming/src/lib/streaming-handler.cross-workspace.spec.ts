@@ -111,7 +111,12 @@ describe('StreamingHandlerService — cross-workspace delta isolation (Bug 1)', 
         // immediately observable on the tab objects.
         {
           provide: BatchedUpdateService,
-          useValue: { scheduleUpdate: jest.fn(), flushSync: jest.fn() },
+          useValue: {
+            scheduleUpdate: jest.fn(),
+            flushSync: jest.fn(),
+            queuedState: jest.fn(() => undefined),
+            clearPendingUpdates: jest.fn(),
+          },
         },
         {
           provide: SessionManager,

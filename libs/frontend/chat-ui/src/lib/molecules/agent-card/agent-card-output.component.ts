@@ -13,7 +13,9 @@ import {
   computed,
   input,
   effect,
+  untracked,
   ChangeDetectionStrategy,
+  DestroyRef,
   ElementRef,
   viewChild,
 } from '@angular/core';
@@ -27,9 +29,18 @@ interface KeyedRenderSegment {
   readonly segment: RenderSegment;
 }
 
-function segmentContentKey(segment: RenderSegment): string {
-  return `${segment.type}:${segment.content.length}:${segment.content.slice(0, 48)}${segment.toolCallId ? `:${segment.toolCallId}` : ''}`;
+/** The last segment's text while it is still streaming. */
+interface TailText {
+  readonly index: number;
+  readonly content: string;
 }
+
+/**
+ * Minimum time between two markdown renders of the streaming tail segment.
+ * Only the last text segment changes while output streams; earlier segments
+ * are final and render once.
+ */
+const TAIL_MARKDOWN_THROTTLE_MS = 150;
 
 @Component({
   selector: 'ptah-agent-card-output',
@@ -293,7 +304,10 @@ $ {{ segment.toolName }}</pre>
               @if (segment.content.trim()) {
                 <div class="prose prose-xs prose-invert max-w-none agent-prose">
                   <markdown
-                    [data]="segment.content | surfaceMarkdown: surfaceActive()"
+                    [data]="
+                      markdownSource(segment, $index)
+                        | surfaceMarkdown: surfaceActive()
+                    "
                   />
                 </div>
               }
@@ -329,21 +343,44 @@ export class AgentCardOutputComponent {
   readonly segments = input.required<RenderSegment[]>();
   readonly embedded = input(false);
   readonly stderrSegments = input.required<StderrSegment[]>();
-  readonly keyedSegments = computed<readonly KeyedRenderSegment[]>(() => {
-    const segments = this.segments();
-    const occurrences = new Map<string, number>();
+  /**
+   * Segments keyed by position and type. Output grows by appending (or by
+   * extending the last segment), so every existing view keeps its key and is
+   * reused; only a type change at an index, or a front trim, re-creates views.
+   */
+  readonly keyedSegments = computed<readonly KeyedRenderSegment[]>(() =>
+    this.segments().map((segment, index) => ({
+      key: `${index}:${segment.type}`,
+      segment,
+    })),
+  );
 
-    return segments.map((segment, index) => {
-      if (index === segments.length - 1) {
-        return { key: `tail:${segment.type}`, segment };
-      }
+  /** The last segment's text, when the last segment is text. */
+  private readonly liveTail = computed<TailText | null>(
+    () => {
+      const segments = this.segments();
+      const index = segments.length - 1;
+      const last = segments[index];
+      return last?.type === 'text' ? { index, content: last.content } : null;
+    },
+    {
+      equal: (a, b) =>
+        a === b ||
+        (a !== null &&
+          b !== null &&
+          a.index === b.index &&
+          a.content === b.content),
+    },
+  );
 
-      const contentKey = segmentContentKey(segment);
-      const occurrence = occurrences.get(contentKey) ?? 0;
-      occurrences.set(contentKey, occurrence + 1);
-      return { key: `${contentKey}#${occurrence}`, segment };
-    });
-  });
+  /**
+   * What the tail's markdown renders: the live tail, at most once per
+   * {@link TAIL_MARKDOWN_THROTTLE_MS}, always with the latest content on the
+   * trailing edge.
+   */
+  private readonly renderedTail = signal<TailText | null>(null);
+  private tailTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastTailRenderAt = 0;
   private readonly outputContainer =
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
 
@@ -356,7 +393,58 @@ export class AgentCardOutputComponent {
     return match ? match[1].replace(/_/g, ' ') : toolName;
   }
 
+  /**
+   * Markdown source for a text segment. The streaming tail reads the
+   * throttled copy; every other segment (including a former tail, the moment
+   * a new segment follows it) binds its own, final content.
+   */
+  protected markdownSource(segment: RenderSegment, index: number): string {
+    const rendered = this.renderedTail();
+    return rendered !== null &&
+      rendered.index === index &&
+      index === this.segments().length - 1
+      ? rendered.content
+      : segment.content;
+  }
+
+  private applyTail(tail: TailText | null): void {
+    this.renderedTail.set(tail);
+    this.lastTailRenderAt = Date.now();
+  }
+
+  private clearTailTimer(): void {
+    if (this.tailTimer !== null) {
+      clearTimeout(this.tailTimer);
+      this.tailTimer = null;
+    }
+  }
+
   constructor() {
+    inject(DestroyRef).onDestroy(() => this.clearTailTimer());
+
+    effect(() => {
+      const tail = this.liveTail();
+      const shown = untracked(this.renderedTail);
+      // A new tail segment (or none) renders at once; only growth of the same
+      // segment is throttled.
+      if (tail === null || shown === null || shown.index !== tail.index) {
+        this.clearTailTimer();
+        this.applyTail(tail);
+        return;
+      }
+      if (shown.content === tail.content || this.tailTimer !== null) return;
+      const wait =
+        TAIL_MARKDOWN_THROTTLE_MS - (Date.now() - this.lastTailRenderAt);
+      if (wait <= 0) {
+        this.applyTail(tail);
+        return;
+      }
+      this.tailTimer = setTimeout(() => {
+        this.tailTimer = null;
+        this.applyTail(untracked(this.liveTail));
+      }, wait);
+    });
+
     effect(() => {
       if (this.embedded()) return;
       this.segments();

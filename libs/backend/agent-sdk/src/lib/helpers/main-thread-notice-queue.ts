@@ -3,8 +3,8 @@
  *
  * Holds short host-authored notices for a session's main agent until its next
  * main-thread tool result, where `PostToolUseHookHandler` drains them into
- * `additionalContext`. Producers are the session budget (wrap-up notice) and
- * the subagent budget monitor (handoff notice).
+ * `additionalContext`. The producer is the subagent budget monitor (handoff
+ * notice); the session budget clears a session's pending notices at turn end.
  *
  * Notice text must be authored by the host. It never carries tool output or
  * transcript text: hook context reaches the model with host framing.

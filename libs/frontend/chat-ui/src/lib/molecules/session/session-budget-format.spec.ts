@@ -20,8 +20,6 @@ const TOKENS_BUDGET: SessionBudgetState = {
   lowerBound: false,
   revision: 4,
   compactions: 0,
-  extensions: 0,
-  blocked: false,
 };
 
 const COST_BUDGET: SessionBudgetState = {
@@ -49,7 +47,7 @@ const WEIGHTED_BUDGET: SessionBudgetState = {
 const FIGURES = { tokensLabel: '14.9M', totalCost: 38.18 };
 
 const THRESHOLDS =
-  'At 50% Ptah lowers auto-compact; at 80% it prepares a handoff; at 100% new messages pause.';
+  'At 50% Ptah lowers auto-compact; at 80% you can ask the agent to wrap up and hand off.';
 
 describe('session-budget-format', () => {
   describe('formatBudgetUsd', () => {

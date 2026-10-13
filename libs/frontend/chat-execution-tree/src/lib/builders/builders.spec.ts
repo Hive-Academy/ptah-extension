@@ -297,6 +297,10 @@ describe('builder fns (integration)', () => {
       expect(node.status).toBe('complete');
       expect(node.toolInput).toEqual({ file_path: '/tmp/a.txt' });
       expect(node.toolOutput).toBe('file contents');
+
+      // A rebuild of the completed tool reuses the shared parse result.
+      const rebuilt = buildToolNode(deps, toolStart, state, 0);
+      expect(rebuilt.toolInput).toBe(node.toolInput);
     });
 
     it('preserves a failing tool_result error flag without changing complete status', () => {

@@ -629,8 +629,16 @@ async function runStreamingTurn(args: StreamingTurnArgs): Promise<number> {
       tabId,
       command,
       rpcCall: async () => {
-        const resp = await ctx.transport.call(rpcMethod, buildParams());
-        return { success: resp.success === true };
+        const resp = await ctx.transport.call<
+          unknown,
+          { success?: boolean; error?: string }
+        >(rpcMethod, buildParams());
+        // A refused turn is `success: false` in the data and never emits
+        // chat:complete; see interact.ts.
+        if (resp.data?.success === false) {
+          return { success: false, error: resp.data.error };
+        }
+        return { success: resp.success === true, error: resp.error };
       },
     });
 

@@ -110,10 +110,7 @@ import type {
 } from '../sdk-hook.types';
 import type { SessionMcpStatusPayload } from './session-mcp-status';
 import type { PlanLimitsSnapshot } from '../plan-limit.types';
-import type {
-  AgentSessionOpenedPayload,
-  SessionSuccessorReplacementPayload,
-} from './agent-session';
+import type { AgentSessionOpenedPayload } from './agent-session';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -403,7 +400,6 @@ export interface MessagePayloadMap {
   'planLimits:changed': PlanLimitsSnapshot;
   'session:organizationChanged': SessionOrganizationChangedPayload;
   'agentSession:opened': AgentSessionOpenedPayload;
-  'session:successorReplacement': SessionSuccessorReplacementPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;

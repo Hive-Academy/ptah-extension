@@ -43,18 +43,42 @@ const STDERR_ERROR_KEYWORDS =
  * Adjacent text lines are merged into a single segment.
  */
 export function parseAgentOutput(stdout: string): RenderSegment[] {
-  const lines = stdout.split('\n');
+  return parseAgentOutputLines(stdout.split('\n')).segments;
+}
+
+/**
+ * Segments parsed from a run of lines, with the line each segment's parse
+ * began on. Parsing from any of those lines with fresh state reproduces the
+ * same segments from that point on, which is what lets
+ * {@link createAgentOutputParser} re-parse only the tail of a growing buffer.
+ */
+interface ParsedLines<T> {
+  readonly segments: T[];
+  readonly starts: number[];
+}
+
+function parseAgentOutputLines(
+  lines: readonly string[],
+): ParsedLines<RenderSegment> {
   const segments: RenderSegment[] = [];
+  const starts: number[] = [];
   let currentText = '';
+  let textStart = -1;
+
+  const push = (segment: RenderSegment, start: number) => {
+    segments.push(segment);
+    starts.push(start);
+  };
 
   const flushText = () => {
     if (currentText.trim()) {
-      segments.push({ type: 'text', content: currentText.trimEnd() });
+      push({ type: 'text', content: currentText.trimEnd() }, textStart);
     }
     currentText = '';
   };
 
   for (let i = 0; i < lines.length; i++) {
+    const start = i;
     const line = lines[i];
     const trimmed = line.trim();
     // The head-of-buffer notice `capBuffer` leaves when it front-truncates a
@@ -62,7 +86,7 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
     // text it would read as something the agent said (TASK_2026_335).
     if (isOutputTruncationNotice(trimmed)) {
       flushText();
-      segments.push({ type: 'info', content: trimmed });
+      push({ type: 'info', content: trimmed }, start);
       continue;
     }
     if (/^\[stderr\]/i.test(trimmed)) {
@@ -73,18 +97,21 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
         stderrContent += '\n' + lines[i].trim().replace(/^\[stderr\]\s*/i, '');
       }
       const isError = STDERR_ERROR_KEYWORDS.test(stderrContent);
-      segments.push({
-        type: isError ? 'error' : 'stderr-info',
-        content: stderrContent.trim(),
-      });
+      push(
+        {
+          type: isError ? 'error' : 'stderr-info',
+          content: stderrContent.trim(),
+        },
+        start,
+      );
       continue;
     }
     if (/^[●•]\s+\S/.test(trimmed) || /^#{1,3}\s+\S/.test(trimmed)) {
       flushText();
-      segments.push({
-        type: 'heading',
-        content: trimmed.replace(/^[●•#]+\s*/, ''),
-      });
+      push(
+        { type: 'heading', content: trimmed.replace(/^[●•#]+\s*/, '') },
+        start,
+      );
       continue;
     }
     const toolMatch = trimmed.match(/^Tool:\s+(\w[\w_.-]*)\s*(.*)?$/);
@@ -95,12 +122,15 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
         i++;
         toolContent += (toolContent ? '\n' : '') + lines[i];
       }
-      segments.push({
-        type: 'tool',
-        content: toolContent.trim(),
-        toolName: toolMatch[1],
-        toolArgs: toolMatch[2]?.trim() || undefined,
-      });
+      push(
+        {
+          type: 'tool',
+          content: toolContent.trim(),
+          toolName: toolMatch[1],
+          toolArgs: toolMatch[2]?.trim() || undefined,
+        },
+        start,
+      );
       continue;
     }
     if (/^[►▶]?\s*Tool result\s*\(error\)/i.test(trimmed)) {
@@ -110,10 +140,10 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
         i++;
         resultContent += (resultContent ? '\n' : '') + lines[i];
       }
-      segments.push({
-        type: 'tool-result-error',
-        content: resultContent.trim(),
-      });
+      push(
+        { type: 'tool-result-error', content: resultContent.trim() },
+        start,
+      );
       continue;
     }
     if (/^[►▶]?\s*Tool result/i.test(trimmed)) {
@@ -123,10 +153,7 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
         i++;
         resultContent += (resultContent ? '\n' : '') + lines[i];
       }
-      segments.push({
-        type: 'tool-result',
-        content: resultContent.trim(),
-      });
+      push({ type: 'tool-result', content: resultContent.trim() }, start);
       continue;
     }
     const actionMatch = trimmed.match(
@@ -134,12 +161,15 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
     );
     if (actionMatch) {
       flushText();
-      segments.push({
-        type: 'tool',
-        content: '',
-        toolName: actionMatch[1].toLowerCase(),
-        toolArgs: actionMatch[2],
-      });
+      push(
+        {
+          type: 'tool',
+          content: '',
+          toolName: actionMatch[1].toLowerCase(),
+          toolArgs: actionMatch[2],
+        },
+        start,
+      );
       continue;
     }
     if (
@@ -147,14 +177,82 @@ export function parseAgentOutput(stdout: string): RenderSegment[] {
       /^X\s+/.test(trimmed)
     ) {
       flushText();
-      segments.push({ type: 'error', content: trimmed });
+      push({ type: 'error', content: trimmed }, start);
       continue;
     }
+    if (currentText === '') textStart = i;
     currentText += (currentText ? '\n' : '') + line;
   }
 
   flushText();
-  return segments;
+  return { segments, starts };
+}
+
+/**
+ * Re-parses only the tail of a buffer that grows by appending.
+ *
+ * Everything before the line the last segment began on is final: a segment
+ * only ever extends while later lines join it, and the line that ends a
+ * segment begins the next one. When the last segment begins on the
+ * unfinished final line, that line can still change what it is, so the
+ * segment before it is re-parsed too. Any change that is not a pure append
+ * (a front trim, a reset) falls back to a full parse. The result is always
+ * equal to a full parse of the same buffer.
+ */
+class IncrementalLineParser<T> {
+  private source = '';
+  private result: T[] = [];
+  /** Final segments, all of them before {@link stableEnd}. */
+  private stable: T[] = [];
+  /** Character offset in `source` where the re-parsed tail begins. */
+  private stableEnd = 0;
+
+  constructor(
+    private readonly parseLines: (lines: readonly string[]) => ParsedLines<T>,
+  ) {}
+
+  parse(next: string): T[] {
+    if (next === this.source) return this.result;
+    if (!next.startsWith(this.source)) {
+      this.stable = [];
+      this.stableEnd = 0;
+    }
+
+    const lines = next.slice(this.stableEnd).split('\n');
+    const { segments, starts } = this.parseLines(lines);
+    this.result =
+      this.stable.length > 0 ? this.stable.concat(segments) : segments;
+
+    // Segments before `keep` become final; the tail re-parses from `keep`.
+    let keep = segments.length - 1;
+    if (keep >= 0 && starts[keep] === lines.length - 1) keep--;
+    if (keep > 0) {
+      let offset = 0;
+      for (let l = 0; l < starts[keep]; l++) offset += lines[l].length + 1;
+      for (let s = 0; s < keep; s++) this.stable.push(segments[s]);
+      this.stableEnd += offset;
+    }
+    this.source = next;
+    return this.result;
+  }
+}
+
+/**
+ * A stateful {@link parseAgentOutput} for one growing stdout buffer (one per
+ * agent card). Returns segments equal to `parseAgentOutput(stdout)`.
+ */
+export function createAgentOutputParser(): (stdout: string) => RenderSegment[] {
+  const parser = new IncrementalLineParser(parseAgentOutputLines);
+  return (stdout) => parser.parse(stdout);
+}
+
+/**
+ * A stateful {@link parseStderr} for one growing stderr buffer (one per agent
+ * card). Returns segments equal to `parseStderr(stderr)`.
+ */
+export function createStderrParser(): (stderr: string) => StderrSegment[] {
+  const parser = new IncrementalLineParser(parseStderrLines);
+  return (stderr) => parser.parse(stderr);
 }
 
 /**
@@ -186,33 +284,43 @@ function isStderrInfoLine(line: string): boolean {
  * Adjacent lines of the same type are merged into one segment.
  */
 export function parseStderr(stderr: string): StderrSegment[] {
-  const lines = stderr.split('\n');
+  return parseStderrLines(stderr.split('\n')).segments;
+}
+
+function parseStderrLines(
+  lines: readonly string[],
+): ParsedLines<StderrSegment> {
   const segments: StderrSegment[] = [];
+  const starts: number[] = [];
   let currentType: 'info' | 'error' | null = null;
   let currentLines: string[] = [];
+  let groupStart = 0;
 
   const flush = () => {
     if (currentLines.length > 0 && currentType) {
       const content = currentLines.join('\n').trimEnd();
       if (content) {
         segments.push({ type: currentType, content });
+        starts.push(groupStart);
       }
     }
     currentLines = [];
     currentType = null;
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const type: 'info' | 'error' = isStderrInfoLine(line) ? 'info' : 'error';
     if (type !== currentType) {
       flush();
       currentType = type;
+      groupStart = i;
     }
     currentLines.push(line);
   }
   flush();
 
-  return segments;
+  return { segments, starts };
 }
 
 /**

@@ -397,6 +397,7 @@ export class IpcBridge {
    * Handled message types:
    * - SDK_PERMISSION_RESPONSE: User approved/denied a permission prompt
    * - ASK_USER_QUESTION_RESPONSE: User answered a clarifying question
+   * - AGENT_MONITOR_PERMISSION_RESPONSE: User answered a CLI-agent permission
    */
   private async handleFireAndForgetMessage(
     type: string,
@@ -426,10 +427,7 @@ export class IpcBridge {
             handler.handleResponse(response.id, {
               id: response.id,
               decision: response.decision as
-                | 'allow'
-                | 'deny'
-                | 'deny_with_message'
-                | 'always_allow',
+                'allow' | 'deny' | 'deny_with_message' | 'always_allow',
               reason: response.reason,
               modifiedInput: response.modifiedInput,
             });
@@ -449,8 +447,7 @@ export class IpcBridge {
 
       case MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE: {
         const payload = msg['payload'] as
-          | { id: string; answers: Record<string, string> }
-          | undefined;
+          { id: string; answers: Record<string, string> } | undefined;
         if (!payload) {
           console.warn('[IpcBridge] AskUserQuestion response missing payload');
           return;
@@ -471,6 +468,40 @@ export class IpcBridge {
         } catch (error) {
           console.error(
             '[IpcBridge] Failed to process AskUserQuestion response',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        break;
+      }
+
+      case MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE: {
+        // CLI-agent lanes (Ptah CLI, Copilot) answer through the same RPC the
+        // VS Code host forwards this message to; without this case the answer
+        // was dropped while the renderer cleared the prompt locally.
+        const payload = msg['payload'] as
+          | { requestId?: string; decision?: string; reason?: string }
+          | undefined;
+        if (!payload?.requestId) {
+          console.warn(
+            '[IpcBridge] Agent permission response missing requestId',
+          );
+          return;
+        }
+        try {
+          const response = await this.rpcHandler.handleMessage({
+            method: 'agent:permissionResponse',
+            params: payload,
+            correlationId: payload.requestId,
+          });
+          if (!response.success) {
+            console.warn('[IpcBridge] Agent permission response failed', {
+              requestId: payload.requestId,
+              error: response.error,
+            });
+          }
+        } catch (error) {
+          console.error(
+            '[IpcBridge] Failed to process agent permission response',
             error instanceof Error ? error.message : String(error),
           );
         }

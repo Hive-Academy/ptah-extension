@@ -134,33 +134,15 @@
         />
       </div>
 
-      <!-- Session budget banner (TASK_2026_597 N7): tighten, handoff, limit -->
+      <!-- Session budget banner: handoff and limit -->
       @if (showSessionBudgetBanner()) {
         <ptah-session-budget-banner
           [budget]="resolvedSessionBudget()"
-          [handover]="resolvedHandover()"
-          [preview]="budgetPreviewText()"
-          [previewFailed]="budgetPreviewFailed()"
-          [contextTokens]="budgetContextTokens()"
-          [busy]="budgetActionBusy()"
-          [usage]="budgetUsage()"
-          [compacting]="resolvedIsCompacting()"
-          [turnRunning]="budgetTurnRunning()"
-          [liveStage]="budgetLiveStage()"
-          [wrapUpRequested]="budgetWrapUpRequested()"
-          [queuedMessageCarried]="budgetQueuedMessageCarried()"
-          (compact)="onBudgetCompact()"
-          (dismiss)="onBudgetAction('dismiss')"
-          (extend)="onBudgetAction('extend')"
-          (restoreWindow)="onBudgetAction('restore-window')"
-          (previewRequested)="onBudgetPreview()"
-          (continueInNewSession)="onBudgetContinue()"
-          (cancelHandover)="onBudgetCancelHandover()"
-          (requestWrapUp)="onBudgetRequestWrapUp()"
-          (continueNowAnyway)="onBudgetContinueNowAnyway()"
-          (approveAgentRequest)="onBudgetApproveAgentRequest()"
-          (restoreLostInputs)="onRestoreLostHandoverInputs($event)"
-          (rotate)="onBudgetRotate()"
+          [displayStage]="budgetDisplayStage()"
+          [dismissedStage]="budgetDismissedStage()"
+          [wrapUpSent]="budgetWrapUpSent()"
+          (wrapUp)="onBudgetWrapUp()"
+          (dismiss)="onBudgetDismiss()"
         />
       }
 

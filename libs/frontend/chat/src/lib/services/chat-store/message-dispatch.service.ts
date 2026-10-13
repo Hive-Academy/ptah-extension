@@ -4,7 +4,6 @@ import {
   createExecutionChatMessage,
   MessageId,
   type PermissionRequest,
-  SESSION_HANDOVER_HELD,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
@@ -199,14 +198,7 @@ export class MessageDispatchService {
       return { success: true };
     }
     const outcome = await this.messageSender.send(content, options);
-    // At the budget limit the composer keeps the draft and the budget banner
-    // explains the block, so no generic failure notice is added.
-    if (
-      outcome &&
-      !outcome.success &&
-      outcome.errorCode !== 'SESSION_BUDGET_REACHED' &&
-      resolvedTabId
-    ) {
+    if (outcome && !outcome.success && resolvedTabId) {
       this.showSendFailure(resolvedTabId, outcome.error);
     }
     return outcome;
@@ -257,15 +249,8 @@ export class MessageDispatchService {
           { ...queuedOptions, tabId },
         );
       if (outcome && !outcome.success) {
-        if (outcome.errorCode !== SESSION_HANDOVER_HELD) {
-          this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-        }
-        if (
-          outcome.errorCode !== 'SESSION_BUDGET_REACHED' &&
-          outcome.errorCode !== SESSION_HANDOVER_HELD
-        ) {
-          this.showSendFailure(tabId, outcome.error);
-        }
+        this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
+        this.showSendFailure(tabId, outcome.error);
       }
     } catch (error) {
       this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);

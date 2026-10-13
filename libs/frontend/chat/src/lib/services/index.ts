@@ -59,7 +59,6 @@ export {
 } from './stream-presentation-store.service';
 export { AgentSessionAdoptionService } from './agent-session-adoption.service';
 export { ChatTabRouteSync } from './chat-tab-route-sync.service';
-export { SessionHandoverClientService } from './session-handover-client.service';
 export { VoiceDownloadProgressService } from './voice-download-progress.service';
 export { VoiceProviderErrorService } from './voice-provider-error.service';
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */

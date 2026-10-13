@@ -56,11 +56,7 @@ import type {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type {
-  ChatStartParams,
-  ChatContinueParams,
-  ChatResumeParams,
-} from '@ptah-extension/shared';
+import type { ChatStartParams } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -180,44 +176,7 @@ describe('ChatSessionService — workspace authorization gate', () => {
     });
   });
 
-  describe('continueSession (chat:continue)', () => {
-    it('returns success:false with Access denied when renderer supplies unauthorized workspacePath', async () => {
-      const provider = createMockWorkspaceProvider({ folders: [OPEN_FOLDER] });
-      const svc = makeService(
-        provider as unknown as IWorkspaceProvider,
-        logger,
-      );
-
-      const params: ChatContinueParams = {
-        prompt: 'More',
-        sessionId: 'sess-1' as never,
-        tabId: 'tab1',
-        workspacePath: EVIL_PATH,
-      };
-
-      const result = await svc.continueSession(params);
-      expect(result.success).toBe(false);
-      expect((result as { error: string }).error).toMatch(/Access denied/);
-    });
-  });
-
-  describe('resumeSession (chat:resume)', () => {
-    it('returns success:false with Access denied when renderer supplies unauthorized workspacePath', async () => {
-      const provider = createMockWorkspaceProvider({ folders: [OPEN_FOLDER] });
-      const svc = makeService(
-        provider as unknown as IWorkspaceProvider,
-        logger,
-      );
-
-      const params: ChatResumeParams = {
-        sessionId: 'sess-1' as never,
-        tabId: 'tab1',
-        workspacePath: EVIL_PATH,
-      };
-
-      const result = await svc.resumeSession(params);
-      expect(result.success).toBe(false);
-      expect((result as { error: string }).error).toMatch(/Access denied/);
-    });
-  });
+  // chat:continue and chat:resume no longer take a folder from the caller:
+  // they act in the session's own folder, so a renderer path cannot steer
+  // them. chat-session-session-folder.spec.ts covers that.
 });

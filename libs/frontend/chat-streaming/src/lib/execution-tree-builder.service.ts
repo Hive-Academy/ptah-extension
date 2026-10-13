@@ -31,6 +31,10 @@
  *    their root through the tool that spawned them). Only roots whose digest
  *    moved are handed to `buildMessageNode`; the rest are reused by reference.
  *    When no root moved, `buildTree` returns the previous array untouched.
+ *    Inside a rebuilt root, each agent node is memoized on its TOOL digest
+ *    (the same fold, per tool call), so a delta in one sub-agent rebuilds
+ *    that agent's path and hands its siblings back by reference
+ *    (TASK_2026_628).
  * 3. **Cheap structural fingerprints** — a 32-bit numeric hash per node,
  *    computed from bounded samples (never a full `JSON.stringify`), used to
  *    keep object identity stable for OnPush inside a rebuilt subtree.
@@ -65,6 +69,20 @@ import {
   buildAgentNode as buildAgentNodeFn,
   buildInterleavedChildren as buildInterleavedChildrenFn,
 } from '@ptah-extension/chat-execution-tree';
+import {
+  HASH_SEED,
+  agentMemoKey,
+  agentMemoKeyBase,
+  agentMemoSlot,
+  computeTreeDigests,
+  identityOf,
+  mixNumber,
+  pruneAgentMemo,
+  sameStateIdentity,
+  type ActiveAgentBuild,
+  type AgentMemoEntry,
+  type StreamingStateIdentity,
+} from './execution-tree-cache';
 
 /**
  * Memoized tree + everything needed to decide what may be reused next time.
@@ -104,17 +122,21 @@ interface TreeCacheEntry {
    * see {@link ExecutionTreeBuilderService.pruneNodeMaps}.
    */
   liveNodeCount: number;
-  /** Derived indexes, valid while `indexState`/`indexVersion` still match. */
+  /** Derived indexes, valid while `indexIdentity`/`indexVersion` still match. */
   indexes: StreamingIndexes | null;
-  indexState: StreamingState | null;
+  /**
+   * The containers the entry's digests were read from. Gates every reuse —
+   * see {@link sameStateIdentity}.
+   */
+  indexIdentity: StreamingStateIdentity | null;
   indexVersion: string;
+  /**
+   * Per-agent memo, keyed by {@link agentMemoSlot}. Lets a rebuilt root hand
+   * back an unchanged sibling agent's node without building its messages.
+   * Belongs to `indexIdentity`: a new identity starts an empty memo.
+   */
+  agentNodeByToolCall: Map<string, AgentMemoEntry>;
 }
-
-/**
- * FNV-1a offset basis — the seed for every fingerprint in this file. Kept in
- * the signed 32-bit range for the same reason {@link mixNumber} is signed.
- */
-const HASH_SEED = 0x811c9dc5 | 0;
 
 /** Max characters sampled from a string when folding it into a fingerprint. */
 const STRING_SAMPLE_BUDGET = 64;
@@ -178,6 +200,12 @@ export class ExecutionTreeBuilderService {
   } | null = null;
 
   /**
+   * Agent memo context the current {@link buildTree} call installed. `null`
+   * outside a build, which makes the memoized `buildAgentNode` a plain build.
+   */
+  private activeAgentBuild: ActiveAgentBuild | null = null;
+
+  /**
    * BuilderDeps wired with closures back into this service. Each callback
    * forwards to the matching pure function with `this.deps` re-injected so
    * builders can recurse without importing each other at module level.
@@ -212,7 +240,7 @@ export class ExecutionTreeBuilderService {
       toolCallId: string,
       state: StreamingState,
       depth: number,
-    ) => buildAgentNodeFn(this.deps, agentStart, toolCallId, state, depth),
+    ) => this.buildAgentNodeMemoized(agentStart, toolCallId, state, depth),
     buildInterleavedChildren: (
       agentId: string,
       baseTimestamp: number,
@@ -264,6 +292,7 @@ export class ExecutionTreeBuilderService {
       );
     } finally {
       this.activeIndexes = null;
+      this.activeAgentBuild = null;
     }
   }
 
@@ -273,8 +302,12 @@ export class ExecutionTreeBuilderService {
     cached: TreeCacheEntry | undefined,
     indexes: StreamingIndexes,
   ): ExecutionNode[] {
-    const globalEpoch = this.computeGlobalEpoch(streamingState);
-    const digestByRoot = this.computeRootDigests(streamingState, indexes);
+    const digests = computeTreeDigests(streamingState, indexes);
+    const digestByRoot = digests.digestByRoot;
+    const globalEpoch = this.computeGlobalEpoch(
+      streamingState,
+      digests.unattributedAgentContent,
+    );
 
     const rootOrder: string[] = [];
     const startByRoot = new Map<string, MessageStartEvent | undefined>();
@@ -289,27 +322,41 @@ export class ExecutionTreeBuilderService {
     }
 
     /**
-     * Reuse — whole-tree below, and per-root inside the loop — additionally
-     * requires the SAME `StreamingState` OBJECT, mirroring the guard
-     * {@link resolveIndexes} already puts on its index memo.
+     * Reuse — whole-tree below, per-root and per-agent inside the loop —
+     * additionally requires the SAME STATE IDENTITY: the same `events`,
+     * `eventsByMessage` and `messageRevisions` containers the cached digests
+     * were read from (see {@link sameStateIdentity}). {@link resolveIndexes}
+     * puts the same guard on its index memo.
      *
-     * Every other input to the decision (the epoch, the per-root digests, the
-     * root order) is folded from CONTENT, and every counter feeding them
-     * restarts at 1 for a new state. `applyResumingSession` installs a brand-new
+     * Every other input to the decision (the epoch, the digests, the root
+     * order) is folded from CONTENT, and every counter feeding them restarts at
+     * 1 for a new state. `applyResumingSession` installs a brand-new
      * `createEmptyStreamingState()` onto a tab that keeps its id, while the
      * cache key is `tab-${tabId}` — so a fresh state meets a cache entry whose
-     * folds were computed from the object it replaced, and matching numbers no
-     * longer mean matching content (TASK_2026_336).
+     * folds were computed from the state it replaced, and matching numbers no
+     * longer mean matching content (TASK_2026_336). A fresh state has fresh
+     * containers, so the identity check fails and nothing is reused — also
+     * when it arrives as a flush copy, because the copy shares the FRESH
+     * state's containers, not the old ones.
      *
-     * It costs one reference compare and defeats no ordinary reuse: the
-     * streaming path mutates `StreamingState` IN PLACE and keeps the same
-     * object (see the lib's `CLAUDE.md`), so only a genuinely REPLACED state
-     * — a resume, a fork, `compaction_complete`'s `replacementState` — is
-     * rejected.
+     * Why containers and not the object: `BatchedUpdateService` publishes a
+     * shallow `{ ...state }` copy on every flush. Keying on the object made
+     * every flush a cache miss. The copy shares all three containers, and
+     * every digest input (`messageRevisions.get`, bucket length) is read from
+     * them, so two states with the same containers have comparable digests.
+     * The streaming path mutates those containers IN PLACE (see the lib's
+     * `CLAUDE.md`); every replacement producer (a resume, a fork that resets
+     * to `null`, `compaction_complete`'s `replacementState`, the finalization
+     * rebuild's `new Map(state.events)`) builds new ones.
+     *
+     * Residual risk: a future writer that `clear()`s these containers and
+     * restarts the counters on the SAME objects would defeat this check, as it
+     * would have defeated the object check. Replace the containers instead.
      */
-    const sameStateObject = cached?.indexState === streamingState;
-    const epochUnchanged =
-      sameStateObject && cached?.globalEpoch === globalEpoch;
+    const sameIdentity =
+      cached !== undefined &&
+      sameStateIdentity(cached.indexIdentity, streamingState);
+    const epochUnchanged = sameIdentity && cached?.globalEpoch === globalEpoch;
     if (
       cached &&
       epochUnchanged &&
@@ -322,6 +369,19 @@ export class ExecutionTreeBuilderService {
     }
 
     this.agentStats.resetPerBuildCache();
+
+    const agentMemo =
+      sameIdentity && cached
+        ? cached.agentNodeByToolCall
+        : new Map<string, AgentMemoEntry>();
+    const activeAgentBuild: ActiveAgentBuild = {
+      state: streamingState,
+      memo: agentMemo,
+      digestByToolCall: digests.digestByToolCall,
+      keyBase: agentMemoKeyBase(streamingState, globalEpoch),
+      built: [],
+    };
+    this.activeAgentBuild = activeAgentBuild;
 
     const nodeByRoot = new Map<string, ExecutionNode>();
     const reusedRoots = new Set<ExecutionNode>();
@@ -384,19 +444,32 @@ export class ExecutionTreeBuilderService {
     const nodesById = cached?.nodesById ?? new Map<string, ExecutionNode>();
     const fingerprintsById =
       cached?.fingerprintsById ?? new Map<string, number>();
+    const postReuseAgents = new Map<ExecutionNode, ExecutionNode>();
     const reuseRoots = rootNodes.map((root) =>
       // A root that came straight out of the previous build is already the
       // post-reuse node and its fingerprints are already recorded — walking it
       // would only re-derive identical numbers.
       reusedRoots.has(root)
         ? root
-        : this.reuseUnchangedSubtree(root, nodesById, fingerprintsById),
+        : this.reuseUnchangedSubtree(
+            root,
+            nodesById,
+            fingerprintsById,
+            postReuseAgents,
+          ),
     );
 
     for (let i = 0; i < reuseRoots.length; i++) {
       const owner = ownerByRootIndex[i];
       if (owner) nodeByRoot.set(owner, reuseRoots[i]);
     }
+
+    // Same write-back as `nodeByRoot`: a memo hit on the next build must hand
+    // back the object the tree is rendering, so the reuse walk can stop there.
+    for (const entry of activeAgentBuild.built) {
+      entry.node = postReuseAgents.get(entry.node) ?? entry.node;
+    }
+    pruneAgentMemo(agentMemo, streamingState);
 
     const liveNodeCount = this.pruneNodeMaps(
       reuseRoots,
@@ -422,8 +495,9 @@ export class ExecutionTreeBuilderService {
       fingerprintsById,
       liveNodeCount,
       indexes,
-      indexState: streamingState,
+      indexIdentity: identityOf(streamingState),
       indexVersion: indexVersionOf(streamingState),
+      agentNodeByToolCall: agentMemo,
     });
 
     return reuseRoots;
@@ -503,10 +577,10 @@ export class ExecutionTreeBuilderService {
   /**
    * Derive (or reuse) the secondary indexes for `streamingState`.
    *
-   * Memoized per cacheKey on object identity PLUS `${events.size}:${revision}`
-   * — identity alone would go stale on in-place mutation (the accumulator
-   * mutates `StreamingState` in place by design), and the version alone would
-   * collide across two different states of equal size.
+   * Memoized per cacheKey on state identity ({@link sameStateIdentity}) PLUS
+   * {@link indexVersionOf} — identity alone would go stale on in-place
+   * mutation (the accumulator mutates `StreamingState` in place by design),
+   * and the version alone would collide across two different states.
    */
   private resolveIndexes(
     streamingState: StreamingState,
@@ -515,7 +589,7 @@ export class ExecutionTreeBuilderService {
     const version = indexVersionOf(streamingState);
     if (
       cached?.indexes &&
-      cached.indexState === streamingState &&
+      sameStateIdentity(cached.indexIdentity, streamingState) &&
       cached.indexVersion === version
     ) {
       return cached.indexes;
@@ -524,18 +598,24 @@ export class ExecutionTreeBuilderService {
   }
 
   /**
-   * Fold the state-wide inputs that no per-message revision can observe:
-   * agent summary/content-block content (written by the agent file watcher,
-   * keyed by agentId, not by message) and the background-agent flag set.
+   * Fold the state-wide inputs that no per-message revision can observe: the
+   * agent summary/content-block content NO ROOT could be shown to own, and the
+   * background-agent flag set.
    *
    * Accumulator map sizes are folded in too so this subsumes every field the
    * pre-TASK_2026_323 memo fingerprint checked. A SIZE is a legitimate fold
    * only where a size-preserving change is impossible or is already visible
    * through another input:
    *
-   * - `agentSummaryAccumulators` / `agentContentBlocksMap` fold total content
-   *   length and total block count, not size, and their only writer appends —
-   *   so an in-place change always moves the number.
+   * - `agentSummaryAccumulators` / `agentContentBlocksMap` (written by the
+   *   agent file watcher, keyed by agentId, not by message) fold content
+   *   length and block count, not size, and their only writer appends — so an
+   *   in-place change always moves the number. An agent that
+   *   {@link foldAgentContent} can trace to the tool that renders it is folded
+   *   into that tool's digest and its root's digest instead, so one agent's
+   *   summary chunk rebuilds only its own root (TASK_2026_628). Only the
+   *   untraceable remainder arrives here as `unattributedAgentContent`, which
+   *   keeps the pre-628 behaviour (rebuild everything) for exactly those.
    * - `textAccumulators` / `toolInputAccumulators` fold size, and their
    *   content DOES change in place — but every writer of both also routes the
    *   event through `setStreamingEventCapped`, so the owning message's digest
@@ -548,20 +628,12 @@ export class ExecutionTreeBuilderService {
    *   per-mutation counter — which is O(1) and cannot be defeated by a
    *   size-preserving swap (TASK_2026_333).
    */
-  private computeGlobalEpoch(streamingState: StreamingState): number {
-    let agentSummaryTotalLength = 0;
-    for (const content of streamingState.agentSummaryAccumulators.values()) {
-      agentSummaryTotalLength += content.length;
-    }
-
-    let agentContentBlocksCount = 0;
-    for (const blocks of streamingState.agentContentBlocksMap.values()) {
-      agentContentBlocksCount += blocks.length;
-    }
-
+  private computeGlobalEpoch(
+    streamingState: StreamingState,
+    unattributedAgentContent: number,
+  ): number {
     let hash = HASH_SEED;
-    hash = mixNumber(hash, agentSummaryTotalLength);
-    hash = mixNumber(hash, agentContentBlocksCount);
+    hash = mixNumber(hash, unattributedAgentContent);
     hash = mixNumber(hash, streamingState.textAccumulators.size);
     hash = mixNumber(hash, streamingState.toolInputAccumulators.size);
     hash = mixNumber(hash, this.backgroundAgentStore.revision());
@@ -569,31 +641,60 @@ export class ExecutionTreeBuilderService {
   }
 
   /**
-   * One digest per ROOT message, folding every message that renders inside it.
+   * `deps.buildAgentNode`, memoized per agent for the current build.
    *
-   * A subagent's events carry the subagent's own messageId, so its writes bump
-   * a revision the root never sees; `rootMessageIdByMessageId` walks the
-   * `message_start.parentToolUseId → tool_start.messageId` chain to attribute
-   * them. Bucket length is folded alongside the revision so a state whose
-   * writes bypassed `setStreamingEventCapped` (a frozen deep copy, a spec
-   * literal) still invalidates on append instead of going stale.
+   * The key folds everything the agent subtree reads that its tool digest does
+   * not already cover:
+   * - the tool digest: every message under the tool, at any depth, plus the
+   *   agent content traced to it or to a tool below it;
+   * - `structuralRevision`: bumped by every `message_start`, `tool_start`,
+   *   `tool_result`, `agent_start`, `message_complete`, eviction and text
+   *   block key change, i.e. everything that can change agent matching,
+   *   status, stats or the hook-fallback agentId (`agent-node.fn.ts`);
+   * - the global epoch: untraced agent content, accumulator sizes and the
+   *   background-agent revision;
+   * - this agent's own summary length and block count, and the depth.
+   *
+   * Bypassed (always built) when there is no active build for `state`, the
+   * state is untracked, the tool has no digest, or the agent has no agentId —
+   * the hook-match path, whose agentId depends on other agents' events.
    */
-  private computeRootDigests(
-    streamingState: StreamingState,
-    indexes: StreamingIndexes,
-  ): Map<string, number> {
-    const revisions = streamingState.messageRevisions;
-    const digestByRoot = new Map<string, number>();
-
-    for (const [messageId, bucket] of streamingState.eventsByMessage) {
-      const root = indexes.rootMessageIdByMessageId.get(messageId) ?? messageId;
-      let hash = digestByRoot.get(root) ?? HASH_SEED;
-      hash = mixNumber(hash, revisions?.get(messageId) ?? 0);
-      hash = mixNumber(hash, bucket.length);
-      digestByRoot.set(root, hash);
+  private buildAgentNodeMemoized(
+    agentStart: AgentStartEvent,
+    toolCallId: string,
+    state: StreamingState,
+    depth: number,
+  ): ExecutionNode | null {
+    const build = this.activeAgentBuild;
+    const key =
+      build && build.state === state && agentStart.agentId
+        ? agentMemoKey(build, agentStart.agentId, toolCallId, state, depth)
+        : undefined;
+    if (!build || key === undefined) {
+      return buildAgentNodeFn(this.deps, agentStart, toolCallId, state, depth);
     }
 
-    return digestByRoot;
+    const slot = agentMemoSlot(toolCallId, agentStart.id);
+    const hit = build.memo.get(slot);
+    if (hit && hit.key === key && hit.agentStart === agentStart) {
+      return hit.node;
+    }
+
+    const node = buildAgentNodeFn(
+      this.deps,
+      agentStart,
+      toolCallId,
+      state,
+      depth,
+    );
+    if (!node) {
+      build.memo.delete(slot);
+      return null;
+    }
+    const entry: AgentMemoEntry = { key, agentStart, node };
+    build.memo.set(slot, entry);
+    build.built.push(entry);
+    return node;
   }
 
   /**
@@ -609,11 +710,42 @@ export class ExecutionTreeBuilderService {
    * `nodesById` / `fingerprintsById` are read AND written: a child overwrites
    * its own entry before the parent reads the parent's own (still previous)
    * entry, so a single pair of maps is enough.
+   *
+   * A node that IS the object recorded for its id (a memoized agent node
+   * handed back unchanged) is returned without a walk: nodes are immutable,
+   * and `nodesById` / `fingerprintsById` are always written as a pair, so its
+   * recorded fingerprint still describes it — the same reasoning that lets a
+   * reused root skip this walk entirely.
+   *
+   * `postReuseAgents` records, for every agent node walked, the object that
+   * replaced it, so the agent memo can store what the tree actually renders.
    */
   private reuseUnchangedSubtree(
     node: ExecutionNode,
     nodesById: Map<string, ExecutionNode>,
     fingerprintsById: Map<string, number>,
+    postReuseAgents?: Map<ExecutionNode, ExecutionNode>,
+  ): ExecutionNode {
+    if (nodesById.get(node.id) === node && fingerprintsById.has(node.id)) {
+      return node;
+    }
+    const result = this.reuseWalk(
+      node,
+      nodesById,
+      fingerprintsById,
+      postReuseAgents,
+    );
+    if (postReuseAgents && node.type === 'agent') {
+      postReuseAgents.set(node, result);
+    }
+    return result;
+  }
+
+  private reuseWalk(
+    node: ExecutionNode,
+    nodesById: Map<string, ExecutionNode>,
+    fingerprintsById: Map<string, number>,
+    postReuseAgents?: Map<ExecutionNode, ExecutionNode>,
   ): ExecutionNode {
     const incomingChildren = node.children;
     let childrenChanged = false;
@@ -623,6 +755,7 @@ export class ExecutionTreeBuilderService {
         incomingChildren[i],
         nodesById,
         fingerprintsById,
+        postReuseAgents,
       );
       if (reusedChild !== incomingChildren[i]) childrenChanged = true;
       reusedChildren[i] = reusedChild;
@@ -776,7 +909,8 @@ export class ExecutionTreeBuilderService {
     entry.nodeByRoot.clear();
     entry.digestByRoot.clear();
     entry.indexes = null;
-    entry.indexState = null;
+    entry.indexIdentity = null;
+    entry.agentNodeByToolCall.clear();
   }
 
   clearForTab(tabId: string): void {
@@ -784,15 +918,14 @@ export class ExecutionTreeBuilderService {
   }
 
   /**
-   * Release every memo a CLOSED tab can own: its main-panel entry, its canvas
-   * tile entry (`tile-${tabId}`, ChatTranscriptComponent) and its older-history
+   * Release every memo a CLOSED tab can own: its `tab-${tabId}` entry (shared
+   * by the main panel and any canvas tile of the tab) and its older-history
    * page entry (`history-page-${tabId}`, SessionHistoryReplayer). Close-only —
-   * `clearForTab` stays main-panel-scoped because it also runs on finalization
-   * and transcript-retention eviction while a tile may still show the tab.
+   * `clearForTab` keeps the history page because it also runs on finalization
+   * and transcript-retention eviction while the tab is still open.
    */
   clearForClosedTab(tabId: string): void {
     this.clearForTab(tabId);
-    this.clearCache(`tile-${tabId}`);
     this.clearCache(`history-page-${tabId}`);
   }
 
@@ -834,29 +967,6 @@ function sameOrder(a: readonly string[], b: readonly string[]): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
-}
-
-/** FNV-1a prime, applied via `Math.imul` so the product stays 32-bit. */
-const HASH_PRIME = 0x01000193;
-
-/**
- * FNV-1a style 32-bit mix of a numeric value.
- *
- * Deliberately SIGNED (`| 0`, not `>>> 0`): an unsigned fold produces values
- * above 2^31, which leave V8's small-integer range and box every intermediate
- * as a heap number. Measured on the 5 000-delta guard in this lib's spec, that
- * boxing alone made the fingerprint pass several times more expensive than
- * building the nodes it exists to let us skip. Sign is irrelevant here — the
- * result is only ever compared for equality.
- */
-function mixNumber(hash: number, value: number): number {
-  let next = Math.imul((hash ^ (value | 0)) | 0, HASH_PRIME) | 0;
-  if (!Number.isInteger(value)) {
-    // Fold the fraction so costs like 0.0031 are not all equal to 0.
-    next =
-      Math.imul((next ^ (Math.round(value * 1e6) | 0)) | 0, HASH_PRIME) | 0;
-  }
-  return next;
 }
 
 /**

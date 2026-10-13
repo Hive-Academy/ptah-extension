@@ -98,8 +98,7 @@
        session-sidebar-width.ts). -->
   <aside
     class="relative flex flex-col bg-surface-1 duration-300"
-    [class.transition-all]="!sidebarResizing()"
-    [class.transition-none]="sidebarResizing()"
+    [ngClass]="sidebarResizing() ? 'transition-none' : 'transition-[width]'"
     [style.width.px]="sidebarOpen() ? sidebarWidth() : 0"
     [class.overflow-hidden]="!sidebarOpen()"
   >
@@ -251,7 +250,7 @@
           } @else {
             <button
               type="button"
-              class="relative block w-full py-1.5 px-2.5 text-left rounded-md transition-all duration-200 hover:bg-surface-2"
+              class="relative block w-full py-1.5 px-2.5 text-left rounded-md transition-[color,background-color,box-shadow] duration-200 hover:bg-surface-2"
               [class.pr-16]="!organizationAvailable()"
               [class.sidebar-item-active]="
                 session.id === chatStore.currentSession()?.id
@@ -484,7 +483,7 @@
       ) {
         <div class="px-1.5 pt-1 pb-1">
           <button
-            class="btn btn-ghost btn-xs w-full text-base-content-muted hover:text-base-content hover:bg-surface-2 transition-all duration-200 gap-1"
+            class="btn btn-ghost btn-xs w-full text-base-content-muted hover:text-base-content hover:bg-surface-2 transition-colors duration-200 gap-1"
             [class.loading]="chatStore.isLoadingMoreSessions()"
             [disabled]="chatStore.isLoadingMoreSessions()"
             (click)="chatStore.loadMoreSessions()"

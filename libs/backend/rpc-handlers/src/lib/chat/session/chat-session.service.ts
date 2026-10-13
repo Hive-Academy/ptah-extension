@@ -20,6 +20,7 @@
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
+  RpcUserError,
   TOKENS,
   ConfigManager,
   SubagentRegistryService,
@@ -37,7 +38,6 @@ import {
   McpOAuthOverrideResolver,
   createMcpOAuthTokenStore,
   type AgentProcessManager,
-  type SuccessorSessionQueuedInput,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -55,7 +55,6 @@ import {
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
   type SessionBudgetService,
-  SessionHandoverCoordinator,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -80,11 +79,7 @@ import type {
   McpHttpServerOverride,
   PermissionLevel,
 } from '@ptah-extension/shared';
-import {
-  MESSAGE_TYPES,
-  SESSION_HANDOVER_HELD,
-  selectHistoryPage,
-} from '@ptah-extension/shared';
+import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
@@ -142,8 +137,6 @@ export interface AgentChildSessionStartParams {
   readonly prompt: string;
   readonly sessionName: string;
   readonly model?: string;
-  readonly effort?: NonNullable<ChatStartParams['options']>['effort'];
-  readonly permissionLevel?: PermissionLevel;
 }
 
 /** What {@link ChatSessionService.launchSdkSession} needs from its two callers. */
@@ -168,24 +161,8 @@ interface SdkSessionLaunch {
   readonly ptahUiFence?: ChatStartParams['ptahUiFence'];
 }
 
-/** What `chat:continue` and `chat:resume` need from the session budget (N7). */
-type ChatSessionBudget = Pick<
-  SessionBudgetService,
-  'canSend' | 'observeLoaded'
->;
-
-/**
- * Prompts that still pass a blocked session budget (F3): both shrink or end
- * the context the budget counts. Exact match on the trimmed prompt, so a
- * custom slash command (or `/compact` with arguments) stays blocked.
- */
-const BUDGET_EXEMPT_PROMPTS: ReadonlySet<string> = new Set([
-  '/compact',
-  '/clear',
-]);
-
-const SESSION_BUDGET_REACHED_MESSAGE =
-  'Session budget reached. Choose "Allow 20% more" or "Continue in new session" to keep working.';
+/** What `chat:resume` needs from the session budget (N7). */
+type ChatSessionBudget = Pick<SessionBudgetService, 'observeLoaded'>;
 
 @injectable()
 export class ChatSessionService {
@@ -254,13 +231,11 @@ export class ChatSessionService {
     @inject(TOKENS.AGENT_PROCESS_MANAGER, { isOptional: true })
     private readonly agentProcessManager: AgentProcessManager | null = null,
     /**
-     * Optional so a host without the budget registration sends and resumes
-     * exactly as before: the `chat:continue` gate is then always open.
+     * Optional so a host without the budget registration resumes exactly as
+     * before: the resume snapshot then carries no budget state.
      */
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
     private readonly sessionBudget: ChatSessionBudget | null = null,
-    @inject(SessionHandoverCoordinator, { isOptional: true })
-    private readonly handoverCoordinator: SessionHandoverCoordinator | null = null,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -467,53 +442,6 @@ export class ChatSessionService {
   }
 
   /**
-   * The `chat:continue` budget gate (TASK_2026_597 N7). At the limit the
-   * session pauses after the turn that crossed it: the next send is refused
-   * until the user allows 20% more or continues in a new session. `/compact`
-   * and `/clear` still pass. No budget service, or no figure yet, is open.
-   */
-  private refuseIfBudgetReached(
-    sessionId: SessionId,
-    prompt: string,
-  ): ChatContinueResult | null {
-    if (!this.sessionBudget) return null;
-    if (BUDGET_EXEMPT_PROMPTS.has(prompt.trim())) return null;
-    const check = this.sessionBudget.canSend(sessionId);
-    if (check.ok) return null;
-    this.logger.info('RPC: chat:continue - refused: session budget reached', {
-      sessionId,
-      stage: check.state.stage,
-      percent: check.state.percent,
-      extensions: check.state.extensions,
-    });
-    return {
-      success: false,
-      errorCode: 'SESSION_BUDGET_REACHED',
-      error: SESSION_BUDGET_REACHED_MESSAGE,
-      budget: check.state,
-    };
-  }
-
-  private holdForHandover(
-    sessionId: SessionId,
-    prompt: string,
-    files: readonly string[] = [],
-    images: readonly { data: string; mediaType: string }[] = [],
-  ): ChatContinueResult | null {
-    const admission = this.handoverCoordinator?.admitOrHold(sessionId, {
-      content: prompt,
-      ...(files.length > 0 ? { files } : {}),
-      ...(images.length > 0 ? { images } : {}),
-      admission: 'require-idle',
-    });
-    if (!admission?.held) return null;
-    return {
-      success: false,
-      error: SESSION_HANDOVER_HELD,
-    };
-  }
-
-  /**
    * Refuse to spawn an SDK session when the resolved workspace path is
    * unsafe (filesystem root, the Ptah install dir, app storage). This
    * backstops the warm-query bug where a stale subprocess would otherwise
@@ -540,6 +468,7 @@ export class ChatSessionService {
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
+        // eslint-disable-next-line no-restricted-properties -- chat:start creates a session, it does not act for one; with no caller path the host default (app folder or CLI --cwd) is the new session's folder
         params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!workspacePath) {
         return {
@@ -686,16 +615,8 @@ export class ChatSessionService {
   async startAgentChildSession(
     params: AgentChildSessionStartParams,
   ): Promise<ChatStartResult> {
-    const {
-      tabId,
-      workspaceRoot,
-      worktreePath,
-      prompt,
-      sessionName,
-      model,
-      effort,
-      permissionLevel,
-    } = params;
+    const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
+      params;
     try {
       // Prompts, provider profile and output style are resolved for the root,
       // so the root needs the same authorization as the worktree.
@@ -740,13 +661,10 @@ export class ChatSessionService {
         projectPath: worktreePath,
         prompt,
         name: sessionName,
-        options:
-          model || effort
-            ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
-            : undefined,
+        options: model ? { model } : undefined,
         mcpServerRunning,
         mcpServersOverride: undefined,
-        permissionLevel: permissionLevel ?? 'auto-edit',
+        permissionLevel: 'auto-edit',
         surfaceMode: undefined,
       });
 
@@ -763,59 +681,6 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     }
-  }
-
-  /** Start a replacement tab with its seed; FIFO delivery follows UI binding. */
-  async startHandoverSuccessor(params: {
-    readonly tabId: string;
-    readonly workspaceRoot: string;
-    readonly worktreePath: string;
-    readonly seed: string;
-    readonly model?: string;
-    readonly effort?: NonNullable<ChatStartParams['options']>['effort'];
-    readonly permissionLevel?: PermissionLevel;
-  }): Promise<ChatStartResult> {
-    const started = await this.startAgentChildSession({
-      tabId: params.tabId,
-      workspaceRoot: params.workspaceRoot,
-      worktreePath: params.worktreePath,
-      prompt: params.seed,
-      sessionName: 'Session handover',
-      model: params.model,
-      effort: params.effort,
-      permissionLevel: params.permissionLevel,
-    });
-    return started;
-  }
-
-  /** Enqueue the coordinator-detached FIFO in the successor after it is bound. */
-  async deliverHandoverInputs(
-    tabId: string,
-    inputs: readonly SuccessorSessionQueuedInput[],
-  ): Promise<{ readonly delivered: boolean; readonly error?: string }> {
-    try {
-      await this.sdkAdapter.enqueueTransferInputs(
-        tabId as SessionId,
-        inputs.map((input) => ({
-          content: input.content,
-          ...(input.files ? { files: input.files } : {}),
-          ...(input.images ? { images: input.images } : {}),
-          ...(input.origin ? { origin: input.origin } : {}),
-        })),
-      );
-      return { delivered: true };
-    } catch (error: unknown) {
-      return {
-        delivered: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /** Stop an unacknowledged replacement so it cannot outlive its source. */
-  stopHandoverSuccessor(tabId: string): Promise<void> {
-    this.sdkAdapter.endSession(tabId as SessionId);
-    return Promise.resolve();
   }
 
   /**
@@ -915,49 +780,19 @@ export class ChatSessionService {
   ): Promise<ChatContinueResult> {
     try {
       const { prompt, sessionId, tabId, name } = params;
-      const workspacePath =
-        params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
-      if (!workspacePath) {
-        return {
-          success: false,
-          error:
-            'No workspace folder open. Please open a folder before continuing a chat session.',
-        };
-      }
-      if (
-        params.workspacePath &&
-        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
-      ) {
-        return {
-          success: false,
-          error: 'Access denied: workspace path is not an open folder.',
-        };
-      }
-      const unsafeContinue = this.rejectIfUnsafeWorkspace(
-        workspacePath,
-        'chat:continue',
-      );
-      if (unsafeContinue) return unsafeContinue;
       this.logger.debug('RPC: chat:continue called', {
         sessionId,
         tabId,
         sessionName: name,
       });
-      if (!BUDGET_EXEMPT_PROMPTS.has(prompt.trim())) {
-        const held = this.holdForHandover(
-          sessionId,
-          prompt,
-          params.files ?? [],
-          params.images ?? [],
-        );
-        if (held) return held;
-      }
       const ptahCliResult = await this.ptahCli.handleContinue(params);
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      const budgetRefusal = this.refuseIfBudgetReached(sessionId, prompt);
-      if (budgetRefusal) return budgetRefusal;
+      // The session's own folder, never `params.workspacePath` or the active
+      // root: with several projects open those name another repo (PTAH-37).
+      const workspacePath =
+        await this.historyRead.resolveSessionFolder(sessionId);
       // Threaded into the resume below rather than dropped: `autoResumeIfInactive`
       // re-derives `mcpServerRunning` from `isMcpServerRunning()`, which only
       // says the HTTP server is up — it cannot know whether the `.mcp.json`
@@ -1007,7 +842,6 @@ export class ChatSessionService {
         const resumeOutcome = await this.autoResumeIfInactive(
           sessionId,
           tabId,
-          workspacePath,
           prompt,
           params,
           mcpRegisteredForSubagents,
@@ -1043,13 +877,6 @@ export class ChatSessionService {
           workspacePath,
         );
       if (!justResumed && hasStopIntent(prompt)) {
-        const held = this.holdForHandover(
-          sessionId,
-          prompt,
-          params.files ?? [],
-          params.images ?? [],
-        );
-        if (held) return held;
         const autopilotEnabled = this.configManager.getWithDefault<boolean>(
           'autopilot.enabled',
           false,
@@ -1085,6 +912,17 @@ export class ChatSessionService {
 
       return { success: true, sessionId };
     } catch (error) {
+      if (error instanceof RpcUserError) {
+        this.logger.warn(
+          `RPC: chat:continue returned user error (${error.errorCode}): ${error.message}`,
+          { sessionId: params.sessionId },
+        );
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.errorCode,
+        };
+      }
       this.logger.error(
         'RPC: chat:continue failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -1107,44 +945,13 @@ export class ChatSessionService {
   async resumeSession(params: ChatResumeParams): Promise<ChatResumeResult> {
     try {
       const { sessionId } = params;
-      const fallbackWorkspacePath =
-        params.workspacePath || this.workspaceProvider.getWorkspaceRoot();
-      if (!fallbackWorkspacePath) {
-        return {
-          success: false,
-          error:
-            'No workspace folder open. Please open a folder before resuming a chat session.',
-        };
-      }
-      if (
-        params.workspacePath &&
-        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
-      ) {
-        return {
-          success: false,
-          error: 'Access denied: workspace path is not an open folder.',
-        };
-      }
-      const unsafeResume = this.rejectIfUnsafeWorkspace(
-        fallbackWorkspacePath,
-        'chat:resume',
-      );
-      if (unsafeResume) return unsafeResume;
-
       const metadata = await this.sessionMetadataStore.get(sessionId);
-      const result = await this.historyRead.readForResume(
-        sessionId,
-        fallbackWorkspacePath,
-        metadata?.workingDirectory,
-      );
+      const result = await this.historyRead.readForResume(sessionId);
       const resolvedWorkspacePath = result.resolvedWorkspacePath;
       this.logger.info('RPC: chat:resume called', {
         sessionId,
         workspacePath: params.workspacePath || '(empty)',
         resolvedWorkspacePath,
-        usedFallback: resolvedWorkspacePath === fallbackWorkspacePath,
-        restoredWorkingDirectory:
-          resolvedWorkspacePath !== fallbackWorkspacePath,
         ptahCliId: params.ptahCliId,
       });
       if (params.ptahCliId) {
@@ -1152,6 +959,7 @@ export class ChatSessionService {
           sessionId as string,
           params.ptahCliId,
           params.tabId,
+          resolvedWorkspacePath,
         );
       }
       // Keep this unsliced: history registration and stats depend on the full transcript.
@@ -1232,7 +1040,6 @@ export class ChatSessionService {
           const activateResult = await this.autoResumeIfInactive(
             sessionId,
             params.tabId,
-            resolvedWorkspacePath,
             '',
             {
               sessionId,
@@ -1284,6 +1091,17 @@ export class ChatSessionService {
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
+      if (error instanceof RpcUserError) {
+        this.logger.warn(
+          `RPC: chat:resume returned user error (${error.errorCode}): ${error.message}`,
+          { sessionId: params.sessionId },
+        );
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.errorCode,
+        };
+      }
       this.logger.error(
         'RPC: chat:resume failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -1444,17 +1262,11 @@ export class ChatSessionService {
       return { alreadyActive: true };
     }
 
-    const outcome = await this.autoResumeIfInactive(
+    const outcome = await this.autoResumeIfInactive(sessionId, tabId, '', {
       sessionId,
       tabId,
       workspacePath,
-      '',
-      {
-        sessionId,
-        tabId,
-        workspacePath,
-      },
-    );
+    });
 
     if ('error' in outcome) {
       return {
@@ -1499,7 +1311,6 @@ export class ChatSessionService {
   private async autoResumeIfInactive(
     sessionId: SessionId,
     tabId: string,
-    workspacePath: string,
     prompt: string,
     params: AutoResumePreflight,
     /**
@@ -1552,6 +1363,24 @@ export class ChatSessionService {
     this.logger.info(
       `[RPC] Session ${sessionId} not active, attempting resume...`,
     );
+
+    // Resolved here, not taken from the caller, so every caller resumes in the
+    // session's own folder. A worktree child must resume in its worktree, or
+    // its edits land on the parent's branch.
+    let workspacePath: string;
+    try {
+      workspacePath = await this.historyRead.resolveSessionFolder(sessionId);
+    } catch (error) {
+      if (!(error instanceof RpcUserError)) throw error;
+      return {
+        error: {
+          success: false,
+          sessionId,
+          error: error.message,
+          errorCode: error.errorCode,
+        },
+      };
+    }
 
     const mcpServerRunning =
       this.sdkContext.isMcpServerRunning() && mcpRegisteredForSubagents;

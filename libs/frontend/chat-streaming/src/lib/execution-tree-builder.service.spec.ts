@@ -248,6 +248,27 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     expect(first[0].children.map((c) => c.content)).toEqual(['hello']);
   });
 
+  it('reuses the cached tree when the same state arrives as a new shallow copy', () => {
+    feed(messageStart('msg-a', 'assistant'));
+    feed(toolStart('msg-a', 'toolu_1'));
+    feed(textDelta('msg-a', 0, 'hello'));
+
+    // `BatchedUpdateService` publishes `{ ...state }` on every flush. With no
+    // write in between, two copies share every container and must hit.
+    const first = builder.buildTree({ ...state }, 'k');
+    const builds = spyOnMessageBuilds();
+    const second = builder.buildTree({ ...state }, 'k');
+
+    expect(second).toBe(first);
+    expect(builds).not.toHaveBeenCalled();
+
+    // A write between copies still moves the digest.
+    feed(textDelta('msg-a', 1, ' world'));
+    const third = builder.buildTree({ ...state }, 'k');
+    expect(third).not.toBe(first);
+    expect(findByType(third, 'text')?.content).toBe('hello world');
+  });
+
   it('rebuilds ONLY the message that received deltas — 1 000 of them', () => {
     feed(messageStart('msg-first', 'assistant'));
     feed(textDelta('msg-first', 0, 'earlier answer'));
@@ -599,8 +620,9 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
 
   describe('tab-scoped cache release', () => {
     const cachedKeys = (): string[] => [
-      ...(builder as unknown as { treeCache: Map<string, unknown> }).treeCache
-        .keys(),
+      ...(
+        builder as unknown as { treeCache: Map<string, unknown> }
+      ).treeCache.keys(),
     ];
 
     beforeEach(() => {
@@ -608,27 +630,24 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       feed(textDelta('m1', 1, 'hello'));
       for (const key of [
         'tab-T',
-        'tile-T',
         'history-page-T',
-        'tile-OTHER',
+        'history-page-OTHER',
         'tab-OTHER',
       ]) {
         builder.buildTree(state, key);
       }
     });
 
-    it('clearForClosedTab releases the tab, tile and history-page memos of that tab only', () => {
+    it('clearForClosedTab releases the tab and history-page memos of that tab only', () => {
       builder.clearForClosedTab('T');
 
-      expect(cachedKeys().sort()).toEqual(['tab-OTHER', 'tile-OTHER']);
+      expect(cachedKeys().sort()).toEqual(['history-page-OTHER', 'tab-OTHER']);
     });
 
-    it('clearForTab stays main-panel scoped so a still-open tile keeps its memo', () => {
+    it('clearForTab keeps the history-page memo of a still-open tab', () => {
       builder.clearForTab('T');
 
-      expect(cachedKeys()).toEqual(
-        expect.arrayContaining(['tile-T', 'history-page-T']),
-      );
+      expect(cachedKeys()).toContain('history-page-T');
       expect(cachedKeys()).not.toContain('tab-T');
     });
   });
@@ -724,11 +743,16 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
      *
      * The throwaway key is dropped again so a long replay cannot push the LRU
      * past `MAX_CACHE_SIZE` and evict the incremental entry it is testing.
+     *
+     * `input` defaults to the live state; pass `{ ...state }` to build the
+     * shallow copy `BatchedUpdateService` publishes on every flush.
      */
-    const expectEquivalent = (): ExecutionNode[] => {
-      const incremental = builder.buildTree(state, INCREMENTAL_KEY);
+    const expectEquivalent = (
+      input: StreamingState = state,
+    ): ExecutionNode[] => {
+      const incremental = builder.buildTree(input, INCREMENTAL_KEY);
       const freshKey = `oracle-fresh-${++freshBuilds}`;
-      const fresh = builder.buildTree(state, freshKey);
+      const fresh = builder.buildTree(input, freshKey);
       builder.clearCache(freshKey);
       expect(shapeOf(incremental)).toEqual(shapeOf(fresh));
       expect(fingerprintTree(incremental)).toEqual(fingerprintTree(fresh));
@@ -993,6 +1017,120 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
 
       const after = expectEquivalent();
       expect(findByType(after, 'text')?.content).toBe('world');
+    });
+
+    it('never reuses a fresh StreamingState delivered as a flush copy', () => {
+      feed(messageStart('msg-a', 'assistant'));
+      feed(textDelta('msg-a', 0, 'hello'));
+
+      const before = expectEquivalent({ ...state });
+      expect(findByType(before, 'text')?.content).toBe('hello');
+
+      // The TASK_2026_336 swap, delivered the way `BatchedUpdateService`
+      // publishes it: a shallow copy of the FRESH state. The copy shares the
+      // fresh state's containers, not the replaced one's, so the identity
+      // gate still rejects the cached folds.
+      state = createEmptyStreamingState();
+      feed(messageStart('msg-a', 'assistant'));
+      feed(textDelta('msg-a', 0, 'world'));
+
+      const after = expectEquivalent({ ...state });
+      expect(findByType(after, 'text')?.content).toBe('world');
+    });
+
+    /** One root, two agent tools, one streaming message per agent. */
+    const seedSiblingAgents = (): void => {
+      feed(messageStart('msg-root', 'assistant'));
+      feed(toolStart('msg-root', 'toolu_a'));
+      feed(agentStart('msg-root', 'toolu_a', 'agent-a'));
+      feed(toolStart('msg-root', 'toolu_b'));
+      feed(agentStart('msg-root', 'toolu_b', 'agent-b'));
+      feed({
+        ...messageStart('sub-a', 'assistant'),
+        parentToolUseId: 'toolu_a',
+      } as MessageStartEvent);
+      feed(textDelta('sub-a', 0, 'alpha'));
+      feed({
+        ...messageStart('sub-b', 'assistant'),
+        parentToolUseId: 'toolu_b',
+      } as MessageStartEvent);
+      feed(textDelta('sub-b', 0, 'beta'));
+    };
+
+    it('one sub-agent token delta does not rebuild sibling sub-agent subtrees', () => {
+      seedSiblingAgents();
+      const before = expectEquivalent({ ...state });
+      const agentA = agentNodeFor(before, 'toolu_a');
+      const agentB = agentNodeFor(before, 'toolu_b');
+      expect(findByType(agentA?.children ?? [], 'text')?.content).toBe('alpha');
+      expect(findByType(agentB?.children ?? [], 'text')?.content).toBe('beta');
+
+      const builds = spyOnMessageBuilds();
+      feed(textDelta('sub-a', 1, ' more'));
+      const after = builder.buildTree({ ...state }, INCREMENTAL_KEY);
+      const built = builds.mock.calls.map(([messageId]) => messageId);
+
+      expect(built).toContain('msg-root');
+      expect(built).toContain('sub-a');
+      expect(built).not.toContain('sub-b');
+      expect(agentNodeFor(after, 'toolu_b')).toBe(agentB);
+      const rebuiltA = agentNodeFor(after, 'toolu_a');
+      expect(rebuiltA).not.toBe(agentA);
+      expect(findByType(rebuiltA?.children ?? [], 'text')?.content).toBe(
+        'alpha more',
+      );
+
+      // The memoized sibling must still agree with a full rebuild.
+      expectEquivalent({ ...state });
+    });
+
+    it('reuses a memoized sibling across repeated deltas', () => {
+      seedSiblingAgents();
+      const agentB = agentNodeFor(expectEquivalent({ ...state }), 'toolu_b');
+
+      for (let seq = 1; seq <= 5; seq++) {
+        feed(textDelta('sub-a', seq, '.'));
+        const tree = expectEquivalent({ ...state });
+        expect(agentNodeFor(tree, 'toolu_b')).toBe(agentB);
+      }
+    });
+
+    it('an agent summary chunk invalidates only the owning root', () => {
+      seedTwoAgents();
+      const before = expectEquivalent({ ...state });
+      expect(before).toHaveLength(2);
+
+      // `ChatLifecycleService` appends the chunk in place and publishes a
+      // shallow copy: no streaming event, no message revision.
+      const builds = spyOnMessageBuilds();
+      state.agentSummaryAccumulators.set('agent-a', 'found the bug');
+      const after = builder.buildTree({ ...state }, INCREMENTAL_KEY);
+      const built = builds.mock.calls.map(([messageId]) => messageId);
+      expect(expectEquivalent({ ...state })).toBe(after);
+
+      expect(built).toContain('msg-a');
+      expect(built).not.toContain('msg-b');
+      expect(after[1]).toBe(before[1]);
+      expect(after[0]).not.toBe(before[0]);
+      expect(
+        agentNodeFor(after, 'toolu_a')?.children.map((c) => c.content),
+      ).toContain('found the bug');
+    });
+
+    it('an unattributed agent summary still invalidates (global fallback)', () => {
+      seedTwoAgents();
+      expectEquivalent({ ...state });
+
+      // No agent_start and no tool carries this id, so no root can be shown
+      // to own it: every root is handed back to the builder.
+      const builds = spyOnMessageBuilds();
+      state.agentSummaryAccumulators.set('agent-unknown', 'orphan summary');
+      builder.buildTree({ ...state }, INCREMENTAL_KEY);
+      const built = builds.mock.calls.map(([messageId]) => messageId);
+
+      expect(built).toContain('msg-a');
+      expect(built).toContain('msg-b');
+      expectEquivalent({ ...state });
     });
   });
 

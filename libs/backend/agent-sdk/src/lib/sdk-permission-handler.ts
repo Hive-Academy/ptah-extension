@@ -484,11 +484,24 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       );
 
       // Unattended (child) sessions: read live so a release takes effect on
-      // the next call. The policy table decides and returns; the permission
-      // level, background-agent and "Always Allow" paths below never apply.
+      // the next call. The policy table decides and returns; the
+      // background-agent and "Always Allow" paths below never apply. A YOLO
+      // level set by the user is the one exception: it already approves
+      // every call, so the policy must not prompt on top of it.
       const unattendedPolicy = this.unattendedPolicies?.get(
         routingHint ?? (tabId as string | undefined),
       );
+      if (
+        unattendedPolicy &&
+        toolName !== 'AskUserQuestion' &&
+        toolName !== 'EnterPlanMode' &&
+        (levelResolver ? levelResolver() : this._permissionLevel) === 'yolo'
+      ) {
+        this.logger.info(
+          `[SdkPermissionHandler] YOLO mode: auto-approved unattended tool: ${toolName}`,
+        );
+        return { behavior: 'allow' as const, updatedInput: input };
+      }
       if (unattendedPolicy) {
         return await this.decideUnattendedToolCall(
           unattendedPolicy,

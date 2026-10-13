@@ -20,10 +20,7 @@ import { MessageBubbleComponent } from '../message-bubble.component';
 import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import {
-  SESSION_CONTEXT,
-  SESSION_FOCUSED,
-} from '../../../tokens/session-context.token';
+import { SESSION_FOCUSED } from '../../../tokens/session-context.token';
 import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -223,9 +220,6 @@ export class ChatTranscriptComponent {
   private readonly presentationStore = this.presentationRecordsEnabled
     ? inject(StreamPresentationStore)
     : null;
-  private readonly _sessionContext = inject(SESSION_CONTEXT, {
-    optional: true,
-  });
   /** Tile surfaces provide their focus state; absent → always focused. */
   private readonly _sessionFocused = inject(SESSION_FOCUSED, {
     optional: true,
@@ -410,12 +404,9 @@ export class ChatTranscriptComponent {
   private readonly _executionTrees = computed<readonly ExecutionNode[]>(() => {
     const state = this._streamingState();
     if (!state) return EMPTY_TREES;
-    // Preserve the tile-vs-tab tree cache key format so `clearForTab` /
-    // `clearForSession` and main-panel-vs-tile cache isolation keep working.
-    const cacheKey = this._sessionContext
-      ? `tile-${this.tabId()}`
-      : `tab-${this.tabId()}`;
-    return this._treeBuilder.buildTree(state, cacheKey);
+    // One key per tab for every surface (main panel, canvas tile, detail
+    // row): a tab has one streamingState, so all surfaces share one build.
+    return this._treeBuilder.buildTree(state, `tab-${this.tabId()}`);
   });
 
   private readonly finalizedMessageIds = computed((): ReadonlySet<string> => {
@@ -605,8 +596,13 @@ export class ChatTranscriptComponent {
     const view = this.vm();
     if (!this.workActive()) return this._frozenPtahUiSnapshots;
     const sessionId = this.sessionId();
+    // Each slot's CURRENT record, not `view.messages`: on the presentation
+    // path `messages` changes only on a structural change, while a tree that
+    // grows under the same id updates its record alone (the display feed's
+    // rule). The snapshot cache keys on message identity, so only the live
+    // turn rebuilds.
     const next = this.turnSnapshots.compute(sessionId, {
-      messages: view.messages,
+      messages: view.slots.map((slot) => slot.record()),
       streamingBoundary: view.streamingBoundary,
       changeSets: this.changeSetStore.changeSetsFor(sessionId),
       anchors: this.changeSetAnchors(),
