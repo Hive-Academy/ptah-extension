@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:989e5eda7c18763eefd80da30067ad9ecf5623ee2952cb52231ceabae5829f6f",
-  "generatedAt": "2026-10-11T22:07:37.141Z",
+  "contentHash": "sha256:ac5814cf272ad83296320f18d599e1affc4802464422ef5a54e98af4abf7fe6a",
+  "generatedAt": "2026-10-13T03:14:52.562Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -53,6 +53,7 @@
       "ptah-core/skills/orchestration/SKILL.md",
       "ptah-core/skills/orchestration/references/agent-catalog.md",
       "ptah-core/skills/orchestration/references/checkpoints.md",
+      "ptah-core/skills/orchestration/references/fleet.md",
       "ptah-core/skills/orchestration/references/git-standards.md",
       "ptah-core/skills/orchestration/references/lane-assignment.md",
       "ptah-core/skills/orchestration/references/strategies.md",

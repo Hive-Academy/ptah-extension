@@ -25,3 +25,14 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
   (the Bash tool's `run_in_background`) and continue with other work; act on the result when
   it completes. The pre-push hook runs di-lint and the Electron `validate-deps` build gate on
   every push. A failed gate needs a fix commit on top, then push again.
+
+## Repo-local fleet rules
+
+- The commitlint scope enum and other enforced commit rules live in `.commitlintrc.json`.
+  Read that config before committing. Keep the subject at most 72 characters and every body
+  line at most 100 characters; wrap body text at 72. `security` and `git` are not scopes.
+- A multi-scope subject with commas is allowed, e.g. `fix(agent-sdk,chat): ...`.
+- For one changed project, run `npx nx test <project> --parallel=1`. For several changed
+  projects, run `npx nx run-many -t test -p A B --parallel=1` and confirm that the output
+  header says "Running target test for N projects" with N equal to the number requested.
+  Never use positional `nx test A B` because those names become Jest path filters.

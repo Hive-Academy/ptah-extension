@@ -1,161 +1,36 @@
 ---
-description: Quick reference guide for the /orchestrate command — shows task types, workflow modes, and agent catalog.
+description: Quick reference for /orchestrate task continuation, fleet mode, and workflow checkpoints.
 ---
 
 # Orchestrator Quick Reference
 
-Quick help guide for the `/orchestrate` command workflow system.
+## Usage
 
-## Command Usage
-
-```bash
-/orchestrate [argument]
+```text
+/orchestrate <task description>             Start a new task
+/orchestrate TASK_YYYY_NNN[_xxxx]          Continue one task
+/orchestrate TASK_A TASK_B ...              Run several tasks as a fleet
+/orchestrate fleet <task IDs>               Request fleet mode explicitly
+/orchestrate continue                       Resume the last incomplete task
 ```
 
-### Arguments
+The command resolves and validates every supplied task ID against an existing task folder and `task.md` before any spawn. Missing, malformed, or duplicate IDs need correction. One resolved ID uses ordinary continuation, even if “fleet” was said; an explicit fleet request needs several identified tasks before it starts.
 
-- **Task Description**: Start new task (e.g., "implement user authentication")
-- **TASK_ID**: Continue specific task (e.g., "TASK_CMD_009")
-- **"continue"**: Resume last incomplete task from registry
+## Ordinary workflow
 
-## Workflow Phases
+The orchestration skill selects the task strategy, loads the task folder, applies the relevant document checkpoints, assigns bounded implementation and verification work, and records the outcome. Strategy and agent selection depend on the task; `/orchestrate` is the single entry point.
 
-### 1. Pre-Flight (Automatic)
+## Fleet workflow
 
-- Checks git status and branch
-- Reviews task registry
-- Creates/loads task folder
+For several existing tasks, the orchestrator loads `orchestration/references/fleet.md` and:
 
-### 2. Project Manager
+1. Reads each task's status and artifacts to resume only incomplete stages.
+2. Forms disjoint batches with at most 6 files across at most 2 libraries/projects and one scoped verification command per batch.
+3. Verifies each deliverable, runs an independent read-only judge for at most two rounds, and updates `task.md` status only after artifact checks.
+4. Commits during a quiet window after all writers stop, using the repository's own commit rules.
 
-- Creates task-description.md
-- Defines acceptance criteria (BDD format)
-- Performs risk analysis
-- Routes to next agent
+Workers and judges do not change task status or commit. A respawned worker with an already complete artifact reports a no-op. Judge findings go in `judge-round-<round>.json` with cited defects.
 
-**Quality Gate**: Validates all required sections present
+## When work stops
 
-### 3. Researcher (Conditional)
-
-- Conducts technical research
-- Evaluates approaches
-- Creates research-report.md
-- Provides recommendations
-
-**Quality Gate**: Validates sources and analysis depth
-
-### 4. Software Architect
-
-- Creates implementation-plan.md
-- Designs architecture
-- **MUST** search project's shared types and components
-- Breaks down into subtasks
-
-**Quality Gate**: Validates SOLID principles and type search
-
-### 5. Senior Developer
-
-- Implements code
-- **MUST** use existing types from project's shared libraries
-- Zero 'any' types allowed
-- Updates progress.md
-
-**Quality Gate**: Validates compilation and type safety
-
-### 6. Senior Tester
-
-- Creates comprehensive tests
-- Achieves >80% coverage
-- Tests all acceptance criteria
-- Includes edge cases
-
-**Quality Gate**: Validates coverage and AC verification
-
-### 7. Code Reviewer
-
-- Final quality review
-- Security validation
-- Performance check
-- Approval decision
-
-**Quality Gate**: Final production readiness check
-
-## Quality Standards
-
-### Must Pass All Gates
-
-- ✅ Type search protocol followed
-- ✅ Zero 'any' types
-- ✅ Functions < 30 lines
-- ✅ Test coverage > 80%
-- ✅ All ACs verified
-- ✅ Security validated
-
-## Common Commands
-
-### Check Status
-
-```bash
-!cat .ptah/specs/registry.md | grep "🔄\|⚠️\|❌"
-```
-
-### View Task Progress
-
-```bash
-!cat .ptah/specs/TASK_CMD_009/progress.md
-```
-
-### Validate Specific Phase
-
-```bash
-/validate-project-manager TASK_CMD_009
-/validate-architect TASK_CMD_009
-/validate-developer TASK_CMD_009
-/validate-tester TASK_CMD_009
-/validate-reviewer TASK_CMD_009
-```
-
-## Troubleshooting
-
-### If Validation Fails
-
-1. Review the specific validation output
-2. Make required corrections
-3. Re-run the orchestrator from current phase
-
-### Memory Issues
-
-- Orchestrator runs sequentially (one agent at a time)
-- No parallel Task() invocations
-- Clear context between agents
-
-### Common Issues
-
-- **Missing task-description.md**: Project manager didn't complete
-- **No type search**: Developer must document shared type discovery
-- **Low coverage**: Tester needs more test cases
-- **Build fails**: Developer must fix compilation errors
-
-## Best Practices
-
-1. **Always use orchestrator for agent tasks** - Don't invoke agents directly
-2. **Let it run to completion** - Quality gates ensure standards
-3. **Review validation output** - Understand what passed/failed
-4. **Document in progress.md** - Track decisions and blockers
-5. **Follow the workflow** - Don't skip phases
-
-## Exit Criteria
-
-Task is complete when:
-
-- All phases passed
-- Code reviewer approves
-- Registry updated
-- Completion report generated
-
-## Need Help?
-
-- Check validation output for specific issues
-- Review the failed quality gate criteria
-- Ensure all prerequisites are met
-- Follow the type search protocol
+Read the task's current artifacts and the specific validation or judge finding. Correct the cited issue, verify the affected batch, and continue from the incomplete stage. After a second failed judge round, the orchestrator decides the next action. A hook failure follows the three choices in `orchestration/references/git-standards.md#hook-failure-protocol`; no hook is bypassed automatically.

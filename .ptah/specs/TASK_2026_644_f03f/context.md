@@ -13,10 +13,10 @@ Merged on 2026-10-12 from the residues of TASK_2026_441 and TASK_2026_434 (both 
 
 ## Left
 
-1. From 441, an owner decision: should Gate 0.1 `auto` also make lanes the default executor for phases, or
-   is the shipped hybrid (phases on subagents, batches and reviews on lanes,
-   `references/lane-assignment.md:55-59`) the intended design? Record the decision; edit the skill only if
-   the answer is "lanes".
+1. ~~From 441, an owner decision: should Gate 0.1 `auto` also make lanes the default executor for phases?~~
+   Answered and shipped by TASK_2026_441_7825 (PR #718, 2026-10-13): the user reopened 441 and chose
+   lanes-first (Gate 0.1 reads memory first, lanes are the default executor, cross-family review, ordered
+   limit fallback). 441 is `done`; nothing from 441 is left here.
 2. From 434: Council cross-critique rounds (`tribunal/references/council.md`) still respawn lanes instead of
    using `ptah_agent_message` / `ptah_agent_report`. Add messaging there, and check that no other respawn
    loop remains in orchestration or tribunal.

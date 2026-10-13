@@ -225,7 +225,7 @@ export class PromptSuggestionsComponent {
         },
         {
           label: 'Run fix fleet',
-          text: '/fleet-orchestration Run a multi-agent fix fleet on [task spec range]',
+          text: '/orchestrate TASK_A TASK_B Run a multi-agent fix fleet',
           description: 'Multi-agent bugfix batch',
         },
         {
@@ -296,7 +296,7 @@ export class PromptSuggestionsComponent {
         },
         {
           label: 'Deploy fix fleet',
-          text: '/fleet-orchestration Deploy a fix fleet across [task spec range] with judge and commit',
+          text: '/orchestrate TASK_A TASK_B Coordinate a fix fleet with judge and commit',
           description: 'Parallel agent task swarm',
         },
       ],

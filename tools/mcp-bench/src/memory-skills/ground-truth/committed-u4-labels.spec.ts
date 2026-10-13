@@ -28,12 +28,12 @@ function jsonl(name: string): unknown[] {
 }
 
 describe('committed U4 labels', () => {
-  it('parses skill-triggers.v1.jsonl as one model-panel', () => {
-    const rows = jsonl('skill-triggers.v1.jsonl').map((row) =>
+  it('parses skill-triggers.v2.jsonl as one model-panel', () => {
+    const rows = jsonl('skill-triggers.v2.jsonl').map((row) =>
       triggerLabelSchema.parse(row),
     );
-    expect(rows).toHaveLength(23);
-    expect(new Set(rows.map((row) => row.skillId)).size).toBe(23);
+    expect(rows).toHaveLength(22);
+    expect(new Set(rows.map((row) => row.skillId)).size).toBe(22);
     expect(rows.every((row) => row.panel === TRIGGER_EVAL_PANEL)).toBe(true);
   });
 
