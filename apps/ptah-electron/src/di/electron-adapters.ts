@@ -99,6 +99,9 @@ interface LogContext {
  * This class is registered as a plain value (useValue), not via @injectable(),
  * so it does not need tsyringe decorators.
  */
+/** Context keys `logWithContext` already writes on their own lines. */
+const CONTEXT_LINE_KEYS = new Set(['service', 'operation', 'error']);
+
 export class ElectronLoggerAdapter {
   private static readonly CHANNEL_NAME = 'Ptah';
 
@@ -225,6 +228,30 @@ export class ElectronLoggerAdapter {
           context.error.stack,
         );
       }
+    }
+
+    // Structured context (`logger.error(msg, { ... })`) is the only place a
+    // caller's details live — the renderer console forwarder puts the console
+    // text here. Mirrors vscode-core `Logger.writeLogEntry`.
+    const details: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(context)) {
+      if (!CONTEXT_LINE_KEYS.has(key) && value !== undefined) {
+        details[key] = value;
+      }
+    }
+    if (Object.keys(details).length > 0) {
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(details);
+      } catch {
+        // degradation-audit: optional-capability - an unserializable context
+        // keeps the log line itself; only the detail payload is replaced.
+        serialized = '[Unserializable]';
+      }
+      this.outputManager.write(
+        ElectronLoggerAdapter.CHANNEL_NAME,
+        `  Context: ${serialized}`,
+      );
     }
 
     if (this.logToConsole) {
