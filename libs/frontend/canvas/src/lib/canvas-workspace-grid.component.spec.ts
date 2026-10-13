@@ -450,6 +450,26 @@ describe('CanvasWorkspaceGridComponent', () => {
   };
 
   describe('stale Gridstack node release', () => {
+    it('applies a simultaneous view-mode change after a locked close', () => {
+      mount(['t1', 't2', 't3']);
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      const closed = nodeOf('t2');
+      grid.removeWidget.mockClear();
+      grid.load.mockClear();
+
+      store.removeTileOnly('t2');
+      tabsSignal.set(
+        tabsSignal().map((tab) =>
+          tab.id === 't3' ? { ...tab, viewMode: 'compact' as const } : tab,
+        ),
+      );
+      flush();
+
+      expect(grid.removeWidget).toHaveBeenCalledWith(closed.el, false, false);
+      expect(grid.load).toHaveBeenCalledTimes(1);
+    });
+
     const componentState = () =>
       fixture.componentInstance as unknown as {
         applyAuthoritativeGeometry(

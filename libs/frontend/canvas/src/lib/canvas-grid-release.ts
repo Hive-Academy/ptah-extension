@@ -1,7 +1,15 @@
 import type { GridStack, GridStackNode } from 'gridstack';
 import { compactResizeBounds } from './canvas-layout-intent';
+import type { TileViewConstraints } from './canvas-layout-intent';
 
 type Position = { x: number; y: number; w: number; h: number };
+
+export function retainLiveViewConstraints(
+  applied: TileViewConstraints,
+  liveIds: ReadonlySet<string>,
+): TileViewConstraints {
+  return applied.filter((constraint) => liveIds.has(constraint.tabId));
+}
 
 export function nodesNeedingLayout<T extends Position>(
   nodes: readonly GridStackNode[],

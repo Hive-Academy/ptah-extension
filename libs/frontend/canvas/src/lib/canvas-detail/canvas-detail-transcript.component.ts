@@ -10,6 +10,7 @@ import {
   signal,
   computed,
   effect,
+  untracked,
 } from '@angular/core';
 import {
   ChatViewComponent,
@@ -50,8 +51,12 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
   );
   private readonly registration = effect((onCleanup) => {
     const id = this.tabId();
-    if (!this.tabManager.visibleTabIds().has(id)) {
+    const registered = untracked(() => {
+      if (this.tabManager.visibleTabIds().has(id)) return false;
       this.tabManager.registerVisibleTab(id);
+      return true;
+    });
+    if (registered) {
       onCleanup(() => this.tabManager.unregisterVisibleTab(id));
     }
   });

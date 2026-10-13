@@ -46,6 +46,7 @@ import {
   nodesNeedingLayout,
   pinLiveNodes,
   releaseStaleNodes,
+  retainLiveViewConstraints,
   restorePinnedNodes,
 } from './canvas-grid-release';
 import { canvasDetailGeometry } from './canvas-detail-geometry';
@@ -360,14 +361,8 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
 
   private _wasVisible = false;
 
-  /**
-   * View fingerprint this grid last applied to Gridstack. While locked, an
-   * ordinary layout effect run is forbidden, but a tab-owned view-mode change
-   * is not a layout-intent mutation: a differing fingerprint is the one
-   * application a locked grid may still perform. Hidden locked grids keep the
-   * pending difference and apply it when they become visible again.
-   */
-  private _appliedViewFingerprint: string | null = null;
+  /** Applied view constraints; hidden locked grids retain pending mode changes. */
+  private _appliedViewConstraints: TileViewConstraints | null = null;
   private _lastAppliedMeasurements: LayoutMeasurements | null = null;
   private _lockedMeasurements: LayoutMeasurements | null = null;
 
@@ -385,7 +380,9 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         this.applyAuthoritativeGeometry();
         if (
           this._geometryDeferred ||
-          this.viewFingerprint() !== this._appliedViewFingerprint
+          this.viewFingerprint() !==
+            (this._appliedViewConstraints &&
+              viewConstraintsFingerprint(this._appliedViewConstraints))
         ) {
           // The one application a locked grid may perform: tab-owned view-mode
           // geometry. Its non-view measurements are frozen at lock time, so a
@@ -717,7 +714,11 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
           this.metrics.increment('releasedNodes', released);
           // A locked close is membership only: do not let it force a load.
           if (released > 0 && this.locked()) {
-            this._appliedViewFingerprint = this.viewFingerprint();
+            if (this._appliedViewConstraints)
+              this._appliedViewConstraints = retainLiveViewConstraints(
+                this._appliedViewConstraints,
+                liveIds,
+              );
           }
         } finally {
           restorePinnedNodes(pinned);
@@ -737,7 +738,6 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         )
       : this.layout();
     this.metrics.increment('applyChecks');
-    const viewFingerprint = this.viewFingerprint();
     if (!grid) return;
     const liveIds = new Set(this.tiles().map((tile) => tile.tabId));
     this._applyingLayout = true;
@@ -752,7 +752,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       }
       if (positioned.length === 0) {
         this._geometryDeferred = false;
-        this._appliedViewFingerprint = viewFingerprint;
+        this._appliedViewConstraints = this.viewConstraints();
         this._lastAppliedMeasurements = measurements;
         return;
       }
@@ -791,7 +791,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         geometryDriftCount(grid.engine.nodes, derived),
       );
       this._geometryDeferred = false;
-      this._appliedViewFingerprint = viewFingerprint;
+      this._appliedViewConstraints = this.viewConstraints();
       this._lastAppliedMeasurements = measurements;
       if (!restoreStatic) this.applyNodeInteractionState(grid);
     } finally {

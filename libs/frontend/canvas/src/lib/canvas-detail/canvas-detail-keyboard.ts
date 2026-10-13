@@ -11,7 +11,7 @@ export function handleCanvasDetailKeydown(
   if (
     target instanceof Element &&
     (target.closest(
-      'input, textarea, select, [contenteditable], [role="menu"], [role="listbox"], [role="dialog"], [popover], [role="tablist"], [role="tab"]',
+      'input, textarea, select, [contenteditable], [role="menu"], [role="listbox"], [role="dialog"], [popover]',
     ) ||
       (target instanceof HTMLElement && target.isContentEditable))
   )
@@ -22,6 +22,11 @@ export function handleCanvasDetailKeydown(
     return;
   }
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (
+    target instanceof Element &&
+    target.closest('[role="tablist"], [role="tab"]')
+  )
+    return;
   if (event.key === 'ArrowRight') detail.next();
   else if (event.key === 'ArrowLeft') detail.prev();
   else return;
