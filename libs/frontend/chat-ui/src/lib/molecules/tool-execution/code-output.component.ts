@@ -21,13 +21,11 @@ import {
 import { countLines } from '../../utils/tool-target.utils';
 import { toolStatusPresentation } from '../../utils/tool-status.utils';
 import {
-  exceedsWrappedRows,
+  toolOutputCollapses,
   toolOutputPlainText,
 } from '../../utils/tool-text.utils';
 import { TOOL_OUTPUT_MARKDOWN_STYLES } from './tool-output-markdown.styles';
 
-/** Rows visible inside the collapsed 9.6em limit (11px text, 1.4 line height). */
-const COLLAPSED_ROWS = 6;
 /** Languages read as plain text: short output in them gets no label row. */
 const TEXT_LANGUAGES: ReadonlySet<string> = new Set(['text', 'markdown']);
 
@@ -235,11 +233,11 @@ export class CodeOutputComponent {
 
   /**
    * Whether the output is taller than the collapsed limit
-   * (`exceedsWrappedRows`; estimated, so no observer per tool row). A block
+   * (`toolOutputCollapses`; estimated, so no observer per tool row). A block
    * that is not collapsible is never clipped (it keeps `max-h-96`).
    */
   protected readonly collapsible = computed(() =>
-    exceedsWrappedRows(this.plainOutput(), COLLAPSED_ROWS),
+    toolOutputCollapses(this.plainOutput()),
   );
 
   /**

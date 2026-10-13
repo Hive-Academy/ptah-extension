@@ -17,6 +17,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   outputShowsError,
+  toolOutputCollapses,
   toolOutputPlainText,
   toolRetentionMessage,
 } from '../../utils/tool-text.utils';
@@ -140,6 +141,8 @@ export class ToolOutputDisplayComponent {
    * output, not only the error, because an earlier line (an unclosed `<!--`,
    * a fence) can hide a later one. Otherwise the block stays, even when that
    * shows the message twice.
+   * Output that collapses (`toolOutputCollapses`) also keeps the block: its
+   * last lines, where the error usually sits, are out of view until expanded.
    * A whitespace-only error still shows the block, with a stated fallback.
    */
   readonly errorMessage = computed((): string | null => {
@@ -155,6 +158,7 @@ export class ToolOutputDisplayComponent {
       !this.todoInput() &&
       !this.editInput() &&
       !renderingMayHideIt &&
+      !toolOutputCollapses(output) &&
       outputShowsError(output, error);
     return shownAsOutput ? null : error;
   });

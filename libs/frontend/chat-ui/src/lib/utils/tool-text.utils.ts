@@ -55,6 +55,17 @@ export function exceedsWrappedRows(text: string, limit: number): boolean {
   return false;
 }
 
+/** Rows visible inside the collapsed 9.6em output limit (11px text, 1.4 line height). */
+const COLLAPSED_ROWS = 6;
+
+/**
+ * Whether an output block collapses (`exceedsWrappedRows` past
+ * `COLLAPSED_ROWS`), so its last lines are out of view until expanded.
+ */
+export function toolOutputCollapses(text: string): boolean {
+  return exceedsWrappedRows(text, COLLAPSED_ROWS);
+}
+
 /**
  * The truncation notice for a node's input or output, or null when that
  * field was not capped. The copy names the recovery honestly: the bytes are

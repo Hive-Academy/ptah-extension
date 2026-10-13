@@ -349,6 +349,34 @@ describe.each([true, false])(
       expect(host.textContent?.match(/missing script/g)).toHaveLength(1);
     });
 
+    it('drops the Error block for short output that ends with the error line', async () => {
+      const host = render({
+        status: 'error',
+        toolOutput: '> lint\nnpm ERR! missing script: lint',
+        error: 'npm ERR! missing script: lint',
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="tool-error"]')).toBeNull();
+    });
+
+    // Regression: a collapsed block hides its last line until expanded.
+    it('keeps the Error block when collapsed output ends with the error line', async () => {
+      const log = Array.from({ length: 10 }, (_, i) => `step ${i + 1}`);
+      const host = render({
+        status: 'error',
+        toolOutput: [...log, 'npm ERR! missing script: lint'].join('\n'),
+        error: 'npm ERR! missing script: lint',
+      });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const block = host.querySelector('[data-testid="tool-error"]');
+      expect(block).not.toBeNull();
+      expect(block?.textContent).toContain('npm ERR! missing script: lint');
+    });
+
     it('renders an error with no output as one readable "Error" block', () => {
       const host = render({ status: 'error', error: 'Permission denied' });
       const block = host.querySelector(
