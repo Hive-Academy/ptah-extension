@@ -1,6 +1,6 @@
 # Batches - TASK_2026_441_7825
 
-Total tasks: 18 | Batches: 8 | Complete: 4/8
+Total tasks: 22 | Batches: 9 | Complete: 4/9
 
 Phase 1 review: PENDING — code-logic, diff `2e0811f0a~1..5991b51be` (Batches 1-4 + Batch 3 fix),
 reviewer family must not be codex.
@@ -340,7 +340,7 @@ Edge cases:
 - Inspect `fleet.md` for vendor names, `npx nx`, or scope enums (none allowed).
 - No per-batch review.
 
-## Batch 4: team-leader template lanes-first schema and policy spec (C) — COMPLETE (commit 5991b51be)
+## Batch 4: team-leader template lanes-first schema and policy spec (C) — COMPLETE (commit 5991b51be; Phase 1 review `code-logic-review.md` APPROVED 7/10, fix round Batch 4F)
 
 - Executed by: CLI lane (codex, d5d42d2a). Report: `batch-4-report.md`.
 - Team-leader verification: diff read — CLI-lane default incl. sequential coupled and cross-file work,
@@ -392,6 +392,123 @@ Edge cases:
   --maxWorkers=2 2>&1 | tail -30`
 - Then `npm run validate-skill 2>&1 | tail -30` must be fully green (end of expected-red).
 - Phase 1 review due: team-leader returns NEEDS REVIEW for the Batch 1 parent..HEAD diff.
+
+### Phase 1 review record
+
+- Review: `code-logic-review.md` (Glm ptah-cli, resumed lane 73fea0bf; implementer family codex, so
+  cross-family). Range `2e0811f0a~1..5991b51be`. Verdict APPROVED 7/10; 0 Blocking, 0 Serious, 4
+  Moderate, 2 Minor (decisions.md #16).
+- Fix-round triage (one round; Moderate fixed only when it can break lane behaviour/config or lose data):
+  | Finding | Severity | Disposition |
+  | --- | --- | --- |
+  | 1 Validator template markers match only the fenced example | Moderate | FIX in Batch 4F (a false pass leaves the lanes-first default unprotected by `validate-skill`) |
+  | 2 git-standards lost the named destructive commands | Moderate | FIX in Batch 4F per user decision decisions.md #17 (restore a short generic named list) |
+  | 3 orchestrate-help lost the code-quality standards | Moderate | APPROVED REMOVAL, user decision decisions.md #18 (stack opinion, not a generic plugin rule); no change |
+  | 4 agent-lanes §4 no legal action when the single check says `running` | Moderate | FIX in Batch 4F (orchestrator stall up to the lane timeout on a no-push host) |
+  | 5 checkpoints "use lanes more" row vs Gate 0.1 approval table | Minor (raised) | FIX in Batch 4F: two rules give different approval modes, so an orchestrator can pick the wrong lane config |
+  | 6 agent-lanes §5 lost the in-process end-state row | Minor | DEFERRED to Later task L1 below; the rule survives at agent-lanes §1 and lane-assignment.md:128-129 |
+
+## Batch 4F: Phase 1 review fixes — IN_PROGRESS
+
+- Recommended executor: CLI lane (capability: precise technical writing + TypeScript scripting)
+- Fallback executor: per the fallback order; last resort one sequential backend-developer subagent
+  (Subagent reason would be: every lane exhausted)
+- Subagent reason: N/A
+- Execution mode: sequential
+- Rationale: Task 4F.4 asserts exact strings that Tasks 4F.1-4F.3 write, so one lane does all four in
+  order. 4 files across 2 areas (plugin skill assets, `scripts/`). codex implemented Phase 1 and may fix;
+  the re-review must use a non-codex family (Glm, antigravity or opencode). grok AT LIMIT until 17:40 UTC
+  (skip; resolve from the live list at spawn).
+- Tasks: 4 | Depends on: Batch 4
+- Phase: 1 Shipped policy (fix round) | Phase review: one code-logic re-review scoped to the Batch 4F
+  commit, non-codex family; no style review (no new public API)
+- Do NOT touch `libs/backend/agent-generation/templates/agents/team-leader.template.md` or any other file.
+
+### Task 4F.1: Restore the named destructive-command list (decisions.md #17) — IN_PROGRESS
+
+- File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\orchestration\references\git-standards.md`
+- Plan reference: code-logic-review.md Finding 2; decisions.md #17; old table at `git show 314813c3e~1:apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/references/git-standards.md`
+- Required change: replace the body of `## Destructive operations` (`:86-88`), keeping the heading text
+  exactly. New body, in this order: (a) one sentence containing the exact phrase `Ask first`: these
+  commands discard or rewrite work, so ask the user first and act only on explicit authorization;
+  (b) a short two-column table (`Command` | `What it can lose`), rows in this exact order:
+  `git reset --hard`; `git clean -fd`; `git checkout .` and `git restore .` (one row);
+  `git branch -D`; `git push --force` (including `--force-with-lease`); `git rebase` on a shared or
+  already-pushed branch; `git stash drop` and `git stash clear` (one row); (c) one sentence: before
+  asking, inspect state — `git status`, `git log`, `git stash list`, and the exact paths or branch the
+  command touches — and show the user what would be lost. Keep the "or equivalent commands" catch-all
+  for unlisted commands.
+- Validation notes: generic only — no repository names, scopes, vendors or this repo's paths. Do not
+  change any other section.
+
+### Task 4F.2: Bounded re-check when push is unavailable (Finding 4) — IN_PROGRESS
+
+- File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\agent-lanes\SKILL.md`
+- Plan reference: code-logic-review.md Finding 4; old bounded poll at `git show 2e0811f0a~1:apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/agent-lanes/SKILL.md` §4
+- Required change: in §4 (`## 4. Run`), replace the sentences at `:119-121` from "If push is
+  unavailable" through "as a substitute." with text that contains these exact phrases in this order:
+  `push is unavailable` (keep the existing examples), `make one status/read check`,
+  `at most 5 status checks per lane`, `at least 60 s apart`, `fifth check`. Meaning: if the check reports
+  `running`, continue other independent work and re-check, at most 5 status checks per lane, at least
+  60 s apart, never a tight loop, timer or watcher. If the fifth check still reports `running`, stop
+  waiting: either tell the user the lane is still running (agent id, lane) and end the turn, or, when it
+  has clearly exceeded its expected duration, stop it with `ptah_agent_stop` and recover per §5 as a
+  non-limit timeout (never as a usage limit).
+- Validation notes: keep every existing §4 marker in its current order (`one \`<agent-lane-completed>\`
+  signal per lane turn`, `queued`, `later signal`, `supersedes`, `pending`); the new text must not
+  contain the words `queued`, `later signal`, `supersedes` or `pending`. No vendor names.
+
+### Task 4F.3: Align the "use lanes more" approval with Gate 0.1 (Finding 5) — IN_PROGRESS
+
+- File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\orchestration\references\checkpoints.md`
+- Plan reference: code-logic-review.md Finding 5; Gate 0.1 table `:174-179`, Response Handling `:195-203`
+- Required change: only the `"use lanes more"` row of the first `### Response Handling` table (`:201`).
+  Approval cell becomes exactly: `` `lane-review` with a spawnable lane, unless "gate me" was given;
+  otherwise `user` `` (consistent with the Gate 0.1 row "`lane-review` if enabled/auto with a spawnable
+  lane; otherwise `user`", and "gate me" keeps every approval with the user). Lane mode stays
+  `enabled`. Keep the table aligned and valid markdown.
+- Validation notes: no other row or checkpoint changes; the existing Checkpoint 0.1 markers must still
+  pass.
+
+### Task 4F.4: Validator asserts the prose rules, not only the fenced example — IN_PROGRESS
+
+- Depends on: Tasks 4F.1-4F.3
+- File: `D:\projects\ptah-extension\.claude-worktrees\task-441-lanes-first-c89362de48e8\scripts\validate-orchestration-skill.ts`
+- Plan reference: code-logic-review.md Finding 1; `validateLanesFirstRules` `:621-662`
+- Required change, inside `validateLanesFirstRules`, keeping every existing call unchanged:
+  1. Add `validateRuleMarkers(TEAM_LEADER_TEMPLATE, 'Batch', ['Recommend \`CLI lane\` for every bounded
+     batch by default', 'Put that reason in \`Subagent reason\`'])` — the `### Batch` prose section
+     (template `:145-177`, no fenced block), so a deleted prose default fails even with the fenced
+     schema intact. Keep the existing `Mode 1 — Decomposition` fenced-schema call.
+  2. Add `validateRuleMarkers(LANE_SKILL_FILE, '4. Run', ['push is unavailable', 'make one status/read
+     check', 'at most 5 status checks per lane', 'at least 60 s apart', 'fifth check'])` as a separate
+     call.
+  3. Add `validateRuleMarkers(checkpoints, 'Checkpoint 0.1: CLI Lane Mode', ['"use lanes more"',
+     '\`lane-review\` with a spawnable lane, unless "gate me"'])` as a separate call.
+  4. Add a `git-standards.md` path under `REFERENCES_DIR` and `validateRuleMarkers(gitStandards,
+     'Destructive operations', ['Ask first', 'git reset --hard', 'git clean -fd', 'git checkout .',
+     'git restore .', 'git branch -D', 'git push --force', 'git rebase', 'git stash drop',
+     'git stash clear'])`.
+- Validation notes: no check removed or weakened; markers are matched after whitespace collapse, so
+  strings must match the written text exactly (backticks included). If the `Batch` heading lookup hits
+  an earlier heading named `Batch`, report it rather than renaming template headings.
+
+### Batch 4F verification
+
+- Team-leader reads all 4 files; greps confirm the template prose markers sit outside any fence and
+  every new marker string exists verbatim in its target file.
+- Scoped command: `npm run validate-skill 2>&1 | tail -30` -> 0 errors, 0 warnings.
+- `git diff --name-only` shows exactly the 4 files; the template is unchanged, so the
+  agent-generation policy spec is not re-run (if the template does change, NOT ACCEPTED).
+- CLAUDE.md rules repeated in the lane prompt: only changed projects, one heavy check at a time,
+  `--maxWorkers=2`, never build/serve/e2e/package or workspace-wide runs; lanes never run git.
+- After commit: team-leader returns NEEDS REVIEW for the Batch 4F commit only (re-review, non-codex).
+
+## Later task L1 (deferred, not in this run) — agent-lanes §5 in-process end state
+
+- Source: code-logic-review.md Finding 6 (Minor). Add one sentence to agent-lanes §5 naming the final
+  fallback ("No lane available at all -> do the work in-process and label it as not an outside lane").
+  Recorded, not fixed (lean fix-round rule: Minor). File for a follow-up task.
 
 ## Batch 5: Repo-local fleet migration (G1) — PENDING
 

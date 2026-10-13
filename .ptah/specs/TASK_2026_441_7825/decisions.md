@@ -14,4 +14,9 @@
 | 11 | Team-leader runs as a subagent (it owns `batches.md` state and commits; lanes cannot commit) | Evidence | `lane-assignment.md` § Never on a lane (git commits) |
 | 12 | Batch 3 cut plugin `git-standards.md` ~300 → 35 lines, beyond the planned move; generic sections (branch/PR ops, pre-commit checks, bypass documentation, scenarios, default types) restored generically in a fix lane, repo-specific scope list and examples stay out | User | AskUserQuestion 2026-10-13: "Restore generic parts" |
 | 13 | `orchestrate-help.md` old phase walkthrough removal accepted without asking: it referenced `progress.md` and `/validate-*` commands that do not exist (stale, not a capability) | Evidence | team-leader B3 Mode 2 note |
+| 14 | Phase 1 code-logic review on Glm (Ollama Cloud family; every Phase 1 implementer was codex) | Evidence | New shipping-code rule: different family |
+| 15 | Glm review lane c31866cf stopped by the runtime, reason `repeat-call` (non-limit failure 1 of 2); resumed once in the same session (73fea0bf) with "no repeated searches, write now". If it fails again: next eligible family (antigravity or opencode), then a Claude subagent | Evidence | `ptah_agent_status` stop reason; agent-lanes §5 non-limit path |
+| 16 | Phase 1 code-logic review (Glm, resumed lane 73fea0bf): APPROVED 7/10, 0 Blocking, 0 Serious, 4 Moderate, 2 Minor | Peer | `code-logic-review.md` |
+| 17 | Restore a short generic named list of destructive git commands in plugin `git-standards.md` | User | AskUserQuestion 2026-10-13: "Restore the named list" |
+| 18 | Drop the old orchestrate-help code-quality standards (no `any`, < 30-line functions, > 80% coverage): stack opinion, not a generic plugin rule | User | AskUserQuestion 2026-10-13: "Drop them" |
 | 4 | Two skills (`orchestration` + internal `agent-lanes`); fleet becomes a mode | User | Approved in session 2026-10-13 ("lets do that in a new worktree") |
