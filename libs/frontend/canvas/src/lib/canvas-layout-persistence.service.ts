@@ -44,7 +44,7 @@ const v2Schema = z.strictObject({
 });
 
 const boardSchema = z.strictObject({
-  mode: z.enum(['rail', 'grid']).catch('rail'),
+  mode: z.enum(['rail', 'grid']).catch('rail').transform(() => 'rail' as const),
   railCollapsed: z.boolean().catch(false),
   railDensity: z.enum(['comfortable', 'dense']).catch('comfortable'),
   railScrollTop: z.number().int().nonnegative().max(1_000_000).catch(0),
@@ -319,7 +319,7 @@ export class CanvasLayoutPersistenceService {
             : { kind: 'auto', weight: tile.width.weight },
         rowBreakBefore: tile.rowBreakBefore,
       })),
-      board: snapshot.board,
+      board: { ...snapshot.board, mode: 'rail' },
     };
     const serialized = JSON.stringify(record);
     if (this.lastWritten.get(workspacePath) === serialized) return;

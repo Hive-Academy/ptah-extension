@@ -15,7 +15,7 @@ describe('CanvasLayoutPersistenceService', () => {
     { tabId: 'A', order: 0, width: { kind: 'span', span: 'two-thirds' }, rowBreakBefore: false },
     { tabId: 'B', order: 1, width: { kind: 'auto', weight: 5 }, rowBreakBefore: true },
   ];
-  const board = { ...DEFAULT_BOARD_STATE, mode: 'grid' as const, railCollapsed: true, railDensity: 'dense' as const, railScrollTop: 123 };
+  const board = { ...DEFAULT_BOARD_STATE, railCollapsed: true, railDensity: 'dense' as const, railScrollTop: 123 };
 
   beforeEach(() => {
     localStorage.clear();
@@ -47,6 +47,38 @@ describe('CanvasLayoutPersistenceService', () => {
     });
   });
 
+  it('writes Rail mode even when the snapshot still has Grid mode', () => {
+    service.markHydrated(path, true);
+    service.schedule(path, () => ({ tiles: intent, board: { ...board, mode: 'grid' } }));
+    service.flush();
+
+    const stored = JSON.parse(localStorage.getItem(service.storageKey(path))!);
+    expect(stored.board).toEqual(board);
+    expect(stored.tiles).toEqual(intent);
+  });
+
+  it('opens a stored v3 Grid board as Rail without changing tiles or Rail options', () => {
+    const raw = '{"version":3,"tiles":[{"tabId":"A","order":0,"width":{"kind":"span","span":"two-thirds"},"rowBreakBefore":false},{"tabId":"B","order":1,"width":{"kind":"auto","weight":5},"rowBreakBefore":true}],"board":{"mode":"grid","railCollapsed":true,"railDensity":"dense","railScrollTop":123}}';
+    localStorage.setItem(service.storageKey(path), raw);
+
+    expect(service.load(path)).toEqual({
+      tiles: intent,
+      board,
+      writable: true,
+      needsWrite: false,
+      readOnlyReason: null,
+    });
+    expect(localStorage.getItem(service.storageKey(path))).toBe(raw);
+
+    service.markHydrated(path, true);
+    service.schedule(path, () => ({ tiles: intent, board: { ...board, railScrollTop: 456 } }));
+    service.flush();
+
+    const stored = JSON.parse(localStorage.getItem(service.storageKey(path))!);
+    expect(stored.board).toEqual({ ...board, railScrollTop: 456 });
+    expect(stored.tiles).toEqual(intent);
+  });
+
   it.each(['auto', 1, 2, 3] as const)('migrates v1 %s losslessly into durable rows', (columnsPreference) => {
     localStorage.setItem(service.storageKey(path), JSON.stringify({
       version: 1,
@@ -64,6 +96,8 @@ describe('CanvasLayoutPersistenceService', () => {
   });
 
   it.each([
+    { version: 3, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'quarter' }, rowBreakBefore: false }], board },
+    { version: 3, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'full' } }], board },
     { version: 2, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'quarter' }, rowBreakBefore: false }] },
     { version: 2, tiles: [{ tabId: 'A', order: 0, width: { kind: 'auto', weight: 0 }, rowBreakBefore: false }] },
     { version: 2, tiles: [{ tabId: 'A', order: 0, width: { kind: 'span', span: 'full' }, rowBreakBefore: false, x: 0 }] },
@@ -162,9 +196,10 @@ describe('CanvasLayoutPersistenceService', () => {
     expect(service.writeFailed()).toBe(true);
   });
 
-  it('loads v2 losslessly without scheduling an upgrade', () => {
+  it('opens v2 as Rail defaults without scheduling an upgrade', () => {
     localStorage.setItem(service.storageKey(path), JSON.stringify({ version: 2, tiles: intent }));
-    expect(service.load(path)).toEqual({ tiles: intent, board: null, writable: true, needsWrite: false, readOnlyReason: null });
+    const loaded = service.load(path);
+    expect(loaded).toEqual({ tiles: intent, board: null, writable: true, needsWrite: false, readOnlyReason: null });
   });
 
   it('loads v1 with null board and a pending migration', () => {
