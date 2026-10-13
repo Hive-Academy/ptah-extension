@@ -417,11 +417,13 @@ describe('buildHarnessNamespace — installMcpServer', () => {
 describe('buildHarnessNamespace — proposeConfig', () => {
   it('rejects invalid configUpdates without broadcasting', async () => {
     const { deps, broadcast } = makeDeps();
-    await expect(
-      buildHarnessNamespace(deps).proposeConfig({
-        persona: { goals: 'not-an-array' },
-      } as never),
-    ).rejects.toThrow(/Invalid configUpdates/);
+    const proposal = buildHarnessNamespace(deps).proposeConfig({
+      persona: { goals: 'not-an-array' },
+    } as never);
+    await expect(proposal).rejects.toThrow(/Invalid configUpdates/);
+    await expect(proposal).rejects.toMatchObject({
+      name: 'HarnessConfigUpdatesError',
+    });
     expect(broadcast).not.toHaveBeenCalled();
   });
 
@@ -458,9 +460,11 @@ describe('buildHarnessNamespace — proposeConfig', () => {
   it('rejects an unresolved session without saving or broadcasting', async () => {
     const { deps, saveProposal, broadcast } = makeDeps();
     deps.getCallerSdkSessionId = () => undefined;
-    await expect(
-      buildHarnessNamespace(deps).proposeConfig({ name: 'X' }),
-    ).rejects.toThrow(/no SDK session/);
+    const proposal = buildHarnessNamespace(deps).proposeConfig({ name: 'X' });
+    await expect(proposal).rejects.toThrow(/no SDK session/);
+    await expect(proposal).rejects.toMatchObject({
+      name: 'HarnessProposalNoSessionError',
+    });
     expect(saveProposal).not.toHaveBeenCalled();
     expect(broadcast).not.toHaveBeenCalled();
   });

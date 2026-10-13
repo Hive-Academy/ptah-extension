@@ -25,6 +25,7 @@ import 'reflect-metadata';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   countTokens,
@@ -655,6 +656,64 @@ describe('harness tools', () => {
     expect(text).toContain('mcpServers.0.command: Required');
     expect(text).toMatch(/Correct configUpdates/i);
     expect(text).not.toMatch(/Retry if the session and storage/i);
+  });
+
+  it('reports when no workspace is available for a proposal', async () => {
+    const error = Object.assign(new Error('private workspace path'), {
+      code: 'HARNESS_PROPOSAL_NO_WORKSPACE',
+    });
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'X' } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('no workspace is available');
+    expect(text).not.toContain('private workspace path');
+  });
+
+  it('reports a file-system error code without exposing its path', async () => {
+    const error = Object.assign(new Error('EACCES: denied C:\\secret\\path'), {
+      code: 'EACCES',
+    });
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'X' } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('(EACCES)');
+    expect(text).not.toContain('C:\\secret\\path');
+    expect(text).not.toContain(error.message);
+  });
+
+  it('reports an invalid SDK session id without Zod issue details', async () => {
+    const parsed = z.string().safeParse(1);
+    if (parsed.success) throw new Error('Expected Zod validation to fail');
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(parsed.error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'X' } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('invalid SDK session id');
+    expect(text).not.toContain('invalid_type');
+    expect(text).not.toContain('expected');
   });
 });
 
