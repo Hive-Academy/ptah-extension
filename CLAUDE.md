@@ -20,6 +20,7 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
 - The commitlint scope enum and other enforced commit rules live in `.commitlintrc.json`.
   Read that config before committing. Keep the subject at most 72 characters and every body
   line at most 100 characters; wrap body text at 72. `security` and `git` are not scopes.
+- A multi-scope subject with commas is allowed, e.g. `fix(agent-sdk,chat): ...`.
 - For one changed project, run `npx nx test <project> --parallel=1`. For several changed
   projects, run `npx nx run-many -t test -p A B --parallel=1` and confirm that the output
   header says "Running target test for N projects" with N equal to the number requested.
