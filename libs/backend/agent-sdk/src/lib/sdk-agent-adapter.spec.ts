@@ -1093,6 +1093,87 @@ describe('SdkAgentAdapter', () => {
     });
   });
 
+  describe('config change gate and coalescing', () => {
+    async function flush(): Promise<void> {
+      for (let i = 0; i < 5; i++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+
+    it('keeps every session when the key of a provider not in use changes', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'thirdParty',
+        providerId: 'openrouter',
+      });
+      await h.adapter.initialize();
+
+      // e.g. a save in another VS Code window, or another provider's tile.
+      h.events.emitConfigChanged({
+        key: 'ptah.auth.provider.moonshot',
+        timestamp: Date.now(),
+      });
+      await flush();
+
+      expect(h.sessionLifecycle.disposeAllSessions).not.toHaveBeenCalled();
+    });
+
+    it('re-initializes when the key of the active provider changes', async () => {
+      const h = makeAdapter();
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'thirdParty',
+        providerId: 'openrouter',
+      });
+      await h.adapter.initialize();
+
+      h.events.emitConfigChanged({
+        key: 'ptah.auth.provider.openrouter',
+        timestamp: Date.now(),
+      });
+      await flush();
+
+      expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-initializes for the direct API key regardless of provider', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.events.emitConfigChanged({
+        key: 'ptah.auth.anthropicApiKey',
+        timestamp: Date.now(),
+      });
+      await flush();
+
+      expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs one pass plus one follow-up for a burst of changes', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      let releaseDispose: () => void = () => undefined;
+      h.sessionLifecycle.disposeAllSessions.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseDispose = resolve;
+          }),
+      );
+
+      // A settings import writes several auth keys back to back.
+      for (let i = 0; i < 5; i++) {
+        h.events.emitConfigChanged({ key: 'authMethod', timestamp: i });
+      }
+      await flush();
+      expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(1);
+
+      releaseDispose();
+      await flush();
+
+      expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('startChatSession()', () => {
     it('throws SdkError before initialize()', async () => {
       const { adapter } = makeAdapter();

@@ -362,4 +362,5 @@ export {
   NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES,
   NON_AUTH_PROVIDER_KEY_SLOT_IDS,
   isSdkAuthSecretKey,
+  authProviderIdOfSecretKey,
 } from './provider-key-slots';

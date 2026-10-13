@@ -58,9 +58,20 @@ const DOT_FREE_NON_AUTH_IDS: ReadonlySet<string> = new Set(
 export function isSdkAuthSecretKey(secretKey: string): boolean {
   if (!secretKey.startsWith('ptah.auth.')) return false;
   if (!secretKey.startsWith(PROVIDER_KEY_SECRET_PREFIX)) return true;
+  return authProviderIdOfSecretKey(secretKey) !== null;
+}
+
+/**
+ * The provider id whose API key `secretKey` holds, or null when the key is not
+ * an SDK auth provider-key slot (connector slots, `ptah.auth.anthropicApiKey`,
+ * keys outside `ptah.auth.`). Lets a consumer ask whether a changed key belongs
+ * to the provider it actually uses.
+ */
+export function authProviderIdOfSecretKey(secretKey: string): string | null {
+  if (!secretKey.startsWith(PROVIDER_KEY_SECRET_PREFIX)) return null;
   const slotId = secretKey.slice(PROVIDER_KEY_SECRET_PREFIX.length);
-  return (
-    AUTH_PROVIDER_SLOT_ID_PATTERN.test(slotId) &&
+  return AUTH_PROVIDER_SLOT_ID_PATTERN.test(slotId) &&
     !DOT_FREE_NON_AUTH_IDS.has(slotId)
-  );
+    ? slotId
+    : null;
 }

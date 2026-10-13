@@ -2,7 +2,10 @@ import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  authProviderIdOfSecretKey,
+} from '@ptah-extension/platform-core';
 import type {
   IPlatformInfo,
   IWorkspaceProvider,
@@ -171,6 +174,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private workspaceAuthChanges = 0;
 
+  /**
+   * The config-change re-initialization in flight, if any. A burst of changes
+   * (a settings import writes many keys) runs ONE pass, plus one more when a
+   * change arrived during it — never one overlapping pass per change.
+   */
+  private configReinit: Promise<void> | null = null;
+  private configReinitAgain = false;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -282,7 +293,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
       this.handleWorkspaceChanged();
     });
-    this.events.onConfigChanged(async (event) => {
+    this.events.onConfigChanged((event) => {
       if (this.workspaceAuthChanges > 0) {
         this.logger.info(
           '[SdkAgentAdapter] Config change during a workspace-scoped auth save — applied to that workspace only',
@@ -290,15 +301,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
         );
         return;
       }
-      this.logger.info(
-        '[SdkAgentAdapter] Config change detected, re-initializing...',
-      );
-      this.flushAllPendingUserActivity();
-      await this.sessionLifecycle.disposeAllSessions();
-      this.cliDetector.clearCache();
-      this.modelService.clearCache();
-      this.cliInstallation = null;
-      await this.initialize();
+      // A provider key matters only when it belongs to the provider this
+      // adapter uses. Any other key change (another provider's key, a save in
+      // a different VS Code window) must not end every live chat.
+      const changedProvider = event?.key
+        ? authProviderIdOfSecretKey(event.key)
+        : null;
+      if (changedProvider !== null && !this.usesProvider(changedProvider)) {
+        this.logger.info(
+          '[SdkAgentAdapter] Key change for a provider not in use — sessions kept',
+          { providerId: changedProvider },
+        );
+        return;
+      }
+      void this.requestConfigReinit();
     });
     this.events.onAuthFileChanged(async (event) => {
       // Only recover when the adapter is unusable. A healthy adapter reads
@@ -320,6 +336,54 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * adapter is usable. Surfaces the active provider and the last health
    * `errorMessage` so the UI can render an actionable re-auth banner.
    */
+  /**
+   * True when `providerId` is the provider the active auth resolves to, or the
+   * one the auth env is configured for now (they differ until a pending
+   * reconfigure runs).
+   */
+  private usesProvider(providerId: string): boolean {
+    if (this.lastConfiguredAuth?.providerId === providerId) return true;
+    try {
+      return this.authManager.resolveActiveAuth().providerId === providerId;
+    } catch {
+      // degradation-audit: optional-capability - when the active auth cannot
+      // be read, re-initializing is the safe answer, as before this gate.
+      return true;
+    }
+  }
+
+  /** Coalesced dispose + re-initialize after a config change. */
+  private requestConfigReinit(): Promise<void> {
+    if (this.configReinit) {
+      this.configReinitAgain = true;
+      return this.configReinit;
+    }
+    this.configReinit = (async () => {
+      do {
+        this.configReinitAgain = false;
+        this.logger.info(
+          '[SdkAgentAdapter] Config change detected, re-initializing...',
+        );
+        this.flushAllPendingUserActivity();
+        await this.sessionLifecycle.disposeAllSessions();
+        this.cliDetector.clearCache();
+        this.modelService.clearCache();
+        this.cliInstallation = null;
+        await this.initialize();
+      } while (this.configReinitAgain);
+    })()
+      .catch((error: unknown) => {
+        this.logger.error(
+          '[SdkAgentAdapter] Re-initialization after config change failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      })
+      .finally(() => {
+        this.configReinit = null;
+      });
+    return this.configReinit;
+  }
+
   private notInitializedError(): AuthRequiredError {
     let providerId: string | null = null;
     try {

@@ -2,6 +2,7 @@ import {
   NON_AUTH_PROVIDER_KEY_SLOT_IDS,
   NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES,
   PROVIDER_KEY_SECRET_PREFIX,
+  authProviderIdOfSecretKey,
   isSdkAuthSecretKey,
 } from './provider-key-slots';
 
@@ -35,6 +36,18 @@ describe('isSdkAuthSecretKey', () => {
     expect(
       isSdkAuthSecretKey(`${PROVIDER_KEY_SECRET_PREFIX}newconnector.token.x`),
     ).toBe(false);
+  });
+
+  it('names the provider of an auth provider-key slot only', () => {
+    expect(authProviderIdOfSecretKey('ptah.auth.provider.openrouter')).toBe(
+      'openrouter',
+    );
+    expect(authProviderIdOfSecretKey('ptah.auth.anthropicApiKey')).toBeNull();
+    expect(
+      authProviderIdOfSecretKey('ptah.auth.provider.mcp.oauth.heygen'),
+    ).toBeNull();
+    expect(authProviderIdOfSecretKey('ptah.auth.provider.cursor')).toBeNull();
+    expect(authProviderIdOfSecretKey('authMethod')).toBeNull();
   });
 
   it('ignores keys outside the ptah.auth namespace', () => {
