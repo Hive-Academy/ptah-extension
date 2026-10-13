@@ -95,6 +95,10 @@ import type {
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import {
+  LIMIT_LOOKUP_DEADLINE_MS,
+  SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+} from '@ptah-extension/shared';
+import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
@@ -716,7 +720,7 @@ describe('ProviderRpcHandlers', () => {
       expect(typeof result.generatedAt).toBe('number');
     });
 
-    it('reads owners in parallel, each bounded by its own 3 s deadline', async () => {
+    it('reads owners in parallel, each bounded by its provider deadline', async () => {
       jest.useFakeTimers();
       const h = makeHarness();
       const evidence = {
@@ -757,11 +761,17 @@ describe('ProviderRpcHandlers', () => {
         h,
         'provider:getPlanLimits',
       ).then((value) => (settled = value));
-      await jest.advanceTimersByTimeAsync(2_999);
+      await jest.advanceTimersByTimeAsync(LIMIT_LOOKUP_DEADLINE_MS);
       expect(h.planLimits.getOwnerSnapshot).toHaveBeenCalledTimes(2);
+      // Ollama is released at 3 s; the response still waits for Codex.
       expect(settled).toBeUndefined();
 
-      // One deadline releases both owners: the reads ran side by side.
+      // Codex's slow deadline releases the last owner: the reads ran side by
+      // side, so the response settles at 12 s, not 3 s + 12 s.
+      await jest.advanceTimersByTimeAsync(
+        SLOW_LIMIT_LOOKUP_DEADLINE_MS - LIMIT_LOOKUP_DEADLINE_MS - 1,
+      );
+      expect(settled).toBeUndefined();
       await jest.advanceTimersByTimeAsync(1);
       await pending;
 
