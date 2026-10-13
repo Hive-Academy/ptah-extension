@@ -27,6 +27,43 @@ export type CompactGitState =
       readonly partial: boolean;
     };
 
+export function sameGitState(
+  a: CompactGitState | undefined,
+  b: CompactGitState | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.kind !== b.kind) return false;
+  if (a.kind === 'none') return true;
+  if (a.kind === 'unknown')
+    return b.kind === 'unknown' && a.reason === b.reason;
+  return (
+    b.kind === 'known' &&
+    a.additions === b.additions &&
+    a.deletions === b.deletions &&
+    a.partial === b.partial
+  );
+}
+
+export function todoTitle(todo: CompactTodoState | null): string {
+  return todo?.kind === 'known'
+    ? todo.active || 'Todos'
+    : todo?.kind === 'unknown'
+      ? 'Todos unknown'
+      : 'No todos';
+}
+
+export function gitTitle(git: CompactGitState | null): string {
+  if (git?.kind === 'known')
+    return git.partial
+      ? 'Some files could not be counted'
+      : 'Uncommitted changes';
+  if (git?.kind === 'unknown')
+    return git.reason === 'failed'
+      ? 'Could not read git status'
+      : 'Git changes unavailable';
+  return 'Git changes unknown';
+}
+
 export function parseTodoList(input: unknown): readonly TodoItem[] | null {
   if (!isTodoWriteToolInput(input)) return null;
   for (const item of input.todos) {
@@ -68,24 +105,27 @@ function latestFinalizedTodo(node: ExecutionNode): ExecutionNode | null {
 export function summarizeTodos(
   messages: readonly ExecutionChatMessage[],
   streaming: StreamingState | null,
+  compactionCompletedAt = 0,
 ): CompactTodoState {
   const marker = streaming?.latestTodoWrite;
   if (streaming && marker) {
-    const start = [...streaming.events.values()].find(
-      (event) =>
+    let startToolInput: Readonly<Record<string, unknown>> | undefined;
+    for (const event of streaming.events.values()) {
+      if (
         event.eventType === 'tool_start' &&
         event.toolCallId === marker.toolCallId &&
-        !event.parentToolUseId,
-    );
-    const input = toolInputOf(
-      streaming,
-      marker.toolCallId,
-      start?.eventType === 'tool_start' ? start.toolInput : undefined,
-    );
+        !event.parentToolUseId
+      ) {
+        startToolInput = event.toolInput;
+        break;
+      }
+    }
+    const input = toolInputOf(streaming, marker.toolCallId, startToolInput);
     return summarizeList(input);
   }
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
+    if (message.timestamp < compactionCompletedAt) return { kind: 'unknown' };
     if (message.role !== 'assistant' || !message.streamingState) continue;
     const todo = latestFinalizedTodo(message.streamingState);
     if (todo) return summarizeList(todo.toolInput);

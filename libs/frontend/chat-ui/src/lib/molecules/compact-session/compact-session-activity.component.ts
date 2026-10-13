@@ -37,6 +37,7 @@ import type {
   CompactGitState,
   CompactTodoState,
 } from './compact-session-metrics';
+import { todoTitle, gitTitle } from './compact-session-metrics';
 import type {
   CompactSemanticMark,
   CompactSemanticMarkKind,
@@ -802,13 +803,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
           <span
             class="flex shrink-0 items-center gap-1 font-mono text-[10px]"
             aria-label="Todos"
-            [title]="
-              todo?.kind === 'known'
-                ? todo.active || 'Todos'
-                : todo?.kind === 'unknown'
-                  ? 'Todos unknown'
-                  : 'No todos'
-            "
+            [title]="todoTitle(todo)"
           >
             @if (todo?.kind === 'known') {
               <span>☑ {{ todo.done }}/{{ todo.total }}</span>
@@ -836,15 +831,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
           <span
             class="shrink-0 pr-3 font-mono text-[10px]"
             aria-label="Lines added and removed"
-            [title]="
-              git?.kind === 'known'
-                ? git.partial
-                  ? 'Some files could not be counted'
-                  : 'Uncommitted changes'
-                : git?.kind === 'unknown' && git.reason === 'failed'
-                  ? 'Could not read git status'
-                  : 'Git changes unknown'
-            "
+            [title]="gitTitle(git)"
           >
             @if (git?.kind === 'known') {
               <span class="text-success">+{{ git.additions }}</span>
@@ -863,6 +850,8 @@ const FALLBACK_RECAP_HEIGHT = 180;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactSessionActivityComponent {
+  readonly todoTitle = todoTitle;
+  readonly gitTitle = gitTitle;
   readonly summary = input.required<CompactSessionSummary>();
   readonly openFullView = output<void>();
 

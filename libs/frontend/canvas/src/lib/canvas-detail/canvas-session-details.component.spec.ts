@@ -173,7 +173,7 @@ describe('CanvasSessionDetailsComponent', () => {
     expect(row(fixture, 'Todos').textContent?.trim()).toBe('—');
     expect(row(fixture, 'Todos').title).toBe('No todos');
     expect(row(fixture, 'Changes').textContent?.trim()).toBe('—');
-    expect(row(fixture, 'Changes').title).toBe('No changes');
+    expect(row(fixture, 'Changes').title).toBe('Git changes unknown');
 
     tabs.set([
       {

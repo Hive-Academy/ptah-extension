@@ -150,6 +150,17 @@ describe(SessionGitStatsStore.name, () => {
     expect(store.stateFor('/a')).toEqual({ kind: 'none' });
   });
 
+  it('keeps the same state object when git numbers are unchanged', () => {
+    store.track('/a', 'one');
+    const data = info([
+      { path: 'a', status: 'M', staged: false, additions: 2, deletions: 1 },
+    ]);
+    push('/a', data);
+    const first = store.stateFor('/a');
+    push('/a', data);
+    expect(store.stateFor('/a')).toBe(first);
+  });
+
   it('replaces old counts after failure and unavailable, then recovers on push and turn end', async () => {
     tabs.set('one', { tab: { claudeSessionId: 'session' } });
     call

@@ -13,6 +13,7 @@ import {
 import {
   CompactSessionActivityComponent,
   summarizeTodos,
+  sameGitState,
   summarizeFinalized,
   summarizeLive,
   type CompactCallout,
@@ -227,7 +228,12 @@ export class CompactSessionCardComponent {
   /** Last sampled stream state; `null` once the stream has ended. */
   private readonly sampledStreaming = signal<StreamingState | null>(null);
   readonly todos = computed(
-    () => summarizeTodos(this.messages(), this.sampledStreaming()),
+    () =>
+      summarizeTodos(
+        this.messages(),
+        this.sampledStreaming(),
+        this.tab().lastCompactionAt ?? 0,
+      ),
     {
       equal: (a, b) =>
         a.kind === b.kind &&
@@ -257,7 +263,9 @@ export class CompactSessionCardComponent {
       this.vscode.config().workspaceRoot,
     ),
   );
-  readonly gitStats = computed(() => this.gitStore.stateFor(this.gitRoot()));
+  readonly gitStats = computed(() => this.gitStore.stateFor(this.gitRoot()), {
+    equal: sameGitState,
+  });
 
   private readonly workspacePath = computed(
     () => this.tabLookup()?.workspacePath ?? '',

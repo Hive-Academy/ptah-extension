@@ -49,7 +49,13 @@ describe('CanvasDetailPanelComponent', () => {
     TestBed.configureTestingModule({
       imports: [CanvasDetailPanelComponent],
       providers: [
-        { provide: TabManagerService, useValue: { tabs } },
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs,
+            findTabByIdAcrossWorkspaces: () => null,
+          },
+        },
         {
           provide: CanvasDetailService,
           useValue: { laneKey, close, selectLane: jest.fn() },

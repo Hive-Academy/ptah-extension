@@ -50,6 +50,9 @@ export { CompactSessionActivityComponent } from './lib/molecules/compact-session
 export {
   parseTodoList,
   summarizeTodos,
+  sameGitState,
+  todoTitle,
+  gitTitle,
   type CompactTodoState,
   type CompactGitState,
 } from './lib/molecules/compact-session/compact-session-metrics';

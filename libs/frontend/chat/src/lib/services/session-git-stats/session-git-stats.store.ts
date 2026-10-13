@@ -7,24 +7,21 @@ import {
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { TabState } from '@ptah-extension/chat-types';
-import type { CompactGitState } from '@ptah-extension/chat-ui';
+import { sameGitState, type CompactGitState } from '@ptah-extension/chat-ui';
 import {
   VSCodeService,
   rpcCall,
   type MessageHandler,
 } from '@ptah-extension/core';
 import { MESSAGE_TYPES, type GitInfoResult } from '@ptah-extension/shared';
+import { normalizeWorkspaceRoot } from '../workspace-root';
 
+const LOG_PREFIX = '[SessionGitStatsStore]';
 const MAX_CONCURRENT_READS = 2;
 const DEBOUNCE_MS = 1_000;
 const FRESHNESS_MS = 5_000;
 const RPC_TIMEOUT_MS = 15_000;
 const NONE: CompactGitState = { kind: 'none' };
-
-function normalizeRoot(root: string): string {
-  const slashed = root.replaceAll('\\', '/').replace(/\/+$/, '');
-  return /^[a-z]:\//i.test(slashed) ? slashed.toLowerCase() : slashed;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -123,7 +120,7 @@ export class SessionGitStatsStore implements MessageHandler {
   }
 
   track(root: string, tabId: string): () => void {
-    const key = normalizeRoot(root);
+    const key = normalizeWorkspaceRoot(root);
     let entry = this.entries.get(key);
     if (!entry) {
       entry = {
@@ -157,7 +154,9 @@ export class SessionGitStatsStore implements MessageHandler {
   }
 
   stateFor(root: string | null): CompactGitState {
-    return root ? (this.states().get(normalizeRoot(root)) ?? NONE) : NONE;
+    return root
+      ? (this.states().get(normalizeWorkspaceRoot(root)) ?? NONE)
+      : NONE;
   }
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -168,7 +167,7 @@ export class SessionGitStatsStore implements MessageHandler {
         typeof payload['workspaceRoot'] === 'string'
           ? payload['workspaceRoot']
           : this.vscode.config().workspaceRoot;
-      const entry = this.entries.get(normalizeRoot(root ?? ''));
+      const entry = this.entries.get(normalizeWorkspaceRoot(root ?? ''));
       if (!entry) return;
       entry.generation++;
       entry.rerun = false;
@@ -216,7 +215,10 @@ export class SessionGitStatsStore implements MessageHandler {
     if (entry.timer !== null) clearTimeout(entry.timer);
     entry.timer = setTimeout(() => {
       entry.timer = null;
-      if (this.entries.get(normalizeRoot(entry.root)) !== entry || entry.queued)
+      if (
+        this.entries.get(normalizeWorkspaceRoot(entry.root)) !== entry ||
+        entry.queued
+      )
         return;
       entry.queued = true;
       this.queue.push(entry);
@@ -239,7 +241,8 @@ export class SessionGitStatsStore implements MessageHandler {
       const entry = this.queue.shift();
       if (!entry) return;
       entry.queued = false;
-      if (this.entries.get(normalizeRoot(entry.root)) !== entry) continue;
+      if (this.entries.get(normalizeWorkspaceRoot(entry.root)) !== entry)
+        continue;
       void this.read(entry);
     }
   }
@@ -256,23 +259,23 @@ export class SessionGitStatsStore implements MessageHandler {
         RPC_TIMEOUT_MS,
       );
       if (
-        this.entries.get(normalizeRoot(entry.root)) === entry &&
+        this.entries.get(normalizeWorkspaceRoot(entry.root)) === entry &&
         entry.generation === generation
       ) {
         if (result.success && isGitInfo(result.data)) {
           this.setState(entry, toState(result.data));
         } else {
-          console.warn('[SessionGitStatsStore] Git read failed.', result.error);
+          console.warn(`${LOG_PREFIX} Git read failed.`, result.error);
           this.setState(entry, { kind: 'unknown', reason: 'failed' });
         }
         entry.readAt = Date.now();
       }
     } catch (error: unknown) {
       if (
-        this.entries.get(normalizeRoot(entry.root)) === entry &&
+        this.entries.get(normalizeWorkspaceRoot(entry.root)) === entry &&
         entry.generation === generation
       ) {
-        console.warn('[SessionGitStatsStore] Git read failed.', error);
+        console.warn(`${LOG_PREFIX} Git read failed.`, error);
         this.setState(entry, { kind: 'unknown', reason: 'failed' });
         entry.readAt = Date.now();
       }
@@ -280,7 +283,7 @@ export class SessionGitStatsStore implements MessageHandler {
       entry.inFlight = false;
       this.activeReads--;
       if (
-        this.entries.get(normalizeRoot(entry.root)) === entry &&
+        this.entries.get(normalizeWorkspaceRoot(entry.root)) === entry &&
         entry.rerun
       ) {
         entry.rerun = false;
@@ -291,8 +294,9 @@ export class SessionGitStatsStore implements MessageHandler {
   }
 
   private setState(entry: RootEntry, state: CompactGitState): void {
-    this.states.set(
-      new Map(untracked(this.states)).set(normalizeRoot(entry.root), state),
-    );
+    const current = untracked(this.states);
+    const key = normalizeWorkspaceRoot(entry.root);
+    if (sameGitState(current.get(key), state)) return;
+    this.states.set(new Map(current).set(key, state));
   }
 }

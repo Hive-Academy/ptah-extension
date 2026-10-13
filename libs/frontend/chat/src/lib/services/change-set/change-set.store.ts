@@ -21,6 +21,7 @@ import {
   type TurnChangeSet,
   type TurnChangeSetFileStatus,
 } from '@ptah-extension/shared';
+import { sameWorkspaceRoot } from '../workspace-root';
 
 const LOG_PREFIX = '[ChangeSetStore]';
 
@@ -121,15 +122,6 @@ function trimTrailingSlashes(path: string): string {
 }
 
 /** Forward slashes, no trailing slash, drive paths case-folded. */
-function normalizeRoot(root: string): string {
-  const slashed = trimTrailingSlashes(root.replaceAll('\\', '/'));
-  return /^[a-z]:\//i.test(slashed) ? slashed.toLowerCase() : slashed;
-}
-
-function sameRoot(a: string, b: string): boolean {
-  return normalizeRoot(a) === normalizeRoot(b);
-}
-
 /** Merge by turn, oldest first, newest {@link MAX_CHANGE_SETS_PER_SESSION} kept. */
 function mergeChangeSets(
   current: readonly TurnChangeSet[],
@@ -283,7 +275,9 @@ export class ChangeSetStore implements MessageHandler {
     const changeSets = this._changeSets();
     for (const [sessionId, snapshot] of this._snapshots()) {
       for (const changeSet of changeSets.get(sessionId) ?? NO_CHANGE_SETS) {
-        if (!sameRoot(changeSet.workspaceRoot, snapshot.workspaceRoot)) {
+        if (
+          !sameWorkspaceRoot(changeSet.workspaceRoot, snapshot.workspaceRoot)
+        ) {
           continue;
         }
         result.set(changeSet, marksOf(changeSet, snapshot));
@@ -525,7 +519,7 @@ export class ChangeSetStore implements MessageHandler {
     if (!pushRoot) return;
     for (const sessionId of this._changeSets().keys()) {
       const root = this.rootFor(sessionId);
-      if (!root || !sameRoot(pushRoot, root)) continue;
+      if (!root || !sameWorkspaceRoot(pushRoot, root)) continue;
       this.pushedStatus.set(sessionId, status);
       this.bumpGeneration(sessionId);
       this.requestReconcile(sessionId, true);
@@ -624,7 +618,7 @@ export class ChangeSetStore implements MessageHandler {
     if (
       !force &&
       current &&
-      sameRoot(current.workspaceRoot, root) &&
+      sameWorkspaceRoot(current.workspaceRoot, root) &&
       Date.now() - current.readAt < RECONCILE_FRESHNESS_MS
     ) {
       return;

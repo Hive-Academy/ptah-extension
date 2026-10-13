@@ -77,6 +77,7 @@ import {
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
+  SESSION_START_GUARD,
 } from '../../tokens/session-context.token';
 import {
   ClaudeRpcService,
@@ -256,6 +257,9 @@ export class ChatViewComponent implements OnDestroy {
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly ngZone = inject(NgZone);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
+  private readonly _sessionStartGuard = inject(SESSION_START_GUARD, {
     optional: true,
   });
   /** Tile surfaces provide their on-screen state; absent → always visible. */
@@ -1431,6 +1435,11 @@ export class ChatViewComponent implements OnDestroy {
    * This prevents creating a new session when the tab is in streaming status.
    */
   handleResumeAgent(agent: SubagentRecord): void {
+    const reason = this._sessionStartGuard?.();
+    if (reason) {
+      this.showActionError(reason, this._sessionContext?.() ?? null);
+      return;
+    }
     const prompt = `Resume agent ${agent.agentId} (the interrupted ${agent.agentType} agent) and have it continue its previous work from where it was interrupted.`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
@@ -1449,6 +1458,12 @@ export class ChatViewComponent implements OnDestroy {
       return;
     }
 
+    const reason = this._sessionStartGuard?.();
+    if (reason) {
+      this.showActionError(reason, this._sessionContext?.() ?? null);
+      return;
+    }
+
     const agentList = agents
       .map((a) => `- Resume agent ${a.agentId} (${a.agentType})`)
       .join('\n');
@@ -1462,6 +1477,11 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Budget banner "Wrap up & hand off": one normal message to the agent. */
   protected onBudgetWrapUp(): Promise<void> {
+    const reason = this._sessionStartGuard?.();
+    if (reason) {
+      this.showActionError(reason, this._sessionContext?.() ?? null);
+      return Promise.resolve();
+    }
     return this._budgetActions.sendWrapUp();
   }
 

@@ -7,7 +7,13 @@ import type {
   ExecutionNode,
   ToolStartEvent,
 } from '@ptah-extension/shared';
-import { parseTodoList, summarizeTodos } from './compact-session-metrics';
+import {
+  gitTitle,
+  parseTodoList,
+  sameGitState,
+  summarizeTodos,
+  todoTitle,
+} from './compact-session-metrics';
 
 const todos = [
   {
@@ -103,6 +109,36 @@ describe('compact todo metrics', () => {
     const afterCompaction = createEmptyStreamingState();
     afterCompaction.latestTodoWrite = { toolCallId: 'live', timestamp: 10 };
     expect(summarizeTodos(older, afterCompaction)).toEqual({ kind: 'unknown' });
+  });
+
+  it('does not read a finalized todo older than the compaction boundary', () => {
+    const older = message(node('message', [node('tool', [], { todos })]));
+    const finalized = { ...message(node('message')), timestamp: 2 };
+    expect(summarizeTodos([older, finalized], null, 1)).toEqual({
+      kind: 'unknown',
+    });
+  });
+
+  it('compares git values and distinguishes unavailable and failed titles', () => {
+    expect(
+      sameGitState(
+        { kind: 'known', additions: 2, deletions: 1, partial: false },
+        { kind: 'known', additions: 2, deletions: 1, partial: false },
+      ),
+    ).toBe(true);
+    expect(
+      sameGitState(
+        { kind: 'known', additions: 2, deletions: 1, partial: false },
+        { kind: 'known', additions: 3, deletions: 1, partial: false },
+      ),
+    ).toBe(false);
+    expect(gitTitle({ kind: 'unknown', reason: 'unavailable' })).toBe(
+      'Git changes unavailable',
+    );
+    expect(gitTitle({ kind: 'unknown', reason: 'failed' })).toBe(
+      'Could not read git status',
+    );
+    expect(todoTitle({ kind: 'none' })).toBe('No todos');
   });
 
   it('ignores agent-nested finalized writes and uses the newest top-level tool', () => {

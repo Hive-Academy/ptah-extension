@@ -53,7 +53,8 @@ export const SESSION_FORCED_CARD = new InjectionToken<Signal<boolean>>(
 );
 
 /** Optional composer guard. Null allows the next turn or queued message. */
-export const SESSION_START_GUARD = new InjectionToken<() => string | null>(
+export type SessionStartGuard = () => string | null;
+export const SESSION_START_GUARD = new InjectionToken<SessionStartGuard>(
   'SESSION_START_GUARD',
 );
 

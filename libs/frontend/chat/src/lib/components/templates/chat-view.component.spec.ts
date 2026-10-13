@@ -102,6 +102,7 @@ import {
   SESSION_CONTEXT,
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
+  SESSION_START_GUARD,
 } from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
@@ -181,6 +182,7 @@ function makeHarness(
     activeTabViewMode?: TabViewMode;
     /** When set, provide a tile-local signal that forces the compact card. */
     forcedCard?: boolean;
+    startGuard?: () => string | null;
     isElectron?: boolean;
   } = {},
 ) {
@@ -196,6 +198,7 @@ function makeHarness(
     renderCompactTemplate = false,
     activeTabViewMode = 'full',
     forcedCard,
+    startGuard,
     isElectron = false,
   } = opts;
   const sessionVisibleSig =
@@ -219,6 +222,7 @@ function makeHarness(
   const resumableSubagentsSig = signal<SubagentRecord[]>([]);
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
   const sendOrQueueMessageMock = jest.fn().mockResolvedValue({ success: true });
+  const removeResumableSubagentMock = jest.fn();
   const upsertSessionSummaryMock = jest.fn();
   const removeSessionFromListMock = jest.fn();
   const isCompactingForTabMock = jest.fn(
@@ -244,6 +248,7 @@ function makeHarness(
     handleQuestionResponse: jest.fn(),
     switchSession: switchSessionMock,
     sendOrQueueMessage: sendOrQueueMessageMock,
+    removeResumableSubagent: removeResumableSubagentMock,
     upsertSessionSummary: upsertSessionSummaryMock,
     removeSessionFromList: removeSessionFromListMock,
   } as unknown as ChatStore;
@@ -487,6 +492,9 @@ function makeHarness(
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
+      ...(startGuard
+        ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
+        : []),
       {
         provide: SESSION_CONTEXT,
         useValue:
@@ -575,6 +583,7 @@ function makeHarness(
     activeTabMock,
     createTabMock,
     sendOrQueueMessageMock,
+    removeResumableSubagentMock,
     requestCanvasTabMock,
     requestComposerPrefillMock,
   };
@@ -1288,6 +1297,60 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 // computeds are exercised end-to-end: a banner scoped to another tile must NOT
 // leak into this tile, a global (`null`) banner must, and the kind must match.
 // ---------------------------------------------------------------------------
+describe('ChatViewComponent — canvas start guard', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  const agents = [
+    { agentId: 'a', agentType: 'Explore', toolCallId: 'tool-a' },
+    { agentId: 'b', agentType: 'Explore', toolCallId: 'tool-b' },
+  ] as SubagentRecord[];
+
+  it.each(['single', 'all'] as const)(
+    'keeps %s resumable entries and shows the cap reason',
+    (mode) => {
+      const h = makeHarness({
+        sessionContextTabId: 'tile-A',
+        useRealBanner: true,
+        startGuard: () => 'Running cap reached',
+      });
+      if (mode === 'single') h.component.handleResumeAgent(agents[0]);
+      else h.component.handleResumeAllAgents(agents);
+      expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+      expect(h.removeResumableSubagentMock).not.toHaveBeenCalled();
+      expect(h.component.actionError()).toBe('Running cap reached');
+    },
+  );
+
+  it.each([null, undefined])(
+    'sends both resume paths when guard is %s',
+    (result) => {
+      const h = makeHarness({
+        startGuard: result === undefined ? undefined : () => null,
+      });
+      h.component.handleResumeAgent(agents[0]);
+      h.component.handleResumeAllAgents(agents);
+      expect(h.sendOrQueueMessageMock).toHaveBeenCalledTimes(2);
+      expect(h.removeResumableSubagentMock).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it('blocks the budget wrap-up send with the same notice', async () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-A',
+      useRealBanner: true,
+      startGuard: () => 'Running cap reached',
+    });
+    await (
+      h.component as unknown as { onBudgetWrapUp(): Promise<void> }
+    ).onBudgetWrapUp();
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+    expect(h.component.actionError()).toBe('Running cap reached');
+  });
+});
+
 describe('ChatViewComponent — per-tile banner scoping', () => {
   afterEach(() => {
     TestBed.resetTestingModule();

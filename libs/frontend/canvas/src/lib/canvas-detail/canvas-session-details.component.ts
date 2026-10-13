@@ -14,28 +14,12 @@ import {
 } from '@ptah-extension/chat';
 import {
   summarizeTodos,
-  type CompactGitState,
+  sameGitState,
+  todoTitle,
+  gitTitle,
   type CompactTodoState,
 } from '@ptah-extension/chat-ui';
 import { VSCodeService } from '@ptah-extension/core';
-
-function todoTitle(todo: CompactTodoState): string {
-  return todo.kind === 'known'
-    ? todo.active || 'Todos'
-    : todo.kind === 'unknown'
-      ? 'Todos unknown'
-      : 'No todos';
-}
-
-function gitTitle(git: CompactGitState): string {
-  return git.kind === 'known'
-    ? git.partial
-      ? 'Some files could not be counted'
-      : 'Uncommitted changes'
-    : git.kind === 'unknown'
-      ? 'Could not read git status'
-      : 'No changes';
-}
 
 /** Session accounting from the tab snapshot; missing sources remain unavailable. */
 @Component({
@@ -141,7 +125,11 @@ export class CanvasSessionDetailsComponent {
   readonly todos = computed(() => {
     const tab = this.tab();
     return tab
-      ? summarizeTodos(tab.messages ?? [], tab.streamingState ?? null)
+      ? summarizeTodos(
+          tab.messages ?? [],
+          tab.streamingState ?? null,
+          tab.lastCompactionAt ?? 0,
+        )
       : ({ kind: 'none' } satisfies CompactTodoState);
   });
   readonly todoTitle = computed(() => todoTitle(this.todos()));
@@ -158,13 +146,15 @@ export class CanvasSessionDetailsComponent {
     return tab
       ? sessionWorkingRoot(
           tab,
-          this.tabs.findTabByIdAcrossWorkspaces?.(this.tabId())
-            ?.workspacePath ?? null,
+          this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.workspacePath ??
+            null,
           this.vscode.config().workspaceRoot,
         )
       : null;
   });
-  readonly gitStats = computed(() => this.gitStore.stateFor(this.gitRoot()));
+  readonly gitStats = computed(() => this.gitStore.stateFor(this.gitRoot()), {
+    equal: sameGitState,
+  });
   readonly changesTitle = computed(() => gitTitle(this.gitStats()));
   readonly additions = computed(() => {
     const git = this.gitStats();
