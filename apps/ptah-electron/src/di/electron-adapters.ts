@@ -136,6 +136,8 @@ function boundContextValue(value: unknown, budget: ContextBudget): unknown {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
   }
+  if (value instanceof Map) return `[Map size=${value.size}]`;
+  if (value instanceof Set) return `[Set size=${value.size}]`;
   if (Array.isArray(value)) {
     const items: unknown[] = [];
     const kept = Math.min(value.length, MAX_CONTEXT_ARRAY_ITEMS);
@@ -149,6 +151,17 @@ function boundContextValue(value: unknown, budget: ContextBudget): unknown {
     return items;
   }
   return boundContextEntries(value, budget);
+}
+
+/** Read one context field; a throwing getter reads as undefined. */
+function readContextField(source: object, key: string): unknown {
+  try {
+    return (source as Record<string, unknown>)[key];
+  } catch {
+    // degradation-audit: optional-capability - the field is optional log
+    // detail; the entry is still written without it.
+    return undefined;
+  }
 }
 
 /** Own enumerable entries of `source`, bounded; `skip` keys are left out. */
@@ -165,10 +178,16 @@ function boundContextEntries(
       entries['…'] = 'more keys dropped';
       break;
     }
-    const bounded = boundContextValue(
-      (source as Record<string, unknown>)[key],
-      budget,
-    );
+    let raw: unknown;
+    try {
+      raw = (source as Record<string, unknown>)[key];
+    } catch {
+      // degradation-audit: optional-capability - one throwing getter loses
+      // only its own field; the other context fields are still written.
+      entries[key] = '[Unreadable]';
+      continue;
+    }
+    const bounded = boundContextValue(raw, budget);
     if (bounded !== undefined) entries[key] = bounded;
   }
   return entries;
@@ -267,15 +286,27 @@ export class ElectronLoggerAdapter {
       }
     }
 
-    const context: LogContext = {
-      ...actualContext,
-      error: actualError,
-    };
-
-    this.logWithContext('error', actualMessage, context);
+    // The caller's context is passed through, never spread: a spread would
+    // run every getter here, outside the guarded, bounded copy below.
+    this.writeEntry('error', actualMessage, actualContext ?? {}, actualError);
   }
 
   logWithContext(level: LogLevel, message: string, context: LogContext): void {
+    const error = readContextField(context, 'error');
+    this.writeEntry(
+      level,
+      message,
+      context,
+      error instanceof Error ? error : undefined,
+    );
+  }
+
+  private writeEntry(
+    level: LogLevel,
+    message: string,
+    context: object,
+    error: Error | undefined,
+  ): void {
     if (!this.shouldLog(level)) return;
 
     const levelPrefix = level.toUpperCase().padEnd(5);
@@ -284,34 +315,33 @@ export class ElectronLoggerAdapter {
 
     this.outputManager.write(ElectronLoggerAdapter.CHANNEL_NAME, formatted);
 
-    if (context.service) {
+    const service = readContextField(context, 'service');
+    if (service) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Service: ${context.service}`,
+        `  Service: ${String(service)}`,
       );
     }
 
-    if (context.operation) {
+    const operation = readContextField(context, 'operation');
+    if (operation) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Operation: ${context.operation}`,
+        `  Operation: ${String(operation)}`,
       );
     }
 
-    if (context.error) {
+    if (error) {
       this.outputManager.write(
         ElectronLoggerAdapter.CHANNEL_NAME,
-        `  Error: ${context.error.message}`,
+        `  Error: ${error.message}`,
       );
-      if (context.error.stack) {
+      if (error.stack) {
         this.outputManager.write(
           ElectronLoggerAdapter.CHANNEL_NAME,
           `  Stack trace:`,
         );
-        this.outputManager.write(
-          ElectronLoggerAdapter.CHANNEL_NAME,
-          context.error.stack,
-        );
+        this.outputManager.write(ElectronLoggerAdapter.CHANNEL_NAME, error.stack);
       }
     }
 
@@ -326,8 +356,8 @@ export class ElectronLoggerAdapter {
         CONTEXT_LINE_KEYS,
       );
     } catch {
-      // degradation-audit: optional-capability - a throwing getter in caller
-      // context keeps the log line itself; only the detail payload is replaced.
+      // degradation-audit: optional-capability - an object whose keys cannot
+      // be enumerated (e.g. a throwing proxy) keeps the log line itself.
       details = { context: '[Unreadable]' };
     }
     if (Object.keys(details).length > 0) {
@@ -355,7 +385,7 @@ export class ElectronLoggerAdapter {
           console.warn(consoleMsg);
           break;
         case 'error':
-          console.error(consoleMsg, context.error || '');
+          console.error(consoleMsg, error ?? '');
           break;
       }
     }

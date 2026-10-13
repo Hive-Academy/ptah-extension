@@ -175,12 +175,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
   private workspaceAuthChanges = 0;
 
   /**
-   * The config-change re-initialization in flight, if any. A burst of changes
-   * (a settings import writes many keys) runs ONE pass, plus one more when a
-   * change arrived during it — never one overlapping pass per change.
+   * The config-change re-initialization that is queued but not yet started.
+   * A burst of changes (a settings import writes many keys) joins it, so the
+   * burst runs one pass, plus one more for a change during a running pass —
+   * never one overlapping pass per change.
    */
-  private configReinit: Promise<void> | null = null;
-  private configReinitAgain = false;
+  private configReinitQueued: Promise<void> | null = null;
 
   private cliInstallation: ClaudeInstallation | null = null;
 
@@ -301,17 +301,22 @@ export class SdkAgentAdapter implements IAgentAdapter {
         );
         return;
       }
-      // A provider key matters only when it belongs to the provider this
-      // adapter uses. Any other key change (another provider's key, a save in
-      // a different VS Code window) must not end every live chat.
+      // A provider key change re-initializes everything only when it belongs
+      // to the active provider. Otherwise only the live sessions of workspaces
+      // that use that provider end — another provider's key, or a save in a
+      // different VS Code window, must not end every live chat.
       const changedProvider = event?.key
         ? authProviderIdOfSecretKey(event.key)
         : null;
       if (changedProvider !== null && !this.usesProvider(changedProvider)) {
-        this.logger.info(
-          '[SdkAgentAdapter] Key change for a provider not in use — sessions kept',
-          { providerId: changedProvider },
-        );
+        void this.queueAdapterPass(() =>
+          this.endSessionsUsingProvider(changedProvider),
+        ).catch((error: unknown) => {
+          this.logger.error(
+            '[SdkAgentAdapter] Ending sessions after a provider key change failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
         return;
       }
       void this.requestConfigReinit();
@@ -332,11 +337,6 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   /**
-   * Build the auth-required error thrown when an operation runs before the
-   * adapter is usable. Surfaces the active provider and the last health
-   * `errorMessage` so the UI can render an actionable re-auth banner.
-   */
-  /**
    * True when `providerId` is the provider the active auth resolves to, or the
    * one the auth env is configured for now (they differ until a pending
    * reconfigure runs).
@@ -352,38 +352,100 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
   }
 
-  /** Coalesced dispose + re-initialize after a config change. */
-  private requestConfigReinit(): Promise<void> {
-    if (this.configReinit) {
-      this.configReinitAgain = true;
-      return this.configReinit;
+  /**
+   * End the live sessions of every workspace whose own auth resolves to
+   * `providerId` (a workspace can use a provider other than the active one).
+   * Their running queries hold the old key; a new session reads the new one.
+   */
+  private async endSessionsUsingProvider(providerId: string): Promise<void> {
+    const roots = this.sessionLifecycle
+      .getLiveWorkspaceRoots()
+      .filter((root) => this.workspaceUsesProvider(root, providerId));
+    if (roots.length === 0) {
+      this.logger.info(
+        '[SdkAgentAdapter] Key change for a provider no session uses — sessions kept',
+        { providerId },
+      );
+      return;
     }
-    this.configReinit = (async () => {
-      do {
-        this.configReinitAgain = false;
-        this.logger.info(
-          '[SdkAgentAdapter] Config change detected, re-initializing...',
-        );
-        this.flushAllPendingUserActivity();
-        await this.sessionLifecycle.disposeAllSessions();
-        this.cliDetector.clearCache();
-        this.modelService.clearCache();
-        this.cliInstallation = null;
-        await this.initialize();
-      } while (this.configReinitAgain);
-    })()
-      .catch((error: unknown) => {
-        this.logger.error(
-          '[SdkAgentAdapter] Re-initialization after config change failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
-      })
-      .finally(() => {
-        this.configReinit = null;
-      });
-    return this.configReinit;
+    this.logger.info(
+      '[SdkAgentAdapter] Key change for a workspace provider — ending only its sessions',
+      { providerId, workspaces: roots.length },
+    );
+    for (const root of roots) {
+      await this.endSessionsForWorkspace(root);
+    }
   }
 
+  private workspaceUsesProvider(root: string, providerId: string): boolean {
+    try {
+      return (
+        this.authManager.resolveActiveAuthForPath(root).providerId ===
+        providerId
+      );
+    } catch {
+      // degradation-audit: optional-capability - an unreadable workspace auth
+      // is treated as affected: ending its sessions is the pre-gate behaviour.
+      return true;
+    }
+  }
+
+  /**
+   * Coalesced dispose + re-initialize after a config change, queued on the
+   * same chain as {@link reset} so the two never interleave. Changes that
+   * arrive while a pass is queued but not started join it (it starts after
+   * them); a change during a running pass queues exactly one more.
+   */
+  private requestConfigReinit(): Promise<void> {
+    if (this.configReinitQueued) return this.configReinitQueued;
+    const pass = this.queueAdapterPass(async () => {
+      this.configReinitQueued = null;
+      this.logger.info(
+        '[SdkAgentAdapter] Config change detected, re-initializing...',
+      );
+      this.flushAllPendingUserActivity();
+      await this.sessionLifecycle.disposeAllSessions();
+      this.cliDetector.clearCache();
+      this.modelService.clearCache();
+      this.cliInstallation = null;
+      await this.initialize();
+    }).catch((error: unknown) => {
+      this.logger.error(
+        '[SdkAgentAdapter] Re-initialization after config change failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    });
+    this.configReinitQueued = pass;
+    return pass;
+  }
+
+  /**
+   * Run `work` after every pass queued before it (resets, config
+   * re-initializations, provider-scoped session ends). `work` never starts
+   * synchronously, so a caller can record the returned pass first.
+   */
+  private queueAdapterPass(work: () => Promise<void>): Promise<void> {
+    const previous = this.resetChain;
+    const pass: Promise<void> = (async () => {
+      // A failed pass must not wedge the chain shut for the ones behind it;
+      // its own caller already received that rejection.
+      await (previous ?? Promise.resolve()).catch(() => undefined);
+      await work();
+    })();
+    this.resetChain = pass;
+    const release = (): void => {
+      // Clear only when still the tail: a pass queued behind owns the slot.
+      if (this.resetChain === pass) this.resetChain = null;
+    };
+    pass.then(release, release);
+    return pass;
+  }
+
+  /**
+   * Build the auth-required error thrown when an operation runs before the
+   * adapter is usable. Surfaces the active provider and the last health
+   * `errorMessage` so the UI can render an actionable re-auth banner.
+   */
   private notInitializedError(): AuthRequiredError {
     let providerId: string | null = null;
     try {
@@ -751,27 +813,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * concurrent.
    */
   async reset(): Promise<void> {
-    const previous = this.resetChain;
-    const pass = (this.resetChain = (async () => {
-      // A failed reset must not wedge the chain shut for the ones behind it.
-      if (previous !== null) {
-        // degradation-audit: optional-capability - the queued reset only waits
-        // for its predecessor to settle; the previous caller was already given
-        // that rejection, and swallowing it here keeps the chain open.
-        await previous.catch(() => undefined);
-      }
-      await this.doReset();
-    })());
-    try {
-      await pass;
-    } finally {
-      // Clear only when we are still the tail — a reset queued behind us owns
-      // the slot now, and nulling it would let a third caller start a reset
-      // concurrent with the one still running.
-      if (this.resetChain === pass) {
-        this.resetChain = null;
-      }
-    }
+    await this.queueAdapterPass(() => this.doReset());
   }
 
   private async doReset(): Promise<void> {

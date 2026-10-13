@@ -96,10 +96,13 @@ const CONSOLE_REDACTIONS: ReadonlyArray<[RegExp, string]> = [
  */
 function boundedConsoleLine(line: string): string {
   return truncateUtf8(
-    redactConsoleText(line.slice(0, CONSOLE_MAX_BYTES * 4)),
+    redactConsoleText(line.slice(0, CONSOLE_SCAN_CHARS)),
     CONSOLE_MAX_BYTES,
   );
 }
+
+/** Characters of console text scanned at all; the rest is never read. */
+const CONSOLE_SCAN_CHARS = CONSOLE_MAX_BYTES * 4;
 
 /**
  * The literal first line of console text, trimmed. An empty first line stays
@@ -251,7 +254,9 @@ export class ProcessLifecycleRecorder {
       `[renderer] console.${details.level}`,
       {
         windowId,
-        message: boundedConsoleLine(firstLine(details.message)),
+        message: boundedConsoleLine(
+          firstLine(details.message.slice(0, CONSOLE_SCAN_CHARS)),
+        ),
         source: `${boundedConsoleLine(details.sourceId)}:${details.lineNumber}`,
       },
     );

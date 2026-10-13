@@ -126,7 +126,10 @@ function createMockSentry(): jest.Mocked<
 function createMockIAuthEnvProvider(): jest.Mocked<
   Pick<
     IAuthEnvProvider,
-    'configureAuthentication' | 'clearAuthentication' | 'resolveActiveAuth'
+    | 'configureAuthentication'
+    | 'clearAuthentication'
+    | 'resolveActiveAuth'
+    | 'resolveActiveAuthForPath'
   >
 > {
   return {
@@ -137,6 +140,9 @@ function createMockIAuthEnvProvider(): jest.Mocked<
     }),
     clearAuthentication: jest.fn(),
     resolveActiveAuth: jest
+      .fn()
+      .mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' }),
+    resolveActiveAuthForPath: jest
       .fn()
       .mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' }),
   };
@@ -200,6 +206,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'executeSlashCommandQuery'
     | 'disposeAllSessions'
     | 'getSessionIdsForWorkspace'
+    | 'getLiveWorkspaceRoots'
     | 'disposeSessionsForWorkspace'
     | 'dispose'
     | 'endSession'
@@ -222,6 +229,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
     getSessionIdsForWorkspace: jest.fn().mockReturnValue([]),
+    getLiveWorkspaceRoots: jest.fn().mockReturnValue([]),
     disposeSessionsForWorkspace: jest.fn().mockResolvedValue(undefined),
     dispose: jest.fn(),
     endSession: jest.fn().mockResolvedValue(undefined),
@@ -1149,7 +1157,36 @@ describe('SdkAgentAdapter', () => {
       expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(1);
     });
 
-    it('runs one pass plus one follow-up for a burst of changes', async () => {
+    it('ends only the sessions of a workspace that uses the changed provider', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize(); // active: apiKey / anthropic
+      h.sessionLifecycle.getLiveWorkspaceRoots.mockReturnValue([
+        '/ws/a',
+        '/ws/b',
+      ]);
+      h.authManager.resolveActiveAuthForPath.mockImplementation(
+        (root: string) =>
+          root === '/ws/b'
+            ? { authMethod: 'thirdParty', providerId: 'moonshot' }
+            : { authMethod: 'apiKey', providerId: 'anthropic' },
+      );
+
+      h.events.emitConfigChanged({
+        key: 'ptah.auth.provider.moonshot',
+        timestamp: Date.now(),
+      });
+      await flush();
+
+      expect(h.sessionLifecycle.disposeAllSessions).not.toHaveBeenCalled();
+      expect(
+        h.sessionLifecycle.disposeSessionsForWorkspace,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        h.sessionLifecycle.disposeSessionsForWorkspace,
+      ).toHaveBeenCalledWith('/ws/b');
+    });
+
+    it('a burst during a queued pass joins it; one during a running pass adds one', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
       let releaseDispose: () => void = () => undefined;
@@ -1160,17 +1197,52 @@ describe('SdkAgentAdapter', () => {
           }),
       );
 
-      // A settings import writes several auth keys back to back.
+      // A settings import writes several auth keys back to back: one pass.
       for (let i = 0; i < 5; i++) {
         h.events.emitConfigChanged({ key: 'authMethod', timestamp: i });
       }
       await flush();
       expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(1);
 
+      // More changes while that pass runs: exactly one more pass.
+      for (let i = 0; i < 4; i++) {
+        h.events.emitConfigChanged({ key: 'authMethod', timestamp: 10 + i });
+      }
       releaseDispose();
       await flush();
 
       expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(2);
+    });
+
+    it('a reset waits for a running config re-initialization', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const order: string[] = [];
+      let releaseDispose: () => void = () => undefined;
+      h.sessionLifecycle.disposeAllSessions.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            order.push('config:dispose');
+            releaseDispose = resolve;
+          }),
+      );
+      h.authManager.configureAuthentication.mockImplementation(async () => {
+        order.push('configure');
+        return { configured: true, details: [], errorMessage: undefined };
+      });
+
+      h.events.emitConfigChanged({ key: 'authMethod', timestamp: 1 });
+      await flush();
+      const resetting = h.adapter.reset();
+      await flush();
+      // The reset has not run its dispose + initialize yet.
+      expect(order).toEqual(['config:dispose']);
+
+      releaseDispose();
+      await resetting;
+
+      // Config pass initializes first, then the reset's own pass.
+      expect(order).toEqual(['config:dispose', 'configure', 'configure']);
     });
   });
 

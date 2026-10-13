@@ -574,6 +574,15 @@ export class SessionLifecycleManager {
     return this._registry.getSessionWorkspace(idOrTabId);
   }
 
+  /** Distinct workspace roots (projectPath) of the live sessions. */
+  getLiveWorkspaceRoots(): string[] {
+    const roots = new Set<string>();
+    for (const [, rec] of this._registry.entries()) {
+      if (rec.config.projectPath) roots.add(rec.config.projectPath);
+    }
+    return [...roots];
+  }
+
   /**
    * Interrupt the current assistant turn without ending the session.
    *

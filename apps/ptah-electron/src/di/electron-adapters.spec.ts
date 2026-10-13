@@ -109,6 +109,24 @@ describe('ElectronLoggerAdapter.error context', () => {
     );
   });
 
+  it('keeps the other fields when one getter throws', () => {
+    const { logger, lines } = makeLogger();
+    const context: Record<string, unknown> = { before: 1 };
+    Object.defineProperty(context, 'broken', {
+      enumerable: true,
+      get: () => {
+        throw new Error('getter failed');
+      },
+    });
+    context['after'] = new Map([['a', 1]]);
+
+    logger.error('getter', context);
+
+    expect(lines).toContain(
+      '  Context: {"before":1,"broken":"[Unreadable]","after":"[Map size=1]"}',
+    );
+  });
+
   it('writes no context line when there is no context', () => {
     const { logger, lines } = makeLogger();
 
