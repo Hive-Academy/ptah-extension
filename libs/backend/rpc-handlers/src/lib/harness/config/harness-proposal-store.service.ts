@@ -143,6 +143,9 @@ export class HarnessProposalStore implements IHarnessProposalStore {
       }
       return result.data;
     } catch {
+      // degradation-audit: reported - a corrupt record (unparseable JSON) is
+      // logged as a warning and read as "no proposal", so the next save
+      // replaces it instead of failing the session.
       this.logger.warn('Ignoring corrupt harness proposal record', { file });
       return null;
     }
@@ -154,6 +157,8 @@ export class HarnessProposalStore implements IHarnessProposalStore {
       await fs.writeFile(temp, JSON.stringify(proposal), { flag: 'wx' });
       await fs.rename(temp, file);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - best-effort removal of the
+      // temp file; the original write or rename error is rethrown below.
       await fs.unlink(temp).catch(() => undefined);
       throw error;
     }
@@ -164,6 +169,9 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     try {
       names = await fs.readdir(directory);
     } catch (error: unknown) {
+      // degradation-audit: reported - a readdir failure other than ENOENT is
+      // logged as a warning and this prune pass is skipped; save and get
+      // continue, and the next call retries the prune.
       if (!isErrno(error, 'ENOENT')) {
         this.logger.warn('Could not prune harness proposal records', {
           directory,
