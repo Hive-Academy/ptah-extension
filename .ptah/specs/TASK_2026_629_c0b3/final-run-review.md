@@ -105,3 +105,35 @@ popover: "No session needs you." stayed open and `New Session` clicks timed out 
 
 Fix: F3, F4, F5, F6, F7 (Serious). Record: F2 (Moderate, no lane config or data loss), F8-F12 (Minor).
 F1 waits for the user.
+
+## Re-check (session 12)
+
+Automated re-check of the rebuilt dev Electron app (HEAD `b648b6e57`), full report in `recheck-s12-report.md`.
+Verdict FAIL, 5 findings (3 Serious, 2 Moderate).
+
+- PASS: s-heap (0 detached lane-view / detail-transcript / chat-msg-slot, no Grid DOM, 1 ChatView in the board host,
+  2 with split on); split divider 6.05 / 6.04:1; active header bar and marker 3.59 / 4.82 (dark), 9.53 / 6.81 (light);
+  focused card dark 3.59:1; card actions inside at top-right; display dock shows Displays only; markers follow Swap.
+- F-A Serious: focused Rail card in anubis-light, ring `#44ebd3` vs page 1.40:1 (< 3:1), owner C-card.
+- F-B Serious: dark focused-surface pill text run 4.18, err 4.08, idle 3.18 (< 4.5, M5), owner C-card.
+- F-C Moderate: inactive split header is not muted in light (global `[data-theme='anubis-light'] .truncate` rule), owner C-headers.
+- F-D Serious: s-switch improved (nodes added 7,657 -> 6-10, script median 107 -> 35 ms, task 422 -> 314 ms) but
+  8/10 swaps still have a long task > 50 ms (target none).
+- F-E Moderate: sub-agent tile click on a restored session is a silent no-op (sr-only notice only); live case and the
+  "Workflow launched" chip not verifiable (no live agent, no such chip in the workspace).
+
+## Re-check (session 12, after fixes)
+
+Full report: `recheck-s12-fix-report.md`. Dev app rebuilt after 10a660318 (merged at af028f886), 1600x967, anubis and
+anubis-light, measured in the running app.
+
+- F-A fixed: focused Rail card frame vs page / unfocused card surface is 3.59 / 3.35 (dark) and 9.53 / 8.51 (light).
+- F-B fixed: `done` pill text on the focused tint is 6.40 (dark) and 6.87 (light); clone-computed minimum 4.99 (dark idle)
+  and 6.58 (light idle).
+- F-C fixed: inactive split header title 6.04 vs 15.92 and marker 5.39 vs 15.92 in anubis-light; dark 6.05 vs 14.86.
+- F-E fixed: the sub-agent tile click shows "This agent is not available yet." within 80 ms at the lane top, no
+  scrollHeight change (806/806), cleared at 4.07 s, second click replaces the node; contrast 13.89 dark / 14.21 light.
+- Regression smoke passed: 0 detached lane-view / detail-transcript / chat-msg-slot / chat-view, no Grid DOM, 1 live
+  view, 0 shifts, actions inside the card, dock Displays only, 1/2 markers follow Swap, actions trigger 5.01-5.65 dark
+  and 5.17-5.39 light.
+- Verdict: PASS. F-D (switch long tasks) not re-measured here.

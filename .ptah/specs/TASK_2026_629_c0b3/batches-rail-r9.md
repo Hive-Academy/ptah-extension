@@ -1,6 +1,6 @@
 # Batches - TASK_2026_629_c0b3 (phase R9, Rail only)
 
-Total tasks: 24 | Batches: 24 (R9a-R9t, addendum R9u-R9x) | Complete: 12/24 (Wave 1; Wave 2 R9o, R9i, R9e, R9n; Wave 3 R9p, R9j, R9q) | Held: 0
+Total tasks: 24 | Batches: 24 (R9a-R9t, addendum R9u-R9x) | Complete: 24/24 | Held: 0
 
 Addendum: `implementation-plan-rail-r9-split.md` Revisions 1-3 (Gate 2 passed, decision 88), notes N1-N6
 (`implementation-plan-rail-r9-split-final-check.md`) and B1-B7 (`implementation-plan-rail-r9-split-rev3-check.md`)
