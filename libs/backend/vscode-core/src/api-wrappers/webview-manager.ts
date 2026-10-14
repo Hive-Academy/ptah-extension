@@ -186,7 +186,8 @@ export class WebviewManager {
    *
    * @param viewType - Target webview view type
    * @param message - Message to send
-   * @returns Promise that resolves when message is sent
+   * @returns true when the webview accepted the message; false when the
+   *   webview is unknown, not live, or postMessage threw
    */
   async sendMessage<T extends StrictMessageType>(
     viewType: string,
@@ -216,7 +217,9 @@ export class WebviewManager {
       });
       const result = await webview.postMessage({ type, payload });
       this.logger.debug(`[WebviewManager] postMessage() returned: ${result}`);
-      return true;
+      // VS Code resolves false when the webview is not live (disposed, or
+      // hidden without retained context): the message was not delivered.
+      return result;
     } catch (error) {
       this.logger.error(
         `[WebviewManager] postMessage() threw error`,

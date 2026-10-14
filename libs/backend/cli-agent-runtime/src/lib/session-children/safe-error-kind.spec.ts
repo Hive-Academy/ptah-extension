@@ -21,14 +21,17 @@ describe('safeErrorKind (TASK_2026_655)', () => {
     expect(safeErrorKind(error)).toBe(name);
   });
 
-  it.each(['ENOENT', 'ECONNRESET', 'ERR_STREAM_DESTROYED'])(
-    'keeps the system code %s',
-    (code) => {
-      expect(safeErrorKind(withCode(new Error(PROMPT), code))).toBe(
-        `Error (${code})`,
-      );
-    },
-  );
+  it.each([
+    'ENOENT',
+    'EACCES',
+    'ECONNRESET',
+    'ABORT_ERR',
+    'ERR_STREAM_DESTROYED',
+  ])('keeps the system code %s', (code) => {
+    expect(safeErrorKind(withCode(new Error(PROMPT), code))).toBe(
+      `Error (${code})`,
+    );
+  });
 
   it('reduces a name that is not on the allowlist to unknown', () => {
     const error = new Error(PROMPT);
@@ -40,6 +43,10 @@ describe('safeErrorKind (TASK_2026_655)', () => {
     `E_${PROMPT}`,
     PROMPT,
     'ESECRET-CONTINUATION',
+    'ESECRET',
+    'EFINISHBATCH3',
+    'ERR_SECRET',
+    'ECONNRESET ',
     `E${'A'.repeat(31)}`,
     'enoent',
     42,

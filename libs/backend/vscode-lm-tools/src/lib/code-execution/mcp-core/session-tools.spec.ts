@@ -12,7 +12,10 @@ import {
   type SessionChildCompletionEnvelope,
   type SessionChildSnapshot,
 } from '@ptah-extension/cli-agent-runtime';
-import type { SessionNamespace } from '../namespace-builders/session-namespace.builder';
+import {
+  SESSION_HANDOFF_UNAVAILABLE_MESSAGE,
+  type SessionNamespace,
+} from '../namespace-builders/session-namespace.builder';
 import { MAX_AGENT_MESSAGE_LENGTH } from './tool-description.builder';
 import {
   SessionHandoffArgsSchema,
@@ -544,18 +547,19 @@ describe('handleSessionToolCall', () => {
       );
     });
 
-    it('a failing take is logged and the reply still goes out', async () => {
+    it('a failing take is logged by kind only and the reply still goes out', async () => {
       const session = fakeSession();
       session.takeHeldCompletions.mockImplementation(() => {
-        throw new Error('registry gone');
+        throw new Error('registry gone SECRET-CONTINUATION');
       });
       const log = logger();
       const reply = await call('ptah_session_status', {}, session, log);
       expect(reply.isError).toBe(false);
       expect(reply.text).toMatch(/c-1/);
       expect(log.warn).toHaveBeenCalledWith(
-        expect.stringMatching(/registry gone/),
+        '[MCP] could not collect held session completions: Error',
       );
+      expect(reply.text).not.toContain('SECRET-CONTINUATION');
     });
   });
 
@@ -689,22 +693,73 @@ describe('handleSessionToolCall › ptah_session_handoff (TASK_2026_655)', () =>
     expect(reply.text).not.toContain('SECRET-CONTINUATION');
   });
 
-  it('a thrown namespace error is isError naming the cause, and the prompt is never logged', async () => {
+  it('the namespace "unavailable" error is isError naming that fixed cause', async () => {
     const log = logger();
     const session = fakeSession({
       handoff: jest
         .fn()
-        .mockRejectedValue(new Error('Session handoff is unavailable')),
+        .mockRejectedValue(new Error(SESSION_HANDOFF_UNAVAILABLE_MESSAGE)),
     });
     const reply = await call('ptah_session_handoff', ARGS, session, log);
     expect(reply).toEqual({
       isError: true,
-      text: 'ptah_session_handoff failed: Session handoff is unavailable',
+      text: `ptah_session_handoff failed: ${SESSION_HANDOFF_UNAVAILABLE_MESSAGE}`,
     });
-    expect(log.warn).toHaveBeenCalled();
-    for (const [line] of log.warn.mock.calls) {
-      expect(String(line)).not.toContain('SECRET-CONTINUATION');
+    expect(log.warn).toHaveBeenCalledWith(
+      `[MCP] ptah_session_handoff failed: ${SESSION_HANDOFF_UNAVAILABLE_MESSAGE}`,
+    );
+  });
+
+  it('a thrown error quoting the prompt in message, name and code never reaches the log or the reply', async () => {
+    const leak = Object.assign(new Error(`failed for ${ARGS.prompt}`), {
+      code: `E_${ARGS.prompt}`,
+    });
+    leak.name = `Quoting ${ARGS.prompt}`;
+    const log = logger();
+    const session = fakeSession({
+      handoff: jest.fn().mockRejectedValue(leak),
+    });
+    const reply = await call('ptah_session_handoff', ARGS, session, log);
+    expect(reply).toEqual({
+      isError: true,
+      text: 'ptah_session_handoff failed: unexpected error (unknown)',
+    });
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    for (const args of log.warn.mock.calls) {
+      expect(JSON.stringify(args)).not.toContain('SECRET-CONTINUATION');
     }
+  });
+
+  it('a thrown error with an allowlisted code is reported by kind only', async () => {
+    const log = logger();
+    const session = fakeSession({
+      handoff: jest
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error(`ENOENT ${ARGS.prompt}`), { code: 'ENOENT' }),
+        ),
+    });
+    const reply = await call('ptah_session_handoff', ARGS, session, log);
+    expect(reply.text).toBe(
+      'ptah_session_handoff failed: unexpected error (Error (ENOENT))',
+    );
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain(
+      'SECRET-CONTINUATION',
+    );
+  });
+
+  it('a failing held-completion take after a handoff logs no prompt', async () => {
+    const session = fakeSession();
+    session.takeHeldCompletions.mockImplementation(() => {
+      throw new Error(`held for ${ARGS.prompt}`);
+    });
+    const log = logger();
+    const reply = await call('ptah_session_handoff', ARGS, session, log);
+    expect(reply.text).toMatch(/^Opened a new session/);
+    expect(reply.text).not.toContain('SECRET-CONTINUATION');
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain(
+      'SECRET-CONTINUATION',
+    );
   });
 
   it('appends held completions after the handoff reply', async () => {

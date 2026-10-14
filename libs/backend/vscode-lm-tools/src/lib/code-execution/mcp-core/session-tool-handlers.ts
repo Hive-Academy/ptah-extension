@@ -20,20 +20,22 @@
  */
 import type { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  SessionChildCompletionEnvelope,
-  SessionChildLookupRefusal,
-  SessionChildRollbackStep,
-  SessionChildSendResult,
-  SessionChildSnapshot,
-  SessionChildStartResult,
-  SessionHandoffResult,
+import {
+  safeErrorKind,
+  type SessionChildCompletionEnvelope,
+  type SessionChildLookupRefusal,
+  type SessionChildRollbackStep,
+  type SessionChildSendResult,
+  type SessionChildSnapshot,
+  type SessionChildStartResult,
+  type SessionHandoffResult,
 } from '@ptah-extension/cli-agent-runtime';
-import type {
-  SessionNamespace,
-  SessionReadOutcome,
-  SessionStatusOutcome,
-  SessionStopOutcome,
+import {
+  SESSION_HANDOFF_UNAVAILABLE_MESSAGE,
+  type SessionNamespace,
+  type SessionReadOutcome,
+  type SessionStatusOutcome,
+  type SessionStopOutcome,
 } from '../namespace-builders/session-namespace.builder';
 import {
   SessionHandoffArgsSchema,
@@ -440,10 +442,29 @@ function errorText(error: unknown): string {
 }
 
 /**
+ * Why a tool call threw, as text safe to log and return. A handoff carries
+ * the continuation prompt, and anything below the tool may quote it in an
+ * error's message, name or code, so for the handoff only the namespace's own
+ * fixed "unavailable" text passes through; any other failure is reduced to
+ * its allowlisted kind. The other session tools keep the thrown message.
+ */
+function failureText(name: SessionToolName, error: unknown): string {
+  if (name !== SESSION_HANDOFF_TOOL_NAME) return errorText(error);
+  if (
+    error instanceof Error &&
+    error.message === SESSION_HANDOFF_UNAVAILABLE_MESSAGE
+  ) {
+    return SESSION_HANDOFF_UNAVAILABLE_MESSAGE;
+  }
+  return `unexpected error (${safeErrorKind(error)})`;
+}
+
+/**
  * The caller's held completions. Taking them must not cost the tool's own
  * answer (a started child is still started), so a failure here is logged
  * and the reply goes out without them; the spawner keeps them held only if
- * it never returned them.
+ * it never returned them. Only the error's allowlisted kind is logged: this
+ * runs after every session tool, including a handoff.
  */
 function takeHeld(
   session: SessionNamespace,
@@ -455,7 +476,7 @@ function takeHeld(
     // degradation-audit: reported - logged at warn; the tool's own reply is
     // still returned, and nothing was marked delivered by a call that threw.
     logger.warn(
-      `[MCP] could not collect held session completions: ${errorText(error)}`,
+      `[MCP] could not collect held session completions: ${safeErrorKind(error)}`,
     );
     return [];
   }
@@ -474,11 +495,12 @@ export async function handleSessionToolCall(
   } catch (error: unknown) {
     // degradation-audit: reported - the failure is returned to the agent as
     // an isError result naming the cause (e.g. no session spawner in this
-    // host) and logged at warn.
-    logger.warn(`[MCP] ${name} failed: ${errorText(error)}`);
+    // host) and logged at warn; a handoff names only a safe cause.
+    const cause = failureText(name, error);
+    logger.warn(`[MCP] ${name} failed: ${cause}`);
     body = {
       kind: 'reply',
-      reply: { isError: true, text: `${name} failed: ${errorText(error)}` },
+      reply: { isError: true, text: `${name} failed: ${cause}` },
     };
   }
   const held = renderHeldCompletions(takeHeld(session, logger));
