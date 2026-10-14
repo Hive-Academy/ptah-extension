@@ -1463,7 +1463,7 @@ the three from Batch 21 — the unreachable post-resume
 
 Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accepted" is met).
 
-## Batch 14: Agent generation falls back to gathered context - PENDING
+## Batch 14: Agent generation falls back to gathered context - COMPLETE
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1472,7 +1472,7 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
 - Tasks: 2 | Depends on: Batch 11
 - Phase: 4 - Self-gathering generation | Phase review: code-logic
 
-### Task 14.1: Freshness gate at `wizard:submit-selection` - PENDING
+### Task 14.1: Freshness gate at `wizard:submit-selection` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.spec.ts`
@@ -1483,7 +1483,7 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
   `/` separators (Task 20.2). Resolve it with `storage.resolveAuthorizedAnalysisDir` before
   comparing it with the caller's dir. Starts only after the Phase 3 re-review is accepted.
 
-### Task 14.2: Orchestrator stale fallback - PENDING
+### Task 14.2: Orchestrator stale fallback - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/orchestrator.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/orchestrator.service.spec.ts`

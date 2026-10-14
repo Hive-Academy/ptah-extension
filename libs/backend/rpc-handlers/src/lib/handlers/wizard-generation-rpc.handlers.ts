@@ -35,7 +35,11 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
-import type { OrchestratorGenerationOptions } from '@ptah-extension/agent-generation';
+import type {
+  AnalysisFreshnessService,
+  AnalysisStorageService,
+  OrchestratorGenerationOptions,
+} from '@ptah-extension/agent-generation';
 import {
   HARNESS_SYNC_TOKENS,
   isAgentSelectedForSync,
@@ -262,6 +266,38 @@ export class WizardGenerationRpcHandlers {
       }
 
       try {
+        const freshness = this.resolveService<AnalysisFreshnessService>(
+          AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
+          'AnalysisFreshnessService',
+        );
+        const storage = this.resolveService<AnalysisStorageService>(
+          AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+          'AnalysisStorageService',
+        );
+        let status: Awaited<ReturnType<AnalysisFreshnessService['getStatus']>>;
+        try {
+          status = await freshness.getStatus(workspaceRoot);
+        } catch {
+          // degradation-audit: optional-capability - freshness lookup failure
+          // leaves generation available through current workspace discovery.
+          this.logger.warn(
+            'RPC: wizard:submit-selection could not determine analysis freshness',
+          );
+          status = {
+            state: 'stale',
+            reason: 'unreadable',
+            analysisDir: null,
+            checkedAt: new Date().toISOString(),
+            analyzedAt: null,
+          };
+        }
+        const freshDir =
+          status.state === 'fresh' && status.analysisDir
+            ? storage.resolveAuthorizedAnalysisDir(
+                workspaceRoot,
+                status.analysisDir,
+              )
+            : null;
         const runtime = await this.resolveRuntime(workspaceRoot);
         const prepared = resume
           ? await this.prepareResumedRun(workspaceRoot, analysisDir)
@@ -287,7 +323,27 @@ export class WizardGenerationRpcHandlers {
           return { success: true };
         }
 
-        const options = this.buildOptions(workspaceRoot, prepared, runtime);
+        const requestedDir = analysisDir ?? prepared.location.analysisDir;
+        const trustedDir =
+          freshDir && (!requestedDir || requestedDir === freshDir)
+            ? freshDir
+            : null;
+        if (!trustedDir) {
+          this.logger.warn(
+            'RPC: wizard:submit-selection using workspace context',
+            {
+              analysisState: status.state,
+              analysisReason: status.reason,
+              analysisDirMatches: !requestedDir || requestedDir === freshDir,
+            },
+          );
+        }
+        const options = this.buildOptions(
+          workspaceRoot,
+          prepared,
+          runtime,
+          trustedDir,
+        );
         this.lastGenerationOptions = options;
         this.lastCheckpoint = prepared.location;
         this.logger.info('RPC: wizard:submit-selection started', {
@@ -873,6 +929,7 @@ export class WizardGenerationRpcHandlers {
     workspaceRoot: string,
     prepared: PreparedGenerationRun,
     runtime: GenerationRuntime,
+    trustedDir: string | null,
   ): OrchestratorGenerationOptions {
     const { input } = prepared.manifest;
     return {
@@ -881,12 +938,12 @@ export class WizardGenerationRpcHandlers {
       threshold: input.threshold,
       variableOverrides: input.variableOverrides,
       enhancedPromptContent: runtime.enhancedPromptContent,
-      preComputedAnalysis: input.analysisData,
+      preComputedAnalysis: trustedDir ? input.analysisData : undefined,
       mcpServerRunning: runtime.mcpServerRunning,
       mcpPort: runtime.mcpPort,
       onStreamEvent: this.createStreamBroadcaster(runtime.webviewManager),
       model: input.model,
-      analysisDir: prepared.location.analysisDir ?? undefined,
+      analysisDir: trustedDir ?? undefined,
       pluginPaths: runtime.pluginPaths,
       onAgentOutcome: (outcome) =>
         this.checkpoints.recordOutcome(prepared.location, outcome),

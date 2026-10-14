@@ -178,6 +178,7 @@ const AGENT_GENERATION_TOKENS = {
   SETUP_WIZARD_SERVICE: Symbol.for('SetupWizardService'),
   ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
   ANALYSIS_STORAGE_SERVICE: Symbol.for('AnalysisStorageService'),
+  ANALYSIS_FRESHNESS_SERVICE: Symbol.for('AnalysisFreshnessService'),
 } as const;
 
 const HARNESS_SYNC_TOKENS = {
@@ -404,6 +405,7 @@ interface Harness {
   setupWizard: SetupWizardFake;
   webviewManager: WebviewManagerFake;
   storage: StorageFake;
+  freshness: { getStatus: jest.Mock };
   propagation: { propagate: jest.Mock };
   sentry: MockSentryService;
 }
@@ -427,6 +429,26 @@ function makeHarness(
   const setupWizard = createMockSetupWizard();
   const webviewManager = createMockWebviewManager();
   const storage = createStorageFake();
+  storage.resolveAuthorizedAnalysisDir.mockImplementation(
+    (ws: string, candidate: string): string | null => {
+      const absolute = path.posix.resolve(ws, candidate);
+      const root = path.posix.resolve(ws, '.ptah/analysis');
+      const relative = path.posix.relative(root, absolute);
+      return relative === '' ||
+        (!relative.startsWith('..') && !path.posix.isAbsolute(relative))
+        ? absolute
+        : null;
+    },
+  );
+  const freshness = {
+    getStatus: jest.fn().mockResolvedValue({
+      state: 'fresh',
+      reason: 'ok',
+      analysisDir: '.ptah/analysis/acme',
+      checkedAt: '2026-10-14T00:00:00.000Z',
+      analyzedAt: '2026-10-14T00:00:00.000Z',
+    }),
+  };
   const propagation = {
     propagate: jest.fn().mockResolvedValue({ targets: [] }),
   };
@@ -440,6 +462,7 @@ function makeHarness(
   maybeSet(AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR, orchestrator);
   maybeSet(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, setupWizard);
   maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, storage);
+  maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE, freshness);
   maybeSet(TOKENS.WEBVIEW_MANAGER, webviewManager);
   maybeSet(HARNESS_SYNC_TOKENS.PROPAGATION, propagation);
   maybeSet(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, {
@@ -478,6 +501,7 @@ function makeHarness(
     setupWizard,
     webviewManager,
     storage,
+    freshness,
     propagation,
     sentry,
   };
@@ -616,6 +640,35 @@ function seedCheckpoint(
 const BASE_SUBMIT_PARAMS: WizardSubmitSelectionParams = {
   selectedAgentIds: ['agent-a'],
 };
+const VALID_ANALYSIS = {
+  projectType: 'node',
+  fileCount: 10,
+  languages: ['TypeScript'],
+  frameworks: ['Express'],
+  architecturePatterns: [],
+  keyFileLocations: {
+    entryPoints: [],
+    configs: [],
+    testDirectories: [],
+    apiRoutes: [],
+    components: [],
+    services: [],
+  },
+  existingIssues: {
+    errorCount: 0,
+    warningCount: 0,
+    infoCount: 0,
+    errorsByType: {},
+    warningsByType: {},
+  },
+  testCoverage: {
+    percentage: 0,
+    hasTests: false,
+    hasUnitTests: false,
+    hasIntegrationTests: false,
+    hasE2eTests: false,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -715,6 +768,83 @@ describe('WizardGenerationRpcHandlers', () => {
 
       expect(firstOptions(h).analysisDir).toBe(ANALYSIS_DIR);
       expect(manifestAt(h, ANALYSIS_DIR).analysisDirectory).toBe(ANALYSIS_DIR);
+    });
+
+    it('passes validated analysis and its authorized fresh directory with selection and overrides', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      await call(h, 'wizard:submit-selection', {
+        selectedAgentIds: ['agent-a', 'agent-b'],
+        variableOverrides: { language: 'TypeScript' },
+        analysisDir: ANALYSIS_DIR,
+        analysisData: VALID_ANALYSIS,
+      });
+      expect(firstOptions(h)).toEqual(
+        expect.objectContaining({
+          userOverrides: ['agent-a', 'agent-b'],
+          variableOverrides: { language: 'TypeScript' },
+          analysisDir: ANALYSIS_DIR,
+          preComputedAnalysis: expect.objectContaining({ projectType: 'node' }),
+        }),
+      );
+      expect(h.storage.resolveAuthorizedAnalysisDir).toHaveBeenCalledWith(
+        WORKSPACE,
+        '.ptah/analysis/acme',
+      );
+    });
+
+    it.each(['stale', 'missing'] as const)(
+      'uses workspace context for %s analysis without rejecting or moving the checkpoint',
+      async (state) => {
+        const h = makeHarness();
+        h.freshness.getStatus.mockResolvedValue({
+          state,
+          reason: state === 'missing' ? 'no-analysis' : 'expired',
+          analysisDir: state === 'missing' ? null : '.ptah/analysis/acme',
+        });
+        h.handlers.register();
+        const result = await call<{ success: boolean }>(
+          h,
+          'wizard:submit-selection',
+          {
+            ...BASE_SUBMIT_PARAMS,
+            analysisDir: ANALYSIS_DIR,
+            analysisData: VALID_ANALYSIS,
+          },
+        );
+        expect(result.success).toBe(true);
+        expect(firstOptions(h).analysisDir).toBeUndefined();
+        expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
+        expect(manifestAt(h, ANALYSIS_DIR).analysisDirectory).toBe(
+          ANALYSIS_DIR,
+        );
+        expect(h.logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('using workspace context'),
+          expect.objectContaining({ analysisState: state }),
+        );
+      },
+    );
+
+    it('omits analysis when the fresh run does not match the authorized caller directory', async () => {
+      const h = makeHarness();
+      h.freshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        reason: 'ok',
+        analysisDir: '.ptah/analysis/other',
+      });
+      h.handlers.register();
+      const result = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        {
+          ...BASE_SUBMIT_PARAMS,
+          analysisDir: ANALYSIS_DIR,
+          analysisData: VALID_ANALYSIS,
+        },
+      );
+      expect(result.success).toBe(true);
+      expect(firstOptions(h).analysisDir).toBeUndefined();
+      expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
     });
 
     it('drops analysisData that is not a ProjectAnalysisResult and warns, instead of failing the request', async () => {
