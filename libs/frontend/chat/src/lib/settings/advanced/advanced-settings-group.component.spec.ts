@@ -322,6 +322,22 @@ describe('AdvancedSettingsGroupComponent', () => {
       expect(writes()).toEqual([]);
     });
 
+    it('styles and announces a client error, with a forced error border', async () => {
+      await create('memory-upkeep');
+      const input = field('memory.retention.processedDays');
+      expect(input.classList).not.toContain('input-error');
+      await enter('memory.retention.processedDays', '0');
+      const error = byTestId(
+        'advanced-setting-memory.retention.processedDays-error',
+      );
+      expect(error?.getAttribute('role')).toBe('alert');
+      expect(error?.classList).toContain('text-error');
+      expect(input.classList).toContain('input-error');
+      expect(input.classList).toContain(
+        '!border-[color:var(--ptah-error-ink,oklch(var(--er)))]',
+      );
+    });
+
     it('a decimal setting takes a fraction and has no unit suffix', async () => {
       await create('skill-upkeep');
       const input = field('skillSynthesis.replayValidation.minConfidence');
@@ -367,6 +383,36 @@ describe('AdvancedSettingsGroupComponent', () => {
       expect(
         byTestId('advanced-group-codex-agents-status')?.textContent,
       ).toContain('Saved Codex web search.');
+    });
+
+    it('the text beside the toggle follows the read-back value', async () => {
+      await create('codex-agents');
+      const state = (): string | undefined =>
+        byTestId(
+          'advanced-setting-agentOrchestration.codexWebSearch-state',
+        )?.textContent?.trim();
+      expect(state()).toBe('Enabled');
+      const box = field('agentOrchestration.codexWebSearch');
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(state()).toBe('Disabled');
+    });
+
+    it('the text stays at the saved value when the write fails', async () => {
+      writeReply = async () => {
+        throw new Error('gone');
+      };
+      await create('workspace-harness');
+      const box = field('harness.manageGitignore');
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(
+        byTestId(
+          'advanced-setting-harness.manageGitignore-state',
+        )?.textContent?.trim(),
+      ).toBe('Enabled');
     });
 
     it('a transport failure leaves the box at the saved value', async () => {

@@ -161,7 +161,14 @@ function formatValue(
                         [attr.aria-describedby]="describedBy(setting)"
                         [attr.data-testid]="'advanced-setting-' + setting.key"
                       />
-                      <span>Enabled</span>
+                      <span
+                        [attr.data-testid]="
+                          'advanced-setting-' + setting.key + '-state'
+                        "
+                        >{{
+                          booleanValue(setting) ? 'Enabled' : 'Disabled'
+                        }}</span
+                      >
                     </label>
                   } @else {
                     <label
@@ -183,7 +190,7 @@ function formatValue(
                         "
                         [class]="
                           'input input-bordered input-sm join-item h-8 min-h-8 min-w-0 flex-1 text-right text-xs tabular-nums text-base-content ' +
-                          (errors()[setting.key] ? 'input-error ' : '') +
+                          (errors()[setting.key] ? errorBorder + ' ' : '') +
                           focusRing
                         "
                         [value]="numberText(setting)"
@@ -214,7 +221,9 @@ function formatValue(
                   </p>
                   @if (errors()[setting.key]; as message) {
                     <p
+                      role="alert"
                       [id]="'advanced-setting-' + setting.key + '-error'"
+                      class="text-error"
                       [attr.data-testid]="
                         'advanced-setting-' + setting.key + '-error'
                       "
@@ -257,6 +266,12 @@ export class AdvancedSettingsGroupComponent implements OnInit {
   readonly groupId = input.required<AdvancedSettingGroupId>();
 
   protected readonly focusRing = FOCUS;
+  /**
+   * The anubis-light `.input` rule in styles.css sets the border at (0,2,0), which beats daisyUI's `input-error`,
+   * so the error border is forced. It uses the measured `--ptah-error-ink` and falls back to the theme's error.
+   */
+  protected readonly errorBorder =
+    'input-error !border-[color:var(--ptah-error-ink,oklch(var(--er)))]';
   protected readonly restartBadge =
     'badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content';
 
