@@ -59,3 +59,8 @@ D:\projects\ptah-extension\node_modules`; remove it with `cmd /c rmdir`, never a
 - Docs PR #691 (`docs/task-620-bench-posts`): charts of the 229-entry cassette and three bench lessons
   posts in `docs/benchmarks/memory-skills-bench/`. Re-run `generate-cassette-charts.mjs` when the
   cassette is complete, and replace the "unscored" status once a scored run exists.
+
+## Rescope (2026-10-14, TASK_2026_659_cec4)
+
+Scope is now **memory only**. The skills suites measure the skill-synthesis pipeline, which is switched off and proposed for removal. Memory stays as is.
+Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.

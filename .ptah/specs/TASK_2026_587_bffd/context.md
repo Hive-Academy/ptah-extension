@@ -42,3 +42,8 @@ FEATURE (Thoth page + a persisted activity ledger).
 - Durability: an integration spec writes events through the production path, closes and reopens the SQLite
   database, and asserts that the rows persist, every id is a valid ULID, and reads return newest-first.
 - UI: visual-reviewer screenshots, dark and light, against an approved prototype.
+
+## Rescope (2026-10-14, TASK_2026_659_cec4)
+
+"Recent outcomes" reads the lane and subagent outcome record from TASK_2026_646_136a (Requirement 5), not the skill-synthesis queue. Do not build a second activity ledger.
+Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.
