@@ -603,7 +603,7 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
 
 ### Task R9w.1 — COMPLETE (8c9fc364a)
 
-## Batch R9x: Header split actions, swap, stacked Tab order, drafts, e2e selectors — PENDING
+## Batch R9x: Header split actions, swap, stacked Tab order, drafts, e2e selectors — COMPLETE (4cf6d4f83; reviews codex-review-R9x.md REVISE 6/10 -> fix round (row 107) -> codex-review-R9x-fix.md APPROVE 8/10)
 
 - Executor: Claude frontend-developer | Fallback: codex lane | Reviewer: codex reviewer lane | Wave H7 | Depends: R9l, R9w
 - Rationale: addendum says "either"; a Claude writer gives the codex-written R9w board a second family on the same
@@ -644,7 +644,7 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
   the header (menu or header controls) so no absolute control covers the pane header or lane-tab strip. NEW-6:
   single focus can carry `data-pane-side="right"`; selectors and keyboard code must not assume `left`.
 
-### Task R9x.1 — PENDING
+### Task R9x.1 — COMPLETE (4cf6d4f83)
 
 ## Phase review and completion
 
