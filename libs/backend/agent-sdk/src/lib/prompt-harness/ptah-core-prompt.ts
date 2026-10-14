@@ -53,7 +53,7 @@ Prefer ptah_* tools over built-in alternatives. They use VS Code's LSP, the work
 | Figuring out the monorepo layout | ptah_project_detect_monorepo | Detects nx/lerna/turbo/workspaces + package count |
 | Finding where a symbol is exported | ptah_get_symbol_index | Map of file → exported symbol names |
 
-Fall back to Bash, Grep or Glob only for **writes**, build/test/git, free-text search, or after a ptah error or zero hits.
+Fall back to Bash, Grep or Glob only for **writes**, build/test/git, free text, a ptah error, or one Grep after zero hits.
 Free text is string literals, config keys and error messages.
 
 > [!IMPORTANT]

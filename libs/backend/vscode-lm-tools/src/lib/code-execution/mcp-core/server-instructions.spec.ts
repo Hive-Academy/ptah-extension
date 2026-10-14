@@ -120,7 +120,7 @@ describe('buildServerInstructions (shipped mandate)', () => {
 
   it('carries the fallback line from the section, without Markdown emphasis', () => {
     expect(instructions).toContain(
-      'Fall back to Bash, Grep or Glob only for writes, build/test/git, free-text search',
+      'Fall back to Bash, Grep or Glob only for writes, build/test/git, free text, a ptah error, or one Grep after zero hits.',
     );
     expect(instructions).not.toContain('**');
   });
