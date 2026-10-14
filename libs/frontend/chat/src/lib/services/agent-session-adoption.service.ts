@@ -3,6 +3,7 @@ import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
   SessionId,
   type AgentSessionOpenedPayload,
+  type SessionHandoffOpenedPayload,
 } from '@ptah-extension/shared';
 import {
   TabId,
@@ -81,6 +82,43 @@ export function parseAgentSessionOpenedPayload(
     branch: p['branch'],
     label: p['label'],
     ...(isNonEmptyString(taskId) ? { taskId } : {}),
+    displayPrompt: p['displayPrompt'],
+    startedAt: p['startedAt'],
+  };
+}
+
+/**
+ * Validate a `SessionHandoffOpenedPayload` received as the
+ * `sessionHandoff:opened` push (TASK_2026_655). Returns `null` for anything
+ * that is not one; the caller logs and drops it. Hand-written like
+ * {@link parseAgentSessionOpenedPayload}.
+ */
+export function parseSessionHandoffOpenedPayload(
+  value: unknown,
+): SessionHandoffOpenedPayload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const p = value as Record<string, unknown>;
+  const fromSessionId = p['fromSessionId'];
+  if (
+    !isNonEmptyString(p['tabId']) ||
+    !isNonEmptyString(p['fromTabId']) ||
+    (fromSessionId !== null && !isNonEmptyString(fromSessionId)) ||
+    !isNonEmptyString(p['workspaceRoot']) ||
+    !isNonEmptyString(p['cwd']) ||
+    !isNonEmptyString(p['label']) ||
+    typeof p['displayPrompt'] !== 'string' ||
+    typeof p['startedAt'] !== 'number' ||
+    !Number.isFinite(p['startedAt'])
+  ) {
+    return null;
+  }
+  return {
+    tabId: p['tabId'],
+    fromTabId: p['fromTabId'],
+    fromSessionId,
+    workspaceRoot: p['workspaceRoot'],
+    cwd: p['cwd'],
+    label: p['label'],
     displayPrompt: p['displayPrompt'],
     startedAt: p['startedAt'],
   };
@@ -250,7 +288,7 @@ export class AgentSessionAdoptionService {
       // be loaded yet, and the next workspace switch must try again.
       if (outcome === 'adopted' || outcome === 'exists') {
         this.settled.add(descriptor.tabId);
-        this.requestCanvasTile(descriptor);
+        this.requestCanvasTile(descriptor.tabId, descriptor.label, false);
       }
     } catch (error: unknown) {
       // degradation-audit: optional-capability - one child's adoption fault
@@ -261,15 +299,41 @@ export class AgentSessionAdoptionService {
   }
 
   /**
+   * Adopt the tab of a session another session handed off to
+   * (`sessionHandoff:opened`, TASK_2026_655). Push-only: a handoff tab this
+   * webview missed is reachable from the sidebar like any chat. Never throws.
+   *
+   * The canvas tile takes focus exactly when the tab bar did: the tab manager
+   * focuses the new tab only when the source was the active tab.
+   */
+  adoptHandoff(descriptor: SessionHandoffOpenedPayload): void {
+    try {
+      const outcome = this.tabManager.adoptHandoffTab(descriptor);
+      if (outcome !== 'adopted') return;
+      this.requestCanvasTile(
+        descriptor.tabId,
+        descriptor.label,
+        this.tabManager.activeTabId() === descriptor.tabId,
+      );
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - a handoff adoption fault must
+      // not break the message handler; the session stays reachable from the
+      // sidebar.
+      console.error('[AgentSessionAdoption] handoff adoption failed:', error);
+    }
+  }
+
+  /**
    * While the Orchestra Canvas layout is active, ask it to adopt the child tab
    * as a tile (TASK_2026_612). Same signal bridge the Tasks-board launch uses
    * (F-D3): the canvas is already mounted and hydrated, so nothing else would
    * tile a tab that appears after first-visit hydration. The canvas's
    * `adoptTab` dedups, so re-adoption (e.g. `chat:agent-sessions` on webview
-   * bootstrap) never doubles a tile a fresh mount already restored. Requested
-   * with `focus: false` — a child opening must not steal the active tab, on
-   * the canvas exactly like in the tab bar. In single layout the queue is
-   * never consumed, so the tab-bar behavior is unchanged.
+   * bootstrap) never doubles a tile a fresh mount already restored. A child
+   * asks with `focus: false` — a child opening must not steal the active tab,
+   * on the canvas exactly like in the tab bar; a handoff tab asks with the
+   * focus the tab bar gave it. In single layout the queue is never consumed,
+   * so the tab-bar behavior is unchanged.
    *
    * Only the partition the canvas is showing can host the tile:
    * `adoptTab` appends to the canvas's ACTIVE workspace grid, so a child is
@@ -282,11 +346,13 @@ export class AgentSessionAdoptionService {
    * after a workspace switch — drops it rather than tiling a foreign
    * workspace's child into the now-active grid.
    */
-  private requestCanvasTile(descriptor: AgentSessionOpenedPayload): void {
+  private requestCanvasTile(
+    tabId: string,
+    label: string,
+    focus: boolean,
+  ): void {
     if (this.appState.layoutMode() !== 'grid') return;
-    const landed = this.tabManager.findTabByIdAcrossWorkspaces(
-      descriptor.tabId,
-    );
+    const landed = this.tabManager.findTabByIdAcrossWorkspaces(tabId);
     // `findTabByIdAcrossWorkspaces` reports the ACTIVE partition's path for a
     // tab in the active set (non-null whenever a workspace is active), so
     // comparing with the active workspace path keeps the Electron host
@@ -297,11 +363,6 @@ export class AgentSessionAdoptionService {
     ) {
       return;
     }
-    this.appState.requestCanvasTab(
-      descriptor.tabId,
-      landed.workspacePath,
-      descriptor.label,
-      false,
-    );
+    this.appState.requestCanvasTab(tabId, landed.workspacePath, label, focus);
   }
 }

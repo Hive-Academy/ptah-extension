@@ -22,6 +22,12 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    */
   CHILD_CHAT_SESSION_HOST: Symbol.for('ChildChatSessionHost'),
   /**
+   * `ISessionHandoff` (TASK_2026_655): a session hands its work to a new
+   * top-level session with `ptah_session_handoff`. Registered by this lib's
+   * `register.ts`; consumers resolve it optionally.
+   */
+  SESSION_HANDOFF: Symbol.for('SessionHandoff'),
+  /**
    * `LaneResumeGate` (TASK_2026_597, R9.1): decides whether a resume spawn
    * resumes the lane or starts a fresh one with a handoff. Injected by the
    * process manager.

@@ -36,6 +36,7 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ExecutionNodeComponent } from './execution-node.component';
 import {
   FILE_LINK_OPENER,
@@ -62,7 +63,9 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
         frames.push(() => cb(0));
         return frames.length;
       });
-    jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
 
     TestBed.configureTestingModule({
       imports: [ExecutionNodeComponent],
@@ -93,15 +96,18 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
   }
 
   function root(): HTMLElement {
-    const element = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
-      '.ptah-markdown-root',
-    );
-    if (element === null) throw new Error('streaming containment root not rendered');
+    const element = (
+      fixture.nativeElement as HTMLElement
+    ).querySelector<HTMLElement>('.ptah-markdown-root');
+    if (element === null)
+      throw new Error('streaming containment root not rendered');
     return element;
   }
 
   function blockHosts(): HTMLElement[] {
-    return Array.from(root().querySelectorAll<HTMLElement>(':scope > div.contents'));
+    return Array.from(
+      root().querySelectorAll<HTMLElement>(':scope > div.contents'),
+    );
   }
 
   function tail(): HTMLElement | null {
@@ -148,11 +154,14 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('img')).toBeNull();
     expect(host.querySelector('script')).toBeNull();
-    expect(tail()?.textContent).toBe('<img src=x onerror=alert(1)><script>alert(2)</script>');
+    expect(tail()?.textContent).toBe(
+      '<img src=x onerror=alert(1)><script>alert(2)</script>',
+    );
   });
 
   it('a payload split across a block boundary never yields an active element', () => {
-    const source = '<img src=x\n\nonerror=alert(1)>\n\n<a href="java\n\nscript:alert(1)">x</a>\n\n';
+    const source =
+      '<img src=x\n\nonerror=alert(1)>\n\n<a href="java\n\nscript:alert(1)">x</a>\n\n';
     for (let end = 1; end <= source.length; end++) {
       streamFrame(source.slice(0, end));
       const host = fixture.nativeElement as HTMLElement;
@@ -192,12 +201,76 @@ describe('ExecutionNodeComponent — incremental streaming DOM', () => {
     streamFrame('Block.\n\ntail');
     expect(root()).toBeTruthy();
 
-    fixture.componentRef.setInput('node', makeNode('Block.\n\ntail', 'complete'));
+    fixture.componentRef.setInput(
+      'node',
+      makeNode('Block.\n\ntail', 'complete'),
+    );
     fixture.componentRef.setInput('isStreaming', false);
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.ptah-markdown-root')).toBeNull();
     expect(host.querySelector('markdown')).not.toBeNull();
+  });
+
+  describe('a text child with a later sibling while the turn streams', () => {
+    /** A streaming message: text `first`, then a streaming text sibling. */
+    function streamMessage(first: string): void {
+      const message = {
+        id: 'm1',
+        type: 'message',
+        status: 'streaming',
+        content: '',
+        children: [
+          { id: 't1', type: 'text', status: 'complete', content: first, children: [] },
+          { id: 't2', type: 'text', status: 'streaming', content: 'Still\n\nopen', children: [] },
+        ],
+      } as unknown as ExecutionNode;
+      fixture.componentRef.setInput('node', message);
+      fixture.componentRef.setInput('isStreaming', true);
+      fixture.detectChanges();
+      for (const frame of frames.splice(0)) frame();
+      fixture.detectChanges();
+    }
+
+    function textBranches(): HTMLElement[] {
+      return Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.exec-text-branch'),
+      );
+    }
+
+    /** The protected view state of the first child node. */
+    function firstChild(): { mermaidHost(): boolean; renderedContent(): string } {
+      const nodes = fixture.debugElement.queryAll(By.directive(ExecutionNodeComponent));
+      return nodes[0].componentInstance as unknown as {
+        mermaidHost(): boolean;
+        renderedContent(): string;
+      };
+    }
+
+    it('renders the closed text as settled markdown', () => {
+      streamMessage('Done.\n> [!WARNING]\n> Careful.');
+
+      const branches = textBranches();
+      expect(branches).toHaveLength(2);
+      expect(branches[0].querySelector('.ptah-markdown-root')).toBeNull();
+      expect(branches[0].querySelector('markdown')).not.toBeNull();
+      expect(branches[1].querySelector('.ptah-markdown-root')).not.toBeNull();
+    });
+
+    it('does not mount Mermaid before the turn ends', () => {
+      streamMessage('Diagram:\n\n```mermaid\ngraph TD; A-->B\n```\n');
+
+      expect(firstChild().mermaidHost()).toBe(false);
+      expect(textBranches()[0].querySelector('markdown')).not.toBeNull();
+    });
+
+    it('renders a late delta to the closed text at once', () => {
+      streamMessage('Done.');
+      streamMessage('Done. And more.');
+
+      expect(firstChild().renderedContent()).toBe('Done. And more.');
+      expect(textBranches()[0].querySelector('.ptah-markdown-root')).toBeNull();
+    });
   });
 });

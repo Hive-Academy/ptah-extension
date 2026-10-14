@@ -15,6 +15,7 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import type { MCPToolDefinition } from '../types';
 import {
+  SessionHandoffArgsSchema,
   SessionReadArgsSchema,
   SessionSendArgsSchema,
   SessionStartArgsSchema,
@@ -27,6 +28,7 @@ export const SESSION_SEND_TOOL_NAME = 'ptah_session_send';
 export const SESSION_STATUS_TOOL_NAME = 'ptah_session_status';
 export const SESSION_READ_TOOL_NAME = 'ptah_session_read';
 export const SESSION_STOP_TOOL_NAME = 'ptah_session_stop';
+export const SESSION_HANDOFF_TOOL_NAME = 'ptah_session_handoff';
 
 export const SESSION_TOOL_NAMES = [
   SESSION_START_TOOL_NAME,
@@ -34,6 +36,7 @@ export const SESSION_TOOL_NAMES = [
   SESSION_STATUS_TOOL_NAME,
   SESSION_READ_TOOL_NAME,
   SESSION_STOP_TOOL_NAME,
+  SESSION_HANDOFF_TOOL_NAME,
 ] as const;
 
 export type SessionToolName = (typeof SESSION_TOOL_NAMES)[number];
@@ -130,5 +133,27 @@ export function buildSessionStopTool(): MCPToolDefinition {
       'and its branch remain; nothing is merged, pushed or removed. ' +
       HELD_NOTE,
     inputSchema: inputSchemaOf(SessionStopArgsSchema),
+  };
+}
+
+/**
+ * Build the `ptah_session_handoff` tool definition (TASK_2026_655). Listed
+ * always-on by the dispatcher, outside the `agent` group: the budget
+ * banner's handoff action relies on it.
+ */
+export function buildSessionHandoffTool(): MCPToolDefinition {
+  return {
+    name: SESSION_HANDOFF_TOOL_NAME,
+    description:
+      'Hand this session off to a NEW top-level chat session in the same ' +
+      'workspace and working directory (same branch, no worktree). It opens ' +
+      "as a new tab in the user's window and receives prompt as its first " +
+      'message; it is not your child and can hand off again. Write the ' +
+      'handoff document first: handoffPath must be an existing absolute file ' +
+      'path, and prompt must name it. Call once. A child session cannot hand ' +
+      'off. The result states tabOpened (false: no window took the tab; it is ' +
+      'in the session list). Refusals are returned as text with a code. ' +
+      HELD_NOTE,
+    inputSchema: inputSchemaOf(SessionHandoffArgsSchema),
   };
 }
