@@ -31,11 +31,11 @@ export interface SetupWizardLaunchResponse {
 export interface WizardDeepAnalyzeParams {
   /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
   model?: string;
-  /** Continue an unfinished version-3 analysis run. */
+  /** Continue an unfinished version-4 analysis run. */
   resume?: boolean;
 }
 
-/** All valid status values for a v3 multi-phase analysis step. */
+/** All valid status values for a v4 multi-phase analysis step. */
 export type MultiPhaseAnalysisPhaseStatus =
   'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
@@ -46,6 +46,7 @@ export interface WorkspaceFingerprint {
   capturedAt: string;
 }
 
+/** Freshness status for the current workspace analysis. */
 export interface AnalysisStatus {
   state: 'fresh' | 'stale' | 'missing';
   reason:
@@ -57,6 +58,7 @@ export interface AnalysisStatus {
     | 'workspace-changed'
     | 'output-mismatch'
     | 'unreadable';
+  /** Workspace-relative analysis directory with `/` separators, or null when absent. */
   analysisDir: string | null;
   checkedAt: string;
   analyzedAt: string | null;

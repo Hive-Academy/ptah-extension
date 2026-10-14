@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 55 | Batches: 22 | Complete: 15/22
+Total tasks: 55 | Batches: 22 | Complete: 17/22
 
 Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
 only) → Batch 9 (with Task 9.0, moved from 7.1; verified, its commit waits for Batch 17) →
@@ -1303,7 +1303,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   (`--maxWorkers=2`, no cache) 37 suites, 1271 passed, 1 skipped; rpc-handlers typecheck
   pass; di-lint OK (1827 `@inject` sites).
 
-## Batch 21: Phase 3 fix - checkpoint fallback, phase recording, types - COMPLETE
+## Batch 21: Phase 3 fix - checkpoint fallback, phase recording, types - COMPLETE (commit 35f663e2f)
 
 - Recommended executor: implementation CLI lane (codex), one lane
 - Fallback executor: backend-developer sub-agent
@@ -1379,7 +1379,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   `AnalysisStorageService.ensureSlugDir` now has no production caller (spec only). Candidates
   for the Phase 3 re-review or a later cleanup task.
 
-## Batch 22: Phase 3 fix - shared docs and baseline order - PENDING
+## Batch 22: Phase 3 fix - shared docs and baseline order - COMPLETE
 
 - Recommended executor: implementation CLI lane (codex), one lane
 - Fallback executor: backend-developer sub-agent
@@ -1388,7 +1388,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - Tasks: 1 | Depends on: Batch 20 (relative `analysisDir`)
 - Phase: 3 fix round (last batch) | Phase review: the one re-review
 
-### Task 22.1: Wording, docs, baseline order - PENDING
+### Task 22.1: Wording, docs, baseline order - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/rpc-setup.types.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts`,
@@ -1406,6 +1406,15 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   then `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/rpc-handlers --parallel=1 --maxWorkers=2`
   (header must say 2 projects).
 - After commit: the Phase 3 re-review (logic and style) of the Batch 19-22 commits is due.
+- Verified (team-leader, 2026-10-14, report `batch-22-report.md`): only the three listed files
+  changed. `'wizard:analysis-status'` now sits between `'webSearch:test'` and `'wizard:cancel'`
+  (same set of names, code-unit order); resume and phase-status wording says version-4
+  (`rpc-setup.types.ts:34,38`, `setup-rpc.schema.ts:20`); one-line docs on `AnalysisStatus`,
+  `AnalysisStatus.analysisDir` (workspace-relative, `/` separators, null when absent) and
+  `WizardAnalysisStatusParamsSchema`. `'legacy-v3'` reason kept (a real v3 manifest). Comments
+  and array order only: no type shape or runtime change. Checks, one at a time: prettier clean
+  (3 files); shared and rpc-handlers typecheck+lint pass ("2 projects"); shared and rpc-handlers
+  test pass, uncached ("Running target test for 2 projects").
 
 ## Batch 14: Agent generation falls back to gathered context - PENDING
 
