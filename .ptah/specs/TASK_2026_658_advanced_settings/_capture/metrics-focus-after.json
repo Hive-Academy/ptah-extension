@@ -1,0 +1,22 @@
+{
+ "dark-reachedSummaryByTab": true,
+ "dark-summaryFocus": {
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "fv": true
+ },
+ "dark-afterEnterTab": "advanced-setting-memory.symbolInjectionEnabled",
+ "dark-toggleFocus": {
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "fv": true
+ },
+ "light-reachedSummaryByTab": true,
+ "light-summaryFocus": {
+  "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+  "fv": true
+ },
+ "light-afterEnterTab": "advanced-setting-memory.symbolInjectionEnabled",
+ "light-toggleFocus": {
+  "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+  "fv": true
+ }
+}

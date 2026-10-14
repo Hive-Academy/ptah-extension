@@ -1,9 +1,14 @@
 ---
-status: backlog
+status: cancelled
 type: feature
 title: 'Lanes: model discovery in ptah_agent_list and a persisted lane outcome ledger'
 depends_on: []
-blocks: [TASK_2026_536, TASK_2026_537]
+blocks:
+  - TASK_2026_536
+  - TASK_2026_537
+duplicates:
+  - TASK_2026_646_136a
+updated: '2026-10-14T01:38:43.434Z'
 ---
 
 # TASK_2026_535 — Lane model discovery + lane outcome ledger

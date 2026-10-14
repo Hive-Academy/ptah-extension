@@ -1,0 +1,1100 @@
+{
+ "orch-dark-360-layout": {
+  "docOverflowX": 0,
+  "overflowing": [
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-antigravity",
+    "right": 426,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 440,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-glm-instance-1",
+    "right": 495,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 510,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-copilot",
+    "right": 584,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 598,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-opencode",
+    "right": 692,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 707,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-grok",
+    "right": 767,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 700,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 383,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 438,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 512,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 607,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 666,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 700,
+    "scopeRight": 331
+   }
+  ],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "session-budget-enabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-agentOrchestration.codexWebSearch",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "orch-dark-360-sections": [
+  "settings-section-orchestration-policy",
+  "settings-section-session-budget",
+  "settings-section-lane-guards",
+  "settings-section-context-budgets",
+  "settings-section-codex-agents",
+  "settings-section-background-queries"
+ ],
+ "orch-dark-360-contrast": [
+  {
+   "ratio": 5.65,
+   "size": "12px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "26,26,32",
+   "sample": "tokens",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 5.71,
+   "size": "12px",
+   "weight": "600",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "Order:",
+   "testid": "orchestration-policy-bar"
+  },
+  {
+   "ratio": 5.71,
+   "size": "12px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "→",
+   "testid": "policy-order"
+  },
+  {
+   "ratio": 5.71,
+   "size": "11px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "Set per-chat limits and when Ptah should intervene",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 6.05,
+   "size": "12px",
+   "weight": "700",
+   "fg": "152,146,145",
+   "bg": "19,19,23",
+   "sample": "4. Copilot",
+   "testid": "policy-order-chip-copilot"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Queue wait limit",
+   "testid": "advanced-setting-internalQuery.queueTimeoutMs-field"
+  },
+  {
+   "ratio": 14.03,
+   "size": "11px",
+   "weight": "600",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Re-detect CLIs",
+   "testid": "policy-redetect"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "400",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Enabled",
+   "testid": "advanced-setting-agentOrchestration.codexWebSearch-field"
+  },
+  {
+   "ratio": 14.86,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "19,19,23",
+   "sample": "6. Grok",
+   "testid": "policy-order-chip-grok"
+  }
+ ],
+ "orch-dark-360-focusStyle": {
+  "tid": "advanced-setting-compaction.toolOutputBudgetTokens",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "offset": "2px"
+ },
+ "orch-dark-360-errorText": "Use a whole number from 1 to 16 queries.",
+ "orch-dark-360-errorContrast": [
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "400",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Use a whole number from 1 to 16 queries.",
+   "testid": "advanced-setting-internalQuery.maxConcurrent-error"
+  }
+ ],
+ "adv-dark-360-closedAdvancedSettingCount": 0,
+ "adv-dark-360-layout": {
+  "docOverflowX": 0,
+  "overflowing": [],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-memory.symbolInjectionEnabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-harness.manageGitignore",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "adv-dark-360-contrast": [
+  {
+   "ratio": 5.65,
+   "size": "12px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "26,26,32",
+   "sample": "Upkeep and timing values for memory, skills, sched",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 5.71,
+   "size": "11px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "How long memory records are kept and how cleanup r",
+   "testid": "settings-section-memory-upkeep"
+  },
+  {
+   "ratio": 12.57,
+   "size": "9px",
+   "weight": "500",
+   "fg": "232,230,225",
+   "bg": "28,35,52",
+   "sample": "Restart",
+   "testid": "advanced-setting-skillSynthesis.triggers.bootScanDelayMs-field"
+  },
+  {
+   "ratio": 13.89,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "26,26,32",
+   "sample": "Fine-tuning",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Manage .gitignore",
+   "testid": "advanced-setting-harness.manageGitignore-field"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "400",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Enabled",
+   "testid": "advanced-setting-harness.manageGitignore-field"
+  }
+ ],
+ "adv-dark-360-sections": [
+  "settings-section-memory-upkeep",
+  "settings-section-skill-upkeep",
+  "settings-section-scheduled-jobs",
+  "settings-section-workspace-harness"
+ ],
+ "adv-dark-360-summaryFocus": {
+  "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
+  "matchesFocusVisible": false
+ },
+ "adv-dark-360-firstTabAfterSummary": "advanced-setting-memory.symbolInjectionEnabled",
+ "adv-dark-360-saveStatus": [
+  "Saved Keep processed records for.",
+  "",
+  "",
+  "",
+  ""
+ ],
+ "adv-dark-360-rpcCalls": [],
+ "orch-dark-1000-layout": {
+  "docOverflowX": 0,
+  "overflowing": [],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "session-budget-enabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-agentOrchestration.codexWebSearch",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "orch-dark-1000-sections": [
+  "settings-section-orchestration-policy",
+  "settings-section-session-budget",
+  "settings-section-lane-guards",
+  "settings-section-context-budgets",
+  "settings-section-codex-agents",
+  "settings-section-background-queries"
+ ],
+ "orch-dark-1000-contrast": [
+  {
+   "ratio": 5.65,
+   "size": "12px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "26,26,32",
+   "sample": "tokens",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 5.71,
+   "size": "12px",
+   "weight": "600",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "Order:",
+   "testid": "orchestration-policy-bar"
+  },
+  {
+   "ratio": 5.71,
+   "size": "12px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "→",
+   "testid": "policy-order"
+  },
+  {
+   "ratio": 5.71,
+   "size": "11px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "Set per-chat limits and when Ptah should intervene",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 6.05,
+   "size": "12px",
+   "weight": "700",
+   "fg": "152,146,145",
+   "bg": "19,19,23",
+   "sample": "4. Copilot",
+   "testid": "policy-order-chip-copilot"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Queue wait limit",
+   "testid": "advanced-setting-internalQuery.queueTimeoutMs-field"
+  },
+  {
+   "ratio": 14.03,
+   "size": "11px",
+   "weight": "600",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Re-detect CLIs",
+   "testid": "policy-redetect"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "400",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Enabled",
+   "testid": "advanced-setting-agentOrchestration.codexWebSearch-field"
+  },
+  {
+   "ratio": 14.86,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "19,19,23",
+   "sample": "6. Grok",
+   "testid": "policy-order-chip-grok"
+  }
+ ],
+ "orch-dark-1000-focusStyle": {
+  "tid": "advanced-setting-compaction.toolOutputBudgetTokens",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "offset": "2px"
+ },
+ "orch-dark-1000-errorText": "Use a whole number from 1 to 16 queries.",
+ "orch-dark-1000-errorContrast": [
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "400",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Use a whole number from 1 to 16 queries.",
+   "testid": "advanced-setting-internalQuery.maxConcurrent-error"
+  }
+ ],
+ "adv-dark-1000-closedAdvancedSettingCount": 0,
+ "adv-dark-1000-layout": {
+  "docOverflowX": 0,
+  "overflowing": [],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-memory.symbolInjectionEnabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-harness.manageGitignore",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "adv-dark-1000-contrast": [
+  {
+   "ratio": 5.65,
+   "size": "12px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "26,26,32",
+   "sample": "Upkeep and timing values for memory, skills, sched",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 5.71,
+   "size": "11px",
+   "weight": "400",
+   "fg": "152,146,145",
+   "bg": "25,25,31",
+   "sample": "How long memory records are kept and how cleanup r",
+   "testid": "settings-section-memory-upkeep"
+  },
+  {
+   "ratio": 12.57,
+   "size": "9px",
+   "weight": "500",
+   "fg": "232,230,225",
+   "bg": "28,35,52",
+   "sample": "Restart",
+   "testid": "advanced-setting-skillSynthesis.triggers.bootScanDelayMs-field"
+  },
+  {
+   "ratio": 13.89,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "26,26,32",
+   "sample": "Fine-tuning",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "700",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Manage .gitignore",
+   "testid": "advanced-setting-harness.manageGitignore-field"
+  },
+  {
+   "ratio": 14.03,
+   "size": "12px",
+   "weight": "400",
+   "fg": "232,230,225",
+   "bg": "25,25,31",
+   "sample": "Enabled",
+   "testid": "advanced-setting-harness.manageGitignore-field"
+  }
+ ],
+ "adv-dark-1000-sections": [
+  "settings-section-memory-upkeep",
+  "settings-section-skill-upkeep",
+  "settings-section-scheduled-jobs",
+  "settings-section-workspace-harness"
+ ],
+ "adv-dark-1000-summaryFocus": {
+  "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
+  "matchesFocusVisible": false
+ },
+ "adv-dark-1000-firstTabAfterSummary": "advanced-setting-memory.symbolInjectionEnabled",
+ "adv-dark-1000-saveStatus": [
+  "Saved Keep processed records for.",
+  "",
+  "",
+  "",
+  ""
+ ],
+ "adv-dark-1000-rpcCalls": [],
+ "orch-light-360-layout": {
+  "docOverflowX": 0,
+  "overflowing": [
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-antigravity",
+    "right": 426,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 440,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-glm-instance-1",
+    "right": 495,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 510,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-copilot",
+    "right": 584,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 598,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-opencode",
+    "right": 692,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 707,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": "policy-order-chip-grok",
+    "right": 767,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 700,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 383,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 438,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 512,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 607,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 666,
+    "scopeRight": 331
+   },
+   {
+    "tag": "SPAN",
+    "tid": null,
+    "right": 700,
+    "scopeRight": 331
+   }
+  ],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "session-budget-enabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-agentOrchestration.codexWebSearch",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "orch-light-360-sections": [
+  "settings-section-orchestration-policy",
+  "settings-section-session-budget",
+  "settings-section-lane-guards",
+  "settings-section-context-budgets",
+  "settings-section-codex-agents",
+  "settings-section-background-queries"
+ ],
+ "orch-light-360-contrast": [
+  {
+   "ratio": 5.39,
+   "size": "12px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "239,234,230",
+   "sample": "tokens",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 5.48,
+   "size": "12px",
+   "weight": "600",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "Order:",
+   "testid": "orchestration-policy-bar"
+  },
+  {
+   "ratio": 5.48,
+   "size": "12px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "→",
+   "testid": "policy-order"
+  },
+  {
+   "ratio": 5.48,
+   "size": "11px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "How long a background query waits for a free slot ",
+   "testid": "advanced-setting-internalQuery.queueTimeoutMs-field"
+  },
+  {
+   "ratio": 6.04,
+   "size": "12px",
+   "weight": "700",
+   "fg": "116,86,101",
+   "bg": "250,247,245",
+   "sample": "4. Copilot",
+   "testid": "policy-order-chip-copilot"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Max Concurrent:",
+   "testid": "orchestration-policy-bar"
+  },
+  {
+   "ratio": 14.44,
+   "size": "11px",
+   "weight": "600",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Re-detect CLIs",
+   "testid": "policy-redetect"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "400",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Enabled",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 15.92,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "250,247,245",
+   "sample": "6. Grok",
+   "testid": "policy-order-chip-grok"
+  }
+ ],
+ "orch-light-360-focusStyle": {
+  "tid": "advanced-setting-compaction.toolOutputBudgetTokens",
+  "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+  "offset": "2px"
+ },
+ "orch-light-360-errorText": "Use a whole number from 1 to 16 queries.",
+ "orch-light-360-errorContrast": [
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "400",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Use a whole number from 1 to 16 queries.",
+   "testid": "advanced-setting-internalQuery.maxConcurrent-error"
+  }
+ ],
+ "adv-light-360-closedAdvancedSettingCount": 0,
+ "adv-light-360-layout": {
+  "docOverflowX": 0,
+  "overflowing": [],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-memory.symbolInjectionEnabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-harness.manageGitignore",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "adv-light-360-contrast": [
+  {
+   "ratio": 5.39,
+   "size": "12px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "239,234,230",
+   "sample": "Upkeep and timing values for memory, skills, sched",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 5.48,
+   "size": "11px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "Lets Ptah keep its generated harness files listed ",
+   "testid": "advanced-setting-harness.manageGitignore-field"
+  },
+  {
+   "ratio": 13.08,
+   "size": "9px",
+   "weight": "500",
+   "fg": "41,19,52",
+   "bg": "216,228,232",
+   "sample": "Restart",
+   "testid": "advanced-setting-skillSynthesis.triggers.bootScanDelayMs-field"
+  },
+  {
+   "ratio": 14.21,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "239,234,230",
+   "sample": "Fine-tuning",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Memory upkeep",
+   "testid": "settings-section-memory-upkeep"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "400",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Enabled",
+   "testid": "advanced-setting-memory.symbolInjectionEnabled-field"
+  }
+ ],
+ "adv-light-360-sections": [
+  "settings-section-memory-upkeep",
+  "settings-section-skill-upkeep",
+  "settings-section-scheduled-jobs",
+  "settings-section-workspace-harness"
+ ],
+ "adv-light-360-summaryFocus": {
+  "outline": "none 3px oklch(0.23574 0.066 313.189)",
+  "matchesFocusVisible": false
+ },
+ "adv-light-360-firstTabAfterSummary": "advanced-setting-memory.symbolInjectionEnabled",
+ "adv-light-360-saveStatus": [
+  "Saved Keep processed records for.",
+  "",
+  "",
+  "",
+  ""
+ ],
+ "adv-light-360-rpcCalls": [],
+ "orch-light-1000-layout": {
+  "docOverflowX": 0,
+  "overflowing": [],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "session-budget-enabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-agentOrchestration.codexWebSearch",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "orch-light-1000-sections": [
+  "settings-section-orchestration-policy",
+  "settings-section-session-budget",
+  "settings-section-lane-guards",
+  "settings-section-context-budgets",
+  "settings-section-codex-agents",
+  "settings-section-background-queries"
+ ],
+ "orch-light-1000-contrast": [
+  {
+   "ratio": 5.39,
+   "size": "12px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "239,234,230",
+   "sample": "tokens",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 5.48,
+   "size": "12px",
+   "weight": "600",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "Order:",
+   "testid": "orchestration-policy-bar"
+  },
+  {
+   "ratio": 5.48,
+   "size": "12px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "→",
+   "testid": "policy-order"
+  },
+  {
+   "ratio": 5.48,
+   "size": "11px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "How long a background query waits for a free slot ",
+   "testid": "advanced-setting-internalQuery.queueTimeoutMs-field"
+  },
+  {
+   "ratio": 6.04,
+   "size": "12px",
+   "weight": "700",
+   "fg": "116,86,101",
+   "bg": "250,247,245",
+   "sample": "4. Copilot",
+   "testid": "policy-order-chip-copilot"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Max Concurrent:",
+   "testid": "orchestration-policy-bar"
+  },
+  {
+   "ratio": 14.44,
+   "size": "11px",
+   "weight": "600",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Re-detect CLIs",
+   "testid": "policy-redetect"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "400",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Enabled",
+   "testid": "settings-section-session-budget"
+  },
+  {
+   "ratio": 15.92,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "250,247,245",
+   "sample": "6. Grok",
+   "testid": "policy-order-chip-grok"
+  }
+ ],
+ "orch-light-1000-focusStyle": {
+  "tid": "advanced-setting-compaction.toolOutputBudgetTokens",
+  "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+  "offset": "2px"
+ },
+ "orch-light-1000-errorText": "Use a whole number from 1 to 16 queries.",
+ "orch-light-1000-errorContrast": [
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "400",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Use a whole number from 1 to 16 queries.",
+   "testid": "advanced-setting-internalQuery.maxConcurrent-error"
+  }
+ ],
+ "adv-light-1000-closedAdvancedSettingCount": 0,
+ "adv-light-1000-layout": {
+  "docOverflowX": 0,
+  "overflowing": [],
+  "small": [
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-memory.symbolInjectionEnabled",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   },
+   {
+    "tag": "INPUT",
+    "tid": "advanced-setting-harness.manageGitignore",
+    "w": 32,
+    "h": 20,
+    "type": "checkbox"
+   }
+  ],
+  "clipped": []
+ },
+ "adv-light-1000-contrast": [
+  {
+   "ratio": 5.39,
+   "size": "12px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "239,234,230",
+   "sample": "Upkeep and timing values for memory, skills, sched",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 5.48,
+   "size": "11px",
+   "weight": "400",
+   "fg": "116,86,101",
+   "bg": "240,236,232",
+   "sample": "Lets Ptah keep its generated harness files listed ",
+   "testid": "advanced-setting-harness.manageGitignore-field"
+  },
+  {
+   "ratio": 13.08,
+   "size": "9px",
+   "weight": "500",
+   "fg": "41,19,52",
+   "bg": "216,228,232",
+   "sample": "Restart",
+   "testid": "advanced-setting-skillSynthesis.triggers.bootScanDelayMs-field"
+  },
+  {
+   "ratio": 14.21,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "239,234,230",
+   "sample": "Fine-tuning",
+   "testid": "fine-tuning-summary"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "700",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Memory upkeep",
+   "testid": "settings-section-memory-upkeep"
+  },
+  {
+   "ratio": 14.44,
+   "size": "12px",
+   "weight": "400",
+   "fg": "41,19,52",
+   "bg": "240,236,232",
+   "sample": "Enabled",
+   "testid": "advanced-setting-memory.symbolInjectionEnabled-field"
+  }
+ ],
+ "adv-light-1000-sections": [
+  "settings-section-memory-upkeep",
+  "settings-section-skill-upkeep",
+  "settings-section-scheduled-jobs",
+  "settings-section-workspace-harness"
+ ],
+ "adv-light-1000-summaryFocus": {
+  "outline": "none 3px oklch(0.23574 0.066 313.189)",
+  "matchesFocusVisible": false
+ },
+ "adv-light-1000-firstTabAfterSummary": "advanced-setting-memory.symbolInjectionEnabled",
+ "adv-light-1000-saveStatus": [
+  "Saved Keep processed records for.",
+  "",
+  "",
+  "",
+  ""
+ ],
+ "adv-light-1000-rpcCalls": []
+}
