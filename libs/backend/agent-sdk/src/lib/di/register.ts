@@ -108,6 +108,7 @@ import {
 } from '../helpers/session-budget/session-budget.service';
 import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-advisor';
 import { MainThreadNoticeQueue } from '../helpers/main-thread-notice-queue';
+import { SubagentNoticeQueue } from '../helpers/subagent-notice-queue';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
@@ -268,10 +269,11 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // One shared queue: producers post host notices and the PostToolUse hook
-  // handler drains them. Registered first so the handler never gets an
+  // One shared queue each: producers post host notices and the PostToolUse
+  // hook handler drains them. Registered first so the handler never gets an
   // auto-constructed private instance.
   container.registerSingleton(MainThreadNoticeQueue);
+  container.registerSingleton(SubagentNoticeQueue);
 
   container.register(
     SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
@@ -497,6 +499,7 @@ export function registerSdkServices(
           SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
         );
       const notices = c.resolve(MainThreadNoticeQueue);
+      const subagentNotices = c.resolve(SubagentNoticeQueue);
       const logger = c.resolve<Logger>(TOKENS.LOGGER);
       // Resolved on first use, like the dispatcher: the lifecycle manager
       // injects this monitor.
@@ -521,6 +524,10 @@ export function registerSdkServices(
             notices.post(sessionId, text),
           withdrawMainThreadNotice: (sessionId, text) =>
             notices.withdraw(sessionId, text),
+          postSubagentNotice: (agentId, text) =>
+            subagentNotices.post(agentId, text),
+          withdrawSubagentNotice: (agentId) =>
+            subagentNotices.withdraw(agentId),
         },
         c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
         handoffFiles,

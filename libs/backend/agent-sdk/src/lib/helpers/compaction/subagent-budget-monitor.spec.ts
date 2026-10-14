@@ -10,17 +10,20 @@ import type { SubagentRecord } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
 import { SubagentHandoffFiles } from './subagent-handoff-files';
+import { SubagentNoticeQueue } from '../subagent-notice-queue';
 import {
   MAX_STOP_ATTEMPTS,
   SubagentBudgetMonitor,
-  adviseSubagentResume,
   readSubagentRequestUsage,
   readSubagentTaskText,
   requestContextTokens,
   weightedRequestTokens,
-  type SubagentResumeAdviceInput,
   type SubagentBudgetDispatcherPort,
 } from './subagent-budget-monitor';
+import {
+  adviseSubagentResume,
+  type SubagentResumeAdviceInput,
+} from './subagent-resume-advice';
 
 const SESSION = 'session-1';
 const TOOL_CALL = 'toolu_task_1';
@@ -89,6 +92,7 @@ function makeHarness(
   // Every handoff the monitor delivered, by either route.
   const streamed: string[] = [];
   const notices = new MainThreadNoticeQueue(logger as unknown as Logger);
+  const subagentNotices = new SubagentNoticeQueue();
   const dispatcher = {
     stopSubagent: jest.fn().mockResolvedValue(undefined),
     pushParentMessage: jest.fn(async (_sessionId: string, content: string) => {
@@ -100,6 +104,12 @@ function makeHarness(
     }),
     withdrawMainThreadNotice: jest.fn((sessionId: string, text: string) =>
       notices.withdraw(sessionId, text),
+    ),
+    postSubagentNotice: jest.fn((agentId: string, text: string) =>
+      subagentNotices.post(agentId, text),
+    ),
+    withdrawSubagentNotice: jest.fn((agentId: string) =>
+      subagentNotices.withdraw(agentId),
     ),
   };
   const registry = {
@@ -126,7 +136,15 @@ function makeHarness(
     // No workspace by default: no handoff files.
     new SubagentHandoffFiles(logger as unknown as Logger, () => opts.workspace),
   );
-  return { monitor, logger, dispatcher, registry, streamed, notices };
+  return {
+    monitor,
+    logger,
+    dispatcher,
+    registry,
+    streamed,
+    notices,
+    subagentNotices,
+  };
 }
 
 /** The main-thread user message carrying the spawning call's tool result. */
@@ -1129,6 +1147,108 @@ describe('SubagentBudgetMonitor', () => {
 
       expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
       expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('near-budget warning', () => {
+    let workspace: string;
+    beforeEach(() => {
+      workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-warn-'));
+    });
+    afterEach(() => {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    });
+    const notesPath = () =>
+      path.join(workspace, '.ptah', 'subagent-handoffs', `${TOOL_CALL}.md`);
+    /** 85% of the handoff size is 127 500 context tokens. */
+    const atContext = (tokens: number, id: string) =>
+      assistant({ input: tokens }, { id });
+
+    it("goes once to the subagent's own agent id, keyed by its registry record, naming the notes path", async () => {
+      const h = makeHarness({ agentId: 'agent-7' }, { workspace });
+      await h.monitor.observe(SESSION, atContext(127_499, 'm0'));
+      expect(h.dispatcher.postSubagentNotice).not.toHaveBeenCalled();
+
+      await h.monitor.observe(SESSION, atContext(127_500, 'm1'));
+      await h.monitor.observe(SESSION, atContext(130_000, 'm2'));
+      await h.monitor.observe(SESSION, atContext(140_000, 'm3'));
+
+      expect(h.dispatcher.postSubagentNotice).toHaveBeenCalledTimes(1);
+      expect(h.registry.get).toHaveBeenCalledWith(TOOL_CALL);
+      const warning = h.subagentNotices.take('agent-7');
+      expect(warning).toContain(`write your progress notes to ${notesPath()}`);
+      expect(warning).toContain('150000-token limit');
+      expect(h.subagentNotices.take('agent-7')).toBeUndefined();
+      expect(h.subagentNotices.take('a1')).toBeUndefined();
+      expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
+      expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+      expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
+    });
+
+    it('waits for the registry record that maps the subagent to its agent id', async () => {
+      const h = makeHarness(null, { workspace });
+      await h.monitor.observe(SESSION, atContext(130_000, 'm1'));
+      expect(h.dispatcher.postSubagentNotice).not.toHaveBeenCalled();
+
+      h.registry.get.mockReturnValue({
+        toolCallId: TOOL_CALL,
+        agentType: 'Explore',
+        agentId: 'agent-late',
+        status: 'running',
+        startedAt: 0,
+      } as SubagentRecord);
+      await h.monitor.observe(SESSION, atContext(131_000, 'm2'));
+
+      expect(h.dispatcher.postSubagentNotice).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.postSubagentNotice).toHaveBeenCalledWith(
+        'agent-late',
+        expect.any(String),
+      );
+    });
+
+    it('is not sent without a workspace (no notes path) or with compaction disabled', async () => {
+      const noWorkspace = makeHarness();
+      await noWorkspace.monitor.observe(SESSION, atContext(130_000, 'm1'));
+      const disabled = makeHarness({}, { workspace, enabled: false });
+      await disabled.monitor.observe(SESSION, atContext(130_000, 'm1'));
+
+      expect(noWorkspace.dispatcher.postSubagentNotice).not.toHaveBeenCalled();
+      expect(disabled.dispatcher.postSubagentNotice).not.toHaveBeenCalled();
+    });
+
+    it('the hard stop names the same notes path, says it is missing when unwritten, and withdraws an undelivered warning', async () => {
+      const h = makeHarness({ agentId: 'agent-7' }, { workspace });
+      await h.monitor.observe(SESSION, atContext(130_000, 'm1'));
+      await h.monitor.observe(SESSION, atContext(150_000, 'm2'));
+
+      expect(h.dispatcher.withdrawSubagentNotice).toHaveBeenCalledWith(
+        'agent-7',
+      );
+      expect(h.subagentNotices.take('agent-7')).toBeUndefined();
+      expect(h.streamed).toHaveLength(1);
+      expect(h.streamed[0]).toContain(
+        `Its progress notes file is missing: ${notesPath()} was not written.`,
+      );
+    });
+
+    it('the hard stop points the fresh subagent at the notes the warned subagent wrote', async () => {
+      const h = makeHarness({ agentId: 'agent-7' }, { workspace });
+      await h.monitor.observe(SESSION, atContext(130_000, 'm1'));
+      fs.mkdirSync(path.dirname(notesPath()), { recursive: true });
+      fs.writeFileSync(notesPath(), 'next: wire the guard');
+      await h.monitor.observe(SESSION, atContext(150_000, 'm2'));
+
+      expect(h.streamed[0]).toContain(
+        `"Read ${notesPath()} first and continue from it; do not redo finished work."`,
+      );
+    });
+
+    it('release drops a warning no tool result drained', async () => {
+      const h = makeHarness({ agentId: 'agent-7' }, { workspace });
+      await h.monitor.observe(SESSION, atContext(130_000, 'm1'));
+      h.monitor.release(SESSION);
+
+      expect(h.subagentNotices.take('agent-7')).toBeUndefined();
     });
   });
 });

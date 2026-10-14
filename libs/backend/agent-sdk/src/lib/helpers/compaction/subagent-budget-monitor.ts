@@ -13,6 +13,12 @@
  *   it, else from the session's effective subagent prompt-cache TTL
  *   (`resolveSubagentPromptCacheTtl`, Batch 37).
  *
+ * Near-budget warning, at most one per subagent: at {@link NEAR_BUDGET_RATIO}
+ * of `compaction.subagentHandoffTokens` the subagent is asked to write its
+ * progress notes to its handoff notes file. The notice rides on the
+ * subagent's own next tool result (`SubagentNoticeQueue`, keyed by the SDK
+ * agent id of its registry record), never the main thread's.
+ *
  * Stops, at most one per subagent:
  *
  * - Handoff: `contextTokens` at or above `compaction.subagentHandoffTokens`.
@@ -69,9 +75,13 @@ import type {
 import type { SubagentPromptCacheTtl } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import type { SubagentMessageDispatcher } from '../subagent-message-dispatcher';
-import type { SubagentHandoffFiles } from './subagent-handoff-files';
+import type {
+  SubagentHandoffFiles,
+  SubagentHandoffPaths,
+} from './subagent-handoff-files';
 import {
   handoffMessage,
+  nearBudgetWarning,
   type HandoffFileState,
   type StopReason,
 } from './subagent-handoff-message';
@@ -102,38 +112,6 @@ export interface SubagentBudgetSnapshot {
   readonly budgetReached: boolean;
 }
 
-export type SubagentResumeAdvice = 'fresh' | 'resume';
-
-export interface SubagentResumeAdviceInput {
-  readonly stopped: boolean;
-  readonly cacheState: 'warm' | 'cold';
-  /** Last known context size; `undefined` when the monitor saw no usage. */
-  readonly contextTokens: number | undefined;
-  /** `compaction.subagentHandoffTokens`. */
-  readonly handoffTokens: number;
-  readonly budgetReached: boolean;
-}
-
-/**
- * Whether to resume a subagent or start a fresh one: `fresh` when it was
- * stopped, its prompt cache is cold, its context reached the handoff size, or
- * it reached its weighted budget; otherwise `resume`.
- */
-export function adviseSubagentResume(
-  input: SubagentResumeAdviceInput,
-): SubagentResumeAdvice {
-  if (input.stopped || input.budgetReached || input.cacheState === 'cold') {
-    return 'fresh';
-  }
-  if (
-    input.contextTokens !== undefined &&
-    input.contextTokens >= input.handoffTokens
-  ) {
-    return 'fresh';
-  }
-  return 'resume';
-}
-
 const INPUT_WEIGHT = 1;
 const CACHE_READ_WEIGHT = 0.1;
 const OUTPUT_WEIGHT = 5;
@@ -145,6 +123,8 @@ const CACHE_WRITE_WEIGHT: Readonly<Record<SubagentPromptCacheTtl, number>> = {
 const SDK_DEFAULT_TTL: SubagentPromptCacheTtl = '5m';
 /** `stopSubagent` calls per subagent: the first one and two retries. */
 export const MAX_STOP_ATTEMPTS = 3;
+/** Share of `compaction.subagentHandoffTokens` at which a subagent is asked to write its notes. */
+export const NEAR_BUDGET_RATIO = 0.85;
 /** Tools that spawn a subagent (`Task` is the SDK's earlier name for `Agent`). */
 const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Agent', 'Task']);
 /** Prompt characters the handoff restates; the full prompt is in the transcript. */
@@ -261,6 +241,10 @@ interface SubagentState {
   stopDeferredLogged: boolean;
   /** The handoff waiting in the notice queue for the spawning tool result. */
   pendingNotice?: { readonly sessionId: string; readonly text: string };
+  /** SDK agent id the near-budget warning was posted for; set at most once. */
+  warnedAgentId?: string;
+  /** Handoff paths the warning named; the stop names the same ones. */
+  handoffPaths?: SubagentHandoffPaths;
 }
 
 /** What the SDK's `task_started` message reported for one spawning tool_use. */
@@ -311,6 +295,10 @@ export interface SubagentBudgetDispatcherPort extends Pick<
   postMainThreadNotice(sessionId: string, text: string): void;
   /** Take back a queued notice; `true` when it was still pending. */
   withdrawMainThreadNotice(sessionId: string, text: string): boolean;
+  /** Queue a notice for the subagent's own next tool result (`SubagentNoticeQueue`). */
+  postSubagentNotice(agentId: string, text: string): void;
+  /** Drop the subagent's pending notice. */
+  withdrawSubagentNotice(agentId: string): void;
 }
 
 /**
@@ -401,6 +389,9 @@ export class SubagentBudgetMonitor {
           ? 'safety'
           : undefined;
     if (!reason) {
+      if (enabled) {
+        this.warnNearBudget(session, toolCallId, state, subagentHandoffTokens);
+      }
       return;
     }
     if (!enabled) {
@@ -416,6 +407,43 @@ export class SubagentBudgetMonitor {
     await this.stop(session, toolCallId, state, reason, {
       handoffTokens: subagentHandoffTokens,
       stopWeightedTokens: subagentStopWeightedTokens,
+    });
+  }
+
+  /**
+   * At {@link NEAR_BUDGET_RATIO} of the handoff size, ask the subagent once to
+   * write its progress notes to its handoff notes file. The notice goes to
+   * the subagent's own next tool result, keyed by its SDK agent id from the
+   * registry record (`SubagentStart` hook). Without that id or a workspace it
+   * is retried on the next subagent message.
+   */
+  private warnNearBudget(
+    session: SessionState,
+    toolCallId: string,
+    state: SubagentState,
+    handoffTokens: number,
+  ): void {
+    if (
+      state.warnedAgentId !== undefined ||
+      state.contextTokens < handoffTokens * NEAR_BUDGET_RATIO
+    ) {
+      return;
+    }
+    const agentId = this.registry.get(toolCallId)?.agentId;
+    const paths = this.handoffFiles.paths(session.sessionId, toolCallId);
+    if (!agentId || !paths) {
+      return;
+    }
+    state.warnedAgentId = agentId;
+    state.handoffPaths = paths;
+    this.dispatcher.postSubagentNotice(
+      agentId,
+      nearBudgetWarning(state.contextTokens, handoffTokens, paths.notes),
+    );
+    this.logger.info('[SubagentBudgetMonitor] Near-budget warning queued', {
+      sessionId: session.sessionId,
+      toolCallId,
+      contextTokens: state.contextTokens,
     });
   }
 
@@ -531,6 +559,13 @@ export class SubagentBudgetMonitor {
     );
     for (const from of stale) {
       this.aliases.delete(from);
+    }
+    // A near-budget warning no tool result drained ends with the session.
+    for (const state of this.sessions.get(sessionId)?.subagents.values() ??
+      []) {
+      if (state.warnedAgentId) {
+        this.dispatcher.withdrawSubagentNotice(state.warnedAgentId);
+      }
     }
     this.sessions.delete(sessionId);
   }
@@ -780,8 +815,15 @@ export class SubagentBudgetMonitor {
       weightedUsed: Math.round(state.weightedUsed),
     });
 
+    if (liveState.warnedAgentId) {
+      // A warning the stopped subagent never received is moot now.
+      this.dispatcher.withdrawSubagentNotice(liveState.warnedAgentId);
+    }
     const task = live.tasks.get(toolCallId);
-    const files = await this.prepareHandoffFiles(sessionId, toolCallId, task);
+    const files = await this.prepareHandoffFiles(
+      liveState.handoffPaths ?? this.handoffFiles.paths(sessionId, toolCallId),
+      task,
+    );
     // Released while the files were written: the session is over.
     const current = this.liveSession(live);
     if (!current) {
@@ -805,13 +847,14 @@ export class SubagentBudgetMonitor {
     await this.deliverHandoff(current, toolCallId, liveState, text);
   }
 
-  /** Save the full task prompt and check for the subagent's progress notes. */
+  /**
+   * Save the full task prompt and check for the subagent's progress notes at
+   * `paths` (the ones its near-budget warning named, when it got one).
+   */
   private async prepareHandoffFiles(
-    sessionId: string,
-    toolCallId: string,
+    paths: SubagentHandoffPaths | undefined,
     task: SpawnTask | undefined,
   ): Promise<HandoffFileState> {
-    const paths = this.handoffFiles.paths(sessionId, toolCallId);
     if (!paths) {
       return { taskSaved: false, notesWritten: false };
     }

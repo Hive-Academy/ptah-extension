@@ -1,7 +1,8 @@
 /**
- * The parent message the subagent budget monitor sends when it stops a
- * subagent: who stopped it (Ptah's monitor, not the user) and why, and
- * everything a fresh subagent of the same type and name needs to continue.
+ * The texts of the subagent budget monitor: the near-budget warning a
+ * subagent gets, and the parent message sent when it stops a subagent: who
+ * stopped it (Ptah's monitor, not the user) and why, and everything a fresh
+ * subagent of the same type and name needs to continue.
  */
 import type { SubagentHandoffPaths } from './subagent-handoff-files';
 
@@ -29,6 +30,26 @@ export interface HandoffUsage {
   readonly weightedUsed: number;
   readonly handoffTokens: number;
   readonly stopWeightedTokens: number;
+}
+
+/**
+ * The one notice a subagent gets near its handoff size: write progress notes
+ * to `notesPath` now (the same path the hard-stop handoff names), then go on.
+ */
+export function nearBudgetWarning(
+  contextTokens: number,
+  handoffTokens: number,
+  notesPath: string,
+): string {
+  return (
+    `Ptah budget notice: your context is at ${contextTokens} tokens, close to ` +
+    `the ${handoffTokens}-token limit at which Ptah's subagent budget monitor ` +
+    `stops this subagent. Before your next step, write your progress notes to ` +
+    `${notesPath} (create its directory if needed; overwrite the file): current ` +
+    `state, findings, decisions and their reasons, files touched, and the exact ` +
+    `next steps. Then continue your task. If you are stopped, a fresh subagent ` +
+    `continues from that file.`
+  );
 }
 
 export function handoffMessage(

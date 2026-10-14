@@ -1006,6 +1006,8 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
           pushParentMessage: jest.fn(),
           postMainThreadNotice: jest.fn(),
           withdrawMainThreadNotice: jest.fn(),
+          postSubagentNotice: jest.fn(),
+          withdrawSubagentNotice: jest.fn(),
         },
         {} as SubagentRegistryService,
         noHandoffFiles,
@@ -1536,6 +1538,8 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
         pushParentMessage: jest.fn().mockResolvedValue(undefined),
         postMainThreadNotice: jest.fn(),
         withdrawMainThreadNotice: jest.fn(() => false),
+        postSubagentNotice: jest.fn(),
+        withdrawSubagentNotice: jest.fn(),
       };
       const registry = { get: jest.fn(() => undefined), update: jest.fn() };
       const monitor = new SubagentBudgetMonitor(
@@ -1704,6 +1708,8 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
           pushParentMessage: jest.fn(),
           postMainThreadNotice: jest.fn(),
           withdrawMainThreadNotice: jest.fn(),
+          postSubagentNotice: jest.fn(),
+          withdrawSubagentNotice: jest.fn(),
         },
         {} as SubagentRegistryService,
         noHandoffFiles,
