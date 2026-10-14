@@ -274,9 +274,12 @@ CLI; use a child session when the work needs the full chat runtime, slash comman
   completion that arrived then is held, not lost. Every `ptah_session_*` result ends with those held
   completions under "Held while this session was not live". A child's `ptah_agent_report` while you
   are not live is refused and counted, not queued.
-- **Permissions.** There is no permission, path or parent argument. File edits inside the worktree
-  and allowlisted Bash commands run without asking; anything else waits in the child's tab for the
-  user, then is denied (`ptah_session_status` shows `awaiting-permission` with the denial time).
+- **Permissions.** There is no permission, path or parent argument. The child starts at your
+  session's autopilot level as it is at `ptah_session_start`. In full autopilot (YOLO) it runs
+  without prompts. At any other level, file edits inside the worktree and allowlisted Bash
+  commands run without asking; anything else waits in the child's tab for the user, then is
+  denied (`ptah_session_status` shows `awaiting-permission` with the denial time). Plan mode is
+  not inherited: a planning parent's child starts at Ask.
 - **Limits.** At most 3 live children per host by default, depth 1 (a child cannot start sessions).
   An idle child still holds its slot until `ptah_session_stop`. A refusal is returned as text with a
   code (`cap-reached`, `depth-exceeded`, `branch-exists`, …); act on it, do not retry blindly.

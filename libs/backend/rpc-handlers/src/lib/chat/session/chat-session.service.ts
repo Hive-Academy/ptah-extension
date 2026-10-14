@@ -138,6 +138,11 @@ export interface AgentChildSessionStartParams {
   readonly prompt: string;
   readonly sessionName: string;
   readonly model?: string;
+  /**
+   * The parent session's live permission level, read when the child starts.
+   * Absent (the parent's level is unknown) → `ask` (TASK_2026_660).
+   */
+  readonly permissionLevel?: PermissionLevel;
 }
 
 /** Input of {@link ChatSessionService.startHandoffSession} (TASK_2026_655). */
@@ -629,7 +634,8 @@ export class ChatSessionService {
    * Same SDK launch as `chat:start`, with three differences that make it a
    * child: the metadata identity is the parent's `workspaceRoot` (so the child
    * lists under the parent's workspace) while the session runs in its own
-   * `worktreePath`; it always starts at `auto-edit`; and MCP availability is the
+   * `worktreePath`; it starts at the parent's permission level (see
+   * {@link childPermissionLevel}); and MCP availability is the
    * server's own state — the active root's `.mcp.json` outcome does not
    * downgrade it, because a child without MCP could never report back.
    * There is no slash-command intercept and no Ptah-CLI branch: the prompt is
@@ -652,11 +658,13 @@ export class ChatSessionService {
       if (refused) return refused;
 
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
+      const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
         tabId,
         workspaceRoot,
         worktreePath,
         mcpServerRunning,
+        permissionLevel,
       });
 
       await this.launchSdkSession({
@@ -669,7 +677,7 @@ export class ChatSessionService {
         options: model ? { model } : undefined,
         mcpServerRunning,
         mcpServersOverride: undefined,
-        permissionLevel: 'auto-edit',
+        permissionLevel,
         surfaceMode: undefined,
       });
 
@@ -686,6 +694,28 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     }
+  }
+
+  /**
+   * The level a child session starts at (TASK_2026_660): the parent's live
+   * level. A `yolo` child approves every call; any other level runs under the
+   * unattended policy, which stays in force regardless (`SdkPermissionHandler`).
+   *
+   * An unknown parent level (no lifecycle record, the record disappeared, or
+   * the host passed none) starts the child at `ask`. The saved global autopilot
+   * level is never used: it says nothing about the authority of this parent,
+   * and reading it could start a `yolo` child under a parent that never chose
+   * `yolo`.
+   *
+   * `plan` becomes `ask`: plan mode is unavailable to an unattended session —
+   * nobody is there to approve the plan and the policy denies `EnterPlanMode` —
+   * so the child gets the strictest non-plan level instead.
+   */
+  private childPermissionLevel(
+    parentLevel: PermissionLevel | undefined,
+  ): PermissionLevel {
+    if (parentLevel === undefined || parentLevel === 'plan') return 'ask';
+    return parentLevel;
   }
 
   /**

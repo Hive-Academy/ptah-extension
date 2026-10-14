@@ -14,7 +14,10 @@ export {
 export { ModelStateService } from './model-state.service';
 export { PluginCatalogService } from './plugin-catalog.service';
 export { WorkspaceScopeService } from './workspace-scope.service';
-export { AutopilotStateService } from './autopilot-state.service';
+export {
+  AutopilotStateService,
+  type AutopilotTabState,
+} from './autopilot-state.service';
 export { EffortStateService } from './effort-state.service';
 export { AuthStateService } from './auth-state.service';
 export { LlmProviderStateService } from './llm-provider-state.service';
