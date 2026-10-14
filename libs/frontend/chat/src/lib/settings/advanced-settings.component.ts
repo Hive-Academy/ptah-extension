@@ -10,8 +10,15 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { LucideAngularModule, Download, Upload } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  ChevronRight,
+  Download,
+  Upload,
+} from 'lucide-angular';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { SurfaceSectionComponent } from '@ptah-extension/ui';
+import { AdvancedSettingsGroupComponent } from './advanced/advanced-settings-group.component';
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
@@ -25,6 +32,9 @@ import { OutputStyleConfigComponent } from './output-style/output-style-config.c
  * read; the host text itself is never shown (D15).
  */
 const KEYED_IMPORT_ERROR = /^(ptah\.|config:)/;
+
+const FOCUS =
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /** The import outcome, shown inline in the Membership & data card (A9, D15). */
 interface ImportOutcome {
@@ -41,6 +51,9 @@ interface ImportOutcome {
  * into the "Membership & data" card (`LicenseStatusCardComponent`) through the
  * `[membership-actions]` / `[membership-notices]` slots, so the whole
  * capability sits in one section card while the writes stay here.
+ *
+ * The closed-by-default "Fine-tuning" disclosure at the end holds the advanced
+ * upkeep groups (TASK_2026_658), deferred into their own chunk.
  *
  * Import is S-confirm: an inline confirm (P8) precedes the write, and the
  * outcome is surfaced only from the write's own result (D15). On Electron the
@@ -60,6 +73,8 @@ interface ImportOutcome {
     OutputStyleConfigComponent,
     McpPortConfigComponent,
     VscodeLmConfigComponent,
+    SurfaceSectionComponent,
+    AdvancedSettingsGroupComponent,
   ],
   template: `
     <div class="space-y-4">
@@ -68,10 +83,7 @@ interface ImportOutcome {
           M5: the import confirm takes the place of Export / Import inside the header's action row, so the
           membership badges under the header do not move and the card height stays the same.
         -->
-        <div
-          membership-actions
-          class="flex flex-wrap items-center gap-1.5"
-        >
+        <div membership-actions class="flex flex-wrap items-center gap-1.5">
           @if (confirmingImport()) {
             <div
               role="group"
@@ -81,10 +93,12 @@ interface ImportOutcome {
               data-testid="import-confirm"
               (keydown.escape)="cancelImport($event)"
             >
-              <span class="text-xs text-base-content whitespace-nowrap">Replace your settings from a file?</span>
+              <span class="text-xs text-base-content whitespace-nowrap"
+                >Replace your settings from a file?</span
+              >
               <span id="import-confirm-detail" class="sr-only">
-                Import replaces your current settings, API keys and preferences with the contents of a settings
-                export file you choose next.
+                Import replaces your current settings, API keys and preferences
+                with the contents of a settings export file you choose next.
               </span>
               <button
                 type="button"
@@ -114,9 +128,16 @@ interface ImportOutcome {
               aria-label="Export settings"
             >
               @if (isExporting()) {
-                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+                <span
+                  class="loading loading-spinner loading-xs"
+                  aria-hidden="true"
+                ></span>
               } @else {
-                <lucide-angular [img]="UploadIcon" class="w-3 h-3" aria-hidden="true" />
+                <lucide-angular
+                  [img]="UploadIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
               }
               <span>Export</span>
             </button>
@@ -129,9 +150,16 @@ interface ImportOutcome {
               aria-label="Import settings"
             >
               @if (isImporting()) {
-                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+                <span
+                  class="loading loading-spinner loading-xs"
+                  aria-hidden="true"
+                ></span>
               } @else {
-                <lucide-angular [img]="DownloadIcon" class="w-3 h-3" aria-hidden="true" />
+                <lucide-angular
+                  [img]="DownloadIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
               }
               <span>Import</span>
             </button>
@@ -160,6 +188,56 @@ interface ImportOutcome {
       <ptah-output-style-config />
       <ptah-mcp-port-config />
       <ptah-vscode-lm-config (modelChanged)="modelChanged.emit()" />
+
+      <!-- Fine-tuning (TASK_2026_658): closed by default; its groups load in their own chunk once opened and in view. -->
+      <ptah-surface-section padding="md">
+        <details class="group" data-testid="fine-tuning-details">
+          <summary
+            [class]="
+              'flex cursor-pointer list-none items-start gap-2 rounded-lg py-0 select-none [&::-webkit-details-marker]:hidden ' +
+              focusRing
+            "
+            data-testid="fine-tuning-summary"
+          >
+            <!-- Points right closed, down open; the turn sits on the wrapper (lucide copies host classes to the svg). -->
+            <span
+              class="mt-0.5 inline-flex shrink-0 transition-transform group-open:rotate-90"
+              aria-hidden="true"
+            >
+              <lucide-angular
+                [img]="ChevronIcon"
+                class="block h-3.5 w-3.5 text-info"
+                aria-hidden="true"
+              />
+            </span>
+            <span class="flex min-w-0 flex-col gap-0.5">
+              <span
+                class="text-xs font-bold uppercase tracking-wider text-base-content"
+                >Fine-tuning</span
+              >
+              <span class="text-xs text-base-content-muted"
+                >Upkeep and timing values for memory, skills, scheduled jobs and
+                the workspace harness. The defaults suit most people.</span
+              >
+            </span>
+          </summary>
+          <div
+            class="mt-3 flex flex-col gap-4 border-t border-base-content/10 pt-3"
+          >
+            @defer (on viewport) {
+              <ptah-advanced-settings-group groupId="memory-upkeep" />
+              <ptah-advanced-settings-group groupId="skill-upkeep" />
+              <ptah-advanced-settings-group groupId="scheduled-jobs" />
+              <ptah-advanced-settings-group groupId="workspace-harness" />
+            } @placeholder {
+              <div
+                class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+                data-testid="fine-tuning-placeholder"
+              ></div>
+            }
+          </div>
+        </details>
+      </ptah-surface-section>
     </div>
   `,
 })
@@ -167,14 +245,18 @@ export class AdvancedSettingsComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly injector = inject(Injector);
-  private readonly importButton = viewChild<ElementRef<HTMLButtonElement>>('importButton');
-  private readonly importCancel = viewChild<ElementRef<HTMLButtonElement>>('importCancel');
+  private readonly importButton =
+    viewChild<ElementRef<HTMLButtonElement>>('importButton');
+  private readonly importCancel =
+    viewChild<ElementRef<HTMLButtonElement>>('importCancel');
 
   /** VS Code LM model changes can change which CLIs are usable (#84). */
   readonly modelChanged = output<void>();
 
   readonly DownloadIcon = Download;
   readonly UploadIcon = Upload;
+  protected readonly ChevronIcon = ChevronRight;
+  protected readonly focusRing = FOCUS;
   readonly isExporting = signal(false);
   readonly isImporting = signal(false);
   /** The inline import confirm is open (S-confirm, P8). */
@@ -220,7 +302,9 @@ export class AdvancedSettingsComponent {
     if (!this.confirmingImport()) return;
     event?.stopPropagation();
     this.confirmingImport.set(false);
-    afterNextRender(() => this.importButton()?.nativeElement.focus(), { injector: this.injector });
+    afterNextRender(() => this.importButton()?.nativeElement.focus(), {
+      injector: this.injector,
+    });
   }
 
   /**
@@ -241,7 +325,11 @@ export class AdvancedSettingsComponent {
           if (result.data.cancelled) return;
           const errors = result.data.result?.errors ?? [];
           const imported = result.data.result?.imported ?? [];
-          if (errors.length > 0 && imported.length === 0 && !errors.some((entry) => KEYED_IMPORT_ERROR.test(entry))) {
+          if (
+            errors.length > 0 &&
+            imported.length === 0 &&
+            !errors.some((entry) => KEYED_IMPORT_ERROR.test(entry))
+          ) {
             // N4: only a file the host rejected as a whole (empty, malformed, not an export) blames the file.
             this.importOutcome.set({
               tone: 'alert',
@@ -286,7 +374,9 @@ export class AdvancedSettingsComponent {
     } finally {
       this.isImporting.set(false);
       // The confirm that held focus is gone: focus returns to Import.
-      afterNextRender(() => this.importButton()?.nativeElement.focus(), { injector: this.injector });
+      afterNextRender(() => this.importButton()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
     }
   }
 }

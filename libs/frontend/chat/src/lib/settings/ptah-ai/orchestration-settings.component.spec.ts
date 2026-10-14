@@ -24,6 +24,7 @@ import { SessionBudgetSettingsComponent } from './session-budget-settings.compon
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
 import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
+import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 
 @Component({
   selector: 'ptah-provider-consumer-assignments',
@@ -77,6 +78,16 @@ class SessionBudgetStub {}
   template: '<section data-testid="lane-guards-settings">Guards</section>',
 })
 class LaneGuardsStub {}
+
+@Component({
+  selector: 'ptah-advanced-settings-group',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<section [attr.data-testid]="\'group-\' + groupId()"></section>',
+})
+class AdvancedGroupStub {
+  readonly groupId = input.required<string>();
+}
 
 const ready = <T>(data: T): ProvidersSettingsSection<T> => ({
   status: 'ready',
@@ -142,6 +153,7 @@ describe('OrchestrationSettingsComponent', () => {
             SubagentCacheTtlSettingComponent,
             SessionBudgetSettingsComponent,
             LaneGuardsSettingsComponent,
+            AdvancedSettingsGroupComponent,
           ],
         },
         add: {
@@ -151,6 +163,7 @@ describe('OrchestrationSettingsComponent', () => {
             SubagentCacheTtlStub,
             SessionBudgetStub,
             LaneGuardsStub,
+            AdvancedGroupStub,
           ],
         },
       })
@@ -234,7 +247,7 @@ describe('OrchestrationSettingsComponent', () => {
     const budget = () =>
       element.querySelector('[data-testid="session-budget-settings"]');
     const blocks = await fixture.getDeferBlocks();
-    expect(blocks).toHaveLength(3);
+    expect(blocks).toHaveLength(4);
     const block = blocks[2];
     await block.render(DeferBlockState.Placeholder);
     expect(
@@ -266,6 +279,43 @@ describe('OrchestrationSettingsComponent', () => {
     expect(budget()?.compareDocumentPosition(guards as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+
+  it('defers the advanced orchestration groups behind a one-row placeholder, after the session budget and Lane guards (TASK_2026_658)', async () => {
+    await render();
+    const groupIds = () =>
+      Array.from(
+        element.querySelectorAll<HTMLElement>('[data-testid^="group-"]'),
+      ).map((node) => node.dataset['testid']);
+    const blocks = await fixture.getDeferBlocks();
+    const block = blocks[3];
+    await block.render(DeferBlockState.Placeholder);
+    expect(
+      element.querySelector(
+        '[data-testid="orchestration-advanced-placeholder"]',
+      ),
+    ).not.toBeNull();
+    expect(groupIds()).toEqual([]);
+
+    await block.render(DeferBlockState.Complete);
+    await blocks[2].render(DeferBlockState.Complete);
+    expect(groupIds()).toEqual([
+      'group-context-budgets',
+      'group-codex-agents',
+      'group-background-queries',
+    ]);
+    const first = element.querySelector(
+      '[data-testid="group-context-budgets"]',
+    ) as Node;
+    for (const before of [
+      '[data-testid="background-roles-details"]',
+      '[data-testid="session-budget-settings"]',
+      '[data-testid="lane-guards-settings"]',
+    ]) {
+      expect(
+        element.querySelector(before)?.compareDocumentPosition(first),
+      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    }
   });
 
   it('wraps the background roles in a <details> that is closed by default (deviation 4)', async () => {
