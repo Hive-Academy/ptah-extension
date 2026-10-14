@@ -8,6 +8,7 @@ import { LicenseGetStatusResponse, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
+import { ConversationService } from './conversation.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import {
   AgentContentBlock,
@@ -61,6 +62,7 @@ export class ChatLifecycleService {
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
+  private readonly conversation = inject(ConversationService);
   private readonly livenessReconciler = inject(
     SessionLivenessReconcilerService,
   );
@@ -307,6 +309,10 @@ export class ChatLifecycleService {
    * chunk batch before CHAT_ERROR owns those. `SESSION_TURN_FAILED` is an
    * unordered hook push and CHAT_ERROR trails the batch; either one finalizing
    * here could cut off the last delta still sitting in the batch buffer.
+   *
+   * The one exception is a session that never started
+   * ({@link settleFailedSessionStart}): it has no stream, so no `turn_state`
+   * will ever settle its tab.
    */
   handleChatError(data: {
     tabId?: string;
@@ -316,6 +322,7 @@ export class ChatLifecycleService {
     this.compactionLifecycle.clearCompactionState();
 
     console.error('[ChatStore] Chat error:', data);
+    if (this.settleFailedSessionStart(data)) return;
     let targetTabs: readonly TabState[] = [];
     if (data.tabId) {
       const directTab =
@@ -353,8 +360,41 @@ export class ChatLifecycleService {
       return;
     }
     for (const tab of targetTabs) {
-      this.tabManager.clearQueuedContentAndOptions(tab.id);
+      this.dropQueue(tab.id);
     }
+    this.refreshSessionsAfterError();
+  }
+
+  /** Nothing queued may auto-send after a failed turn, held commands included. */
+  private dropQueue(tabId: string): void {
+    this.tabManager.clearQueuedContentAndOptions(tabId);
+    this.conversation.dropHeldCommands(tabId);
+  }
+
+  /**
+   * A failed start of an announced session (TASK_2026_655). The host adopts a
+   * handoff or agent child tab before it launches the SDK session; when the
+   * launch fails it sends `chat:error` with `sessionId` equal to the tab id,
+   * because no SDK session id exists. No `turn_state` follows, so this path
+   * settles the tab itself: idle, not live, with the reason in the transcript.
+   * Handled here, in any workspace partition, so the active-tab fallback
+   * below never touches an unrelated tab. Returns `true` when handled.
+   */
+  private settleFailedSessionStart(data: {
+    tabId?: string;
+    sessionId?: string;
+    error: string;
+  }): boolean {
+    if (!data.tabId || data.sessionId !== data.tabId) return false;
+    if (!this.tabManager.markSessionStartFailed(data.tabId, data.error)) {
+      return false;
+    }
+    this.dropQueue(data.tabId);
+    this.refreshSessionsAfterError();
+    return true;
+  }
+
+  private refreshSessionsAfterError(): void {
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn('[ChatStore] Failed to refresh sessions after error:', err);
     });

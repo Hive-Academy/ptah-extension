@@ -374,11 +374,16 @@ export class ChatStore {
     return this.conversation.abortWithConfirmation();
   }
 
-  /** Clear queued content for a specific tab or the active tab. */
+  /**
+   * Clear queued content for a specific tab or the active tab (the queue's
+   * cancel and edit actions). A slash command held behind the removed text
+   * becomes the queued message, so it is still sent, and shown.
+   */
   clearQueuedContent(tabId?: string): void {
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
     this.tabManager.setQueuedContent(targetTabId, null);
+    this.conversation.releaseHeldCommand(targetTabId);
   }
 
   clearQueueRestoreSignal(): void {
@@ -423,7 +428,8 @@ export class ChatStore {
       this.handleCompactionStart(result.compactionSessionId);
       return;
     }
-    const queueFlushes = result?.queueFlushes ??
+    const queueFlushes =
+      result?.queueFlushes ??
       (result?.queuedContent
         ? [{ tabId: result.tabId, content: result.queuedContent }]
         : []);

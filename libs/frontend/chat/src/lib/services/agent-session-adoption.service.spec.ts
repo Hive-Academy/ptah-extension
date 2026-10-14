@@ -14,10 +14,12 @@ import {
 import {
   createExecutionChatMessage,
   type AgentSessionOpenedPayload,
+  type SessionHandoffOpenedPayload,
 } from '@ptah-extension/shared';
 import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
+  parseSessionHandoffOpenedPayload,
 } from './agent-session-adoption.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 
@@ -54,6 +56,8 @@ describe('AgentSessionAdoptionService', () => {
     activeTab: WritableSignal<null>;
     isTabStreaming: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
+    adoptHandoffTab: jest.Mock;
+    activeTabId: WritableSignal<string | null>;
   };
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
@@ -78,6 +82,8 @@ describe('AgentSessionAdoptionService', () => {
         tab: null,
         workspacePath: null,
       })),
+      adoptHandoffTab: jest.fn().mockReturnValue('adopted'),
+      activeTabId: signal<string | null>(null),
     };
     appState = {
       layoutMode: signal<'grid' | 'single'>('grid'),
@@ -354,7 +360,116 @@ describe('AgentSessionAdoptionService', () => {
       expect(parseAgentSessionOpenedPayload(value)).toBeNull();
     });
   });
+
+  describe('handoff adoption (TASK_2026_655)', () => {
+    it('adopts through the tab manager and tiles the focused tab with focus', () => {
+      tabManager.adoptHandoffTab.mockImplementation(() => {
+        // The tab manager focuses the new tab when the source was active.
+        tabManager.activeTabId.set('h1');
+        return 'adopted';
+      });
+
+      service.adoptHandoff(handoff('h1'));
+
+      expect(tabManager.adoptHandoffTab).toHaveBeenCalledWith(handoff('h1'));
+      expect(appState.requestCanvasTab).toHaveBeenCalledTimes(1);
+      expect(appState.requestCanvasTab).toHaveBeenCalledWith(
+        'h1',
+        null,
+        'Continue X',
+        true,
+      );
+    });
+
+    it('tiles without focus when the tab bar did not focus the new tab', () => {
+      tabManager.activeTabId.set('another-tab');
+
+      service.adoptHandoff(handoff('h1'));
+
+      expect(appState.requestCanvasTab).toHaveBeenCalledWith(
+        'h1',
+        null,
+        'Continue X',
+        false,
+      );
+    });
+
+    it.each(['exists', 'source-absent', 'invalid'])(
+      'requests no tile when the outcome is %s',
+      (outcome) => {
+        tabManager.adoptHandoffTab.mockReturnValue(outcome);
+
+        service.adoptHandoff(handoff('h1'));
+
+        expect(appState.requestCanvasTab).not.toHaveBeenCalled();
+      },
+    );
+
+    it('never throws on an adoption fault', () => {
+      tabManager.adoptHandoffTab.mockImplementation(() => {
+        throw new Error('boom');
+      });
+
+      expect(() => service.adoptHandoff(handoff('h1'))).not.toThrow();
+      expect(error).toHaveBeenCalled();
+      expect(appState.requestCanvasTab).not.toHaveBeenCalled();
+    });
+
+    it('makes no RPC: the autopilot level is never written or reset', () => {
+      service.adoptHandoff(handoff('h1'));
+
+      expect(rpc.call).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('parseSessionHandoffOpenedPayload', () => {
+    it('accepts a full descriptor and copies only known fields', () => {
+      expect(
+        parseSessionHandoffOpenedPayload({ ...handoff('h1'), extra: 'x' }),
+      ).toEqual(handoff('h1'));
+    });
+
+    it('accepts a source session id', () => {
+      expect(
+        parseSessionHandoffOpenedPayload(
+          handoff('h1', { fromSessionId: 'sdk-1' }),
+        )?.fromSessionId,
+      ).toBe('sdk-1');
+    });
+
+    it.each([
+      ['null', null],
+      ['an array', []],
+      ['empty tabId', { ...handoff('h1'), tabId: '' }],
+      ['missing fromTabId', { ...handoff('h1'), fromTabId: undefined }],
+      ['empty fromSessionId', { ...handoff('h1'), fromSessionId: '' }],
+      ['missing cwd', { ...handoff('h1'), cwd: undefined }],
+      ['missing workspaceRoot', { ...handoff('h1'), workspaceRoot: '' }],
+      ['missing label', { ...handoff('h1'), label: undefined }],
+      ['non-string displayPrompt', { ...handoff('h1'), displayPrompt: 3 }],
+      ['non-finite startedAt', { ...handoff('h1'), startedAt: NaN }],
+    ])('rejects %s', (_label, value) => {
+      expect(parseSessionHandoffOpenedPayload(value)).toBeNull();
+    });
+  });
 });
+
+function handoff(
+  tabId: string,
+  overrides: Partial<SessionHandoffOpenedPayload> = {},
+): SessionHandoffOpenedPayload {
+  return {
+    tabId,
+    fromTabId: 'source-tab',
+    fromSessionId: null,
+    workspaceRoot: '/ws/a',
+    cwd: '/ws/a/pkg',
+    label: 'Continue X',
+    displayPrompt: 'read HANDOFF.md',
+    startedAt: 7,
+    ...overrides,
+  };
+}
 
 /**
  * First-activation history load (TASK_2026_584 B7 review, finding 1), against

@@ -2,13 +2,30 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { SessionStatus } from '@ptah-extension/chat-types';
 import type { SessionBudgetState } from '@ptah-extension/shared';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
 import {
+  SESSION_HANDOFF_COMMAND,
   SESSION_WRAP_UP_PROMPT,
   SessionBudgetActionsService,
+  buildHandoffCommand,
   buildWrapUpPrompt,
 } from './session-budget-actions.service';
+
+/** `autocomplete:commands` result listing the given command names. */
+function commandsResult(...names: string[]) {
+  return {
+    success: true,
+    data: {
+      commands: names.map((name) => ({
+        name,
+        description: '',
+        scope: 'project',
+      })),
+    },
+  };
+}
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
 const BUDGET: SessionBudgetState = {
@@ -36,14 +53,24 @@ describe('SessionBudgetActionsService', () => {
       liveBudgetStage?: 'handoff' | 'limit' | null;
     }>({ sessionBudget: budget, status: 'loaded' });
     const tabId = signal<string | null>('tab-abc');
+    // Default: the workspace has no `session-handoff` skill.
+    const rpcCallMock = jest.fn().mockResolvedValue(commandsResult());
 
     TestBed.configureTestingModule({
       providers: [
         SessionBudgetActionsService,
-        { provide: ActionBannerService, useValue: { showError: showErrorMock } },
+        {
+          provide: ActionBannerService,
+          useValue: { showError: showErrorMock },
+        },
         {
           provide: ChatStore,
           useValue: { sendOrQueueMessage: sendOrQueueMessageMock },
+        },
+        { provide: ClaudeRpcService, useValue: { call: rpcCallMock } },
+        {
+          provide: VSCodeService,
+          useValue: { config: () => ({ workspaceRoot: '/ws/a' }) },
         },
       ],
     });
@@ -53,7 +80,14 @@ describe('SessionBudgetActionsService', () => {
       tabId,
       sessionId: signal<string | null>(SESSION),
     });
-    return { service, tab, tabId, sendOrQueueMessageMock, showErrorMock };
+    return {
+      service,
+      tab,
+      tabId,
+      sendOrQueueMessageMock,
+      showErrorMock,
+      rpcCallMock,
+    };
   }
 
   afterEach(() => {
@@ -92,7 +126,10 @@ describe('SessionBudgetActionsService', () => {
       service.dismiss();
       expect(service.dismissedStage()).toBe('handoff');
 
-      tab.set({ sessionBudget: { ...BUDGET, stage: 'limit' }, status: 'loaded' });
+      tab.set({
+        sessionBudget: { ...BUDGET, stage: 'limit' },
+        status: 'loaded',
+      });
       expect(service.dismissedStage()).toBe('handoff');
       expect(service.displayStage()).toBe('limit');
     });
@@ -141,9 +178,9 @@ describe('SessionBudgetActionsService', () => {
         used: 8.96,
         limit: 10,
       });
-      expect(prompt.startsWith('This session has used $8.96 worth of tokens.')).toBe(
-        true,
-      );
+      expect(
+        prompt.startsWith('This session has used $8.96 worth of tokens.'),
+      ).toBe(true);
     });
 
     it('re-enables the button when the send is not accepted', async () => {
@@ -178,6 +215,112 @@ describe('SessionBudgetActionsService', () => {
       tabId.set(null);
       await service.sendWrapUp();
       expect(sendOrQueueMessageMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sendWrapUp with the session-handoff skill (TASK_2026_655)', () => {
+    it('builds the slash command with the usage figure', () => {
+      expect(SESSION_HANDOFF_COMMAND).toBe('/session-handoff');
+      expect(buildHandoffCommand(BUDGET)).toBe(
+        '/session-handoff This session has used 41.2M tokens.',
+      );
+    });
+
+    it('probes the workspace commands and sends /session-handoff once when the skill exists', async () => {
+      const { service, sendOrQueueMessageMock, rpcCallMock } = setup();
+      rpcCallMock.mockResolvedValue(
+        commandsResult('session-handoff-notes', 'session-handoff'),
+      );
+
+      await service.sendWrapUp();
+      await service.sendWrapUp();
+
+      expect(rpcCallMock).toHaveBeenCalledTimes(1);
+      expect(rpcCallMock).toHaveBeenCalledWith('autocomplete:commands', {
+        query: 'session-handoff',
+        maxResults: 10,
+        workspaceRoot: '/ws/a',
+      });
+      expect(sendOrQueueMessageMock).toHaveBeenCalledTimes(1);
+      expect(sendOrQueueMessageMock).toHaveBeenCalledWith(
+        buildHandoffCommand(BUDGET),
+        { tabId: 'tab-abc' },
+      );
+      expect(service.wrapUpSent()).toBe(true);
+    });
+
+    it('sends the inline prompt when only a similarly named command exists', async () => {
+      const { service, sendOrQueueMessageMock, rpcCallMock } = setup();
+      rpcCallMock.mockResolvedValue(commandsResult('session-handoff-notes'));
+
+      await service.sendWrapUp();
+
+      expect(sendOrQueueMessageMock).toHaveBeenCalledWith(
+        buildWrapUpPrompt(BUDGET),
+        { tabId: 'tab-abc' },
+      );
+    });
+
+    it('sends the inline prompt when the probe fails', async () => {
+      const { service, sendOrQueueMessageMock, rpcCallMock } = setup();
+      rpcCallMock.mockResolvedValue({ success: false, error: 'nope' });
+
+      await service.sendWrapUp();
+
+      expect(sendOrQueueMessageMock).toHaveBeenCalledWith(
+        buildWrapUpPrompt(BUDGET),
+        { tabId: 'tab-abc' },
+      );
+    });
+
+    it('sends the inline prompt when the probe throws, without an error banner', async () => {
+      const { service, sendOrQueueMessageMock, rpcCallMock, showErrorMock } =
+        setup();
+      rpcCallMock.mockRejectedValue(new Error('timeout'));
+
+      await service.sendWrapUp();
+
+      expect(sendOrQueueMessageMock).toHaveBeenCalledTimes(1);
+      expect(sendOrQueueMessageMock).toHaveBeenCalledWith(
+        buildWrapUpPrompt(BUDGET),
+        { tabId: 'tab-abc' },
+      );
+      expect(showErrorMock).not.toHaveBeenCalled();
+      expect(service.wrapUpSent()).toBe(true);
+    });
+
+    it('a second click while the probe is in flight sends nothing more', async () => {
+      const { service, sendOrQueueMessageMock, rpcCallMock } = setup();
+      let resolveProbe!: (value: unknown) => void;
+      rpcCallMock.mockReturnValue(
+        new Promise((resolve) => {
+          resolveProbe = resolve;
+        }),
+      );
+
+      const first = service.sendWrapUp();
+      // The button is already disabled while the probe runs.
+      expect(service.wrapUpSent()).toBe(true);
+      await service.sendWrapUp();
+      resolveProbe(commandsResult('session-handoff'));
+      await first;
+
+      expect(rpcCallMock).toHaveBeenCalledTimes(1);
+      expect(sendOrQueueMessageMock).toHaveBeenCalledTimes(1);
+      expect(sendOrQueueMessageMock).toHaveBeenCalledWith(
+        buildHandoffCommand(BUDGET),
+        { tabId: 'tab-abc' },
+      );
+    });
+
+    it('re-enables the button when the slash command is not accepted', async () => {
+      const { service, sendOrQueueMessageMock, rpcCallMock } = setup();
+      rpcCallMock.mockResolvedValue(commandsResult('session-handoff'));
+      sendOrQueueMessageMock.mockResolvedValueOnce({ success: false });
+
+      await service.sendWrapUp();
+
+      expect(service.wrapUpSent()).toBe(false);
     });
   });
 });
