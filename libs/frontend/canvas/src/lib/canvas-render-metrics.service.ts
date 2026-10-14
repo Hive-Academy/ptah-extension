@@ -5,7 +5,6 @@ export interface CanvasRenderMetrics {
   readonly layoutComputations: number;
   readonly applyChecks: number;
   readonly applyPasses: number;
-  readonly gridUpdates: number;
   readonly releasedNodes: number;
   readonly geometryDrift: number;
   readonly changeCallbacks: number;
@@ -24,7 +23,6 @@ const EMPTY_METRICS: CanvasRenderMetrics = {
   layoutComputations: 0,
   applyChecks: 0,
   applyPasses: 0,
-  gridUpdates: 0,
   releasedNodes: 0,
   geometryDrift: 0,
   changeCallbacks: 0,

@@ -6,10 +6,10 @@ describe('CanvasRenderMetricsService', () => {
     TestBed.configureTestingModule({ providers: [CanvasRenderMetricsService] });
     const metrics = TestBed.inject(CanvasRenderMetricsService);
     const version = metrics.version();
-    metrics.increment('gridUpdates', 2);
-    metrics.increment('gridUpdates', Number.MAX_SAFE_INTEGER);
-    metrics.increment('gridUpdates', Number.NaN);
-    expect(metrics.snapshot().gridUpdates).toBe(Number.MAX_SAFE_INTEGER);
+    metrics.increment('applyChecks', 2);
+    metrics.increment('applyChecks', Number.MAX_SAFE_INTEGER);
+    metrics.increment('applyChecks', Number.NaN);
+    expect(metrics.snapshot().applyChecks).toBe(Number.MAX_SAFE_INTEGER);
     expect(metrics.version()).toBeGreaterThan(version);
   });
 
