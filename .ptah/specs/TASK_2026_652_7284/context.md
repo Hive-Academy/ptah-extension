@@ -57,16 +57,20 @@ PM phase skipped: requirements, decisions and research already exist in the epic
   installed; grok cli installed; Glm ptah-cli available (Ollama Cloud,
   pc-355b645d-35af-4974-84cf-9cf961ea0164); copilot disabled; cursor, pi not installed. All limit
   states unknown, none AT LIMIT.
+- Limit record (2026-10-14): lane `antigravity` (family antigravity) — quota/usage limit confirmed
+  by lane output (`RESOURCE_EXHAUSTED (code 429): Individual quota reached ... Resets in
+109h25m15s`, agent 3e0f026d, Phase 3 re-review). Reset about 2026-10-18 15:00 UTC. Skip it until
+  then. Code-logic reviews fall back to `opencode` (other family, confirmed room), D11.
 
 ### Roster
 
-| Phase | Executor | Side / family |
-| --- | --- | --- |
-| Architecture (`parity-inventory.md`, `implementation-plan.md`) | codex lane | CLI / codex |
-| Plan review (`implementation-plan-review.md`) | in-process subagent (software-architect) | in-process / claude |
-| Decomposition | team-leader subagent | in-process |
-| Implement batches | codex lane per batch | CLI / codex |
-| Code-logic review | antigravity lane | CLI / antigravity (different family from codex) |
+| Phase                                                          | Executor                                 | Side / family                                   |
+| -------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------- |
+| Architecture (`parity-inventory.md`, `implementation-plan.md`) | codex lane                               | CLI / codex                                     |
+| Plan review (`implementation-plan-review.md`)                  | in-process subagent (software-architect) | in-process / claude                             |
+| Decomposition                                                  | team-leader subagent                     | in-process                                      |
+| Implement batches                                              | codex lane per batch                     | CLI / codex                                     |
+| Code-logic review                                              | antigravity lane                         | CLI / antigravity (different family from codex) |
 
 ## Conversation Summary
 

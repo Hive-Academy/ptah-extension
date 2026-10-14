@@ -1180,6 +1180,16 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   folder on each attempt, and decide on pruning (L6 rest).
 - FU-14 a `<slug>--v4` run left behind after a later archive succeeds stays as history (older
   `analyzedAt`, never selected over the newer run); decide whether to fold it back.
+- FU-15 (re-review logic N1, Moderate) on resume with a degraded fingerprint, keep the persisted
+  `workspaceFingerprint` instead of overwriting it with the random digest
+  (`analysis-run-checkpoint.ts:123` with `:61-75`, `:200-222`), or state in the warning that the
+  run restarts. No wrong data today: the warning is logged and outputs are recomputed. The
+  orchestrator called it FU-13; renumbered because FU-13 was already taken (see "Phase 3
+  re-review disposition").
+- FU-16 (re-review style N1, Moderate) the freshness `warn` at
+  `analysis-freshness.service.ts:81-87` nests the `Error` in the context object, which the logger
+  serialises as `{}`; pass `error.message` (or the `Error` itself) as the sibling services do.
+  Diagnostic only. The orchestrator called it FU-14; renumbered for the same reason.
 
 ## Batch 19: Phase 3 fix - archive safety, v3 fallback folder, run selection (storage) - COMPLETE (commit 6fa3cf939)
 
@@ -1379,7 +1389,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   `AnalysisStorageService.ensureSlugDir` now has no production caller (spec only). Candidates
   for the Phase 3 re-review or a later cleanup task.
 
-## Batch 22: Phase 3 fix - shared docs and baseline order - COMPLETE
+## Batch 22: Phase 3 fix - shared docs and baseline order - COMPLETE (commit 9483de5c1)
 
 - Recommended executor: implementation CLI lane (codex), one lane
 - Fallback executor: backend-developer sub-agent
@@ -1415,6 +1425,43 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   and array order only: no type shape or runtime change. Checks, one at a time: prettier clean
   (3 files); shared and rpc-handlers typecheck+lint pass ("2 projects"); shared and rpc-handlers
   test pass, uncached ("Running target test for 2 projects").
+
+## Phase 3 re-review disposition (2026-10-14) - Phase 3 ACCEPTED
+
+Scope: `a0cd167b0..9483de5c1` (Batch 19 `6fa3cf939`, Batch 20 `6b6effdeb`, Batch 21
+`35f663e2f`, Batch 22 `9483de5c1`). The one fix round is spent, so no further fix batch.
+Dispositions are the orchestrator's (binding).
+
+- Logic: `code-logic-rereview-phase-3.md`, APPROVED 8/10. Review family opencode (lane
+  bbee5547); implementer family codex. Fallback reason: the antigravity lane is at its quota
+  limit (429 `RESOURCE_EXHAUSTED`, reset in about 109h), recorded in context.md and D11.
+- Style: `code-style-rereview-phase-3.md`, APPROVED WITH FIXES 8/10. Review family claude
+  (in-process code-style-reviewer sub-agent).
+- Every first-review fix disposition is confirmed FIXED by both reviews: L1-L6, L9, S1-S7 and
+  M1-M4. L7, L8 and M5 stay follow-ups FU-10, FU-11 and FU-12.
+
+| Finding                                                          | Severity | Disposition                                                                                                                                          |
+| ---------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Logic N1 degraded fingerprint on resume overwrites stored digest | Moderate | Follow-up FU-15 (`analysis-run-checkpoint.ts:123`, `:61-75`, `:200-222`). No wrong data, warned, rare, no lane-config impact; outputs are recomputed |
+| Style N1 freshness `warn` serialises the nested `Error` as `{}`  | Moderate | Follow-up FU-16 (`analysis-freshness.service.ts:81-87`). Diagnostic only, no data or lane-config impact                                              |
+| Logic N2 no spec pins the outer-catch best-effort pause          | Minor    | Recorded, not fixed (`multi-phase-analysis.service.ts:443-452`)                                                                                      |
+| Style N2 hard-coded `'.ptah/analysis'` fallback                  | Minor    | Recorded, not fixed (`analysis-freshness.service.ts:88`); derive it from `analysisRoot`                                                              |
+| Style N3 `RunDirVariant` spelled out inline                      | Minor    | Recorded, not fixed (`analysis-run-checkpoint.ts:78`); import the exported type                                                                      |
+| Style N4 hash helpers live in `analysis-fingerprint.ts`          | Minor    | Recorded, not fixed (`sha256Hex`, `hashFileOrNull`); a rename to `analysis-hash.ts` is optional                                                      |
+| Style N5 duplicated `'Phase finished without an SDK session id'` | Minor    | Recorded, not fixed (`multi-phase-analysis.service.ts`, two copies); hoist to a module constant                                                      |
+
+Follow-up id note: the orchestrator named the two Moderate follow-ups FU-13 and FU-14, but those
+ids already belong to the Phase 3 follow-ups for archive reuse and the leftover `<slug>--v4` run
+(section "Phase 3 review disposition"). They are recorded as FU-15 and FU-16 so no existing
+reference changes meaning.
+
+Recorded Minor items carried forward (a later cleanup task, not this run): the five above, plus
+the three from Batch 21 — the unreachable post-resume
+`variant === 'primary' && !primaryResumable && fallbackResumable` branch in
+`analysis-run-checkpoint.ts`, the resumable test evaluated twice, and
+`AnalysisStorageService.ensureSlugDir` with no production caller (spec only).
+
+Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accepted" is met).
 
 ## Batch 14: Agent generation falls back to gathered context - PENDING
 
@@ -1502,14 +1549,15 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 ## Phases
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
+Done: 1, 2B, 3 (accepted 2026-10-14 after the fix round). Next: Phase 4 (Batch 14, then 15).
 
-| Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                            | Reviewer (roster)                                                                                  |
-| -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 1 - Proposal backend             | 1-5, fix 16                            | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | ACCEPTED (code-logic-rereview.md, code-style-rereview.md)        | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
-| 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8), test fix 18 | code-logic                                                                                                                                                                                                             | ACCEPTED (code-logic-review-phase-2b.md); Batch 18 test-only fix | same                                                                                               |
-| 3 - Manifest v4 and freshness    | 10-13, fix 19-22                       | code-logic, plus style (new RPC, exported service). First review: both APPROVED WITH FIXES (`code-logic-review-phase-3.md`, `code-style-review-phase-3.md`). One re-review after Batch 22, scoped to the fix commits   | fix round in progress                                            | same                                                                                               |
-| 4 - Self-gathering generation    | 14-15                                  | code-logic                                                                                                                                                                                                             | pending                                                          | same                                                                                               |
-| 2F - Builder adapters (frontend) | 6-8                                    | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7)       | same                                                                                               |
+| Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                                                      | Reviewer (roster)                                                                                  |
+| -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| 1 - Proposal backend             | 1-5, fix 16                            | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | ACCEPTED (code-logic-rereview.md, code-style-rereview.md)                                  | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
+| 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8), test fix 18 | code-logic                                                                                                                                                                                                             | ACCEPTED (code-logic-review-phase-2b.md); Batch 18 test-only fix                           | same                                                                                               |
+| 3 - Manifest v4 and freshness    | 10-13, fix 19-22                       | code-logic, plus style (new RPC, exported service). First review: both APPROVED WITH FIXES (`code-logic-review-phase-3.md`, `code-style-review-phase-3.md`). One re-review after Batch 22, scoped to the fix commits   | ACCEPTED (code-logic-rereview-phase-3.md, code-style-rereview-phase-3.md); fix round spent | same                                                                                               |
+| 4 - Self-gathering generation    | 14-15                                  | code-logic                                                                                                                                                                                                             | pending                                                                                    | same                                                                                               |
+| 2F - Builder adapters (frontend) | 6-8                                    | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7)                                 | same                                                                                               |
 
 Mode 3 completion also needs:
 
@@ -1519,5 +1567,7 @@ Mode 3 completion also needs:
 - the follow-up note for R1 (port `rename`);
 - the Phase 1 follow-ups FU-1 to FU-6 (section "Phase 1 review disposition"), carried into the
   QA handoff;
-- the Phase 3 follow-ups FU-9 to FU-14 (section "Phase 3 review disposition");
+- the Phase 3 follow-ups FU-9 to FU-16 (section "Phase 3 review disposition"; FU-15 and FU-16
+  come from the re-review) and the eight recorded Minor items (section "Phase 3 re-review
+  disposition");
 - every phase review accepted, including Phase 2F, which runs only after TASK_2026_629.
