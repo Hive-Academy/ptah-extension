@@ -13,7 +13,13 @@ import {
   type TurnSummaryMarks,
   type TurnSummaryModel,
 } from '../../molecules/turn-recap/turn-summary.model';
+import { formatTokens } from '../../molecules/session/session-stats-format';
 import { TurnSummaryComponent } from './turn-summary.component';
+import {
+  MINI_CARD_CLASS,
+  MINI_SECTION_CLASS,
+  TURN_SUMMARY_MINI_STYLES,
+} from './turn-summary-mini-card.styles';
 
 function file(
   path: string,
@@ -164,14 +170,61 @@ describe('TurnSummaryComponent', () => {
         'turn-summary-card-tests',
       ]);
       expect(text(query('turn-summary-value-files'))).toBe('6');
-      expect(text(query('turn-summary-value-lines'))).toBe('+45');
-      expect(text(query('turn-summary-unit-lines'))).toBe('−8');
+      expect(text(query('turn-summary-caption-files'))).toBe('changed');
+      expect(text(query('turn-summary-value-lines'))).toBe(
+        '+45 −8 lines added and removed',
+      );
       expect(text(query('turn-summary-value-tokens'))).toBe('184.2k');
       expect(text(query('turn-summary-value-cost'))).toBe('$1.84');
       expect(text(query('turn-summary-value-duration'))).toBe(
         model().duration.value,
       );
-      expect(text(query('turn-summary-value-tests'))).toBe('1/3');
+      expect(text(query('turn-summary-value-tests'))).toBe('1/3 passed');
+    });
+
+    it('labels the cards as the inline chip does, Duration reading "Time"', () => {
+      render(model({ runs: mixedRuns }));
+      const labels = queryAll('turn-summary-grid')[0].querySelectorAll(
+        '[role="listitem"] button > span:first-child',
+      );
+      expect([...labels].map(text)).toEqual([
+        'Files',
+        'Lines',
+        'Tokens',
+        'Cost',
+        'Time',
+        'Tests',
+      ]);
+    });
+
+    it('shows Tokens as the total with an "in · out" caption', () => {
+      render(model());
+      expect(text(query('turn-summary-caption-tokens'))).toBe(
+        `${formatTokens(180_000)} in · ${formatTokens(4_200)} out`,
+      );
+      render(model({ usage: 'unavailable' }));
+      expect(query('turn-summary-caption-tokens')).toBeNull();
+    });
+
+    it('expands Lines, Tokens, Cost and Time to their detail rows', () => {
+      render(model());
+      const rows = (kind: string): string[] =>
+        [...regionOf(kind).querySelectorAll('dt, dd')].map(text);
+      for (const kind of ['lines', 'tokens', 'cost', 'duration']) open(kind);
+      expect(rows('lines')).toEqual(['Added', '45', 'Removed', '8']);
+      expect(rows('tokens')).toEqual([
+        'Input',
+        formatTokens(180_000),
+        'Output',
+        formatTokens(4_200),
+      ]);
+      expect(rows('cost')).toEqual(['Turn cost', '$1.84']);
+      expect(rows('duration')).toEqual(['Elapsed', model().duration.value]);
+
+      render(model({ usage: 'unavailable' }));
+      expect(text(regionOf('cost'))).toContain(
+        'No cost was reported for this turn.',
+      );
     });
 
     it('turn with no test command has no Tests card (omitted, not zero)', () => {
@@ -189,13 +242,19 @@ describe('TurnSummaryComponent', () => {
 
     it('keeps cost "unavailable", never $0; a real 0 stays a number', () => {
       render(model({ usage: 'unavailable' }));
-      expect(text(query('turn-summary-value-cost'))).toBe('unavailable');
-      expect(pills('cost')).toEqual(['not reported']);
+      const cost = query('turn-summary-value-cost') as HTMLElement;
+      expect(text(cost)).toBe('unavailable');
+      // A status word is set small and never broken mid-word (D2, #150).
+      expect(cost.classList).toContain('break-normal');
+      expect(text(query('turn-summary-caption-cost'))).toBe('not reported');
       expect(text(query('turn-summary-value-tokens'))).toBe('unavailable');
 
       render(model({ usage: 'zero-cost' }));
       expect(text(query('turn-summary-value-cost'))).toBe('$0.0000');
-      expect(pills('cost')).toEqual([]);
+      expect(query('turn-summary-caption-cost')).toBeNull();
+      expect(
+        (query('turn-summary-value-cost') as HTMLElement).classList,
+      ).toContain('text-lg');
     });
   });
 
@@ -234,6 +293,42 @@ describe('TurnSummaryComponent', () => {
       ).toBe('true');
     });
 
+    it('Escape on an open card toggle collapses only that card', () => {
+      render(model());
+      open('tokens');
+      toggleOf('tokens').focus();
+      toggleOf('tokens').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      fixture.detectChanges();
+      expect(toggleOf('tokens').getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(toggleOf('tokens'));
+      expect(
+        query('turn-summary-toggle')?.getAttribute('aria-expanded'),
+      ).toBe('true');
+    });
+
+    it('keeps the card grid fixed: open details stack under it in card order', () => {
+      render(model({ runs: mixedRuns }));
+      open('tests');
+      open('tokens');
+      const grid = query('turn-summary-grid') as HTMLElement;
+      expect(grid.contains(regionOf('tokens'))).toBe(false);
+      expect(grid.contains(regionOf('tests'))).toBe(false);
+      // Regions follow the grid, in card order (tokens before tests).
+      expect(
+        grid.compareDocumentPosition(regionOf('tokens')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        regionOf('tokens').compareDocumentPosition(regionOf('tests')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(card('tokens')?.getAttribute('data-open')).toBe('true');
+      expect(card('tests')?.getAttribute('data-open')).toBe('true');
+      expect(card('files')?.getAttribute('data-open')).toBe('false');
+    });
+
     it('opens the section by default and collapses it with its own toggle', () => {
       render(model());
       const toggle = query('turn-summary-toggle') as HTMLButtonElement;
@@ -257,6 +352,70 @@ describe('TurnSummaryComponent', () => {
       expect(pills('files')).toContain('1 conflicted');
       open('files');
       expect(toggleOf('files').getAttribute('aria-expanded')).toBe('false');
+    });
+  });
+
+  describe('disclosure state lasts one turn (review R9o finding 1)', () => {
+    const conflictOn = (path: string): TurnSummaryMarks => ({
+      conflicted: new Set([path]),
+      reconciled: new Set(),
+    });
+    const turnA = (options: Options = {}): TurnSummaryModel =>
+      model({ diff: changeSetOf(defaultFiles, { turnStartedAt: 1_000 }), ...options });
+    const turnB = (options: Options = {}): TurnSummaryModel =>
+      model({ diff: changeSetOf(defaultFiles, { turnStartedAt: 2_000 }), ...options });
+
+    it('a new conflicted turn forces Files open after Files was closed on the previous turn', () => {
+      render(turnA({ marks: conflictOn('src/app/alpha.ts') }));
+      expect(toggleOf('files').getAttribute('aria-expanded')).toBe('true');
+      open('files');
+      expect(toggleOf('files').getAttribute('aria-expanded')).toBe('false');
+
+      render(turnB({ marks: conflictOn('src/app/beta.ts') }));
+      expect(toggleOf('files').getAttribute('aria-expanded')).toBe('true');
+      expect(regionOf('files').hasAttribute('inert')).toBe(false);
+      expect(queryAll('turn-summary-file-row').length).toBeGreaterThan(0);
+    });
+
+    it('a new turn returns cards and the section to their defaults', () => {
+      render(turnA({ runs: mixedRuns }));
+      open('tokens');
+      open('tests');
+      const section = query('turn-summary-toggle') as HTMLButtonElement;
+      section.click();
+      fixture.detectChanges();
+      expect(toggleOf('tokens').getAttribute('aria-expanded')).toBe('true');
+      expect(section.getAttribute('aria-expanded')).toBe('false');
+
+      render(turnB({ runs: mixedRuns }));
+      for (const kind of ['files', 'lines', 'tokens', 'cost', 'duration', 'tests']) {
+        expect(toggleOf(kind).getAttribute('aria-expanded')).toBe('false');
+      }
+      expect(section.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('a re-render of the same turn keeps the user choice, even when marks change', () => {
+      render(turnA({ marks: conflictOn('src/app/alpha.ts'), runs: mixedRuns }));
+      open('files');
+      open('tokens');
+      expect(toggleOf('files').getAttribute('aria-expanded')).toBe('false');
+
+      render(turnA({ marks: conflictOn('src/app/beta.ts'), runs: mixedRuns }));
+      expect(toggleOf('files').getAttribute('aria-expanded')).toBe('false');
+      expect(toggleOf('tokens').getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('a file-less turn keys on its test runs: a new outcome keeps, new commands reset', () => {
+      const running: readonly TurnTestRun[] = [
+        { command: 'npx nx test chat-ui', project: 'chat-ui', outcome: 'running' },
+      ];
+      render(model({ diff: null, runs: running }));
+      open('tests');
+      render(model({ diff: null, runs: [{ ...running[0], outcome: 'passed' }] }));
+      expect(toggleOf('tests').getAttribute('aria-expanded')).toBe('true');
+
+      render(model({ diff: null, runs: mixedRuns }));
+      expect(toggleOf('tests').getAttribute('aria-expanded')).toBe('false');
     });
   });
 
@@ -334,7 +493,7 @@ describe('TurnSummaryComponent', () => {
       expect(queryAll('turn-summary-file-row')).toHaveLength(5);
     });
 
-    it('counts unavailable: Files and Lines read "?" with a neutral pill (decision #69)', () => {
+    it('counts unavailable: Files and Lines read "?" with the words (decision #69)', () => {
       render(
         model({
           diff: changeSetOf([file('a.ts', 'M', null, null)], {
@@ -343,9 +502,17 @@ describe('TurnSummaryComponent', () => {
         }),
       );
       expect(text(query('turn-summary-value-files'))).toBe('?');
-      expect(pills('files')).toContain('counts unavailable');
-      expect(text(query('turn-summary-value-lines'))).toBe('?');
-      expect(pills('lines')).toEqual(['counts unavailable']);
+      expect(text(query('turn-summary-caption-files'))).toBe(
+        'counts unavailable',
+      );
+      expect(text(query('turn-summary-value-lines'))).toBe('? lines changed');
+      expect(text(query('turn-summary-caption-lines'))).toBe(
+        'counts unavailable',
+      );
+      open('lines');
+      expect(text(regionOf('lines'))).toContain(
+        'Line counts are unavailable for this turn.',
+      );
       open('files');
       expect(text(query('turn-summary-counts-unavailable'))).toBe(
         'Line counts are unavailable for this turn.',
@@ -389,22 +556,38 @@ describe('TurnSummaryComponent', () => {
       const alert = query('turn-summary-action-error') as HTMLElement;
       expect(alert.getAttribute('role')).toBe('alert');
       expect(text(alert)).toBe('Could not open alpha.ts');
-      expect(card('files')?.contains(alert)).toBe(true);
-      expect(regionOf('files').contains(alert)).toBe(false);
+      // Under the cards, above every detail, inside no collapsible region.
+      for (const kind of ['files', 'lines', 'tokens', 'cost', 'duration']) {
+        expect(regionOf(kind).contains(alert)).toBe(false);
+      }
+      expect(alert.closest('[inert]')).toBeNull();
+      expect(
+        (query('turn-summary-grid') as HTMLElement).compareDocumentPosition(alert) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        alert.compareDocumentPosition(regionOf('files')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      render(model(), null);
+      expect(query('turn-summary-action-error')).toBeNull();
     });
   });
 
   describe('Tests detail (parity section 1)', () => {
-    it('carries passed, failed and unknown counts in the head (ported labels)', () => {
+    it('carries passed, failed and unknown counts in the card (ported labels)', () => {
       render(model({ runs: mixedRuns }));
-      expect(pills('tests')).toEqual(['1 failed', '1 unknown']);
+      expect(text(query('turn-summary-caption-tests'))).toBe(
+        '1 passed, 1 failed, 1 unknown',
+      );
+      expect(pills('tests')).toEqual([]);
       expect(card('tests')?.getAttribute('data-polarity')).toBe('bad');
-      expect(text(toggleOf('tests'))).toContain('Tests: 1 passed, 1 failed, 1 unknown');
     });
 
     it('shows "unknown" for an all-unknown list and "good" polarity', () => {
       render(model({ runs: [{ command: 'npx jest', outcome: 'unknown' }] }));
-      expect(pills('tests')).toEqual(['unknown']);
+      expect(text(query('turn-summary-caption-tests'))).toBe('unknown');
       expect(card('tests')?.getAttribute('data-polarity')).toBe('good');
     });
 
@@ -462,27 +645,37 @@ describe('TurnSummaryComponent', () => {
     });
   });
 
-  describe('layout (R9.6, decision #13)', () => {
+  describe('mini-card look (R9.6, decision 76)', () => {
     const source = readFileSync(join(__dirname, 'turn-summary.component.ts'), 'utf8');
 
-    it('is a size container: 1 column at 300 px, 2 from 400 px, 3 from 700 px', () => {
-      expect(source).toContain('container-type: inline-size');
-      expect(source).toMatch(/\.ts-grid \{ display: grid; grid-template-columns: minmax\(0, 1fr\)/);
-      expect(source).toMatch(
-        /@container ts \(min-width: 400px\) \{\s*\.ts-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/,
+    it('fits as many mini-card columns as the panel width allows, from the shared grid', () => {
+      expect(TURN_SUMMARY_MINI_STYLES).toMatch(
+        /\.ts-mini-grid \{\s*display: grid;\s*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 104px\), 1fr\)\);/,
       );
-      expect(source).toMatch(
-        /@container ts \(min-width: 700px\) \{\s*\.ts-grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/,
-      );
-      expect(source).toContain(".ts-card[data-open='true'] { grid-column: 1 / -1; }");
+      render(model());
+      const grid = query('turn-summary-grid') as HTMLElement;
+      expect(grid.classList).toContain('ts-mini-grid');
+      expect(grid.getAttribute('role')).toBe('list');
+      expect(source).toContain('styles: [TURN_SUMMARY_MINI_STYLES, SUMMARY_STYLES]');
     });
 
-    it('puts the warm hero gradient on the host-built section', () => {
+    it('is the flat chip surface with the chip card on every toggle, no hero gradient', () => {
+      render(model({ runs: mixedRuns }));
+      const section = query('turn-summary') as HTMLElement;
+      for (const token of MINI_SECTION_CLASS.split(' ')) {
+        expect(section.classList).toContain(token);
+      }
+      for (const kind of ['files', 'lines', 'tokens', 'cost', 'duration', 'tests']) {
+        for (const token of MINI_CARD_CLASS.split(' ')) {
+          expect(toggleOf(kind).classList).toContain(token);
+        }
+      }
+      expect(source).not.toMatch(/linear-gradient|ts-hero/);
+    });
+
+    it('keeps the Host pill that marks the host-built section', () => {
       render(model());
-      expect(query('turn-summary')?.classList).toContain('ts-hero');
-      expect(source).toMatch(
-        /linear-gradient\(\s*135deg,\s*color-mix\(in oklab, oklch\(var\(--s\)\) 12%/,
-      );
+      expect(text(query('turn-summary-host'))).toBe('Host');
     });
   });
 
@@ -517,6 +710,7 @@ describe('TurnSummaryComponent', () => {
       'turn-summary.component.ts',
       'turn-summary-files.component.ts',
       'turn-summary-tests.component.ts',
+      'turn-summary-mini-card.styles.ts',
     ]) {
       const source = readFileSync(join(__dirname, name), 'utf8');
       expect(source).not.toMatch(/declarative-dashboard|surface-renderer/);

@@ -14,15 +14,23 @@ import {
   LucideAngularModule,
   PanelRight,
 } from 'lucide-angular';
+import {
+  MINI_CAPTION_CLASS,
+  MINI_CARD_CLASS,
+  MINI_LABEL_CLASS,
+  MINI_PILL_CLASS,
+  MINI_SECTION_CLASS,
+  TURN_SUMMARY_MINI_STYLES,
+  miniValueClass,
+  type MiniTone,
+} from '../../organisms/display-panel/turn-summary-mini-card.styles';
 import { formatTokens } from '../session/session-stats-format';
 import type { TurnSummaryModel } from './turn-summary.model';
-
-type MetricTone = 'neutral' | 'success' | 'error' | 'info' | 'warning';
 
 /** One pill in the collapsed line. The text alone carries the meaning. */
 interface ChipMetric {
   readonly text: string;
-  readonly tone: MetricTone;
+  readonly tone: MiniTone;
 }
 
 /** One mini card in the expanded body. */
@@ -33,58 +41,9 @@ interface ChipMiniCard {
   readonly srSuffix: string | null;
   /** A muted caption under the value ("counts unavailable"). */
   readonly caption: string | null;
-  /**
-   * True when the value is a status word (`unavailable` / `pending`): it is
-   * set smaller and never broken mid-word in a narrow card (D2, #150).
-   */
-  readonly word: boolean;
+  /** Status words are set smaller and never broken mid-word (D2, #150). */
+  readonly valueClass: string;
 }
-
-/** Number-like values: large, tabular, may break anywhere to fit the card. */
-const MINI_VALUE_CLASS = 'block break-words text-lg font-semibold tabular-nums';
-/** Status-word values: wrap only at word boundaries. */
-const MINI_WORD_CLASS = 'block break-normal text-sm font-medium';
-
-/**
- * Full class list per tone, literal for Tailwind. Success and error text use
- * the AA-measured `.diff-add-text` / `.diff-del-text` overrides the tests row
- * used; colour is a secondary cue, never the only one.
- */
-const METRIC_CLASS: Readonly<Record<MetricTone, string>> = {
-  neutral: 'badge badge-sm badge-ghost h-auto whitespace-nowrap tabular-nums',
-  success:
-    'badge badge-sm badge-ghost h-auto whitespace-nowrap tabular-nums diff-add-text',
-  error:
-    'badge badge-sm badge-ghost h-auto whitespace-nowrap tabular-nums diff-del-text',
-  info: 'badge badge-sm badge-info h-auto whitespace-nowrap tabular-nums',
-  warning: 'badge badge-sm badge-warning h-auto whitespace-nowrap',
-};
-
-/**
- * Same collapse pattern as the display chip and the panel accordion (design
- * section 7): the hidden body is `inert` and `visibility:hidden`; motion only
- * under `prefers-reduced-motion: no-preference`. The chip is flat `base-200`
- * (prototype `.chip`, decision #70).
- */
-const CHIP_STYLES = `
-  :host { display: block; min-width: 0; }
-  .dp-collapse { display: grid; grid-template-rows: 1fr; min-width: 0; }
-  .dp-collapse[data-open='false'] { grid-template-rows: 0fr; visibility: hidden; }
-  .dp-collapse-inner { min-height: 0; min-width: 0; }
-  .dp-collapse[data-open='false'] > .dp-collapse-inner { overflow: hidden; }
-  .dp-toggle { min-height: 2rem; }
-  .dp-toggle:focus-visible { outline: 2px solid oklch(var(--bc)); outline-offset: 2px; }
-  .dp-chevron[data-open='true'] { transform: rotate(180deg); }
-  .ts-mini-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 104px), 1fr));
-    gap: 0.5rem;
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .dp-collapse { transition: grid-template-rows 220ms ease, visibility 220ms; }
-    .dp-chevron { transition: transform 200ms ease; }
-  }
-`;
 
 let nextSummaryChipInstance = 0;
 
@@ -95,11 +54,6 @@ function plural(count: number, one: string, many: string): string {
 /** A value the source could not produce reads as its status word, never 0. */
 function shown(value: number | string, format: (n: number) => string): string {
   return typeof value === 'number' ? format(value) : value;
-}
-
-/** Whether a shown value is the literal `TurnSummaryUnavailable` word. */
-function isStatusWord(value: string): boolean {
-  return value === 'unavailable' || value === 'pending';
 }
 
 /**
@@ -126,10 +80,10 @@ function isStatusWord(value: string): boolean {
   standalone: true,
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [CHIP_STYLES],
+  styles: [TURN_SUMMARY_MINI_STYLES],
   template: `
     <section
-      class="my-2 min-w-0 rounded-box border border-base-300 bg-base-200 text-base-content"
+      [class]="SECTION_CLASS"
       [attr.aria-label]="ariaLabel()"
       data-testid="turn-summary-chip"
       (keydown.escape)="collapse($event)"
@@ -159,7 +113,7 @@ function isStatusWord(value: string): boolean {
           >
             @for (metric of metrics(); track $index) {
               <span
-                [class]="METRIC_CLASS[metric.tone]"
+                [class]="MINI_PILL_CLASS[metric.tone]"
                 data-testid="turn-summary-chip-metric"
                 >{{ metric.text }}</span
               >
@@ -186,16 +140,13 @@ function isStatusWord(value: string): boolean {
             <div class="ts-mini-grid" role="list">
               @for (card of miniCards(); track card.label) {
                 <div
-                  class="min-w-0 rounded-box bg-base-300 px-2.5 py-2"
+                  [class]="MINI_CARD_CLASS"
                   role="listitem"
                   data-testid="turn-summary-chip-card"
                 >
+                  <span [class]="MINI_LABEL_CLASS">{{ card.label }}</span>
                   <span
-                    class="block text-xs font-medium text-base-content-muted"
-                    >{{ card.label }}</span
-                  >
-                  <span
-                    [class]="card.word ? MINI_WORD_CLASS : MINI_VALUE_CLASS"
+                    [class]="card.valueClass"
                     data-testid="turn-summary-chip-card-value"
                     >{{ card.value }}
                     @if (card.srSuffix; as suffix) {
@@ -203,9 +154,7 @@ function isStatusWord(value: string): boolean {
                     }
                   </span>
                   @if (card.caption; as caption) {
-                    <span class="block text-xs text-base-content-muted">{{
-                      caption
-                    }}</span>
+                    <span [class]="MINI_CAPTION_CLASS">{{ caption }}</span>
                   }
                 </div>
               }
@@ -257,9 +206,12 @@ export class TurnSummaryChipComponent {
   protected readonly regionId = `${this.instanceId}-region`;
   protected readonly unavailableId = `${this.instanceId}-unavailable`;
 
-  protected readonly METRIC_CLASS = METRIC_CLASS;
-  protected readonly MINI_VALUE_CLASS = MINI_VALUE_CLASS;
-  protected readonly MINI_WORD_CLASS = MINI_WORD_CLASS;
+  /** The inline chip keeps its `my-2` margin on top of the shared section look. */
+  protected readonly SECTION_CLASS = `my-2 ${MINI_SECTION_CLASS}`;
+  protected readonly MINI_CARD_CLASS = MINI_CARD_CLASS;
+  protected readonly MINI_LABEL_CLASS = MINI_LABEL_CLASS;
+  protected readonly MINI_CAPTION_CLASS = MINI_CAPTION_CLASS;
+  protected readonly MINI_PILL_CLASS = MINI_PILL_CLASS;
   protected readonly LayoutDashboardIcon = LayoutDashboard;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly PanelRightIcon = PanelRight;
@@ -345,7 +297,7 @@ export class TurnSummaryChipComponent {
 
   protected readonly miniCards = computed((): readonly ChipMiniCard[] => {
     const { files, lines, tokens, cost, duration, tests } = this.summary();
-    const cards: Omit<ChipMiniCard, 'word'>[] = [];
+    const cards: Omit<ChipMiniCard, 'valueClass'>[] = [];
     if (files !== null) {
       cards.push({
         label: 'Files',
@@ -389,7 +341,10 @@ export class TurnSummaryChipComponent {
         caption: tests.label,
       });
     }
-    return cards.map((card) => ({ ...card, word: isStatusWord(card.value) }));
+    return cards.map((card) => ({
+      ...card,
+      valueClass: miniValueClass(card.value),
+    }));
   });
 
   protected toggle(): void {
