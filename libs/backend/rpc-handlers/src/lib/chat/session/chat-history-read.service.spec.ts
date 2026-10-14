@@ -74,6 +74,18 @@ function makeHarness(
 describe('ChatHistoryReadService', () => {
   const OTHER_PROJECT = '/c/projects/other';
 
+  it('passes the ownership option through for resume reads', async () => {
+    const harness = makeHarness();
+    await harness.service.readForResume(SESSION_ID, {
+      includeBlockOwners: true,
+    });
+    expect(harness.historyReader.readSessionHistory).toHaveBeenCalledWith(
+      SESSION_ID,
+      WORKSPACE,
+      { checkCompactionBoundary: true, includeBlockOwners: true },
+    );
+  });
+
   it("reads resume history from the session's own folder, not the active one", async () => {
     const harness = makeHarness({
       folders: [WORKSPACE, OTHER_PROJECT],

@@ -158,6 +158,33 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
 
 describe('SessionHistoryReaderService', () => {
   describe('readSessionHistory', () => {
+    it('returns collector metadata only on a successful opted-in read', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions');
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      const service = makeService(stubs);
+
+      const plain = await service.readSessionHistory('valid-session', '/workspace');
+      expect(plain).not.toHaveProperty('blockOwners');
+      expect(plain).not.toHaveProperty('syntheticToolResults');
+      const optedIn = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+        { includeBlockOwners: true },
+      );
+      expect(optedIn.blockOwners).toBeInstanceOf(Map);
+      expect(optedIn.syntheticToolResults).toBeInstanceOf(Set);
+      expect(stubs.replayService.replayToStreamEvents).toHaveBeenLastCalledWith(
+        'valid-session',
+        [],
+        [],
+        {
+          blockOwners: optedIn.blockOwners,
+          syntheticToolResults: optedIn.syntheticToolResults,
+        },
+      );
+    });
     // -----------------------------------------------------------------------
     // Path-traversal guard
     // -----------------------------------------------------------------------
@@ -203,6 +230,22 @@ describe('SessionHistoryReaderService', () => {
       expect(stubs.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Sessions directory not found'),
       );
+    });
+
+    it('returns empty owner collections for an opted-in missing session', async () => {
+      const stubs = makeStubs();
+      stubs.jsonlReader.findSessionsDirectory.mockResolvedValue(null);
+      const service = makeService(stubs);
+
+      const optedIn = await service.readSessionHistory(
+        'valid-session-id', '/workspace', { includeBlockOwners: true },
+      );
+      expect(optedIn).toEqual({
+        events: [], stats: null,
+        blockOwners: new Map(), syntheticToolResults: new Set(),
+      });
+      const legacy = await service.readSessionHistory('valid-session-id', '/workspace');
+      expect(legacy).toEqual({ events: [], stats: null });
     });
 
     // A VERIFIED expectation survives a stale read for a bounded recovery

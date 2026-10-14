@@ -42,4 +42,45 @@ describe('ChatStreamSnapshotPayloadSchema', () => {
       }),
     ).toMatchObject({ resyncRequired: true });
   });
+
+  it('accepts a resync with a live seed and complete block counts', () => {
+    const payload = {
+      ...base,
+      events: undefined,
+      resyncRequired: true,
+      liveSeed: [{ eventType: 'message_start' }],
+      liveSeedBlocks: { 'message-1': 2 },
+    };
+    expect(ChatStreamSnapshotPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it('accepts block counts without seed events for deferred anchors', () => {
+    const payload = {
+      ...base,
+      events: undefined,
+      resyncRequired: true,
+      liveSeedBlocks: { 'message-1': 0 },
+    };
+    expect(ChatStreamSnapshotPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it('rejects live seed fields without resyncRequired', () => {
+    for (const payload of [
+      { ...base, liveSeed: [] },
+      { ...base, liveSeedBlocks: { 'message-1': 1 } },
+    ]) {
+      expect(ChatStreamSnapshotPayloadSchema.safeParse(payload).success).toBe(false);
+    }
+  });
+
+  it('rejects malformed live seed and block counts', () => {
+    for (const payload of [
+      { ...base, events: undefined, resyncRequired: true, liveSeed: 'bad' },
+      { ...base, events: undefined, resyncRequired: true, liveSeedBlocks: { '': 1 } },
+      { ...base, events: undefined, resyncRequired: true, liveSeedBlocks: { 'message-1': -1 } },
+      { ...base, events: undefined, resyncRequired: true, liveSeedBlocks: { 'message-1': 1.5 } },
+    ]) {
+      expect(ChatStreamSnapshotPayloadSchema.safeParse(payload).success).toBe(false);
+    }
+  });
 });

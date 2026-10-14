@@ -4,6 +4,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 import { MainThreadNoticeQueue } from './main-thread-notice-queue';
+import { SubagentNoticeQueue } from './subagent-notice-queue';
 import {
   POST_TOOL_USE_CAP_TIMEOUT_MS,
   PostToolUseHookHandler,
@@ -331,6 +332,39 @@ describe('PostToolUseHookHandler', () => {
         await call(handler, { ...baseInput, agent_id: 'agent-7' }),
       ).toEqual({ continue: true });
       expect(queue.take('sess-1')).toBe('for the main agent');
+    });
+
+    it("a subagent notice reaches only that subagent's tool result, once", async () => {
+      const logger = makeLogger();
+      const queue = new MainThreadNoticeQueue(logger);
+      const subagentNotices = new SubagentNoticeQueue();
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        undefined,
+        queue,
+        subagentNotices,
+      );
+      subagentNotices.post('agent-7', 'write your notes');
+
+      // The main thread and another subagent do not drain it.
+      expect(await call(handler, baseInput)).toEqual({ continue: true });
+      expect(
+        await call(handler, { ...baseInput, agent_id: 'agent-8' }),
+      ).toEqual({ continue: true });
+
+      expect(
+        await call(handler, { ...baseInput, agent_id: 'agent-7' }),
+      ).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: 'write your notes',
+        },
+      });
+      expect(
+        await call(handler, { ...baseInput, agent_id: 'agent-7' }),
+      ).toEqual({ continue: true });
     });
 
     it('returns the capped output and the notice in one hookSpecificOutput', async () => {

@@ -267,4 +267,12 @@ describe('SessionLivenessReconcilerService', () => {
 
     expect(markIdleLiveness).toHaveBeenCalledWith(SESS_IDLE, undefined);
   });
+
+  it('reconcileTab probes only the requested tab through the unordered turn-state path', async () => {
+    callMock.mockResolvedValue(rpcResult({ isActive: true, isStreaming: true, turnState: makeTurnState() }));
+    await service.reconcileTab('tab-target', SESS_STREAM);
+    expect(callMock).toHaveBeenCalledTimes(1);
+    expect(callMock).toHaveBeenCalledWith('session:status', { sessionId: SESS_STREAM });
+    expect(applyMock).toHaveBeenCalledWith(expect.objectContaining({ sessionId: SESS_STREAM }), 'tab-target', { ordered: false });
+  });
 });

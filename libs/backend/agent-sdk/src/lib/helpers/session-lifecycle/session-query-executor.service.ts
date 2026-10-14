@@ -160,17 +160,15 @@ export type SubagentBudgetSink = Pick<
   'observe' | 'recordTaskStarted' | 'release' | 'currentSessionId'
 >;
 
-/** True when an assistant message carries at least one `tool_use` block. */
-function hasToolUse(message: SDKMessage & { type: 'assistant' }): boolean {
+/** True when a message's content carries at least one block of `blockType`. */
+function hasContentBlock(
+  message: SDKMessage & { type: 'assistant' | 'user' },
+  blockType: 'tool_use' | 'tool_result',
+): boolean {
   const content: unknown = message.message?.content;
-  return (
-    Array.isArray(content) &&
-    content.some(
-      (block: unknown) =>
-        typeof block === 'object' &&
-        block !== null &&
-        (block as { type?: unknown }).type === 'tool_use',
-    )
+  const blocks: unknown[] = Array.isArray(content) ? content : [];
+  return blocks.some(
+    (b) => (b as { type?: unknown } | null)?.type === blockType,
   );
 }
 
@@ -267,9 +265,12 @@ class CompactionSessionTap {
       }
     } else if (message.type === 'result') {
       this.onTurnEnd(sessionId);
-    } else if (message.type === 'assistant' && hasToolUse(message)) {
-      // The monitor reads the task of each subagent from the `Agent`/`Task`
-      // tool_use that spawns it, for the handoff it sends on a stop.
+    } else if (
+      (message.type === 'assistant' && hasContentBlock(message, 'tool_use')) ||
+      (message.type === 'user' && hasContentBlock(message, 'tool_result'))
+    ) {
+      // The monitor reads a subagent's task from its spawning tool_use and
+      // whether that call already returned (background) from the tool_result.
       this.feedSubagentMonitor(message);
     }
   }

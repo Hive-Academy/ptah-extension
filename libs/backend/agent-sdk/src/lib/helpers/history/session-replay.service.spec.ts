@@ -21,7 +21,10 @@
  */
 
 import 'reflect-metadata';
-import { SessionReplayService } from './session-replay.service';
+import {
+  SessionReplayService,
+  type HistoryReplayCollector,
+} from './session-replay.service';
 import { HistoryEventFactory } from './history-event-factory';
 import { AgentCorrelationService } from './agent-correlation.service';
 import type { SessionHistoryMessage } from './history.types';
@@ -102,6 +105,116 @@ describe('SessionReplayService', () => {
   function eventTypes(events: FlatStreamEventUnion[]): string[] {
     return events.map((e) => e.eventType);
   }
+
+  function collector(): HistoryReplayCollector {
+    return { blockOwners: new Map(), syntheticToolResults: new Set() };
+  }
+
+  it('records main blocks without changing the uncollected event output', () => {
+    const message = {
+      ...a({
+        role: 'assistant',
+        id: 'api-main',
+        content: [
+          { type: 'thinking', thinking: 't' },
+          { type: 'text', text: 'a' },
+          { type: 'tool_use', id: 'toolu_1', name: 'Read', input: {} },
+        ],
+      }),
+      uuid: 'fixed-uuid',
+    };
+    const metadata = collector();
+    const withCollector = service.replayToStreamEvents('s', [message], [], metadata);
+    expect(service.replayToStreamEvents('s', [message], [])).toEqual(withCollector);
+    expect([...metadata.blockOwners.values()]).toEqual([
+      'api-main',
+      'api-main',
+      'api-main',
+    ]);
+    expect(metadata.syntheticToolResults.size).toBe(0);
+  });
+
+  it('records correlated subagent text, omits thinking and marks only synthetic results', () => {
+    const task = a({
+      role: 'assistant',
+      id: 'api-main',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'toolu_task',
+          name: 'Task',
+          input: { subagent_type: 'general-purpose' },
+        },
+      ],
+    });
+    const agent = {
+      agentId: 'agent-one',
+      filePath: '/tmp/agent-one.jsonl',
+      messages: [
+        a({
+          role: 'assistant',
+          id: 'api-thinking',
+          content: [{ type: 'thinking', thinking: 'hidden' }],
+        }),
+        a({
+          role: 'assistant',
+          id: 'api-agent',
+          content: [{ type: 'text', text: 'agent output' }],
+        }),
+      ],
+    };
+    const metadata = collector();
+    const events = service.replayToStreamEvents('s', [task], [agent], metadata);
+    expect([...metadata.blockOwners.values()]).toEqual([
+      'api-main',
+      'api-agent',
+    ]);
+    expect([...metadata.syntheticToolResults]).toEqual([
+      events.find((event) => event.eventType === 'tool_result'),
+    ]);
+
+    const persisted = collector();
+    service.replayToStreamEvents(
+      's',
+      [
+        task,
+        u({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'toolu_task',
+              content: 'real',
+            },
+          ],
+        }),
+      ],
+      [agent],
+      persisted,
+    );
+    expect(persisted.syntheticToolResults.size).toBe(0);
+  });
+
+  it('does not collect orphan agent records before a compact boundary', () => {
+    const task = a({
+      role: 'assistant',
+      id: 'api-before',
+      content: [{ type: 'tool_use', id: 'toolu_old', name: 'Task', input: {} }],
+    });
+    const agent = {
+      agentId: 'agent-orphan',
+      filePath: '/tmp/agent-orphan.jsonl',
+      messages: [a({ role: 'assistant', id: 'api-orphan', content: [{ type: 'text', text: 'old' }] })],
+    };
+    const metadata = collector();
+    service.replayToStreamEvents(
+      's',
+      [task, { type: 'system', subtype: 'compact_boundary' }, a({ role: 'assistant', id: 'api-after', content: [{ type: 'text', text: 'new' }] })],
+      [agent],
+      metadata,
+    );
+    expect([...metadata.blockOwners.values()]).toEqual(['api-after']);
+  });
 
   // -------------------------------------------------------------------------
   // Basic user/assistant round-trip

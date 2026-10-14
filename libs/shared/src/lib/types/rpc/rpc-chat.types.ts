@@ -269,6 +269,8 @@ export interface ChatResumeParams {
    * Omit this field to preserve the legacy full-history response.
    */
   historyPage?: { readonly maxEvents: number };
+  /** Opt in only for a webview load with an early claim that filters the reply. */
+  historyBlockOwners?: true;
 }
 
 /** Response from chat:resume RPC method */
@@ -284,6 +286,17 @@ export interface ChatResumeResult {
    * Frontend processes these through StreamingHandler to build ExecutionNode tree.
    */
   events?: FlatStreamEventUnion[];
+  /**
+   * Maps decimal event indices of text_delta, thinking_delta or tool_start to
+   * their source JSONL API message.id. Includes only messages whose complete
+   * replay block events are in this page; present on a successful opt-in read.
+   */
+  historyBlockOwners?: Readonly<Record<string, string>>;
+  /**
+   * Indices in events of tool_result entries synthesized because the parent
+   * result was absent from JSONL. Sent with opted-in block owners, even if empty.
+   */
+  historySyntheticToolResults?: readonly number[];
   /**
    * Paging metadata, present only for a successful request that included
    * `historyPage`. `null` means the replayable start has been reached.
@@ -355,6 +368,8 @@ export interface ChatSetStreamViewportParams {
   readonly protocolVersion: 2;
   readonly focusedTabId?: string;
   readonly visibleTabIds: readonly string[];
+  /** Tabs to rebuild with a fresh resync snapshot now or at their next reveal. */
+  readonly resyncTabIds?: readonly string[];
 }
 
 /** Result of stream viewport capability negotiation. */

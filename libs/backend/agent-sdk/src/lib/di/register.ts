@@ -108,10 +108,14 @@ import {
 } from '../helpers/session-budget/session-budget.service';
 import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-advisor';
 import { MainThreadNoticeQueue } from '../helpers/main-thread-notice-queue';
+import { SubagentNoticeQueue } from '../helpers/subagent-notice-queue';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import { SubagentHandoffFiles } from '../helpers/compaction/subagent-handoff-files';
+import { SubagentHandoffRecords } from '../helpers/compaction/subagent-handoff-record';
+import { SubagentHandoffIndex } from '../helpers/compaction/subagent-handoff-index';
 import {
   MODEL_DISPATCH_PROVENANCE_TAP,
   type ModelDispatchProvenanceTap,
@@ -267,10 +271,11 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  // One shared queue: producers post host notices and the PostToolUse hook
-  // handler drains them. Registered first so the handler never gets an
+  // One shared queue each: producers post host notices and the PostToolUse
+  // hook handler drains them. Registered first so the handler never gets an
   // auto-constructed private instance.
   container.registerSingleton(MainThreadNoticeQueue);
+  container.registerSingleton(SubagentNoticeQueue);
 
   container.register(
     SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
@@ -483,9 +488,12 @@ export function registerSdkServices(
   // monitor, and the monitor needs the dispatcher, which injects the manager.
   // The dispatcher is resolved on first use, after the manager exists, so
   // constructing the manager does not recurse.
-  // The handoff goes to the main-thread notice queue, not into the parent's
-  // input stream: the stopped subagent's own `Agent` tool result is the next
-  // main-thread PostToolUse, which drains the queue into its context.
+  // The monitor picks the handoff's route. A foreground subagent's `Agent`
+  // tool result is still due, so the handoff goes to the main-thread notice
+  // queue and its PostToolUse drains it. A background subagent's tool result
+  // came back at spawn ("Async agent launched"), and the session budget
+  // clears pending notices at turn end, so the handoff is streamed to the
+  // parent as a user turn through the dispatcher.
   container.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, {
     useFactory: instanceCachingFactory((c) => {
       const dispatcher = () =>
@@ -493,20 +501,42 @@ export function registerSdkServices(
           SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
         );
       const notices = c.resolve(MainThreadNoticeQueue);
+      const subagentNotices = c.resolve(SubagentNoticeQueue);
+      const logger = c.resolve<Logger>(TOKENS.LOGGER);
+      // Resolved on first use, like the dispatcher: the lifecycle manager
+      // injects this monitor.
+      const workspaceOf = (sessionId: string) =>
+        c
+          .resolve<SessionLifecycleManager>(
+            SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+          )
+          .getSessionWorkspace(sessionId);
+      const handoffFiles = new SubagentHandoffFiles(logger, workspaceOf);
       return new SubagentBudgetMonitor(
-        c.resolve<Logger>(TOKENS.LOGGER),
+        logger,
         c.resolve<CompactionConfigProvider>(
           SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
         ),
         {
           stopSubagent: (sessionId, taskId) =>
             dispatcher().stopSubagent(sessionId, taskId),
-          pushParentMessage: (sessionId, content) => {
-            notices.post(sessionId, content);
-            return Promise.resolve();
-          },
+          pushParentMessage: (sessionId, content) =>
+            dispatcher().pushParentMessage(sessionId, content),
+          postMainThreadNotice: (sessionId, text, onDropped) =>
+            notices.post(sessionId, text, onDropped),
+          withdrawMainThreadNotice: (sessionId, text) =>
+            notices.withdraw(sessionId, text),
+          postSubagentNotice: (agentId, text) =>
+            subagentNotices.post(agentId, text),
+          withdrawSubagentNotice: (agentId) =>
+            subagentNotices.withdraw(agentId),
         },
         c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
+        handoffFiles,
+        // The durable handoff records and the index that names pending ones
+        // on main-thread prompts (UserPromptSubmit hook).
+        new SubagentHandoffRecords(logger, workspaceOf),
+        new SubagentHandoffIndex(logger),
       );
     }),
   });

@@ -18,16 +18,16 @@ import {
 
 import { StreamBatchBuffer } from './stream-batch-buffer';
 import type { WebviewManager } from './chat-stream-broadcaster.service';
+import {
+  LiveMessageProjection,
+  isSeedContent,
+  STREAM_LIVE_SEED_MAX_BYTES,
+} from './live-message-projection';
+import { serializedBytes, StreamDeltaCoalescer } from './stream-delta-coalescer';
 
 /** Bound both event count and memory retained for a hidden tab. */
 export const STREAM_HIDDEN_TAIL_MAX_EVENTS = 256;
 export const STREAM_HIDDEN_TAIL_MAX_BYTES = 512 * 1024;
-
-interface RetainedEvent {
-  readonly sequence: number;
-  readonly event: FlatStreamEventUnion;
-  readonly bytes: number;
-}
 
 interface DeferredTerminal {
   readonly type: string;
@@ -35,17 +35,19 @@ interface DeferredTerminal {
 }
 
 interface TabDeliveryState {
-  sequence: number;
+  lastSequence: number;
   sessionId?: string;
-  tail: RetainedEvent[];
-  tailBytes: number;
+  tail: StreamDeltaCoalescer;
   resyncRequired: boolean;
   terminal?: DeferredTerminal;
+  projection: LiveMessageProjection;
+  pendingAnchors: Map<string, FlatStreamEventUnion>;
 }
 
 export interface ChatStreamDeliveryCoordinatorOptions {
   readonly maxTailEvents?: number;
   readonly maxTailBytes?: number;
+  readonly maxLiveSeedBytes?: number;
 }
 
 export interface ChatStreamDeliveryMetrics {
@@ -55,16 +57,26 @@ export interface ChatStreamDeliveryMetrics {
   readonly snapshotEvents: number;
   readonly snapshotBytes: number;
   readonly snapshotOverflowResyncs: number;
+  readonly coalescedHiddenDeltas: number;
+  readonly liveSeedEvents: number;
+  readonly liveSeedTruncations: number;
+  readonly deferredAnchorsInjected: number;
+  readonly requestedResyncs: number;
 }
 
 @injectable()
 export class ChatStreamDeliveryCoordinator {
   private readonly states = new Map<string, TabDeliveryState>();
   private readonly visibleTabIds = new Set<string>();
+  private readonly pendingUnknownResyncTabIds = new Set<string>();
+  private requestedVisibleTabIds = new Set<string>();
   private readonly buffer: StreamBatchBuffer;
   private viewportNegotiated = false;
+  private sequence = 0;
+  private viewportGeneration = 0;
   private maxTailEvents: number;
   private maxTailBytes: number;
+  private maxLiveSeedBytes = STREAM_LIVE_SEED_MAX_BYTES;
   private readonly metrics = {
     receivedEvents: 0,
     transportEnvelopes: 0,
@@ -72,6 +84,11 @@ export class ChatStreamDeliveryCoordinator {
     snapshotEvents: 0,
     snapshotBytes: 0,
     snapshotOverflowResyncs: 0,
+    coalescedHiddenDeltas: 0,
+    liveSeedEvents: 0,
+    liveSeedTruncations: 0,
+    deferredAnchorsInjected: 0,
+    requestedResyncs: 0,
   };
 
   constructor(
@@ -94,6 +111,7 @@ export class ChatStreamDeliveryCoordinator {
   configureForTest(options: ChatStreamDeliveryCoordinatorOptions): void {
     this.maxTailEvents = options.maxTailEvents ?? STREAM_HIDDEN_TAIL_MAX_EVENTS;
     this.maxTailBytes = options.maxTailBytes ?? STREAM_HIDDEN_TAIL_MAX_BYTES;
+    this.maxLiveSeedBytes = options.maxLiveSeedBytes ?? STREAM_LIVE_SEED_MAX_BYTES;
   }
 
   publish(
@@ -116,8 +134,40 @@ export class ChatStreamDeliveryCoordinator {
     }
 
     const state = this.getState(tabId, sessionId);
-    state.sequence++;
+    state.lastSequence = ++this.sequence;
     if (sessionId) state.sessionId = sessionId;
+    if (!surfaceMode) {
+      if (state.projection.observe(event, state.lastSequence)) {
+        this.metrics.liveSeedTruncations++;
+        this.logger.warn('Live chat stream seed truncated');
+      }
+      for (const messageId of state.projection.takeDroppedMessageIds()) {
+        state.pendingAnchors.delete(messageId);
+      }
+    }
+    const pending = surfaceMode ? undefined : state.pendingAnchors.get(event.messageId);
+    if (pending) {
+      if (isSeedContent(event)) {
+        state.pendingAnchors.delete(event.messageId);
+        this.metrics.deferredAnchorsInjected++;
+        this.route(tabId, state, pending, sessionId);
+      } else if (
+        event.eventType === 'message_start' ||
+        (event.eventType === 'message_complete' && event.source === 'stream')
+      ) {
+        state.pendingAnchors.delete(event.messageId);
+      }
+    }
+    return this.route(tabId, state, event, sessionId, surfaceMode);
+  }
+
+  private route(
+    tabId: string,
+    state: TabDeliveryState,
+    event: FlatStreamEventUnion,
+    sessionId?: string,
+    surfaceMode?: boolean,
+  ): void | Promise<void> {
     if (this.visibleTabIds.has(tabId)) {
       return this.buffer.push({
         type: MESSAGE_TYPES.CHAT_CHUNK,
@@ -135,23 +185,43 @@ export class ChatStreamDeliveryCoordinator {
 
   /** Applies a distinct v2 viewport and emits one catch-up envelope per reveal. */
   async updateViewport(viewport: ChatSetStreamViewportParams): Promise<void> {
+    const generation = ++this.viewportGeneration;
     const nextVisible = new Set(viewport.visibleTabIds);
     if (viewport.focusedTabId) nextVisible.add(viewport.focusedTabId);
-    const revealed = [...nextVisible].filter(
-      (tabId) => !this.visibleTabIds.has(tabId),
-    );
+    const requestedResync = new Set(viewport.resyncTabIds ?? []);
+    for (const tabId of this.pendingUnknownResyncTabIds) {
+      if (!nextVisible.has(tabId) && !requestedResync.has(tabId)) {
+        this.pendingUnknownResyncTabIds.delete(tabId);
+      }
+    }
     this.viewportNegotiated = true;
-    this.visibleTabIds.clear();
-    for (const tabId of nextVisible) this.visibleTabIds.add(tabId);
+    this.requestedVisibleTabIds = nextVisible;
+    for (const tabId of this.visibleTabIds) {
+      if (!nextVisible.has(tabId)) this.visibleTabIds.delete(tabId);
+    }
+    for (const tabId of requestedResync) {
+      if (!this.states.has(tabId) && !nextVisible.has(tabId)) {
+        this.pendingUnknownResyncTabIds.add(tabId);
+        this.metrics.requestedResyncs++;
+        continue;
+      }
+      const state = this.getState(tabId);
+      state.resyncRequired = true;
+      state.tail.clear();
+      this.metrics.requestedResyncs++;
+      if (nextVisible.has(tabId)) this.visibleTabIds.delete(tabId);
+    }
+    const revealed = [...nextVisible].filter((tabId) => !this.visibleTabIds.has(tabId));
 
     for (const tabId of revealed) {
-      await this.reveal(tabId);
+      await this.reveal(tabId, generation);
     }
   }
 
   /** Ensures accepted chunks are handed to the transport before a terminal. */
   async flushBeforeTerminal(_tabId: string): Promise<void> {
     await this.buffer.flush();
+    await this.buffer.settle();
   }
 
   /** Delivers terminal messages after their batch, or defers them while hidden. */
@@ -164,15 +234,27 @@ export class ChatStreamDeliveryCoordinator {
       this.getState(tabId).terminal = { type, payload };
       return;
     }
+    const generation = this.viewportGeneration;
     await this.flushBeforeTerminal(tabId);
     await this.send(type, payload);
-    this.states.delete(tabId);
+    const state = this.states.get(tabId);
+    if (
+      state &&
+      generation === this.viewportGeneration &&
+      (!this.viewportNegotiated || this.visibleTabIds.has(tabId))
+    ) {
+      this.clearHidden(state);
+      if (state.projection.isEmpty() && state.pendingAnchors.size === 0) {
+        this.states.delete(tabId);
+      }
+    }
   }
 
   /** Releases retained state when the owning host disposes a tab. */
   dispose(tabId: string): void {
     this.states.delete(tabId);
     this.visibleTabIds.delete(tabId);
+    this.pendingUnknownResyncTabIds.delete(tabId);
   }
 
   /** Awaits currently accepted transport sends without disposing the shared buffer. */
@@ -189,11 +271,12 @@ export class ChatStreamDeliveryCoordinator {
     let state = this.states.get(tabId);
     if (!state) {
       state = {
-        sequence: 0,
+        lastSequence: this.sequence,
         ...(sessionId ? { sessionId } : {}),
-        tail: [],
-        tailBytes: 0,
-        resyncRequired: false,
+        tail: new StreamDeltaCoalescer(),
+        resyncRequired: this.pendingUnknownResyncTabIds.delete(tabId),
+        projection: new LiveMessageProjection(this.maxLiveSeedBytes),
+        pendingAnchors: new Map(),
       };
       this.states.set(tabId, state);
     }
@@ -202,49 +285,80 @@ export class ChatStreamDeliveryCoordinator {
 
   private retain(state: TabDeliveryState, event: FlatStreamEventUnion): void {
     if (state.resyncRequired) return;
-    const bytes = this.serializedBytes(event);
+    if (state.tail.append(event, state.lastSequence)) {
+      this.metrics.coalescedHiddenDeltas++;
+    }
     if (
-      state.tail.length + 1 > this.maxTailEvents ||
-      state.tailBytes + bytes > this.maxTailBytes
+      state.tail.events.length > this.maxTailEvents ||
+      state.tail.bytes > this.maxTailBytes
     ) {
-      state.tail = [];
-      state.tailBytes = 0;
+      state.tail.clear();
       state.resyncRequired = true;
       this.metrics.snapshotOverflowResyncs++;
-      return;
     }
-    state.tail.push({ sequence: state.sequence, event, bytes });
-    state.tailBytes += bytes;
   }
 
-  private async reveal(tabId: string): Promise<void> {
-    const state = this.states.get(tabId);
-    if (!state) return;
-
+  private async reveal(tabId: string, generation: number): Promise<void> {
     await this.flushBeforeTerminal(tabId);
-    const fromSequence = state.tail[0]?.sequence ?? state.sequence;
+    if (
+      generation !== this.viewportGeneration ||
+      !this.requestedVisibleTabIds.has(tabId)
+    ) return;
+    const state = this.states.get(tabId) ??
+      (this.pendingUnknownResyncTabIds.has(tabId) ? this.getState(tabId) : undefined);
+    if (!state) {
+      this.visibleTabIds.add(tabId);
+      return;
+    }
+    if (state.resyncRequired) state.lastSequence = ++this.sequence;
+    const fromSequence = state.tail.events[0]?.sequence ?? state.lastSequence;
+    const seed = state.resyncRequired ? state.projection.buildSeed() : undefined;
     const snapshot: ChatStreamSnapshotPayload = {
       protocolVersion: 2,
       tabId,
       ...(state.sessionId ? { sessionId: state.sessionId } : {}),
       fromSequence,
-      toSequence: state.sequence,
+      toSequence: state.lastSequence,
       ...(state.resyncRequired
-        ? { resyncRequired: true }
-        : { events: state.tail.map(({ event }) => event) }),
+        ? {
+            resyncRequired: true,
+            ...(seed?.events.length ? { liveSeed: seed.events } : {}),
+            ...(seed && Object.keys(seed.blockCounts).length
+              ? { liveSeedBlocks: seed.blockCounts }
+              : {}),
+          }
+        : { events: state.tail.events.map(({ event }) => event) }),
     };
-    this.metrics.snapshotEvents += state.tail.length;
-    this.metrics.snapshotBytes += this.serializedBytes(snapshot);
-    await this.send(MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT, snapshot);
-    const terminal = state.terminal;
-    if (terminal) {
-      this.states.delete(tabId);
-      await this.send(terminal.type, terminal.payload);
-      return;
+    this.metrics.snapshotEvents += state.tail.events.length;
+    this.metrics.liveSeedEvents += seed?.events.length ?? 0;
+    this.metrics.snapshotBytes += serializedBytes(snapshot);
+    for (const anchor of seed?.deferredAnchors ?? []) {
+      state.pendingAnchors.set(anchor.event.messageId, anchor.event);
     }
-    state.tail = [];
-    state.tailBytes = 0;
+    const terminal = state.terminal;
+    this.clearHidden(state);
+    this.visibleTabIds.add(tabId);
+    await this.send(MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT, snapshot);
+    if (terminal) {
+      await this.send(terminal.type, terminal.payload);
+    }
+    if (
+      this.states.get(tabId) === state &&
+      this.visibleTabIds.has(tabId) &&
+      !state.terminal &&
+      !state.resyncRequired &&
+      state.tail.events.length === 0 &&
+      state.projection.isEmpty() &&
+      state.pendingAnchors.size === 0
+    ) {
+      this.states.delete(tabId);
+    }
+  }
+
+  private clearHidden(state: TabDeliveryState): void {
+    state.tail.clear();
     state.resyncRequired = false;
+    state.terminal = undefined;
   }
 
   private async send(type: string, payload: unknown): Promise<void> {
@@ -263,11 +377,4 @@ export class ChatStreamDeliveryCoordinator {
     await this.webviewManager.broadcastMessage(type, payload);
   }
 
-  private serializedBytes(value: unknown): number {
-    try {
-      return Buffer.byteLength(JSON.stringify(value), 'utf8');
-    } catch {
-      return this.maxTailBytes + 1;
-    }
-  }
 }

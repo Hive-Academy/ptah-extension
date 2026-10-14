@@ -40,8 +40,10 @@
 
 import { Injectable, inject, signal } from '@angular/core';
 import { yieldToMacrotask } from '@ptah-extension/core';
+import { isTerminalTurnPhase } from '@ptah-extension/shared';
 import type {
   FlatStreamEventUnion,
+  ExecutionNode,
   SessionId,
   SubagentRecord,
 } from '@ptah-extension/shared';
@@ -51,11 +53,47 @@ import {
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { PersistedContentFilter, type BlockSignature } from './persisted-content-filter';
+import { patchHistoryToolResult } from './history-tool-result-patch';
+import type { ToolResultEvent } from '@ptah-extension/shared';
 
 /** One `switchSession`'s hold on a tab. */
 export interface ReplayClaim {
   readonly tabId: string;
   readonly claim: number;
+}
+
+/** Snapshot content and its tab-local delivery callback. */
+export interface ReplayLiveSeed {
+  readonly events: readonly FlatStreamEventUnion[];
+  readonly apply: (events: readonly FlatStreamEventUnion[]) => void;
+  readonly liveSeedBlocks?: Readonly<Record<string, number>>;
+}
+
+/** Inputs produced by a verified history read for one claim. */
+export interface PersistedFilterInputs {
+  readonly ownerByEvent: ReadonlyMap<FlatStreamEventUnion, string> | null;
+  readonly syntheticResults?: ReadonlySet<FlatStreamEventUnion> | null;
+  readonly prefixMark: number | null;
+}
+
+/** A temporary hold that does not supersede the tab's replay claim. */
+export interface FenceReservation {
+  readonly sessionId: string;
+  readonly claim: number;
+  released: boolean;
+}
+
+interface BufferedLiveEvent {
+  readonly deliver: (excludeTabIds?: ReadonlySet<string>) => void;
+  readonly event: FlatStreamEventUnion;
+  readonly arrival: number;
+}
+
+interface HistoryIndex {
+  readonly history: Map<string, BlockSignature[]>;
+  readonly toolResults: Map<string, { output: unknown; isError: boolean; synthetic: boolean }>;
+  readonly toolIds: Set<string>;
 }
 
 /** `superseded`: a newer resume claimed the tab, or the tab closed or rebound. */
@@ -75,7 +113,7 @@ interface LiveEventFence {
   readonly sessionId: string;
   /** Claim numbers of the resumes holding this fence open. */
   readonly holders: Set<number>;
-  readonly buffered: Array<() => void>;
+  readonly buffered: BufferedLiveEvent[];
   /** Set once the bound is hit; later events for the session bypass the fence. */
   overflowed: boolean;
 }
@@ -128,6 +166,14 @@ export class SessionHistoryReplayer {
   private readonly fences = new Map<string, LiveEventFence>();
   /** Which fence each tab's current claim holds, by tab id. */
   private readonly heldFences = new Map<string, HeldFence>();
+  private readonly overflowedHolders = new Set<number>();
+  private readonly seeds = new Map<number, ReplayLiveSeed | (() => void)>();
+  private readonly filterInputs = new Map<number, PersistedFilterInputs>();
+  private readonly historyIndexes = new Map<number, HistoryIndex>();
+  private readonly persistedFilters = new Map<string, PersistedContentFilter>();
+  private readonly filterToolIds = new WeakMap<PersistedContentFilter, ReadonlySet<string>>();
+  private readonly terminalFilters = new WeakSet<PersistedContentFilter>();
+  private arrivalCounter = 0;
 
   /** Global FIFO admission for the replay-and-finalize phase only. */
   private replayAdmissionActive = false;
@@ -140,13 +186,21 @@ export class SessionHistoryReplayer {
    * the state the new resume is about to install, and its fence hold passes to
    * this claim.
    */
-  claim(tabId: string, sessionId: SessionId): ReplayClaim {
+  claim(tabId: string, sessionId: SessionId, liveSeed?: ReplayLiveSeed | (() => void)): ReplayClaim {
     if (this.claims.has(tabId)) {
       this.streamingHandler.clearPendingUpdates(tabId);
+      const previous = this.claims.get(tabId);
+      if (previous !== undefined) {
+        this.seeds.delete(previous);
+        this.filterInputs.delete(previous);
+        this.historyIndexes.delete(previous);
+      }
     }
+    this.retirePersistedFilter(tabId);
     const claimNumber = ++this.claimCounter;
     this.claims.set(tabId, claimNumber);
     const claim = { tabId, claim: claimNumber };
+    if (liveSeed) this.seeds.set(claimNumber, liveSeed);
     // The fence opens here, not when the replay starts: an `activate: true`
     // resume starts (or joins) the live query on the backend before the
     // `chat:resume` reply arrives, so live chunks can reach the renderer
@@ -172,9 +226,59 @@ export class SessionHistoryReplayer {
    */
   release(claim: ReplayClaim | null): void {
     if (claim === null) return;
-    this.closeFence(claim);
-    if (this.isCurrent(claim)) {
-      this.claims.delete(claim.tabId);
+    try {
+      this.closeFence(claim);
+    } finally {
+      this.seeds.delete(claim.claim);
+      this.filterInputs.delete(claim.claim);
+      this.historyIndexes.delete(claim.claim);
+      this.overflowedHolders.delete(claim.claim);
+      if (this.isCurrent(claim)) this.claims.delete(claim.tabId);
+    }
+  }
+
+  /** Hold a session fence while a resync waits for another load to finish. */
+  reserveFence(sessionId: SessionId): FenceReservation {
+    const reservation = { sessionId, claim: ++this.claimCounter, released: false };
+    const fence = this.getOrCreateFence(sessionId);
+    fence.holders.add(reservation.claim);
+    if (fence.overflowed) this.overflowedHolders.add(reservation.claim);
+    return reservation;
+  }
+
+  /** Release a reservation once; a joined claim continues to hold the fence. */
+  releaseReservation(reservation: FenceReservation): void {
+    if (reservation.released) return;
+    reservation.released = true;
+    this.leaveFence(reservation);
+    this.overflowedHolders.delete(reservation.claim);
+  }
+
+  /** Whether this holder witnessed a fence bound, including before joining it. */
+  overflowedDuring(holder: ReplayClaim | FenceReservation): boolean {
+    return this.overflowedHolders.has(holder.claim);
+  }
+
+  /** Arrival boundary used to distinguish events buffered before a snapshot. */
+  liveArrivalMark(): number {
+    return this.arrivalCounter;
+  }
+
+  /** Attach verified history ownership and the snapshot prefix boundary to a claim. */
+  setPersistedFilterInputs(claim: ReplayClaim, inputs: PersistedFilterInputs): void {
+    if (this.isCurrent(claim)) this.filterInputs.set(claim.claim, inputs);
+  }
+
+  /** Retire a tab's filter before a new resync or claim replaces its state. */
+  retirePersistedFilter(tabId: string): void {
+    const filter = this.persistedFilters.get(tabId);
+    if (!filter) return;
+    this.persistedFilters.delete(tabId);
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    try {
+      filter.retire(!tab || tab.claudeSessionId !== filter.sessionId);
+    } catch (error: unknown) {
+      console.warn('[SessionHistoryReplayer] persisted filter retirement failed', error);
     }
   }
 
@@ -197,6 +301,8 @@ export class SessionHistoryReplayer {
     const { tabId } = claim;
     const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
     const chunked = events.length > chunkSize;
+    const index: HistoryIndex = { history: new Map(), toolResults: new Map(), toolIds: new Set() };
+    this.historyIndexes.set(claim.claim, index);
     this.markReplayStarted(claim);
     const admission = this.acquireReplayAdmission(tabId);
 
@@ -209,12 +315,14 @@ export class SessionHistoryReplayer {
       for (let start = 0; start < events.length; start += chunkSize) {
         const end = Math.min(start + chunkSize, events.length);
         for (let index = start; index < end; index++) {
+          const event = events[index];
           this.streamingHandler.processStreamEvent(
-            events[index],
+            event,
             tabId,
             sessionId,
             { isReplay: true, fanOut: false },
           );
+          this.indexHistoryEvent(claim, event);
         }
         if (!chunked) continue;
         await yieldToMacrotask();
@@ -223,12 +331,96 @@ export class SessionHistoryReplayer {
         }
       }
 
+      const seed = this.seeds.get(claim.claim);
+      const historyToolIds = this.historyIndexes.get(claim.claim)?.toolIds;
+      const seededSubagent = seed && typeof seed !== 'function' && seed.events.find((event) =>
+        event.eventType === 'agent_start' && event.parentToolUseId &&
+        historyToolIds?.has(event.parentToolUseId));
+      const historyState = seededSubagent
+        ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState
+        : undefined;
       this.streamingHandler.finalizeSessionHistory(tabId, resumableSubagents);
+      if (seededSubagent && seededSubagent.eventType === 'agent_start') {
+        const parentToolId = seededSubagent.parentToolUseId;
+        const ownerMessageId = events.find((event) =>
+          event.eventType === 'tool_start' && event.toolCallId === parentToolId)?.messageId;
+        const ownerStart = events.find((event) =>
+          event.eventType === 'message_start' && event.messageId === ownerMessageId);
+        const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+        if (!ownerMessageId || !ownerStart || !historyState ||
+          !tab?.messages.some((message) => message.id === ownerStart.id)) {
+          console.warn('[SessionHistoryReplayer] seeded subagent history owner not found');
+        } else {
+          const messageIds = new Set([ownerMessageId]);
+          const toolIds = new Set<string>();
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const event of events) {
+              if (event.eventType === 'tool_start' && messageIds.has(event.messageId) &&
+                !toolIds.has(event.toolCallId)) {
+                toolIds.add(event.toolCallId);
+                changed = true;
+              }
+              if (event.eventType === 'message_start' && event.parentToolUseId &&
+                toolIds.has(event.parentToolUseId) && !messageIds.has(event.messageId)) {
+                messageIds.add(event.messageId);
+                changed = true;
+              }
+            }
+          }
+          const belongs = (key: string): boolean => [...messageIds, ...toolIds].some(
+            (id) => key === id || key.startsWith(`${id}-`));
+          const liveState = {
+            ...historyState,
+            events: new Map([...historyState.events].filter(([, event]) => messageIds.has(event.messageId))),
+            messageEventIds: historyState.messageEventIds.filter((id) => messageIds.has(id)),
+            toolCallMap: new Map([...historyState.toolCallMap]
+              .filter(([id]) => toolIds.has(id)).map(([id, ids]): [string, string[]] => [id, [...ids]])),
+            textAccumulators: new Map([...historyState.textAccumulators].filter(([key]) => belongs(key))),
+            toolInputAccumulators: new Map([...historyState.toolInputAccumulators].filter(([key]) => belongs(key))),
+            agentSummaryAccumulators: new Map([...historyState.agentSummaryAccumulators].filter(([key]) => belongs(key))),
+            agentContentBlocksMap: new Map([...historyState.agentContentBlocksMap]
+              .filter(([key]) => belongs(key)).map(([key, blocks]): [string, (typeof blocks)[number][]] => [key, [...blocks]])),
+            eventsByMessage: new Map([...historyState.eventsByMessage]
+              .filter(([id]) => messageIds.has(id)).map(([id, entries]): [string, (typeof entries)[number][]] => [id, [...entries]])),
+            currentMessageId: ownerMessageId,
+          };
+          this.tabManager.setMessages(tabId, tab.messages.filter((message) => message.id !== ownerStart.id));
+          this.tabManager.setStreamingState(tabId, liveState);
+        }
+      }
       this.closeFence(claim);
       return 'replayed';
     } finally {
       this.markReplayFinished(claim);
       this.releaseReplayAdmission();
+    }
+  }
+
+  private indexHistoryEvent(claim: ReplayClaim, event: FlatStreamEventUnion): void {
+    const index = this.historyIndexes.get(claim.claim);
+    if (!index) return;
+    const inputs = this.filterInputs.get(claim.claim);
+    const owner = inputs?.ownerByEvent?.get(event);
+    if (owner) {
+      let signature: BlockSignature | undefined;
+      if (event.eventType === 'text_delta') signature = { kind: 'text', value: event.delta };
+      else if (event.eventType === 'thinking_delta') signature = { kind: 'thinking', value: event.delta };
+      else if (event.eventType === 'tool_start') signature = { kind: 'tool', value: event.toolCallId };
+      if (signature) {
+        const blocks = index.history.get(owner) ?? [];
+        blocks.push(signature);
+        index.history.set(owner, blocks);
+      }
+    }
+    if (event.eventType === 'tool_start') index.toolIds.add(event.toolCallId);
+    if (event.eventType === 'tool_result') {
+      index.toolResults.set(event.toolCallId, {
+        output: event.output,
+        isError: event.isError,
+        synthetic: inputs?.syntheticResults === null || inputs?.syntheticResults === undefined || inputs.syntheticResults.has(event),
+      });
     }
   }
 
@@ -458,10 +650,10 @@ export class SessionHistoryReplayer {
     event: FlatStreamEventUnion,
     tabId: string | undefined,
     sessionId: string | undefined,
-    deliver: () => void,
+    deliver: (excludeTabIds?: ReadonlySet<string>) => void,
   ): boolean {
     const fence = this.findFence(event, tabId, sessionId);
-    if (!fence || fence.overflowed) return false;
+    if (!fence || fence.overflowed) return this.deliverAfterClose(event, sessionId, deliver);
     if (
       fence.buffered.length >= SessionHistoryReplayer.LIVE_EVENT_FENCE_LIMIT
     ) {
@@ -474,10 +666,23 @@ export class SessionHistoryReplayer {
         },
       );
       fence.overflowed = true;
-      this.deliverAll(fence.buffered.splice(0));
-      return false;
+      for (const holder of fence.holders) this.overflowedHolders.add(holder);
+      this.deliverAll(fence.buffered.splice(0), fence.sessionId);
+      return this.deliverAfterClose(event, sessionId, deliver);
     }
-    fence.buffered.push(deliver);
+    fence.buffered.push({ deliver, event, arrival: this.arrivalCounter++ });
+    return true;
+  }
+
+  private deliverAfterClose(
+    event: FlatStreamEventUnion,
+    sessionId: string | undefined,
+    deliver: (excludeTabIds?: ReadonlySet<string>) => void,
+  ): boolean {
+    const { excluded, consulted } = this.exclusions(event, sessionId ?? event.sessionId);
+    if (!consulted) return false;
+    if (excluded.size > 0) deliver(excluded);
+    else deliver();
     return true;
   }
 
@@ -501,6 +706,15 @@ export class SessionHistoryReplayer {
    * buffer for the same session stays closed across the hand-over.
    */
   private openFence(claim: ReplayClaim, sessionId: string): void {
+    const fence = this.getOrCreateFence(sessionId);
+    fence.holders.add(claim.claim);
+    if (fence.overflowed) this.overflowedHolders.add(claim.claim);
+    const previous = this.heldFences.get(claim.tabId);
+    this.heldFences.set(claim.tabId, { claim: claim.claim, sessionId });
+    if (previous) this.leaveFence(previous);
+  }
+
+  private getOrCreateFence(sessionId: string): LiveEventFence {
     let fence = this.fences.get(sessionId);
     if (!fence) {
       fence = {
@@ -511,18 +725,126 @@ export class SessionHistoryReplayer {
       };
       this.fences.set(sessionId, fence);
     }
-    fence.holders.add(claim.claim);
-    const previous = this.heldFences.get(claim.tabId);
-    this.heldFences.set(claim.tabId, { claim: claim.claim, sessionId });
-    if (previous) this.leaveFence(previous);
+    return fence;
   }
 
   /** Drop `claim`'s hold, if its tab's hold is still this claim's. */
-  private closeFence(claim: ReplayClaim): void {
+  private closeFence(claim: ReplayClaim): readonly FlatStreamEventUnion[] | undefined {
     const held = this.heldFences.get(claim.tabId);
     if (!held || held.claim !== claim.claim) return;
-    this.heldFences.delete(claim.tabId);
-    this.leaveFence(held);
+    const seed = this.seeds.get(claim.claim);
+    const needsBoundTab = seed !== undefined || this.filterInputs.has(claim.claim);
+    const tab = needsBoundTab ? this.tabManager.findTabByIdAcrossWorkspaces(claim.tabId)?.tab : undefined;
+    const valid = this.isCurrent(claim) && (!needsBoundTab || tab?.claudeSessionId === held.sessionId);
+    let filterRegistrationFailed = false;
+    try {
+      if (valid && !this.overflowedHolders.has(claim.claim)) {
+        try {
+          this.registerPersistedFilter(claim, held.sessionId);
+        } catch (error: unknown) {
+          console.warn('[SessionHistoryReplayer] persisted filter registration failed', error);
+          this.retirePersistedFilter(claim.tabId);
+          filterRegistrationFailed = true;
+        }
+      }
+      this.seeds.delete(claim.claim);
+      if (valid && seed) {
+        try {
+          if (typeof seed === 'function') seed();
+          else {
+            if (filterRegistrationFailed) {
+              seed.apply(seed.events);
+              return seed.events;
+            }
+            let filter = this.persistedFilters.get(claim.tabId);
+            const kept: FlatStreamEventUnion[] = [];
+            for (const event of seed.events) {
+              if (!filter || !seed.liveSeedBlocks || !event.messageId ||
+                !Object.hasOwn(seed.liveSeedBlocks, event.messageId) ||
+                event.eventType === 'tool_result' || event.eventType === 'turn_state' ||
+                event.eventType.startsWith('compaction_') || event.eventType.startsWith('background_') ||
+                (event.eventType === 'message_start' && event.role === 'user')) {
+                kept.push(event);
+                continue;
+              }
+              try {
+                if (filter.decide(event) === 'keep') kept.push(event);
+              } catch (error: unknown) {
+                console.warn('[SessionHistoryReplayer] persisted filter failed; delivering seed', error);
+                this.retirePersistedFilter(claim.tabId);
+                filter = undefined;
+                kept.push(event);
+              }
+            }
+            seed.apply(kept);
+            return kept;
+          }
+        } catch (error: unknown) {
+          console.error('[SessionHistoryReplayer] live seed failed to apply', error);
+        }
+      }
+    } finally {
+      this.heldFences.delete(claim.tabId);
+      this.leaveFence(held);
+    }
+    return undefined;
+  }
+
+  private registerPersistedFilter(claim: ReplayClaim, sessionId: string): void {
+    for (const [tabId, filter] of this.persistedFilters) {
+      const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (!tab || tab.claudeSessionId !== filter.sessionId) this.retirePersistedFilter(tabId);
+    }
+    const inputs = this.filterInputs.get(claim.claim);
+    const index = this.historyIndexes.get(claim.claim);
+    if (!inputs || !index ||
+      (index.history.size === 0 && index.toolIds.size === 0 && inputs.prefixMark === null)) return;
+    const seed = this.seeds.get(claim.claim);
+    const seedEvents = seed && typeof seed !== 'function' ? seed.events : [];
+    if (seed && typeof seed !== 'function' && seedEvents.length === 0 &&
+      Object.keys(seed.liveSeedBlocks ?? {}).length === 0 && index.history.size === 0 &&
+      index.toolIds.size === 0) return;
+    const lastTurnState = [...seedEvents].reverse().find((event) => event.eventType === 'turn_state');
+    if (lastTurnState?.eventType === 'turn_state' && isTerminalTurnPhase(lastTurnState.phase)) return;
+    const seedMessageIds = new Set<string>();
+    const seedBlockKeys = new Set<string>();
+    for (const event of seedEvents) {
+      if (event.eventType === 'message_start') seedMessageIds.add(event.messageId);
+      if (event.eventType === 'text_delta' || event.eventType === 'thinking_delta' ||
+        event.eventType === 'thinking_start' || event.eventType === 'signature_delta') {
+        seedBlockKeys.add(`${event.messageId}|${event.eventType === 'text_delta' ? 'text' : 'thinking'}|${event.blockIndex}`);
+      } else if (event.eventType === 'tool_start' || event.eventType === 'tool_delta') {
+        seedBlockKeys.add(`${event.messageId}|tool|${event.toolCallId}`);
+      }
+    }
+    const seedStartK = new Map<string, number>(seed && typeof seed !== 'function'
+      ? Object.entries(seed.liveSeedBlocks ?? {}) : []);
+    const tabId = claim.tabId;
+    const filter = new PersistedContentFilter({
+      tabId, sessionId, history: index.history, historyToolResults: index.toolResults,
+      historyToolIds: index.toolIds, prefixMark: inputs.prefixMark, seedMessageIds,
+      seedStartK, seedBlockKeys,
+      deliverToTab: (event) => this.streamingHandler.processStreamEvent(event, tabId, sessionId, { fanOut: false }),
+      reconcileHistoryToolResult: (event) => this.reconcileHistoryToolResult(tabId, event),
+    });
+    this.filterToolIds.set(filter, index.toolIds);
+    this.persistedFilters.set(tabId, filter);
+  }
+
+  private reconcileHistoryToolResult(tabId: string, event: ToolResultEvent): boolean {
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return false;
+    const patched = patchHistoryToolResult(tab.messages, event);
+    if (patched === tab.messages) {
+      const hasNode = (node: ExecutionNode): boolean =>
+        (node.type === 'tool' && node.toolCallId === event.toolCallId) ||
+        node.children.some(hasNode);
+      if (tab.messages.some((message) => message.streamingState && hasNode(message.streamingState))) return true;
+      console.warn('[SessionHistoryReplayer] history tool result could not be reconciled');
+      return false;
+    }
+    this.tabManager.setMessages(tabId, [...patched]);
+    return true;
   }
 
   /** The last holder leaving a fence delivers its buffer in arrival order. */
@@ -532,20 +854,69 @@ export class SessionHistoryReplayer {
     fence.holders.delete(held.claim);
     if (fence.holders.size > 0) return;
     this.fences.delete(held.sessionId);
-    this.deliverAll(fence.buffered);
+    for (let index = 0; index < fence.buffered.length; index++) {
+      this.deliverOne(fence.buffered[index], held.sessionId);
+      const next = this.fences.get(held.sessionId);
+      if (next && next !== fence) {
+        const remaining = fence.buffered.slice(index + 1);
+        if (remaining.length + next.buffered.length > SessionHistoryReplayer.LIVE_EVENT_FENCE_LIMIT) {
+          next.overflowed = true;
+          for (const holder of next.holders) this.overflowedHolders.add(holder);
+          this.deliverAll([...remaining, ...next.buffered.splice(0)], held.sessionId);
+        } else {
+          next.buffered.unshift(...remaining);
+        }
+        return;
+      }
+    }
   }
 
   /** One throwing delivery must not strand the events queued behind it. */
-  private deliverAll(deliveries: ReadonlyArray<() => void>): void {
-    for (const deliver of deliveries) {
+  private deliverAll(deliveries: ReadonlyArray<BufferedLiveEvent>, sessionId: string): void {
+    for (const entry of deliveries) this.deliverOne(entry, sessionId);
+  }
+
+  private deliverOne(entry: BufferedLiveEvent, sessionId: string | undefined): void {
       try {
-        deliver();
+        const { excluded } = this.exclusions(entry.event, sessionId, entry.arrival);
+        if (excluded.size > 0) entry.deliver(excluded);
+        else entry.deliver();
       } catch (error: unknown) {
         console.error(
           '[SessionHistoryReplayer] buffered live event failed to apply',
           error,
         );
       }
+  }
+
+  private exclusions(event: FlatStreamEventUnion, sessionId: string | undefined, arrival?: number): { excluded: Set<string>; consulted: boolean } {
+    const excluded = new Set<string>();
+    let consulted = false;
+    for (const [tabId, filter] of this.persistedFilters) {
+      if (filter.sessionId !== sessionId) continue;
+      const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (!tab || tab.claudeSessionId !== sessionId) {
+        this.retirePersistedFilter(tabId);
+        continue;
+      }
+      if (this.terminalFilters.has(filter) &&
+        (event.eventType !== 'tool_result' ||
+          !this.filterToolIds.get(filter)?.has(event.toolCallId))) continue;
+      consulted = true;
+      let decision: ReturnType<PersistedContentFilter['decide']>;
+      try {
+        decision = filter.decide(event, arrival);
+      } catch (error: unknown) {
+        console.warn('[SessionHistoryReplayer] persisted filter failed; delivering live event', error);
+        this.retirePersistedFilter(tabId);
+        continue;
+      }
+      if (decision !== 'keep') excluded.add(tabId);
+      if (event.eventType === 'compaction_complete' ||
+        (event.eventType === 'turn_state' && isTerminalTurnPhase(event.phase))) {
+        this.terminalFilters.add(filter);
+      }
     }
+    return { excluded, consulted };
   }
 }
