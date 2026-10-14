@@ -48,6 +48,11 @@ import {
   isSkillOrMetaContent,
 } from '../../message-transform/message-transform-helpers';
 
+export interface HistoryReplayCollector {
+  blockOwners: Map<FlatStreamEventUnion, string>;
+  syntheticToolResults: Set<FlatStreamEventUnion>;
+}
+
 /**
  * Service for replaying session history as stream events.
  *
@@ -84,8 +89,12 @@ export class SessionReplayService {
     sessionId: string,
     mainMessages: SessionHistoryMessage[],
     agentSessions: AgentSessionData[],
+    collector?: HistoryReplayCollector,
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
+    const recordBlock = (messageId: string | undefined): void => {
+      if (messageId) collector?.blockOwners.set(events[events.length - 1], messageId);
+    };
     let eventIndex = 0;
     let startIndex = 0;
     for (let i = mainMessages.length - 1; i >= 0; i--) {
@@ -297,6 +306,7 @@ export class SessionReplayService {
                   currentMessageTimestamp + messageSequence++ * 0.001,
                 ),
               );
+              recordBlock(msg.message.id);
             } else if (block.type === 'thinking' && block.thinking) {
               events.push(
                 this.eventFactory.createThinkingDelta(
@@ -308,6 +318,7 @@ export class SessionReplayService {
                   currentMessageTimestamp + messageSequence++ * 0.001,
                 ),
               );
+              recordBlock(msg.message.id);
             } else if (block.type === 'tool_use') {
               const toolResult = block.id
                 ? allToolResults.get(block.id)
@@ -327,6 +338,7 @@ export class SessionReplayService {
                     currentMessageTimestamp + messageSequence++ * 0.001,
                   ),
                 );
+                recordBlock(msg.message.id);
                 const correlatedAgentFileId = block.id
                   ? taskToAgentMap.get(block.id) || null
                   : null;
@@ -356,6 +368,7 @@ export class SessionReplayService {
                     toolCallId,
                     agentData.executionMessages,
                     currentMessageTimestamp + messageSequence++ * 0.001,
+                    collector,
                   );
                   messageSequence += nestedEvents.length;
                   events.push(...nestedEvents);
@@ -413,6 +426,7 @@ export class SessionReplayService {
                       currentMessageTimestamp + messageSequence++ * 0.001,
                     ),
                   );
+                  collector?.syntheticToolResults.add(events[events.length - 1]);
                 }
               } else {
                 events.push(
@@ -426,6 +440,7 @@ export class SessionReplayService {
                     currentMessageTimestamp + messageSequence++ * 0.001,
                   ),
                 );
+                recordBlock(msg.message.id);
 
                 if (toolResult) {
                   events.push(
@@ -483,6 +498,7 @@ export class SessionReplayService {
     parentToolUseId: string,
     messages: SessionHistoryMessage[],
     parentTimestamp: number,
+    collector?: HistoryReplayCollector,
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
     let eventIndex = 0;
@@ -524,6 +540,9 @@ export class SessionReplayService {
               parentToolUseId,
             ),
           );
+          if (msg.message.id) {
+            collector?.blockOwners.set(events[events.length - 1], msg.message.id);
+          }
         } else if (block.type === 'tool_use') {
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
           const toolCallId = block.id || this.eventFactory.generateId();
@@ -540,6 +559,9 @@ export class SessionReplayService {
               parentToolUseId,
             ),
           );
+          if (msg.message.id) {
+            collector?.blockOwners.set(events[events.length - 1], msg.message.id);
+          }
 
           if (toolResult) {
             const resultTimestamp = parentTimestamp + sequence++ * 0.0001;

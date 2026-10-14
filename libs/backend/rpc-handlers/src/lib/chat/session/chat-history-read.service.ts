@@ -64,12 +64,18 @@ export class ChatHistoryReadService {
     });
   }
 
-  async readForResume(sessionId: SessionId) {
+  async readForResume(
+    sessionId: SessionId,
+    options?: { includeBlockOwners?: boolean },
+  ) {
     const resolvedWorkspacePath = await this.resolveSessionFolder(sessionId);
     const history = await this.historyReader.readSessionHistory(
       sessionId,
       resolvedWorkspacePath,
-      { checkCompactionBoundary: true },
+      {
+        checkCompactionBoundary: true,
+        ...(options?.includeBlockOwners ? { includeBlockOwners: true } : {}),
+      },
     );
     return { ...history, resolvedWorkspacePath };
   }

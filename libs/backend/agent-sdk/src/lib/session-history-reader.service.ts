@@ -63,7 +63,10 @@ import type {
   PendingExpectation,
 } from './helpers/compaction-boundary-generation-registry';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
-import type { SessionReplayService } from './helpers/history/session-replay.service';
+import type {
+  HistoryReplayCollector,
+  SessionReplayService,
+} from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
 import {
   SessionHistoryReadTiming,
@@ -190,7 +193,7 @@ export class SessionHistoryReaderService {
   async readSessionHistory(
     sessionId: string,
     workspacePath: string,
-    options?: { checkCompactionBoundary?: boolean },
+    options?: { checkCompactionBoundary?: boolean; includeBlockOwners?: boolean },
   ): Promise<{
     events: FlatStreamEventUnion[];
     /**
@@ -201,8 +204,13 @@ export class SessionHistoryReaderService {
      */
     stats: SessionStatsEntry | null;
     staleSnapshot?: true;
+    blockOwners?: Map<FlatStreamEventUnion, string>;
+    syntheticToolResults?: Set<FlatStreamEventUnion>;
   }> {
     const checkCompactionBoundary = options?.checkCompactionBoundary ?? false;
+    const collector: HistoryReplayCollector | undefined = options?.includeBlockOwners
+      ? { blockOwners: new Map(), syntheticToolResults: new Set() }
+      : undefined;
     let expectation: PendingExpectation | undefined;
     let staleSnapshot: true | undefined;
     // Slow-read attribution (TASK_2026_437 C13) — see session-history-read-timing.ts.
@@ -223,6 +231,7 @@ export class SessionHistoryReaderService {
             expectation,
           ),
         timing,
+        collector,
       );
       if (!loaded) {
         this.consumeCompactionExpectation(
@@ -237,6 +246,12 @@ export class SessionHistoryReaderService {
             checkCompactionBoundary && expectation !== undefined
               ? true
               : undefined,
+          ...(collector
+            ? {
+                blockOwners: collector.blockOwners,
+                syntheticToolResults: collector.syntheticToolResults,
+              }
+            : {}),
         };
       }
       const { events, mainMessages, agentSessions, unreadableAgents } = loaded;
@@ -270,7 +285,17 @@ export class SessionHistoryReaderService {
         staleSnapshot,
       });
 
-      return { events, stats, staleSnapshot };
+      return {
+        events,
+        stats,
+        staleSnapshot,
+        ...(collector
+          ? {
+              blockOwners: collector.blockOwners,
+              syntheticToolResults: collector.syntheticToolResults,
+            }
+          : {}),
+      };
     } catch (error) {
       timing.finish(true);
       this.consumeCompactionExpectation(
@@ -419,6 +444,7 @@ export class SessionHistoryReaderService {
       sessionPath: string,
     ) => Promise<{ messages: SessionHistoryMessage[]; staleSnapshot?: true }>,
     timing?: HistoryReadStopwatch,
+    collector?: HistoryReplayCollector,
   ): Promise<SessionEventData | null> {
     this.validateSessionId(sessionId);
     const sessionsDir =
@@ -447,11 +473,18 @@ export class SessionHistoryReaderService {
     );
     timing?.readDone(mainMessages.length, agentSessions.length);
     timing?.begin('project');
-    const events = this.replayService.replayToStreamEvents(
-      sessionId,
-      mainMessages,
-      agentSessions,
-    );
+    const events = collector
+      ? this.replayService.replayToStreamEvents(
+          sessionId,
+          mainMessages,
+          agentSessions,
+          collector,
+        )
+      : this.replayService.replayToStreamEvents(
+          sessionId,
+          mainMessages,
+          agentSessions,
+        );
     timing?.events(events.length);
     return {
       events,

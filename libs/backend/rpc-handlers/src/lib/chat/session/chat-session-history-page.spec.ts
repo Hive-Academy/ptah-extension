@@ -136,6 +136,70 @@ function makeSessionService() {
 }
 
 describe('ChatSessionService history paging', () => {
+  it('returns empty owner metadata for an opted-in unloaded read', async () => {
+    const harness = makeSessionService();
+    harness.historyRead.readForResume.mockResolvedValue({
+      events: [], stats: null, resolvedWorkspacePath: WORKSPACE,
+    });
+    const optedIn = await harness.service.resumeSession({
+      sessionId: SESSION_ID, tabId: TAB_ID, historyBlockOwners: true,
+    });
+    expect(optedIn).toMatchObject({
+      success: true, events: [], historyBlockOwners: {},
+      historySyntheticToolResults: [],
+    });
+    const legacy = await harness.service.resumeSession({ sessionId: SESSION_ID, tabId: TAB_ID });
+    expect(legacy).not.toHaveProperty('historyBlockOwners');
+    expect(legacy).not.toHaveProperty('historySyntheticToolResults');
+  });
+
+  it('omits cut message owners and returns synthetic indices only on opt-in', async () => {
+    const harness = makeSessionService();
+    const events = [
+      { eventType: 'message_start', messageId: 'u1', role: 'user' },
+      { eventType: 'text_delta', messageId: 'turn', text: 'first' },
+      { eventType: 'message_start', messageId: 'u2', role: 'user' },
+      { eventType: 'text_delta', messageId: 'turn', text: 'second' },
+      { eventType: 'tool_start', messageId: 'turn', toolCallId: 't' },
+      { eventType: 'tool_result', messageId: 'turn', toolCallId: 't' },
+    ] as FlatStreamEventUnion[];
+    harness.historyRead.readForResume.mockResolvedValue({
+      events,
+      stats: harness.stats,
+      resolvedWorkspacePath: WORKSPACE,
+      blockOwners: new Map([
+        [events[1], 'X'],
+        [events[3], 'X'],
+        [events[4], 'Y'],
+      ]),
+      syntheticToolResults: new Set([events[5]]),
+    });
+    const params: ChatResumeParams = {
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      historyBlockOwners: true,
+      historyPage: { maxEvents: 2 },
+    };
+    const paged = await harness.service.resumeSession(params);
+    expect(paged).toMatchObject({
+      success: true,
+      historyBlockOwners: { '2': 'Y' },
+      historySyntheticToolResults: [3],
+    });
+    expect(harness.historyRead.readForResume).toHaveBeenCalledWith(
+      SESSION_ID,
+      { includeBlockOwners: true },
+    );
+
+    const legacy = await harness.service.resumeSession({
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      historyPage: { maxEvents: 2 },
+    });
+    expect(legacy).not.toHaveProperty('historyBlockOwners');
+    expect(legacy).not.toHaveProperty('historySyntheticToolResults');
+  });
+
   it('keeps the legacy full-history response when paging is omitted', async () => {
     const harness = makeSessionService();
     const result = await harness.service.resumeSession({

@@ -47,6 +47,15 @@ export class SessionLivenessReconcilerService {
     );
   }
 
+  /** Probe one restored tab using the revision-safe unordered status path. */
+  async reconcileTab(tabId: string, sessionId: string): Promise<void> {
+    const workspacePath =
+      this.tabManager.activeWorkspacePath ??
+      this.vscodeService.config().workspaceRoot ??
+      undefined;
+    await this.probe(tabId, sessionId, workspacePath);
+  }
+
   private async probe(
     tabId: string,
     sessionId: string,
@@ -54,7 +63,7 @@ export class SessionLivenessReconcilerService {
   ): Promise<void> {
     try {
       const result = await this.rpc.call('session:status', { sessionId });
-      if (!result.success || !result.data) return;
+      if (!result?.success || !result.data) return;
 
       const { isActive, turnState } = result.data;
       if (turnState) {
