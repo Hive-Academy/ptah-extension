@@ -1033,6 +1033,23 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
       });
     },
   },
+  // Session handoff (TASK_2026_655): the same namespace, with the oversized
+  // text in the label its success reply echoes.
+  ptah_session_handoff: {
+    args: { handoffPath: '/fixture/HANDOFF.md', prompt: 'Continue' },
+    mock: (api, marker) => {
+      api.session = sessionStub({
+        handoff: async () => ({
+          ok: true,
+          tabId: 'tab-new',
+          label: `${marker}-${filler(280000, 'h')}`,
+          workspaceRoot: '/fixture',
+          cwd: '/fixture',
+          tabOpened: true,
+        }),
+      });
+    },
+  },
   execute_code: {
     // Executed in every matrix pass under that pass's caller identity (r3
     // R3-03: it was previously only run once, standalone, anonymously). The
@@ -1499,6 +1516,7 @@ const PINNED_PREFORMATTED_TOOLS: ReadonlySet<string> = new Set([
   'ptah_session_status',
   'ptah_session_read',
   'ptah_session_stop',
+  'ptah_session_handoff',
   'ptah_task_list',
 ]);
 
@@ -1893,8 +1911,9 @@ describe('coverage matrix — served tools across host, caller and transport (de
     // set legitimately changes. 62 in total: the five ptah_session_* tools
     // (TASK_2026_584) and ptah_session_link_task (TASK_2026_580); coding
     // drops the 3 Apps-only tools (TASK_2026_595). +3: agent_wait,
-    // run_check and HTTP-only run_check_wait.
-    expect(namesPerCaller[0]).toHaveLength(62);
+    // run_check and HTTP-only run_check_wait. +1: ptah_session_handoff,
+    // always-on (TASK_2026_655).
+    expect(namesPerCaller[0]).toHaveLength(63);
   });
 
   it('HTTP coding without IDE capabilities serves 59 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
@@ -1918,8 +1937,9 @@ describe('coverage matrix — served tools across host, caller and transport (de
     for (const names of namesPerCaller.slice(1)) {
       expect(names).toEqual(namesPerCaller[0]);
     }
-    // 62 in total minus the 3 Apps-only tools; see the note above.
-    expect(namesPerCaller[0]).toHaveLength(59);
+    // 63 in total minus the 3 IDE-gated tools; see the note above
+    // (TASK_2026_655: +1, ptah_session_handoff).
+    expect(namesPerCaller[0]).toHaveLength(60);
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -1957,7 +1977,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
             deps,
           ),
         );
-        expect(apps).toHaveLength(hasIDECapabilities ? 65 : 62);
+        // TASK_2026_655: +1, ptah_session_handoff (always-on).
+        expect(apps).toHaveLength(hasIDECapabilities ? 66 : 63);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -2398,6 +2419,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_session_status: 479,
       ptah_session_read: 312,
       ptah_session_stop: 313,
+      // TASK_2026_655, measured 2026-10-14: 685 chars; ceil(685 * 1.1) + 10.
+      ptah_session_handoff: 764,
       // TASK_2026_597 Batch 34, measured 2026-10-04: 498 and 491 chars.
       ptah_agent_wait: 548,
       ptah_run_check: 540,

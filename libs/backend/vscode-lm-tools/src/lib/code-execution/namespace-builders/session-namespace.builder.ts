@@ -3,13 +3,16 @@
  *
  * `ptah.session` exposes the host's `ISessionSpawner` to the calling chat
  * session: start a child session in its own worktree and tab, steer it,
- * observe it, read its transcript and stop it.
+ * observe it, read its transcript and stop it. It also exposes the host's
+ * `ISessionHandoff` (TASK_2026_655): hand the calling session off to a new
+ * top-level session in the same workspace and cwd.
  *
  * The caller is ALWAYS the session the MCP transport names
  * (`getCallerSessionId`), never an argument, so neither a tool call nor
  * `execute_code` can act on another session's children.
  *
- * The spawner is looked up on every call (`getSpawner`), not captured when
+ * The spawner and the handoff service are looked up on every call
+ * (`getSpawner`, `getHandoff`), not captured when
  * the namespace is built: the builder may be constructed before the
  * cli-agent-runtime services are, and a captured `undefined` would last for
  * the life of the process. Absent at call time is a NAMED error, never a
@@ -17,6 +20,7 @@
  * router).
  */
 import type {
+  ISessionHandoff,
   ISessionSpawner,
   SessionChildCompletionEnvelope,
   SessionChildLookupRefusal,
@@ -25,6 +29,8 @@ import type {
   SessionChildSnapshot,
   SessionChildStartRequest,
   SessionChildStartResult,
+  SessionHandoffRequest,
+  SessionHandoffResult,
   SessionSendMode,
 } from '@ptah-extension/cli-agent-runtime';
 
@@ -33,9 +39,20 @@ export const SESSION_SPAWNER_UNAVAILABLE_MESSAGE =
   'in this host, so there is no session spawner. Register cli-agent-runtime ' +
   'services during container setup.';
 
+export const SESSION_HANDOFF_UNAVAILABLE_MESSAGE =
+  'Session handoff is unavailable: the CLI agent runtime is not registered ' +
+  'in this host, so there is no session handoff service. Register ' +
+  'cli-agent-runtime services during container setup.';
+
 /** Start arguments; the caller is supplied by the namespace, never by the agent. */
 export type SessionStartInput = Omit<
   SessionChildStartRequest,
+  'callerSessionId'
+>;
+
+/** Handoff arguments; the caller is supplied by the namespace, never by the agent. */
+export type SessionHandoffInput = Omit<
+  SessionHandoffRequest,
   'callerSessionId'
 >;
 
@@ -65,6 +82,8 @@ export interface SessionNamespace {
   status(childSessionId?: string): Promise<SessionStatusOutcome>;
   read(childSessionId: string, tailKiB?: number): Promise<SessionReadOutcome>;
   stop(childSessionId: string): Promise<SessionStopOutcome>;
+  /** Hand the caller off to a new top-level session (never throws past the lookup). */
+  handoff(input: SessionHandoffInput): Promise<SessionHandoffResult>;
   /**
    * Completions of the caller's children held while the caller was not live,
    * returned ONCE (the spawner marks them delivered). Empty when the host has
@@ -76,6 +95,8 @@ export interface SessionNamespace {
 export interface SessionNamespaceDependencies {
   /** Resolved on every call; `undefined` when the host registered no spawner. */
   readonly getSpawner: () => ISessionSpawner | undefined;
+  /** Resolved on every call; `undefined` when the host registered no handoff service. */
+  readonly getHandoff: () => ISessionHandoff | undefined;
   /** The transport-derived caller (`/session/{id}`). */
   readonly getCallerSessionId: () => string | undefined;
   /** Fired after a successful start, so the UI lists the new worktree. */
@@ -132,6 +153,12 @@ export function buildSessionNamespace(
 
     stop: async (childSessionId) =>
       requireSpawner().stop({ callerSessionId: caller(), childSessionId }),
+
+    handoff: async (input) => {
+      const handoff = deps.getHandoff();
+      if (!handoff) throw new Error(SESSION_HANDOFF_UNAVAILABLE_MESSAGE);
+      return handoff.handoff({ ...input, callerSessionId: caller() });
+    },
 
     takeHeldCompletions: () =>
       deps.getSpawner()?.takeHeldCompletions(caller()) ?? [],
