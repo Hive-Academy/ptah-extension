@@ -12,10 +12,11 @@
  * `sessionHandoff:opened`).
  *
  * Order matters: the tab is announced BEFORE the session starts, so it exists
- * when the session's first chunk arrives. The announcement never blocks the
- * start — with no webview the broadcaster still drains the stream; a child tab
- * is adopted late through `chat:agent-sessions` and a handoff session is
- * listed in the sessions sidebar.
+ * when the session's first chunk arrives. `uiAnnounced` is `true` only when at
+ * least one open webview accepted the announcement. The announcement never
+ * blocks the start — with no webview the broadcaster still drains the stream;
+ * a child tab is adopted late through `chat:agent-sessions` and a handoff
+ * session is listed in the sessions sidebar.
  *
  * A failed start after a successful announcement would leave the adopted tab
  * spinning: chat errors are emitted only from the stream loop, which a failed
@@ -27,11 +28,12 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  ChildChatSessionStartInput,
-  ChildChatSessionStartOutcome,
-  HandoffChatSessionStartInput,
-  IChildChatSessionHost,
+import {
+  safeErrorKind,
+  type ChildChatSessionStartInput,
+  type ChildChatSessionStartOutcome,
+  type HandoffChatSessionStartInput,
+  type IChildChatSessionHost,
 } from '@ptah-extension/cli-agent-runtime';
 import {
   SDK_TOKENS,
@@ -45,14 +47,31 @@ import {
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSessionService } from './chat-session.service';
-import type { WebviewManager } from '../streaming/chat-stream-broadcaster.service';
+
+/**
+ * The `TOKENS.WEBVIEW_MANAGER` slice this adapter uses. `broadcastMessage`
+ * gives no delivery answer (it resolves with no webview open and when a post
+ * fails), so the announcement enumerates the open surfaces and sends to each.
+ * Every bound manager implements this pair — VS Code's `WebviewManager`,
+ * `ElectronWebviewManagerAdapter` and `CliWebviewManagerAdapter` — as
+ * `createDashboardBroadcast` already relies on.
+ */
+export interface TabAnnouncementHost {
+  getActiveWebviews(): readonly string[];
+  sendMessage(
+    viewType: string,
+    type: string,
+    payload: unknown,
+  ): Promise<boolean>;
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
 
 @injectable()
 export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager,
+    private readonly webviewManager: TabAnnouncementHost,
     @inject(CHAT_TOKENS.SESSION)
     private readonly session: ChatSessionService,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
@@ -108,9 +127,9 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
   /**
    * Start the top-level session that continues a handing-off session. The
    * `ChatSessionService` result is prompt-free by construction (fixed refusal
-   * texts, or the launch error's kind), so it is safe to log and to show; a
-   * throw, which breaks that method's never-throw contract, is reduced to its
-   * name for the same reason.
+   * texts, or the launch error's allowlisted kind), so it is safe to log and
+   * to show; a throw, which breaks that method's never-throw contract, is
+   * reduced to its allowlisted kind for the same reason.
    */
   async startHandoffSession(
     input: HandoffChatSessionStartInput,
@@ -143,9 +162,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
       }
       error = result.error || 'unknown error';
     } catch (error_: unknown) {
-      error = `the session launch threw (${
-        error_ instanceof Error ? error_.name : typeof error_
-      }).`;
+      error = `the session launch threw (${safeErrorKind(error_)}).`;
     }
 
     this.logger.warn('[ChildChatSessionHost] handoff session did not start', {
@@ -162,30 +179,55 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
     return { started: false, error };
   }
 
-  /** Push the tab descriptor; `true` only when the broadcast resolved. */
+  /**
+   * Send the tab descriptor to every open webview; `true` only when at least
+   * one accepted it. No open webview, a `false` send and a throwing send are
+   * all "not announced". The descriptor carries the prompt, so a failure is
+   * logged by its allowlisted kind only.
+   */
   private async announce(
     type:
       | typeof MESSAGE_TYPES.AGENT_SESSION_OPENED
       | typeof MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
     descriptor: AgentSessionOpenedPayload | SessionHandoffOpenedPayload,
   ): Promise<boolean> {
+    const failureKinds: string[] = [];
+    let surfaces: readonly string[] = [];
+    let delivered = 0;
     try {
-      await this.webviewManager.broadcastMessage(type, descriptor);
-      return true;
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - a failed broadcast degrades
-      // to a headless start (`uiAnnounced: false`); the session still starts.
-      // A child tab is adopted late through `chat:agent-sessions`; a handoff
-      // session is listed in the sessions sidebar.
-      this.logger.warn(
-        `[ChildChatSessionHost] ${type} broadcast failed; starting without a tab`,
-        {
-          tabId: descriptor.tabId,
-          error: error instanceof Error ? error.message : String(error),
-        },
+      surfaces = this.webviewManager.getActiveWebviews();
+      // Deferred, so a synchronous throw counts as a failed send too.
+      const results = await Promise.all(
+        surfaces.map((viewType) =>
+          Promise.resolve()
+            .then(() =>
+              this.webviewManager.sendMessage(viewType, type, descriptor),
+            )
+            .then(
+              (ok) => ok === true,
+              (error: unknown) => {
+                failureKinds.push(safeErrorKind(error));
+                return false;
+              },
+            ),
+        ),
       );
-      return false;
+      delivered = results.filter(Boolean).length;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - enumeration racing a
+      // disposal is a headless start, logged below like a failed send.
+      failureKinds.push(safeErrorKind(error));
     }
+    if (delivered > 0) return true;
+    // degradation-audit: optional-capability - an undelivered announcement
+    // degrades to a headless start (`uiAnnounced: false`); the session still
+    // starts. A child tab is adopted late through `chat:agent-sessions`; a
+    // handoff session is listed in the sessions sidebar.
+    this.logger.warn(
+      `[ChildChatSessionHost] ${type} reached no webview; starting without a tab`,
+      { tabId: descriptor.tabId, surfaces: surfaces.length, failureKinds },
+    );
+    return false;
   }
 
   /**
@@ -205,10 +247,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
     } catch (error: unknown) {
       this.logger.warn(
         '[ChildChatSessionHost] chat:error broadcast for a failed start failed',
-        {
-          tabId,
-          error: error instanceof Error ? error.message : String(error),
-        },
+        { tabId, errorKind: safeErrorKind(error) },
       );
     }
   }

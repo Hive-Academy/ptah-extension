@@ -37,6 +37,7 @@ import {
   McpOAuthInstalledManifestStore,
   McpOAuthOverrideResolver,
   createMcpOAuthTokenStore,
+  safeErrorKind,
   type AgentProcessManager,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
@@ -741,7 +742,7 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
-      const kind = errorKind(error);
+      const kind = safeErrorKind(error);
       this.logger.error(`RPC: handoff session start failed: ${kind}`);
       this.captureSentry(
         new Error(`Handoff session launch failed: ${kind}`),
@@ -1661,13 +1662,4 @@ export class ChatSessionService {
       ) ?? false
     );
   }
-}
-
-/** The error's name and code, never its message, which may quote a prompt. */
-function errorKind(error: unknown): string {
-  if (!(error instanceof Error)) return typeof error;
-  const code = 'code' in error ? error.code : undefined;
-  return typeof code === 'string' || typeof code === 'number'
-    ? `${error.name} (${code})`
-    : error.name;
 }

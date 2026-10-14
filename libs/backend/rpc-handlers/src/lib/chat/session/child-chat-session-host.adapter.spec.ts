@@ -14,9 +14,24 @@
  *     `sessionHandoff:opened`, passes cwd, model and permission level through,
  *     starts at most once per call, and never puts a thrown message (which
  *     may quote the prompt) into its outcome or its `chat:error`.
+ *   - Fix round B2: the announcement is a per-webview `sendMessage`;
+ *     `uiAnnounced` is true only when one accepted it (no webview, a `false`
+ *     send or a throw → false), and an error's name/code reach a log or
+ *     `chat:error` only through the `safeErrorKind` allowlist.
  */
 
 import 'reflect-metadata';
+
+// Same stub as `chat/di.spec`: the adapter imports `safeErrorKind` from the
+// `cli-agent-runtime` barrel, which reaches `agent-generation` and, through it,
+// `workspace-intelligence`'s TreeSitter module (`import.meta.url`, which
+// ts-jest's CJS transform cannot parse).
+jest.mock('@ptah-extension/agent-generation', () => ({
+  AGENT_GENERATION_TOKENS: {
+    ENHANCED_PROMPTS_SERVICE: Symbol.for('EnhancedPromptsService'),
+    SETUP_WIZARD_SERVICE: Symbol.for('SetupWizardService'),
+  },
+}));
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -34,7 +49,6 @@ import type { SessionLifecycleManager } from '@ptah-extension/agent-sdk';
 
 import { ChildChatSessionHostAdapter } from './child-chat-session-host.adapter';
 import type { ChatSessionService } from './chat-session.service';
-import type { WebviewManager } from '../streaming/chat-stream-broadcaster.service';
 
 const CHILD_TAB = '0f1e2d3c-4b5a-4968-8776-655443322110';
 
@@ -89,6 +103,8 @@ const handoffInput: HandoffChatSessionStartInput = {
 interface Harness {
   adapter: ChildChatSessionHostAdapter;
   broadcastMessage: jest.Mock;
+  sendMessage: jest.Mock;
+  getActiveWebviews: jest.Mock;
   startAgentChildSession: jest.Mock;
   startHandoffSession: jest.Mock;
   logger: ReturnType<typeof createMockLogger>;
@@ -100,6 +116,14 @@ function makeHarness(lifecycle: { find: jest.Mock } | null = null): Harness {
   const broadcastMessage = jest.fn(async (type: string) => {
     order.push(`broadcast:${type}`);
   });
+  // The announcement goes to each open webview through `sendMessage`.
+  const getActiveWebviews = jest.fn((): readonly string[] => ['ptah.main']);
+  const sendMessage = jest.fn(
+    async (_viewType: string, type: string): Promise<boolean> => {
+      order.push(`send:${type}`);
+      return true;
+    },
+  );
   const startAgentChildSession = jest.fn(async () => {
     order.push('start');
     return { success: true };
@@ -111,10 +135,7 @@ function makeHarness(lifecycle: { find: jest.Mock } | null = null): Harness {
   const logger = createMockLogger();
   const adapter = new ChildChatSessionHostAdapter(
     logger as unknown as Logger,
-    {
-      broadcastMessage,
-      sendMessage: jest.fn(),
-    } as unknown as WebviewManager,
+    { broadcastMessage, sendMessage, getActiveWebviews },
     {
       startAgentChildSession,
       startHandoffSession,
@@ -124,6 +145,8 @@ function makeHarness(lifecycle: { find: jest.Mock } | null = null): Harness {
   return {
     adapter,
     broadcastMessage,
+    sendMessage,
+    getActiveWebviews,
     startAgentChildSession,
     startHandoffSession,
     logger,
@@ -145,10 +168,11 @@ describe('ChildChatSessionHostAdapter', () => {
 
     expect(outcome).toEqual({ started: true, uiAnnounced: true });
     expect(h.order).toEqual([
-      `broadcast:${MESSAGE_TYPES.AGENT_SESSION_OPENED}`,
+      `send:${MESSAGE_TYPES.AGENT_SESSION_OPENED}`,
       'start',
     ]);
-    expect(h.broadcastMessage).toHaveBeenCalledWith(
+    expect(h.sendMessage).toHaveBeenCalledWith(
+      'ptah.main',
       MESSAGE_TYPES.AGENT_SESSION_OPENED,
       descriptor,
     );
@@ -175,7 +199,7 @@ describe('ChildChatSessionHostAdapter', () => {
 
   it('still starts when the announcement fails, reporting uiAnnounced: false', async () => {
     const h = makeHarness();
-    h.broadcastMessage.mockRejectedValueOnce(new Error('no webview'));
+    h.getActiveWebviews.mockReturnValueOnce([]);
 
     const outcome = await h.adapter.startChildSession(input);
 
@@ -235,9 +259,7 @@ describe('ChildChatSessionHostAdapter', () => {
         success: false,
         error: 'nope',
       });
-      h.broadcastMessage
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('channel closed'));
+      h.broadcastMessage.mockRejectedValueOnce(new Error('channel closed'));
 
       await expect(h.adapter.startChildSession(input)).resolves.toEqual({
         started: false,
@@ -260,7 +282,7 @@ describe('ChildChatSessionHostAdapter', () => {
   describe('when the tab was not announced', () => {
     it('a { success: false } start sends no chat:error', async () => {
       const h = makeHarness();
-      h.broadcastMessage.mockRejectedValueOnce(new Error('no webview'));
+      h.getActiveWebviews.mockReturnValueOnce([]);
       h.startAgentChildSession.mockResolvedValueOnce({
         success: false,
         error: 'nope',
@@ -274,7 +296,7 @@ describe('ChildChatSessionHostAdapter', () => {
 
     it('a thrown start sends no chat:error', async () => {
       const h = makeHarness();
-      h.broadcastMessage.mockRejectedValueOnce(new Error('no webview'));
+      h.getActiveWebviews.mockReturnValueOnce([]);
       h.startAgentChildSession.mockRejectedValueOnce('string failure');
 
       const outcome = await h.adapter.startChildSession(input);
@@ -302,10 +324,11 @@ describe('ChildChatSessionHostAdapter.startHandoffSession (TASK_2026_655)', () =
 
     expect(outcome).toEqual({ started: true, uiAnnounced: true });
     expect(h.order).toEqual([
-      `broadcast:${MESSAGE_TYPES.SESSION_HANDOFF_OPENED}`,
+      `send:${MESSAGE_TYPES.SESSION_HANDOFF_OPENED}`,
       'start-handoff',
     ]);
-    expect(h.broadcastMessage).toHaveBeenCalledWith(
+    expect(h.sendMessage).toHaveBeenCalledWith(
+      'ptah.main',
       MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
       handoffDescriptor,
     );
@@ -386,15 +409,103 @@ describe('ChildChatSessionHostAdapter.startHandoffSession (TASK_2026_655)', () =
     expect(params).not.toHaveProperty('permissionLevel');
   });
 
-  it('still starts when the announcement fails, reporting uiAnnounced: false', async () => {
+  it('still starts with no open webview, reporting uiAnnounced: false', async () => {
     const h = makeHarness();
-    h.broadcastMessage.mockRejectedValueOnce(new Error('no webview'));
+    h.getActiveWebviews.mockReturnValueOnce([]);
+
+    const outcome = await h.adapter.startHandoffSession(handoffInput);
+
+    expect(outcome).toEqual({ started: true, uiAnnounced: false });
+    expect(h.sendMessage).not.toHaveBeenCalled();
+    expect(h.startHandoffSession).toHaveBeenCalledTimes(1);
+    expect(chatErrorCalls(h)).toHaveLength(0);
+  });
+
+  it('reports uiAnnounced: false when every webview refuses the send', async () => {
+    const h = makeHarness();
+    h.getActiveWebviews.mockReturnValueOnce(['ptah.main', 'ptah.sidebar']);
+    h.sendMessage.mockResolvedValue(false);
+
+    const outcome = await h.adapter.startHandoffSession(handoffInput);
+
+    expect(outcome).toEqual({ started: true, uiAnnounced: false });
+    expect(h.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports uiAnnounced: true when at least one webview accepted the send', async () => {
+    const h = makeHarness();
+    h.getActiveWebviews.mockReturnValueOnce(['ptah.main', 'ptah.sidebar']);
+    h.sendMessage.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    const outcome = await h.adapter.startHandoffSession(handoffInput);
+
+    expect(outcome).toEqual({ started: true, uiAnnounced: true });
+  });
+
+  it('treats a throwing enumeration as not announced', async () => {
+    const h = makeHarness();
+    h.getActiveWebviews.mockImplementationOnce(() => {
+      throw new Error('disposed');
+    });
 
     const outcome = await h.adapter.startHandoffSession(handoffInput);
 
     expect(outcome).toEqual({ started: true, uiAnnounced: false });
     expect(h.startHandoffSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('a send that throws the prompt in its message, name and code logs none of it', async () => {
+    const h = makeHarness();
+    const failure = Object.assign(new Error(`post failed: ${HANDOFF_PROMPT}`), {
+      code: `E_${HANDOFF_PROMPT}`,
+    });
+    failure.name = `Quoting ${HANDOFF_PROMPT}`;
+    h.sendMessage.mockImplementationOnce(() => {
+      throw failure;
+    });
+    h.startHandoffSession.mockResolvedValueOnce({
+      success: false,
+      error: 'the session launch failed (unknown).',
+    });
+
+    const outcome = await h.adapter.startHandoffSession(handoffInput);
+
+    expect(outcome).toEqual({
+      started: false,
+      error: 'the session launch failed (unknown).',
+    });
     expect(chatErrorCalls(h)).toHaveLength(0);
+    expect(loggedText(h)).not.toContain('SECRET-CONTINUATION');
+    expect(loggedText(h)).toContain('unknown');
+  });
+
+  it('a thrown start whose name and code quote the prompt reports only "unknown"', async () => {
+    const h = makeHarness();
+    const failure = Object.assign(new Error(`bad: ${HANDOFF_PROMPT}`), {
+      code: `E_${HANDOFF_PROMPT}`,
+    });
+    failure.name = `Quoting ${HANDOFF_PROMPT}`;
+    h.startHandoffSession.mockRejectedValueOnce(failure);
+    h.broadcastMessage.mockRejectedValueOnce(failure);
+
+    const outcome = await h.adapter.startHandoffSession(handoffInput);
+
+    expect(outcome).toEqual({
+      started: false,
+      error: 'the session launch threw (unknown).',
+    });
+    expect(chatErrorCalls(h)).toEqual([
+      [
+        MESSAGE_TYPES.CHAT_ERROR,
+        {
+          tabId: HANDOFF_TAB,
+          sessionId: HANDOFF_TAB,
+          error:
+            'Handoff session could not start: the session launch threw (unknown).',
+        },
+      ],
+    ]);
+    expect(loggedText(h)).not.toContain('SECRET-CONTINUATION');
   });
 
   it('after an announced { success: false } start, returns the error and sends one chat:error', async () => {
@@ -453,7 +564,7 @@ describe('ChildChatSessionHostAdapter.startHandoffSession (TASK_2026_655)', () =
 
   it('a failed start without an announced tab sends no chat:error', async () => {
     const h = makeHarness();
-    h.broadcastMessage.mockRejectedValueOnce(new Error('no webview'));
+    h.getActiveWebviews.mockReturnValueOnce([]);
     h.startHandoffSession.mockResolvedValueOnce({
       success: false,
       error: 'nope',
@@ -468,9 +579,7 @@ describe('ChildChatSessionHostAdapter.startHandoffSession (TASK_2026_655)', () =
   it('a failing chat:error broadcast is swallowed and the outcome is unchanged', async () => {
     const h = makeHarness();
     h.startHandoffSession.mockResolvedValueOnce({ success: false });
-    h.broadcastMessage
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('channel closed'));
+    h.broadcastMessage.mockRejectedValueOnce(new Error('channel closed'));
 
     await expect(h.adapter.startHandoffSession(handoffInput)).resolves.toEqual({
       started: false,
@@ -481,7 +590,7 @@ describe('ChildChatSessionHostAdapter.startHandoffSession (TASK_2026_655)', () =
 
   it('never logs the prompt', async () => {
     const h = makeHarness();
-    h.broadcastMessage.mockRejectedValueOnce(new Error('no webview'));
+    h.getActiveWebviews.mockReturnValueOnce([]);
 
     await h.adapter.startHandoffSession(handoffInput);
 

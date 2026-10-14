@@ -36,6 +36,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { IChildChatSessionHost } from './child-chat-session-host.port';
 import { SessionChildRegistry } from './session-child.registry';
+import { safeErrorKind } from './safe-error-kind';
 import type {
   ISessionHandoff,
   SessionHandoffRefusalCode,
@@ -115,7 +116,7 @@ export class SessionHandoffService implements ISessionHandoff {
       // is logged and returned as the closed `session-start-failed`, so the
       // tool never throws and the skill falls back to printing the prompt.
       // Only the error's kind is logged: its message may quote the request.
-      this.log(`handoff faulted: ${errorKind(error)}`);
+      this.log(`handoff faulted: ${safeErrorKind(error)}`);
       return this.refuse('session-start-failed', UNEXPECTED_FAULT_DETAIL);
     }
   }
@@ -183,7 +184,7 @@ export class SessionHandoffService implements ISessionHandoff {
       .catch((error: unknown) => {
         // degradation-audit: reported - logged by kind only (its message may
         // quote the prompt) and returned as the closed `session-start-failed`.
-        this.log(`handoff start faulted: ${errorKind(error)}`);
+        this.log(`handoff start faulted: ${safeErrorKind(error)}`);
         return this.refuse(
           'session-start-failed',
           SESSION_HANDOFF_START_FAILED_DETAIL,
@@ -243,7 +244,7 @@ export class SessionHandoffService implements ISessionHandoff {
       // degradation-audit: reported - the port's contract is never-throw; a
       // throw means the session did not start. Its message may quote the
       // prompt, so only its kind is logged and the detail is fixed.
-      this.log(`host start threw: ${errorKind(error)}`);
+      this.log(`host start threw: ${safeErrorKind(error)}`);
       return this.refuse(
         'session-start-failed',
         SESSION_HANDOFF_START_FAILED_DETAIL,
@@ -419,13 +420,4 @@ function truncate(text: string, max: number): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** The error's name and code, never its message, which may quote the prompt. */
-function errorKind(error: unknown): string {
-  if (!(error instanceof Error)) return typeof error;
-  const code = 'code' in error ? error.code : undefined;
-  return typeof code === 'string' || typeof code === 'number'
-    ? `${error.name} (${code})`
-    : error.name;
 }

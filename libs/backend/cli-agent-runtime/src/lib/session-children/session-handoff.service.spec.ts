@@ -377,6 +377,16 @@ describe('SessionHandoffService', () => {
         (): Promise<ChildChatSessionStartOutcome> =>
           Promise.resolve({ started: false, error: `bad input ${PROMPT}` }),
       ],
+      [
+        'throws (prompt in message, name and code)',
+        (): Promise<ChildChatSessionStartOutcome> => {
+          const error = Object.assign(new Error(`could not send: ${PROMPT}`), {
+            code: `E_${PROMPT}`,
+          });
+          error.name = `Quoting ${PROMPT}`;
+          return Promise.reject(error);
+        },
+      ],
     ])(
       'session-start-failed: a host that %s an error quoting the prompt leaks it nowhere',
       async (_name, outcome) => {

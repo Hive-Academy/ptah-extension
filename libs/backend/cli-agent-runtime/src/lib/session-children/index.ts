@@ -46,6 +46,7 @@ export {
   SESSION_HANDOFF_HISTORY_SIZE,
   SESSION_HANDOFF_LABEL_MAX,
 } from './session-handoff.service';
+export { safeErrorKind } from './safe-error-kind';
 export {
   SessionChildRegistry,
   SESSION_CHILD_ENDED_HISTORY_SIZE,

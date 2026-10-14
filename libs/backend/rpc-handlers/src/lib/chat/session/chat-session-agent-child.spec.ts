@@ -583,5 +583,25 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
       expect(captured.message).not.toContain('SECRET-CONTINUATION');
       expect(loggedText(h)).not.toContain('SECRET-CONTINUATION');
     });
+
+    it('never copies an error name or code that quotes the prompt', async () => {
+      const h = makeHarness();
+      const failure = Object.assign(new Error(`failed: ${HANDOFF_PROMPT}`), {
+        code: `E_${HANDOFF_PROMPT}`,
+      });
+      failure.name = `Quoting ${HANDOFF_PROMPT}`;
+      h.startChatSession.mockRejectedValueOnce(failure);
+
+      const result = await h.service.startHandoffSession(handoffParams());
+
+      expect(result).toEqual({
+        success: false,
+        error: 'the session launch failed (unknown).',
+      });
+      const [captured] = h.captureException.mock.calls[0] as [Error];
+      expect(captured.message).not.toContain('SECRET-CONTINUATION');
+      expect(captured.name).not.toContain('SECRET-CONTINUATION');
+      expect(loggedText(h)).not.toContain('SECRET-CONTINUATION');
+    });
   });
 });
