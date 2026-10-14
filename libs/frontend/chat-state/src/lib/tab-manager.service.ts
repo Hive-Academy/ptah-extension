@@ -2943,10 +2943,6 @@ export class TabManagerService {
    * Deliberately BINARY. This is the tile header's one-click affordance, and
    * its round-trip is load-bearing: two clicks must return the tile to where
    * it started (`canvas.spec.ts`, TASK_2026_512).
-   *
-   * Height is not a mode: `compactHeightUnits` survives the trip to full, so
-   * returning to compact restores the last compact height. A caller that wants
-   * a specific height calls {@link setCompactHeight}.
    */
   toggleTabViewMode(tabId: string): void {
     const tab = this._tabs().find((t) => t.id === tabId);
@@ -2957,7 +2953,7 @@ export class TabManagerService {
     );
   }
 
-  /** Select a tab's view mode. The stored compact height is kept. */
+  /** Select a tab's view mode. */
   setViewMode(tabId: string, mode: TabViewMode): void {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab || (tab.viewMode ?? 'full') === mode) return;
@@ -2965,37 +2961,10 @@ export class TabManagerService {
   }
 
   /**
-   * Show a tab compact at `units` canvas grid rows.
-   *
-   * Ignores a `units` that is not a positive integer. The range is canvas's
-   * concern: it clamps the stored value on read. A no-op when the tab is
-   * already compact at that height, so a repeated drag or preset does not
-   * trigger a write.
-   */
-  setCompactHeight(tabId: string, units: number): void {
-    if (!Number.isInteger(units) || units <= 0) return;
-    const tab = this._tabs().find((t) => t.id === tabId);
-    if (!tab) return;
-    if (tab.viewMode === 'compact' && tab.compactHeightUnits === units) return;
-    this.updateTabInternal(tabId, {
-      viewMode: 'compact',
-      compactHeightUnits: units,
-    });
-  }
-
-  /**
    * Get a specific tab's view mode.
    */
   getTabViewMode(tabId: string): TabViewMode {
     return this._tabs().find((t) => t.id === tabId)?.viewMode ?? 'full';
-  }
-
-  /**
-   * Get a tab's stored compact height in canvas grid rows, or `undefined`
-   * when none is stored (canvas then uses its default).
-   */
-  getTabCompactHeightUnits(tabId: string): number | undefined {
-    return this._tabs().find((t) => t.id === tabId)?.compactHeightUnits;
   }
 
   // ============================================================================
