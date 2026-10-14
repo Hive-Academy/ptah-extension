@@ -90,6 +90,7 @@ class CardStub {
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
   readonly holdText = input(false);
+  readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
   readonly railState = output<CompactRailState>();
   readonly staleAction = output<void>();
@@ -158,6 +159,7 @@ const RAIL_SUMMARY: CompactSessionSummary = {
     [focused]="focused()"
     [innerTabbable]="focused()"
     [holdText]="holdText()"
+    [reserveActionCorner]="reserveActionCorner()"
     (selectRequested)="expandToFull.emit()"
     (moreLanes)="lanesRequested.emit()"
   />`,
@@ -170,6 +172,7 @@ class RealRailCardHost {
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
   readonly holdText = input(false);
+  readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
   readonly railState = output<CompactRailState>();
   readonly staleAction = output<void>();
@@ -579,7 +582,7 @@ describe('CanvasRailCardComponent', () => {
     expect(down).not.toHaveBeenCalled();
   });
 
-  it('keeps 176/96/56 px heights with the action gutter and +N more still fitting (N6b)', () => {
+  it('keeps 176/96/56 px heights with a full-width card, the trigger in its corner and +N more still fitting (N6b)', () => {
     expect(COMPACT_RAIL_CARD_HEIGHT).toEqual({ comfortable: 176, dense: 96 });
     // The real chat-ui compact card, not CardStub: its own overflow control.
     TestBed.overrideComponent(CanvasRailCardComponent, {
@@ -603,22 +606,45 @@ describe('CanvasRailCardComponent', () => {
       expect(railCard?.classList.contains('rc-dense')).toBe(
         density === 'dense',
       );
-      const gutter = host.querySelector('[data-rail-actions]') as HTMLElement;
-      // A flex sibling, never an overlay: the card keeps every pixel it is given.
+      // The focused card carries the focused frame (decision row 111).
+      expect(railCard?.classList.contains('rc-focused')).toBe(true);
+      const corner = host.querySelector('[data-rail-actions]') as HTMLElement;
+      // No gutter: the card is the only in-flow child and takes the full li.
       expect(host.classList.contains('flex')).toBe(true);
+      expect(host.classList.contains('relative')).toBe(true);
       expect([...card.classList]).toEqual(
         expect.arrayContaining(['flex-1', 'min-w-0']),
       );
-      expect(card.nextElementSibling).toBe(gutter);
-      expect([...gutter.classList]).toEqual(
-        expect.arrayContaining(['w-7', 'shrink-0', 'items-start']),
+      expect(
+        [...host.children].filter(
+          (child) =>
+            !child.classList.contains('absolute') &&
+            !child.classList.contains('sr-only'),
+        ),
+      ).toEqual([card]);
+      // The trigger sits in the card frame's top-right corner, 6 px inside it,
+      // above the card's content layer, with no width taken from the row.
+      expect([...corner.classList]).toEqual(
+        expect.arrayContaining(['absolute', 'right-1.5', 'top-1.5', 'z-10']),
       );
-      for (const overlay of ['absolute', 'fixed', 'sticky']) {
-        expect(gutter.classList).not.toContain(overlay);
+      for (const gutterClass of ['w-7', 'w-6', 'shrink-0', 'pt-1']) {
+        expect(corner.classList).not.toContain(gutterClass);
       }
-      expect(gutter.contains(trigger(host))).toBe(true);
+      expect(corner.parentElement).toBe(host);
+      expect(corner.contains(trigger(host))).toBe(true);
+      expect([...trigger(host).classList]).toEqual(
+        expect.arrayContaining(['h-6', 'w-6']),
+      );
+      // Never nested in the select button or any other interactive element,
+      // and outside the card's overflow-hidden box, so its ring is not clipped.
       expect(card.contains(trigger(host))).toBe(false);
-      expect(trigger(host).classList).toContain('h-6');
+      expect(
+        trigger(host).parentElement?.closest('button, a, [role="button"]'),
+      ).toBeNull();
+      // The title line under the corner reserves the trigger's width.
+      expect(railCard?.classList.contains('rc-corner-reserved')).toBe(true);
+      const title = railCard?.querySelector('.rc-body > .rc-title');
+      expect(title?.querySelector('.rc-pill')).not.toBeNull();
       // The real overflow control: the lanes button of this density.
       const overflow = [
         ...card.querySelectorAll<HTMLButtonElement>('.rc-lanes button'),
@@ -629,18 +655,24 @@ describe('CanvasRailCardComponent', () => {
         density === 'comfortable',
       );
       expect(overflow?.tabIndex).toBe(0);
-      expect(gutter.contains(overflow as HTMLElement)).toBe(false);
-      // It closes its lane line, so its trailing edge is the card edge that
-      // sits beside the gutter, not under it.
+      expect(corner.contains(overflow as HTMLElement)).toBe(false);
+      // It closes its lane line, below the title line, so the corner trigger
+      // never sits over it.
       expect(overflow?.parentElement?.classList).toContain('rc-line');
       expect(overflow?.parentElement?.lastElementChild).toBe(overflow);
+      expect(title?.contains(overflow as HTMLElement)).toBe(false);
     }
     // jsdom has no layout, so the pixel fit at the narrowest (sm, 272 px)
     // rail is not measured here; it stays with the Electron visual re-check
     // (decisions row 102). Budget: aside border 1, scrollbar gutter 8, list
-    // padding 16, action gutter 28, card padding 14 + 10 and border 2 leave
-    // a 193 px lane line for "Lanes" (about 30 px) and the overflow button
-    // (min 39 px; "+99 more" about 50 px).
+    // padding 16, card padding 14 + 10 and border 2 leave a 221 px lane line
+    // for "Lanes" (about 30 px) and the overflow button (min 39 px; "+99
+    // more" about 50 px); the corner trigger costs only the title line 22 px.
+    fixture.componentRef.setInput('focused', false);
+    fixture.detectChanges();
+    expect(
+      host.querySelector('ptah-compact-rail-card')?.classList.contains('rc-focused'),
+    ).toBe(false);
     fixture.componentRef.setInput('collapsed', true);
     fixture.detectChanges();
     expect(host.style.height).toBe('56px');
@@ -652,7 +684,9 @@ describe('CanvasRailCardComponent', () => {
     expect([...cell.classList]).toEqual(
       expect.arrayContaining(['w-6', 'shrink-0']),
     );
-    expect(cell.classList).not.toContain('w-7');
+    for (const overlay of ['absolute', 'z-10', 'w-7']) {
+      expect(cell.classList).not.toContain(overlay);
+    }
     expect(select.nextElementSibling).toBe(cell);
     expect(trigger(host).classList).toContain('h-14');
   });

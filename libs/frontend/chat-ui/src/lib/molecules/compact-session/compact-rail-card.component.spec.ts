@@ -182,6 +182,65 @@ describe(CompactRailCardComponent.name, () => {
     expect(sizing?.declarations).toContainEqual(['line-height', '16px']);
   });
 
+  it('marks only the focused card with a primary frame and tint that cannot shift layout', () => {
+    const f = render();
+    const host = f.nativeElement as HTMLElement;
+    expect(host.classList.contains('rc-focused')).toBe(false);
+    f.componentRef.setInput('focused', true);
+    f.detectChanges();
+    expect(host.classList.contains('rc-focused')).toBe(true);
+    expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable}px`);
+    const selectors = cssRules().map((rule) => rule.selector);
+    const focused = cssRules().find(
+      (rule) => rule.selector === ':host(.rc-focused)',
+    );
+    // Paint only, theme tokens only (no hex), and after hover so it wins.
+    expect(focused?.declarations.map(([prop]) => prop)).toEqual([
+      'border-color',
+      'box-shadow',
+      'background-color',
+    ]);
+    for (const [, value] of focused?.declarations ?? []) {
+      expect(value).toContain('var(--p)');
+      expect(value).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    }
+    expect(focused?.declarations).toContainEqual([
+      'box-shadow',
+      'inset 0 0 0 1px oklch(var(--p))',
+    ]);
+    expect(selectors.indexOf(':host(.rc-focused)')).toBeGreaterThan(
+      selectors.indexOf(':host(:hover)'),
+    );
+    f.componentRef.setInput('focused', false);
+    f.detectChanges();
+    expect(host.classList.contains('rc-focused')).toBe(false);
+  });
+
+  it('reserves the top-right corner on the title line only when asked, at both densities', () => {
+    const f = render();
+    const host = f.nativeElement as HTMLElement;
+    const title = () => host.querySelector('.rc-body > .rc-title') as HTMLElement;
+    expect(title()).toBe(host.querySelector('.rc-body > .rc-line'));
+    expect(title().querySelector('.rc-pill')).not.toBeNull();
+    expect(host.classList.contains('rc-corner-reserved')).toBe(false);
+    for (const density of ['comfortable', 'dense'] as const) {
+      f.componentRef.setInput('reserveActionCorner', true);
+      f.componentRef.setInput('density', density);
+      f.detectChanges();
+      expect(host.classList.contains('rc-corner-reserved')).toBe(true);
+      expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT[density]}px`);
+      // The reserve is padding on the title line, never on the select button.
+      expect(title().closest('.rc-select')).toBeNull();
+    }
+    const reserve = cssRules().find(
+      (rule) => rule.selector === ':host(.rc-corner-reserved) .rc-title',
+    );
+    expect(reserve?.declarations).toEqual([['padding-right', '22px']]);
+    f.componentRef.setInput('reserveActionCorner', false);
+    f.detectChanges();
+    expect(host.classList.contains('rc-corner-reserved')).toBe(false);
+  });
+
   it('updates every inner tabindex with unchanged request data', () => {
     const f = render();
     f.componentRef.setInput('callout', permission('p1'));

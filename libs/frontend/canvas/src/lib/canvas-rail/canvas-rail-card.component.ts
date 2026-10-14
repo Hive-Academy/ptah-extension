@@ -130,23 +130,25 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           [density]="density()"
           [focused]="focused()"
           [holdText]="holdText()"
+          [reserveActionCorner]="true"
           (expandToFull)="openSession()"
           (railState)="onRailState($event)"
           (staleAction)="onStaleAction()"
           (lanesRequested)="lanesRequested.emit(tabId())"
         />
       }
-      <!-- Expanded: a trailing 28 px action gutter with the trigger at its top.
+      <!-- Expanded: the full-width card's top-right corner, 6 px inside its
+           frame over the title line it reserves; a sibling of the card, so it
+           is never inside its select button and never clipped by it.
            Collapsed: the 24 px second cell after the 32 px select button. -->
       <div
         #actions
         data-rail-actions
-        class="flex shrink-0 justify-center"
-        [class.w-7]="!collapsed()"
-        [class.items-start]="!collapsed()"
-        [class.pt-1]="!collapsed()"
-        [class.w-6]="collapsed()"
-        [class.items-center]="collapsed()"
+        [class]="
+          collapsed()
+            ? 'flex w-6 shrink-0 items-center justify-center'
+            : 'absolute right-1.5 top-1.5 z-10 flex'
+        "
       >
         <!-- A block trigger wrapper adds no inline baseline gap to the cell. -->
         <ptah-native-popover
@@ -162,7 +164,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             #trigger
             trigger
             type="button"
-            class="rail-actions-trigger flex w-6 items-center justify-center rounded-md text-base-content/70 hover:bg-base-300"
+            class="rail-actions-trigger flex w-6 items-center justify-center rounded-md text-base-content/70 hover:bg-base-content/10 hover:text-base-content"
             [class.h-6]="!collapsed()"
             [class.h-14]="collapsed()"
             aria-label="Session actions"
@@ -285,7 +287,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
   }
   onClick(event: MouseEvent): void {
     // The trigger and menu items are buttons (the interactive-target rule);
-    // the gutter, menu panel and backdrop are action surface, never a select.
+    // the corner cell, menu panel and backdrop are action surface, never a select.
     const target = event.target;
     if (target instanceof Node && this.actions()?.nativeElement.contains(target))
       return;

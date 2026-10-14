@@ -43,7 +43,8 @@ const EMPTY_LANES: CompactLaneSummary = {
       'rc-card block relative overflow-hidden rounded-lg border border-base-content/10 bg-base-200 text-base-content',
     '[style.height.px]': 'cardHeight()',
     '[class.rc-dense]': 'density() === "dense"',
-    '[class.bg-base-300]': 'focused()',
+    '[class.rc-corner-reserved]': 'reserveActionCorner()',
+    '[class.rc-focused]': 'focused()',
     '[attr.data-state]': 'state()',
   },
   styles: [
@@ -90,6 +91,12 @@ const EMPTY_LANES: CompactLaneSummary = {
         gap: 4px;
         overflow: hidden;
         white-space: nowrap;
+      }
+      /* A host-owned 24 px control sits 6 px inside the top-right corner,
+         over the title line: 6 + 24 + a 3 px gap, less the border 1 and the
+         right padding 10, keeps the title and state pill clear of it. */
+      :host(.rc-corner-reserved) .rc-title {
+        padding-right: 22px;
       }
       .rc-ellipsis {
         min-width: 0;
@@ -145,6 +152,16 @@ const EMPTY_LANES: CompactLaneSummary = {
       :host(:hover) {
         border-color: var(--rail-state-ink);
       }
+      /* The active session: a primary frame (the 1 px border plus a 1 px
+         inset ring, so no size change and nothing for the parent's overflow
+         to clip) over a primary-tinted surface, in both themes. After
+         :host(:hover) so hover never repaints the active frame; the left
+         state stripe paints over the ring's left edge. */
+      :host(.rc-focused) {
+        border-color: oklch(var(--p));
+        box-shadow: inset 0 0 0 1px oklch(var(--p));
+        background-color: color-mix(in oklch, oklch(var(--p)) 14%, oklch(var(--b2)));
+      }
       .rc-action:hover {
         box-shadow: inset 0 0 0 1px currentColor;
       }
@@ -189,7 +206,7 @@ const EMPTY_LANES: CompactLaneSummary = {
       (click)="selectRequested.emit()"
     ></button>
     <div class="rc-body rc-content text-xs">
-      <div class="rc-line">
+      <div class="rc-line rc-title">
         <span
           aria-hidden="true"
           class="h-2 w-2 shrink-0 rounded-full"
@@ -373,6 +390,8 @@ export class CompactRailCardComponent implements DoCheck {
   readonly focused = input(false);
   readonly innerTabbable = input(false);
   readonly holdText = input(false);
+  /** The host overlays a control on the top-right corner; keep the title clear of it. */
+  readonly reserveActionCorner = input(false);
   readonly selectRequested = output<void>();
   readonly laneSelected = output<string>();
   readonly allow = output<CompactPermissionCallout>();

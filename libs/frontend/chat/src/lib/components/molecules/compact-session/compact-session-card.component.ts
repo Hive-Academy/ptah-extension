@@ -131,6 +131,7 @@ function sameLaneSummary(
         [focused]="focused()"
         [innerTabbable]="focused()"
         [holdText]="holdText()"
+        [reserveActionCorner]="reserveActionCorner()"
         (selectRequested)="openFullView()"
         (allow)="respond($event, 'allow')"
         (deny)="respond($event, 'deny')"
@@ -189,6 +190,8 @@ export class CompactSessionCardComponent {
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
   readonly holdText = input(false);
+  /** Rail only: the host overlays its actions trigger on the card's top-right corner. */
+  readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
   readonly railState = output<CompactRailState>();
   readonly staleAction = output<void>();
