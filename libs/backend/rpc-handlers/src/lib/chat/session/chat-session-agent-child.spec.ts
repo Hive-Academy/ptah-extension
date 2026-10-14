@@ -9,7 +9,8 @@
  *     workspace path), no `permissionLevel`, and resolves prompts / profile /
  *     style for that path — behaviour unchanged for every existing caller.
  *   - the child method passes `workspaceId = workspaceRoot`,
- *     `projectPath = worktreePath`, `permissionLevel = 'auto-edit'`, resolves
+ *     `projectPath = worktreePath`, the parent's `permissionLevel` (else the
+ *     saved autopilot level; `plan` → `ask`, TASK_2026_660), resolves
  *     prompts / profile / style for the ROOT, and derives `mcpServerRunning`
  *     from the server port alone (no `.mcp.json` downgrade).
  *   - the child method skips the slash-command intercept and the Ptah-CLI
@@ -96,8 +97,19 @@ interface Harness {
 }
 
 function makeHarness(
-  opts: { folders?: string[]; port?: number | null } = {},
+  opts: {
+    folders?: string[];
+    port?: number | null;
+    /** What `config:autopilot-toggle` saved; absent → autopilot off. */
+    autopilot?: { enabled: boolean; permissionLevel: string };
+  } = {},
 ): Harness {
+  const autopilotConfig: Record<string, unknown> = opts.autopilot
+    ? {
+        'autopilot.enabled': opts.autopilot.enabled,
+        'autopilot.permissionLevel': opts.autopilot.permissionLevel,
+      }
+    : {};
   const stream = { [Symbol.asyncIterator]: jest.fn() };
   const startChatSession = jest.fn().mockResolvedValue(stream);
   const streamEventsToWebview = jest.fn();
@@ -130,7 +142,13 @@ function makeHarness(
     { broadcastMessage: jest.fn().mockResolvedValue(undefined) } as never,
     {
       get: jest.fn(),
-      getWithDefault: jest.fn().mockReturnValue(false),
+      getWithDefault: jest.fn((key: string, fallback: unknown) =>
+        key in autopilotConfig
+          ? autopilotConfig[key]
+          : key.startsWith('autopilot.')
+            ? fallback
+            : false,
+      ),
     } as unknown as ConfigManager,
     { startChatSession } as never,
     { captureException } as unknown as SentryService,
@@ -314,20 +332,83 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
   });
 
   describe('startAgentChildSession', () => {
-    it('passes workspaceId = root, projectPath = worktree, permissionLevel = auto-edit', async () => {
+    it('passes workspaceId = root, projectPath = worktree and the parent permission level', async () => {
       const h = makeHarness();
 
-      const result = await h.service.startAgentChildSession(childParams());
+      const result = await h.service.startAgentChildSession(
+        childParams({ permissionLevel: 'yolo' }),
+      );
 
       expect(result).toEqual({ success: true });
       const config = startConfig(h);
       expect(config['workspaceId']).toBe(ROOT);
       expect(config['projectPath']).toBe(WORKTREE);
-      expect(config['permissionLevel']).toBe('auto-edit');
+      expect(config['permissionLevel']).toBe('yolo');
       expect(config['tabId']).toBe(CHILD_TAB);
       expect(config['prompt']).toBe('/clear contract and task text');
       expect(config['name']).toBe('child: fix the parser');
       expect(config['model']).toBe('claude-child-model');
+    });
+
+    describe('permission level (TASK_2026_660)', () => {
+      it('starts the child of a full-autopilot parent at yolo, even when the saved level is lower', async () => {
+        const h = makeHarness({
+          autopilot: { enabled: true, permissionLevel: 'auto-edit' },
+        });
+
+        await h.service.startAgentChildSession(
+          childParams({ permissionLevel: 'yolo' }),
+        );
+
+        expect(startConfig(h)['permissionLevel']).toBe('yolo');
+      });
+
+      it.each(['ask', 'auto-edit'] as const)(
+        'starts the child of a %s parent at %s, not a fixed default',
+        async (level) => {
+          const h = makeHarness({
+            autopilot: { enabled: true, permissionLevel: 'yolo' },
+          });
+
+          await h.service.startAgentChildSession(
+            childParams({ permissionLevel: level }),
+          );
+
+          expect(startConfig(h)['permissionLevel']).toBe(level);
+        },
+      );
+
+      it('starts the child of a plan-mode parent at ask: plan mode is unavailable unattended', async () => {
+        const h = makeHarness();
+
+        await h.service.startAgentChildSession(
+          childParams({ permissionLevel: 'plan' }),
+        );
+
+        expect(startConfig(h)['permissionLevel']).toBe('ask');
+      });
+
+      it('starts the child at ask when the parent record is missing, even with a saved yolo level', async () => {
+        // No parent level reached the service (no lifecycle record, or it
+        // vanished between lookups): the saved global level must not escalate.
+        const h = makeHarness({
+          autopilot: { enabled: true, permissionLevel: 'yolo' },
+        });
+
+        await h.service.startAgentChildSession(childParams());
+
+        expect(startConfig(h)['permissionLevel']).toBe('ask');
+      });
+
+      it('starts the child at ask when the parent level is unknown and autopilot is off', async () => {
+        const h = makeHarness({
+          autopilot: { enabled: false, permissionLevel: 'auto-edit' },
+        });
+
+        await h.service.startAgentChildSession(childParams());
+
+        expect(startConfig(h)['permissionLevel']).toBe('ask');
+      });
     });
 
     it('resolves prompts, provider profile and output style for the workspace root, not the worktree', async () => {

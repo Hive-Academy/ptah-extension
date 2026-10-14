@@ -62,6 +62,7 @@ import {
 import type {
   SdkAgentAdapter,
   SdkPermissionHandler,
+  SessionLifecycleManager,
 } from '@ptah-extension/agent-sdk';
 import type {
   ModelResolver,
@@ -155,9 +156,16 @@ interface MockPricingProvider {
   ensureHydrated: jest.Mock;
 }
 
+interface MockLifecycle {
+  /** Live session records by id; `find` returns undefined for any other id. */
+  levels: Map<string, string>;
+  find: jest.Mock;
+}
+
 interface Harness {
   handlers: ConfigRpcHandlers;
   pricingProvider: MockPricingProvider;
+  lifecycle: MockLifecycle;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   configManager: MockConfigManager;
@@ -200,6 +208,14 @@ function makeHarness(
     ensureHydrated: jest.fn().mockResolvedValue(true),
   };
 
+  const levels = new Map<string, string>();
+  const lifecycle: MockLifecycle = {
+    levels,
+    find: jest.fn((id: string) =>
+      levels.has(id) ? { permissionLevel: levels.get(id) } : undefined,
+    ),
+  };
+
   const handlers = new ConfigRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -212,11 +228,13 @@ function makeHarness(
     modelSettings as unknown as ModelSettings,
     reasoningSettings as unknown as ReasoningSettings,
     pricingProvider,
+    lifecycle as unknown as SessionLifecycleManager,
   );
 
   return {
     handlers,
     pricingProvider,
+    lifecycle,
     logger,
     rpcHandler,
     configManager,
@@ -518,7 +536,7 @@ describe('ConfigRpcHandlers', () => {
       ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
       h.handlers.register();
 
-      // The autopilot popover omits sessionId — the toggle must still reach the
+      // Legacy CLI/TUI callers omit sessionId — the toggle must still reach the
       // running session so per-session gating takes effect.
       await call(h, 'config:autopilot-toggle', {
         enabled: true,
@@ -550,6 +568,60 @@ describe('ConfigRpcHandlers', () => {
 
       expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
         'active-sess',
+        'bypassPermissions',
+      );
+    });
+
+    // TASK_2026_660 — the webview popover sends `null` for a tab that has no
+    // SDK session yet. Falling back to the most recently active session there
+    // re-gated an unrelated session (e.g. set a parent to bypassPermissions).
+    it('changes no live session when the sessionId is explicitly null', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.getActiveSessionIds.mockReturnValue([
+        'sess-a',
+        'sess-b',
+      ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
+      h.handlers.register();
+
+      const result = await call<{ enabled: boolean; permissionLevel: string }>(
+        h,
+        'config:autopilot-toggle',
+        { enabled: true, permissionLevel: 'yolo', sessionId: null },
+      );
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).not.toHaveBeenCalled();
+      // The default for new sessions is still saved.
+      expect(result).toEqual({ enabled: true, permissionLevel: 'yolo' });
+      expect(h.configManager.set).toHaveBeenCalledWith(
+        'autopilot.enabled',
+        true,
+      );
+      expect(h.configManager.set).toHaveBeenCalledWith(
+        'autopilot.permissionLevel',
+        'yolo',
+      );
+      expect(h.permissionHandler.setPermissionLevel).toHaveBeenCalledWith(
+        'yolo',
+      );
+    });
+
+    it('changes only the named session when two sessions are live', async () => {
+      const h = makeHarness();
+      h.sdkAdapter.getActiveSessionIds.mockReturnValue([
+        'sess-a',
+        'sess-b',
+      ] as unknown as ReturnType<SdkAgentAdapter['getActiveSessionIds']>);
+      h.handlers.register();
+
+      await call(h, 'config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+        sessionId: 'sess-b',
+      });
+
+      expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledTimes(1);
+      expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
+        'sess-b',
         'bypassPermissions',
       );
     });
@@ -661,6 +733,59 @@ describe('ConfigRpcHandlers', () => {
 
       expect(result.enabled).toBe(true);
       expect(result.permissionLevel).toBe('plan');
+    });
+
+    // TASK_2026_660 — each tab's popover shows its own session's live level,
+    // not the default the last toggle (made in any tab) saved.
+    it("reports the requested session's live level next to the saved default", async () => {
+      const h = makeHarness({
+        configSeed: {
+          'autopilot.enabled': true,
+          'autopilot.permissionLevel': 'yolo',
+        },
+      });
+      h.lifecycle.levels.set('sess-a', 'yolo');
+      h.lifecycle.levels.set('sess-b', 'auto-edit');
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(
+        h,
+        'config:autopilot-get',
+        { sessionId: 'sess-b' },
+      );
+
+      expect(result).toEqual({
+        enabled: true,
+        permissionLevel: 'yolo',
+        sessionPermissionLevel: 'auto-edit',
+      });
+    });
+
+    it('reports null for a session that is not live', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(
+        h,
+        'config:autopilot-get',
+        { sessionId: 'sess-gone' },
+      );
+
+      expect(result['sessionPermissionLevel']).toBeNull();
+    });
+
+    it('omits the session level when no session is requested', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(
+        h,
+        'config:autopilot-get',
+        { sessionId: null },
+      );
+
+      expect(result).not.toHaveProperty('sessionPermissionLevel');
+      expect(h.lifecycle.find).not.toHaveBeenCalled();
     });
   });
 

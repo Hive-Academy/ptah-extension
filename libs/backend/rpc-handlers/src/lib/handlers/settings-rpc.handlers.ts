@@ -59,6 +59,10 @@ import type {
   IUserInteraction,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import {
+  findAdvancedSetting,
+  validateAdvancedSettingValue,
+} from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 @injectable()
@@ -139,6 +143,12 @@ export class SettingsRpcHandlers {
    * The `isFileBasedSettingKey` guard is the write allow-list: only a key the
    * registry knows about may be written, so a renderer cannot mint arbitrary
    * entries in `~/.ptah/settings.json`.
+   *
+   * A key with an `ADVANCED_SETTINGS` descriptor is also value-checked: a
+   * wrong type or an out-of-range value is refused with the descriptor's
+   * plain-words message and nothing is written. Refusals are expected user
+   * input, so they are returned, not logged. Keys without a descriptor are
+   * written as given.
    */
   private registerSet(): void {
     this.rpcHandler.registerMethod('settings:set', async (rawParams) => {
@@ -152,11 +162,20 @@ export class SettingsRpcHandlers {
           error: `Setting key '${params.key}' is not writable`,
         };
       }
+      let value: unknown = params.value;
+      const setting = findAdvancedSetting(params.key);
+      if (setting) {
+        const checked = validateAdvancedSettingValue(setting, params.value);
+        if (!checked.ok) {
+          return { success: false, error: checked.error };
+        }
+        value = checked.value;
+      }
       try {
         await this.workspaceProvider.setConfiguration(
           'ptah',
           params.key,
-          params.value,
+          value,
         );
         return { success: true };
       } catch (error: unknown) {

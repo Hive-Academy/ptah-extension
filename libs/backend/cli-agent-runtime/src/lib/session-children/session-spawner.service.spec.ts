@@ -22,6 +22,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import type {
   AgentProcessInfo,
+  PermissionLevel,
   SessionTurnPhase,
 } from '@ptah-extension/shared';
 import { resolveWorktreePath, type Logger } from '@ptah-extension/vscode-core';
@@ -131,10 +132,15 @@ function makeHarness(
   const lanes: AgentProcessInfo[] = [];
   const agents = { listTrackedAgents: jest.fn(() => lanes) };
   const lifecycleIds = new Map<string, string>([[PARENT, PARENT_SDK]]);
+  /** The parent record's live level; what the autopilot toggle rewrites. */
+  const parentLevel: { value: PermissionLevel } = { value: 'yolo' };
   const lifecycle = {
     find: jest.fn((id: string) =>
       lifecycleIds.has(id)
-        ? { realSessionId: lifecycleIds.get(id), permissionLevel: 'yolo' }
+        ? {
+            realSessionId: lifecycleIds.get(id),
+            permissionLevel: parentLevel.value,
+          }
         : undefined,
     ),
   };
@@ -270,6 +276,7 @@ function makeHarness(
     lanes,
     agents,
     lifecycleIds,
+    parentLevel,
     phases,
     transcripts,
     workspace,
@@ -300,22 +307,40 @@ afterEach(() => {
 describe('SessionSpawnerService.start — guards in order', () => {
   it('passes the parent permission level captured before worktree provisioning', async () => {
     const h = makeHarness();
-    h.provisioner.create.mockImplementationOnce(async (root: string, branch: string) => {
-      h.lifecycleIds.delete(PARENT);
-      return {
-        ok: true as const,
-        worktree: {
-          root,
-          branch,
-          worktreePath: resolveWorktreePath(root, branch),
-          baseSha: SHA,
-        },
-      };
-    });
+    h.provisioner.create.mockImplementationOnce(
+      async (root: string, branch: string) => {
+        h.lifecycleIds.delete(PARENT);
+        return {
+          ok: true as const,
+          worktree: {
+            root,
+            branch,
+            worktreePath: resolveWorktreePath(root, branch),
+            baseSha: SHA,
+          },
+        };
+      },
+    );
 
     await h.startChild();
 
-    expect(h.host.startChildSession.mock.calls[0][0].permissionLevel).toBe('yolo');
+    expect(h.host.startChildSession.mock.calls[0][0].permissionLevel).toBe(
+      'yolo',
+    );
+  });
+
+  it('passes the level the parent holds when each child starts (TASK_2026_660)', async () => {
+    const h = makeHarness();
+
+    await h.startChild();
+    // The user changes the parent's autopilot level between two starts.
+    h.parentLevel.value = 'auto-edit';
+    await h.startChild({ branch: 'feat/second-child', label: 'second' });
+
+    const levels = h.host.startChildSession.mock.calls.map(
+      ([input]) => input.permissionLevel,
+    );
+    expect(levels).toEqual(['yolo', 'auto-edit']);
   });
 
   it('refuses chat-runtime-unavailable first, even for an unattributed caller', async () => {
