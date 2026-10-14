@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { SendToMessagingComponent } from '@ptah-extension/chat';
@@ -179,6 +181,18 @@ describe('CanvasFocusHeaderComponent', () => {
       chips.forEach((chip) => expect(chip.classList).toContain('text-base-content-muted'));
       // The state chip keeps its state ink.
       expect(header.querySelector('.state-idle')?.classList).not.toContain('text-base-content-muted');
+    });
+    it('F-C: the quiet tier restates the muted token inside the component so the global anubis-light .truncate rule cannot win', () => {
+      // jest-preset-angular strips component styles, so read the inline CSS source.
+      const source = readFileSync(join(__dirname, 'canvas-focus-header.component.ts'), 'utf8');
+      expect(source).toMatch(/\.pane-quiet \.text-base-content-muted\s*\{\s*color: oklch\(var\(--bcm, var\(--bc\)\)\);\s*\}/);
+      const { title, chips } = pane(false, 2, 'Right');
+      // The scoped rule only reaches elements that carry the muted class: the title and both chips.
+      for (const el of [title, ...chips]) {
+        expect(el.closest('.pane-quiet')).not.toBeNull();
+        expect(el.classList).toContain('truncate');
+        expect(el.classList).toContain('text-base-content-muted');
+      }
     });
     it('switching the active pane moves the accent without remounting the header', () => {
       const { fixture, header } = pane(true, 1, 'Left');

@@ -64,7 +64,12 @@ const cssRules = () =>
       'utf8',
     ).matchAll(/([^{}]*)\{([^{}]*)\}/g),
   ].map(([, selector, body]) => ({
-    selector: selector.replace(/\/\*[\s\S]*?\*\//g, '').trim(),
+    // The first rule's chunk also holds the decorator text up to the
+    // styles backtick; keep only the selector after it.
+    selector: selector
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[\s\S]*`/, '')
+      .trim(),
     declarations: body
       .split(';')
       .map((part) => part.split(':').map((s) => s.trim()))
@@ -201,19 +206,46 @@ describe(CompactRailCardComponent.name, () => {
       'background-color',
     ]);
     for (const [, value] of focused?.declarations ?? []) {
-      expect(value).toContain('var(--p)');
+      expect(value).toMatch(/var\(--(rc-focus-frame|p)\)/);
       expect(value).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     }
     expect(focused?.declarations).toContainEqual([
-      'box-shadow',
-      'inset 0 0 0 1px oklch(var(--p))',
+      'border-color',
+      'var(--rc-focus-frame)',
     ]);
+    expect(focused?.declarations).toContainEqual([
+      'box-shadow',
+      'inset 0 0 0 1px var(--rc-focus-frame)',
+    ]);
+    // F-A: the frame is primary, except in anubis-light where the bright teal
+    // primary is 1.40:1 on the cream page; there it is the deep teal content ink.
+    const frame = (selector: string) =>
+      cssRules()
+        .find((rule) => rule.selector === selector)
+        ?.declarations.find(([prop]) => prop === '--rc-focus-frame')?.[1];
+    expect(frame(':host')).toBe('oklch(var(--p))');
+    expect(frame(":host-context([data-theme='anubis-light'])")).toBe(
+      'oklch(var(--pc))',
+    );
     expect(selectors.indexOf(':host(.rc-focused)')).toBeGreaterThan(
       selectors.indexOf(':host(:hover)'),
     );
     f.componentRef.setInput('focused', false);
     f.detectChanges();
     expect(host.classList.contains('rc-focused')).toBe(false);
+  });
+
+  it('F-B: the 10px state pill lifts its state ink toward base-content for 4.5:1 text', () => {
+    const f = render();
+    const pill = f.nativeElement.querySelector('.rc-pill') as HTMLElement;
+    expect(pill.classList.contains('text-[10px]')).toBe(true);
+    const rule = cssRules().find((r) => r.selector === '.rc-pill');
+    expect(rule?.declarations).toEqual([
+      [
+        'color',
+        'color-mix(in oklab, var(--rail-state-ink) 70%, oklch(var(--bc)))',
+      ],
+    ]);
   });
 
   it('reserves the top-right corner on the title line only when asked, at both densities', () => {

@@ -49,9 +49,17 @@ const EMPTY_LANES: CompactLaneSummary = {
   },
   styles: [
     `
+      /* The focused frame ink, at least 3:1 on the page and on an unfocused
+         card. anubis primary #2563eb: 3.59:1 on base-100, 3.35:1 on base-200.
+         anubis-light primary is a bright teal (1.40:1 on its cream), so that
+         theme uses the deep teal primary-content: 9.80:1 and 8.75:1. */
       :host {
         box-sizing: border-box;
         padding: 4px 10px 4px 14px;
+        --rc-focus-frame: oklch(var(--p));
+      }
+      :host-context([data-theme='anubis-light']) {
+        --rc-focus-frame: oklch(var(--pc));
       }
       :host::before {
         content: '';
@@ -152,14 +160,14 @@ const EMPTY_LANES: CompactLaneSummary = {
       :host(:hover) {
         border-color: var(--rail-state-ink);
       }
-      /* The active session: a primary frame (the 1 px border plus a 1 px
+      /* The active session: a focus frame (the 1 px border plus a 1 px
          inset ring, so no size change and nothing for the parent's overflow
          to clip) over a primary-tinted surface, in both themes. After
          :host(:hover) so hover never repaints the active frame; the left
          state stripe paints over the ring's left edge. */
       :host(.rc-focused) {
-        border-color: oklch(var(--p));
-        box-shadow: inset 0 0 0 1px oklch(var(--p));
+        border-color: var(--rc-focus-frame);
+        box-shadow: inset 0 0 0 1px var(--rc-focus-frame);
         background-color: color-mix(in oklch, oklch(var(--p)) 14%, oklch(var(--b2)));
       }
       .rc-action:hover {
@@ -179,8 +187,12 @@ const EMPTY_LANES: CompactLaneSummary = {
         background: color-mix(in oklch, var(--rail-state-ink) 14%, transparent);
         color: oklch(var(--bc));
       }
+      /* 10 px pill text needs 4.5:1. The raw state inks are a 3:1 UI tier
+         (idle 3.18:1 on the dark focused tint), so the pill pulls its ink 30%
+         toward base-content in OKLab (no hue rotation): at least 4.99:1 on
+         the focused tint and 5.63:1 on base-200 in both anubis themes. */
       .rc-pill {
-        color: var(--rail-state-ink);
+        color: color-mix(in oklab, var(--rail-state-ink) 70%, oklch(var(--bc)));
       }
       .rc-lanes {
         min-height: 0;

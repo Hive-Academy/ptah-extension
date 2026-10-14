@@ -164,7 +164,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             #trigger
             trigger
             type="button"
-            class="rail-actions-trigger flex w-6 items-center justify-center rounded-md text-base-content/70 hover:bg-base-content/10 hover:text-base-content"
+            class="rail-actions-trigger flex w-6 items-center justify-center rounded-md text-base-content-muted hover:bg-base-content/10 hover:text-base-content"
             [class.h-6]="!collapsed()"
             [class.h-14]="collapsed()"
             aria-label="Session actions"

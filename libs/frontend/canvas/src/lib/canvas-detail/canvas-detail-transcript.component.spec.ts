@@ -66,6 +66,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
     const originalResizeObserver = global.ResizeObserver;
     global.ResizeObserver = jest.fn().mockImplementation(() => ({ observe: jest.fn(), unobserve: jest.fn(), disconnect: jest.fn() })) as unknown as typeof ResizeObserver;
     const tabs = signal([{ id: 'parent', claudeSessionId: 'owner' }]);
+    const open = jest.fn(() => false);
     const visibleTabIds = signal<ReadonlySet<string>>(new Set());
     const tabManager = {
       activeTabId: signal<string | null>('parent'), activeTab: jest.fn(() => null),
@@ -85,7 +86,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       deferBlockBehavior: DeferBlockBehavior.Playthrough,
       providers: [
         { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
-        { provide: CanvasDetailService, useValue: { open: jest.fn(() => false) } },
+        { provide: CanvasDetailService, useValue: { open } },
         { provide: TabManagerService, useValue: tabManager },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         { provide: EffortStateService, useValue: { isLoaded: signal(false), currentEffort: signal(null) } },
@@ -121,10 +122,6 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       expect(injector.get(HIDE_AGENT_SIDEBAR, null)).toBeNull();
       expect(injector.get(RAIL_TRANSCRIPT_RETENTION)).toBe(true);
       expect(injector.get(SESSION_CARD_ACTIONS)).toBeTruthy();
-      injector.get(SESSION_CARD_ACTIONS).openLane('sub:missing');
-      fixture.detectChanges();
-      expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent)
-        .toContain('This agent is not available yet.');
       const chat = fixture.debugElement.query(By.directive(ChatViewComponent));
       expect(chat).toBeTruthy();
       const store = chat.injector.get(PTAH_UI_DISPLAY_DOCK_SYNC) as PtahUiDisplayDockSync & {
@@ -152,8 +149,50 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       await settle();
       expect(fixture.debugElement.query(By.directive(ChatViewComponent)).componentInstance).toBe(chat.componentInstance);
       expect(panel.componentInstance.surfaces()).toEqual([updated]);
+      jest.useFakeTimers();
+      const actions = injector.get(SESSION_CARD_ACTIONS);
+      const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement;
+      expect(status).toBeTruthy();
+      expect(status.classList.contains('sr-only')).toBe(false);
+      actions.openLane('sub:missing');
+      fixture.detectChanges();
+      const firstNotice = status.querySelector('span');
+      expect(firstNotice?.textContent).toContain('This agent is not available yet.');
+      expect(firstNotice?.classList.contains('text-base-content')).toBe(true);
+      actions.openLane('sub:missing');
+      fixture.detectChanges();
+      const secondNotice = status.querySelector('span');
+      expect(secondNotice).toBeTruthy();
+      expect(secondNotice).not.toBe(firstNotice);
+      expect(firstNotice?.isConnected).toBe(false);
+      expect(secondNotice?.textContent).toContain('This agent is not available yet.');
+      open.mockReturnValueOnce(true);
+      actions.openLane('sub:available');
+      fixture.detectChanges();
+      expect(status.querySelector('span')).toBeNull();
+      jest.advanceTimersByTime(20);
+      const timersBeforeRejection = jest.getTimerCount();
+      actions.openLane('sub:missing');
+      actions.openLane('sub:missing');
+      fixture.detectChanges();
+      jest.advanceTimersByTime(20);
+      expect(jest.getTimerCount()).toBe(timersBeforeRejection + 1);
+      expect(status.querySelector('span')).toBeTruthy();
+      jest.advanceTimersByTime(4000);
+      fixture.detectChanges();
+      expect(status.querySelector('span')).toBeNull();
+      expect(fixture.nativeElement.querySelector('[role="status"]')).toBe(status);
+      const scheduled = jest.spyOn(global, 'setTimeout');
+      const cleared = jest.spyOn(global, 'clearTimeout');
+      actions.openLane('sub:missing');
+      const noticeTimer = scheduled.mock.results.at(-1)?.value;
+      expect(noticeTimer).toBeDefined();
+      fixture.destroy();
+      expect(cleared).toHaveBeenCalledWith(noticeTimer);
     } finally {
       fixture.destroy();
+      jest.restoreAllMocks();
+      jest.useRealTimers();
       if (originalResizeObserver) global.ResizeObserver = originalResizeObserver;
       else delete (global as Record<string, unknown>)['ResizeObserver'];
     }

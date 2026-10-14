@@ -25,6 +25,13 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
     /* The active pane's top bar. Inset, so the 48 px height is unchanged. */
     .pane-active { box-shadow: inset 0 2px 0 0 var(--pane-accent); }
     .pane-marker-active { background-color: var(--pane-accent); color: var(--pane-accent-ink); }
+    /*
+     * The inactive pane's secondary-text tier. The app's global anubis-light rule
+     * "[data-theme='anubis-light'] .truncate" (0,2,0) beats the utility (0,1,0) and kept the quiet
+     * title and chips at full base-content, so this scoped rule restates the muted token.
+     * Same value as text-base-content-muted: 6.03:1 / 6.06:1 on base-100, 5.39:1 / 5.66:1 on base-200.
+     */
+    .pane-quiet .text-base-content-muted { color: oklch(var(--bcm, var(--bc))); }
   `],
   template: `
     <header class="relative flex h-12 min-w-0 items-center gap-2 overflow-visible border-b border-base-content/10 bg-base-100 px-3 whitespace-nowrap"
