@@ -19,19 +19,14 @@ import {
 import {
   DEFAULT_TILE_WIDTH,
   MAX_CANVAS_TILES,
-  TILE_SPANS,
-  projectPreset,
   reconcileIntent,
   retainTilesInLogicalRows,
   sameWidth,
-  type CanvasLayoutPreset,
   type TileIntent,
-  type TileSpan,
 } from './canvas-layout-intent';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import {
   DEFAULT_BOARD_STATE,
-  type CanvasBoardMode,
   type CanvasBoardState,
   type CanvasRailDensity,
 } from './canvas-board-mode';
@@ -39,9 +34,7 @@ import {
 /**
  * A canvas tile is stored as intent only — where it sits in reading order, how
  * wide it wants to be and whether it starts a row. Concrete `x`/`y`/`w`/`h`
- * are derived by `CanvasLayoutService` on every layout pass and never stored,
- * so a container resize re-flows the grid without destroying the arrangement
- * the user chose.
+ * are transient projection details and never stored.
  */
 export type CanvasTile = TileIntent;
 
@@ -79,8 +72,7 @@ const IMPLICIT_WORKSPACE_PATH = '';
  *
  * Manages the set of tiles visible in the Orchestra Canvas panel. Each tile
  * corresponds to a tab in TabManagerService. Only tile *intent* (order, width
- * and row breaks) is tracked here — `CanvasLayoutService` derives grid
- * coordinates from it. Focus state updates the global active tab so message
+ * and row breaks) is tracked here. Focus state updates the global active tab so message
  * sending routes to the correct session. Layout focus is a separate, transient
  * per-workspace overlay that renders one tile full width without touching
  * intent. Storage is delegated to `CanvasLayoutPersistenceService`.
@@ -105,7 +97,7 @@ export class CanvasStore {
   /**
    * Maximum number of tiles the orchestra canvas allows simultaneously.
    *
-   * The tile bound is MAX_CANVAS_TILES (20) for persistence and Gridstack.
+   * The tile bound is MAX_CANVAS_TILES (20) for persistence and the Rail board.
    * The separate running limit is MAX_RUNNING_SESSIONS in canvas-running-cap.ts.
    */
   static readonly MAX_TILES = MAX_CANVAS_TILES;
@@ -124,7 +116,6 @@ export class CanvasStore {
   private readonly _workspaceRevisions = signal<ReadonlyMap<string, number>>(
     new Map(),
   );
-  private readonly _layoutLocked = signal(false);
   private readonly _hydratedPaths = new Set<string>();
 
   /** Insertion-ordered mounted workspaces (stable for `@for` track path). */
@@ -140,13 +131,6 @@ export class CanvasStore {
 
   readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
   readonly workspacePaths = this._workspacePaths.asReadonly();
-  /**
-   * Panel-wide lock: no layout intent or projection changes while true. The
-   * one exception is tab-owned view mode: a compact/full toggle is owned by
-   * `TabManagerService`, not by this store, so the workspace grid may still
-   * apply the authoritative geometry reflow a view change implies.
-   */
-  readonly layoutLocked = this._layoutLocked.asReadonly();
 
   readonly tiles = computed<readonly CanvasTile[]>(() => {
     const path = this._activeWorkspacePath();
@@ -264,10 +248,6 @@ export class CanvasStore {
     return this._workspaceBoard().get(path) ?? DEFAULT_BOARD_STATE;
   }
 
-  setBoardMode(path: string, mode: CanvasBoardMode): void {
-    this.updateBoard(path, { mode });
-  }
-
   setRailCollapsed(path: string, collapsed: boolean): void {
     this.updateBoard(path, { railCollapsed: collapsed });
   }
@@ -298,10 +278,6 @@ export class CanvasStore {
 
   focusedTabIdFor(path: string): string | null {
     return this._workspaceFocusedTabId().get(path) ?? null;
-  }
-
-  setLayoutLocked(locked: boolean): void {
-    this._layoutLocked.set(locked);
   }
 
   /**
@@ -414,7 +390,6 @@ export class CanvasStore {
     expectedRevision: number,
     projected: readonly CanvasTile[],
   ): boolean {
-    if (this._layoutLocked()) return false;
     if (this.workspaceRevision(workspacePath) !== expectedRevision)
       return false;
     const current = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
@@ -430,65 +405,15 @@ export class CanvasStore {
   }
 
   /**
-   * Atomically commit a snapped resize to the workspace captured at gesture
-   * start. Only the dragged tile's width changes; neighbours, order and breaks
-   * are untouched. Stale revisions, unknown ids and invalid spans are refused.
-   */
-  commitResizeSpan(
-    workspacePath: string,
-    expectedRevision: number,
-    tabId: string,
-    span: TileSpan,
-  ): boolean {
-    if (this.workspaceRevision(workspacePath) !== expectedRevision)
-      return false;
-    return this.setTileSpan(workspacePath, tabId, span);
-  }
-
-  /** Set one tile's named span. Returns false when locked or invalid. */
-  setTileSpan(workspacePath: string, tabId: string, span: TileSpan): boolean {
-    if (this._layoutLocked() || !TILE_SPANS.includes(span)) return false;
-    const width = { kind: 'span', span } as const;
-    return this.updateTile(workspacePath, tabId, (tile) =>
-      sameWidth(tile.width, width) ? tile : { ...tile, width },
-    );
-  }
-
-  /** Start a new logical row before a tile, or join it to the previous row. */
-  toggleRowBreak(workspacePath: string, tabId: string): boolean {
-    if (this._layoutLocked()) return false;
-    const first = sortByOrder(
-      this._workspaceTiles().get(workspacePath) ?? [],
-    )[0];
-    if (first?.tabId === tabId) return false;
-    return this.updateTile(workspacePath, tabId, (tile) => ({
-      ...tile,
-      rowBreakBefore: !tile.rowBreakBefore,
-    }));
-  }
-
-  /**
    * Enter or exit transient layout focus for a tile. Never changes stored
    * intent, so exiting reproduces the exact prior layout.
    */
   toggleLayoutFocus(workspacePath: string, tabId: string): boolean {
-    if (this._layoutLocked()) return false;
     const tiles = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
     if (!tiles.some((tile) => tile.tabId === tabId)) return false;
     const next =
       this.layoutFocusTabIdFor(workspacePath) === tabId ? null : tabId;
     setIn(this._workspaceLayoutFocus, workspacePath, next);
-    return true;
-  }
-
-  /** Rewrite the active workspace's intent to a preset in one revision. */
-  applyPreset(preset: CanvasLayoutPreset): boolean {
-    const path = this._activeWorkspacePath();
-    if (this._layoutLocked() || path === null) return false;
-    const current = this._workspaceTiles().get(path) ?? EMPTY_TILES;
-    if (current.length < 2) return false;
-    const next = projectPreset(current, preset, this.focusedTabId());
-    if (!sameIntent(current, next)) this.setWorkspaceTiles(path, next);
     return true;
   }
 
@@ -657,25 +582,6 @@ export class CanvasStore {
     const current = this._workspaceTiles().get(path) ?? EMPTY_TILES;
     const updated = fn(current);
     if (updated !== current) this.setWorkspaceTiles(path, updated);
-  }
-
-  /** Transform one tile of a workspace; false when the tile is unknown. */
-  private updateTile(
-    workspacePath: string,
-    tabId: string,
-    fn: (tile: CanvasTile) => CanvasTile,
-  ): boolean {
-    const current = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
-    const index = current.findIndex((tile) => tile.tabId === tabId);
-    if (index === -1) return false;
-    const updated = fn(current[index]);
-    if (updated !== current[index]) {
-      this.setWorkspaceTiles(
-        workspacePath,
-        current.map((tile, i) => (i === index ? updated : tile)),
-      );
-    }
-    return true;
   }
 
   private setWorkspaceTiles(

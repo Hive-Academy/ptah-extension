@@ -4,10 +4,8 @@ export const GRID_COLUMNS = 12;
 /**
  * Hard tile cap shared by the store and the persistence boundary.
  *
- * Raised from 9 to 20 (TASK_2026_471). Columns are still capped at 3
- * (`MAX_COLUMNS`), so the grid grows downward into more rows rather than
- * wider. A record written at this cap is rejected by an older client, whose
- * schema still caps at 9 — that client reports `writable: false` and declines
+ * Raised from 9 to 20 (TASK_2026_471). An older client whose schema still
+ * caps at 9 rejects a record written at this cap, reports `writable: false` and declines
  * to overwrite, so the record survives rather than being truncated.
  */
 export const MAX_CANVAS_TILES = 20;
@@ -18,26 +16,8 @@ export const FULL_TILE_HEIGHT_UNITS = 6;
 /** Smallest height, in Gridstack row units, a compact tile may take. */
 export const MIN_COMPACT_TILE_HEIGHT_UNITS = 2;
 
-/**
- * Largest compact height. One row short of full so a compact tile never
- * triggers the full-tile viewport floor in `CanvasLayoutService.cellHeightFor`.
- */
+/** Largest compact height in legacy Gridstack row units. */
 export const MAX_COMPACT_TILE_HEIGHT_UNITS = FULL_TILE_HEIGHT_UNITS - 1;
-
-/**
- * Clamp a tab's stored compact height (opaque to chat, possibly absent or
- * stale) into `[MIN_COMPACT_TILE_HEIGHT_UNITS, MAX_COMPACT_TILE_HEIGHT_UNITS]`.
- * Absent or non-finite input gives the minimum.
- */
-export function clampCompactHeightUnits(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return MIN_COMPACT_TILE_HEIGHT_UNITS;
-  }
-  return Math.min(
-    MAX_COMPACT_TILE_HEIGHT_UNITS,
-    Math.max(MIN_COMPACT_TILE_HEIGHT_UNITS, Math.round(value)),
-  );
-}
 
 export const TILE_SPANS = ['third', 'half', 'two-thirds', 'full'] as const;
 export type TileSpan = (typeof TILE_SPANS)[number];
@@ -76,17 +56,11 @@ export interface TileIntent {
   readonly rowBreakBefore: boolean;
 }
 
-export type CanvasLayoutPreset =
-  | 'even-grid'
-  | 'one-plus-two'
-  | 'focus-plus-stack';
-
 /**
- * One tile's transient view constraint, derived from the owning tab's view
- * mode and compact height in `TabManagerService`. Never stored in
- * `TileIntent` or canvas persistence. `heightUnits` is already clamped for a
- * compact tile and `FULL_TILE_HEIGHT_UNITS` for a full one; layout focus
- * overrides it to full.
+ * One tile's transient view constraint. Never stored in `TileIntent` or
+ * canvas persistence. This module does not clamp `heightUnits`: the caller
+ * supplies the final value, and a tile without a constraint projects at
+ * `FULL_TILE_HEIGHT_UNITS`.
  */
 export interface TileViewConstraint {
   readonly tabId: string;
@@ -100,8 +74,7 @@ export type TileViewConstraints = readonly TileViewConstraint[];
 /**
  * Stable fingerprint for an ordered constraint list: length-prefixed id, mode
  * and height. Gestures compare this string to detect a mid-gesture view or
- * height change without depending on object identity, and a locked grid uses
- * it to admit a menu-driven height change.
+ * height change without depending on object identity.
  */
 export function viewConstraintsFingerprint(
   constraints: TileViewConstraints,
@@ -112,25 +85,6 @@ export function viewConstraintsFingerprint(
         `${c.tabId.length}:${c.tabId}=${c.compact ? 'c' : 'f'}${c.heightUnits}`,
     )
     .join('|');
-}
-
-/**
- * One tile's constraint from its tab's view state. A compact height is
- * clamped here because the tab stores it opaquely; a full tile is always
- * `FULL_TILE_HEIGHT_UNITS`.
- */
-export function tileViewConstraint(
-  tabId: string,
-  compact: boolean,
-  storedCompactHeight: number | undefined,
-): TileViewConstraint {
-  return {
-    tabId,
-    compact,
-    heightUnits: compact
-      ? clampCompactHeightUnits(storedCompactHeight)
-      : FULL_TILE_HEIGHT_UNITS,
-  };
 }
 
 /** Structural equality over `(tabId, compact, heightUnits)`, in order. */
@@ -289,7 +243,7 @@ function clampCapacity(capacity: number): number {
     : 1;
 }
 
-/** Narrowest unit count that still keeps `MIN_TILE_WIDTH` at this capacity. */
+/** Narrowest unit count allocated to a tile at this capacity. */
 export function minimumUnitsFor(capacity: number): number {
   return Math.ceil(GRID_COLUMNS / clampCapacity(capacity));
 }
@@ -618,43 +572,6 @@ export function totalExtentOf(
   positioned: readonly ProjectedTileGeometry[],
 ): number {
   return positioned.reduce((max, tile) => Math.max(max, tile.y + tile.h), 0);
-}
-
-/**
- * Rewrite width, order and row breaks for a durable preset. `focusedTabId`
- * selects the lead tile of `focus-plus-stack`; the first tile leads otherwise.
- */
-export function projectPreset(
-  tiles: readonly TileIntent[],
-  preset: CanvasLayoutPreset,
-  focusedTabId: string | null,
-): readonly TileIntent[] {
-  const ordered = logicalRows(tiles).flat();
-  if (ordered.length === 0) return ordered;
-  if (preset === 'even-grid') {
-    return densify(
-      ordered.map((tile, index) => ({
-        ...tile,
-        width: DEFAULT_TILE_WIDTH,
-        rowBreakBefore: index % 3 === 0,
-      })),
-    );
-  }
-  const lead =
-    (preset === 'focus-plus-stack'
-      ? ordered.find((tile) => tile.tabId === focusedTabId)
-      : undefined) ?? ordered[0];
-  const rest = ordered.filter((tile) => tile !== lead);
-  const full: TileWidthIntent = { kind: 'span', span: 'full' };
-  const half: TileWidthIntent = { kind: 'span', span: 'half' };
-  return densify([
-    { ...lead, width: full, rowBreakBefore: false },
-    ...rest.map((tile, index) => ({
-      ...tile,
-      width: index % 2 === 0 && index === rest.length - 1 ? full : half,
-      rowBreakBefore: index % 2 === 0,
-    })),
-  ]);
 }
 
 /**

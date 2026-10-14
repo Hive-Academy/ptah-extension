@@ -80,7 +80,7 @@ describe('CanvasStore', () => {
     agents = signal([]);
     subagents = signal(new Map());
     persistence = {
-      load: jest.fn(() => ({
+      load: jest.fn((_path: string) => ({
         tiles: null,
         writable: true,
         needsWrite: false,
@@ -321,9 +321,9 @@ describe('CanvasStore', () => {
     expect(store.boardFor('/ws/a')).toEqual(DEFAULT_BOARD_STATE);
     expect(store.tiles()).toEqual(tiles);
     expect(persistence.schedule).not.toHaveBeenCalled();
-    store.setBoardMode('/ws/a', 'grid');
+    store.setRailCollapsed('/ws/a', true);
     expect(persistence.schedule).toHaveBeenCalledTimes(1);
-    expect(persistence.schedule.mock.calls[0][1]()).toEqual({ tiles, board: { ...DEFAULT_BOARD_STATE, mode: 'grid' } });
+    expect(persistence.schedule.mock.calls[0][1]()).toEqual({ tiles, board: { ...DEFAULT_BOARD_STATE, railCollapsed: true } });
   });
 
   it('persists each changed board field once without changing tile identity or revision', () => {
@@ -332,14 +332,13 @@ describe('CanvasStore', () => {
     const tiles = store.tilesFor('/ws/a')();
     const tileSignal = store.tilesFor('/ws/a');
     const revision = store.workspaceRevision('/ws/a');
-    store.setBoardMode('/ws/a', 'grid');
     store.setRailCollapsed('/ws/a', true);
     store.setRailDensity('/ws/a', 'dense');
     store.setRailScrollTop('/ws/a', 12.6);
-    expect(persistence.schedule).toHaveBeenCalledTimes(4);
-    expect(store.boardFor('/ws/a')).toEqual({ mode: 'grid', railCollapsed: true, railDensity: 'dense', railScrollTop: 13 });
+    expect(persistence.schedule).toHaveBeenCalledTimes(3);
+    expect(store.boardFor('/ws/a')).toEqual({ ...DEFAULT_BOARD_STATE, railCollapsed: true, railDensity: 'dense', railScrollTop: 13 });
     store.setRailScrollTop('/ws/a', 13);
-    expect(persistence.schedule).toHaveBeenCalledTimes(4);
+    expect(persistence.schedule).toHaveBeenCalledTimes(3);
     expect(store.tilesFor('/ws/a')).toBe(tileSignal);
     expect(store.tilesFor('/ws/a')()).toBe(tiles);
     expect(store.workspaceRevision('/ws/a')).toBe(revision);
@@ -347,11 +346,11 @@ describe('CanvasStore', () => {
 
   it('keeps hidden workspace board state and drops it on removal', () => {
     hydrate('/ws/a', ['A']);
-    store.setBoardMode('/ws/a', 'grid');
+    store.setRailCollapsed('/ws/a', true);
     hydrate('/ws/b', ['B']);
     store.setRailDensity('/ws/b', 'dense');
     hydrate('/ws/a', ['A']);
-    expect(store.boardFor('/ws/a').mode).toBe('grid');
+    expect(store.boardFor('/ws/a').railCollapsed).toBe(true);
     expect(store.boardFor('/ws/b').railDensity).toBe('dense');
     store.removeWorkspaceTileState('/ws/a');
     expect(store.boardFor('/ws/a')).toEqual(DEFAULT_BOARD_STATE);
@@ -359,39 +358,10 @@ describe('CanvasStore', () => {
 
   it('migrates implicit board state to the first real workspace', () => {
     store.hydrateWorkspace(null, []);
-    store.setBoardMode('', 'grid');
+    store.setRailCollapsed('', true);
     store.hydrateWorkspace('/ws/a', []);
-    expect(store.boardFor('/ws/a').mode).toBe('grid');
+    expect(store.boardFor('/ws/a').railCollapsed).toBe(true);
     expect(store.boardFor('')).toEqual(DEFAULT_BOARD_STATE);
-  });
-
-  it('sets only the requested span and bumps one revision', () => {
-    hydrate('/ws/a', ['A', 'B']);
-    const revision = store.workspaceRevision('/ws/a');
-    expect(store.setTileSpan('/ws/a', 'B', 'two-thirds')).toBe(true);
-    expect(store.workspaceRevision('/ws/a')).toBe(revision + 1);
-    expect(store.tiles()[0].width).toEqual({ kind: 'auto', weight: 1 });
-    expect(store.tiles()[1].width).toEqual({
-      kind: 'span',
-      span: 'two-thirds',
-    });
-  });
-
-  it('commits snapped resize only for the addressed workspace and revision', () => {
-    hydrate('/ws/a', ['A', 'B']);
-    const revisionA = store.workspaceRevision('/ws/a');
-    hydrate('/ws/b', ['C']);
-    expect(store.setTileSpan('/ws/b', 'C', 'full')).toBe(true);
-    expect(store.commitResizeSpan('/ws/b', revisionA, 'C', 'half')).toBe(false);
-    hydrate('/ws/a', ['A', 'B']);
-
-    expect(store.commitResizeSpan('/ws/a', revisionA, 'A', 'half')).toBe(true);
-    expect(store.tiles()[0].width).toEqual({ kind: 'span', span: 'half' });
-    const updatedRevisionA = store.workspaceRevision('/ws/a');
-    expect(store.commitResizeSpan('/ws/a', revisionA, 'B', 'full')).toBe(false);
-    expect(
-      store.commitResizeSpan('/ws/a', updatedRevisionA, 'B', 'two-thirds'),
-    ).toBe(true);
   });
 
   it('clears stale layout focus carried from the implicit partition during hydration', () => {
@@ -432,30 +402,15 @@ describe('CanvasStore', () => {
     expect(store.layoutFocusTabIdFor('/ws/a')).toBeNull();
   });
 
-  it('lock blocks every layout mutation including focus, breaks and presets', () => {
-    hydrate('/ws/a', ['A', 'B']);
-    store.setLayoutLocked(true);
-    expect(store.setTileSpan('/ws/a', 'A', 'full')).toBe(false);
-    expect(store.toggleRowBreak('/ws/a', 'B')).toBe(false);
-    expect(store.toggleLayoutFocus('/ws/a', 'A')).toBe(false);
-    expect(store.applyPreset('one-plus-two')).toBe(false);
-  });
-
-  it.each(['even-grid', 'one-plus-two', 'focus-plus-stack'] as const)(
-    'applies %s in one revision and one persistence mutation',
-    (preset) => {
-      hydrate('/ws/a', ['A', 'B', 'C', 'D']);
-      persistence.schedule.mockClear();
-      const revision = store.workspaceRevision('/ws/a');
-      expect(store.applyPreset(preset)).toBe(true);
-      expect(store.workspaceRevision('/ws/a')).toBe(revision + 1);
-      expect(persistence.schedule).toHaveBeenCalledTimes(1);
-    },
-  );
-
   it('partitions intent, preserves row boundaries on removal, and evicts only mounted grids', () => {
+    const tiles: TileIntent[] = ['A', 'B', 'C'].map((tabId, order) => ({
+      tabId,
+      order,
+      width: { kind: 'auto', weight: 1 },
+      rowBreakBefore: order === 1,
+    }));
+    persistence.load.mockReturnValueOnce({ tiles, board: null, writable: true, needsWrite: false, readOnlyReason: null });
     hydrate('/ws/a', ['A', 'B', 'C']);
-    store.toggleRowBreak('/ws/a', 'B');
     store.removeTileOnly('B');
     expect(store.tiles()[1].rowBreakBefore).toBe(true);
     for (let i = 0; i <= RETAINED_WORKSPACE_CAP; i++) {
