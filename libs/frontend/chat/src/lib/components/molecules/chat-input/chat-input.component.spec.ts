@@ -54,7 +54,13 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import {
+  EnvironmentInjector,
+  createEnvironmentInjector,
+  runInInjectionContext,
+  signal,
+  type WritableSignal,
+} from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
 import { ComposerDraftStore } from '../../../services/composer-draft.store';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
@@ -352,6 +358,79 @@ describe('ChatInputComponent', () => {
     onTabClosedListener?.({ tabId: 'tile-A' });
     component.ngOnDestroy();
     expect(TestBed.inject(ComposerDraftStore).get('tile-A')).toBeUndefined();
+  });
+
+  // R9x: split Rail panes mount one composer per pane, each scoped by its own
+  // SESSION_CONTEXT tab. F5 (draft lost on a card flip) must hold per pane.
+  describe('contextual F5 drafts per SESSION_CONTEXT tab', () => {
+    const typed = (composer: ChatInputComponent, value: string) =>
+      composer.handleInput({ target: { value } } as unknown as Event);
+    function paneComposer(context: WritableSignal<string | null>): ChatInputComponent {
+      const injector = createEnvironmentInjector(
+        [{ provide: SESSION_CONTEXT, useValue: context.asReadonly() }],
+        TestBed.inject(EnvironmentInjector),
+      );
+      return runInInjectionContext(injector, () => new ChatInputComponent());
+    }
+
+    beforeEach(() => {
+      tabsSignal.set([
+        { id: 'tile-A', status: 'loaded' },
+        { id: 'tile-B', status: 'loaded' },
+        { id: 'tile-C', status: 'loaded' },
+      ]);
+    });
+
+    it('keeps each pane draft on its own tab while the active pane moves between them', () => {
+      const left = paneComposer(signal<string | null>('tile-A'));
+      const right = paneComposer(signal<string | null>('tile-B'));
+      typed(left, 'left draft');
+      typed(right, 'right draft');
+      TestBed.tick();
+      for (const active of ['tile-A', 'tile-B', 'tile-A', null]) {
+        activeTabIdSignal.set(active);
+        TestBed.tick();
+        expect(left.currentMessage()).toBe('left draft');
+        expect(right.currentMessage()).toBe('right draft');
+      }
+      const drafts = TestBed.inject(ComposerDraftStore);
+      expect(drafts.get('tile-A')?.text).toBe('left draft');
+      expect(drafts.get('tile-B')?.text).toBe('right draft');
+    });
+
+    it('saves the replaced pane tab draft and restores it when the tab returns, leaving the other pane alone', () => {
+      const leftContext = signal<string | null>('tile-A');
+      const left = paneComposer(leftContext);
+      const right = paneComposer(signal<string | null>('tile-B'));
+      typed(left, 'left draft');
+      typed(right, 'right draft');
+      TestBed.tick();
+      leftContext.set('tile-C');
+      TestBed.tick();
+      expect(left.currentMessage()).toBe('');
+      typed(left, 'replacement draft');
+      TestBed.tick();
+      leftContext.set('tile-A');
+      TestBed.tick();
+      expect(left.currentMessage()).toBe('left draft');
+      expect(right.currentMessage()).toBe('right draft');
+      expect(TestBed.inject(ComposerDraftStore).get('tile-C')?.text).toBe('replacement draft');
+    });
+
+    it('F5: both pane composers remount and each restores its own tab draft, also after a pane swap', () => {
+      let left = paneComposer(signal<string | null>('tile-A'));
+      let right = paneComposer(signal<string | null>('tile-B'));
+      typed(left, 'left draft');
+      typed(right, 'right draft');
+      left.ngOnDestroy();
+      right.ngOnDestroy();
+      left = paneComposer(signal<string | null>('tile-A'));
+      right = paneComposer(signal<string | null>('tile-B'));
+      expect(left.currentMessage()).toBe('left draft');
+      expect(right.currentMessage()).toBe('right draft');
+      // A swap moves no composer; even a composer bound to the other tab reads that tab's draft.
+      expect(paneComposer(signal<string | null>('tile-B')).currentMessage()).toBe('right draft');
+    });
   });
 
   // ============================================================================

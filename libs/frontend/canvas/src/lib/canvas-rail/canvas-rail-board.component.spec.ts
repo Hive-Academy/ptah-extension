@@ -3,12 +3,15 @@ import {
   Component,
   effect,
   input,
+  type OnDestroy,
   output,
   signal,
+  type WritableSignal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
   type CompactRailDensity,
@@ -88,12 +91,41 @@ class RailStub {
   template: '',
 })
 class LaneStub {}
+/** Stand-in for the lane's live ChatView: owns a composer draft and its dock state (R9x-fix finding 3). */
+const life = { lane: 0, laneDestroyed: 0, chat: 0, chatDestroyed: 0 };
+@Component({
+  selector: 'ptah-chat-view',
+  standalone: true,
+  template: `<textarea data-draft aria-label="Message draft" [value]="draft()" (input)="draft.set($any($event.target).value)"></textarea>
+    <aside data-dock [attr.data-open]="dockOpen()"></aside>`,
+})
+class StatefulChatViewStub implements OnDestroy {
+  readonly draft = signal('');
+  readonly dockOpen = signal(false);
+  constructor() { life.chat++; }
+  ngOnDestroy(): void { life.chatDestroyed++; }
+}
+@Component({
+  selector: 'ptah-canvas-lane-view',
+  standalone: true,
+  imports: [StatefulChatViewStub],
+  template: '<ptah-chat-view />',
+})
+class StatefulLaneStub implements OnDestroy {
+  constructor() { life.lane++; }
+  ngOnDestroy(): void { life.laneDestroyed++; }
+}
 @Component({
   selector: 'ptah-canvas-focus-area',
   standalone: true,
   imports: [LaneStub],
-  template:
-    '@if (focusedTabId()) { <ptah-canvas-lane-view /> }<button role="tab" aria-selected="true">Lane</button>',
+  template: `<header>
+      <button type="button" data-header-menu aria-label="More session actions">⋯</button>
+      @if (splitDisplayed()) {
+        <button type="button" data-details aria-label="Open details" (click)="detailsRequested.emit(paneId())">i</button>
+      }
+    </header>
+    @if (focusedTabId()) { <ptah-canvas-lane-view /> }<button role="tab" aria-selected="true">Lane</button>`,
 })
 class FocusStub {
   readonly focusedTabId = input<string | null>(null);
@@ -101,9 +133,14 @@ class FocusStub {
   readonly paneLabel = input('Focused session');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
+  readonly detailsOpen = input(false);
   readonly state = input<CompactRailState>('idle');
   readonly band = input('lg');
   readonly closeRequested = output<string>();
+  readonly closeSplitRequested = output<'left' | 'right'>();
+  readonly closePaneRequested = output<'left' | 'right'>();
+  readonly swapPanesRequested = output<'left' | 'right'>();
+  readonly detailsRequested = output<'left' | 'right'>();
 }
 @Component({
   selector: 'ptah-canvas-session-details',
@@ -201,7 +238,12 @@ describe('CanvasRailBoardComponent actions', () => {
 describe('CanvasRailBoardComponent rendering', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  function mount(visible = true, count = 2, initialFocus: string | null = 'a') {
+  function mount(
+    visible = true,
+    count = 2,
+    initialFocus: string | null = 'a',
+    surface?: WritableSignal<boolean>,
+  ) {
     sourceState.set('idle');
     jest
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
@@ -263,6 +305,7 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
         { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
         { provide: CanvasDetailService, useValue: {} },
+        ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
           provide: TabManagerService,
           useValue: {
@@ -778,9 +821,11 @@ describe('CanvasRailBoardComponent rendering', () => {
       expect(pane.classList.contains('min-h-[400px]')).toBe(true);
       expect(pane.classList.contains('overflow-y-auto')).toBe(true);
       expect(pane.classList.contains('min-w-[360px]')).toBe(true);
-      expect(pane.querySelector('[aria-label="Open details"]')?.classList.contains('top-[52px]')).toBe(true);
+      // NEW-3: Details lives in the pane header; the wrapper adds no control over header or lane tabs.
+      expect(pane.querySelector('ptah-canvas-focus-area [aria-label="Open details"]')).not.toBeNull();
+      expect(pane.querySelectorAll(':scope > button, :scope > .absolute')).toHaveLength(0);
     }
-    expect(fixture.nativeElement.querySelector('[aria-label="Close split"]')?.classList.contains('top-[52px]')).toBe(true);
+    expect(fixture.nativeElement.querySelector('[aria-label="Close split"]')).toBeNull();
     expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
   });
 
@@ -907,20 +952,27 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.componentInstance.announcement()).toContain('could not be saved');
   });
 
-  it('does not attribute a pre-existing persistence failure to reordering', () => {
+  it('announces a pre-existing persistence failure with the neutral layout message', () => {
     const { fixture, writeFailed } = mount();
     writeFailed.set(true);
     fixture.detectChanges();
     expect(fixture.componentInstance.announcement()).toBe('Layout changes could not be saved.');
   });
 
-  it('does not attribute a later layout write failure to a successful reorder', async () => {
+  it('C3: a write failure after a reorder reads the neutral layout message on a visible board, nothing while hidden', () => {
     const { fixture, writeFailed } = mount();
     fixture.componentInstance.move('b', -1);
-    await Promise.resolve();
     writeFailed.set(true);
     fixture.detectChanges();
     expect(fixture.componentInstance.announcement()).toBe('Layout changes could not be saved.');
+    expect('reorderPending' in fixture.componentInstance).toBe(false);
+    writeFailed.set(false);
+    fixture.componentInstance.announcement.set('');
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    writeFailed.set(true);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('');
   });
 
   it('close inactive pane keeps active focus with an ordered neighbour present', async () => {
@@ -976,5 +1028,401 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(focused()).toBe('b');
     expect(fixture.componentInstance.otherTabId()).toBe('a');
     expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+  });
+
+  // ---- R9x: header split actions, swap, stacked Tab order; R9w C1-C3, NEW-3, NEW-6 ----
+
+  type Fixture = ReturnType<typeof mount>['fixture'];
+  const paneOf = (fixture: Fixture, side: 'left' | 'right') =>
+    fixture.nativeElement.querySelector<HTMLElement>(
+      `[data-testid="rail-pane-container"] > [data-pane-side="${side}"]`,
+    ) as HTMLElement | null;
+  const stubOf = (fixture: Fixture, side: 'left' | 'right') =>
+    fixture.debugElement
+      .queryAll(By.directive(FocusStub))
+      .map((node) => node.componentInstance as FocusStub)
+      .find((stub) => stub.paneId() === side) as FocusStub;
+  const buttons = (root: Element | null) => [...(root?.querySelectorAll<HTMLElement>('button') ?? [])];
+  const railButtons = (fixture: Fixture) => buttons(fixture.nativeElement.querySelector('ptah-canvas-rail'));
+  const tab = (target: HTMLElement, shiftKey = false) => {
+    const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event;
+  };
+
+  it('C1: with SURFACE_ACTIVE false a removed focused tile writes no focusTile; activation repairs once', () => {
+    const surface = signal(false);
+    const { fixture, focused, tiles, store } = mount(true, 3, 'b', surface);
+    const instance = fixture.componentInstance;
+    (store.focusTile as jest.Mock).mockClear();
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'b'));
+    focused.set(null);
+    fixture.detectChanges();
+    expect(store.focusTile).not.toHaveBeenCalled();
+    expect(instance.paneTab(instance.activeSide())).toBe('c');
+    surface.set(true);
+    fixture.detectChanges();
+    expect(store.focusTile).toHaveBeenCalledTimes(1);
+    expect(store.focusTile).toHaveBeenCalledWith('c');
+    fixture.detectChanges();
+    expect(store.focusTile).toHaveBeenCalledTimes(1);
+    expect(focused()).toBe('c');
+  });
+
+  it('C1: hydration with null focus while SURFACE_ACTIVE is false waits for activation', () => {
+    const surface = signal(false);
+    const { fixture, focused, store } = mount(true, 3, null, surface);
+    expect(store.focusTile).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')).toHaveLength(1);
+    surface.set(true);
+    fixture.detectChanges();
+    expect(store.focusTile).toHaveBeenCalledTimes(1);
+    expect(focused()).toBe('a');
+  });
+
+  it('C1: split survivor repair waits for SURFACE_ACTIVE and runs once on activation', () => {
+    const surface = signal(true);
+    const { fixture, focused, tiles, store } = mount(true, 3, 'c', surface);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    surface.set(false);
+    fixture.detectChanges();
+    (store.focusTile as jest.Mock).mockClear();
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'b'));
+    focused.set(null);
+    fixture.detectChanges();
+    expect(store.focusTile).not.toHaveBeenCalled();
+    expect(instance.otherTabId()).toBeNull();
+    surface.set(true);
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(store.focusTile).toHaveBeenCalledTimes(1);
+    expect(focused()).toBe('c');
+  });
+
+  it('C2: hidden removal during split keeps the survivor and the board shows it on return', () => {
+    const { fixture, focused, tiles, store } = mount(true, 4, 'c');
+    const instance = fixture.componentInstance;
+    instance.openBeside('d');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBe('c');
+    (store.focusTile as jest.Mock).mockClear();
+    fixture.componentRef.setInput('visible', false);
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'd'));
+    focused.set(null);
+    fixture.detectChanges();
+    expect(store.focusTile).not.toHaveBeenCalled();
+    expect(instance.otherTabId()).toBeNull();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    expect(focused()).toBe('c');
+    expect(store.focusTile).toHaveBeenCalledTimes(1);
+    const pane = fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    expect(pane.focusedTabId()).toBe('c');
+    expect(rail.focusedTabId()).toBe('c');
+  });
+
+  it('each header output reaches board state through the pane focus area', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    stubOf(fixture, 'right').swapPanesRequested.emit('right');
+    fixture.detectChanges();
+    expect(instance.visualOrder()).toEqual(['right', 'left']);
+    stubOf(fixture, 'left').detailsRequested.emit('left');
+    fixture.detectChanges();
+    expect(instance.detailsOpen()).toBe(true);
+    expect(instance.activeSide()).toBe('left');
+    expect(focused()).toBe('a');
+    expect(paneOf(fixture, 'left')?.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(stubOf(fixture, 'left').detailsOpen()).toBe(true);
+    expect(stubOf(fixture, 'right').detailsOpen()).toBe(false);
+    stubOf(fixture, 'left').closeSplitRequested.emit('left');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBeNull();
+    expect(instance.detailsOpen()).toBe(false);
+    expect(focused()).toBe('a');
+    instance.openBeside('c');
+    fixture.detectChanges();
+    const side = instance.activeSide();
+    stubOf(fixture, side).closePaneRequested.emit(side);
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBeNull();
+    expect(focused()).toBe('a');
+  });
+
+  it('close active pane releases that host, focuses the survivor in its own host and header', async () => {
+    const { fixture, focused, store } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    instance.swapPanes();
+    fixture.detectChanges();
+    const survivorHost = paneOf(fixture, 'left')?.querySelector('ptah-canvas-focus-area');
+    paneOf(fixture, 'right')?.querySelector<HTMLElement>('[data-header-menu]')?.focus();
+    stubOf(fixture, 'right').closePaneRequested.emit('right');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(instance.otherTabId()).toBeNull();
+    expect(focused()).toBe('a');
+    expect(instance.activeSide()).toBe('left');
+    expect(instance.visualOrder()).toEqual(['left', 'right']);
+    expect(paneOf(fixture, 'right')).toBeNull();
+    expect(paneOf(fixture, 'left')?.querySelector('ptah-canvas-focus-area')).toBe(survivorHost);
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(1);
+    expect(document.activeElement).toBe(paneOf(fixture, 'left')?.querySelector('[data-header-menu]'));
+    expect(instance.announcement()).toBe('Pane closed. a stays open.');
+    expect(store.removeTile).not.toHaveBeenCalled();
+  });
+
+  it('close inactive pane keeps store focus and the active host; NEW-6 single focus on the right side works', async () => {
+    const { fixture, focused, store } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    const activeHost = paneOf(fixture, 'right')?.querySelector('ptah-canvas-focus-area');
+    (store.focusTile as jest.Mock).mockClear();
+    stubOf(fixture, 'left').closePaneRequested.emit('left');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(store.focusTile).not.toHaveBeenCalled();
+    expect(focused()).toBe('b');
+    expect(instance.otherTabId()).toBeNull();
+    expect(paneOf(fixture, 'left')).toBeNull();
+    expect(paneOf(fixture, 'right')?.querySelector('ptah-canvas-focus-area')).toBe(activeHost);
+    expect(document.activeElement).toBe(paneOf(fixture, 'right')?.querySelector('[data-header-menu]'));
+    const panes = fixture.nativeElement.querySelectorAll('[data-pane-side]');
+    expect(panes).toHaveLength(1);
+    expect(panes[0].getAttribute('data-pane-side')).toBe('right');
+    expect(panes[0].getAttribute('aria-label')).toBe('Focused session: b');
+    instance.onLanesRequested('b');
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(paneOf(fixture, 'right')?.querySelector('[role="tab"]'));
+  });
+
+  it('close split from the active header keeps the active tab and the focus on that header', async () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    const host = paneOf(fixture, 'right')?.querySelector('ptah-canvas-focus-area');
+    const trigger = paneOf(fixture, 'right')?.querySelector<HTMLElement>('[data-header-menu]');
+    trigger?.focus();
+    stubOf(fixture, 'right').closeSplitRequested.emit('right');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(focused()).toBe('b');
+    expect(instance.otherTabId()).toBeNull();
+    expect(paneOf(fixture, 'right')?.querySelector('ptah-canvas-focus-area')).toBe(host);
+    expect(document.activeElement).toBe(trigger);
+    expect(instance.announcement()).toBe('Split closed.');
+  });
+
+  it('Escape inside a split pane never closes a pane', () => {
+    const { fixture } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    for (const side of ['left', 'right'] as const) {
+      paneOf(fixture, side)
+        ?.querySelector('[data-header-menu]')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    }
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBe('a');
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+  });
+
+  it.each([
+    ['Close split', (board: CanvasRailBoardComponent) => board.closeSplit()],
+    ['Close pane', (board: CanvasRailBoardComponent) => board.closePane(board.activeSide())],
+  ])('collapse resets visualOrder (%s) and a new split starts in the default order', (_label, collapse) => {
+    const { fixture } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    instance.swapPanes();
+    fixture.detectChanges();
+    expect(instance.visualOrder()).toEqual(['right', 'left']);
+    collapse(instance);
+    fixture.detectChanges();
+    expect(instance.visualOrder()).toEqual(['left', 'right']);
+    instance.openBeside('c');
+    fixture.detectChanges();
+    expect(instance.visualOrder()).toEqual(['left', 'right']);
+  });
+
+  it('collapse resets visualOrder after external removal', () => {
+    const { fixture, tiles } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    instance.swapPanes();
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'a'));
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBeNull();
+    expect(instance.visualOrder()).toEqual(['left', 'right']);
+  });
+
+  it('stacked swap keeps hosts and top-before-bottom Tab order', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    expect(instance.splitStacked()).toBe(true);
+    instance.openBeside('b');
+    fixture.detectChanges();
+    const left = paneOf(fixture, 'left') as HTMLElement;
+    const right = paneOf(fixture, 'right') as HTMLElement;
+    const views = [left, right].map((pane) => pane.querySelector('ptah-canvas-lane-view'));
+    const areas = [left, right].map((pane) => pane.querySelector('ptah-canvas-focus-area'));
+    const stubs = [stubOf(fixture, 'left'), stubOf(fixture, 'right')];
+    stubOf(fixture, 'right').swapPanesRequested.emit('right');
+    fixture.detectChanges();
+    fixture.detectChanges();
+    // Only the CSS order changed: same wrappers, hosts, stand-in ChatView subtrees, pane ids and tabs.
+    expect(instance.visualOrder()).toEqual(['right', 'left']);
+    expect(paneOf(fixture, 'left')).toBe(left);
+    expect(paneOf(fixture, 'right')).toBe(right);
+    [left, right].forEach((pane, index) => {
+      expect(pane.querySelector('ptah-canvas-lane-view')).toBe(views[index]);
+      expect(pane.querySelector('ptah-canvas-focus-area')).toBe(areas[index]);
+    });
+    expect(stubOf(fixture, 'left')).toBe(stubs[0]);
+    expect(stubOf(fixture, 'right')).toBe(stubs[1]);
+    expect(stubs.map((stub) => [stub.paneId(), stub.focusedTabId()])).toEqual([['left', 'a'], ['right', 'b']]);
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+    expect(fixture.nativeElement.getAttribute('data-canvas-live-views')).toBe('2');
+    expect(right.style.order).toBe('0');
+    expect(left.style.order).toBe('1');
+    expect(right.getAttribute('aria-label')).toBe('Top session: b, active');
+    expect(left.getAttribute('aria-label')).toBe('Bottom session: a');
+    expect(focused()).toBe('b');
+    expect(instance.otherTabId()).toBe('a');
+    expect((fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub).focusedTabId()).toBe('b');
+    expect(instance.announcement()).toBe('Panes swapped. Top session: b, active; Bottom session: a.');
+    // Tab order: Rail, visual top pane, visual bottom pane (jsdom moves no focus; the handler does).
+    const rail = railButtons(fixture);
+    const top = buttons(right);
+    const bottom = buttons(left);
+    let event = tab(rail[rail.length - 1]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(top[0]);
+    expect(tab(top[0]).defaultPrevented).toBe(false);
+    event = tab(top[top.length - 1]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(bottom[0]);
+    event = tab(bottom[0], true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(top[top.length - 1]);
+    event = tab(top[0], true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(rail[rail.length - 1]);
+    event = tab(bottom[bottom.length - 1]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(rail[0]);
+  });
+
+  it('stacked Tab handler skips hidden elements, leaves open overlays alone and is inert in the default order', () => {
+    const { fixture } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    const left = paneOf(fixture, 'left') as HTMLElement;
+    const right = paneOf(fixture, 'right') as HTMLElement;
+    expect(tab(buttons(left)[buttons(left).length - 1]).defaultPrevented).toBe(false);
+    instance.swapPanes();
+    fixture.detectChanges();
+    const hidden = document.createElement('button');
+    hidden.style.display = 'none';
+    right.appendChild(hidden);
+    const visibleTop = buttons(right).filter((button) => button !== hidden);
+    expect(tab(visibleTop[visibleTop.length - 1]).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons(left)[0]);
+    hidden.remove();
+    stubOf(fixture, 'right').detailsRequested.emit('right');
+    fixture.detectChanges();
+    const dialogButton = right.querySelector<HTMLElement>('[role="dialog"] button') as HTMLElement;
+    expect(dialogButton).not.toBeNull();
+    expect(tab(dialogButton).defaultPrevented).toBe(false);
+    const topOutside = buttons(right).filter((button) => !button.closest('[role="dialog"]'));
+    expect(tab(topOutside[topOutside.length - 1]).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons(left)[0]);
+  });
+
+  it('side-by-side swap keeps DOM Tab order (B3)', () => {
+    const { fixture, width } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    width.set(1600);
+    instance.openBeside('b');
+    fixture.detectChanges();
+    stubOf(fixture, 'right').swapPanesRequested.emit('right');
+    fixture.detectChanges();
+    const left = paneOf(fixture, 'left') as HTMLElement;
+    const right = paneOf(fixture, 'right') as HTMLElement;
+    expect(right.getAttribute('aria-label')).toBe('Left session: b, active');
+    expect(left.getAttribute('aria-label')).toBe('Right session: a');
+    const rail = railButtons(fixture);
+    const cases: Array<[HTMLElement, boolean]> = [
+      [rail[rail.length - 1], false],
+      [buttons(left)[buttons(left).length - 1], false],
+      [buttons(right)[0], true],
+      [buttons(left)[0], true],
+    ];
+    for (const [target, shift] of cases) {
+      const before = document.activeElement;
+      expect(tab(target, shift).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(before);
+    }
+  });
+
+  it('R9x-fix: swap keeps each pane lane, ChatView, typed draft and dock state (stateful child)', () => {
+    TestBed.overrideComponent(FocusStub, { set: { imports: [StatefulLaneStub] } });
+    const { fixture } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    Object.assign(life, { lane: 0, laneDestroyed: 0, chat: 0, chatDestroyed: 0 });
+    const chatOf = (side: 'left' | 'right') =>
+      fixture.debugElement
+        .queryAll(By.directive(StatefulChatViewStub))
+        .find((node) => (node.nativeElement as HTMLElement).closest('[data-pane-side]')?.getAttribute('data-pane-side') === side)!;
+    const laneOf = (side: 'left' | 'right') =>
+      fixture.debugElement
+        .queryAll(By.directive(StatefulLaneStub))
+        .find((node) => (node.nativeElement as HTMLElement).closest('[data-pane-side]')?.getAttribute('data-pane-side') === side)!
+        .componentInstance as StatefulLaneStub;
+    const sides = ['left', 'right'] as const;
+    // The user types a draft in each composer (through the DOM) and opens the dock in the right pane.
+    sides.forEach((side) => {
+      const textarea = (chatOf(side).nativeElement as HTMLElement).querySelector<HTMLTextAreaElement>('[data-draft]')!;
+      textarea.value = `draft ${side}`;
+      textarea.dispatchEvent(new Event('input'));
+    });
+    (chatOf('right').componentInstance as StatefulChatViewStub).dockOpen.set(true);
+    fixture.detectChanges();
+    const lanes = sides.map(laneOf);
+    const chats = sides.map((side) => chatOf(side).componentInstance as StatefulChatViewStub);
+    const chatNodes = sides.map((side) => chatOf(side).nativeElement as HTMLElement);
+    const textareas = chatNodes.map((node) => node.querySelector<HTMLTextAreaElement>('[data-draft]')!);
+
+    instance.swapPanes();
+    fixture.detectChanges();
+    fixture.detectChanges();
+
+    expect(instance.visualOrder()).toEqual(['right', 'left']);
+    expect(life).toEqual({ lane: 0, laneDestroyed: 0, chat: 0, chatDestroyed: 0 });
+    sides.forEach((side, index) => {
+      expect(laneOf(side)).toBe(lanes[index]);
+      expect(chatOf(side).componentInstance).toBe(chats[index]);
+      expect(chatOf(side).nativeElement).toBe(chatNodes[index]);
+      expect(chatNodes[index].querySelector('[data-draft]')).toBe(textareas[index]);
+      expect(textareas[index].value).toBe(`draft ${side}`);
+      expect(chats[index].draft()).toBe(`draft ${side}`);
+    });
+    expect(chats.map((chat) => chat.dockOpen())).toEqual([false, true]);
+    expect(chatNodes.map((node) => node.querySelector('[data-dock]')?.getAttribute('data-open'))).toEqual(['false', 'true']);
+    expect(fixture.nativeElement.querySelectorAll('ptah-chat-view')).toHaveLength(2);
   });
 });

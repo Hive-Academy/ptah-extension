@@ -1,4 +1,46 @@
-﻿import { test, expect } from '../../support/fixtures';
+﻿import type { Locator, Page } from '@playwright/test';
+import { test, expect } from '../../support/fixtures';
+
+/** Rail split selectors (R9x). Pane sides are stable ids: never assume `left` (NEW-6). */
+const railBoard = (page: Page) => page.locator('ptah-canvas-rail-board:visible');
+const railCards = (page: Page) => railBoard(page).locator('ptah-canvas-rail [data-rail-card]');
+const paneContainer = (page: Page) => railBoard(page).locator('[data-testid="rail-pane-container"]');
+const panes = (page: Page) => paneContainer(page).locator(':scope > [data-pane-side]');
+/** The pane shown first (top when stacked, left side by side), whatever its stable side. */
+const visualPane = async (page: Page, position: 0 | 1): Promise<Locator> => {
+  const count = await panes(page).count();
+  for (let index = 0; index < count; index++) {
+    const pane = panes(page).nth(index);
+    const order = await pane.evaluate((el) => (el as HTMLElement).style.order || '0');
+    if (Number(order) === position) return pane;
+  }
+  throw new Error(`no pane at visual position ${position}`);
+};
+
+async function addRailSessions(page: Page, count: number): Promise<void> {
+  for (let created = 0; created < count; created++) {
+    await page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(railCards(page)).toHaveCount(created + 1);
+  }
+}
+
+async function cardAction(page: Page, card: Locator, action: 'Open beside' | 'Move up' | 'Move down'): Promise<void> {
+  await card.getByRole('button', { name: 'Session actions' }).click();
+  await page.getByRole('menuitem', { name: action }).click();
+}
+
+async function headerAction(page: Page, pane: Locator, action: 'Swap panes' | 'Close pane' | 'Close split'): Promise<void> {
+  await pane.getByRole('button', { name: 'More session actions' }).click();
+  await pane.getByRole('menuitem', { name: action }).click();
+}
+
+async function openSplit(page: Page): Promise<void> {
+  await addRailSessions(page, 2);
+  await railCards(page).first().click();
+  await cardAction(page, railCards(page).nth(1), 'Open beside');
+  await expect(panes(page)).toHaveCount(2);
+}
 
 test.describe('Canvas Rail', () => {
   test('Electron opens the Rail board after a persisted single-view preference', async ({ ui }) => {
@@ -79,5 +121,112 @@ test.describe('Canvas Rail', () => {
     await expect(page.locator('[data-testid="canvas-rail-empty-board"]')).toBeVisible();
     await switchWorkspace(WS, 'ptah-e2e-ws');
     await expect(card).toHaveCount(1);
+  });
+});
+
+test.describe('Canvas Rail split focus and reorder', () => {
+  test('Open beside shows two live panes with Details in the pane header, clear of the lane tabs', async ({ ui }) => {
+    await ui.goto('canvas');
+    const page = ui.page;
+    await openSplit(page);
+
+    await expect(railBoard(page)).toHaveAttribute('data-canvas-live-views', '2');
+    await expect(railBoard(page).locator('ptah-chat-view')).toHaveCount(2);
+    await expect(panes(page).first()).toHaveAttribute('aria-label', /^(Left|Top) session: /);
+    await expect(paneContainer(page).locator('[data-pane-side][aria-label$=", active"]')).toHaveCount(1);
+    for (const index of [0, 1]) {
+      const pane = panes(page).nth(index);
+      const details = pane.locator('ptah-canvas-focus-header').getByRole('button', { name: 'Open details' });
+      const laneTabs = pane.locator('ptah-canvas-lane-tabs');
+      await expect(details).toBeVisible();
+      const detailsBox = await details.boundingBox();
+      const tabsBox = await laneTabs.boundingBox();
+      expect(detailsBox && tabsBox && detailsBox.y + detailsBox.height <= tabsBox.y + 1).toBe(true);
+    }
+
+    const active = paneContainer(page).locator('[data-pane-side][aria-label$=", active"]');
+    await active.locator('ptah-canvas-focus-header').getByRole('button', { name: 'Open details' }).click();
+    const dialog = active.getByRole('dialog', { name: 'Session details' });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(active.getByRole('button', { name: 'Open details' })).toBeFocused();
+  });
+
+  test('Swap panes changes only the visual order; Close split keeps the active tab in one pane', async ({ ui }) => {
+    await ui.goto('canvas');
+    const page = ui.page;
+    await openSplit(page);
+
+    await panes(page).evaluateAll((nodes) =>
+      nodes.forEach((node) => node.querySelector('ptah-chat-view')?.setAttribute('data-e2e-host', node.getAttribute('data-pane-side') ?? '')),
+    );
+    const firstBefore = await (await visualPane(page, 0)).getAttribute('data-pane-side');
+    const activeSide = await paneContainer(page).locator('[data-pane-side][aria-label$=", active"]').getAttribute('data-pane-side');
+    await headerAction(page, await visualPane(page, 0), 'Swap panes');
+
+    const firstAfter = await (await visualPane(page, 0)).getAttribute('data-pane-side');
+    expect(firstAfter).not.toBe(firstBefore);
+    await expect(railBoard(page).locator('ptah-chat-view')).toHaveCount(2);
+    for (const side of ['left', 'right']) {
+      await expect(paneContainer(page).locator(`[data-pane-side="${side}"] ptah-chat-view`)).toHaveAttribute('data-e2e-host', side);
+    }
+    await expect(paneContainer(page).locator('[data-pane-side][aria-label$=", active"]')).toHaveAttribute('data-pane-side', activeSide ?? '');
+    await expect(await visualPane(page, 0)).toHaveAttribute('aria-label', /^(Left|Top) session: /);
+    await expect(railBoard(page).locator('[aria-live="polite"]').last()).toContainText('Panes swapped');
+
+    const active = paneContainer(page).locator('[data-pane-side][aria-label$=", active"]');
+    const activeTitle = await active.getAttribute('aria-label');
+    await headerAction(page, active, 'Close split');
+    await expect(panes(page)).toHaveCount(1);
+    await expect(panes(page).first()).toHaveAttribute('aria-label', `Focused session: ${activeTitle?.replace(/^\w+ session: /, '').replace(/, active$/, '')}`);
+    await expect(panes(page).first().locator('ptah-chat-view')).toHaveAttribute('data-e2e-host', activeSide ?? '');
+  });
+
+  test('stacked split after a swap tabs from the Rail into the visual top pane first', async ({ electronApp, ui }) => {
+    // The split stacks below a 1440 px canvas: force a narrow window so the case never depends on the host screen.
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      win?.setMinimumSize(300, 300);
+      win?.setBounds({ x: 100, y: 50, width: 1280, height: 900 });
+    });
+    await ui.goto('canvas');
+    const page = ui.page;
+    await openSplit(page);
+    await expect(paneContainer(page)).toHaveClass(/\bflex-col\b/);
+
+    await headerAction(page, await visualPane(page, 0), 'Swap panes');
+    const top = await visualPane(page, 0);
+    await railCards(page).last().locator('.rc-select').focus();
+    await page.keyboard.press('Tab');
+    await expect(top.locator(':focus')).toHaveCount(1);
+  });
+
+  test('Close pane on the active pane keeps the other session focused in its own pane', async ({ ui }) => {
+    await ui.goto('canvas');
+    const page = ui.page;
+    await openSplit(page);
+    const active = paneContainer(page).locator('[data-pane-side][aria-label$=", active"]');
+    const activeSide = await active.getAttribute('data-pane-side');
+    await headerAction(page, active, 'Close pane');
+
+    await expect(panes(page)).toHaveCount(1);
+    await expect(panes(page).first()).not.toHaveAttribute('data-pane-side', activeSide ?? '');
+    await expect(railCards(page)).toHaveCount(2);
+    await expect(panes(page).first().getByRole('button', { name: 'More session actions' })).toBeFocused();
+  });
+
+  test('Move down reorders the Rail cards and announces the new position', async ({ ui }) => {
+    await ui.goto('canvas');
+    const page = ui.page;
+    await addRailSessions(page, 2);
+    const order = () => railCards(page).evaluateAll((cards) => cards.map((card) => card.getAttribute('data-tab-id')));
+    const before = await order();
+
+    await railCards(page).first().click();
+    await cardAction(page, railCards(page).first(), 'Move down');
+
+    await expect.poll(order).toEqual([...before].reverse());
+    await expect(railBoard(page).locator('[aria-live="polite"]').last()).toContainText('moved to position 2 of 2');
   });
 });

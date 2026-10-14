@@ -41,9 +41,15 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           [running]="canvasStore.isSessionRunning(id)"
           [viewMode]="tab()?.viewMode ?? 'full'"
           [band]="band()"
+          [splitDisplayed]="splitDisplayed()"
+          [detailsOpen]="detailsOpen()"
           (stop)="stop(id)"
           (toggleViewMode)="tabs.toggleTabViewMode(id)"
           (closeRequested)="closeRequested.emit(id)"
+          (closeSplitRequested)="closeSplitRequested.emit(paneId())"
+          (closePaneRequested)="closePaneRequested.emit(paneId())"
+          (swapPanesRequested)="swapPanesRequested.emit(paneId())"
+          (detailsRequested)="detailsRequested.emit(paneId())"
         />
         <ptah-canvas-lane-tabs
           [panelId]="panelId()"
@@ -77,10 +83,17 @@ export class CanvasFocusAreaComponent {
   readonly paneLabel = input('Focused session');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
+  /** The split Details overlay is open on this pane. */
+  readonly detailsOpen = input(false);
   readonly panelId = computed(() => `rail-${this.paneId()}-lane-panel`);
   readonly state = input<CompactRailState>('idle');
   readonly band = input<'xl' | 'lg' | 'md' | 'sm'>('lg');
   readonly closeRequested = output<string>();
+  /** Header split actions, forwarded with this pane's stable id. */
+  readonly closeSplitRequested = output<'left' | 'right'>();
+  readonly closePaneRequested = output<'left' | 'right'>();
+  readonly swapPanesRequested = output<'left' | 'right'>();
+  readonly detailsRequested = output<'left' | 'right'>();
   readonly canvasStore = inject(CanvasStore);
   readonly tabs = inject(TabManagerService);
   readonly detail = inject(CanvasDetailService);

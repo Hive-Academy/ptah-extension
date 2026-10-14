@@ -43,9 +43,15 @@ class HeaderStub {
   readonly running = input(false);
   readonly viewMode = input('full');
   readonly band = input('lg');
+  readonly splitDisplayed = input(false);
+  readonly detailsOpen = input(false);
   readonly stop = output<void>();
   readonly toggleViewMode = output<void>();
   readonly closeRequested = output<void>();
+  readonly closeSplitRequested = output<void>();
+  readonly closePaneRequested = output<void>();
+  readonly swapPanesRequested = output<void>();
+  readonly detailsRequested = output<void>();
 }
 @Component({
   selector: 'ptah-canvas-lane-tabs',
@@ -253,6 +259,42 @@ describe('CanvasFocusAreaComponent', () => {
     expect(view.splitDisplayed()).toBe(true);
     expect(fixture.nativeElement.querySelector('section').getAttribute('aria-label')).toBe('Right session: A');
   });
+
+  it.each(['left', 'right'] as const)(
+    'forwards every header split action with the stable %s pane id and passes split state to the header',
+    (paneId) => {
+      const { fixture } = mountWithLanes();
+      fixture.componentRef.setInput('paneId', paneId);
+      fixture.componentRef.setInput('splitDisplayed', true);
+      fixture.componentRef.setInput('detailsOpen', true);
+      fixture.detectChanges();
+      const area = fixture.componentInstance;
+      const header = fixture.debugElement.query(By.directive(HeaderStub)).componentInstance as HeaderStub;
+      expect(header.splitDisplayed()).toBe(true);
+      expect(header.detailsOpen()).toBe(true);
+      expect(area.panelId()).toBe(`rail-${paneId}-lane-panel`);
+      const received: Array<[string, string]> = [];
+      area.closeSplitRequested.subscribe((id) => received.push(['closeSplit', id]));
+      area.closePaneRequested.subscribe((id) => received.push(['closePane', id]));
+      area.swapPanesRequested.subscribe((id) => received.push(['swapPanes', id]));
+      area.detailsRequested.subscribe((id) => received.push(['details', id]));
+      area.closeRequested.subscribe((id) => received.push(['closeSession', id]));
+      header.closeSplitRequested.emit();
+      header.closePaneRequested.emit();
+      header.swapPanesRequested.emit();
+      header.detailsRequested.emit();
+      expect(received).toEqual([
+        ['closeSplit', paneId],
+        ['closePane', paneId],
+        ['swapPanes', paneId],
+        ['details', paneId],
+      ]);
+      fixture.componentRef.setInput('focusedTabId', 'b');
+      fixture.detectChanges();
+      header.closePaneRequested.emit();
+      expect(received.at(-1)).toEqual(['closePane', paneId]);
+    },
+  );
 
   it('passes the focused tab branch and live model into header chips', () => {
     const { fixture } = mountWithLanes();

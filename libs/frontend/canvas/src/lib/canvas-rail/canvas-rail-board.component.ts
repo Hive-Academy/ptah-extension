@@ -14,6 +14,7 @@ import {
   signal,
 } from '@angular/core';
 import { RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import type { CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { railWidthBand } from '../canvas-board-mode';
@@ -32,6 +33,23 @@ import {
   type RailGeometryBaseline,
 } from './canvas-rail-geometry';
 
+const TABBABLE = 'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]';
+/** Open layers inside a pane that own their focus: Details dialog, menus, an overlay dock. */
+const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-dock.absolute';
+
+function isTabbable(element: HTMLElement): boolean {
+  if (element.tabIndex < 0 || (element as HTMLButtonElement).disabled) return false;
+  if (element.closest(`[hidden], [inert], ${PANE_OVERLAYS}`)) return false;
+  if (typeof element.checkVisibility === 'function') return element.checkVisibility({ visibilityProperty: true });
+  // Environments without checkVisibility (jsdom): walk the computed styles.
+  const view = element.ownerDocument.defaultView;
+  for (let node: Element | null = element; node && view; node = node.parentElement) {
+    const style = view.getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+  }
+  return true;
+}
+
 @Component({
   selector: 'ptah-canvas-rail-board',
   standalone: true,
@@ -49,6 +67,7 @@ import {
     '[attr.data-canvas-live-views]': 'liveViews()',
     '[attr.data-canvas-focus-swaps]': 'focusSwaps()',
     '[attr.data-canvas-rail-shifts]': 'railShifts()',
+    '(keydown)': 'onTabKey($event)',
   },
   template: `
     @if (visible()) {
@@ -121,12 +140,6 @@ import {
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
                 <section class="relative overflow-y-auto" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true" [style.order]="visualOrder().indexOf(side)" [attr.data-pane-side]="side" [attr.aria-label]="paneLabel(side, id)" (click)="activatePane(side)" (focusin)="activatePane(side)">
-                  @if (splitDisplayed()) {
-                    @if (activeSide() === side) {
-                      <button type="button" class="btn btn-ghost btn-xs absolute right-20 top-[52px] z-10" aria-label="Close split" (click)="closeSplit($event)">Close split</button>
-                    }
-                    <button type="button" class="btn btn-ghost btn-xs absolute right-2 top-[52px] z-10" aria-label="Open details" [attr.aria-expanded]="detailsOpen() && activeSide() === side" (click)="openSplitDetails(side, $event)">Details</button>
-                  }
                   <ptah-canvas-focus-area
                     class="block h-full min-w-0"
                     [focusedTabId]="id"
@@ -134,9 +147,14 @@ import {
                     [paneLabel]="paneLabel(side, id)"
                     [paneFocused]="activeSide() === side"
                     [splitDisplayed]="splitDisplayed()"
+                    [detailsOpen]="detailsOpen() && activeSide() === side"
                     [state]="railStates().get(id) ?? 'idle'"
                     [band]="band()"
                     (closeRequested)="close($event)"
+                    (closeSplitRequested)="closeSplit()"
+                    (closePaneRequested)="closePane($event)"
+                    (swapPanesRequested)="swapPanes()"
+                    (detailsRequested)="openSplitDetails($event)"
                   />
                   @if (splitDisplayed() && detailsOpen() && activeSide() === side) {
                     <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" (keydown.escape)="closeSplitDetails($event)">
@@ -225,8 +243,14 @@ export class CanvasRailBoardComponent {
   readonly splitDisabledReason = computed(() => this.orderedTiles().length < 2 ? 'Open another session first to split' : null);
   private lastFocusedId: string | null = null;
   private lastOrderedIds: readonly string[] = [];
-  private reorderPending = false;
-  private detailsOpener: HTMLElement | null = null;
+  private detailsFocusReturn = false;
+  private readonly parentActive = inject(SURFACE_ACTIVE, { optional: true }) ?? signal(true);
+  /**
+   * This board is the active workspace's AND the canvas surface is on screen.
+   * Single-chat mode keeps the canvas mounted but hidden, so `visible()` alone
+   * would let a focus repair call `switchTab` behind the user's back (C1).
+   */
+  readonly surfaceActive = computed(() => this.visible() && this.parentActive());
   readonly announcement = signal('');
   readonly liveViews = signal(0);
   readonly focusSwaps = computed(() => {
@@ -311,6 +335,7 @@ export class CanvasRailBoardComponent {
       const ids = new Set(this.orderedTiles().map((tile) => tile.tabId));
       const focused = this.store.focusedTabIdFor(this.workspacePath());
       const other = this.otherTabId();
+      const writable = this.surfaceActive();
       if (!other && !this.activeId() && ids.size) {
         const removedAt = this.lastOrderedIds.indexOf(this.lastFocusedId ?? '');
         const neighbours = removedAt < 0 ? [] : [
@@ -321,19 +346,25 @@ export class CanvasRailBoardComponent {
       }
       this.lastOrderedIds = [...ids];
       if (!this.visible()) {
-        if (other) this.collapseSplit();
+        if (other) {
+          // C2: the focused pane's tab is gone, so the other pane survives the collapse.
+          if (!this.activeId() && ids.has(other)) this.lastFocusedId = other;
+          this.collapseSplit();
+        }
         return;
       }
+      // C1: store writes (`focusTile` -> `switchTab`) wait for an active surface;
+      // `lastFocusedId` keeps the choice and this effect re-runs on activation.
       if (!other && ids.size && (!focused || !ids.has(focused))) {
         const id = this.activeId() ?? [...ids][0];
         this.lastFocusedId = id;
-        if (focused !== id) this.store.focusTile(id);
+        if (writable && focused !== id) this.store.focusTile(id);
         return;
       }
       if (other && (!ids.has(other) || !ids.has(focused ?? this.lastFocusedId ?? ''))) {
         const survivor = ids.has(other) ? other : this.activeId();
         this.collapseSplit();
-        if (survivor && focused !== survivor) this.store.focusTile(survivor);
+        if (writable && survivor && focused !== survivor) this.store.focusTile(survivor);
         this.lastFocusedId = survivor;
         this.announce('Split closed because a session was removed.');
         return;
@@ -342,6 +373,8 @@ export class CanvasRailBoardComponent {
       if (other && focused === other) {
         this.otherTabId.set(this.lastFocusedId);
         this.activeSide.set(this.opposite(this.activeSide()));
+      } else if (other) {
+        this.announceReplaced(focused);
       }
       this.lastFocusedId = focused;
       this.assertDistinct();
@@ -356,12 +389,7 @@ export class CanvasRailBoardComponent {
     });
     effect(() => {
       const failed = this.persistence.writeFailed();
-      if (!this.visible()) return;
-      if (failed && this.reorderPending) {
-        this.reorderPending = false;
-        this.announce('Session order could not be saved.');
-      } else if (failed) this.announce('Layout changes could not be saved.');
-      else this.reorderPending = false;
+      if (failed && this.visible()) this.announce('Layout changes could not be saved.');
     });
     let previousBand = this.band();
     effect(() => {
@@ -372,6 +400,9 @@ export class CanvasRailBoardComponent {
       }
     });
     afterRenderEffect(() => {
+      // Pane hosts mount and unmount with the pane tabs (Open beside, Close pane),
+      // so the live-view count must re-measure when they change.
+      for (const side of this.sides) this.paneTab(side);
       const mounted = this.host.nativeElement.querySelectorAll(
         'ptah-canvas-lane-view',
       ).length;
@@ -469,7 +500,7 @@ export class CanvasRailBoardComponent {
   paneLabel(side: 'left' | 'right', id: string): string {
     const position = this.visualOrder().indexOf(side);
     const place = this.splitStacked() ? (position === 0 ? 'Top' : 'Bottom') : (position === 0 ? 'Left' : 'Right');
-    const title = this.tabs.findTabByIdAcrossWorkspaces(id)?.tab.title ?? 'Session';
+    const title = this.title(id);
     return this.splitDisplayed() ? `${place} session: ${title}${this.activeSide() === side ? ', active' : ''}` : `Focused session: ${title}`;
   }
 
@@ -509,24 +540,62 @@ export class CanvasRailBoardComponent {
     this.lastFocusedId = id;
     this.store.focusTile(id);
     this.assertDistinct();
+    this.announce(`${this.title(id)} opened beside ${this.title(current)}.`);
   }
 
+  /** Collapse to single focus; a new split always starts in the default visual order. */
   private collapseSplit(): void {
     this.otherTabId.set(null);
     this.visualOrder.set(['left', 'right']);
     this.closeSplitDetails();
   }
 
-  closeSplit(event?: Event): void {
-    event?.stopPropagation();
+  /** Header "Close split": keep the active tab in its own host. */
+  closeSplit(): void {
+    if (!this.splitDisplayed()) return;
     this.lastFocusedId = this.activeId();
     this.collapseSplit();
+    this.announce('Split closed.');
+    this.restoreHeaderFocus();
   }
 
-  openSplitDetails(side: 'left' | 'right', event: Event): void {
-    event.stopPropagation();
+  /**
+   * Header "Close pane": release the invoked pane's host. Closing the active
+   * pane focuses the survivor, which stays in its own host; closing the
+   * inactive pane leaves store focus untouched. No session is closed.
+   */
+  closePane(side: 'left' | 'right'): void {
+    if (!this.splitDisplayed()) return;
+    const closingActive = side === this.activeSide();
+    const survivor = closingActive ? this.otherTabId() : this.activeId();
+    this.collapseSplit();
+    this.lastFocusedId = survivor;
+    if (closingActive) {
+      this.activeSide.set(this.opposite(side));
+      if (survivor && this.store.focusedTabIdFor(this.workspacePath()) !== survivor) this.store.focusTile(survivor);
+    }
+    this.announce(`Pane closed. ${this.title(survivor ?? '')} stays open.`);
+    this.restoreHeaderFocus();
+  }
+
+  /**
+   * Header "Swap panes": only the CSS `order` of the two stable wrappers
+   * changes. Tab ids, hosts, lane panel ids and transcripts stay put.
+   */
+  swapPanes(): void {
+    if (!this.splitDisplayed()) return;
+    const [first, second] = this.visualOrder();
+    this.visualOrder.set([second, first]);
+    const label = (side: 'left' | 'right') => this.paneLabel(side, this.paneTab(side) ?? '');
+    this.announce(`Panes swapped. ${label(second)}; ${label(first)}.`);
+    this.restoreHeaderFocus();
+  }
+
+  /** Header Details control (split only): the overlay opens on the invoking pane, made active. */
+  openSplitDetails(side: 'left' | 'right'): void {
+    if (!this.splitDisplayed()) return;
     this.activatePane(side);
-    this.detailsOpener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    this.detailsFocusReturn = true;
     this.detailsOpen.set(true);
     afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"] [aria-label="Close details"]')?.focus(), { injector: this.injector });
   }
@@ -534,12 +603,11 @@ export class CanvasRailBoardComponent {
   closeSplitDetails(event?: Event): void {
     event?.stopPropagation();
     this.detailsOpen.set(false);
-    const opener = this.detailsOpener;
-    this.detailsOpener = null;
-    if (opener) afterNextRender(() => {
-      const current = this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`);
-      if (this.splitDisplayed() && current) current.focus();
-      else if (opener.isConnected && this.splitDisplayed()) opener.focus();
+    if (!this.detailsFocusReturn) return;
+    this.detailsFocusReturn = false;
+    afterNextRender(() => {
+      const opener = this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`);
+      if (this.splitDisplayed() && opener) opener.focus();
       else {
         const id = this.activeId();
         const card = [...this.host.nativeElement.querySelectorAll<HTMLElement>('[data-rail-card]')].find((node) => node.dataset['tabId'] === id);
@@ -559,12 +627,8 @@ export class CanvasRailBoardComponent {
     const ids = tiles.map((tile) => tile.tabId);
     [ids[index], ids[destination]] = [ids[destination], ids[index]];
     this.geometryBaseline = { key: `${this.board().railDensity}|${this.effectiveCollapsed()}`, order: ids };
-    this.reorderPending = true;
     this.store.reorderTiles(ids);
-    queueMicrotask(() => {
-      if (!this.persistence.writeFailed()) this.reorderPending = false;
-    });
-    this.announce(`${this.tabs.findTabByIdAcrossWorkspaces(id)?.tab.title ?? 'Session'} moved to position ${destination + 1} of ${ids.length}.`);
+    this.announce(`${this.title(id)} moved to position ${destination + 1} of ${ids.length}.`);
     afterNextRender(() => {
       const card = [...(this.list()?.querySelectorAll<HTMLElement>('[data-rail-card]') ?? [])].find((node) => node.dataset['tabId'] === id);
       card?.querySelector<HTMLElement>('.rc-select, .rail-collapsed')?.focus();
@@ -578,6 +642,7 @@ export class CanvasRailBoardComponent {
       this.anchor();
       return;
     }
+    if (this.splitDisplayed() && id !== this.activeId()) this.announceReplaced(id);
     this.lastFocusedId = id;
     this.store.focusTile(id);
     this.anchor();
@@ -677,6 +742,63 @@ export class CanvasRailBoardComponent {
   }
   announce(message: string): void {
     this.announcement.set(message);
+  }
+
+  private announceReplaced(id: string): void {
+    this.announce(`${this.title(id)} replaced the active pane.`);
+  }
+
+  private title(id: string): string {
+    return this.tabs.findTabByIdAcrossWorkspaces(id)?.tab.title ?? 'Session';
+  }
+
+  /**
+   * When the control that had focus went away with its pane, focus the
+   * surviving pane's header menu trigger. Focus that is still on a live
+   * element (the header's own trigger, or a Details return) is left alone.
+   */
+  private restoreHeaderFocus(): void {
+    afterNextRender(() => {
+      const active = this.host.nativeElement.ownerDocument.activeElement;
+      if (active && active !== active.ownerDocument.body && active.isConnected) return;
+      this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [data-header-menu]`)?.focus();
+    }, { injector: this.injector });
+  }
+
+  /**
+   * B3: stacked panes with a swapped `visualOrder` would Tab bottom-first in
+   * DOM order. At a pane boundary, and on entry from the Rail, move focus in
+   * visual order instead: Rail, top pane, bottom pane, then what follows.
+   * Inert side by side (DOM order kept there by design) and in the default
+   * order. Open overlays own their focus and are never counted as tabbable.
+   */
+  onTabKey(event: KeyboardEvent): void {
+    if (event.key !== 'Tab' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const [top, bottom] = this.visualOrder();
+    if (!this.splitDisplayed() || !this.splitStacked() || top === 'left') return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.closest(PANE_OVERLAYS)) return;
+    const container = this.host.nativeElement.querySelector<HTMLElement>('[data-testid="rail-pane-container"]');
+    const topPane = container?.querySelector<HTMLElement>(`:scope > [data-pane-side="${top}"]`);
+    const bottomPane = container?.querySelector<HTMLElement>(`:scope > [data-pane-side="${bottom}"]`);
+    if (!container || !topPane || !bottomPane) return;
+    const dom = [...this.host.nativeElement.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)].filter(isTabbable);
+    const outside = (position: number) =>
+      dom.filter((el) => !container.contains(el) && !!(container.compareDocumentPosition(el) & position));
+    const visual = [
+      ...outside(Node.DOCUMENT_POSITION_PRECEDING),
+      ...dom.filter((el) => topPane.contains(el)),
+      ...dom.filter((el) => bottomPane.contains(el)),
+      ...outside(Node.DOCUMENT_POSITION_FOLLOWING),
+    ];
+    const index = visual.indexOf(target);
+    if (index < 0) return;
+    const step = event.shiftKey ? -1 : 1;
+    const wrap = (list: readonly HTMLElement[], at: number) => list[(at + list.length) % list.length];
+    const next = wrap(visual, index + step);
+    if (next === wrap(dom, dom.indexOf(target) + step)) return;
+    event.preventDefault();
+    next.focus();
   }
   onLanesRequested(id: string): void {
     this.focus(id);
