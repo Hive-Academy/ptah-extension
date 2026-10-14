@@ -253,16 +253,14 @@ const VIEW_PANEL_KEY = '';
     StatsTileExpansionState,
     // Budget banner state belongs to this view's tab and session.
     SessionBudgetActionsService,
-    // The Display dock store, only where the dock mounts: Electron with the
-    // agent sidebar shown (R1.14, decision #108). Elsewhere the token resolves
-    // to null, so the transcript's live-turn effect and the chips stay inert.
+    // The Display dock store, only where the dock mounts: Electron (R1.14,
+    // decision #108). HIDE_AGENT_SIDEBAR empties the Agents list only; the
+    // dock stays (decision 77). In VS Code the token resolves to null, so the
+    // transcript's live-turn effect and the chips stay inert.
     {
       provide: DisplayDockState,
       useFactory: (): DisplayDockState | null =>
-        inject(VSCodeService).isElectron &&
-        !(inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false)
-          ? new DisplayDockState()
-          : null,
+        inject(VSCodeService).isElectron ? new DisplayDockState() : null,
     },
     // The chat-ui ports the chip and the display sync read (decisions #59, #60).
     { provide: PTAH_UI_DISPLAY_DOCK, useExisting: DisplayDockState },
@@ -289,8 +287,10 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly _forcedCard = inject(SESSION_FORCED_CARD, {
     optional: true,
   });
-  /** When true, the per-session Agents right sidebar is hidden (e.g. Tribunal
-   * conductor — panelists render as their own tiles). */
+  /** When true, the session's Agents list is hidden: the VS Code Agents
+   * sidebar does not mount and the Electron dock's Agents tab is empty (e.g.
+   * Tribunal conductor, whose panelists render as their own tiles). The
+   * display dock stays (decision 77). */
   protected readonly hideAgentSidebar =
     inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false;
   private readonly _tabManager = inject(TabManagerService);
@@ -448,7 +448,7 @@ export class ChatViewComponent implements OnDestroy {
     );
   });
 
-  /** The Electron dock store; `null` in VS Code or with the sidebar hidden. */
+  /** The Electron dock store; `null` in VS Code. */
   private readonly displayDock = inject(DisplayDockState, { optional: true });
   /** Electron: the right-side panel is the `Displays | Agents` dock. */
   protected readonly dockEnabled = this.displayDock !== null;
@@ -567,8 +567,12 @@ export class ChatViewComponent implements OnDestroy {
     this._sessionContext ? this.resolvedSessionId() : null,
   );
 
-  /** Session-scoped agents for the embedded panel */
+  /**
+   * Session-scoped agents for the embedded panel. Empty when the host hides
+   * the Agents list, so the badge and the agent auto-open stay inert.
+   */
   readonly sessionAgents = computed(() => {
+    if (this.hideAgentSidebar) return [];
     const sid = this.resolvedSessionId();
     if (!sid) {
       if (this._sessionContext) return [];

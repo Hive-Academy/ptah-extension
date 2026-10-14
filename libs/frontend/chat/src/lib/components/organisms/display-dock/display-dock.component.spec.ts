@@ -4,7 +4,11 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
-import { AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  type MonitoredAgent,
+  type SubagentRecord,
+} from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   DISPLAY_PANEL_SUMMARY_KEY,
@@ -19,6 +23,7 @@ import type { TurnChangeSet } from '@ptah-extension/shared';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { ChangeSetActionsService } from '../../../services/change-set/change-set-actions.service';
 import { PanelResizeService } from '../../../services/panel-resize.service';
+import { AgentMonitorPanelComponent } from '../agent-monitor-panel.component';
 import { DisplayDockComponent } from './display-dock.component';
 
 /** Stands in for the lazy panel so the dock's own wiring is what is tested. */
@@ -314,6 +319,90 @@ describe('DisplayDockComponent', () => {
     expect(agents.textContent).toContain('No agents in this session');
     // The dock owns close: the docked monitor has no close button of its own.
     expect(agents.querySelector('button[title="Close panel"]')).toBeNull();
+  });
+
+  describe('hideAgents (HIDE_AGENT_SIDEBAR, decision 109)', () => {
+    const workflowSubagent = {
+      parentToolUseId: 'toolu_wf',
+      status: 'running',
+      workflowRunId: 'run-1',
+      workflowName: 'Panel run',
+      teammateName: 'Panelist A',
+      parentSessionId: 'session-1',
+    } as SubagentRecord;
+    const sessionSubagent = {
+      parentToolUseId: 'toolu_bg',
+      status: 'background',
+      teammateName: 'Panelist B',
+      parentSessionId: 'session-1',
+    } as SubagentRecord;
+
+    let store: Record<string, jest.Mock>;
+
+    /** Remounts the dock with workflow and session subagents in the store. */
+    function remount(hideAgents?: boolean): void {
+      fixture.destroy();
+      store = TestBed.inject(AgentMonitorStore) as unknown as Record<
+        string,
+        jest.Mock
+      >;
+      store['workflowSubagentsForSession'].mockClear();
+      store['sessionSubagentsForSession'].mockClear();
+      store['workflowSubagentsForSession'].mockReturnValue([workflowSubagent]);
+      store['sessionSubagentsForSession'].mockReturnValue([sessionSubagent]);
+      store['getSubagent'].mockImplementation((id: string) =>
+        [workflowSubagent, sessionSubagent].find((r) => r.parentToolUseId === id),
+      );
+      store['getSubagentTranscript'] = jest.fn().mockResolvedValue([]);
+      store['loadSubagentCacheInfo'] = jest.fn().mockResolvedValue(undefined);
+      dock.setSurfaces(TAB, { surfaces: [surface('id:chart')], statuses: new Map() });
+      fixture = TestBed.createComponent(DisplayDockComponent);
+      fixture.componentRef.setInput('tabId', TAB);
+      fixture.componentRef.setInput('sessionId', 'session-1');
+      if (hideAgents !== undefined) {
+        fixture.componentRef.setInput('hideAgents', hideAgents);
+      }
+      fixture.detectChanges();
+      dock.selectTab(TAB, 'agents');
+      fixture.detectChanges();
+    }
+
+    const monitor = (): AgentMonitorPanelComponent =>
+      fixture.debugElement.query(By.directive(AgentMonitorPanelComponent))
+        ?.componentInstance as AgentMonitorPanelComponent;
+
+    it('shows no workflow or session subagent tiles and keeps the displays', () => {
+      remount(true);
+      expect(tab('agents').textContent).toContain('Agents (0)');
+      // The store-reading monitor never mounts, so no subagent is read.
+      expect(monitor()).toBeUndefined();
+      expect(store['workflowSubagentsForSession']).not.toHaveBeenCalled();
+      expect(store['sessionSubagentsForSession']).not.toHaveBeenCalled();
+      const agents = tabpanel('agents');
+      expect(agents.hidden).toBe(false);
+      expect(agents.getAttribute('role')).toBe('tabpanel');
+      expect(agents.textContent).toContain('No agents in this session');
+      expect(agents.textContent).not.toContain('Panelist');
+      expect(agents.textContent).not.toContain('Panel run');
+      expect(agents.querySelector('.badge.badge-sm.badge-neutral')).toBeNull();
+      // The display surfaces are unaffected.
+      expect(dock.tab(TAB).open).toBe(true);
+      expect(tab('displays').textContent).toContain('Displays (1)');
+      expect(panel().surfaces()).toHaveLength(1);
+    });
+
+    it('without the input, the same subagents still show (unchanged)', () => {
+      remount();
+      expect(monitor().totalCount()).toBe(2);
+      expect(monitor().workflowGroups()).toHaveLength(1);
+      expect(monitor().sessionSubagentTiles()).toHaveLength(1);
+      const agents = tabpanel('agents');
+      expect(agents.textContent).not.toContain('No agents in this session');
+      expect(
+        agents.querySelector('.badge.badge-sm.badge-neutral')?.textContent?.trim(),
+      ).toBe('2');
+      expect(panel().surfaces()).toHaveLength(1);
+    });
   });
 
   describe('pin and close', () => {

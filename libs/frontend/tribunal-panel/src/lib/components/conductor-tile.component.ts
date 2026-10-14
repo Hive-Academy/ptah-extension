@@ -217,7 +217,8 @@ export class ConductorTileComponent implements OnInit, OnDestroy {
         [
           { provide: SESSION_CONTEXT, useValue: tabIdSignal },
           // Panelists already render as their own tiles in the Tribunal — hide
-          // the conductor chat's per-session Agents right sidebar.
+          // the conductor chat's Agents list. The display dock stays
+          // (decision 77): `ptah-ui display [id]` and `$diff`/`$tests` open.
           { provide: HIDE_AGENT_SIDEBAR, useValue: true },
         ],
         this.parentEnvInjector,

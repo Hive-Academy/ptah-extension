@@ -508,7 +508,10 @@ export class CanvasRailBoardComponent {
     if (side === this.activeSide()) return;
     const id = this.otherTabId();
     if (!id) return;
-    const current = this.activeId();
+    // A Rail card or lane action can write store focus before its event reaches
+    // the board. The board's last focused tab is the pane being vacated.
+    const current = this.lastFocusedId;
+    if (!current || current === id) return;
     this.otherTabId.set(current);
     this.activeSide.set(side);
     this.lastFocusedId = id;
@@ -642,7 +645,7 @@ export class CanvasRailBoardComponent {
       this.anchor();
       return;
     }
-    if (this.splitDisplayed() && id !== this.activeId()) this.announceReplaced(id);
+    if (this.splitDisplayed() && id !== this.lastFocusedId) this.announceReplaced(id);
     this.lastFocusedId = id;
     this.store.focusTile(id);
     this.anchor();

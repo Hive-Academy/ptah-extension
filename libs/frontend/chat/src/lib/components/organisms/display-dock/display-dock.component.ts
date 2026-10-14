@@ -200,13 +200,24 @@ let nextDisplayDockInstance = 0;
         [hidden]="state().activeTab !== 'agents'"
         data-testid="display-dock-agents"
       >
-        <ptah-agent-monitor-panel
-          class="flex min-h-0 flex-1 flex-col"
-          [docked]="true"
-          [embeddedAgents]="agents()"
-          [embeddedOpen]="state().open"
-          [sessionId]="sessionId()"
-        />
+        @if (hideAgents()) {
+          <!-- The host hides its Agents list (decision 109): the monitor reads
+               subagents from the store itself, so it is not mounted at all. -->
+          <div
+            class="flex h-32 flex-col items-center justify-center text-center"
+            data-testid="display-dock-agents-hidden"
+          >
+            <span class="text-sm text-base-content-muted">No agents in this session</span>
+          </div>
+        } @else {
+          <ptah-agent-monitor-panel
+            class="flex min-h-0 flex-1 flex-col"
+            [docked]="true"
+            [embeddedAgents]="agents()"
+            [embeddedOpen]="state().open"
+            [sessionId]="sessionId()"
+          />
+        }
       </div>
     </aside>
   `,
@@ -226,6 +237,12 @@ export class DisplayDockComponent {
   readonly agents = input<MonitoredAgent[]>([]);
   /** The monitor's session scope (`null` on the unscoped main panel). */
   readonly sessionId = input<string | null>(null);
+  /**
+   * The host hides its Agents list (`HIDE_AGENT_SIDEBAR`, decision 109): the
+   * Agents tab shows only its empty state and never mounts the monitor, so no
+   * store-sourced subagent tile appears. The Displays tab is unaffected.
+   */
+  readonly hideAgents = input(false);
   /** Increments when the user opens the dock as an overlay. */
   readonly focusRequest = input(0);
 

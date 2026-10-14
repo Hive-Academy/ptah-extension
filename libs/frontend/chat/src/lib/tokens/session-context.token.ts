@@ -11,11 +11,12 @@ export const SESSION_CONTEXT = new InjectionToken<Signal<string | null>>(
 );
 
 /**
- * Optional injection token that hides the per-session "Agents" right sidebar
- * (toggle tab + monitor panel) when a ChatViewComponent is embedded in a
- * surface that already surfaces its sub-agents elsewhere — e.g. the Tribunal
- * conductor, whose panelists render as their own tiles. Absent/false → the
- * sidebar shows as normal.
+ * Optional injection token that hides the session's Agents list when a
+ * ChatViewComponent is embedded in a surface that already surfaces its
+ * sub-agents elsewhere — e.g. the Tribunal conductor, whose panelists render
+ * as their own tiles. In VS Code the Agents sidebar does not mount; in
+ * Electron the dock's Agents tab is empty. The display dock stays (decision
+ * 77). Absent/false → the Agents list shows as normal.
  */
 export const HIDE_AGENT_SIDEBAR = new InjectionToken<boolean>(
   'HIDE_AGENT_SIDEBAR',

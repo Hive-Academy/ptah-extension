@@ -296,6 +296,7 @@
         [widthPx]="dockWidth()"
         [agents]="sessionAgents()"
         [sessionId]="resolvedSessionId()"
+        [hideAgents]="hideAgentSidebar"
         [focusRequest]="dockFocusRequest()"
         (closed)="closeAgentPanel()"
       />
@@ -311,13 +312,16 @@
         >
           Display panel failed to load
         </p>
-        <ptah-agent-monitor-panel
-          [embeddedAgents]="sessionAgents()"
-          [embeddedOpen]="panelOpen()"
-          [sessionId]="resolvedSessionId()"
-          [isOverlay]="isOverlay()"
-          (closed)="closeAgentPanel()"
-        />
+        <!-- A host that hides its Agents list gets no fallback monitor. -->
+        @if (!hideAgentSidebar) {
+          <ptah-agent-monitor-panel
+            [embeddedAgents]="sessionAgents()"
+            [embeddedOpen]="panelOpen()"
+            [sessionId]="resolvedSessionId()"
+            [isOverlay]="isOverlay()"
+            (closed)="closeAgentPanel()"
+          />
+        }
       }
     }
   } @else if (!hideAgentSidebar && !(_forcedCard?.() ?? false)) {

@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
+import { CompactSessionCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
@@ -24,6 +24,7 @@ import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
 import { CanvasRailBoardComponent } from './canvas-rail-board.component';
+import { CanvasRailCardComponent } from './canvas-rail-card.component';
 
 const sourceState = signal<CompactRailState>('idle');
 type TestHost = Omit<HTMLElement, 'querySelector'> & {
@@ -84,6 +85,25 @@ class RailStub {
       if (tile) this.railState.emit({ tabId: tile.tabId, state });
     });
   }
+}
+@Component({
+  selector: 'ptah-compact-session-card',
+  standalone: true,
+  template: `<button type="button" class="rc-select"
+    (click)="expandToFull.emit()"
+    (keydown.enter)="expandToFull.emit()"
+    (keydown.space)="expandToFull.emit()">Select</button>`,
+})
+class SelectCardStub {
+  readonly tab = input.required<unknown>();
+  readonly variant = input('rail');
+  readonly density = input<CompactRailDensity>('comfortable');
+  readonly focused = input(false);
+  readonly holdText = input(false);
+  readonly expandToFull = output<void>();
+  readonly railState = output<CompactRailState>();
+  readonly staleAction = output<void>();
+  readonly lanesRequested = output<void>();
 }
 @Component({
   selector: 'ptah-canvas-lane-view',
@@ -243,6 +263,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     count = 2,
     initialFocus: string | null = 'a',
     surface?: WritableSignal<boolean>,
+    realCard = false,
   ) {
     sourceState.set('idle');
     jest
@@ -319,6 +340,12 @@ describe('CanvasRailBoardComponent rendering', () => {
     TestBed.overrideComponent(CanvasRailBoardComponent, {
       set: { imports: [RailStub, FocusStub, DetailsStub] },
     });
+    if (realCard) {
+      TestBed.overrideComponent(CanvasRailCardComponent, {
+        remove: { imports: [CompactSessionCardComponent] },
+        add: { imports: [SelectCardStub] },
+      });
+    }
     const fixture = TestBed.createComponent(CanvasRailBoardComponent);
     fixture.componentRef.setInput('workspacePath', 'workspace');
     fixture.componentRef.setInput('visible', visible);
@@ -737,6 +764,41 @@ describe('CanvasRailBoardComponent rendering', () => {
     instance.openBeside('foreign');
     expect(instance.announcement()).toContain('no longer on this board');
     expect(instance.otherTabId()).toBeNull();
+  });
+
+  it.each([
+    ['click', null],
+    ['Enter', 'Enter'],
+    ['Space', ' '],
+  ])('real card %s selects the inactive split pane without losing either host', (_gesture, key) => {
+    // The board harness substitutes RailStub, so mount the real card separately
+    // and wire its output to the real board handler, as CanvasRail does.
+    const { fixture, focused, store } = mount(true, 2, 'a', undefined, true);
+    const board = fixture.componentInstance;
+    board.openBeside('b');
+    board.activatePane('left');
+    fixture.detectChanges();
+    expect(board.paneTab('left')).toBe('a');
+    expect(board.paneTab('right')).toBe('b');
+
+    const card = TestBed.createComponent(CanvasRailCardComponent);
+    card.componentRef.setInput('tabId', 'b');
+    card.componentInstance.focusRequested.subscribe((id) => board.focus(id));
+    card.detectChanges();
+    const select = card.nativeElement.querySelector('.rc-select') as HTMLButtonElement;
+    (store.focusTile as jest.Mock).mockClear();
+    if (key) select.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    else select.click();
+    fixture.detectChanges();
+
+    expect(board.activeSide()).toBe('right');
+    expect(board.paneTab('right')).toBe('b');
+    expect(board.paneTab('left')).toBe('a');
+    expect(board.otherTabId()).toBe('a');
+    expect(focused()).toBe('b');
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+    expect(store.focusTile).toHaveBeenCalledWith('b');
+    card.destroy();
   });
 
   it('never a third host on Open beside or jumpTo while split; never the same tab in both panes', () => {

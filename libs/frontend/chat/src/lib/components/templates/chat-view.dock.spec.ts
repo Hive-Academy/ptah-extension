@@ -503,15 +503,64 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       expect(native().querySelector('ptah-agent-monitor-panel')).not.toBeNull();
     });
 
-    it('HIDE_AGENT_SIDEBAR: no store, no toggle, no dock', () => {
+    it('HIDE_AGENT_SIDEBAR keeps the display dock and empties only its Agents list (decision 77)', async () => {
       h = mount({ hideAgentSidebar: true });
+      h.emitHostWidth(1280);
+      const injector = h.fixture.debugElement.injector;
+      const state = injector.get(DisplayDockState, null, { optional: true });
+      expect(state).toBeInstanceOf(DisplayDockState);
+      expect(injector.get(PTAH_UI_DISPLAY_DOCK)).toBe(state);
+      expect(injector.get(PTAH_UI_DISPLAY_DOCK_SYNC)).toBe(state);
+      expect(toggle()?.getAttribute('aria-label')).toBe('Toggle Display panel');
+
+      // A running session agent adds no badge and no Agents auto-open.
+      h.agents.set([agent('running')]);
+      await settle();
+      expect(h.fixture.componentInstance.sessionAgents()).toEqual([]);
+      expect(h.fixture.componentInstance.agentBadgeType()).toBeNull();
+      expect(store().tab('tab-1').open).toBe(false);
+
+      // A fenced ptah-ui display [id] opens the dock and updates in place.
+      const first = surface('id:chart');
+      store().setLiveTurn('tab-1', 'turn-1');
+      store().setSurfaces('tab-1', { surfaces: [first], statuses: new Map() });
+      store().requestAutoOpen('tab-1', 'turn-1', first.key);
+      await settle();
+      expect(store().tab('tab-1').open).toBe(true);
+      const panel = h.fixture.debugElement.query(By.directive(StubDisplayPanelComponent));
+      expect(panel.componentInstance.surfaces()).toEqual([first]);
+      const updated = { ...first, updatedSeq: 2 };
+      store().setSurfaces('tab-1', { surfaces: [updated], statuses: new Map() });
+      await settle();
+      expect(panel.componentInstance.surfaces()).toEqual([updated]);
+      expect(native().querySelectorAll('ptah-display-dock')).toHaveLength(1);
+      expect(dockTab('agents').textContent).toContain('Agents (0)');
+      // ChatView tells the dock to hide its Agents list, so the store-reading
+      // monitor never mounts inside it (decision 109).
+      const dock = h.fixture.debugElement.query(By.directive(DisplayDockComponent))
+        .componentInstance as DisplayDockComponent;
+      expect(dock.hideAgents()).toBe(true);
+      expect(native().querySelector('ptah-display-dock ptah-agent-monitor-panel')).toBeNull();
       expect(
-        h.fixture.debugElement.injector.get(DisplayDockState, null, {
-          optional: true,
-        }),
-      ).toBeNull();
-      expect(toggle()).toBeNull();
-      expect(dockEl()).toBeNull();
+        native().querySelector('[data-testid="display-dock-agents-hidden"]')?.textContent,
+      ).toContain('No agents in this session');
+    });
+
+    it('without HIDE_AGENT_SIDEBAR the dock mounts its monitor with the agents (decision 109)', async () => {
+      h = mount();
+      h.emitHostWidth(1280);
+      h.agents.set([agent('running')]);
+      await settle();
+      expect(store().tab('tab-1').open).toBe(true);
+      expect(dockTab('agents').textContent).toContain('Agents (1)');
+      const dock = h.fixture.debugElement.query(By.directive(DisplayDockComponent))
+        .componentInstance as DisplayDockComponent;
+      expect(dock.hideAgents()).toBe(false);
+      expect(native().querySelector('[data-testid="display-dock-agents-hidden"]')).toBeNull();
+      const monitor = h.fixture.debugElement.query(
+        By.css('ptah-display-dock ptah-agent-monitor-panel'),
+      ).componentInstance as StubAgentMonitorPanelComponent;
+      expect(monitor.embeddedAgents()).toHaveLength(1);
     });
   });
 
@@ -837,6 +886,21 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       monitor.closed.emit();
       await settle();
       expect(store().tab('tab-1').open).toBe(false);
+      expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
+    });
+
+    it('HIDE_AGENT_SIDEBAR: the alert shows and no fallback monitor mounts (decision 109)', async () => {
+      h = mount({ hideAgentSidebar: true, deferBehavior: DeferBlockBehavior.Manual });
+      h.emitHostWidth(1280);
+      await clickToggle();
+      expect(store().tab('tab-1').open).toBe(true);
+      const [dockBlock] = await h.fixture.getDeferBlocks();
+      await dockBlock.render(DeferBlockState.Error);
+      await settle();
+
+      expect(
+        native().querySelector('[data-testid="display-dock-load-failed"]')?.textContent?.trim(),
+      ).toBe('Display panel failed to load');
       expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
     });
   });
