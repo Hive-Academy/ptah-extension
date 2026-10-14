@@ -76,4 +76,60 @@ describe('StreamViewportController', () => {
 
     expect(controller.tierFor('hidden-tab')).toBe('focused');
   });
+
+  it('keeps focused scheduling when the declaration resolves without a reply', async () => {
+    call.mockResolvedValueOnce(undefined);
+    const controller = TestBed.inject(StreamViewportController);
+    TestBed.flushEffects();
+    jest.advanceTimersByTime(50);
+    await Promise.resolve();
+    expect(controller.tierFor('tab-2')).toBe('focused');
+  });
+
+  it('records an immediate resync declaration before the pending viewport debounce', async () => {
+    const controller = TestBed.inject(StreamViewportController);
+    TestBed.flushEffects();
+    jest.advanceTimersByTime(50);
+    await Promise.resolve();
+    call.mockClear();
+    activeTabId.set('tab-2');
+    TestBed.flushEffects();
+    await controller.requestStreamResync('tab-3');
+    jest.advanceTimersByTime(50);
+    await Promise.resolve();
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledWith('chat:setStreamViewport', {
+      protocolVersion: 2, focusedTabId: 'tab-2', visibleTabIds: ['tab-2'], resyncTabIds: ['tab-3'],
+    });
+  });
+
+  it('requests one immediate resync with the current viewport only after v2 acceptance', async () => {
+    const controller = TestBed.inject(StreamViewportController);
+    await controller.requestStreamResync('tab-3');
+    expect(call).not.toHaveBeenCalled();
+    TestBed.flushEffects();
+    jest.advanceTimersByTime(50);
+    await Promise.resolve();
+    call.mockClear();
+    await controller.requestStreamResync('tab-3');
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledWith('chat:setStreamViewport', {
+      protocolVersion: 2, focusedTabId: 'tab-1', visibleTabIds: ['tab-1', 'tab-2'], resyncTabIds: ['tab-3'],
+    });
+    TestBed.flushEffects();
+    jest.advanceTimersByTime(50);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns and resolves when an immediate resync RPC rejects', async () => {
+    const controller = TestBed.inject(StreamViewportController);
+    TestBed.flushEffects();
+    jest.advanceTimersByTime(50);
+    await Promise.resolve();
+    call.mockRejectedValueOnce(new Error('offline'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    await expect(controller.requestStreamResync('tab-3')).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith('[StreamViewportController] stream resync request failed');
+    warn.mockRestore();
+  });
 });

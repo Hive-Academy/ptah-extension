@@ -26,6 +26,7 @@ import {
   SessionId,
   SubagentRecord,
   type ChatResumeResult,
+  type FlatStreamEventUnion,
   type SessionListParams,
 } from '@ptah-extension/shared';
 import {
@@ -39,8 +40,12 @@ import {
 } from '@ptah-extension/chat-state';
 import {
   SessionHistoryReplayer,
+  type FenceReservation,
   type ReplayClaim,
+  type ReplayLiveSeed,
 } from './session-history-replayer.service';
+import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
+import { StreamViewportController } from '../stream-viewport-controller.service';
 import { HistoryPagingService } from './history-paging.service';
 import {
   createEmptyStreamingState,
@@ -109,6 +114,65 @@ interface SwitchSessionOptions {
   reason?: 'compaction' | 'resync';
   activate?: boolean;
   targetTabId?: TabId;
+  liveSeed?: ReplayLiveSeed;
+  compactionDelayed?: true;
+}
+
+interface InFlightLoad {
+  readonly reason: 'compaction' | 'resync' | 'load';
+  readonly settled: Promise<void>;
+  readonly resolve: () => void;
+}
+
+function historyEventIndex(key: string, count: number): number | null {
+  if (!/^(0|[1-9]\d*)$/.test(key)) return null;
+  const index = Number(key);
+  return Number.isSafeInteger(index) && index < count ? index : null;
+}
+
+function historyBlockOwners(
+  raw: unknown,
+  events: readonly FlatStreamEventUnion[],
+): ReadonlyMap<FlatStreamEventUnion, string> | null {
+  if (raw === undefined) return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
+      Object.getPrototypeOf(raw) !== Object.prototype) {
+    console.warn('[SessionLoaderService] Ignoring malformed historyBlockOwners');
+    return null;
+  }
+  const owners = new Map<FlatStreamEventUnion, string>();
+  for (const [key, owner] of Object.entries(raw)) {
+    const index = historyEventIndex(key, events.length);
+    if (index === null || typeof owner !== 'string' || owner.length === 0) {
+      console.warn('[SessionLoaderService] Ignoring malformed historyBlockOwners');
+      return null;
+    }
+    owners.set(events[index], owner);
+  }
+  return owners;
+}
+
+function historySyntheticToolResults(
+  raw: unknown,
+  events: readonly FlatStreamEventUnion[],
+): ReadonlySet<FlatStreamEventUnion> | null {
+  if (raw === undefined) return null;
+  if (!Array.isArray(raw)) {
+    console.warn('[SessionLoaderService] Ignoring malformed historySyntheticToolResults');
+    return null;
+  }
+  const results = new Set<FlatStreamEventUnion>();
+  const indexes = new Set<number>();
+  for (const value of raw) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 ||
+        value >= events.length || indexes.has(value) || events[value].eventType !== 'tool_result') {
+      console.warn('[SessionLoaderService] Ignoring malformed historySyntheticToolResults');
+      return null;
+    }
+    indexes.add(value);
+    results.add(events[value]);
+  }
+  return results;
 }
 
 type CliOutputLoadOutcome = 'settled' | 'stale';
@@ -170,6 +234,8 @@ export class SessionLoaderService {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly historyReplayer = inject(SessionHistoryReplayer);
   private readonly historyPaging = inject(HistoryPagingService);
+  private readonly livenessReconciler = inject(SessionLivenessReconcilerService);
+  private readonly streamViewport = inject(StreamViewportController);
 
   private readonly _sessions = signal<readonly ChatSessionSummary[]>([]);
   private readonly _hasMoreSessions = signal(false);
@@ -200,13 +266,17 @@ export class SessionLoaderService {
   private _resumableSubagentsSessionId: string | null = null;
 
   /**
-   * Set of load identities currently being loaded via switchSession() or
+   * Registry of load identities currently being loaded via switchSession() or
    * refreshResumableSubagentsForSession(). Prevents duplicate chat:resume
    * calls when the same destination is requested while a load is already in
    * progress. Targeted loads use `(sessionId, tabId)` so sibling tabs sharing
    * one session can be restored concurrently.
    */
-  private readonly _inFlightSessions = new Set<string>();
+  private readonly _inFlightSessions = new Map<string, InFlightLoad>();
+  private resyncGeneration = 0;
+  private readonly latestResync = new Map<string, number>();
+  private readonly compactionResyncTabs = new Set<string>();
+  private previousTabBindings = new Map<TabId, string | null>();
 
   /**
    * Sessions whose CLI agent cards have already been pushed into
@@ -331,7 +401,14 @@ export class SessionLoaderService {
         tabId: tab.id,
         sessionId: tab.claudeSessionId,
       }));
-      untracked(() => this.invalidateChangedCliOutputBindings(bindings));
+      untracked(() => {
+        const current = new Map<TabId, string | null>(bindings.map(({ tabId, sessionId }) => [tabId, sessionId]));
+        for (const [tabId, sessionId] of this.previousTabBindings) {
+          if (current.get(tabId) !== sessionId) this.historyReplayer.retirePersistedFilter(tabId);
+        }
+        this.previousTabBindings = current;
+        this.invalidateChangedCliOutputBindings(bindings);
+      });
     });
     effect(() => {
       const demand = this.agentMonitorStore.cliOutputDemand();
@@ -765,8 +842,13 @@ export class SessionLoaderService {
     const targetedTab = targetTabId
       ? this.requireTargetTab(sessionId, targetTabId)
       : null;
+    const isResync = opts?.reason === 'resync' && targetTabId !== undefined;
+    const myGeneration = isResync ? ++this.resyncGeneration : null;
+    if (myGeneration !== null) this.latestResync.set(loadKey, myGeneration);
+    const prefixMark = isResync ? this.historyReplayer.liveArrivalMark() : null;
+    if (isResync) this.historyReplayer.retirePersistedFilter(targetTabId);
 
-    if (this._inFlightSessions.has(loadKey)) {
+    if (!isResync && this._inFlightSessions.has(loadKey)) {
       console.debug(
         '[SessionLoaderService] Skipping duplicate switchSession for:',
         sessionId,
@@ -786,9 +868,48 @@ export class SessionLoaderService {
       }
     }
 
-    this._inFlightSessions.add(loadKey);
     let replayClaim: ReplayClaim | null = null;
+    let reservation: FenceReservation | null = null;
+    let inFlight: InFlightLoad | null = null;
+    let reservationOverflowed = false;
+    let freshResyncNeeded = false;
+    let reachedCompactionReset = false;
+    let staleCompactionSnapshot = false;
+    let currentAtEnd: boolean;
+    let loadCompleted = false;
+    let preservedContextSeed = false;
     try {
+      if (isResync && this._inFlightSessions.get(loadKey) &&
+          this._inFlightSessions.get(loadKey)?.reason !== 'resync') {
+        reservation = this.historyReplayer.reserveFence(sessionId);
+      }
+      while (isResync) {
+        if (this.latestResync.get(loadKey) !== myGeneration) {
+          return { staleSnapshot: false };
+        }
+        const current = this._inFlightSessions.get(loadKey);
+        if (!current || current.reason === 'resync') break;
+        if (!reservation) reservation = this.historyReplayer.reserveFence(sessionId);
+        await current.settled;
+      }
+      if (isResync && this.latestResync.get(loadKey) !== myGeneration) {
+        return { staleSnapshot: false };
+      }
+      if (targetTabId && isResync) this.requireTargetTab(sessionId, targetTabId);
+      let resolveSettled: () => void = () => undefined;
+      const settled = new Promise<void>((resolve) => { resolveSettled = resolve; });
+      inFlight = { reason: opts?.reason ?? 'load', settled, resolve: resolveSettled };
+      this._inFlightSessions.set(loadKey, inFlight);
+      if (targetedTab && (isResync || opts?.reason === 'compaction')) {
+        replayClaim = this.historyReplayer.claim(
+          targetedTab.id, sessionId, isResync ? opts?.liveSeed : undefined,
+        );
+      }
+      if (reservation) {
+        reservationOverflowed = this.historyReplayer.overflowedDuring(reservation);
+        this.historyReplayer.releaseReservation(reservation);
+        reservation = null;
+      }
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
         throw new Error(
@@ -799,13 +920,26 @@ export class SessionLoaderService {
         sessionId,
       });
 
-      if (!loadResult.success) {
+      if (replayClaim && !this.historyReplayer.isCurrent(replayClaim)) {
+        return { staleSnapshot: false };
+      }
+      if (isResync && (reservationOverflowed ||
+          (replayClaim && this.historyReplayer.overflowedDuring(replayClaim)))) {
+        freshResyncNeeded = true;
+        if (targetTabId && replayClaim && this.historyReplayer.isCurrent(replayClaim)) {
+          this.resetResyncTabBeforeSeed(targetTabId, sessionId, targetedTab?.name);
+        }
+        return { staleSnapshot: false };
+      }
+
+      if (!loadResult?.success) {
         throw new Error(
           `[SessionLoaderService] session:load failed for ${sessionId}: ${
-            loadResult.error ?? 'session not found'
+             loadResult?.error ?? 'session not found'
           }`,
         );
       }
+      loadCompleted = true;
       const session = this._sessions().find((s) => s.id === sessionId);
       // Prefer the session-list name, then the existing tab's name (set by the
       // rewind rebind before this call), and only fall back to the raw session
@@ -821,7 +955,7 @@ export class SessionLoaderService {
       // `chat:resume` is sent: an `activate: true` resume starts the live query
       // on the backend before its reply arrives. The `finally` below releases
       // the claim on every exit, which closes the fence exactly once.
-      replayClaim = this.historyReplayer.claim(resolvedTabId, sessionId);
+      replayClaim ??= this.historyReplayer.claim(resolvedTabId, sessionId);
 
       // A compaction chunk may have queued a live-state write before this
       // targeted reload started. Close/reopen clears that queue through
@@ -859,6 +993,9 @@ export class SessionLoaderService {
           tabId: resolvedTabId,
           workspacePath,
           historyPage: this.historyPaging.tailRequest(),
+          ...(replayClaim && (isResync || opts?.reason === 'compaction')
+            ? { historyBlockOwners: true }
+            : {}),
           ...(opts?.activate === true && !targetTabId
             ? { activate: true }
             : {}),
@@ -895,6 +1032,7 @@ export class SessionLoaderService {
         this.tabManager.applyResumeFailure(resolvedTabId);
         this.tabManager.markTabIdle(resolvedTabId);
         this.sessionManager.setStatus('loaded');
+        staleCompactionSnapshot = true;
         return { staleSnapshot: true };
       }
 
@@ -905,6 +1043,7 @@ export class SessionLoaderService {
           title,
           streamingState: createEmptyStreamingState(),
         });
+        reachedCompactionReset = true;
       }
 
       const events = resumeResult.data?.events;
@@ -919,11 +1058,14 @@ export class SessionLoaderService {
       // failure branch below) therefore cost the whole Agents panel silently.
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
+        preservedContextSeed = isResync && this.compactionResyncTabs.has(targetTabId);
         this.applyResumeStats(resolvedTabId, sessionId, stats, {
           budget: resumeResult.data?.budget,
           preserveCompactionContextSeed:
-            opts?.reason === 'compaction' && targetTabId != null,
+            (opts?.reason === 'compaction' && targetTabId != null) ||
+             preservedContextSeed,
         });
+        if (preservedContextSeed && targetTabId) this.compactionResyncTabs.delete(targetTabId);
       } else if (
         !targetTabId &&
         resumeResult.success &&
@@ -936,6 +1078,15 @@ export class SessionLoaderService {
       }
       if (resumeResult.success && events && events.length > 0) {
         try {
+          if (targetedTab && (isResync || opts?.reason === 'compaction')) {
+            this.historyReplayer.setPersistedFilterInputs(replayClaim, {
+              ownerByEvent: historyBlockOwners(resumeResult.data?.historyBlockOwners, events),
+              syntheticResults: historySyntheticToolResults(
+                resumeResult.data?.historySyntheticToolResults, events,
+              ),
+              prefixMark: isResync && opts?.liveSeed !== undefined ? prefixMark : null,
+            });
+          }
           const outcome = await this.historyReplayer.replay(
             events,
             replayClaim,
@@ -974,13 +1125,63 @@ export class SessionLoaderService {
       }
       return { staleSnapshot: false };
     } catch (error: unknown) {
+      if (isResync && targetTabId && replayClaim && !loadCompleted && this.historyReplayer.isCurrent(replayClaim)) {
+        this.resetResyncTabBeforeSeed(targetTabId, sessionId, targetedTab?.name);
+      }
       this._resumableSubagents.set([]);
       this._resumableSubagentsSessionId = null;
       throw error;
     } finally {
-      this._inFlightSessions.delete(loadKey);
-      this.historyReplayer.release(replayClaim);
+      let claimOverflowed: boolean;
+      try {
+        if (reservation) {
+          reservationOverflowed ||= this.historyReplayer.overflowedDuring(reservation);
+          this.historyReplayer.releaseReservation(reservation);
+        }
+        claimOverflowed = replayClaim !== null && this.historyReplayer.overflowedDuring(replayClaim);
+        currentAtEnd = replayClaim !== null && this.historyReplayer.isCurrent(replayClaim);
+        if (!isResync && inFlight && this._inFlightSessions.get(loadKey) === inFlight) {
+          this._inFlightSessions.delete(loadKey);
+        }
+        this.historyReplayer.release(replayClaim);
+      } finally {
+        if (isResync && inFlight && this._inFlightSessions.get(loadKey) === inFlight) {
+          this._inFlightSessions.delete(loadKey);
+        }
+        inFlight?.resolve();
+      }
+      const latestAtEnd = myGeneration !== null &&
+        this.latestResync.get(loadKey) === myGeneration;
+      if (latestAtEnd) {
+        this.latestResync.delete(loadKey);
+      }
+      if (isResync && (reservationOverflowed || claimOverflowed)) freshResyncNeeded = true;
+      if (opts?.reason === 'compaction' && currentAtEnd && reachedCompactionReset &&
+          (claimOverflowed || opts.compactionDelayed === true)) {
+        freshResyncNeeded = true;
+      }
+      if (freshResyncNeeded && targetTabId &&
+          (isResync ? latestAtEnd && currentAtEnd : currentAtEnd)) {
+        if (opts?.reason === 'compaction' || preservedContextSeed) this.compactionResyncTabs.add(targetTabId);
+        void this.streamViewport.requestStreamResync(targetTabId);
+      }
+      if (targetTabId && currentAtEnd &&
+          (opts?.reason === 'compaction' && (reachedCompactionReset || staleCompactionSnapshot || freshResyncNeeded) ||
+           isResync && !freshResyncNeeded &&
+              !opts?.liveSeed?.events.some((event) => event?.eventType === 'turn_state'))) {
+        void this.livenessReconciler.reconcileTab(targetTabId, sessionId);
+      }
     }
+  }
+
+  private resetResyncTabBeforeSeed(tabId: string, sessionId: SessionId, name?: string): void {
+    this.streamingHandler.clearPendingUpdates(tabId);
+    this.tabManager.applyResumingSession(tabId, {
+      sessionId,
+      name: name ?? sessionId,
+      title: name ?? sessionId,
+      streamingState: createEmptyStreamingState(),
+    });
   }
 
   private requireTargetTab(sessionId: SessionId, targetTabId: TabId): TabState {
@@ -1377,15 +1578,15 @@ export class SessionLoaderService {
         sessionId,
       });
 
-      const cliSessions = result.data?.cliSessions;
-      if (result.success && cliSessions && cliSessions.length > 0) {
+      const cliSessions = result?.data?.cliSessions;
+      if (result?.success && cliSessions && cliSessions.length > 0) {
         if (!this.hasCliOutputLoadState(sessionId, cliSessions)) {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
         }
         this.releaseHaltedCliOutput(sessionId);
         return;
       }
-      if (!result.success) {
+      if (!result?.success) {
         // A failed RPC RESOLVES here — `ClaudeRpcService.call` reports a
         // timeout or a handler error as `{ success: false }` and never throws.
         // Keeping the guard set on that path retired the session's only
@@ -1394,7 +1595,7 @@ export class SessionLoaderService {
         this._cliSessionsRestored.delete(sessionId);
         console.warn(
           '[SessionLoaderService] session:cli-sessions failed; will retry',
-          { sessionId, error: result.error },
+          { sessionId, error: result?.error },
         );
       }
     } catch (error) {
@@ -1455,7 +1656,11 @@ export class SessionLoaderService {
     }
 
     try {
-      this._inFlightSessions.add(sessionId);
+      let resolveSettled: () => void = () => undefined;
+      const settled = new Promise<void>((resolve) => { resolveSettled = resolve; });
+      this._inFlightSessions.set(sessionId, {
+        reason: 'load', settled, resolve: resolveSettled,
+      });
       const workspacePath = this.vscodeService.config().workspaceRoot;
       const result = await this.claudeRpcService.call(
         'chat:resume',
@@ -1517,7 +1722,9 @@ export class SessionLoaderService {
         error,
       );
     } finally {
+      const entry = this._inFlightSessions.get(sessionId);
       this._inFlightSessions.delete(sessionId);
+      entry?.resolve();
     }
   }
 

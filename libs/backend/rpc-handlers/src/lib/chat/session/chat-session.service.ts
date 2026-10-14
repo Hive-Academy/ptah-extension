@@ -92,6 +92,10 @@ import type { ChatSubagentContextInjectorService } from './chat-subagent-context
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
 import {
+  selectDeliveredBlockOwners,
+  selectDeliveredSyntheticResults,
+} from './history-block-owners';
+import {
   OUTPUT_STYLE_TOKENS,
   type OutputStyleSessionActivationService,
 } from '@ptah-extension/output-styles';
@@ -946,7 +950,9 @@ export class ChatSessionService {
     try {
       const { sessionId } = params;
       const metadata = await this.sessionMetadataStore.get(sessionId);
-      const result = await this.historyRead.readForResume(sessionId);
+      const result = await this.historyRead.readForResume(sessionId, {
+        includeBlockOwners: params.historyBlockOwners === true,
+      });
       const resolvedWorkspacePath = result.resolvedWorkspacePath;
       this.logger.info('RPC: chat:resume called', {
         sessionId,
@@ -1086,6 +1092,19 @@ export class ChatSessionService {
         cliSessions,
         activated,
         ...(page ? { historyPage: { olderCursor: page.olderCursor } } : {}),
+        ...(params.historyBlockOwners === true
+          ? {
+              historyBlockOwners: selectDeliveredBlockOwners(
+                fullEvents,
+                page?.events ?? fullEvents,
+                result.blockOwners ?? new Map(),
+              ),
+              historySyntheticToolResults: selectDeliveredSyntheticResults(
+                page?.events ?? fullEvents,
+                result.syntheticToolResults ?? new Set(),
+              ),
+            }
+          : {}),
         ...(staleSnapshot ? { staleSnapshot } : {}),
         ...(activationError ? { activationError } : {}),
         ...(activationErrorCode ? { activationErrorCode } : {}),

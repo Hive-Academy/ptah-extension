@@ -14,6 +14,8 @@ import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { SessionLoaderService } from './session-loader.service';
 import { HistoryPagingService } from './history-paging.service';
+import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
+import { StreamViewportController } from '../stream-viewport-controller.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   HistoryMessageBuilder,
@@ -108,6 +110,8 @@ describe('SessionLoaderService — CLI agent cards on reopen', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionLoaderService,
+        { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: jest.fn() } },
+        { provide: StreamViewportController, useValue: { requestStreamResync: jest.fn() } },
         { provide: HistoryMessageBuilder, useValue: {} },
         {
           provide: HistoryPagingService,

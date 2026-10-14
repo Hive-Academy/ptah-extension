@@ -30,7 +30,7 @@ import {
   SessionLoaderService,
   type SessionListQuery,
 } from './chat-store/session-loader.service';
-import { SessionHistoryReplayer } from './chat-store/session-history-replayer.service';
+import { SessionHistoryReplayer, type ReplayLiveSeed } from './chat-store/session-history-replayer.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
@@ -225,14 +225,19 @@ export class ChatStore {
   }
 
   /** Rebuild one tab from the canonical resume stream after a v2 tail overflow. */
-  async resyncStream(tabId: string, sessionId: string): Promise<void> {
+  async resyncStream(tabId: string, sessionId: string, liveSeed?: ReplayLiveSeed): Promise<void> {
     const parsedTabId = TabId.safeParse(tabId);
     const parsedSessionId = SessionId.safeParse(sessionId);
     if (!parsedTabId || !parsedSessionId) return;
-    await this.sessionLoader.switchSession(parsedSessionId, {
-      targetTabId: parsedTabId,
-      reason: 'resync',
-    });
+    try {
+      await this.sessionLoader.switchSession(parsedSessionId, {
+        targetTabId: parsedTabId,
+        reason: 'resync',
+        liveSeed,
+      });
+    } catch {
+      console.warn('[ChatStore] Stream resync failed');
+    }
   }
 
   removeSessionFromList(sessionId: SessionId): void {
@@ -393,11 +398,13 @@ export class ChatStore {
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string,
+    options?: { fanOut?: boolean },
   ): void {
     const result = this.streamingHandler.processStreamEvent(
       event,
       tabId,
       sessionId,
+      options,
     );
 
     if (result && result.compactionComplete && result.compactionSessionId) {
@@ -440,7 +447,7 @@ export class ChatStore {
     event: FlatStreamEventUnion,
     tabId: string | undefined,
     sessionId: string | undefined,
-    deliver: () => void,
+    deliver: (excludeTabIds?: ReadonlySet<string>) => void,
   ): boolean {
     return this.historyReplayer.deferLiveEvent(
       event,

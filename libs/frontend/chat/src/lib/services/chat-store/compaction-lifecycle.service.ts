@@ -559,6 +559,7 @@ export class CompactionLifecycleService {
           .switchSession(target.sessionId, {
             reason: 'compaction',
             targetTabId: target.tabId,
+            ...(result.advisoryFallback ? { compactionDelayed: true as const } : {}),
           })
           // One `then(resolved, rejected)` hop, not `then().catch()`: the settle
           // handler keeps the same microtask position it always had.
@@ -699,7 +700,7 @@ export class CompactionLifecycleService {
         try {
           const outcome = await this.sessionLoader.switchSession(
             tab.claudeSessionId ?? compactionSid,
-            { reason: 'compaction', targetTabId: tabId },
+            { reason: 'compaction', targetTabId: tabId, compactionDelayed: true },
           );
           if (outcome?.staleSnapshot) stillStale = true;
         } catch (err: unknown) {
@@ -723,6 +724,7 @@ export class CompactionLifecycleService {
         .switchSession(tab.claudeSessionId ?? compactionSid, {
           reason: 'compaction',
           targetTabId: tab.id,
+          compactionDelayed: true,
         })
         .catch((err: unknown) => {
           console.warn(
