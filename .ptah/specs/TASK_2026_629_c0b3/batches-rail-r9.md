@@ -509,7 +509,7 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
 
 ### Task R9u.1 — COMPLETE (c8fde086d)
 
-## Batch R9v: Rail card Session actions menu, Move up/down, Open beside outputs — VERIFIED (commit pending, row 95; mode2-h5-report.md; re-review codex-review-R9v-fix.md REVISE 6/10, new Serious open)
+## Batch R9v: Rail card Session actions menu, Move up/down, Open beside outputs — COMPLETE (61078e201; reviews codex-review-R9v.md REVISE 6/10 -> fix round -> -R9v-fix.md REVISE 6/10 -> correction row 103 -> -R9v-correction.md APPROVE 8/10)
 
 - Executor: Claude frontend-developer | Fallback: codex lane | Reviewer: codex reviewer lane | Wave H5 | Depends: R9c, R9b, R9l, R9u
 - Files (8, row 102 adds `ui/src/lib/native/popover/native-popover.component.ts` + `.spec.ts`): `canvas/src/lib/canvas-rail/canvas-rail-card.component.ts`, its `.spec.ts`, `canvas-rail.component.ts`,
@@ -540,7 +540,7 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
   SPEC(canvas, canvas-rail-keyboard.spec.ts)
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
 
-### Task R9v.1 — IMPLEMENTED
+### Task R9v.1 — COMPLETE (61078e201)
 
 ## Batch R9w: Split focus board, panes, Details overlay, reorder consumer — PENDING
 
