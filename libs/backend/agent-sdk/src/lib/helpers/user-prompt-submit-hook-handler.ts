@@ -153,6 +153,7 @@ export class UserPromptSubmitHookHandler {
         }),
       ]);
     } catch (error: unknown) {
+      // degradation-audit: reported - optional handoff pointer failure is logged and omitted.
       this.logger.warn(
         '[UserPromptSubmitHookHandler] Handoff pointer failed, skipping',
         {

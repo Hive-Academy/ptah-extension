@@ -85,6 +85,7 @@ export class SubagentHandoffFiles {
       await fs.writeFile(paths.task, prompt, 'utf8');
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported - optional task file failure is logged and returned as false.
       const code = (error as { code?: unknown } | null)?.code;
       this.logger.warn(
         '[SubagentHandoffFiles] Could not save the subagent task prompt',
@@ -101,8 +102,15 @@ export class SubagentHandoffFiles {
   async notesExist(paths: SubagentHandoffPaths): Promise<boolean> {
     try {
       return (await fs.stat(paths.notes)).isFile();
-    } catch {
-      // A missing or unreadable notes file reads as "not written".
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - missing notes are expected; unreadable notes are logged.
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code !== 'ENOENT') {
+        this.logger.warn('[SubagentHandoffFiles] Could not check subagent notes', {
+          errorType: error instanceof Error ? error.name : typeof error,
+          errorCode: typeof code === 'string' ? code : undefined,
+        });
+      }
       return false;
     }
   }

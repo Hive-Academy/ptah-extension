@@ -573,6 +573,7 @@ export class SubagentHandoffRecords {
       );
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported - optional task-folder stub refusal is logged and returned as false.
       this.logger.debug('[SubagentHandoffRecords] Task-folder stub refused', {
         ...errorDetails(error),
       });
