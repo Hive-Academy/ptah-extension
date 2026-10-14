@@ -1627,20 +1627,35 @@ No new follow-up number: Finding 1 was fixed and Findings 2-3 are Minor (recorde
 remains the next free id. The one fix round is spent. The orchestrator runs one re-review
 scoped to `4d5432f76`.
 
+## Phase 4 re-review disposition (2026-10-14) - Phase 4 ACCEPTED
+
+Scope: `d6938d874..4d5432f76` (Batch 23). Review: `code-logic-rereview-phase-4.md`, 8/10,
+APPROVED (0 Blocking, 0 Serious, 0 Moderate, 1 new Minor). Review family opencode (D11).
+
+| Finding                                                            | Status       | Disposition                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------ | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 TOCTOU in `wizard:submit-selection`                              | FIXED        | Reservation taken before the first `await` (`:250`), released in `finally` (`:432-434`), honoured by retry (`:804`); launch promise observed (`:391-411`). All seven checks PASS                                                                                                                               |
+| 2 Degradation catches log no cause                                 | PARTLY FIXED | RPC catch fixed (`:290-293`); the two agent-generation catches stay recorded Minor                                                                                                                                                                                                                             |
+| 3 Identity-style resolver mocks                                    | NOT FIXED    | Recorded Minor, outside the diff                                                                                                                                                                                                                                                                               |
+| N1 Terminal `.catch` also absorbs a `checkpoints.finalize` failure | NEW Minor    | Recorded, not fixed (fix round spent). On a double fault (unreachable run rejection plus a checkpoint write failure) the manifest stays `running` with no log; `resume: true` recovers. Suggested: a content-free warn in the terminal catch (`:407-411`), as in `wizard-generation-run.supervisor.ts:265-271` |
+
+The four Batch 23 specs (`:880`, `:917`, `:937`, `:963`) run over the real checkpoint service
+and supervisor and fail on the pre-fix code. No follow-up number assigned; FU-17 stays free.
+
 ---
 
 ## Phases
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
-Done: 1, 2B, 3 (accepted 2026-10-14 after the fix round). Phase 4: reviewed (APPROVED WITH FIXES),
-fix Batch 23 committed (`4d5432f76`). Next: the Phase 4 re-review scoped to `4d5432f76`.
+Done: 1, 2B, 3, 4 (Phase 4 accepted 2026-10-14 after fix Batch 23 `4d5432f76` and the
+re-review). Next: wait for TASK_2026_629 and the user, then Batches 6-8 and the Phase 2F review.
 
 | Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                                                      | Reviewer (roster)                                                                                  |
 | -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | 1 - Proposal backend             | 1-5, fix 16                            | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | ACCEPTED (code-logic-rereview.md, code-style-rereview.md)                                  | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
 | 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8), test fix 18 | code-logic                                                                                                                                                                                                             | ACCEPTED (code-logic-review-phase-2b.md); Batch 18 test-only fix                           | same                                                                                               |
 | 3 - Manifest v4 and freshness    | 10-13, fix 19-22                       | code-logic, plus style (new RPC, exported service). First review: both APPROVED WITH FIXES (`code-logic-review-phase-3.md`, `code-style-review-phase-3.md`). One re-review after Batch 22, scoped to the fix commits   | ACCEPTED (code-logic-rereview-phase-3.md, code-style-rereview-phase-3.md); fix round spent | same                                                                                               |
-| 4 - Self-gathering generation    | 14-15                                  | code-logic                                                                                                                                                                                                             | all batches committed; code-logic review due                                               | same                                                                                               |
+| 4 - Self-gathering generation    | 14-15, fix 23                          | code-logic. First review APPROVED WITH FIXES (`code-logic-review-phase-4.md`); one re-review after Batch 23                                                                                                            | ACCEPTED (code-logic-rereview-phase-4.md); fix round spent                                 | same                                                                                               |
 | 2F - Builder adapters (frontend) | 6-8                                    | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7)                                 | same                                                                                               |
 
 Mode 3 completion also needs:
