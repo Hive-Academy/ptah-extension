@@ -20,15 +20,16 @@ import {
   type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
 import type { MultiPhaseManifestV4 } from '../types/multi-phase.types';
+import { computeWorkspaceFingerprint } from './analysis-fingerprint';
 import { AnalysisStorageService } from './analysis-storage.service';
 import {
   ANALYSIS_MAX_AGE_MS,
   AnalysisFreshnessService,
-  computeWorkspaceFingerprint,
 } from './analysis-freshness.service';
 
 const ROOT = resolve('/ws/demo');
 const DIR = join(ROOT, '.ptah', 'analysis', 'demo');
+const REL_DIR = '.ptah/analysis/demo';
 const NOW = new Date('2026-10-14T12:00:00.000Z');
 const OUTPUT = Buffer.from('verified analysis\n');
 const OUTPUT_HASH = createHash('sha256').update(OUTPUT).digest('hex');
@@ -42,6 +43,12 @@ const IDS = [
 describe('AnalysisFreshnessService', () => {
   let fs: MockFileSystemProvider;
   let service: AnalysisFreshnessService;
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
   let fingerprint: Awaited<ReturnType<typeof computeWorkspaceFingerprint>>;
 
   beforeEach(async () => {
@@ -51,16 +58,8 @@ describe('AnalysisFreshnessService', () => {
     await fs.writeFile(join(ROOT, 'package.json'), '{"name":"demo"}');
     await fs.writeFile(join(ROOT, 'pnpm-lock.yaml'), 'lock: one');
     fingerprint = await computeWorkspaceFingerprint(ROOT, fs);
-    const storage = new AnalysisStorageService(
-      {
-        debug: jest.fn(),
-        info: jest.fn(),
-        warn: jest.fn(),
-        error: jest.fn(),
-      } as never,
-      fs,
-    );
-    service = new AnalysisFreshnessService(storage, fs);
+    const storage = new AnalysisStorageService(logger as never, fs);
+    service = new AnalysisFreshnessService(storage, fs, logger as never);
     jest.clearAllMocks();
   });
 
@@ -143,7 +142,7 @@ describe('AnalysisFreshnessService', () => {
     expect(await service.getStatus(ROOT)).toEqual({
       state: 'fresh',
       reason: 'ok',
-      analysisDir: DIR,
+      analysisDir: REL_DIR,
       checkedAt: NOW.toISOString(),
       analyzedAt: NOW.toISOString(),
     });
@@ -176,7 +175,7 @@ describe('AnalysisFreshnessService', () => {
     expect(await service.getStatus(ROOT)).toMatchObject({
       state: 'fresh',
       reason: 'ok',
-      analysisDir: DIR,
+      analysisDir: REL_DIR,
     });
     expectNoWrites();
   });
@@ -193,7 +192,60 @@ describe('AnalysisFreshnessService', () => {
     expect(await service.getStatus(ROOT)).toMatchObject({
       state: 'fresh',
       reason: 'ok',
-      analysisDir: DIR,
+      analysisDir: REL_DIR,
+    });
+    expectNoWrites();
+  });
+
+  it('ignores an archived v3 folder even when its manifest is newer', async () => {
+    const manifest = await saveManifest();
+    const archive = join(ROOT, '.ptah', 'analysis', 'demo-v3-archive-1');
+    await fs.writeFile(
+      join(archive, 'manifest.json'),
+      JSON.stringify({
+        ...manifest,
+        analyzedAt: new Date(NOW.getTime() + 60_000).toISOString(),
+      }),
+    );
+    jest.clearAllMocks();
+    expect(await service.getStatus(ROOT)).toMatchObject({
+      state: 'fresh',
+      reason: 'ok',
+      analysisDir: REL_DIR,
+    });
+    expectNoWrites();
+  });
+
+  it('qualifies a v4 fallback beside an older v3 folder', async () => {
+    const manifest = await saveManifest();
+    const fallback = `${DIR}--v4`;
+    const phases = Object.fromEntries(
+      IDS.map((id) => [
+        id,
+        { status: 'completed', file: manifest.phases[id].file, durationMs: 1 },
+      ]),
+    );
+    const { workspaceFingerprint: _fingerprint, ...common } = manifest;
+    await fs.writeFile(
+      join(DIR, 'manifest.json'),
+      JSON.stringify({
+        ...common,
+        version: 3,
+        analyzedAt: new Date(NOW.getTime() - 60_000).toISOString(),
+        phases,
+      }),
+    );
+    await fs.writeFile(
+      join(fallback, 'manifest.json'),
+      JSON.stringify({ ...manifest, slug: 'demo--v4' }),
+    );
+    for (const id of IDS)
+      await fs.writeFileBytes(join(fallback, manifest.phases[id].file), OUTPUT);
+    jest.clearAllMocks();
+    expect(await service.getStatus(ROOT)).toMatchObject({
+      state: 'fresh',
+      reason: 'ok',
+      analysisDir: '.ptah/analysis/demo--v4',
     });
     expectNoWrites();
   });
@@ -219,7 +271,7 @@ describe('AnalysisFreshnessService', () => {
     expect(await service.getStatus(ROOT)).toMatchObject({
       state: 'stale',
       reason: 'legacy-v3',
-      analysisDir: DIR,
+      analysisDir: REL_DIR,
     });
     expectNoWrites();
   });
@@ -291,7 +343,7 @@ describe('AnalysisFreshnessService', () => {
     expect(await service.getStatus(ROOT)).toMatchObject({
       state: 'stale',
       reason: 'unreadable',
-      analysisDir: DIR,
+      analysisDir: REL_DIR,
     });
     expectNoWrites();
   });
@@ -302,7 +354,12 @@ describe('AnalysisFreshnessService', () => {
     expect(await service.getStatus(ROOT)).toMatchObject({
       state: 'stale',
       reason: 'unreadable',
+      analysisDir: '.ptah/analysis',
     });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('[AnalysisFreshness]'),
+      expect.objectContaining({ error: expect.any(Error) }),
+    );
     expectNoWrites();
   });
 

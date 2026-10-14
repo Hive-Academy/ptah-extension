@@ -78,7 +78,7 @@ import {
   type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
 import { AnalysisStorageService } from '../analysis-storage.service';
-import { computeWorkspaceFingerprint } from '../analysis-freshness.service';
+import { computeWorkspaceFingerprint } from '../analysis-fingerprint';
 import { buildPhase1Prompts } from './multi-phase-prompts';
 import {
   MultiPhaseAnalysisService,

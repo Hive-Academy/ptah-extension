@@ -4,7 +4,7 @@ import { join } from 'path';
 import { ulid } from 'ulid';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import type { AnalysisStorageService } from '../analysis-storage.service';
-import { computeWorkspaceFingerprint } from '../analysis-freshness.service';
+import { computeWorkspaceFingerprint } from '../analysis-fingerprint';
 import {
   MultiPhaseManifestV4Schema,
   PHASE_CONFIGS,

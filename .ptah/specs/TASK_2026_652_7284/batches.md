@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 55 | Batches: 22 | Complete: 13/22
+Total tasks: 55 | Batches: 22 | Complete: 15/22
 
 Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
 only) → Batch 9 (with Task 9.0, moved from 7.1; verified, its commit waits for Batch 17) →
@@ -1181,7 +1181,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - FU-14 a `<slug>--v4` run left behind after a later archive succeeds stays as history (older
   `analyzedAt`, never selected over the newer run); decide whether to fold it back.
 
-## Batch 19: Phase 3 fix - archive safety, v3 fallback folder, run selection (storage) - IN_PROGRESS
+## Batch 19: Phase 3 fix - archive safety, v3 fallback folder, run selection (storage) - COMPLETE (commit 6fa3cf939)
 
 - Recommended executor: implementation CLI lane (codex), one lane
 - Fallback executor: backend-developer sub-agent
@@ -1191,7 +1191,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - Phase: 3 fix round (Batches 19-22) | Phase review: the one re-review, logic and style, scoped
   to the Batch 19-22 commits
 
-### Task 19.1: Archive keeps its verified copy; fallback folder API; archive exclusion - IMPLEMENTED
+### Task 19.1: Archive keeps its verified copy; fallback folder API; archive exclusion - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-storage.service.spec.ts`
@@ -1230,8 +1230,15 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - `npx prettier --check` on the two files.
 - One at a time: `npx nx run-many -t typecheck,lint -p @ptah-extension/agent-generation --parallel=1`;
   `npx nx run-many -t test -p @ptah-extension/agent-generation --parallel=1 --maxWorkers=2`.
+- Verified (team-leader, 2026-10-14, report `batch-19-report.md`): only the two storage files
+  changed. `deleteStarted` is set before the source delete and gates archive cleanup; the
+  error carries `archiveDir`; `getRunDir`/`createSlugDir` variant; archive folders skipped in
+  latest and resumable selection, still listed. Prettier check clean; agent-generation
+  typecheck+lint pass; agent-generation test (`--maxWorkers=2`, no cache) passes. Minor for the
+  re-review: `isLegacyArchiveDirName` matches the marker anywhere in the name (`includes`), so a
+  project slugified to contain `-v3-archive-` would be skipped; a ULID-anchored match is tighter.
 
-## Batch 20: Phase 3 fix - fingerprint module, freshness refactor, barrel - PENDING
+## Batch 20: Phase 3 fix - fingerprint module, freshness refactor, barrel - COMPLETE
 
 - Recommended executor: implementation CLI lane (codex), one lane
 - Fallback executor: backend-developer sub-agent
@@ -1242,7 +1249,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - Phase: 3 fix round | Phase review: the one re-review
 - Size note: 6 files, one lib.
 
-### Task 20.1: `analysis-fingerprint.ts` - PENDING
+### Task 20.1: `analysis-fingerprint.ts` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-fingerprint.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/analysis-run-checkpoint.ts` (import line only; Batch 21 owns the rest)
@@ -1253,7 +1260,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   `hashFileOrNull(fs, path): Promise<string | null>` (null on a missing or unreadable file). No
   re-export shim from the old location.
 
-### Task 20.2: Freshness service: split, logger, derived phase ids, relative dir, archive skip - PENDING
+### Task 20.2: Freshness service: split, logger, derived phase ids, relative dir, archive skip - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-freshness.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/analysis-freshness.service.spec.ts`
@@ -1268,7 +1275,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   older v3 folder is the one qualified; `analysisDir` is relative in fresh, stale and unreadable
   results; the logger warns on an I/O failure.
 
-### Task 20.3: Barrel and register log - PENDING
+### Task 20.3: Barrel and register log - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/index.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/di/register.ts`
@@ -1284,6 +1291,17 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - One at a time: agent-generation typecheck+lint, then agent-generation test (`--maxWorkers=2`),
   then `npx nx typecheck @ptah-extension/rpc-handlers`, then `npx nx run di-lint:lint`
   (constructor `@inject` added).
+- Verified (team-leader, 2026-10-14, report `batch-20-report.md`): `analysis-fingerprint.ts` is
+  a plain module (no DI) with the moved fingerprint, `sha256Hex` and `hashFileOrNull`; no shim
+  at the old path; checkpoint and multi-phase spec import the new module (spec import line is
+  an allowlisted seventh file). Freshness has `findLatestRun`/`qualify`, the injected logger
+  (warn in the outer catch, debug on a rejected manifest), `PHASE_CONFIGS` phase ids, archive
+  skip and relative `/` paths; the four barrel exports are gone; register log lists
+  `ANALYSIS_FRESHNESS_SERVICE`. First commit attempt failed the degradation audit; fix round
+  added an `optional-capability` marker in `hashFileOrNull`'s catch. Checks, one at a time:
+  prettier clean (7 files); agent-generation typecheck+lint pass; agent-generation test
+  (`--maxWorkers=2`, no cache) 37 suites, 1271 passed, 1 skipped; rpc-handlers typecheck
+  pass; di-lint OK (1827 `@inject` sites).
 
 ## Batch 21: Phase 3 fix - checkpoint fallback, phase recording, types - PENDING
 
