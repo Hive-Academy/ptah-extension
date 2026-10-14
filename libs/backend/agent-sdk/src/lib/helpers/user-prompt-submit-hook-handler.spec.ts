@@ -127,26 +127,61 @@ describe('UserPromptSubmitHookHandler', () => {
     expect(result).toEqual({ continue: true });
     expect(logger.warn).toHaveBeenCalledWith(
       '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
-      {
-        errorType: 'TypeError',
-        errorCode: 'E_CALLBACK',
-        sessionId: 'sess-1',
-      },
+      { errorType: 'TypeError', sessionId: 'sess-1' },
     );
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
       'PROMPT-SECRET',
     );
   });
 
-  it('drops a callback-controlled error name and code that are not built-in shaped', async () => {
+  it.each([
+    ['in the name and the code', 'PROMPT-SECRET text'],
+    ['as a code-shaped code', 'PROMPT_SECRET'],
+  ])(
+    'never logs a callback error that carries the prompt %s',
+    async (_case, prompt) => {
+      const logger = makeLogger();
+      const registry = new UserPromptSubmitCallbackRegistry(logger);
+      jest.spyOn(registry, 'notifyAll').mockImplementation((payload) => {
+        throw Object.assign(new Error('x'), {
+          name: payload.prompt,
+          code: payload.prompt,
+        });
+      });
+      jest.spyOn(registry, 'size', 'get').mockReturnValue(1);
+      const handler = new UserPromptSubmitHookHandler(logger, registry);
+      const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+      const input = {
+        hook_event_name: 'UserPromptSubmit',
+        prompt,
+      } as unknown as HookInput;
+
+      await fn(input, undefined, { signal: new AbortController().signal });
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
+        { errorType: 'Error', sessionId: 'sess-1' },
+      );
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
+        'PROMPT',
+      );
+    },
+  );
+
+  it('returns continue:true when the thrown value has throwing getters', async () => {
     const logger = makeLogger();
     const registry = new UserPromptSubmitCallbackRegistry(logger);
-    jest.spyOn(registry, 'notifyAll').mockImplementation((payload) => {
-      // A callback that puts its input into the name and the code.
-      throw Object.assign(new Error('x'), {
-        name: payload.prompt,
-        code: payload.prompt,
-      });
+    jest.spyOn(registry, 'notifyAll').mockImplementation(() => {
+      const hostile = new Error('x');
+      for (const key of ['name', 'code', 'message']) {
+        Object.defineProperty(hostile, key, {
+          get() {
+            throw new Error('getter');
+          },
+        });
+      }
+      throw hostile;
     });
     jest.spyOn(registry, 'size', 'get').mockReturnValue(1);
     const handler = new UserPromptSubmitHookHandler(logger, registry);
@@ -154,17 +189,15 @@ describe('UserPromptSubmitHookHandler', () => {
 
     const input = {
       hook_event_name: 'UserPromptSubmit',
-      prompt: 'PROMPT-SECRET text',
+      prompt: 'p',
     } as unknown as HookInput;
 
-    await fn(input, undefined, { signal: new AbortController().signal });
-
+    await expect(
+      fn(input, undefined, { signal: new AbortController().signal }),
+    ).resolves.toEqual({ continue: true });
     expect(logger.warn).toHaveBeenCalledWith(
       '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
-      { errorType: 'Error', errorCode: undefined, sessionId: 'sess-1' },
-    );
-    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
-      'PROMPT-SECRET',
+      { errorType: 'Error', sessionId: 'sess-1' },
     );
   });
 

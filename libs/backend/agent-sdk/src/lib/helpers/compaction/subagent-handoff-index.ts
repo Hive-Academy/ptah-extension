@@ -119,6 +119,8 @@ interface WorkspaceIndex {
   readonly published: Set<string>;
   /** Last visited name per cursor key. */
   readonly cursors: Map<string, string>;
+  /** Where the next load's temp-file cleanup starts (rotates across loads). */
+  tempCursor: number;
 }
 
 /** What one head read found. */
@@ -199,6 +201,7 @@ export class SubagentHandoffIndex {
         loadedAt: 0,
         published: new Set(),
         cursors: new Map(),
+        tempCursor: 0,
       };
       this.workspaces.set(workspace, index);
     }
@@ -238,7 +241,7 @@ export class SubagentHandoffIndex {
       index.ready = true;
       index.loadedAt = this.now();
       if (check.ok) {
-        await this.removeStaleTemps(check.dir, found);
+        await this.removeStaleTemps(index, check.dir, found);
       }
     } catch (error: unknown) {
       // The next prompt retries.
@@ -364,11 +367,23 @@ export class SubagentHandoffIndex {
   /**
    * Delete temporary record files older than {@link HANDOFF_RETENTION_MS}
    * (a record write is bounded to seconds, so none is still in use), at most
-   * {@link MAX_TEMP_CLEANUPS} per load. Never rejects.
+   * {@link MAX_TEMP_CLEANUPS} per load. Each load starts where the last one
+   * stopped, so files that keep failing cannot block the others. Never rejects.
    */
-  private async removeStaleTemps(dir: string, found: string[]): Promise<void> {
-    const temps = found.filter(isRecordTempName).slice(0, MAX_TEMP_CLEANUPS);
-    for (const name of temps) {
+  private async removeStaleTemps(
+    index: WorkspaceIndex,
+    dir: string,
+    found: string[],
+  ): Promise<void> {
+    const all = found.filter(isRecordTempName).sort();
+    if (all.length === 0) {
+      return;
+    }
+    const start = index.tempCursor % all.length;
+    const count = Math.min(MAX_TEMP_CLEANUPS, all.length);
+    index.tempCursor = start + count;
+    for (let i = 0; i < count; i += 1) {
+      const name = all[(start + i) % all.length];
       const file = path.join(dir, name);
       try {
         const stat = await this.files.lstat(file);

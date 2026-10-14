@@ -239,6 +239,42 @@ describe('SubagentHandoffIndex', () => {
     expect(fs.existsSync(temp)).toBe(false);
   });
 
+  it('rotates temp cleanup across loads, so 10 files that keep failing do not block the rest', async () => {
+    const old = new Date(NOW - 8 * DAY);
+    const temps: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const file = record();
+      const temp = path.join(dir, `.${path.basename(file)}.tmp`);
+      fs.renameSync(file, temp);
+      fs.utimesSync(temp, old, old);
+      temps.push(temp);
+    }
+    temps.sort();
+    const stuck = new Set(temps.slice(0, 10));
+    const { index } = makeIndex(
+      nodeFs({
+        unlink: async (file) => {
+          if (stuck.has(file)) {
+            throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+          }
+          await fsp.unlink(file);
+        },
+      }),
+    );
+
+    await index.pointerFor(root, audience());
+    expect(temps.slice(10).every((t) => fs.existsSync(t))).toBe(true);
+    clock += INDEX_RESCAN_MS;
+    // This prompt starts the rescan; it runs in the background.
+    await index.pointerFor(root, audience());
+    const later = temps.slice(10);
+    for (let i = 0; i < 100 && later.some((t) => fs.existsSync(t)); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(later.some((t) => fs.existsSync(t))).toBe(false);
+    expect(temps.slice(0, 10).every((t) => fs.existsSync(t))).toBe(true);
+  });
+
   it('keeps a temporary record file younger than 7 days and does not list it', async () => {
     const file = record();
     const temp = path.join(dir, `.${path.basename(file)}.tmp`);
