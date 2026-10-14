@@ -22,6 +22,7 @@ import {
   SdkAgentAdapter,
   SdkPermissionHandler,
   SDK_TOKENS,
+  type SessionLifecycleManager,
 } from '@ptah-extension/agent-sdk';
 import type { IPricingProvider } from '@ptah-extension/agent-sdk';
 import {
@@ -36,6 +37,7 @@ import {
   ConfigModelGetResult,
   ConfigAutopilotToggleParams,
   ConfigAutopilotToggleResult,
+  ConfigAutopilotGetParams,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
   ConfigEffortSetParams,
@@ -45,6 +47,7 @@ import {
   getModelPricingDescription,
   getPricingMap,
   type EffortLevel,
+  type SessionId,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
@@ -91,6 +94,8 @@ export class ConfigRpcHandlers {
     private readonly reasoningSettings: ReasoningSettings,
     @inject(SDK_TOKENS.PRICING_PROVIDER)
     private readonly pricingProvider: IPricingProvider,
+    @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
+    private readonly lifecycle: SessionLifecycleManager | null = null,
   ) {}
 
   /**
@@ -358,17 +363,7 @@ export class ConfigRpcHandlers {
           ? (permissionLevel as PermissionLevel)
           : 'ask';
         this.permissionHandler.setPermissionLevel(effectiveLevel);
-        // The autopilot popover does not pass a sessionId, so fall back to the
-        // most-recently-active session. Permission gating is now per-session
-        // (each session reads its own level), so the toggle must reach a
-        // concrete session to take effect on a running turn.
-        //
-        // An empty sessionId counts as "not supplied": `??` alone kept it, and
-        // the truthiness check below then discarded it, so the toggle reached
-        // no session at all and the fallback never fired.
-        const requestedSessionId = sessionId ? sessionId : undefined;
-        const targetSessionId =
-          requestedSessionId ?? this.sdkAdapter.getActiveSessionIds()[0];
+        const targetSessionId = this.autopilotTargetSession(sessionId);
         if (targetSessionId) {
           try {
             const sdkMode = enabled
@@ -414,40 +409,70 @@ export class ConfigRpcHandlers {
   }
 
   /**
-   * config:autopilot-get - Get current autopilot state
+   * The live session a `config:autopilot-toggle` re-gates, or undefined for
+   * none. Permission gating is per-session (each session reads its own
+   * level), so a toggle must reach a concrete session to affect a running turn.
+   *
+   * - A session id: that session.
+   * - `null`: the webview's tab has no SDK session yet (TASK_2026_660). The
+   *   toggle saves the default for new sessions and re-gates NO live session;
+   *   falling back here would change an unrelated parent or gateway session.
+   * - Omitted (legacy CLI/TUI callers): the most recently active session.
+   *   An empty string counts as omitted: `??` alone kept it, and the
+   *   truthiness check after it discarded it, so the fallback never fired.
+   */
+  private autopilotTargetSession(
+    sessionId: ConfigAutopilotToggleParams['sessionId'],
+  ): SessionId | undefined {
+    if (sessionId === null) return undefined;
+    if (sessionId) return sessionId;
+    return this.sdkAdapter.getActiveSessionIds()[0];
+  }
+
+  /**
+   * config:autopilot-get - Get current autopilot state: the saved default and,
+   * when a `sessionId` is given, that session's live level (TASK_2026_660), so
+   * each tab's popover shows its own session rather than the last toggle made
+   * in any tab.
    */
   private registerAutopilotGet(): void {
-    this.rpcHandler.registerMethod<void, ConfigAutopilotGetResult>(
-      'config:autopilot-get',
-      async () => {
-        try {
-          this.logger.debug('RPC: config:autopilot-get called');
+    this.rpcHandler.registerMethod<
+      ConfigAutopilotGetParams | undefined,
+      ConfigAutopilotGetResult
+    >('config:autopilot-get', async (params) => {
+      try {
+        this.logger.debug('RPC: config:autopilot-get called');
 
-          const enabled = this.configManager.getWithDefault<boolean>(
-            'autopilot.enabled',
-            false,
-          );
-          const permissionLevel = parsePermissionLevel(
-            this.configManager.getWithDefault<string>(
-              'autopilot.permissionLevel',
-              'ask',
-            ),
-          );
+        const enabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false,
+        );
+        const permissionLevel = parsePermissionLevel(
+          this.configManager.getWithDefault<string>(
+            'autopilot.permissionLevel',
+            'ask',
+          ),
+        );
 
-          return { enabled, permissionLevel };
-        } catch (error) {
-          this.logger.error(
-            'RPC: config:autopilot-get failed',
-            error instanceof Error ? error : new Error(String(error)),
-          );
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(String(error)),
-            { errorSource: 'ConfigRpcHandlers.registerAutopilotGet' },
-          );
-          throw error;
-        }
-      },
-    );
+        const sessionId = params?.sessionId;
+        if (!sessionId) return { enabled, permissionLevel };
+        // No record → the session is not live; it starts at the saved
+        // default when it resumes.
+        const sessionPermissionLevel =
+          this.lifecycle?.find(sessionId)?.permissionLevel ?? null;
+        return { enabled, permissionLevel, sessionPermissionLevel };
+      } catch (error) {
+        this.logger.error(
+          'RPC: config:autopilot-get failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'ConfigRpcHandlers.registerAutopilotGet' },
+        );
+        throw error;
+      }
+    });
   }
 
   /**

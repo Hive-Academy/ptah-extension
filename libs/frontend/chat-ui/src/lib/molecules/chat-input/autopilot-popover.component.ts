@@ -1,8 +1,11 @@
 import {
   Component,
+  computed,
+  effect,
   inject,
   input,
   signal,
+  untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, Zap, ZapOff, ChevronDown } from 'lucide-angular';
@@ -31,11 +34,11 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
         (click)="toggleDropdown()"
         [disabled]="autopilotState.isPending()"
         [attr.aria-expanded]="isOpen()"
-        [title]="'Autopilot: ' + autopilotState.statusText()"
+        [title]="'Autopilot: ' + tabStatusText()"
       >
         @if (autopilotState.isPending()) {
           <span class="loading loading-spinner loading-xs"></span>
-        } @else if (autopilotState.enabled()) {
+        } @else if (tabEnabled()) {
           <lucide-angular
             [img]="ZapIcon"
             class="w-3.5 h-3.5 flex-shrink-0 text-primary"
@@ -46,9 +49,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
             class="w-3.5 h-3.5 flex-shrink-0"
           />
         }
-        <span class="ptah-composer-label truncate">{{
-          autopilotState.statusText()
-        }}</span>
+        <span class="ptah-composer-label truncate">{{ tabStatusText() }}</span>
         <lucide-angular
           [img]="ChevronDownIcon"
           class="w-3 h-3 flex-shrink-0 opacity-60"
@@ -60,16 +61,16 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300 flex items-center gap-2">
           <lucide-angular
-            [img]="autopilotState.enabled() ? ZapIcon : ZapOffIcon"
+            [img]="tabEnabled() ? ZapIcon : ZapOffIcon"
             class="w-3.5 h-3.5"
-            [class.text-primary]="autopilotState.enabled()"
+            [class.text-primary]="tabEnabled()"
           />
           <span
             class="text-xs font-semibold text-base-content-muted uppercase tracking-wide"
           >
             Autopilot Mode
           </span>
-          @if (autopilotState.enabled()) {
+          @if (tabEnabled()) {
             <span class="badge badge-primary badge-outline badge-xs ml-auto"
               >Active</span
             >
@@ -78,7 +79,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
 
         <!-- Content -->
         <div class="p-2">
-          @if (!autopilotState.enabled()) {
+          @if (!tabEnabled()) {
             <!-- Permission Levels -->
             <div class="flex flex-col gap-1 mb-2">
               @for (level of permissionLevels; track level.id) {
@@ -152,9 +153,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
             <div class="px-2 py-1 mb-2">
               <p class="text-xs text-base-content-muted">
                 Current mode:
-                <span class="font-medium">{{
-                  autopilotState.statusText()
-                }}</span>
+                <span class="font-medium">{{ tabStatusText() }}</span>
               </p>
               <p class="text-[11px] text-base-content-muted mt-1">
                 Claude is automatically approving actions based on your
@@ -194,10 +193,30 @@ export class AutopilotPopoverComponent {
   /**
    * SDK session id of the tab this composer belongs to, or null while the tab
    * has no live session. Sent with every toggle so the backend re-gates THIS
-   * session; without it the backend falls back to the most recently active
-   * session, which need not be the one the user is looking at.
+   * session; with null it saves the default and re-gates no live session.
    */
   readonly sessionId = input<SessionId | null>(null);
+
+  /**
+   * What this tab shows (TASK_2026_660): its own session's live level, or the
+   * saved default while the tab has no session. A toggle in another tab
+   * changes only that tab's session, so the default is not this tab's level.
+   */
+  private readonly tabState = computed(() =>
+    this.autopilotState.stateFor(this.sessionId()),
+  );
+  readonly tabEnabled = computed(() => this.tabState().enabled);
+  readonly tabStatusText = computed(() =>
+    this.autopilotState.statusTextFor(this.tabState()),
+  );
+
+  constructor() {
+    // Read the tab's live level whenever the tab gets (or switches) session.
+    effect(() => {
+      const sessionId = this.sessionId();
+      if (sessionId) untracked(() => this.refreshTabSession(sessionId));
+    });
+  }
 
   readonly ZapIcon = Zap;
   readonly ZapOffIcon = ZapOff;
@@ -222,7 +241,17 @@ export class AutopilotPopoverComponent {
   readonly errorMessage = this._errorMessage.asReadonly();
 
   toggleDropdown(): void {
-    this._isOpen.set(!this._isOpen());
+    const opening = !this._isOpen();
+    this._isOpen.set(opening);
+    // The level can change outside this popover (e.g. a CLI toggle); re-read
+    // it when the user is about to act on it.
+    const sessionId = this.sessionId();
+    if (opening && sessionId) this.refreshTabSession(sessionId);
+  }
+
+  private refreshTabSession(sessionId: SessionId): void {
+    // A failed read keeps the last known state; nothing to surface.
+    this.autopilotState.refreshSession(sessionId).catch(() => undefined);
   }
 
   closeDropdown(): void {

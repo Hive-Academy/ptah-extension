@@ -19,6 +19,7 @@ import { TestBed } from '@angular/core/testing';
 import {
   MESSAGE_TYPES,
   PERMISSION_LEVEL_NAMES,
+  SessionId,
   type PermissionLevel,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
@@ -341,6 +342,157 @@ describe('AutopilotStateService', () => {
       service.setAgentPlanMode(true);
       expect(harness.signal('statusText')).toBe('Plan Mode');
       consoleLog.mockRestore();
+    });
+  });
+
+  // TASK_2026_660 — a toggle re-gates only its own tab's session, so each tab
+  // shows its session's live level; a tab without a session shows the default.
+  describe('per-tab state', () => {
+    const TAB_A = SessionId.from('1b4e28ba-2fa1-41d2-883f-0016d3cca427');
+    const TAB_B = SessionId.from('6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b');
+
+    async function mkWithLiveB(): Promise<AutopilotStateService> {
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess({ enabled: false, permissionLevel: 'ask' }),
+      );
+      const service = createService();
+      await makeSignalStoreHarness<AutopilotStoreState>(service).flush();
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess({
+          enabled: false,
+          permissionLevel: 'ask',
+          sessionPermissionLevel: 'auto-edit',
+        }),
+      );
+      await service.refreshSession(TAB_B);
+      return service;
+    }
+
+    it("reads a tab's live session level from the host", async () => {
+      const service = await mkWithLiveB();
+
+      expect(rpc.call).toHaveBeenCalledWith('config:autopilot-get', {
+        sessionId: TAB_B,
+      });
+      expect(service.stateFor(TAB_B)).toEqual({
+        enabled: true,
+        permissionLevel: 'auto-edit',
+      });
+      expect(service.statusTextFor(service.stateFor(TAB_B))).toBe(
+        PERMISSION_LEVEL_NAMES['auto-edit'],
+      );
+    });
+
+    it("a toggle in tab A leaves tab B's live level alone", async () => {
+      const service = await mkWithLiveB();
+      rpc.call.mockResolvedValue(rpcSuccess({ success: true }));
+
+      await service.setPermissionLevel('yolo', TAB_A);
+      await service.toggleAutopilot(TAB_A);
+
+      expect(rpc.call).toHaveBeenLastCalledWith('config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'yolo',
+        sessionId: TAB_A,
+      });
+      expect(service.stateFor(TAB_A)).toEqual({
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+      expect(service.stateFor(TAB_B)).toEqual({
+        enabled: true,
+        permissionLevel: 'auto-edit',
+      });
+      // The saved default follows the last toggle: a fresh tab starts there.
+      expect(service.stateFor(null)).toEqual({
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+    });
+
+    it('a toggle in a tab with no session sends null and changes no tab', async () => {
+      const service = await mkWithLiveB();
+      rpc.call.mockResolvedValue(rpcSuccess({ success: true }));
+
+      await service.toggleAutopilot(null);
+
+      expect(rpc.call).toHaveBeenLastCalledWith('config:autopilot-toggle', {
+        enabled: true,
+        permissionLevel: 'ask',
+        sessionId: null,
+      });
+      expect(service.stateFor(TAB_B).permissionLevel).toBe('auto-edit');
+    });
+
+    it('disables a live session: the tab shows Manual, the level is kept for next enable', async () => {
+      const service = await mkWithLiveB();
+      rpc.call.mockResolvedValue(rpcSuccess({ success: true }));
+
+      await service.toggleAutopilot(TAB_B);
+
+      expect(rpc.call).toHaveBeenLastCalledWith('config:autopilot-toggle', {
+        enabled: false,
+        permissionLevel: 'auto-edit',
+        sessionId: TAB_B,
+      });
+      expect(service.stateFor(TAB_B).enabled).toBe(false);
+      expect(service.statusTextFor(service.stateFor(TAB_B))).toBe('Manual');
+      expect(service.permissionLevel()).toBe('auto-edit');
+    });
+
+    it('shows the saved default for a session that is not live', async () => {
+      const service = await mkWithLiveB();
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess({
+          enabled: false,
+          permissionLevel: 'ask',
+          sessionPermissionLevel: null,
+        }),
+      );
+
+      await service.refreshSession(TAB_B);
+
+      expect(service.stateFor(TAB_B)).toEqual({
+        enabled: false,
+        permissionLevel: 'ask',
+      });
+    });
+
+    it('rolls the tab back when the toggle fails', async () => {
+      const service = await mkWithLiveB();
+      rpc.call.mockResolvedValueOnce(rpcError('backend down'));
+
+      await service.toggleAutopilot(TAB_B);
+
+      expect(service.stateFor(TAB_B)).toEqual({
+        enabled: true,
+        permissionLevel: 'auto-edit',
+      });
+      expect(service.enabled()).toBe(false);
+    });
+
+    it('discards a host read overtaken by a toggle', async () => {
+      const service = await mkWithLiveB();
+      let resolveRead: (value: unknown) => void = () => undefined;
+      rpc.call.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+      );
+      const read = service.refreshSession(TAB_B);
+      rpc.call.mockResolvedValueOnce(rpcSuccess({ success: true }));
+      await service.toggleAutopilot(TAB_B);
+
+      resolveRead(
+        rpcSuccess({
+          enabled: false,
+          permissionLevel: 'ask',
+          sessionPermissionLevel: 'auto-edit',
+        }),
+      );
+      await read;
+
+      expect(service.stateFor(TAB_B).enabled).toBe(false);
     });
   });
 });

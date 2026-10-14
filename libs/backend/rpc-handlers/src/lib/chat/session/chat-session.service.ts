@@ -40,7 +40,6 @@ import {
   type AgentProcessManager,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
-import { parsePermissionLevel } from '../../handlers/config-rpc.schema';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import {
@@ -140,7 +139,7 @@ export interface AgentChildSessionStartParams {
   readonly model?: string;
   /**
    * The parent session's live permission level, read when the child starts.
-   * Absent → the saved autopilot level (TASK_2026_660).
+   * Absent (the parent's level is unknown) → `ask` (TASK_2026_660).
    */
   readonly permissionLevel?: PermissionLevel;
 }
@@ -694,10 +693,14 @@ export class ChatSessionService {
 
   /**
    * The level a child session starts at (TASK_2026_660): the parent's live
-   * level, else the effective level the autopilot toggle saved
-   * (`autopilot.enabled ? autopilot.permissionLevel : 'ask'`). A `yolo` child
-   * approves every call; any other level runs under the unattended policy,
-   * which stays in force regardless (`SdkPermissionHandler`).
+   * level. A `yolo` child approves every call; any other level runs under the
+   * unattended policy, which stays in force regardless (`SdkPermissionHandler`).
+   *
+   * An unknown parent level (no lifecycle record, the record disappeared, or
+   * the host passed none) starts the child at `ask`. The saved global autopilot
+   * level is never used: it says nothing about the authority of this parent,
+   * and reading it could start a `yolo` child under a parent that never chose
+   * `yolo`.
    *
    * `plan` becomes `ask`: plan mode is unavailable to an unattended session —
    * nobody is there to approve the plan and the policy denies `EnterPlanMode` —
@@ -706,23 +709,8 @@ export class ChatSessionService {
   private childPermissionLevel(
     parentLevel: PermissionLevel | undefined,
   ): PermissionLevel {
-    const level = parentLevel ?? this.savedAutopilotLevel();
-    return level === 'plan' ? 'ask' : level;
-  }
-
-  /** The effective level the autopilot toggle persisted (`config:autopilot-toggle`). */
-  private savedAutopilotLevel(): PermissionLevel {
-    const enabled = this.configManager.getWithDefault<boolean>(
-      'autopilot.enabled',
-      false,
-    );
-    if (!enabled) return 'ask';
-    return parsePermissionLevel(
-      this.configManager.getWithDefault<string>(
-        'autopilot.permissionLevel',
-        'ask',
-      ),
-    );
+    if (parentLevel === undefined || parentLevel === 'plan') return 'ask';
+    return parentLevel;
   }
 
   /**

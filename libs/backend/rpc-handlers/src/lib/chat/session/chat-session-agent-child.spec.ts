@@ -360,19 +360,11 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
         expect(startConfig(h)['permissionLevel']).toBe('ask');
       });
 
-      it('falls back to the saved autopilot level when no parent level was captured', async () => {
+      it('starts the child at ask when the parent record is missing, even with a saved yolo level', async () => {
+        // No parent level reached the service (no lifecycle record, or it
+        // vanished between lookups): the saved global level must not escalate.
         const h = makeHarness({
           autopilot: { enabled: true, permissionLevel: 'yolo' },
-        });
-
-        await h.service.startAgentChildSession(childParams());
-
-        expect(startConfig(h)['permissionLevel']).toBe('yolo');
-      });
-
-      it('falls back to ask when autopilot is off and no parent level was captured', async () => {
-        const h = makeHarness({
-          autopilot: { enabled: false, permissionLevel: 'yolo' },
         });
 
         await h.service.startAgentChildSession(childParams());
@@ -380,9 +372,9 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
         expect(startConfig(h)['permissionLevel']).toBe('ask');
       });
 
-      it('falls back to ask when the saved level is not a known level', async () => {
+      it('starts the child at ask when the parent level is unknown and autopilot is off', async () => {
         const h = makeHarness({
-          autopilot: { enabled: true, permissionLevel: 'everything' },
+          autopilot: { enabled: false, permissionLevel: 'auto-edit' },
         });
 
         await h.service.startAgentChildSession(childParams());

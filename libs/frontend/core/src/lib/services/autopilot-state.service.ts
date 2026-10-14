@@ -58,6 +58,12 @@ import {
  * <span>Status: {{ statusText() }}</span>
  * <input type="checkbox" [checked]="autopilotState.enabled()" />
  */
+/** The autopilot state one tab shows: enabled + level. */
+export interface AutopilotTabState {
+  readonly enabled: boolean;
+  readonly permissionLevel: PermissionLevel;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AutopilotStateService implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
@@ -74,7 +80,18 @@ export class AutopilotStateService implements MessageHandler {
   private readonly _isPending = signal(false);
   private readonly _agentPlanMode = signal(false);
   /**
-   * Autopilot enabled state
+   * Live level of each session a tab has shown, as last read from the host or
+   * set by a toggle in that tab (TASK_2026_660). A toggle re-gates only its
+   * own tab's session, so the saved default above says nothing about another
+   * tab's live session.
+   */
+  private readonly _sessionLevels = signal<
+    ReadonlyMap<SessionId, PermissionLevel>
+  >(new Map());
+  /** Bumped by every toggle so a host read started earlier cannot undo it. */
+  private writeEpoch = 0;
+  /**
+   * Autopilot enabled state (the saved default for new and resumed sessions)
    * Read-only signal, updates reactively when toggled
    */
   readonly enabled = this._enabled.asReadonly();
@@ -108,21 +125,59 @@ export class AutopilotStateService implements MessageHandler {
    * enabled: true, level: 'auto-edit' → 'Auto-edit'
    * enabled: true, level: 'yolo' → 'Full Auto (YOLO)'
    */
-  readonly statusText = computed(() => {
-    if (this._agentPlanMode()) {
-      return 'Plan Mode';
-    }
-
-    const enabled = this._enabled();
-    const level = this._permissionLevel();
-    if (!enabled) {
-      return 'Manual';
-    }
-    return PERMISSION_LEVEL_NAMES[level];
-  });
+  readonly statusText = computed(() =>
+    this.statusTextFor({
+      enabled: this._enabled(),
+      permissionLevel: this._permissionLevel(),
+    }),
+  );
 
   constructor() {
     this.loadPersistedState();
+  }
+
+  /**
+   * The state a tab shows (TASK_2026_660): its session's live level when the
+   * host reported one, else the saved default — what a tab without a live
+   * session starts at. Reads signals, so it is reactive inside `computed`.
+   */
+  stateFor(sessionId: SessionId | null): AutopilotTabState {
+    const live = sessionId ? this._sessionLevels().get(sessionId) : undefined;
+    if (live === undefined) {
+      return {
+        enabled: this._enabled(),
+        permissionLevel: this._permissionLevel(),
+      };
+    }
+    // A disabled toggle re-gates the session to `ask` (SDK `default`).
+    return { enabled: live !== 'ask', permissionLevel: live };
+  }
+
+  /** Status text for a tab state; agent plan mode takes precedence. */
+  statusTextFor(state: AutopilotTabState): string {
+    if (this._agentPlanMode()) {
+      return 'Plan Mode';
+    }
+    if (!state.enabled) {
+      return 'Manual';
+    }
+    return PERMISSION_LEVEL_NAMES[state.permissionLevel];
+  }
+
+  /**
+   * Read a session's live level from the host. A session that is not live
+   * drops its entry: it starts at the saved default when it resumes. A read
+   * overtaken by a toggle is discarded, so it cannot undo that toggle.
+   */
+  async refreshSession(sessionId: SessionId): Promise<void> {
+    const epoch = this.writeEpoch;
+    const result = await this.rpc.call('config:autopilot-get', { sessionId });
+    if (!result.isSuccess() || !result.data || epoch !== this.writeEpoch) {
+      return;
+    }
+    const level = result.data.sessionPermissionLevel;
+    if (level === undefined) return;
+    this.setSessionLevel(sessionId, isPermissionLevel(level) ? level : null);
   }
 
   /**
@@ -134,10 +189,12 @@ export class AutopilotStateService implements MessageHandler {
    * 3. Persist to backend via RPC
    * 4. Rollback on RPC failure (invert state)
    *
-   * When toggling on, uses current permission level.
-   * When toggling off, preserves permission level for next enable.
+   * Flips the state the tab shows ({@link stateFor}), not the saved default:
+   * the toggle re-gates only this tab's session. When toggling on, uses the
+   * saved permission level; when toggling off, preserves it for next enable.
    *
-   * @param sessionId - Optional active session ID for live SDK sync
+   * @param sessionId - The tab's session, or null when it has none (the toggle
+   *   then saves the default only and changes no live session)
    * @returns Promise that resolves when RPC call completes
    *
    * @example
@@ -145,34 +202,18 @@ export class AutopilotStateService implements MessageHandler {
    * // UI updates immediately, persists to backend asynchronously
    */
   async toggleAutopilot(sessionId?: SessionId | null): Promise<void> {
-    if (this._isPending()) {
-      console.warn(
-        '[AutopilotStateService] Toggle already in progress, ignoring',
-      );
-      return;
-    }
-    this._isPending.set(true);
-
-    try {
-      const newState = !this._enabled();
-      const previousState = this._enabled();
-      this._enabled.set(newState);
-      const result = await this.rpc.call('config:autopilot-toggle', {
-        enabled: newState,
-        permissionLevel: this._permissionLevel(),
-        sessionId: sessionId ?? null,
-      });
-
-      if (!result.isSuccess()) {
-        console.error(
-          '[AutopilotStateService] Failed to toggle autopilot:',
-          result.error,
-        );
-        this._enabled.set(previousState);
-      }
-    } finally {
-      this._isPending.set(false);
-    }
+    const current = this.stateFor(sessionId ?? null);
+    await this.persist(
+      {
+        enabled: !current.enabled,
+        permissionLevel: current.enabled
+          ? current.permissionLevel
+          : this._permissionLevel(),
+      },
+      sessionId ?? null,
+      '[AutopilotStateService] Toggle already in progress, ignoring',
+      '[AutopilotStateService] Failed to toggle autopilot:',
+    );
   }
 
   /**
@@ -185,7 +226,7 @@ export class AutopilotStateService implements MessageHandler {
    * Implements optimistic update pattern with rollback on failure.
    *
    * @param level - Permission level to set
-   * @param sessionId - Optional active session ID for live SDK sync
+   * @param sessionId - The tab's session, or null when it has none
    * @returns Promise that resolves when RPC call completes
    *
    * @example
@@ -196,33 +237,78 @@ export class AutopilotStateService implements MessageHandler {
     level: PermissionLevel,
     sessionId?: SessionId | null,
   ): Promise<void> {
+    await this.persist(
+      {
+        enabled: this.stateFor(sessionId ?? null).enabled,
+        permissionLevel: level,
+      },
+      sessionId ?? null,
+      '[AutopilotStateService] Update already in progress, ignoring',
+      '[AutopilotStateService] Failed to set permission level:',
+    );
+  }
+
+  /**
+   * One `config:autopilot-toggle`, applied optimistically and rolled back on
+   * failure. The host saves `next` as the default for new sessions and
+   * re-gates `sessionId`'s live session (none when null), so both are
+   * mirrored here.
+   */
+  private async persist(
+    next: AutopilotTabState,
+    sessionId: SessionId | null,
+    pendingMessage: string,
+    failureMessage: string,
+  ): Promise<void> {
     if (this._isPending()) {
-      console.warn(
-        '[AutopilotStateService] Update already in progress, ignoring',
-      );
+      console.warn(pendingMessage);
       return;
     }
     this._isPending.set(true);
+    this.writeEpoch++;
 
+    const previousEnabled = this._enabled();
+    const previousLevel = this._permissionLevel();
+    const previousSessionLevel = sessionId
+      ? (this._sessionLevels().get(sessionId) ?? null)
+      : null;
     try {
-      const previousLevel = this._permissionLevel();
-      this._permissionLevel.set(level);
+      this._enabled.set(next.enabled);
+      this._permissionLevel.set(next.permissionLevel);
+      if (sessionId) {
+        this.setSessionLevel(
+          sessionId,
+          next.enabled ? next.permissionLevel : 'ask',
+        );
+      }
       const result = await this.rpc.call('config:autopilot-toggle', {
-        enabled: this._enabled(),
-        permissionLevel: level,
-        sessionId: sessionId ?? null,
+        enabled: next.enabled,
+        permissionLevel: next.permissionLevel,
+        sessionId,
       });
 
       if (!result.isSuccess()) {
-        console.error(
-          '[AutopilotStateService] Failed to set permission level:',
-          result.error,
-        );
+        console.error(failureMessage, result.error);
+        this._enabled.set(previousEnabled);
         this._permissionLevel.set(previousLevel);
+        if (sessionId) this.setSessionLevel(sessionId, previousSessionLevel);
       }
     } finally {
       this._isPending.set(false);
     }
+  }
+
+  /** Record (or, with null, forget) a session's live level. */
+  private setSessionLevel(
+    sessionId: SessionId,
+    level: PermissionLevel | null,
+  ): void {
+    const current = this._sessionLevels();
+    if ((current.get(sessionId) ?? null) === level) return;
+    const next = new Map(current);
+    if (level === null) next.delete(sessionId);
+    else next.set(sessionId, level);
+    this._sessionLevels.set(next);
   }
 
   /**
