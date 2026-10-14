@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 55 | Batches: 22 | Complete: 19/22
+Total tasks: 56 | Batches: 23 | Complete: 20/23
 
 Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
 only) → Batch 9 (with Task 9.0, moved from 7.1; verified, its commit waits for Batch 17) →
@@ -1497,7 +1497,7 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
   `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/agent-generation --parallel=1`
 
-## Batch 15: Prompt and content generation fall back to gathered context - COMPLETE
+## Batch 15: Prompt and content generation fall back to gathered context - COMPLETE (commit d6938d874)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1544,12 +1544,96 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
 - After commit: the Phase 4 review is due (Batches 14-15, combined diff). After it accepts, the
   run waits for TASK_2026_629 to merge and the user to confirm before Batch 6 (D7).
 
+## Batch 23: Phase 4 fix - reserve the submit run slot, observe the launch - COMPLETE (commit 4d5432f76)
+
+- Recommended executor: implementation CLI lane (codex), one lane
+- Fallback executor: backend-developer sub-agent
+- Execution mode: sequential
+- Rationale: one handler file and its spec; the reservation and the launch handling are one path.
+- Tasks: 1 | Depends on: Batches 14, 15
+- Phase: 4 - Self-gathering generation (fix round) | Phase review: code-logic re-review scoped
+  to the Batch 23 commit (run by the orchestrator)
+
+### Task 23.1: Close the submit-selection TOCTOU and never discard the launch rejection - COMPLETE
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.spec.ts`
+- Review reference: `code-logic-review-phase-4.md` Finding 1 (Moderate, orchestrator ruled FIX:
+  orphan `running` checkpoint = data integrity; unhandled rejection; false `success: true`), and
+  Finding 2 folded only for the catch in this file (`:280-285`).
+- Quality requirements:
+  - A private, synchronous submit reservation is taken right after the `runs.isActive` guard,
+    before the first `await`; the guard refuses while either is held; `wizard:retry-item`
+    honours it too. Released on every return and throw path (`finally`).
+  - Immediately before launch (no `await` between), a still-active supervisor finalizes the
+    just-prepared checkpoint `failed` and returns `success: false` with the in-progress error.
+  - The `runs.run(...)` promise is never discarded: a rejection is logged, the checkpoint is
+    finalized `failed`, and it is captured; no unhandled rejection.
+  - The freshness-lookup catch logs a content-free cause (`error.name` or `typeof`), no paths.
+  - Selected ids, overrides, checkpoint, resume and retry behaviour unchanged. No new public API.
+- Spec: two concurrent submits started before the first one's freshness lookup resolves yield
+  exactly one `success: true`, one in-progress refusal, one checkpoint write and one
+  orchestrator call; a launch rejection finalizes the checkpoint `failed`.
+
+### Batch 23 verification
+
+- `npx prettier --check` on the two files.
+- `npx nx run-many -t typecheck,lint -p @ptah-extension/rpc-handlers --parallel=1`, then
+  `npx nx test @ptah-extension/rpc-handlers --parallel=1 --maxWorkers=2` as a separate step.
+- Results (team-leader, 2026-10-14): prettier check clean; typecheck and lint passed for
+  `@ptah-extension/rpc-handlers`; tests passed (151 suites, 4378 passed, 7 skipped). Executors
+  were codex lanes `6ed444f4` and `64b93ac7`; report `batch-23-report.md`.
+- Pre-commit note: the first commit attempt failed `degradation-audit:lint` (rpc-handlers 2 against
+  a baseline of 1) because the secondary `.catch(() => {})` had no marker. The second lane added a
+  `// degradation-audit: reported - ...` marker (`wizard-generation-rpc.handlers.ts:408-410`).
+  After that the audit showed `libs/backend/rpc-handlers: 1 ok (baseline 1)` and the hook passed.
+
+## Phase 4 review disposition (2026-10-14, one fix round)
+
+Scope: `dbf815fd9..d6938d874` (Batch 14 `90e577f99`, Batch 15 `d6938d874`). Review:
+`code-logic-review-phase-4.md`, 8/10, APPROVED WITH FIXES (0 Blocking, 0 Serious, 1 Moderate,
+2 Minor). Review family opencode (D11); implementer family codex. No style review was due
+because there is no new public API. Dispositions follow the orchestrator's ruling.
+
+| Finding                                                                                                                   | Severity | Disposition                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 TOCTOU in `wizard:submit-selection`: orphan `running` checkpoint, discarded `runs.run` rejection, false `success: true` | Moderate | FIXED in Batch 23 (`4d5432f76`). Verified real first: the guard was `wizard-generation-rpc.handlers.ts:237` (pre-fix), the slot was taken at `:356`, and `GenerationRunSupervisor.run` is `async` and throws while a controller is set (`wizard-generation-run.supervisor.ts:200-205`), so the throw became a rejected promise that `void` discarded. Orchestrator ruled it data integrity |
+| 2 Degradation catches log no cause                                                                                        | Minor    | Partly folded into Batch 23: the RPC freshness catch now logs `{ cause: name or typeof }` (`wizard-generation-rpc.handlers.ts:287-293`). Recorded, not fixed: `content-generation.service.ts:621-624` and `enhanced-prompts.service.ts:1074-1077`. Those are in agent-generation, which the batch did not touch                                                                            |
+| 3 Specs' `resolveAuthorizedAnalysisDir` mocks are identity-style                                                          | Minor    | Recorded, not fixed (`enhanced-prompts.service.spec.ts:142-145`, `:1144-1148`; `content-generation.service.spec.ts:149-153`). Verification gap only; production comparisons are consistent                                                                                                                                                                                                 |
+
+Batch 23 fix, by file:line (`wizard-generation-rpc.handlers.ts` after the fix):
+
+- `:181` private `submitReserved`. `:240` the guard refuses while the supervisor is active or a
+  submit is reserved. `:250` the reservation is taken synchronously, before the first `await`.
+  `:433` a `finally` releases it on every return and throw path. `:804` `wizard:retry-item`
+  honours the reservation.
+- `:356-363` the pre-launch check runs with no `await` in between. If the supervisor is active,
+  the prepared checkpoint is finalized `failed` and the call returns the in-progress error.
+  `lastGenerationOptions` and `lastCheckpoint` are now set only when the launch goes ahead.
+- `:391-411` the `runs.run` promise is observed: a fixed log message, a Sentry capture, and a
+  `failed` checkpoint finalize. The trailing marked catch absorbs only a secondary failure.
+- Specs (`wizard-generation-rpc.handlers.spec.ts`): `:880` overlapping submits give one
+  success, one refusal, one checkpoint write and one orchestrator call. `:917` the reservation
+  is released after an early return. `:937` a rejected launch finalizes `failed`, logs and
+  captures. `:963` retry is refused while a submit prepares.
+
+Observation for the re-review (not a new finding): when `runs.run` rejects after launch, the
+caller has already received `{ success: true }` and no completion payload is broadcast. That
+path is now effectively unreachable. With the reservation and the pre-launch check, the
+supervisor's only rejecting branch ("already active") cannot fire, and the supervisor is
+documented never to reject once launched. The checkpoint no longer stays `running`.
+
+No new follow-up number: Finding 1 was fixed and Findings 2-3 are Minor (recorded). FU-17
+remains the next free id. The one fix round is spent. The orchestrator runs one re-review
+scoped to `4d5432f76`.
+
 ---
 
 ## Phases
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
-Done: 1, 2B, 3 (accepted 2026-10-14 after the fix round). Next: Phase 4 code-logic review (Batches 14-15 committed).
+Done: 1, 2B, 3 (accepted 2026-10-14 after the fix round). Phase 4: reviewed (APPROVED WITH FIXES),
+fix Batch 23 committed (`4d5432f76`). Next: the Phase 4 re-review scoped to `4d5432f76`.
 
 | Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                                                      | Reviewer (roster)                                                                                  |
 | -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
