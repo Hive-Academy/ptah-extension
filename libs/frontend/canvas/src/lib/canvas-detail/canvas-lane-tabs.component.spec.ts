@@ -98,6 +98,24 @@ describe('CanvasLaneTabsComponent', () => {
     expect(selected).toHaveBeenCalledWith('orchestrator');
   });
 
+  it('migrates a selected sub-agent tab to its background tab', () => {
+    const sub = { parentToolUseId: 'x', parentSessionId: 'owner', status: 'running', agentType: 'Worker' };
+    subagents.set(new Map([['x', sub]]));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'sub:x');
+    const selected = jest.fn();
+    fixture.componentInstance.laneSelected.subscribe(selected);
+    fixture.detectChanges();
+    expect(selected).not.toHaveBeenCalled();
+
+    subagents.set(new Map([['x', { ...sub, status: 'background' }]]));
+    fixture.detectChanges();
+    expect(selected).toHaveBeenCalledWith('bg:x');
+    expect(selected).not.toHaveBeenCalledWith('orchestrator');
+    expect(fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]').id).toContain('bg:x');
+  });
+
   it('shows an owned CLI lane once while excluding unresolved and foreign lanes', () => {
     agents.set([
       { agentId: 'unowned', cli: 'Unowned', status: 'running' },

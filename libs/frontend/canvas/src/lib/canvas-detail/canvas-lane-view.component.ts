@@ -1,6 +1,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -10,21 +13,25 @@ import {
 import {
   AgentCardComponent,
   AgentPermissionResponder,
+  ChatStore,
+  ExecutionNodeComponent,
   SubagentUsageSummaryComponent,
+  TabManagerService,
   parseLaneKey,
 } from '@ptah-extension/chat';
 import {
   BackgroundAgentStore,
   AgentMonitorStore,
-  PermissionHandlerService,
+  ExecutionTreeBuilderService,
 } from '@ptah-extension/chat-streaming';
 import { NgTemplateOutlet } from '@angular/common';
 import {
   BackgroundAgentStripComponent,
   SubagentTranscriptViewerComponent,
 } from '@ptah-extension/chat-ui';
-import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
+import type { ExecutionNode, SubagentTranscriptMessage } from '@ptah-extension/shared';
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
+import { CanvasDetailService } from './canvas-detail.service';
 import { ownedBySession } from './lane-owner';
 
 @Component({
@@ -32,6 +39,7 @@ import { ownedBySession } from './lane-owner';
   standalone: true,
   imports: [
     AgentCardComponent,
+    ExecutionNodeComponent,
     SubagentUsageSummaryComponent,
     SubagentTranscriptViewerComponent,
     BackgroundAgentStripComponent,
@@ -39,15 +47,31 @@ import { ownedBySession } from './lane-owner';
     NgTemplateOutlet,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block h-full min-h-0 overflow-auto' },
+  host: { class: 'block h-full min-h-0 overflow-auto', '(keydown.escape)': 'onEscape($event)' },
+  styles: [`
+    @keyframes rail-lane-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @media (prefers-reduced-motion: no-preference) {
+      .rail-lane-enter { animation: rail-lane-enter 180ms ease-out; }
+      .rail-focus-fade { transition: opacity 180ms ease-out, transform 180ms ease-out; }
+      .rail-fade-start { opacity: 0; transform: translateY(4px); }
+    }
+  `],
   template: `
     <div
       [id]="panelId()"
       role="tabpanel"
       [attr.aria-labelledby]="panelId() + '-tab-' + laneKey()"
-      class="h-full min-h-0"
+      class="rail-focus-fade h-full min-h-0"
+      [class.rail-fade-start]="fade()"
     >
-      @for (key of [laneKey()]; track key) {
+      <div [class.hidden]="selectedKind() !== 'orchestrator'" class="h-full">
+        <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" />
+      </div>
+      @if (selectedKind() !== 'orchestrator') {
+        <button type="button" class="btn btn-ghost btn-xs m-2" (click)="back()" aria-label="Back to conversation">Back to conversation</button>
+      }
+      @for (key of [tabId() + ':' + laneKey()]; track key) {
+        <div class="rail-lane-enter">
         @switch (selectedKind()) {
           @case ('cli') {
             @if (selectedCli(); as agent) {
@@ -114,57 +138,23 @@ import { ownedBySession } from './lane-owner';
               />
             }
           }
-          @default {
-            <ptah-canvas-detail-transcript [tabId]="tabId()" />
-          }
+          @default {}
         }
+        </div>
       }
       <ng-template #subagentLane>
         @if (selectedSubagent(); as sub) {
           <div class="p-2 space-y-2">
             <ptah-subagent-usage-summary [record]="sub" />
-            @for (request of selectedPermissions(); track request.id) {
-              <div
-                class="rounded-box border border-warning/40 bg-warning/10 p-2 text-xs"
-                role="group"
-                aria-label="Permission request"
-              >
-                <div>Permission: {{ request.toolName }}</div>
-                <div class="flex gap-2 mt-1">
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-success"
-                    (click)="respondSession(request, 'allow')"
-                  >
-                    Allow
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-error btn-outline"
-                    (click)="respondSession(request, 'deny')"
-                  >
-                    Deny
-                  </button>
-                </div>
-              </div>
-            }
-            @if (
-              sub.taskId &&
-              (sub.status === 'running' ||
-                sub.status === 'pending' ||
-                sub.status === 'paused' ||
-                sub.status === 'background')
-            ) {
-              <button
-                type="button"
-                class="btn btn-xs btn-error btn-outline"
-                [disabled]="stopping()"
-                (click)="stop(sub.taskId, sub.parentSessionId!)"
-              >
-                Stop
-              </button>
-            }
-            @if (sub.agentId) {
+            @if (agentNode(); as node) {
+              <ptah-execution-node
+                [node]="node"
+                [agentTileMode]="false"
+                [getPermissionForTool]="getPermissionForTool"
+                (permissionResponded)="chatStore.handlePermissionResponse($event)"
+              />
+            } @else if (sub.agentId) {
+              <p class="text-xs text-base-content-muted">Live agent unavailable. Showing saved transcript.</p>
               <ptah-subagent-transcript-viewer
                 [agentName]="sub.teammateName || sub.description || 'Sub-agent'"
                 [messages]="messages()"
@@ -185,13 +175,20 @@ import { ownedBySession } from './lane-owner';
 })
 export class CanvasLaneViewComponent {
   readonly monitor = inject(AgentMonitorStore);
+  readonly chatStore = inject(ChatStore);
+  private readonly tabs = inject(TabManagerService);
+  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly detail = inject(CanvasDetailService);
   private readonly background = inject(BackgroundAgentStore);
   private readonly responder = inject(AgentPermissionResponder);
-  private readonly permissions = inject(PermissionHandlerService);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly injector = inject(Injector);
+  private opener: HTMLElement | null = null;
   readonly tabId = input.required<string>();
   readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
+  readonly fade = signal(false);
   private readonly parsed = computed(() => parseLaneKey(this.laneKey()));
   readonly selectedCli = computed(() =>
     this.parsed()?.kind === 'cli'
@@ -212,10 +209,7 @@ export class CanvasLaneViewComponent {
       (a) => a.parentSessionId,
     ).find(
       (a) =>
-        a.parentToolUseId === parsed.id &&
-        (parsed.kind === 'background'
-          ? a.status === 'background'
-          : a.status !== 'background'),
+        a.parentToolUseId === parsed.id,
     );
   });
   readonly selectedBackground = computed(() =>
@@ -241,30 +235,60 @@ export class CanvasLaneViewComponent {
   readonly messages = signal<readonly SubagentTranscriptMessage[]>([]);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
-  readonly stopping = signal(false);
-  readonly selectedPermissions = computed(() => {
-    const sub = this.selectedSubagent();
-    return sub && this.sessionId()
-      ? this.permissions
-          .permissionRequests()
-          .filter(
-            (request) =>
-              (request.tabId === this.tabId() ||
-                request.sessionId === this.sessionId()) &&
-              request.agentToolCallId === sub.parentToolUseId &&
-              !request.surfaceMode,
-          )
-      : [];
-  });
   readonly transcriptAgentId = computed(
     () => this.selectedSubagent()?.agentId ?? null,
   );
   readonly transcriptSessionId = computed(
     () => this.selectedSubagent()?.parentSessionId ?? null,
   );
+  readonly agentNode = computed((): ExecutionNode | null => {
+    const toolCallId = this.selectedSubagent()?.parentToolUseId;
+    if (!toolCallId) return null;
+    const tab = this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab;
+    if (!tab) return null;
+    const trees = tab.messages.map((message) => message.streamingState).filter((node): node is ExecutionNode => !!node);
+    if (tab.streamingState) trees.push(...this.treeBuilder.buildTree(tab.streamingState, `tab-${this.tabId()}`));
+    for (let index = trees.length - 1; index >= 0; index--) {
+      const found = findAgentNode(trees[index], toolCallId);
+      if (found) return found;
+    }
+    return null;
+  });
+  readonly getPermissionForTool = (id: string) => this.chatStore.getPermissionForTool(id);
   private requestVersion = 0;
 
   constructor() {
+    let previousTabId: string | undefined;
+    let previousKind: string | undefined;
+    effect(() => {
+      const tabId = this.tabId();
+      const kind = this.selectedKind();
+      if (previousTabId !== tabId) {
+        this.opener = null;
+        previousTabId = tabId;
+        previousKind = kind;
+        return;
+      }
+      if (previousKind === 'orchestrator' && kind !== 'orchestrator') {
+        const focused = this.host.nativeElement.ownerDocument.activeElement;
+        if (focused instanceof HTMLElement && this.host.nativeElement.contains(focused)) {
+          this.opener = focused;
+          afterNextRender(() => {
+            if (this.tabId() === tabId && this.selectedKind() !== 'orchestrator') {
+              (this.host.nativeElement.querySelector('[aria-label="Back to conversation"]') as HTMLButtonElement | null)?.focus();
+            }
+          }, { injector: this.injector });
+        }
+      }
+      previousKind = kind;
+    });
+    effect((onCleanup) => {
+      this.tabId();
+      this.fade.set(true);
+      const frame = globalThis.requestAnimationFrame?.(() => this.fade.set(false));
+      if (frame !== undefined) onCleanup(() => globalThis.cancelAnimationFrame(frame));
+      else this.fade.set(false);
+    });
     effect(() => {
       const agent = this.selectedCli();
       if (agent && !agent.expanded)
@@ -273,7 +297,7 @@ export class CanvasLaneViewComponent {
     effect((onCleanup) => {
       const id = this.transcriptAgentId();
       const sessionId = this.transcriptSessionId();
-      if (!id || !sessionId) return;
+      if (!id || !sessionId || this.agentNode()) return;
       const version = ++this.requestVersion;
       onCleanup(() => {
         this.requestVersion++;
@@ -302,6 +326,7 @@ export class CanvasLaneViewComponent {
 
   loadTranscript(agentId: string, sessionId: string): void {
     if (
+      this.agentNode() ||
       this.transcriptAgentId() !== agentId ||
       this.transcriptSessionId() !== sessionId
     )
@@ -333,15 +358,6 @@ export class CanvasLaneViewComponent {
       });
   }
 
-  async stop(taskId: string, ownerSessionId: string): Promise<void> {
-    this.stopping.set(true);
-    try {
-      await this.monitor.stopAgent(taskId, ownerSessionId);
-    } finally {
-      this.stopping.set(false);
-    }
-  }
-
   respond(
     agentId: string,
     requestId: string,
@@ -350,10 +366,32 @@ export class CanvasLaneViewComponent {
     this.responder.respondLane(agentId, requestId, decision);
   }
 
-  respondSession(
-    request: import('@ptah-extension/shared').PermissionRequest,
-    decision: 'allow' | 'deny',
-  ): void {
-    this.responder.respondSession(request, decision, this.tabId());
+  back(): void {
+    this.detail.selectLaneFor(this.tabId(), 'orchestrator');
+    afterNextRender(() => {
+      const target = this.opener?.isConnected ? this.opener :
+        (this.host.nativeElement.querySelector('ptah-canvas-detail-transcript textarea, ptah-canvas-detail-transcript [contenteditable="true"]') as HTMLElement | null)
+        ?? (this.host.nativeElement.querySelector('ptah-canvas-detail-transcript') as HTMLElement | null);
+      target?.focus();
+      this.opener = null;
+    }, { injector: this.injector });
   }
+
+  onEscape(event: Event): void {
+    if (event.defaultPrevented || this.selectedKind() === 'orchestrator') return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+    event.preventDefault();
+    this.back();
+  }
+}
+
+function findAgentNode(node: ExecutionNode | null | undefined, id: string): ExecutionNode | null {
+  if (!node) return null;
+  if (node.type === 'agent' && node.toolCallId === id) return node;
+  for (const child of node.children) {
+    const found = findAgentNode(child, id);
+    if (found) return found;
+  }
+  return null;
 }

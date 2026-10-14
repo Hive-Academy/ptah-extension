@@ -51,13 +51,11 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           (laneSelected)="detail.selectLaneFor(id, $event)"
         />
         <div class="min-h-0 flex-1">
-          @for (focused of focusedIds(); track focused) {
             <ptah-canvas-lane-view
-              [tabId]="focused"
+              [tabId]="id"
               [sessionId]="tab()?.claudeSessionId ?? null"
-              [laneKey]="detail.laneKeyFor(focused)"
+              [laneKey]="detail.laneKeyFor(id)"
             />
-          }
         </div>
       } @else {
         <div
@@ -79,10 +77,6 @@ export class CanvasFocusAreaComponent {
   readonly detail = inject(CanvasDetailService);
   private readonly chatStore = inject(ChatStore);
   private readonly metrics = inject(CanvasRenderMetricsService);
-  readonly focusedIds = computed(() => {
-    const id = this.focusedTabId();
-    return id ? [id] : [];
-  });
   readonly tab = computed(
     () =>
       this.tabs.findTabByIdAcrossWorkspaces(this.focusedTabId() ?? '')?.tab ??

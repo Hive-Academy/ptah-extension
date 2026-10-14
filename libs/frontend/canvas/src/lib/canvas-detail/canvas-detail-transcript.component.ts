@@ -14,7 +14,8 @@ import {
 } from '@angular/core';
 import {
   ChatViewComponent,
-  HIDE_AGENT_SIDEBAR,
+  RAIL_TRANSCRIPT_RETENTION,
+  SESSION_CARD_ACTIONS,
   SESSION_CONTEXT,
   SESSION_FOCUSED,
   SESSION_START_GUARD,
@@ -23,6 +24,7 @@ import {
 } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { CanvasStore } from '../canvas.store';
+import { CanvasDetailService } from './canvas-detail.service';
 import { freezeSessionOverrides } from '../canvas-session-overrides';
 
 @Component({
@@ -30,7 +32,7 @@ import { freezeSessionOverrides } from '../canvas-session-overrides';
   standalone: true,
   imports: [NgComponentOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block h-full min-h-0' },
+  host: { class: 'block h-full min-h-0', tabindex: '-1' },
   template: `<ng-container
     *ngComponentOutlet="chatView; environmentInjector: childInjector"
   />`,
@@ -39,10 +41,13 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
   private readonly parentInjector = inject(EnvironmentInjector);
   private readonly tabManager = inject(TabManagerService);
   private readonly canvasStore = inject(CanvasStore);
+  private readonly detail = inject(CanvasDetailService, { optional: true });
   readonly tabId = input.required<string>();
+  readonly visible = input(true);
   readonly chatView = ChatViewComponent;
   private readonly tabIdSignal = computed<string | null>(() => this.tabId());
-  private readonly active = inject(SURFACE_ACTIVE, { optional: true }) ?? signal(true);
+  private readonly parentActive = inject(SURFACE_ACTIVE, { optional: true }) ?? signal(true);
+  private readonly active = computed(() => this.parentActive() && this.visible());
   readonly childInjector = createEnvironmentInjector(
     [
       { provide: SESSION_CONTEXT, useValue: this.tabIdSignal },
@@ -53,13 +58,20 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
         useValue: () => this.canvasStore.startBlockReason(this.tabId()),
       },
       { provide: SURFACE_ACTIVE, useValue: this.active },
-      { provide: HIDE_AGENT_SIDEBAR, useValue: true },
+      { provide: RAIL_TRANSCRIPT_RETENTION, useValue: true },
+      {
+        provide: SESSION_CARD_ACTIONS,
+        useValue: {
+          openLane: (key: string) => this.detail?.selectLaneFor(this.tabId(), key),
+          openSession: () => this.detail?.selectLaneFor(this.tabId(), 'orchestrator'),
+        },
+      },
     ],
     this.parentInjector,
   );
   private readonly registration = effect((onCleanup) => {
     const id = this.tabId();
-    if (!this.active()) return;
+    if (!this.parentActive()) return;
     const registered = untracked(() => {
       if (this.tabManager.visibleTabIds().has(id)) return false;
       this.tabManager.registerVisibleTab(id);

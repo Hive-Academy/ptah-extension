@@ -161,16 +161,18 @@ export class CanvasLaneTabsComponent {
       },
     ].filter((g) => g.tabs.length > 0);
   });
-  readonly selectedKey = computed(() =>
-    this.groups().some((g) => g.tabs.some((t) => t.key === this.laneKey()))
-      ? this.laneKey()
-      : 'orchestrator',
-  );
+  readonly selectedKey = computed(() => {
+    const key = this.laneKey();
+    const keys = this.groups().flatMap((group) => group.tabs.map((tab) => tab.key));
+    if (keys.includes(key)) return key;
+    const backgroundKey = key.startsWith('sub:') ? `bg:${key.slice(4)}` : null;
+    return backgroundKey && keys.includes(backgroundKey) ? backgroundKey : 'orchestrator';
+  });
 
   constructor() {
     effect(() => {
       if (this.laneKey() !== this.selectedKey())
-        this.laneSelected.emit('orchestrator');
+        this.laneSelected.emit(this.selectedKey());
     });
     effect(() => {
       this.selectedKey();

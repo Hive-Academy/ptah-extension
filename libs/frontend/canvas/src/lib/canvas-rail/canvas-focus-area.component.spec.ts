@@ -170,7 +170,7 @@ describe('CanvasFocusAreaComponent', () => {
     expect(abort).toHaveBeenCalledTimes(1);
   });
 
-  it('mounts one keyed view and keeps the header element across swaps', () => {
+  it('keeps one transcript host and header instance across focus swaps', () => {
     destroyed.length = 0;
     const lanes = new Map([
       ['a', 'cli:agent-a'],
@@ -206,6 +206,7 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('focusedTabId', 'a');
     fixture.detectChanges();
     const header = fixture.nativeElement.querySelector('header');
+    const view = fixture.debugElement.query(By.directive(ViewStub)).componentInstance;
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
     ).toHaveLength(1);
@@ -214,14 +215,15 @@ describe('CanvasFocusAreaComponent', () => {
     ).toContain('a:cli:agent-a');
     fixture.componentRef.setInput('focusedTabId', 'b');
     fixture.detectChanges();
-    expect(destroyed).toEqual(['a']);
+    expect(destroyed).toEqual([]);
+    expect(fixture.debugElement.query(By.directive(ViewStub)).componentInstance).toBe(view);
     expect(fixture.nativeElement.querySelector('header')).toBe(header);
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
     ).toHaveLength(1);
     fixture.componentRef.setInput('focusedTabId', 'a');
     fixture.detectChanges();
-    expect(destroyed).toEqual(['a', 'b']);
+    expect(destroyed).toEqual([]);
     expect(
       fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent,
     ).toContain('a:cli:agent-a');

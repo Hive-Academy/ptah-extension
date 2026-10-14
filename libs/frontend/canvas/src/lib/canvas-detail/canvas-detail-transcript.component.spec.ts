@@ -1,11 +1,186 @@
-import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
-import { SESSION_START_GUARD, TabManagerService } from '@ptah-extension/chat';
-import { EffortStateService, ModelStateService, SURFACE_ACTIVE } from '@ptah-extension/core';
+import { Component, Input, NgModule, NO_ERRORS_SCHEMA, createComponent, inject, input, output, signal, type Type } from '@angular/core';
+import { By } from '@angular/platform-browser';
+jest.mock('ngx-markdown', () => {
+  // eslint-disable-next-line @angular-eslint/component-selector
+  @Component({ selector: 'markdown', standalone: true, template: '{{ data }}' })
+  class MarkdownStub { @Input() data: string | null | undefined = ''; }
+  @NgModule({ imports: [MarkdownStub], exports: [MarkdownStub] })
+  class MarkdownModule {}
+  return { MarkdownModule, MarkdownComponent: MarkdownStub, provideMarkdown: () => [], MARKED_OPTIONS: 'MARKED_OPTIONS', CLIPBOARD_OPTIONS: 'CLIPBOARD_OPTIONS', MARKED_EXTENSIONS: 'MARKED_EXTENSIONS', MERMAID_OPTIONS: 'MERMAID_OPTIONS', SANITIZE: 'SANITIZE' };
+});
+import { DeferBlockBehavior, TestBed } from '@angular/core/testing';
+import { ActionBannerService, ChangeSetActionsService, ChatStore, ChatViewComponent, HIDE_AGENT_SIDEBAR, RAIL_TRANSCRIPT_RETENTION, SESSION_CARD_ACTIONS, SESSION_FOCUSED, SESSION_START_GUARD, SESSION_VISIBLE, TabManagerService } from '@ptah-extension/chat';
+import { AppStateManager, AuthStateService, ClaudeRpcService, EffortStateService, ModelStateService, PlanLimitsStore, SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
+import { ConfirmationDialogService, ConversationRegistry, TabSessionBinding } from '@ptah-extension/chat-state';
+import { AgentMonitorStore, ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
+import { PTAH_UI_DISPLAY_DOCK_SYNC, SidebarTabComponent, type PtahUiDisplayDockSync } from '@ptah-extension/chat-ui';
+import { DisplayPanelComponent, type DisplaySurface } from '@ptah-extension/chat-ui/display-panel';
+import type { SurfaceContent } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
+import { CanvasDetailService } from './canvas-detail.service';
+
+@Component({ selector: 'ptah-test-rail-tile', standalone: true, template: '<button type="button" (click)="actions.openLane(\'sub:tool\')">Open agent</button>' })
+class RailTileStub {
+  readonly actions = inject(SESSION_CARD_ACTIONS);
+}
+
+@Component({ selector: 'ptah-display-panel', standalone: true, template: '' })
+class RailDisplayPanelStub {
+  readonly surfaces = input<readonly DisplaySurface[]>([]);
+  readonly summary = input<unknown>(null);
+  readonly selectedKey = input<string | null>(null);
+  readonly pinned = input(false);
+  readonly viewStates = input<unknown>(null);
+  readonly actionError = input<string | null>(null);
+  readonly selectedKeyChange = output<string>();
+  readonly viewStateChange = output<unknown>();
+  readonly openFile = output<string>();
+  readonly review = output<void>();
+}
+@Component({ selector: 'ptah-agent-monitor-panel', standalone: true, template: '' })
+class RailAgentPanelStub {
+  readonly docked = input(false);
+  readonly embeddedAgents = input<unknown[] | undefined>(undefined);
+  readonly embeddedOpen = input<boolean | undefined>(undefined);
+  readonly sessionId = input<string | null>(null);
+  readonly isOverlay = input(false);
+  readonly closed = output<void>();
+}
+
+function componentImport(owner: Type<unknown>, selector: string): Type<unknown> {
+  type Dependency = Type<unknown> & { ɵcmp?: { selectors: string[][] } };
+  const definition = owner as Type<unknown> & {
+    ɵcmp: { dependencies: Dependency[] | (() => Dependency[]) };
+  };
+  const imports = definition.ɵcmp.dependencies;
+  const component = (typeof imports === 'function' ? imports() : imports).find(
+    (dependency) => dependency.ɵcmp?.selectors.some((selectors) => selectors.includes(selector)),
+  );
+  if (!component) throw new Error(`Missing ${selector} in ${owner.name} imports`);
+  return component;
+}
 
 describe('CanvasDetailTranscriptComponent visibility', () => {
+  it('fenced display opens and updates in place in Rail host', async () => {
+    const originalResizeObserver = global.ResizeObserver;
+    global.ResizeObserver = jest.fn().mockImplementation(() => ({ observe: jest.fn(), unobserve: jest.fn(), disconnect: jest.fn() })) as unknown as typeof ResizeObserver;
+    const tabs = signal([{ id: 'parent', claudeSessionId: 'owner' }]);
+    const visibleTabIds = signal<ReadonlySet<string>>(new Set());
+    const tabManager = {
+      activeTabId: signal<string | null>('parent'), activeTab: jest.fn(() => null),
+      activeTabSessionId: signal<string | null>('owner'), activeTabStatus: signal(null),
+      activeTabViewMode: signal('full'), activeTabHasLiveSession: signal(true),
+      pendingSessionLoad: signal(null), visibleTabIds,
+      tabs, streamingTabIds: signal(new Set()), closedTab: signal(null),
+      onTabClosed: jest.fn(() => () => undefined), removedWorkspace$: signal(null),
+      findTabByIdAcrossWorkspaces: jest.fn((id: string) => id === 'parent' ? { tab: tabs()[0], workspacePath: '/w' } : null),
+      findTabBySessionId: jest.fn(() => null), findTabsBySessionId: jest.fn(() => []),
+      clearRemovedWorkspace: jest.fn(), clearPendingSessionLoad: jest.fn(),
+      registerVisibleTab: jest.fn((id: string) => visibleTabIds.set(new Set([...visibleTabIds(), id]))),
+      unregisterVisibleTab: jest.fn((id: string) => { const next = new Set(visibleTabIds()); next.delete(id); visibleTabIds.set(next); }),
+    };
+    TestBed.configureTestingModule({
+      imports: [CanvasDetailTranscriptComponent],
+      deferBlockBehavior: DeferBlockBehavior.Playthrough,
+      providers: [
+        { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
+        { provide: CanvasDetailService, useValue: { selectLaneFor: jest.fn() } },
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        { provide: EffortStateService, useValue: { isLoaded: signal(false), currentEffort: signal(null) } },
+        { provide: ModelStateService, useValue: { isLoaded: signal(false), currentModel: signal(null) } },
+        { provide: ChatStore, useValue: {
+          isCompactingForTab: jest.fn(() => false), currentSessionId: signal('owner'), sessionIsActive: signal(true), activeTab: signal(null),
+          messages: signal([]), isStreaming: signal(false), currentModel: signal('model'), sessionStatus: signal(null),
+          queueRestoreContent: signal(null), queuedContent: signal(null), unmatchedPermissions: signal([]), questionRequests: signal([]), resumableSubagents: signal([]),
+        } },
+        { provide: VSCodeService, useValue: { isElectron: true, config: jest.fn(() => ({ workspaceRoot: '/w' })), getPtahIconUri: () => 'data:,', getPtahUserIconUri: () => 'data:,' } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+        { provide: ConfirmationDialogService, useValue: { confirm: jest.fn(), confirmWithCheckboxes: jest.fn() } },
+        { provide: ActionBannerService, useValue: { banner: signal(null), showError: jest.fn(), showInfo: jest.fn(), showWarning: jest.fn() } },
+        { provide: AgentMonitorStore, useValue: { agents: signal([]), agentsForSession: () => [], agentsOwnedBySession: () => [], panelOpenRequest: signal({ seq: 0, tabId: null }), cliOutputDemand: signal([]), tick: signal(0) } },
+        { provide: AppStateManager, useValue: { currentView: signal('chat'), layoutMode: signal('single'), composerPrefillRequest: signal({ seq: 0, text: '', tabId: null }) } },
+        { provide: ExecutionTreeBuilderService, useValue: { clearForTab: jest.fn() } },
+        { provide: ConversationRegistry, useValue: { getIsCompacting: jest.fn(() => false), compactingConversationIds: signal(new Set()) } },
+        { provide: TabSessionBinding, useValue: { getConversationId: jest.fn(() => null) } },
+        { provide: AuthStateService, useValue: { authRequiredBanner: signal(null), clearAuthRequiredBanner: jest.fn() } },
+        { provide: PlanLimitsStore, useValue: { registerScope: jest.fn(() => ({ id: 1, update: jest.fn(async () => undefined), release: jest.fn() })), snapshot: signal(null), now: signal(0), loading: signal(false), loadError: signal(false), sessionOwner: () => null } },
+        { provide: ChangeSetActionsService, useValue: { openFile: jest.fn(), review: jest.fn() } },
+      ],
+    });
+    const displayDock = componentImport(ChatViewComponent, 'ptah-display-dock');
+    const agentMonitorPanel = componentImport(displayDock, 'ptah-agent-monitor-panel');
+    TestBed.overrideComponent(ChatViewComponent, { set: { imports: [SidebarTabComponent, displayDock, RailAgentPanelStub], schemas: [NO_ERRORS_SCHEMA] } });
+    TestBed.overrideComponent(displayDock, { remove: { imports: [DisplayPanelComponent, agentMonitorPanel] }, add: { imports: [RailDisplayPanelStub, RailAgentPanelStub] } });
+    const fixture = TestBed.createComponent(CanvasDetailTranscriptComponent);
+    fixture.componentRef.setInput('tabId', 'parent');
+    const settle = async () => { for (let round = 0; round < 3; round++) { fixture.detectChanges(); await fixture.whenStable(); } fixture.detectChanges(); };
+    try {
+      await settle();
+      const injector = fixture.componentInstance.childInjector;
+      expect(injector.get(HIDE_AGENT_SIDEBAR, null)).toBeNull();
+      expect(injector.get(RAIL_TRANSCRIPT_RETENTION)).toBe(true);
+      expect(injector.get(SESSION_CARD_ACTIONS)).toBeTruthy();
+      const chat = fixture.debugElement.query(By.directive(ChatViewComponent));
+      expect(chat).toBeTruthy();
+      const store = chat.injector.get(PTAH_UI_DISPLAY_DOCK_SYNC) as PtahUiDisplayDockSync & {
+        setLiveTurn(tabId: string, turnKey: string | null): void;
+      };
+      const first: DisplaySurface = { key: 'id:chart', displayId: 'chart', content: {} as SurfaceContent, title: 'Chart', description: null, turnKey: 'turn-1', fenceKey: 'm1:n1:id:chart:1', createdSeq: 1, updatedSeq: 1, componentSignatures: new Map(), retainedViewStateIds: new Set() };
+      store.setLiveTurn('parent', 'turn-1');
+      store.setSurfaces('parent', { surfaces: [first], statuses: new Map() });
+      store.requestAutoOpen('parent', 'turn-1', first.key);
+      await settle();
+      const panel = fixture.debugElement.query(By.directive(RailDisplayPanelStub));
+      expect(panel).toBeTruthy();
+      expect(panel.componentInstance.surfaces()).toEqual([first]);
+      const updated = { ...first, updatedSeq: 2 };
+      store.setSurfaces('parent', { surfaces: [updated], statuses: new Map() });
+      await settle();
+      expect(fixture.nativeElement.querySelectorAll('ptah-display-dock')).toHaveLength(1);
+      expect(fixture.debugElement.query(By.directive(RailDisplayPanelStub)).componentInstance).toBe(panel.componentInstance);
+      expect(panel.componentInstance.surfaces()).toEqual([updated]);
+      fixture.componentRef.setInput('visible', false);
+      await settle();
+      expect(fixture.componentInstance.childInjector.get(SESSION_VISIBLE)()).toBe(false);
+      expect(fixture.debugElement.query(By.directive(ChatViewComponent)).componentInstance).toBe(chat.componentInstance);
+      fixture.componentRef.setInput('visible', true);
+      await settle();
+      expect(fixture.debugElement.query(By.directive(ChatViewComponent)).componentInstance).toBe(chat.componentInstance);
+      expect(panel.componentInstance.surfaces()).toEqual([updated]);
+    } finally {
+      fixture.destroy();
+      if (originalResizeObserver) global.ResizeObserver = originalResizeObserver;
+      else delete (global as Record<string, unknown>)['ResizeObserver'];
+    }
+  });
+  it('Rail tile click selects sub lane through the real child injector without mounting the single view', () => {
+    const selectLaneFor = jest.fn();
+    TestBed.configureTestingModule({
+      imports: [CanvasDetailTranscriptComponent],
+      providers: [
+        { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
+        { provide: CanvasDetailService, useValue: { selectLaneFor } },
+        { provide: TabManagerService, useValue: { visibleTabIds: signal<ReadonlySet<string>>(new Set()), registerVisibleTab: jest.fn(), unregisterVisibleTab: jest.fn() } },
+      ],
+    });
+    TestBed.overrideComponent(CanvasDetailTranscriptComponent, { set: { template: '<div class="tile-host"></div>', imports: [] } });
+    const fixture = TestBed.createComponent(CanvasDetailTranscriptComponent);
+    fixture.componentRef.setInput('tabId', 'parent');
+    fixture.detectChanges();
+    const injector = fixture.componentInstance.childInjector;
+    expect(injector.get(RAIL_TRANSCRIPT_RETENTION)).toBe(true);
+    expect(injector.get(HIDE_AGENT_SIDEBAR, null)).toBeNull();
+    const host = fixture.nativeElement.querySelector('.tile-host') as HTMLElement;
+    const tile = createComponent(RailTileStub, { environmentInjector: injector, hostElement: host });
+    tile.changeDetectorRef.detectChanges();
+    (host.querySelector('button') as HTMLButtonElement).click();
+    expect(selectLaneFor).toHaveBeenCalledWith('parent', 'sub:tool');
+    expect(fixture.nativeElement.querySelector('ptah-single-chat-subagent-view')).toBeNull();
+    tile.destroy();
+    fixture.destroy();
+  });
   it('registers an absent tab once and releases it on destroy', () => {
     const visibleTabIds = signal<ReadonlySet<string>>(new Set());
     const registerVisibleTab = jest.fn((id: string) =>
@@ -143,6 +318,43 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
     expect(registerVisibleTab).toHaveBeenCalledTimes(2);
     fixture.destroy();
     expect(unregisterVisibleTab).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the parent tab registered while a sub lane covers the transcript and unregisters when parent deactivates', () => {
+    const parentActive = signal(true);
+    const visibleTabIds = signal<ReadonlySet<string>>(new Set());
+    const registerVisibleTab = jest.fn((id: string) => visibleTabIds.set(new Set([...visibleTabIds(), id])));
+    const unregisterVisibleTab = jest.fn((id: string) => {
+      const next = new Set(visibleTabIds());
+      next.delete(id);
+      visibleTabIds.set(next);
+    });
+    TestBed.configureTestingModule({
+      imports: [CanvasDetailTranscriptComponent],
+      providers: [
+        { provide: SURFACE_ACTIVE, useValue: parentActive },
+        { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
+        { provide: TabManagerService, useValue: { visibleTabIds, registerVisibleTab, unregisterVisibleTab } },
+      ],
+    });
+    TestBed.overrideComponent(CanvasDetailTranscriptComponent, { set: { template: '', imports: [] } });
+    const fixture = TestBed.createComponent(CanvasDetailTranscriptComponent);
+    fixture.componentRef.setInput('tabId', 'parent');
+    fixture.detectChanges();
+    TestBed.flushEffects();
+    expect(visibleTabIds().has('parent')).toBe(true);
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    TestBed.flushEffects();
+    expect(visibleTabIds().has('parent')).toBe(true);
+    for (const token of [SESSION_VISIBLE, SESSION_FOCUSED, SURFACE_ACTIVE]) {
+      expect(fixture.componentInstance.childInjector.get(token)()).toBe(false);
+    }
+    parentActive.set(false);
+    fixture.detectChanges();
+    TestBed.flushEffects();
+    expect(visibleTabIds().has('parent')).toBe(false);
+    fixture.destroy();
   });
 
   it('freezes effort and model once after their defaults load', () => {
