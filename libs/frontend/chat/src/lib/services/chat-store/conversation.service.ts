@@ -8,7 +8,13 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  */
 
-import { Injectable, inject, signal, Injector } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  inject,
+  signal,
+  Injector,
+} from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import type { SendMessageOptions, TabState } from '@ptah-extension/chat-types';
@@ -78,6 +84,17 @@ export class ConversationService {
    * the tab's queued message ({@link releaseHeldCommand}).
    */
   private readonly heldCommands = new Map<string, HeldCommands>();
+
+  constructor() {
+    // A closed or force-closed tab never flushes the text its held commands
+    // wait behind, so they settle as dropped. A `reset` (`/clear`) keeps the
+    // tab, so its queue path ({@link releaseHeldCommand}) still settles them.
+    inject(DestroyRef).onDestroy(
+      this.tabManager.onTabClosed(({ tabId, kind }) => {
+        if (kind !== 'reset') this.dropHeldCommands(tabId);
+      }),
+    );
+  }
 
   /**
    * Clear the queue restore signal after content has been consumed by ChatInputComponent.
@@ -231,8 +248,8 @@ export class ConversationService {
   }
 
   /**
-   * Drop the tab's held commands, after a Stop or a failed turn: like the
-   * queued text, they must not be sent on their own later.
+   * Drop the tab's held commands, after a Stop, a failed turn or a tab close:
+   * like the queued text, they must not be sent on their own later.
    */
   dropHeldCommands(tabId: string): void {
     const held = this.heldCommands.get(tabId);

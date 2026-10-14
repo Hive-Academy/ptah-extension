@@ -15,7 +15,10 @@ import {
   ClaudeRpcService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  TabManagerService,
+  type ClosedTabEvent,
+} from '@ptah-extension/chat-state';
 import {
   MessageFinalizationService,
   PermissionHandlerService,
@@ -60,6 +63,7 @@ describe('SessionBudgetActionsService with the real queue', () => {
   let service: SessionBudgetActionsService;
   let dispatch: MessageDispatchService;
   let conversation: ConversationService;
+  let closedTabListeners: Set<(event: ClosedTabEvent) => void>;
 
   const tab = () => tabs.find((t) => t.id === TAB) as TabState;
   const patch = (id: string, update: Partial<TabState>) => {
@@ -115,7 +119,12 @@ describe('SessionBudgetActionsService with the real queue', () => {
       setMessages: (id: string, messages: TabState['messages']) =>
         patch(id, { messages }),
       setLastTerminalReason: jest.fn(),
+      onTabClosed: (listener: (event: ClosedTabEvent) => void) => {
+        closedTabListeners.add(listener);
+        return () => closedTabListeners.delete(listener);
+      },
     };
+    closedTabListeners = new Set();
 
     const rpcCall = jest.fn((method: string) =>
       Promise.resolve(
@@ -279,6 +288,30 @@ describe('SessionBudgetActionsService with the real queue', () => {
     await endTurn();
     expect(flushed).toEqual([]);
   });
+
+  it.each(['close', 'forceClose'] as const)(
+    'settles the wrap-up as not sent when the tab is removed by %s',
+    async (kind) => {
+      await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
+      const wrapUp = service.sendWrapUp();
+      await settle();
+
+      // TabManagerService.closeTab / forceCloseTab: the tab is removed, then
+      // the close event is emitted. No flush can release the command now.
+      tabs = [];
+      for (const listener of Array.from(closedTabListeners)) {
+        listener({ tabId: TAB, sessionId: SESSION, kind });
+      }
+      await wrapUp;
+
+      expect(service.wrapUpSent()).toBe(false);
+      expect(showError).toHaveBeenCalledWith(
+        expect.stringContaining('wrap-up request was not sent'),
+        TAB,
+      );
+      expect(flushed).toEqual([]);
+    },
+  );
 
   it('drops the command when the queue was reset and unrelated text is sent', async () => {
     await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });

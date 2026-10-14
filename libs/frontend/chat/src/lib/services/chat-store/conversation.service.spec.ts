@@ -18,7 +18,10 @@
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ConversationService } from './conversation.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  TabManagerService,
+  type ClosedTabEvent,
+} from '@ptah-extension/chat-state';
 import { MessageValidationService } from '../message-validation.service';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { MessageFinalizationService } from '@ptah-extension/chat-streaming';
@@ -70,7 +73,9 @@ describe('ConversationService', () => {
     markResuming: jest.Mock;
     setMessages: jest.Mock;
     setLastTerminalReason: jest.Mock;
+    onTabClosed: jest.Mock;
   };
+  let closedTabListeners: Set<(event: ClosedTabEvent) => void>;
   let validator: jest.Mocked<
     Pick<MessageValidationService, 'validate' | 'sanitize'>
   >;
@@ -151,7 +156,12 @@ describe('ConversationService', () => {
         applyPatch(tabId, { messages }),
       ),
       setLastTerminalReason: jest.fn(),
+      onTabClosed: jest.fn((listener: (event: ClosedTabEvent) => void) => {
+        closedTabListeners.add(listener);
+        return () => closedTabListeners.delete(listener);
+      }),
     };
+    closedTabListeners = new Set();
 
     validator = {
       validate: jest.fn(() => ({ valid: true })),
@@ -515,6 +525,60 @@ describe('ConversationService', () => {
         'tab-1',
         true,
       );
+    });
+  });
+
+  describe('held commands on tab close', () => {
+    const closeTab = (kind: ClosedTabEvent['kind'], tabId = 'tab-1') => {
+      for (const listener of Array.from(closedTabListeners)) {
+        listener({ tabId, sessionId: null, kind });
+      }
+    };
+
+    /** Hold `/session-handoff` behind queued text and track its outcome. */
+    const holdHandoff = () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', queuedContent: 'first' })]);
+      const held = service.queueOrAppendMessage('/session-handoff wrap up', {
+        tabId: 'tab-1',
+      });
+      expect(held).toBeInstanceOf(Promise);
+      const outcome: { value: boolean | undefined } = { value: undefined };
+      void held?.then((queued) => (outcome.value = queued));
+      return { held: held as Promise<boolean>, outcome };
+    };
+
+    it.each(['close', 'forceClose'] as const)(
+      'settles a held /session-handoff as dropped on %s',
+      async (kind) => {
+        const { held } = holdHandoff();
+
+        closeTab(kind);
+
+        await expect(held).resolves.toBe(false);
+        // The dropped command is never queued for a later flush.
+        expect(tabManager.setQueuedContent).not.toHaveBeenCalledWith(
+          'tab-1',
+          '/session-handoff wrap up',
+        );
+      },
+    );
+
+    it('keeps the held command on a reset or when another tab closes', async () => {
+      const { outcome } = holdHandoff();
+
+      closeTab('reset');
+      closeTab('close', 'tab-2');
+      await Promise.resolve();
+
+      expect(outcome.value).toBeUndefined();
+    });
+
+    it('stops listening for tab closes when the service is destroyed', () => {
+      expect(closedTabListeners.size).toBe(1);
+
+      TestBed.resetTestingModule();
+
+      expect(closedTabListeners.size).toBe(0);
     });
   });
 });
