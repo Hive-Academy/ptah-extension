@@ -92,6 +92,10 @@ function makeHarness(
       active.add(input.tabId);
       return { started: true as const, uiAnnounced: true };
     }),
+    startHandoffSession: jest.fn(async () => ({
+      started: true as const,
+      uiAnnounced: true,
+    })),
   };
   const provisioner = {
     create: jest.fn(async (root: string, branch: string) => {

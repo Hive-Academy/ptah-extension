@@ -64,6 +64,12 @@ import type { SendMessageOptions } from '@ptah-extension/chat-types';
 export interface SendOutcome {
   success: boolean;
   error?: string;
+  /**
+   * Set when a slash command was queued behind earlier queued text and waits
+   * as its own turn (TASK_2026_655): resolves `true` when it becomes the
+   * tab's queued message, `false` when it is dropped (Stop, failed turn).
+   */
+  heldCommand?: Promise<boolean>;
 }
 
 /**

@@ -1,17 +1,21 @@
 /**
- * The chat-path host port (TASK_2026_584).
+ * The chat-path host port (TASK_2026_584, TASK_2026_655).
  *
  * `cli-agent-runtime` cannot reach the chat internals (`rpc-handlers` sits
- * above it), so the spawner starts a child's chat session through this port.
- * The implementation is registered by the host under
+ * above it), so both kinds of agent-started session go through this port:
+ * the spawner starts a child session with `startChildSession`, and
+ * `SessionHandoffService` starts a top-level continuation session with
+ * `startHandoffSession`. The implementation is registered by the host under
  * `CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST`; a host without it refuses
- * `ptah_session_start` with `chat-runtime-unavailable`.
+ * `ptah_session_start` and `ptah_session_handoff` with
+ * `chat-runtime-unavailable`.
  *
  * Type-only.
  */
 import type {
   AgentSessionOpenedPayload,
   PermissionLevel,
+  SessionHandoffOpenedPayload,
 } from '@ptah-extension/shared';
 
 export interface ChildChatSessionStartInput {
@@ -31,6 +35,25 @@ export interface ChildChatSessionStartInput {
   readonly permissionLevel?: PermissionLevel;
 }
 
+/** A top-level session that continues another session's work (TASK_2026_655). */
+export interface HandoffChatSessionStartInput {
+  /** Backend-minted UUID v4: the new session's tab id and MCP routing id. */
+  readonly tabId: string;
+  /** The handing-off session's root: the metadata `workspaceId` and the tab partition. */
+  readonly workspaceRoot: string;
+  /** The session's `projectPath` and cwd: the handing-off session's cwd. */
+  readonly cwd: string;
+  /** The continuation prompt: the new session's first user message. */
+  readonly prompt: string;
+  readonly sessionName: string;
+  /** What the webview adopts. */
+  readonly descriptor: SessionHandoffOpenedPayload;
+  /** The handing-off session's model; absent → the host default. */
+  readonly model?: string;
+  /** The handing-off session's permission level. */
+  readonly permissionLevel?: PermissionLevel;
+}
+
 export type ChildChatSessionStartOutcome =
   | {
       readonly started: true;
@@ -42,5 +65,8 @@ export type ChildChatSessionStartOutcome =
 export interface IChildChatSessionHost {
   startChildSession(
     input: ChildChatSessionStartInput,
+  ): Promise<ChildChatSessionStartOutcome>;
+  startHandoffSession(
+    input: HandoffChatSessionStartInput,
   ): Promise<ChildChatSessionStartOutcome>;
 }

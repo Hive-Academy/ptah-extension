@@ -41,3 +41,8 @@ From the TASK_2026_609 session (2026-10-04), after PR #635 was merged: "push as 
 ## Conversation Summary
 
 TASK_2026_609 shipped the per-workspace subagent setup fixes and the per-agent model control (PR #635). Its rule was at most one fix round per review; the user approved one extra round for Part A and a CodeRabbit round. Everything above was found and deliberately deferred.
+
+## Rescope (2026-10-14, TASK_2026_659_cec4)
+
+Keep the subagent setup, model control and harness safety items. Drop any item that serves skill synthesis.
+Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.

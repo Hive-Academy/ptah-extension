@@ -145,6 +145,8 @@ export class MessageDispatchService {
    * Resolves with the outcome. A queued message counts as accepted (it is
    * delivered when the running turn ends); a blocked slash command or a
    * rejected send resolves `success: false`, after the in-transcript notice.
+   * A slash command queued behind queued text also carries `heldCommand`
+   * (see `ConversationService.queueOrAppendMessage`).
    */
   async sendOrQueueMessage(
     content: string,
@@ -194,8 +196,8 @@ export class MessageDispatchService {
           reason: content,
         });
       }
-      this.conversation.queueOrAppendMessage(content, options);
-      return { success: true };
+      const held = this.conversation.queueOrAppendMessage(content, options);
+      return held ? { success: true, heldCommand: held } : { success: true };
     }
     const outcome = await this.messageSender.send(content, options);
     if (outcome && !outcome.success && resolvedTabId) {
@@ -222,6 +224,7 @@ export class MessageDispatchService {
   async sendQueuedMessage(tabId: string, content: string): Promise<void> {
     let queuedOptions: SendMessageOptions | undefined;
     let queuedContent = content;
+    let delivered = false;
     try {
       const tab = this.tabManager.tabs().find((t) => t.id === tabId);
       const sessionId = tab?.claudeSessionId;
@@ -251,6 +254,8 @@ export class MessageDispatchService {
       if (outcome && !outcome.success) {
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
         this.showSendFailure(tabId, outcome.error);
+      } else {
+        delivered = true;
       }
     } catch (error) {
       this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
@@ -260,6 +265,9 @@ export class MessageDispatchService {
         error instanceof Error ? error.message : undefined,
       );
     }
+    // Outside the try: the text is sent, so nothing here may re-queue it. A
+    // slash command held behind it is queued next, as its own turn.
+    if (delivered) this.conversation.releaseHeldCommand(tabId, queuedContent);
   }
 
   /**
@@ -292,10 +300,7 @@ export class MessageDispatchService {
         ...newerOptions,
         ...options,
         files: [...(options?.files ?? []), ...(newerOptions?.files ?? [])],
-        images: [
-          ...(options?.images ?? []),
-          ...(newerOptions?.images ?? []),
-        ],
+        images: [...(options?.images ?? []), ...(newerOptions?.images ?? [])],
       },
     );
   }

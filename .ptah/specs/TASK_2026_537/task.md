@@ -1,9 +1,14 @@
 ---
-status: backlog
+status: cancelled
 type: feature
-title: 'Task intake classification: typed intake, gate triggers and routing (local-first, BYO TypeSafe key)'
-depends_on: [TASK_2026_535, TASK_2026_536]
+title: >-
+  Task intake classification: typed intake, gate triggers and routing
+  (local-first, BYO TypeSafe key)
+depends_on: []
 blocks: []
+duplicates:
+  - TASK_2026_646_136a
+updated: '2026-10-14T01:38:43.581Z'
 ---
 
 # TASK_2026_537 — Harden task intake with classifiers

@@ -13,3 +13,8 @@ This epic takes over the last open phase of TASK_2026_439 (phase 6, TASK_2026_58
 | P3 | TASK_2026_641 | TUI MemoryPanel shows no storage data; diagnostics dates use an unpinned locale (`memory-diagnostics-accordion.component.ts:362`). Merged from 444 + 445. | XS | - |
 | P3 | TASK_2026_457 | One failed count read nulls the whole lifecycle preview (`memory-storage-health.ts:139-152`). | S | - |
 | P4 | TASK_2026_266 | Memory graph and vector-space explorer. Old spec with stale numbers; decide after 587 settles the Memory tab layout. | XL | 587 |
+
+## Rescope (2026-10-14, TASK_2026_659_cec4)
+
+Remove the skill-synthesis tabs (Recommended, Sessions, Activity, synthesis Settings) from scope. Keep memory, the Library (manual skill and agent editing) and quarantine restore.
+Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.
