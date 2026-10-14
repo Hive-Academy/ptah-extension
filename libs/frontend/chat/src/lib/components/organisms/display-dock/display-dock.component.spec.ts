@@ -435,6 +435,25 @@ describe('DisplayDockComponent', () => {
     expect(tab('agents').getAttribute('aria-selected')).toBe('true');
   });
 
+  it('restores each tab pin and section when the dock host switches tabs', () => {
+    const pin = (): HTMLButtonElement =>
+      native().querySelector('[data-testid="display-dock-pin"]') as HTMLButtonElement;
+    pin().click();
+    tab('agents').click();
+    fixture.detectChanges();
+
+    dock.open('tab-2');
+    fixture.componentRef.setInput('tabId', 'tab-2');
+    fixture.detectChanges();
+    expect(pin().getAttribute('aria-pressed')).toBe('false');
+    expect(tab('displays').getAttribute('aria-selected')).toBe('true');
+
+    fixture.componentRef.setInput('tabId', TAB);
+    fixture.detectChanges();
+    expect(pin().getAttribute('aria-pressed')).toBe('true');
+    expect(tab('agents').getAttribute('aria-selected')).toBe('true');
+  });
+
   describe('focus (R1.2, R1.7)', () => {
     it('focuses close only on a user open in overlay mode', async () => {
       fixture.componentRef.setInput('isOverlay', true);

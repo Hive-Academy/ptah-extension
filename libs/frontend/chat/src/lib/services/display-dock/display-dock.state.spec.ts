@@ -114,6 +114,32 @@ describe('DisplayDockState', () => {
       expect(store.tab(TAB_A)).toMatchObject({ open: false, pinned: false });
     });
 
+    it('closes only the current tab and retains the other tab pin, section and width', () => {
+      store.open(TAB_A);
+      store.setPinned(TAB_A, true);
+      store.selectTab(TAB_A, 'agents');
+      store.setWidth(TAB_A, 420);
+      store.open(TAB_B);
+      store.setPinned(TAB_B, true);
+      store.selectTab(TAB_B, 'agents');
+      store.setWidth(TAB_B, 500);
+
+      store.close(TAB_A);
+
+      expect(store.tab(TAB_A)).toMatchObject({
+        open: false,
+        pinned: false,
+        activeTab: 'agents',
+        widthPx: 420,
+      });
+      expect(store.tab(TAB_B)).toMatchObject({
+        open: true,
+        pinned: true,
+        activeTab: 'agents',
+        widthPx: 500,
+      });
+    });
+
     it('opens on a surface or a turn summary from a chip', () => {
       store.selectTab(TAB_A, 'agents');
       store.openSurface(TAB_A, 'id:stats');

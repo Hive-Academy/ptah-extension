@@ -73,6 +73,7 @@ import {
 import { AgentLaneGridComponent } from './agent-monitor/agent-lane-grid.component';
 import { laneColumnCount } from './agent-monitor/agent-lane-layout';
 import { WorkflowPermissionPresenterService } from './agent-monitor/workflow-permission-presenter.service';
+import { SESSION_CONTEXT } from '../../tokens/session-context.token';
 
 // Re-export the pure grouping API alongside the component for consumers that
 // import from the component barrel. The implementation lives in
@@ -632,6 +633,9 @@ export class AgentMonitorPanelComponent {
   protected readonly resizeService = inject(PanelResizeService);
   private readonly vscode = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
+  private readonly strictSessionScope = !!inject(SESSION_CONTEXT, {
+    optional: true,
+  });
   private readonly workflowPermissions = inject(
     WorkflowPermissionPresenterService,
   );
@@ -662,10 +666,8 @@ export class AgentMonitorPanelComponent {
   readonly docked = input(false);
 
   /**
-   * Owning session of this panel. `null` means the GLOBAL panel (no scope, act
-   * across every session). A string means a scoped surface — and `''` means a
-   * scoped surface whose session has not resolved yet, which must act on
-   * NOTHING rather than silently widening to global.
+   * Owning session of this panel. A host with SESSION_CONTEXT is scoped even
+   * while this value is null or empty; an unscoped host may act globally.
    */
   readonly sessionId = input<string | null>(null);
 
@@ -729,18 +731,23 @@ export class AgentMonitorPanelComponent {
   private readonly scrollHandler = (): void => this.onScroll();
   private static readonly NEAR_BOTTOM_PX = 80;
 
-  readonly effectiveAgents = computed(
-    () => this.embeddedAgents() ?? this.store.activeTabAgents(),
-  );
+  readonly effectiveAgents = computed(() => {
+    const sid = this.sessionId();
+    if (this.strictSessionScope && !sid) return [];
+    const agents = this.embeddedAgents() ?? this.store.activeTabAgents();
+    return !this.strictSessionScope
+      ? agents
+      : agents.filter((agent) => !!sid && agent.parentSessionId === sid);
+  });
 
   readonly effectiveOpen = computed(
     () => this.embeddedOpen() ?? this.store.panelOpen(),
   );
 
   readonly effectivePermissions = computed(() => {
-    const embedded = this.embeddedAgents();
-    if (embedded === undefined) return this.store.pendingPermissions();
-    const agentIds = new Set(embedded.map((a) => a.agentId));
+    if (this.embeddedAgents() === undefined && !this.strictSessionScope)
+      return this.store.pendingPermissions();
+    const agentIds = new Set(this.effectiveAgents().map((a) => a.agentId));
     return this.store
       .pendingPermissions()
       .filter((a) => agentIds.has(a.agentId));
@@ -757,12 +764,12 @@ export class AgentMonitorPanelComponent {
    */
   readonly effectiveWorkflowSubagents = computed<SubagentRecord[]>(() => {
     const sid = this.sessionId();
+    if (this.strictSessionScope && !sid) return [];
     if (sid === null) return this.store.activeWorkflowSubagents();
-    // Scoped tile. `agentVisibleInSession` (via the store) owns both halves of
-    // the rule: an unresolved tile renders nothing rather than falling through
-    // to the active-tab branch and showing ANOTHER session's run groups, and a
-    // resolved tile also shows agents whose owner was never attributed.
-    return this.store.workflowSubagentsForSession(sid);
+    const agents = this.store.workflowSubagentsForSession(sid);
+    return this.strictSessionScope
+      ? agents.filter((agent) => !!sid && agent.parentSessionId === sid)
+      : agents;
   });
 
   /**
@@ -772,8 +779,12 @@ export class AgentMonitorPanelComponent {
    */
   readonly effectiveSessionSubagents = computed<SubagentRecord[]>(() => {
     const sid = this.sessionId();
+    if (this.strictSessionScope && !sid) return [];
     if (sid === null) return this.store.activeSessionSubagents();
-    return this.store.sessionSubagentsForSession(sid);
+    const agents = this.store.sessionSubagentsForSession(sid);
+    return this.strictSessionScope
+      ? agents.filter((agent) => !!sid && agent.parentSessionId === sid)
+      : agents;
   });
 
   /**
@@ -803,14 +814,18 @@ export class AgentMonitorPanelComponent {
         const sid = this.sessionId();
         const activeSessionId = this.tabManager.activeTabSessionId?.();
         const isVisible =
-          sid === null
+          this.strictSessionScope && !sid
+            ? false
+            : sid === null
             ? activeSessionId
               ? agentVisibleInSession(
                   selectedRec.parentSessionId,
                   activeSessionId,
                 )
               : true
-            : agentVisibleInSession(selectedRec.parentSessionId, sid);
+            : this.strictSessionScope
+              ? !!sid && selectedRec.parentSessionId === sid
+              : agentVisibleInSession(selectedRec.parentSessionId, sid);
         if (isVisible) {
           result.push(selectedRec);
           seen.add(selectedId);
@@ -1249,6 +1264,8 @@ export class AgentMonitorPanelComponent {
   }
 
   onClearCompleted(): void {
+    const sid = this.sessionId();
+    if (this.strictSessionScope && !sid) return;
     const selectedId = this.selectedAgentId();
     if (selectedId) {
       const sub = this.store.getSubagent(selectedId);
@@ -1256,7 +1273,6 @@ export class AgentMonitorPanelComponent {
         this.deselect();
       }
     }
-    const sid = this.sessionId();
     if (sid === null) {
       this.store.clearCompleted();
       return;
