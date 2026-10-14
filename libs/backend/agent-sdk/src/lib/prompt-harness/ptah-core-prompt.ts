@@ -53,9 +53,8 @@ Prefer ptah_* tools over built-in alternatives. They use VS Code's LSP, the work
 | Figuring out the monorepo layout | ptah_project_detect_monorepo | Detects nx/lerna/turbo/workspaces + package count |
 | Finding where a symbol is exported | ptah_get_symbol_index | Map of file → exported symbol names |
 
-Fall back to Bash, Grep or Glob only to **write** files (ptah is read-only), to run build/test/git commands, or when a ptah tool errors.
-
-Grep stays the right tool for free text: string literals, config keys, error messages.
+Fall back to Bash, Grep or Glob only for **writes**, build/test/git, free-text search, or after a ptah error or zero hits.
+Free text is string literals, config keys and error messages.
 
 > [!IMPORTANT]
 > **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** To find a function, class, method or type, call \`ptah_code_search_symbols\` or \`ptah_ast_analyze\` FIRST. Fall back to Grep only after those return no results or an error.

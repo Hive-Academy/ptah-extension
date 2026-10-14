@@ -1,7 +1,7 @@
 ## Working rules
 
-- `ptah_*` tools first; `ptah_get_diagnostics` after edits. A ptah tool named only in the deferred-tools list is available: load it with tool search (`ToolSearch` `select:<name>`), then call it. A tool in neither list: use the native one, do not probe.
-- Grep stays correct for free text: string literals, config keys, error messages. If `ptah_code_search_symbols` returns 0 hits, Grep once and name the empty tool.
+- `ptah_*` tools first; `ptah_get_diagnostics` after edits. A deferred ptah tool counts as listed: if your client defers tool schemas, load it with its tool-search tool (Claude Code: `ToolSearch` `select:<name>`), otherwise call it directly. A tool that is not listed at all: use the native one, do not probe.
+- Native read/search only for free-text search (string literals, config keys, error messages), or after a ptah error or zero hits; then Grep once and name the empty tool.
 
 | Native step | Ptah tool |
 | --- | --- |

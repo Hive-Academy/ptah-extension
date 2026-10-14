@@ -15,7 +15,7 @@ import {
 
 const HEADER = 'Prefer these ptah_* tools when listed in tools/list:';
 const UNLISTED_FALLBACK =
-  'A deferred tool is listed: load it, then call it. If a tool is not listed, use the built-in.';
+  'If not listed, use the built-in; deferred counts as listed.';
 const OMITTED_PREFIX = 'Also, if listed: ';
 const HELP_CLOSING = 'execute_code API: ptah.help()';
 const MORE_CLOSING = `More substitutions: see available ptah_* tools in tools/list. ${HELP_CLOSING}`;
@@ -107,8 +107,12 @@ describe('buildServerInstructions (shipped mandate)', () => {
   it('lists only tool names that appear in the substitution section, starting with its first row', () => {
     const tools = mappedTools(instructions);
 
-    expect(tools.length).toBeGreaterThan(0);
-    expect(tools[0]).toBe('ptah_workspace_analyze');
+    // A longer fixed line once pushed the diagnostics row out silently.
+    expect(tools.slice(0, 3)).toEqual([
+      'ptah_workspace_analyze',
+      'ptah_search_files',
+      'ptah_get_diagnostics',
+    ]);
     for (const tool of tools) {
       expect(PTAH_MCP_SUBSTITUTION_SECTION).toContain(tool);
     }
@@ -116,7 +120,7 @@ describe('buildServerInstructions (shipped mandate)', () => {
 
   it('carries the fallback line from the section, without Markdown emphasis', () => {
     expect(instructions).toContain(
-      'Fall back to Bash, Grep or Glob only to write files (ptah is read-only)',
+      'Fall back to Bash, Grep or Glob only for writes, build/test/git, free-text search',
     );
     expect(instructions).not.toContain('**');
   });
@@ -264,8 +268,10 @@ describe('buildServerInstructionsFrom (derivation)', () => {
   });
 
   it('drops the rows that do not fit in table order, names what fits, points to tools/list for the rest', () => {
+    // The row length decides whether the leftover budget can hold the
+    // `Also, if listed:` line; re-tune it when a fixed line changes length.
     const rows = Array.from({ length: 40 }, (_, i): [string, string] => [
-      `Substitution number ${i} with a long description`,
+      `Substitution number ${i} with a description`,
       `ptah_tool_${i}`,
     ]);
 
