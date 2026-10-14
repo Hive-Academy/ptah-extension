@@ -65,7 +65,7 @@ import { ownedBySession } from './lane-owner';
       [class.rail-fade-start]="fade()"
     >
       <div [class.hidden]="selectedKind() !== 'orchestrator'" class="h-full">
-        <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" />
+        <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" [paneFocused]="paneFocused()" [splitDisplayed]="splitDisplayed()" />
       </div>
       @if (selectedKind() !== 'orchestrator') {
         <button type="button" class="btn btn-ghost btn-xs m-2" (click)="back()" aria-label="Back to conversation">Back to conversation</button>
@@ -185,6 +185,8 @@ export class CanvasLaneViewComponent {
   private readonly injector = inject(Injector);
   private opener: HTMLElement | null = null;
   readonly tabId = input.required<string>();
+  readonly paneFocused = input(true);
+  readonly splitDisplayed = input(false);
   readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');

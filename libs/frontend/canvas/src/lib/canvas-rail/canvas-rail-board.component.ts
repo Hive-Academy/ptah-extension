@@ -3,6 +3,7 @@ import {
   Component,
   ElementRef,
   Injector,
+  isDevMode,
   afterNextRender,
   afterRenderEffect,
   computed,
@@ -12,12 +13,13 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat';
+import { RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
 import type { CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { railWidthBand } from '../canvas-board-mode';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
 import { CanvasLayoutService } from '../canvas-layout.service';
+import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasSessionDetailsComponent } from '../canvas-detail/canvas-session-details.component';
@@ -39,6 +41,7 @@ import {
     CanvasSessionDetailsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [RailTranscriptRetentionCoordinator],
   host: {
     class: 'block h-full min-h-0',
     '[style.display]': 'visible() ? null : "none"',
@@ -62,6 +65,7 @@ import {
           [canAdd]="store.canAddTile()"
           [holdTabId]="holdTabId()"
           [surfaceActive]="visible()"
+          [splitDisabledReason]="splitDisabledReason()"
           (focusRequested)="focus($event)"
           (collapseToggled)="toggleCollapse()"
           (densityToggled)="toggleDensity()"
@@ -73,6 +77,9 @@ import {
             announce('This request has changed. Open the current request.')
           "
           (lanesRequested)="onLanesRequested($event)"
+          (openBesideRequested)="openBeside($event)"
+          (moveUpRequested)="move($event, -1)"
+          (moveDownRequested)="move($event, 1)"
         />
         @if (orderedTiles().length === 0) {
           <section
@@ -110,15 +117,39 @@ import {
             }
           </section>
         } @else {
-          <ptah-canvas-focus-area
-            class="min-w-0 flex-1"
-            [focusedTabId]="focusedId()"
-            [state]="railStates().get(focusedId() ?? '') ?? 'idle'"
-            [band]="band()"
-            (closeRequested)="close($event)"
-          />
+          <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" data-testid="rail-pane-container">
+            @for (side of sides; track side) {
+              @if (paneTab(side); as id) {
+                <section class="relative overflow-y-auto" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true" [style.order]="visualOrder().indexOf(side)" [attr.data-pane-side]="side" [attr.aria-label]="paneLabel(side, id)" (click)="activatePane(side)" (focusin)="activatePane(side)">
+                  @if (splitDisplayed()) {
+                    @if (activeSide() === side) {
+                      <button type="button" class="btn btn-ghost btn-xs absolute right-20 top-[52px] z-10" aria-label="Close split" (click)="closeSplit($event)">Close split</button>
+                    }
+                    <button type="button" class="btn btn-ghost btn-xs absolute right-2 top-[52px] z-10" aria-label="Open details" [attr.aria-expanded]="detailsOpen() && activeSide() === side" (click)="openSplitDetails(side, $event)">Details</button>
+                  }
+                  <ptah-canvas-focus-area
+                    class="block h-full min-w-0"
+                    [focusedTabId]="id"
+                    [paneId]="side"
+                    [paneLabel]="paneLabel(side, id)"
+                    [paneFocused]="activeSide() === side"
+                    [splitDisplayed]="splitDisplayed()"
+                    [state]="railStates().get(id) ?? 'idle'"
+                    [band]="band()"
+                    (closeRequested)="close($event)"
+                  />
+                  @if (splitDisplayed() && detailsOpen() && activeSide() === side) {
+                    <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" (keydown.escape)="closeSplitDetails($event)">
+                      <button type="button" class="btn btn-ghost btn-sm" aria-label="Close details" (click)="closeSplitDetails()">Close details</button>
+                      <ptah-canvas-session-details [tabId]="id" />
+                    </aside>
+                  }
+                </section>
+              }
+            }
+          </div>
         }
-        @if (band() === 'sm') {
+        @if (!splitDisplayed() && band() === 'sm') {
           @if (detailsOpen()) {
             <aside
               class="flex h-full w-[288px] shrink-0 flex-col border-l border-base-content/10 bg-base-100"
@@ -150,7 +181,7 @@ import {
               i
             </button>
           }
-        } @else {
+        } @else if (!splitDisplayed()) {
           <aside
             class="h-full shrink-0 overflow-auto border-l border-base-content/10 bg-base-100"
             [class.w-[360px]]="band() === 'xl'"
@@ -168,12 +199,14 @@ import {
   `,
 })
 export class CanvasRailBoardComponent {
+  readonly sides = ['left', 'right'] as const;
   readonly workspacePath = input.required<string>();
   readonly visible = input.required<boolean>();
   /** The footer or empty board asked for the host's named New session popover. */
   readonly newSessionRequested = output<void>();
   readonly store = inject(CanvasStore);
   readonly layout = inject(CanvasLayoutService);
+  readonly persistence = inject(CanvasLayoutPersistenceService);
   readonly detail = inject(CanvasDetailService);
   readonly metrics = inject(CanvasRenderMetricsService);
   private readonly tabs = inject(TabManagerService);
@@ -184,6 +217,16 @@ export class CanvasRailBoardComponent {
   );
   readonly holdTabId = signal<string | null>(null);
   readonly detailsOpen = signal(false);
+  readonly activeSide = signal<'left' | 'right'>('left');
+  readonly otherTabId = signal<string | null>(null);
+  readonly visualOrder = signal<readonly ('left' | 'right')[]>(['left', 'right']);
+  readonly splitDisplayed = computed(() => !!this.otherTabId());
+  readonly splitStacked = computed(() => this.layout.containerWidth() < 1440);
+  readonly splitDisabledReason = computed(() => this.orderedTiles().length < 2 ? 'Open another session first to split' : null);
+  private lastFocusedId: string | null = null;
+  private lastOrderedIds: readonly string[] = [];
+  private reorderPending = false;
+  private detailsOpener: HTMLElement | null = null;
   readonly announcement = signal('');
   readonly liveViews = signal(0);
   readonly focusSwaps = computed(() => {
@@ -214,7 +257,7 @@ export class CanvasRailBoardComponent {
   readonly effectiveCollapsed = computed(
     () =>
       this.board().railCollapsed ||
-      (this.band() === 'sm' && this.detailsOpen()),
+      (!this.splitDisplayed() && this.band() === 'sm' && this.detailsOpen()),
   );
   private geometryBaseline: RailGeometryBaseline | null = null;
   private restoredScroll = false;
@@ -263,6 +306,62 @@ export class CanvasRailBoardComponent {
       const states = this.railStates();
       if ([...states.keys()].every((id) => ids.has(id))) return;
       this.railStates.set(new Map([...states].filter(([id]) => ids.has(id))));
+    });
+    effect(() => {
+      const ids = new Set(this.orderedTiles().map((tile) => tile.tabId));
+      const focused = this.store.focusedTabIdFor(this.workspacePath());
+      const other = this.otherTabId();
+      if (!other && !this.activeId() && ids.size) {
+        const removedAt = this.lastOrderedIds.indexOf(this.lastFocusedId ?? '');
+        const neighbours = removedAt < 0 ? [] : [
+          ...this.lastOrderedIds.slice(removedAt + 1),
+          ...this.lastOrderedIds.slice(0, removedAt).reverse(),
+        ];
+        this.lastFocusedId = neighbours.find((id) => ids.has(id)) ?? null;
+      }
+      this.lastOrderedIds = [...ids];
+      if (!this.visible()) {
+        if (other) this.collapseSplit();
+        return;
+      }
+      if (!other && ids.size && (!focused || !ids.has(focused))) {
+        const id = this.activeId() ?? [...ids][0];
+        this.lastFocusedId = id;
+        if (focused !== id) this.store.focusTile(id);
+        return;
+      }
+      if (other && (!ids.has(other) || !ids.has(focused ?? this.lastFocusedId ?? ''))) {
+        const survivor = ids.has(other) ? other : this.activeId();
+        this.collapseSplit();
+        if (survivor && focused !== survivor) this.store.focusTile(survivor);
+        this.lastFocusedId = survivor;
+        this.announce('Split closed because a session was removed.');
+        return;
+      }
+      if (!focused || !ids.has(focused) || focused === this.lastFocusedId) return;
+      if (other && focused === other) {
+        this.otherTabId.set(this.lastFocusedId);
+        this.activeSide.set(this.opposite(this.activeSide()));
+      }
+      this.lastFocusedId = focused;
+      this.assertDistinct();
+    });
+    let wasStacked = this.splitStacked();
+    effect(() => {
+      const stacked = this.splitStacked();
+      if (stacked !== wasStacked && this.splitDisplayed()) {
+        this.announce(stacked ? 'Sessions stacked top and bottom.' : 'Sessions side by side.');
+      }
+      wasStacked = stacked;
+    });
+    effect(() => {
+      const failed = this.persistence.writeFailed();
+      if (!this.visible()) return;
+      if (failed && this.reorderPending) {
+        this.reorderPending = false;
+        this.announce('Session order could not be saved.');
+      } else if (failed) this.announce('Layout changes could not be saved.');
+      else this.reorderPending = false;
     });
     let previousBand = this.band();
     effect(() => {
@@ -317,12 +416,12 @@ export class CanvasRailBoardComponent {
     );
   }
 
-  private anchor(): void {
+  private anchor(targetId?: string): void {
     afterNextRender(
       () => {
         const list = this.list();
         const index = this.orderedTiles().findIndex(
-          (tile) => tile.tabId === this.focusedId(),
+          (tile) => tile.tabId === (targetId ?? this.focusedId()),
         );
         if (list && index >= 0)
           list.scrollTop = railAnchorScrollTop(
@@ -336,7 +435,150 @@ export class CanvasRailBoardComponent {
     );
   }
 
+  private opposite(side: 'left' | 'right'): 'left' | 'right' {
+    return side === 'left' ? 'right' : 'left';
+  }
+
+  private assertDistinct(): void {
+    if (isDevMode() && this.otherTabId() && this.otherTabId() === this.store.focusedTabIdFor(this.workspacePath())) {
+      throw new Error('Rail panes must show distinct sessions');
+    }
+  }
+
+  private activeId(): string | null {
+    const ids = this.orderedTiles().map((tile) => tile.tabId);
+    const focused = this.store.focusedTabIdFor(this.workspacePath());
+    if (focused && ids.includes(focused)) return focused;
+    return this.lastFocusedId && ids.includes(this.lastFocusedId) ? this.lastFocusedId : null;
+  }
+
+  paneTab(side: 'left' | 'right'): string | null {
+    const focused = this.store.focusedTabIdFor(this.workspacePath());
+    const other = this.otherTabId();
+    if (side !== this.activeSide()) {
+      if (!other) return null;
+      if (focused === other) {
+        const fallback = this.activeId();
+        return fallback !== other ? fallback : null;
+      }
+      return this.orderedTiles().some((tile) => tile.tabId === other) ? other : null;
+    }
+    return this.activeId();
+  }
+
+  paneLabel(side: 'left' | 'right', id: string): string {
+    const position = this.visualOrder().indexOf(side);
+    const place = this.splitStacked() ? (position === 0 ? 'Top' : 'Bottom') : (position === 0 ? 'Left' : 'Right');
+    const title = this.tabs.findTabByIdAcrossWorkspaces(id)?.tab.title ?? 'Session';
+    return this.splitDisplayed() ? `${place} session: ${title}${this.activeSide() === side ? ', active' : ''}` : `Focused session: ${title}`;
+  }
+
+  activatePane(side: 'left' | 'right'): void {
+    if (side === this.activeSide()) return;
+    const id = this.otherTabId();
+    if (!id) return;
+    const current = this.activeId();
+    this.otherTabId.set(current);
+    this.activeSide.set(side);
+    this.lastFocusedId = id;
+    this.store.focusTile(id);
+    this.assertDistinct();
+  }
+
+  openBeside(id: string): void {
+    const ids = this.orderedTiles().map((tile) => tile.tabId);
+    const current = this.activeId();
+    if (!ids.includes(id) || !current || !ids.includes(current)) {
+      this.announce('This session is no longer on this board.');
+      return;
+    }
+    if (id === current) {
+      this.announce('This session is already focused.');
+      return;
+    }
+    if (id === this.otherTabId()) {
+      this.activatePane(this.opposite(this.activeSide()));
+      return;
+    }
+    if (!this.splitDisplayed()) {
+      this.detailsOpen.set(false);
+      this.activeSide.set('left');
+    }
+    this.otherTabId.set(current);
+    this.activeSide.set(this.opposite(this.activeSide()));
+    this.lastFocusedId = id;
+    this.store.focusTile(id);
+    this.assertDistinct();
+  }
+
+  private collapseSplit(): void {
+    this.otherTabId.set(null);
+    this.visualOrder.set(['left', 'right']);
+    this.closeSplitDetails();
+  }
+
+  closeSplit(event?: Event): void {
+    event?.stopPropagation();
+    this.lastFocusedId = this.activeId();
+    this.collapseSplit();
+  }
+
+  openSplitDetails(side: 'left' | 'right', event: Event): void {
+    event.stopPropagation();
+    this.activatePane(side);
+    this.detailsOpener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    this.detailsOpen.set(true);
+    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"] [aria-label="Close details"]')?.focus(), { injector: this.injector });
+  }
+
+  closeSplitDetails(event?: Event): void {
+    event?.stopPropagation();
+    this.detailsOpen.set(false);
+    const opener = this.detailsOpener;
+    this.detailsOpener = null;
+    if (opener) afterNextRender(() => {
+      const current = this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`);
+      if (this.splitDisplayed() && current) current.focus();
+      else if (opener.isConnected && this.splitDisplayed()) opener.focus();
+      else {
+        const id = this.activeId();
+        const card = [...this.host.nativeElement.querySelectorAll<HTMLElement>('[data-rail-card]')].find((node) => node.dataset['tabId'] === id);
+        (card?.querySelector<HTMLElement>('.rc-select, .rail-collapsed') ?? this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [role="tab"][aria-selected="true"]`))?.focus();
+      }
+    }, { injector: this.injector });
+  }
+
+  move(id: string, direction: -1 | 1): void {
+    const tiles = this.orderedTiles();
+    const index = tiles.findIndex((tile) => tile.tabId === id);
+    const destination = index + direction;
+    if (index < 0 || destination < 0 || destination >= tiles.length) {
+      this.announce('This session cannot move in that direction.');
+      return;
+    }
+    const ids = tiles.map((tile) => tile.tabId);
+    [ids[index], ids[destination]] = [ids[destination], ids[index]];
+    this.geometryBaseline = { key: `${this.board().railDensity}|${this.effectiveCollapsed()}`, order: ids };
+    this.reorderPending = true;
+    this.store.reorderTiles(ids);
+    queueMicrotask(() => {
+      if (!this.persistence.writeFailed()) this.reorderPending = false;
+    });
+    this.announce(`${this.tabs.findTabByIdAcrossWorkspaces(id)?.tab.title ?? 'Session'} moved to position ${destination + 1} of ${ids.length}.`);
+    afterNextRender(() => {
+      const card = [...(this.list()?.querySelectorAll<HTMLElement>('[data-rail-card]') ?? [])].find((node) => node.dataset['tabId'] === id);
+      card?.querySelector<HTMLElement>('.rc-select, .rail-collapsed')?.focus();
+      this.anchor(id);
+    }, { injector: this.injector });
+  }
+
   focus(id: string): void {
+    if (id === this.otherTabId()) {
+      this.activatePane(this.opposite(this.activeSide()));
+      this.anchor();
+      return;
+    }
+    this.lastFocusedId = id;
     this.store.focusTile(id);
     this.anchor();
   }
@@ -382,17 +624,29 @@ export class CanvasRailBoardComponent {
   /** Called by the host after its popover added `id` to this board. */
   sessionCreated(id: string): void {
     this.geometryBaseline = null;
-    this.store.focusTile(id);
-    this.anchor();
+    this.focus(id);
   }
   async close(id: string): Promise<void> {
     const ids = this.orderedTiles().map((tile) => tile.tabId);
     const index = ids.indexOf(id);
     const neighbour = ids[index + 1] ?? ids[index - 1] ?? null;
+    const active = this.activeId();
+    const wasFocused = active === id;
+    const wasSplit = this.splitDisplayed();
+    const survivor = wasSplit ? (wasFocused ? this.otherTabId() : active) : null;
     await this.store.removeTile(id);
     if (this.orderedTiles().some((tile) => tile.tabId === id)) return;
     this.geometryBaseline = null;
-    if (neighbour) this.store.focusTile(neighbour);
+    if (wasSplit) {
+      this.collapseSplit();
+      if (survivor) {
+        this.lastFocusedId = survivor;
+        if (this.store.focusedTabIdFor(this.workspacePath()) !== survivor) this.store.focusTile(survivor);
+      }
+    } else if (wasFocused && neighbour) {
+      this.lastFocusedId = neighbour;
+      this.store.focusTile(neighbour);
+    }
     this.anchor();
   }
   jumpTo(state: CompactRailState): void {
@@ -430,7 +684,7 @@ export class CanvasRailBoardComponent {
       () =>
         this.host.nativeElement
           .querySelector<HTMLElement>(
-            'ptah-canvas-focus-area [role="tab"][aria-selected="true"]',
+            `[data-pane-side="${this.activeSide()}"] ptah-canvas-focus-area [role="tab"][aria-selected="true"]`,
           )
           ?.focus(),
       { injector: this.injector },

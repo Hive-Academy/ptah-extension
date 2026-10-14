@@ -28,7 +28,7 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
   host: { class: 'block h-full min-h-0 min-w-0' },
   template: `
     <section
-      aria-label="Focused session"
+      [attr.aria-label]="paneLabel()"
       class="flex h-full min-h-0 flex-col bg-base-100"
     >
       @if (focusedTabId(); as id) {
@@ -46,12 +46,16 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           (closeRequested)="closeRequested.emit(id)"
         />
         <ptah-canvas-lane-tabs
+          [panelId]="panelId()"
           [sessionId]="tab()?.claudeSessionId ?? null"
           [laneKey]="detail.laneKeyFor(id)"
           (laneSelected)="detail.selectLaneFor(id, $event)"
         />
         <div class="min-h-0 flex-1">
             <ptah-canvas-lane-view
+              [panelId]="panelId()"
+              [paneFocused]="paneFocused()"
+              [splitDisplayed]="splitDisplayed()"
               [tabId]="id"
               [sessionId]="tab()?.claudeSessionId ?? null"
               [laneKey]="detail.laneKeyFor(id)"
@@ -69,6 +73,11 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 })
 export class CanvasFocusAreaComponent {
   readonly focusedTabId = input<string | null>(null);
+  readonly paneId = input<'left' | 'right'>('left');
+  readonly paneLabel = input('Focused session');
+  readonly paneFocused = input(true);
+  readonly splitDisplayed = input(false);
+  readonly panelId = computed(() => `rail-${this.paneId()}-lane-panel`);
   readonly state = input<CompactRailState>('idle');
   readonly band = input<'xl' | 'lg' | 'md' | 'sm'>('lg');
   readonly closeRequested = output<string>();

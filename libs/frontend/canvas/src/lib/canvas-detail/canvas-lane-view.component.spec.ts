@@ -7,6 +7,7 @@ import {
   AgentCardComponent,
   AgentPermissionResponder,
   ChatStore,
+  RAIL_MIN_CONTENT_WIDTH,
   SESSION_FOCUSED,
   SESSION_VISIBLE,
   ExecutionNodeComponent,
@@ -323,6 +324,14 @@ describe('CanvasLaneViewComponent', () => {
     fixture.componentRef.setInput('sessionId', 'owner');
     fixture.detectChanges();
     const transcript = fixture.debugElement.query(By.directive(CanvasDetailTranscriptComponent));
+    fixture.componentRef.setInput('paneFocused', false);
+    fixture.componentRef.setInput('splitDisplayed', true);
+    fixture.detectChanges();
+    expect(transcript.componentInstance.childInjector.get(SESSION_VISIBLE)()).toBe(true);
+    expect(transcript.componentInstance.childInjector.get(SESSION_FOCUSED)()).toBe(false);
+    expect(transcript.componentInstance.childInjector.get(RAIL_MIN_CONTENT_WIDTH)()).toBe(360);
+    fixture.componentRef.setInput('paneFocused', true);
+    fixture.detectChanges();
     const chatView = fixture.debugElement.query(By.directive(ChatViewStubComponent)).componentInstance;
     const opener = fixture.nativeElement.querySelector('.opener') as HTMLButtonElement;
     const draft = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;

@@ -53,6 +53,7 @@ class HeaderStub {
   template: '<button role="tab" aria-selected="true">Orchestrator</button>',
 })
 class TabsStub {
+  readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
   readonly laneSelected = output<string>();
@@ -65,6 +66,9 @@ class TabsStub {
 class ViewStub implements OnDestroy {
   private readonly injector = inject(Injector);
   readonly tabId = input.required<string>();
+  readonly panelId = input('canvas-lane-panel');
+  readonly paneFocused = input(true);
+  readonly splitDisplayed = input(false);
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
   constructor() {
@@ -232,6 +236,22 @@ describe('CanvasFocusAreaComponent', () => {
       .snapshot();
     expect(metrics.focusSwaps).toBe(2);
     expect(metrics.liveViewMounts).toBe(3);
+  });
+
+  it('passes a unique panel id and pane focus state to each lane view', () => {
+    const { fixture } = mountWithLanes();
+    fixture.componentRef.setInput('paneId', 'right');
+    fixture.componentRef.setInput('paneLabel', 'Right session: A');
+    fixture.componentRef.setInput('paneFocused', false);
+    fixture.componentRef.setInput('splitDisplayed', true);
+    fixture.detectChanges();
+    const tabs = fixture.debugElement.query(By.directive(TabsStub)).componentInstance;
+    const view = fixture.debugElement.query(By.directive(ViewStub)).componentInstance;
+    expect(tabs.panelId()).toBe('rail-right-lane-panel');
+    expect(view.panelId()).toBe('rail-right-lane-panel');
+    expect(view.paneFocused()).toBe(false);
+    expect(view.splitDisplayed()).toBe(true);
+    expect(fixture.nativeElement.querySelector('section').getAttribute('aria-label')).toBe('Right session: A');
   });
 
   it('passes the focused tab branch and live model into header chips', () => {

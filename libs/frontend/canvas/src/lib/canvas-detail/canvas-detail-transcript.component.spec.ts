@@ -9,7 +9,7 @@ jest.mock('ngx-markdown', () => {
   return { MarkdownModule, MarkdownComponent: MarkdownStub, provideMarkdown: () => [], MARKED_OPTIONS: 'MARKED_OPTIONS', CLIPBOARD_OPTIONS: 'CLIPBOARD_OPTIONS', MARKED_EXTENSIONS: 'MARKED_EXTENSIONS', MERMAID_OPTIONS: 'MERMAID_OPTIONS', SANITIZE: 'SANITIZE' };
 });
 import { DeferBlockBehavior, TestBed } from '@angular/core/testing';
-import { ActionBannerService, ChangeSetActionsService, ChatStore, ChatViewComponent, HIDE_AGENT_SIDEBAR, RAIL_TRANSCRIPT_RETENTION, SESSION_CARD_ACTIONS, SESSION_FOCUSED, SESSION_START_GUARD, SESSION_VISIBLE, TabManagerService } from '@ptah-extension/chat';
+import { ActionBannerService, ChangeSetActionsService, ChatStore, ChatViewComponent, HIDE_AGENT_SIDEBAR, RAIL_MIN_CONTENT_WIDTH, RAIL_TRANSCRIPT_RETENTION, RailTranscriptRetentionCoordinator, SESSION_CARD_ACTIONS, SESSION_CONTEXT, SESSION_FOCUSED, SESSION_START_GUARD, SESSION_VISIBLE, TabManagerService } from '@ptah-extension/chat';
 import { AppStateManager, AuthStateService, ClaudeRpcService, EffortStateService, ModelStateService, PlanLimitsStore, SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import { ConfirmationDialogService, ConversationRegistry, TabSessionBinding } from '@ptah-extension/chat-state';
 import { AgentMonitorStore, ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
@@ -357,6 +357,32 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
     fixture.destroy();
   });
 
+  it('registers both displayed transcripts when a lane covers one of them', () => {
+    const visibleTabIds = signal<ReadonlySet<string>>(new Set());
+    const registerVisibleTab = jest.fn((id: string) => visibleTabIds.set(new Set([...visibleTabIds(), id])));
+    const unregisterVisibleTab = jest.fn((id: string) => visibleTabIds.set(new Set([...visibleTabIds()].filter((tabId) => tabId !== id))));
+    TestBed.configureTestingModule({
+      imports: [CanvasDetailTranscriptComponent],
+      providers: [
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
+        { provide: TabManagerService, useValue: { visibleTabIds, registerVisibleTab, unregisterVisibleTab } },
+      ],
+    });
+    TestBed.overrideComponent(CanvasDetailTranscriptComponent, { set: { template: '', imports: [] } });
+    const left = TestBed.createComponent(CanvasDetailTranscriptComponent);
+    left.componentRef.setInput('tabId', 'left');
+    left.componentRef.setInput('visible', false);
+    const right = TestBed.createComponent(CanvasDetailTranscriptComponent);
+    right.componentRef.setInput('tabId', 'right');
+    left.detectChanges();
+    right.detectChanges();
+    TestBed.flushEffects();
+    expect(visibleTabIds()).toEqual(new Set(['left', 'right']));
+    left.destroy();
+    right.destroy();
+  });
+
   it('freezes effort and model once after their defaults load', () => {
     const effortLoaded = signal(false);
     const modelLoaded = signal(false);
@@ -437,5 +463,35 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
     const destroy = jest.spyOn(fixture.componentInstance.childInjector, 'destroy');
     fixture.destroy();
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('every pane transcript provides SESSION_CONTEXT; token is 360 when splitDisplayed, null in single focus; canvas detail transcript does not provide HIDE_AGENT_SIDEBAR', () => {
+    @Component({ standalone: true, imports: [CanvasDetailTranscriptComponent], providers: [RailTranscriptRetentionCoordinator], template: '<ptah-canvas-detail-transcript tabId="a" [splitDisplayed]="splitDisplayed()" [paneFocused]="paneFocused()" />' })
+    class BoardHostStub {
+      readonly splitDisplayed = signal(false);
+      readonly paneFocused = signal(true);
+    }
+    TestBed.configureTestingModule({
+      imports: [BoardHostStub],
+      providers: [
+        { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
+        { provide: TabManagerService, useValue: { visibleTabIds: signal<ReadonlySet<string>>(new Set()), registerVisibleTab: jest.fn(), unregisterVisibleTab: jest.fn() } },
+      ],
+    });
+    TestBed.overrideComponent(CanvasDetailTranscriptComponent, { set: { template: '', imports: [] } });
+    const fixture = TestBed.createComponent(BoardHostStub);
+    fixture.detectChanges();
+    const transcript = fixture.debugElement.children[0].componentInstance as CanvasDetailTranscriptComponent;
+    const injector = transcript.childInjector;
+    expect(injector.get(SESSION_CONTEXT)()).toBe('a');
+    expect(injector.get(RailTranscriptRetentionCoordinator)).toBe(fixture.debugElement.injector.get(RailTranscriptRetentionCoordinator));
+    expect(injector.get(RAIL_MIN_CONTENT_WIDTH)()).toBeNull();
+    expect(injector.get(HIDE_AGENT_SIDEBAR, null)).toBeNull();
+    fixture.componentInstance.splitDisplayed.set(true);
+    fixture.componentInstance.paneFocused.set(false);
+    fixture.detectChanges();
+    expect(injector.get(RAIL_MIN_CONTENT_WIDTH)()).toBe(360);
+    expect(injector.get(SESSION_VISIBLE)()).toBe(true);
+    expect(injector.get(SESSION_FOCUSED)()).toBe(false);
   });
 });

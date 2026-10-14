@@ -7,7 +7,8 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { TabManagerService } from '@ptah-extension/chat';
+import { By } from '@angular/platform-browser';
+import { RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
   type CompactRailDensity,
@@ -15,6 +16,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { CanvasStore, type CanvasTile } from '../canvas.store';
 import { CanvasLayoutService } from '../canvas-layout.service';
+import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
@@ -37,8 +39,7 @@ type TestHost = Omit<HTMLElement, 'querySelector'> & {
           [attr.data-tab-id]="tile.tabId"
           [style.height.px]="collapsed() ? 56 : heights[density()]"
         >
-          {{ tile.tabId
-          }}<span
+          <button type="button" class="rc-select">{{ tile.tabId }}</button><span
             data-dot-state
             [attr.data-state]="states().get(tile.tabId) ?? 'idle'"
           ></span>
@@ -60,6 +61,10 @@ class RailStub {
   readonly canAdd = input(true);
   readonly holdTabId = input<string | null>(null);
   readonly surfaceActive = input(true);
+  readonly splitDisabledReason = input<string | null>(null);
+  readonly openBesideRequested = output<string>();
+  readonly moveUpRequested = output<string>();
+  readonly moveDownRequested = output<string>();
   readonly focusRequested = output<string>();
   readonly collapseToggled = output<void>();
   readonly densityToggled = output<void>();
@@ -92,6 +97,10 @@ class LaneStub {}
 })
 class FocusStub {
   readonly focusedTabId = input<string | null>(null);
+  readonly paneId = input<'left' | 'right'>('left');
+  readonly paneLabel = input('Focused session');
+  readonly paneFocused = input(true);
+  readonly splitDisplayed = input(false);
   readonly state = input<CompactRailState>('idle');
   readonly band = input('lg');
   readonly closeRequested = output<string>();
@@ -113,17 +122,23 @@ describe('CanvasRailBoardComponent actions', () => {
     const focusTile = jest.fn();
     const addTile = jest.fn(() => 'new');
     const removeTile = jest.fn(async () => undefined);
+    let focusedId = 'a';
     Object.assign(instance, {
       store: {
         canStartRunningSession: () => true,
         canAddTile: () => true,
         addTile,
-        focusTile,
+        focusTile: (id: string) => { focusedId = id; focusTile(id); },
+        focusedTabIdFor: () => focusedId,
         removeTile,
         tiles: () => [],
       },
       workspacePath: () => 'workspace',
       orderedTiles: () => [{ tabId: 'a' }, { tabId: 'b' }],
+      otherTabId: signal<string | null>(null),
+      activeSide: signal<'left' | 'right'>('left'),
+      visualOrder: signal<readonly ('left' | 'right')[]>(['left', 'right']),
+      splitDisplayed: () => false,
       anchor: jest.fn(),
       newSessionRequested: { emit: jest.fn() },
     });
@@ -186,7 +201,7 @@ describe('CanvasRailBoardComponent actions', () => {
 describe('CanvasRailBoardComponent rendering', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  function mount(visible = true, count = 2) {
+  function mount(visible = true, count = 2, initialFocus: string | null = 'a') {
     sourceState.set('idle');
     jest
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
@@ -201,7 +216,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       ),
     );
     const canStart = signal(true);
-    const focused = signal<string | null>('a');
+    const focused = signal<string | null>(initialFocus);
     const board = signal<{
       mode: 'rail';
       railCollapsed: boolean;
@@ -214,6 +229,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       railScrollTop: 0,
     });
     const width = signal(1400);
+    const writeFailed = signal(false);
     const setRailCollapsed = jest.fn((_: string, value: boolean) =>
       board.update((b) => ({ ...b, railCollapsed: value })),
     );
@@ -231,10 +247,11 @@ describe('CanvasRailBoardComponent rendering', () => {
       runningSessionCount: () => 0,
       canStartRunningSession: () => canStart(),
       canAddTile: () => true,
-      focusTile: (id: string) => focused.set(id),
+      focusTile: jest.fn((id: string) => focused.set(id)),
       setRailCollapsed,
       setRailDensity,
       removeTile,
+      reorderTiles: jest.fn(),
       setRailScrollTop: jest.fn(),
       tiles: () => tiles(),
     };
@@ -244,6 +261,7 @@ describe('CanvasRailBoardComponent rendering', () => {
         CanvasRenderMetricsService,
         { provide: CanvasStore, useValue: store },
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
+        { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
         { provide: CanvasDetailService, useValue: {} },
         {
           provide: TabManagerService,
@@ -270,6 +288,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       focused,
       board,
       width,
+      writeFailed,
       store,
       canStart,
       metrics: TestBed.inject(CanvasRenderMetricsService),
@@ -283,6 +302,82 @@ describe('CanvasRailBoardComponent rendering', () => {
         '[data-rail-card], ptah-canvas-focus-area',
       ),
     ).toHaveLength(0);
+  });
+
+  it('single focus with null store focus renders one lane after removal and with a valid last focus', () => {
+    const { fixture, focused, tiles } = mount(true, 3);
+    focused.set('b');
+    fixture.detectChanges();
+    focused.set(null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(1);
+    expect(fixture.componentInstance.paneTab(fixture.componentInstance.activeSide())).toBe('b');
+    focused.set('b');
+    fixture.detectChanges();
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'b'));
+    focused.set(null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(1);
+  });
+
+  it('chooses one visible pane and synchronizes rail focus when hydrated without focus', () => {
+    const { fixture, focused, store } = mount(true, 3, null);
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')).toHaveLength(1);
+    expect(focused()).toBe('a');
+    expect(store.focusTile).toHaveBeenCalledTimes(1);
+    const pane = fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    expect(pane.focusedTabId()).toBe('a');
+    expect(rail.focusedTabId()).toBe(pane.focusedTabId());
+  });
+
+  it('retains the removed tile neighbour while hidden and focuses it on return', () => {
+    const { fixture, focused, tiles, store } = mount(true, 3);
+    focused.set('b');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    (store.focusTile as jest.Mock).mockClear();
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'b'));
+    focused.set(null);
+    fixture.detectChanges();
+    expect(store.focusTile).not.toHaveBeenCalled();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')).toHaveLength(1);
+    expect(focused()).toBe('c');
+    expect(store.focusTile).toHaveBeenCalledTimes(1);
+    expect(fixture.debugElement.query(By.directive(FocusStub)).componentInstance.focusedTabId()).toBe('c');
+  });
+
+  it('synchronizes pane, rail and Details after external removal of the focused tile', () => {
+    const { fixture, focused, tiles } = mount(true, 3);
+    focused.set('b');
+    fixture.detectChanges();
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'b'));
+    focused.set(null);
+    fixture.detectChanges();
+    const pane = fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    const details = fixture.debugElement.query(By.directive(DetailsStub)).componentInstance as DetailsStub;
+    expect(focused()).toBe('c');
+    expect(pane.focusedTabId()).toBe('c');
+    expect(rail.focusedTabId()).toBe(pane.focusedTabId());
+    expect(details.tabId()).toBe(pane.focusedTabId());
+  });
+
+  it('a hidden board never focuses another workspace after split removal', () => {
+    const { fixture, tiles, store } = mount();
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    (store.focusTile as jest.Mock).mockClear();
+    fixture.componentRef.setInput('visible', false);
+    tiles.update((current) => current.filter((tile) => tile.tabId !== 'b'));
+    fixture.detectChanges();
+    expect(store.focusTile).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.otherTabId()).toBeNull();
   });
 
   it('keeps card nodes and order when focus changes', () => {
@@ -570,5 +665,316 @@ describe('CanvasRailBoardComponent rendering', () => {
       .query((node) => node.name === 'ptah-canvas-rail')
       .triggerEventHandler('newSession');
     expect(requested).toHaveBeenCalledTimes(1);
+  });
+
+  it('board provides one RailTranscriptRetentionCoordinator; both panes share it (distinctRetainedCount counts distinct tabs across panes)', () => {
+    const { fixture } = mount(true, 3);
+    const coordinator = fixture.debugElement.injector.get(RailTranscriptRetentionCoordinator);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    const panes = fixture.debugElement.queryAll((node) => node.name === 'ptah-canvas-focus-area');
+    expect(panes).toHaveLength(2);
+    expect(panes.map((pane) => pane.injector.get(RailTranscriptRetentionCoordinator))).toEqual([coordinator, coordinator]);
+    const host = () => ({ retainFromCoordinator: jest.fn(), releaseFromCoordinator: jest.fn() }) as unknown as Parameters<typeof coordinator.touch>[0];
+    const left = host();
+    const right = host();
+    coordinator.register(left, signal('a'));
+    coordinator.register(right, signal('b'));
+    coordinator.touch(left, 'a');
+    coordinator.touch(right, 'b');
+    expect(coordinator.distinctRetainedCount()).toBe(2);
+  });
+
+  it('below two sessions announces the split reason and refuses stale or same-id Open beside', () => {
+    const { fixture } = mount(true, 1);
+    const instance = fixture.componentInstance;
+    expect(instance.splitDisabledReason()).toBe('Open another session first to split');
+    instance.openBeside('a');
+    expect(instance.announcement()).toContain('already focused');
+    instance.openBeside('foreign');
+    expect(instance.announcement()).toContain('no longer on this board');
+    expect(instance.otherTabId()).toBeNull();
+  });
+
+  it('never a third host on Open beside or jumpTo while split; never the same tab in both panes', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+    instance.openBeside('b');
+    instance.openBeside('c');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+    expect([...fixture.nativeElement.querySelectorAll('section[aria-label$="session: b"]')]).toHaveLength(1);
+    expect(instance.otherTabId()).toBe('b');
+    instance.railStates.set(new Map([['a', 'needs']]));
+    instance.jumpTo('needs');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+    focused.set('b');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).not.toBe(focused());
+  });
+
+  it('external main-panel focus and sessionCreated replace only the active pane', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    focused.set('c');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBe('a');
+    expect(instance.paneTab(instance.activeSide())).toBe('c');
+    instance.sessionCreated('b');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBe('a');
+    expect(instance.paneTab(instance.activeSide())).toBe('b');
+    focused.set('a');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBe('b');
+    expect(instance.paneTab(instance.activeSide())).toBe('a');
+  });
+
+  it('focusin activation uses the inactive pane and unique placement labels', () => {
+    const { fixture, focused } = mount();
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    const inactive = fixture.nativeElement.querySelector('[data-pane-side="left"]') as HTMLElement;
+    expect(inactive.getAttribute('aria-label')).toBe('Top session: a');
+    inactive.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    fixture.detectChanges();
+    expect(focused()).toBe('a');
+    expect(inactive.getAttribute('aria-label')).toBe('Top session: a, active');
+    expect(fixture.nativeElement.querySelector('[data-pane-side="right"]').getAttribute('aria-label')).toBe('Bottom session: b');
+  });
+
+  it('stacks at 1439 and keeps stable pane hosts when crossing 1440', () => {
+    const { fixture, width } = mount();
+    fixture.componentInstance.openBeside('b');
+    width.set(1439);
+    fixture.detectChanges();
+    const hosts = [...fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')];
+    expect(fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]').classList.contains('flex-col')).toBe(true);
+    width.set(1440);
+    fixture.detectChanges();
+    expect([...fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')]).toEqual(hosts);
+    expect(fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]').classList.contains('flex-row')).toBe(true);
+    expect(fixture.componentInstance.announcement()).toBe('Sessions side by side.');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('Sessions side by side.');
+  });
+
+  it.each([1280, 920])('%i stacked keeps two live hosts with 400 px wrappers and vertical scroll', (pixels) => {
+    const { fixture, width } = mount();
+    fixture.componentInstance.openBeside('b');
+    width.set(pixels);
+    fixture.detectChanges();
+    const container = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]');
+    expect(container.classList.contains('flex-col')).toBe(true);
+    const panes = fixture.nativeElement.querySelectorAll('[data-pane-side]');
+    expect(panes).toHaveLength(2);
+    for (const pane of panes) {
+      expect(pane.classList.contains('min-h-[400px]')).toBe(true);
+      expect(pane.classList.contains('overflow-y-auto')).toBe(true);
+      expect(pane.classList.contains('min-w-[360px]')).toBe(true);
+      expect(pane.querySelector('[aria-label="Open details"]')?.classList.contains('top-[52px]')).toBe(true);
+    }
+    expect(fixture.nativeElement.querySelector('[aria-label="Close split"]')?.classList.contains('top-[52px]')).toBe(true);
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
+  });
+
+  it('external removal drops a ghost pane without close(), never duplicates a surviving tab, announces once', () => {
+    const { fixture, tiles, focused } = mount();
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    tiles.set([{ tabId: 'a', order: 0 } as CanvasTile]);
+    focused.set(null);
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBeNull();
+    expect(focused()).toBe('a');
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')).toHaveLength(1);
+    expect(instance.announcement()).toContain('removed');
+    const message = instance.announcement();
+    fixture.detectChanges();
+    expect(instance.announcement()).toBe(message);
+  });
+
+  it('null store focus preserves pane actions and the surviving host on collapse', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    focused.set(null);
+    instance.openBeside('b');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBe('a');
+    focused.set(null);
+    instance.activatePane('left');
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBe('b');
+    focused.set(null);
+    instance.activatePane('right');
+    fixture.detectChanges();
+    const survivor = fixture.nativeElement.querySelector('[data-pane-side="right"] ptah-canvas-focus-area');
+    instance.closeSplit();
+    fixture.detectChanges();
+    expect(instance.otherTabId()).toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-canvas-focus-area')).toBe(survivor);
+    expect(fixture.nativeElement.querySelector('[data-pane-side]')?.classList.contains('min-w-[360px]')).toBe(false);
+  });
+
+  it('split Details overlay opens on active pane at all bands, follows active tab, closes on Escape/collapse with focus return; single focus keeps the column', async () => {
+    const { fixture, width } = mount();
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    width.set(920);
+    fixture.detectChanges();
+    const opener = fixture.nativeElement.querySelectorAll<HTMLButtonElement>('[aria-label="Open details"]')[1];
+    opener.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-canvas-rail')).not.toBeNull();
+    expect(instance.effectiveCollapsed()).toBe(false);
+    instance.focus('a');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).not.toBeNull();
+    fixture.nativeElement.querySelector('[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(fixture.nativeElement.querySelector('[data-pane-side="left"] [aria-label="Open details"]'));
+    instance.visualOrder.set(['right', 'left']);
+    instance.closeSplit();
+    fixture.detectChanges();
+    expect(instance.visualOrder()).toEqual(['left', 'right']);
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area')).toHaveLength(1);
+    width.set(1600);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('aside')).not.toBeNull();
+  });
+
+  it.each([1440, 1600])('split Details stays an overlay at %i and collapse returns focus to the active card', async (pixels) => {
+    const { fixture, width } = mount();
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    width.set(pixels);
+    fixture.detectChanges();
+    const opener = fixture.nativeElement.querySelector<HTMLButtonElement>('[data-pane-side="right"] [aria-label="Open details"]');
+    opener?.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')?.closest('[data-pane-side]')).not.toBeNull();
+    instance.closeSplit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(fixture.nativeElement.querySelector('[data-rail-card][data-tab-id="b"] .rc-select'));
+  });
+
+  it('expected reorder permutation with 176/96/56 heights and persistence write failure via the service', async () => {
+    const { fixture, tiles, store, writeFailed, board, metrics } = mount(true, 3);
+    (store.reorderTiles as jest.Mock).mockImplementation((ids: string[]) => {
+      tiles.set(ids.map((tabId, order) => ({ tabId, order }) as CanvasTile));
+    });
+    const list = fixture.nativeElement.querySelector<HTMLElement>('ptah-canvas-rail .overflow-y-auto');
+    list.scrollTop = 200;
+    fixture.componentInstance.move('b', -1);
+    fixture.detectChanges();
+    expect(store.reorderTiles).toHaveBeenCalledWith(['b', 'a', 'c']);
+    expect([...fixture.nativeElement.querySelectorAll('[data-rail-card]')].map((node) => node.getAttribute('data-tab-id'))).toEqual(['b', 'a', 'c']);
+    await fixture.whenStable();
+    const moved = [...fixture.nativeElement.querySelectorAll<HTMLElement>('[data-rail-card]')].find((node) => node.dataset['tabId'] === 'b');
+    expect(document.activeElement).toBe(moved?.querySelector('.rc-select'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(list.scrollTop).toBe(0);
+    expect(metrics.snapshot().railShifts).toBe(0);
+    const height = () => (fixture.nativeElement.querySelector('[data-rail-card]') as HTMLElement).style.height;
+    expect(height()).toBe('176px');
+    board.update((value) => ({ ...value, railDensity: 'dense' }));
+    fixture.detectChanges();
+    expect(height()).toBe('96px');
+    board.update((value) => ({ ...value, railCollapsed: true }));
+    fixture.detectChanges();
+    expect(height()).toBe('56px');
+    const count = (store.reorderTiles as jest.Mock).mock.calls.length;
+    fixture.componentInstance.move('b', -1);
+    expect(store.reorderTiles).toHaveBeenCalledTimes(count);
+    expect(fixture.componentInstance.announcement()).toContain('cannot move');
+    fixture.componentInstance.move('b', 1);
+    writeFailed.set(true);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toContain('could not be saved');
+  });
+
+  it('does not attribute a pre-existing persistence failure to reordering', () => {
+    const { fixture, writeFailed } = mount();
+    writeFailed.set(true);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('Layout changes could not be saved.');
+  });
+
+  it('does not attribute a later layout write failure to a successful reorder', async () => {
+    const { fixture, writeFailed } = mount();
+    fixture.componentInstance.move('b', -1);
+    await Promise.resolve();
+    writeFailed.set(true);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('Layout changes could not be saved.');
+  });
+
+  it('close inactive pane keeps active focus with an ordered neighbour present', async () => {
+    const { fixture, focused, store } = mount(true, 3);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    const spy = jest.spyOn(store, 'focusTile');
+    spy.mockClear();
+    await fixture.componentInstance.close('a');
+    fixture.detectChanges();
+    expect(focused()).toBe('b');
+    expect(spy).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.otherTabId()).toBeNull();
+  });
+
+  it('close active pane while the other tab is tiles[0] keeps that survivor despite transient null focus', async () => {
+    const { fixture, focused, store } = mount(true, 3);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    const remove = store.removeTile as jest.Mock;
+    const originalRemove = remove.getMockImplementation();
+    remove.mockImplementation(async (id: string) => {
+      await originalRemove?.(id);
+      focused.set(null);
+    });
+    await fixture.componentInstance.close('b');
+    fixture.detectChanges();
+    expect(focused()).toBe('a');
+    expect(fixture.componentInstance.otherTabId()).toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(1);
+  });
+
+  it('close uses the last valid focused pane when store focus is null before the action', async () => {
+    const { fixture, focused, store } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    focused.set(null);
+    await instance.close('b');
+    fixture.detectChanges();
+    expect(focused()).toBe('a');
+    expect(instance.otherTabId()).toBeNull();
+    expect(store.focusTile).toHaveBeenCalledWith('a');
+  });
+
+  it('cancelled close keeps both panes and their focus', async () => {
+    const { fixture, focused, store } = mount();
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    (store.removeTile as jest.Mock).mockImplementation(async () => undefined);
+    await fixture.componentInstance.close('b');
+    fixture.detectChanges();
+    expect(focused()).toBe('b');
+    expect(fixture.componentInstance.otherTabId()).toBe('a');
+    expect(fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view')).toHaveLength(2);
   });
 });
