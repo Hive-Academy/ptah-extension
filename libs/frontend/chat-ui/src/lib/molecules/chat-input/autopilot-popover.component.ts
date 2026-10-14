@@ -1,12 +1,13 @@
 import {
   Component,
   inject,
+  input,
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, Zap, ZapOff, ChevronDown } from 'lucide-angular';
 import { AutopilotStateService } from '@ptah-extension/core';
-import { type PermissionLevel } from '@ptah-extension/shared';
+import { type PermissionLevel, type SessionId } from '@ptah-extension/shared';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
 
 @Component({
@@ -190,6 +191,14 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
 export class AutopilotPopoverComponent {
   readonly autopilotState = inject(AutopilotStateService);
 
+  /**
+   * SDK session id of the tab this composer belongs to, or null while the tab
+   * has no live session. Sent with every toggle so the backend re-gates THIS
+   * session; without it the backend falls back to the most recently active
+   * session, which need not be the one the user is looking at.
+   */
+  readonly sessionId = input<SessionId | null>(null);
+
   readonly ZapIcon = Zap;
   readonly ZapOffIcon = ZapOff;
   readonly ChevronDownIcon = ChevronDown;
@@ -228,8 +237,12 @@ export class AutopilotPopoverComponent {
   async enableAutopilot(): Promise<void> {
     try {
       this._errorMessage.set(null);
-      await this.autopilotState.setPermissionLevel(this.selectedLevel());
-      await this.autopilotState.toggleAutopilot();
+      const sessionId = this.sessionId();
+      await this.autopilotState.setPermissionLevel(
+        this.selectedLevel(),
+        sessionId,
+      );
+      await this.autopilotState.toggleAutopilot(sessionId);
       this.closeDropdown();
     } catch (error) {
       console.error(
@@ -247,7 +260,7 @@ export class AutopilotPopoverComponent {
   async disableAutopilot(): Promise<void> {
     try {
       this._errorMessage.set(null);
-      await this.autopilotState.toggleAutopilot();
+      await this.autopilotState.toggleAutopilot(this.sessionId());
       this.closeDropdown();
     } catch (error) {
       console.error(

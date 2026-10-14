@@ -407,12 +407,15 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
       <!-- Status line under the card -->
       <div class="flex items-center gap-2 px-1 mt-1.5 min-w-0">
         <div class="flex items-center gap-0.5 min-w-0">
-          <ptah-autopilot-popover class="min-w-0" />
+          <ptah-autopilot-popover
+            class="min-w-0"
+            [sessionId]="tabSessionId()"
+          />
 
           <!-- MCP status (host is display: contents; renders nothing when the
                session reports no servers) -->
           <ptah-mcp-status-chip
-            [sessionId]="mcpSessionId()"
+            [sessionId]="tabSessionId()"
             [tabId]="mcpTabId()"
           />
 
@@ -560,17 +563,19 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Tab and session ids for the MCP status chip, resolved exactly as
-   * `ChatViewComponent` resolves them: a canvas tile scopes to its own tab via
-   * SESSION_CONTEXT, the main panel falls back to the global active tab. Both
-   * ids are passed because the backend pushes MCP status under the tabId until
-   * the SDK reports the session UUID.
+   * Tab and session ids of the tab this composer belongs to, resolved exactly
+   * as `ChatViewComponent` resolves them: a canvas tile scopes to its own tab
+   * via SESSION_CONTEXT, the main panel falls back to the global active tab.
+   * The MCP status chip gets both ids because the backend pushes MCP status
+   * under the tabId until the SDK reports the session UUID. The autopilot
+   * popover gets the session id so a toggle re-gates THIS tab's session, not
+   * the backend's most recently active one.
    */
   protected readonly mcpTabId = computed(
     () => this._sessionContext?.() ?? this.tabManager.activeTabId(),
   );
 
-  protected readonly mcpSessionId = computed(() =>
+  protected readonly tabSessionId = computed(() =>
     this._sessionContext
       ? (this.resolvedTab()?.claudeSessionId ?? null)
       : this.chatStore.currentSessionId(),
