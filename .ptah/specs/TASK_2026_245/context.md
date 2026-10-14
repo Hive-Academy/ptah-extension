@@ -92,3 +92,8 @@ Options, none of them yet chosen:
   registered candidate would trigger
 - TASK_2026_180 `tasks.md` §6 and `CONTINUATION.md` for the phase-3 decisions
   above in full.
+
+## Cancelled (2026-10-14, TASK_2026_659_cec4)
+
+Cancelled: the replay gate never produced a result and the skill-synthesis pipeline is switched off and proposed for removal.
+Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.

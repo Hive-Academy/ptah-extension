@@ -133,6 +133,7 @@ import {
 import type {
   AgentReportRouter,
   AgentRoleResolver,
+  ISessionHandoff,
   ISessionSpawner,
   LaneLimitLookupService,
 } from '@ptah-extension/cli-agent-runtime';
@@ -914,6 +915,7 @@ export class PtahAPIBuilder {
       session: this.buildNamespaceSafe('session', () =>
         buildSessionNamespace({
           getSpawner: () => this.resolveSessionSpawner(),
+          getHandoff: () => this.resolveSessionHandoff(),
           getCallerSessionId,
           onWorktreeChanged: this.buildWorktreeChangeHandler(),
         }),
@@ -1151,6 +1153,18 @@ export class PtahAPIBuilder {
     const container = this.container;
     if (!container?.isRegistered(token, true)) return undefined;
     return container.resolve<ISessionSpawner>(token);
+  }
+
+  /**
+   * The session handoff service (TASK_2026_655), resolved on EVERY call for
+   * the same reason as `resolveSessionSpawner`. `undefined` when the host
+   * never registered it; the session namespace turns that into a named error.
+   */
+  private resolveSessionHandoff(): ISessionHandoff | undefined {
+    const token = CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF;
+    const container = this.container;
+    if (!container?.isRegistered(token, true)) return undefined;
+    return container.resolve<ISessionHandoff>(token);
   }
 
   /**

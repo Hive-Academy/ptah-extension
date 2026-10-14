@@ -184,6 +184,16 @@ export const MESSAGE_TYPES = {
    * that missed the push adopts live children through `chat:agent-sessions`.
    */
   AGENT_SESSION_OPENED: 'agentSession:opened',
+  /**
+   * Backend → Frontend: a session handed its work off with
+   * `ptah_session_handoff` and the new top-level session's tab should open
+   * (TASK_2026_655).
+   *
+   * Pushed BEFORE the new session starts, like `AGENT_SESSION_OPENED`. Only
+   * the panel holding `fromTabId` adopts it, after that tab and focused; the
+   * new tab is an ordinary chat, not a child.
+   */
+  SESSION_HANDOFF_OPENED: 'sessionHandoff:opened',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',

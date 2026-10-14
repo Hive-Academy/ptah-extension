@@ -1,0 +1,16 @@
+Verdict: APPROVED — 8/10
+
+## Findings
+- No Blocking or Serious finding in commit `551a84699`. Moderate coverage gap: the tests model only active tabs (`conversation.service.spec.ts:163-172,599-613`; `session-budget-actions.queue.spec.ts:124-153,337-351`), while the production lookup also searches parked partitions (`tab-workspace-partition.service.ts:324-348`).
+- Moderate ordering uncertainty: the held `/clear` test resets synchronously inside its sender mock (`session-budget-actions.queue.spec.ts:367-398`). Production awaits broadcast before replying (`chat-slash-command-router.service.ts:92-105`), but VS Code broadcast awaits posting rather than frontend handling (`webview-manager.ts:297-317`). If the RPC reply overtakes the clear event, release could settle true and queue handoff (`message-dispatch.service.ts:249-270`; `conversation.service.ts:257-266`) before reset clears it (`tab-manager.service.ts:1403-1415`). That case would misreport a queued handoff, though the promise would settle.
+
+## Five logic checks
+1. Silent failure: removal and reset now settle held promises false (`conversation.service.ts:99-113,274-278`); the transport ordering uncertainty above could instead report queued before reset removes it.
+2. User action: removing an active or parked workspace prunes only IDs absent across all partitions (`tab-manager.service.ts:826-834`; `tab-workspace-partition.service.ts:324-348,446-478`; `conversation.service.ts:104-115`). Removing another workspace preserves an extant tab.
+3. Input data: tab IDs are global UUIDs (`tab-workspace-partition.service.ts:310-314`); coalesced removal signals still prune all currently absent held IDs (`conversation.service.ts:104-115`).
+4. Dependency failure: a missing tab at release is dropped (`conversation.service.ts:244-250`); a failed queue send restores text and does not release the held command (`message-dispatch.service.ts:254-270`).
+5. Missing requirement: specify whether broadcast posting is sufficient to order the frontend clear handler before its RPC reply (`chat-slash-command-router.service.ts:95-105`; `webview-manager.ts:297-317`).
+
+`resetTabToFresh` clears queue and session before its synchronous reset event (`tab-manager.service.ts:1403-1439`), so no held command that a subsequent bound-session flush would send is dropped. Workspace removal deletes partition state before signaling, and active tabs are cleared in the same synchronous call (`tab-workspace-partition.service.ts:456-478`; `tab-manager.service.ts:826-834`). A one-tick effect delay cannot send a removed tab's held command: release checks cross-workspace presence first (`conversation.service.ts:244-250`). The close listener has DestroyRef cleanup; the effect is injector-owned; deleting the map before settlement prevents duplicate settlement (`conversation.service.ts:99-107,274-278`).
+
+Verification: the two scoped Jest suites passed, 35 tests. Scoped diagnostics reported existing spec typing errors (`conversation.service.spec.ts:95,115`) and no new error in the changed service. Score 8 rather than 9 reflects the untested parked-tab and transport-order cases; above 7 because both original pending-promise paths now settle with evidence.

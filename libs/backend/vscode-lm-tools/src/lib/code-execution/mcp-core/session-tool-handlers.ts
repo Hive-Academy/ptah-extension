@@ -13,24 +13,32 @@
  * with the rollback table); every other refusal is a plain-text answer with
  * its code and detail, because it is an answer the agent acts on, not a
  * fault. Every reply, error or not, ends with the caller's held completions.
+ *
+ * `ptah_session_handoff` (TASK_2026_655) follows the same mapping: only
+ * `session-start-failed` is `isError`. Its prompt is never logged or echoed:
+ * no reply or log line here interpolates an argument value.
  */
 import type { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  SessionChildCompletionEnvelope,
-  SessionChildLookupRefusal,
-  SessionChildRollbackStep,
-  SessionChildSendResult,
-  SessionChildSnapshot,
-  SessionChildStartResult,
+import {
+  safeErrorKind,
+  type SessionChildCompletionEnvelope,
+  type SessionChildLookupRefusal,
+  type SessionChildRollbackStep,
+  type SessionChildSendResult,
+  type SessionChildSnapshot,
+  type SessionChildStartResult,
+  type SessionHandoffResult,
 } from '@ptah-extension/cli-agent-runtime';
-import type {
-  SessionNamespace,
-  SessionReadOutcome,
-  SessionStatusOutcome,
-  SessionStopOutcome,
+import {
+  SESSION_HANDOFF_UNAVAILABLE_MESSAGE,
+  type SessionNamespace,
+  type SessionReadOutcome,
+  type SessionStatusOutcome,
+  type SessionStopOutcome,
 } from '../namespace-builders/session-namespace.builder';
 import {
+  SessionHandoffArgsSchema,
   SessionReadArgsSchema,
   SessionSendArgsSchema,
   SessionStartArgsSchema,
@@ -38,6 +46,7 @@ import {
   SessionStopArgsSchema,
 } from './session-tool-args.schema';
 import {
+  SESSION_HANDOFF_TOOL_NAME,
   SESSION_READ_TOOL_NAME,
   SESSION_SEND_TOOL_NAME,
   SESSION_START_TOOL_NAME,
@@ -67,6 +76,8 @@ const REQUIRED_KEYS: Readonly<Record<SessionToolName, string>> = {
   [SESSION_STATUS_TOOL_NAME]: 'No argument is required.',
   [SESSION_READ_TOOL_NAME]: 'Required: "sessionId".',
   [SESSION_STOP_TOOL_NAME]: 'Required: "sessionId".',
+  [SESSION_HANDOFF_TOOL_NAME]:
+    'Required: "handoffPath" (absolute) and a non-empty "prompt".',
 };
 
 /** Render a zod failure as one line naming each offending field. */
@@ -300,6 +311,43 @@ export function sessionStopReply(
   };
 }
 
+/**
+ * The handoff reply. It states `tabOpened` verbatim, so the session-handoff
+ * skill can branch on it, and every refusal keeps its code and detail (e.g.
+ * the start-timeout detail saying the session may still open late).
+ */
+export function sessionHandoffReply(
+  result: SessionHandoffResult,
+): SessionToolReply {
+  if (result.ok) {
+    const where = `"${result.label}" (tab ${result.tabId}) in ${result.cwd}`;
+    if (result.tabOpened) {
+      return {
+        isError: false,
+        text: joinBlocks(
+          `Opened a new session ${where}.`,
+          'tabOpened: true. Tell the user it is open and ask them to close ' +
+            'this session. Do no further work here.',
+        ),
+      };
+    }
+    return {
+      isError: false,
+      text: joinBlocks(
+        `Started a new session ${where}.`,
+        'tabOpened: false. No Ptah window took the tab; it is listed in the ' +
+          'session sidebar. Tell the user to open it from the session list ' +
+          'in the Ptah sessions panel, and to close this session only after ' +
+          'they have found it. Do no further work here.',
+      ),
+    };
+  }
+  return {
+    isError: result.refusal === 'session-start-failed',
+    text: `${SESSION_HANDOFF_TOOL_NAME} refused (${result.refusal}): ${result.detail}`,
+  };
+}
+
 /* ---------------------------------------------------------------------------
  * Routing
  * ------------------------------------------------------------------------- */
@@ -378,6 +426,14 @@ async function runTool(
         reply: sessionStopReply(await session.stop(parsed.data.sessionId)),
       };
     }
+    case SESSION_HANDOFF_TOOL_NAME: {
+      const parsed = SessionHandoffArgsSchema.safeParse(input);
+      if (!parsed.success) return invalid(name, parsed.error);
+      return {
+        kind: 'reply',
+        reply: sessionHandoffReply(await session.handoff(parsed.data)),
+      };
+    }
   }
 }
 
@@ -386,10 +442,29 @@ function errorText(error: unknown): string {
 }
 
 /**
+ * Why a tool call threw, as text safe to log and return. A handoff carries
+ * the continuation prompt, and anything below the tool may quote it in an
+ * error's message, name or code, so for the handoff only the namespace's own
+ * fixed "unavailable" text passes through; any other failure is reduced to
+ * its allowlisted kind. The other session tools keep the thrown message.
+ */
+function failureText(name: SessionToolName, error: unknown): string {
+  if (name !== SESSION_HANDOFF_TOOL_NAME) return errorText(error);
+  if (
+    error instanceof Error &&
+    error.message === SESSION_HANDOFF_UNAVAILABLE_MESSAGE
+  ) {
+    return SESSION_HANDOFF_UNAVAILABLE_MESSAGE;
+  }
+  return `unexpected error (${safeErrorKind(error)})`;
+}
+
+/**
  * The caller's held completions. Taking them must not cost the tool's own
  * answer (a started child is still started), so a failure here is logged
  * and the reply goes out without them; the spawner keeps them held only if
- * it never returned them.
+ * it never returned them. Only the error's allowlisted kind is logged: this
+ * runs after every session tool, including a handoff.
  */
 function takeHeld(
   session: SessionNamespace,
@@ -401,7 +476,7 @@ function takeHeld(
     // degradation-audit: reported - logged at warn; the tool's own reply is
     // still returned, and nothing was marked delivered by a call that threw.
     logger.warn(
-      `[MCP] could not collect held session completions: ${errorText(error)}`,
+      `[MCP] could not collect held session completions: ${safeErrorKind(error)}`,
     );
     return [];
   }
@@ -420,11 +495,12 @@ export async function handleSessionToolCall(
   } catch (error: unknown) {
     // degradation-audit: reported - the failure is returned to the agent as
     // an isError result naming the cause (e.g. no session spawner in this
-    // host) and logged at warn.
-    logger.warn(`[MCP] ${name} failed: ${errorText(error)}`);
+    // host) and logged at warn; a handoff names only a safe cause.
+    const cause = failureText(name, error);
+    logger.warn(`[MCP] ${name} failed: ${cause}`);
     body = {
       kind: 'reply',
-      reply: { isError: true, text: `${name} failed: ${errorText(error)}` },
+      reply: { isError: true, text: `${name} failed: ${cause}` },
     };
   }
   const held = renderHeldCompletions(takeHeld(session, logger));
