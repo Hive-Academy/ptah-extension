@@ -161,9 +161,11 @@ describe('SubagentHandoffIndex', () => {
     expect(listed(first)).toEqual(files.slice(0, 10));
     expect(first).toContain(`Ptah: 13 more handoff records in \`${dir}\``);
     expect(listed(second)).toEqual(files.slice(10, 20));
+    expect(second).toContain(`Ptah: 3 more handoff records in \`${dir}\``);
     expect(listed(third)).toEqual(files.slice(20));
-    expect(third).toContain('Ptah: 20 more handoff records');
+    expect(third).not.toContain('more handoff records');
     expect(listed(fourth)).toEqual(files.slice(0, 10));
+    expect(fourth).toContain(`Ptah: 13 more handoff records in \`${dir}\``);
   });
 
   it('2 050 names: every pending record is named eventually', async () => {
@@ -225,6 +227,49 @@ describe('SubagentHandoffIndex', () => {
       oldPending,
       oldMalformed,
     ]);
+  });
+
+  it('does not recheck resolved heads or claim more records after a rescan', async () => {
+    for (let i = 0; i < 15; i += 1) {
+      record({ content: '---\nstatus: consumed\n---\n' });
+    }
+    const real = nodeFs();
+    const readHead = jest.fn(real.readHead);
+    const readdir = jest.fn(real.readdir);
+    const { index } = makeIndex(nodeFs({ readHead, readdir }));
+
+    expect(await index.pointerFor(root, audience())).toContain(
+      '5 more handoff records',
+    );
+    await expect(index.pointerFor(root, audience())).resolves.toBeUndefined();
+    expect(readHead).toHaveBeenCalledTimes(15);
+
+    clock += INDEX_RESCAN_MS;
+    await expect(index.pointerFor(root, audience())).resolves.toBeUndefined();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(index.pointerFor(root, audience())).resolves.toBeUndefined();
+    expect(readdir).toHaveBeenCalledTimes(2);
+    expect(readHead).toHaveBeenCalledTimes(15);
+  });
+
+  it('forgets a resolved name when it disappears from a rescan', async () => {
+    const file = record({ content: '---\nstatus: dismissed\n---\n' });
+    const { index } = makeIndex();
+    await expect(index.pointerFor(root, audience())).resolves.toBeUndefined();
+
+    fs.unlinkSync(file);
+    clock += INDEX_RESCAN_MS;
+    await index.pointerFor(root, audience());
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    fs.writeFileSync(file, renderRecord(BODY));
+    clock += INDEX_RESCAN_MS;
+    await index.pointerFor(root, audience());
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(listed(await index.pointerFor(root, audience()))).toEqual([file]);
   });
 
   it('never lists a temporary record file and deletes one older than 7 days (a failed unlink)', async () => {

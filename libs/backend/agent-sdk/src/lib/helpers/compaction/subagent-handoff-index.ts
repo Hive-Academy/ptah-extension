@@ -117,6 +117,8 @@ interface WorkspaceIndex {
   loading?: Promise<void>;
   /** Names published while a load runs; merged when it resolves. */
   readonly published: Set<string>;
+  /** Resolved names retained until they disappear from disk. */
+  readonly resolved: Set<string>;
   /** Last visited name per cursor key. */
   readonly cursors: Map<string, string>;
   /** Where the next load's temp-file cleanup starts (rotates across loads). */
@@ -200,6 +202,7 @@ export class SubagentHandoffIndex {
         ready: false,
         loadedAt: 0,
         published: new Set(),
+        resolved: new Set(),
         cursors: new Map(),
         tempCursor: 0,
       };
@@ -230,11 +233,22 @@ export class SubagentHandoffIndex {
         );
       }
       const found = check.ok ? await this.files.readdir(check.dir) : [];
+      const present = new Set(found);
+      for (const name of index.resolved) {
+        if (!present.has(name)) {
+          index.resolved.delete(name);
+        }
+      }
       const names = new Set(
-        found.filter((name) => parseRecordName(name) !== undefined),
+        found.filter(
+          (name) =>
+            parseRecordName(name) !== undefined && !index.resolved.has(name),
+        ),
       );
       for (const name of index.published) {
-        names.add(name);
+        if (!index.resolved.has(name)) {
+          names.add(name);
+        }
       }
       index.published.clear();
       index.names = [...names].sort();
@@ -295,7 +309,7 @@ export class SubagentHandoffIndex {
       visited += 1;
     }
     const lines = listed.length > 0 ? [POINTER_HEADER, ...listed] : [];
-    const more = candidates.length - visited;
+    const more = candidates.length - (start + visited);
     if (expired) {
       lines.push(timeoutLine(index.dir));
     } else if (more > 0) {
@@ -333,6 +347,7 @@ export class SubagentHandoffIndex {
     }
     if (read.status === 'consumed' || read.status === 'dismissed') {
       removeName(index.names, name);
+      index.resolved.add(name);
       if (this.now() - read.mtimeMs > HANDOFF_RETENTION_MS) {
         await this.deleteResolved(file);
       }
