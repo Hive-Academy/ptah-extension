@@ -141,7 +141,7 @@ export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
     group: 'context-budgets',
     kind: 'number',
     label: 'Subagent handoff size',
-    help: "Above this many tokens, a subagent's result is summarised before it is handed back to the main chat.",
+    help: 'When a subagent context reaches this size, Ptah stops it and gives the main chat a handoff to continue the work.',
     unit: 'tokens',
     min: 1_000,
     max: 2_000_000,
