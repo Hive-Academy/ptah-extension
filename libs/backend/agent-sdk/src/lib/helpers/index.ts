@@ -55,12 +55,12 @@ export {
   isPreCompactHook,
   isPostCompactHook,
 } from './compaction-hook-handler';
+export type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
 export {
   adviseSubagentResume,
-  type SubagentBudgetMonitor,
   type SubagentResumeAdvice,
   type SubagentResumeAdviceInput,
-} from './compaction/subagent-budget-monitor';
+} from './compaction/subagent-resume-advice';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
 export { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 export {
