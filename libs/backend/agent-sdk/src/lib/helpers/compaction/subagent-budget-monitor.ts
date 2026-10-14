@@ -20,13 +20,24 @@
  *
  * Either one stops the subagent through `SubagentMessageDispatcher.stopSubagent`,
  * marks it not resumable in the registry when it has a record there, and
- * hands one parent message with a ready handoff to the port's
- * `pushParentMessage` (bound in DI to the main-thread notice queue, so the
- * handoff reaches the parent with its next main-thread tool result). The
- * handoff restates the subagent's task, read from the `Agent`/`Task`
- * `tool_use` input of the message that spawned it. Starting the fresh subagent
- * is left to the parent model: the SDK gives the host no API to spawn a Task
- * subagent itself.
+ * hands the parent one message with a ready handoff, exactly once:
+ *
+ * - Foreground subagent (its spawning `Agent`/`Task` tool result has not come
+ *   back): the handoff is posted to the main-thread notice queue and rides on
+ *   that tool result, drained by the PostToolUse hook. When the tool result
+ *   then reaches the stream with the notice still pending (no PostToolUse
+ *   drained it), the notice is withdrawn and sent as a user turn instead.
+ * - Background subagent (its tool result came back at spawn, "Async agent
+ *   launched"): no later main-thread tool result is due, and the session
+ *   budget clears pending notices at turn end, so the handoff is streamed to
+ *   the parent as a host-authored user turn (`pushParentMessage`).
+ *
+ * The handoff names Ptah's subagent budget monitor as the one that stopped
+ * the subagent: the SDK's own task notification calls it "stopped by user".
+ * It restates the subagent's task, read from the `Agent`/`Task` `tool_use`
+ * input of the message that spawned it. Starting the fresh subagent is left
+ * to the parent model: the SDK gives the host no API to spawn a Task subagent
+ * itself.
  *
  * Task id: `stopSubagent` needs the SDK task id. It comes from the SDK's
  * `task_started` message ({@link SubagentBudgetMonitor.recordTaskStarted}),
@@ -235,6 +246,8 @@ interface SubagentState {
   stopped: boolean;
   /** A stop could not start (no task id from `task_started` or the registry yet); logged once. */
   stopDeferredLogged: boolean;
+  /** The handoff waiting in the notice queue for the spawning tool result. */
+  pendingNotice?: { readonly sessionId: string; readonly text: string };
 }
 
 /** What the SDK's `task_started` message reported for one spawning tool_use. */
@@ -257,17 +270,31 @@ interface SessionState {
   readonly taskTexts: Map<string, string>;
   /** SDK task per spawning tool_use id, from `task_started`. */
   readonly startedTasks: Map<string, StartedTask>;
+  /**
+   * Per spawning tool_use id (an `Agent`/`Task` tool_use or a `task_started`):
+   * whether its tool result has reached the main thread.
+   */
+  readonly spawnReturned: Map<string, boolean>;
   noUsageLogged: boolean;
   stopDisabledLogged: boolean;
   /** Set when a rekey merged this record into another; a stop in flight follows it. */
   mergedInto?: SessionState;
 }
 
-/** The dispatcher operations the monitor uses. */
-export type SubagentBudgetDispatcherPort = Pick<
+/**
+ * The dispatcher and main-thread notice queue operations the monitor uses.
+ * `pushParentMessage` streams a user turn; the two notice operations bind to
+ * `MainThreadNoticeQueue.post` and `MainThreadNoticeQueue.withdraw`.
+ */
+export interface SubagentBudgetDispatcherPort extends Pick<
   SubagentMessageDispatcher,
   'stopSubagent' | 'pushParentMessage'
->;
+> {
+  /** Queue a notice for the parent's next main-thread tool result. */
+  postMainThreadNotice(sessionId: string, text: string): void;
+  /** Take back a queued notice; `true` when it was still pending. */
+  withdrawMainThreadNotice(sessionId: string, text: string): boolean;
+}
 
 /**
  * A plain class built by a factory in `registerSdkServices`, not `useClass`:
@@ -290,9 +317,12 @@ export class SubagentBudgetMonitor {
   /**
    * Observe one forwarded stream message of `sessionId`. An assistant message
    * that spawns a subagent (an `Agent`/`Task` `tool_use`) records the task
-   * text for the handoff. Only subagent assistant messages (a string
-   * `parent_tool_use_id`) are counted. Resolves once any stop it triggered
-   * has finished; never rejects.
+   * text for the handoff. A main-thread user message with `tool_result`
+   * blocks marks the spawning calls it answers as returned, and delivers a
+   * handoff still waiting in the notice queue for such a result. Only
+   * subagent assistant messages (a string `parent_tool_use_id`) are counted.
+   * Resolves once any stop or delivery it triggered has finished; never
+   * rejects.
    *
    * @param cacheTtl - The session's effective subagent prompt-cache TTL, used
    *   to price cache writes whose TTL split the message does not report.
@@ -303,6 +333,13 @@ export class SubagentBudgetMonitor {
     cacheTtl: SubagentPromptCacheTtl = SDK_DEFAULT_TTL,
   ): Promise<void> {
     const msg = asObject(message);
+    if (
+      msg?.['type'] === 'user' &&
+      typeof msg['parent_tool_use_id'] !== 'string'
+    ) {
+      await this.recordToolResults(sessionId, msg);
+      return;
+    }
     if (msg?.['type'] !== 'assistant') {
       return;
     }
@@ -380,10 +417,12 @@ export class SubagentBudgetMonitor {
     if (!sessionId || !toolUseId || !taskId) {
       return;
     }
-    this.sessionState(sessionId).startedTasks.set(toolUseId, {
+    const session = this.sessionState(sessionId);
+    session.startedTasks.set(toolUseId, {
       taskId,
       subagentType: subagentType || undefined,
     });
+    trackSpawn(session, toolUseId);
   }
 
   /** What the monitor knows about a subagent, or `undefined` when it saw none of its usage. */
@@ -443,6 +482,11 @@ export class SubagentBudgetMonitor {
           session.startedTasks.set(toolUseId, started);
         }
       }
+      for (const [toolUseId, returned] of existing.spawnReturned) {
+        if (returned || !session.spawnReturned.has(toolUseId)) {
+          session.spawnReturned.set(toolUseId, returned);
+        }
+      }
       existing.mergedInto = session;
     }
     session.sessionId = toSessionId;
@@ -494,6 +538,7 @@ export class SubagentBudgetMonitor {
         subagents: new Map(),
         taskTexts: new Map(),
         startedTasks: new Map(),
+        spawnReturned: new Map(),
         noUsageLogged: false,
         stopDisabledLogged: false,
       };
@@ -555,9 +600,57 @@ export class SubagentBudgetMonitor {
       ) {
         continue;
       }
+      const session = this.sessionState(sessionId);
+      trackSpawn(session, id);
       const text = readSubagentTaskText(block['input']);
       if (text) {
-        this.sessionState(sessionId).taskTexts.set(id, text);
+        session.taskTexts.set(id, text);
+      }
+    }
+  }
+
+  /**
+   * Mark each spawning call this main-thread user message answers with a
+   * `tool_result` as returned. A handoff still pending in the notice queue
+   * for one of them was not drained by its PostToolUse, so it is withdrawn
+   * and streamed as a user turn instead (never both).
+   */
+  private async recordToolResults(
+    sessionId: string,
+    msg: JsonObject,
+  ): Promise<void> {
+    const content = asObject(msg['message'])?.['content'];
+    if (!Array.isArray(content)) {
+      return;
+    }
+    const session = this.sessions.get(this.currentSessionId(sessionId));
+    if (!session) {
+      return;
+    }
+    for (const item of content) {
+      const block = asObject(item);
+      const id = block?.['tool_use_id'];
+      if (
+        block?.['type'] !== 'tool_result' ||
+        typeof id !== 'string' ||
+        !session.spawnReturned.has(id)
+      ) {
+        continue;
+      }
+      session.spawnReturned.set(id, true);
+      const state = session.subagents.get(id);
+      const pending = state?.pendingNotice;
+      if (!state || !pending) {
+        continue;
+      }
+      state.pendingNotice = undefined;
+      if (
+        this.dispatcher.withdrawMainThreadNotice(
+          pending.sessionId,
+          pending.text,
+        )
+      ) {
+        await this.pushHandoff(session.sessionId, id, pending.text);
       }
     }
   }
@@ -661,20 +754,38 @@ export class SubagentBudgetMonitor {
       weightedUsed: Math.round(state.weightedUsed),
     });
 
+    const text = handoffMessage(
+      {
+        agentType: record?.agentType ?? started?.subagentType ?? 'subagent',
+        teammateName: record?.teammateName,
+      },
+      state,
+      reason,
+      limits,
+      live.taskTexts.get(toolCallId),
+    );
+    if (live.spawnReturned.get(toolCallId) === true) {
+      // Background subagent: its tool result already came back, so no
+      // main-thread tool result is due to carry a queued notice.
+      await this.pushHandoff(sessionId, toolCallId, text);
+      return;
+    }
+    // Foreground subagent: the handoff rides on its own tool result.
+    liveState.pendingNotice = { sessionId, text };
+    this.dispatcher.postMainThreadNotice(sessionId, text);
+  }
+
+  /** Stream the handoff to the parent as a host-authored user turn. */
+  private async pushHandoff(
+    sessionId: string,
+    toolCallId: string,
+    text: string,
+  ): Promise<void> {
     try {
-      await this.dispatcher.pushParentMessage(
-        sessionId,
-        handoffMessage(
-          {
-            agentType:
-              record?.agentType ?? started?.subagentType ?? 'subagent',
-            teammateName: record?.teammateName,
-          },
-          state,
-          reason,
-          limits,
-          live.taskTexts.get(toolCallId),
-        ),
+      await this.dispatcher.pushParentMessage(sessionId, text);
+      this.logger.info(
+        '[SubagentBudgetMonitor] Handoff sent to the parent as a user turn',
+        { sessionId, toolCallId },
       );
     } catch (error: unknown) {
       this.logger.warn(
@@ -728,6 +839,13 @@ export class SubagentBudgetMonitor {
   }
 }
 
+/** Track `toolUseId` as a call that may spawn a subagent; a known result stays known. */
+function trackSpawn(session: SessionState, toolUseId: string): void {
+  if (!session.spawnReturned.has(toolUseId)) {
+    session.spawnReturned.set(toolUseId, false);
+  }
+}
+
 /** A stop of this subagent is running or has finished. */
 function hasStopStarted(state: SubagentState): boolean {
   return state.stopInFlight || state.stopFired;
@@ -748,11 +866,14 @@ function handoffMessage(
     : `\`${subject.agentType}\``;
   const why =
     reason === 'handoff'
-      ? `at ${state.contextTokens} context tokens (handoff size ${limits.handoffTokens})`
+      ? `at ${state.contextTokens} context tokens (handoff limit ${limits.handoffTokens} tokens)`
       : `after ${Math.round(state.weightedUsed)} weighted tokens (safety limit ${limits.stopWeightedTokens})`;
   const task = taskText ? ` Its task was: ${taskText}` : '';
   return (
-    `Subagent ${name} was stopped ${why}. It cannot be resumed.${task} ` +
+    `Ptah's subagent budget monitor stopped subagent ${name} ${why}. ` +
+    `The user did not stop it; a task notification that reports it as ` +
+    `stopped by the user refers to this automatic stop. ` +
+    `It cannot be resumed.${task} ` +
     `If its task is not finished, start a fresh \`${subject.agentType}\` subagent with a handoff: ` +
     `restate its task and what remains; its output so far is in the session transcript.`
   );

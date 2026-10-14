@@ -51,6 +51,26 @@ describe('MainThreadNoticeQueue', () => {
     expect(queue.take('sess-1')).toBe('n2\n\nn3\n\nn4\n\nn5');
   });
 
+  it('withdraw removes one pending notice and reports whether it was pending', () => {
+    const queue = new MainThreadNoticeQueue(makeLogger());
+    queue.post('sess-1', 'keep');
+    queue.post('sess-1', 'handoff');
+
+    expect(queue.withdraw('sess-1', 'handoff')).toBe(true);
+    expect(queue.withdraw('sess-1', 'handoff')).toBe(false);
+    expect(queue.withdraw('sess-2', 'keep')).toBe(false);
+    expect(queue.take('sess-1')).toBe('keep');
+  });
+
+  it('withdraw matches a capped notice by its full text and frees the session entry', () => {
+    const queue = new MainThreadNoticeQueue(makeLogger());
+    const long = 'x'.repeat(MAX_NOTICE_CHARS + 10);
+    queue.post('sess-1', long);
+
+    expect(queue.withdraw('sess-1', long)).toBe(true);
+    expect(queue.take('sess-1')).toBeUndefined();
+  });
+
   it('caps each notice at the character limit', () => {
     const queue = new MainThreadNoticeQueue(makeLogger());
     queue.post('sess-1', 'x'.repeat(MAX_NOTICE_CHARS + 500));

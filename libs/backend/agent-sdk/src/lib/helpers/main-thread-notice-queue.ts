@@ -12,7 +12,8 @@
  * Bounds: at most {@link MAX_PENDING_NOTICES_PER_SESSION} pending notices per
  * session (the oldest is dropped, one DEBUG line per drop), each cut to
  * {@link MAX_NOTICE_CHARS} characters. A map entry exists only while a notice
- * is pending; `take` and `clear` delete it. No timers, no polling.
+ * is pending; `take`, `clear` and a `withdraw` of the last notice delete it.
+ * No timers, no polling.
  */
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
@@ -75,6 +76,25 @@ export class MainThreadNoticeQueue {
     }
     this.pending.delete(sessionId);
     return notices.length > 0 ? notices.join(NOTICE_SEPARATOR) : undefined;
+  }
+
+  /**
+   * Remove one pending notice equal to `text` (as `post` stored it) and
+   * report whether it was still pending. The subagent budget monitor uses it
+   * to take back a handoff no tool result drained, so it can deliver it
+   * another way exactly once.
+   */
+  withdraw(sessionId: string, text: string): boolean {
+    const notices = this.pending.get(sessionId);
+    const index = notices?.indexOf(capNotice(text)) ?? -1;
+    if (!notices || index < 0) {
+      return false;
+    }
+    notices.splice(index, 1);
+    if (notices.length === 0) {
+      this.pending.delete(sessionId);
+    }
+    return true;
   }
 
   /** Drop every pending notice for the session (session ended or released). */

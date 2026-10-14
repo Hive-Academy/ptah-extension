@@ -7,6 +7,7 @@ import type {
 } from '@ptah-extension/vscode-core';
 import type { SubagentRecord } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
+import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
 import {
   MAX_STOP_ATTEMPTS,
   SubagentBudgetMonitor,
@@ -83,12 +84,21 @@ function makeHarness(
       subagentStopWeightedTokens: STOP_WEIGHTED,
     })),
   };
+  // Every handoff the monitor delivered, by either route.
   const streamed: string[] = [];
+  const notices = new MainThreadNoticeQueue(logger as unknown as Logger);
   const dispatcher = {
     stopSubagent: jest.fn().mockResolvedValue(undefined),
     pushParentMessage: jest.fn(async (_sessionId: string, content: string) => {
       streamed.push(content);
     }),
+    postMainThreadNotice: jest.fn((sessionId: string, text: string) => {
+      streamed.push(text);
+      notices.post(sessionId, text);
+    }),
+    withdrawMainThreadNotice: jest.fn((sessionId: string, text: string) =>
+      notices.withdraw(sessionId, text),
+    ),
   };
   const registry = {
     get: jest.fn(() =>
@@ -112,7 +122,25 @@ function makeHarness(
     dispatcher as unknown as SubagentBudgetDispatcherPort,
     registry as unknown as SubagentRegistryService,
   );
-  return { monitor, logger, dispatcher, registry, streamed };
+  return { monitor, logger, dispatcher, registry, streamed, notices };
+}
+
+/** The main-thread user message carrying the spawning call's tool result. */
+function toolResult(toolUseId = TOOL_CALL): unknown {
+  return {
+    type: 'user',
+    parent_tool_use_id: null,
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content: 'Async agent launched',
+        },
+      ],
+    },
+  };
 }
 
 /** A parent assistant message that spawns the subagent with `input`. */
@@ -268,7 +296,7 @@ describe('SubagentBudgetMonitor', () => {
       );
       expect(h.registry.update).not.toHaveBeenCalled();
       expect(h.streamed).toHaveLength(1);
-      expect(h.streamed[0]).toContain('Subagent `Plan` was stopped');
+      expect(h.streamed[0]).toContain('stopped subagent `Plan`');
       expect(h.streamed[0]).toContain('start a fresh `Plan` subagent');
       expect(h.logger.warn).not.toHaveBeenCalled();
       expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)?.stopped).toBe(true);
@@ -282,7 +310,7 @@ describe('SubagentBudgetMonitor', () => {
         assistant({ input: 200_000 }, { id: 'm1' }),
       );
 
-      expect(h.streamed[0]).toContain('Subagent `subagent` was stopped');
+      expect(h.streamed[0]).toContain('stopped subagent `subagent`');
     });
 
     it('stops with the recorded task id when the registry record has none, and marks the record', async () => {
@@ -501,7 +529,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)).toBeUndefined();
     expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
     expect(h.registry.update).not.toHaveBeenCalled();
-    expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+    expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
     expect(h.logger.warn).not.toHaveBeenCalled();
     expect(h.logger.debug).not.toHaveBeenCalled();
   });
@@ -526,7 +554,7 @@ describe('SubagentBudgetMonitor', () => {
       'Its task was: Map the auth module: List every auth entry point.',
     );
     expect(h.streamed[0]).not.toContain('x'.repeat(301));
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       SESSION,
       h.streamed[0],
     );
@@ -534,7 +562,10 @@ describe('SubagentBudgetMonitor', () => {
 
   it('reads the task from the earlier Task tool name and omits it when unknown', async () => {
     const h = makeHarness();
-    await h.monitor.observe(SESSION, spawn({ prompt: 'Fix the build' }, 'Task'));
+    await h.monitor.observe(
+      SESSION,
+      spawn({ prompt: 'Fix the build' }, 'Task'),
+    );
     await h.monitor.observe(
       SESSION,
       assistant({ input: 200_000 }, { id: 'm1' }),
@@ -560,7 +591,7 @@ describe('SubagentBudgetMonitor', () => {
     }
 
     expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
-    expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+    expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
     expect(h.registry.update).not.toHaveBeenCalled();
     expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)).toEqual(
       expect.objectContaining({ stopped: false, budgetReached: true }),
@@ -591,7 +622,7 @@ describe('SubagentBudgetMonitor', () => {
       'session-2',
       'task-1',
     );
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.stringContaining('Its task was: Audit logs'),
     );
@@ -631,8 +662,8 @@ describe('SubagentBudgetMonitor', () => {
     settle();
     await pending;
 
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.any(String),
     );
@@ -648,7 +679,7 @@ describe('SubagentBudgetMonitor', () => {
       assistant({ input: 300_000 }, { id: 'm2' }),
     );
     expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
   });
 
   it('a stop in flight across a rekey merge sends no handoff once released', async () => {
@@ -667,7 +698,7 @@ describe('SubagentBudgetMonitor', () => {
     settle();
     await pending;
 
-    expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+    expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
     expect(h.registry.update).not.toHaveBeenCalled();
     expect(h.monitor.getSnapshot('session-2', TOOL_CALL)).toBeUndefined();
   });
@@ -694,7 +725,7 @@ describe('SubagentBudgetMonitor', () => {
       'session-2',
       'task-1',
     );
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.any(String),
     );
@@ -764,14 +795,14 @@ describe('SubagentBudgetMonitor', () => {
       expect.stringContaining('retrying'),
       expect.objectContaining({ sessionId: 'session-2', attempt: 1 }),
     );
-    expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+    expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
 
     await h.monitor.observe(
       'session-2',
       assistant({ input: 200_000 }, { id: 'm2' }),
     );
     expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(2);
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
     expect(h.monitor.getSnapshot('session-2', TOOL_CALL)?.stopped).toBe(true);
   });
 
@@ -819,8 +850,8 @@ describe('SubagentBudgetMonitor', () => {
       expect.anything(),
     );
     expect(h.registry.update).toHaveBeenCalledTimes(1);
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.any(String),
     );
@@ -833,7 +864,7 @@ describe('SubagentBudgetMonitor', () => {
       'session-2',
       assistant({ input: 200_000 }, { id: 'm1' }),
     );
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
     await h.monitor.observe(SESSION, assistant({ input: 10 }, { id: 'm0' }));
     h.monitor.rekey(SESSION, 'session-2');
 
@@ -843,12 +874,15 @@ describe('SubagentBudgetMonitor', () => {
       assistant({ input: 300_000 }, { id: 'm2' }),
     );
     expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
   });
 
   it('the handoff after a rekey restates the task recorded on the merged-away record (rereview m3)', async () => {
     const h = makeHarness();
-    await h.monitor.observe('session-2', spawn({ description: 'Trace the bug' }));
+    await h.monitor.observe(
+      'session-2',
+      spawn({ description: 'Trace the bug' }),
+    );
     await h.monitor.observe(SESSION, assistant({ input: 10 }, { id: 'm0' }));
     h.monitor.rekey(SESSION, 'session-2');
     await h.monitor.observe(
@@ -856,7 +890,7 @@ describe('SubagentBudgetMonitor', () => {
       assistant({ input: 200_000 }, { id: 'm1' }),
     );
 
-    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+    expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.stringContaining('Its task was: Trace the bug'),
     );
@@ -883,6 +917,134 @@ describe('SubagentBudgetMonitor', () => {
     await h.monitor.observe(SESSION, assistant({ input: 10 }));
     h.monitor.release(SESSION);
     expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)).toBeUndefined();
+  });
+
+  describe('handoff route', () => {
+    it('background subagent (tool result already returned): streams the handoff as a parent user turn, not into the notice queue', async () => {
+      const h = makeHarness();
+      await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+      await h.monitor.observe(SESSION, toolResult());
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+        SESSION,
+        expect.stringContaining('Its task was: Map auth'),
+      );
+      expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
+      // Turn end clears the queue; nothing of the handoff was in it.
+      expect(h.notices.take(SESSION)).toBeUndefined();
+      // A later tool result for the same call delivers nothing more.
+      await h.monitor.observe(SESSION, toolResult());
+      expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('the handoff names the budget monitor, not the user, and the limit', async () => {
+      const h = makeHarness();
+      await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+      await h.monitor.observe(SESSION, toolResult());
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      const text = h.streamed[0];
+      expect(text).toContain("Ptah's subagent budget monitor stopped");
+      expect(text).toContain('The user did not stop it');
+      expect(text).toContain('handoff limit 150000 tokens');
+    });
+
+    it('foreground subagent: posts the handoff to the notice queue once; its drained tool result delivers nothing more', async () => {
+      const h = makeHarness();
+      await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+      // The `Agent` tool result's PostToolUse drains it.
+      expect(h.notices.take(SESSION)).toContain('Its task was: Map auth');
+      await h.monitor.observe(SESSION, toolResult());
+
+      expect(h.dispatcher.withdrawMainThreadNotice).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+      expect(h.streamed).toHaveLength(1);
+    });
+
+    it('foreground subagent whose tool result arrives with the notice still pending: withdraws it and streams it as a user turn, once', async () => {
+      const h = makeHarness();
+      await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+      await h.monitor.observe(SESSION, toolResult());
+      await h.monitor.observe(SESSION, toolResult());
+
+      expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+        SESSION,
+        h.dispatcher.postMainThreadNotice.mock.calls[0][1],
+      );
+      expect(h.notices.take(SESSION)).toBeUndefined();
+    });
+
+    it('a tool result that returns while the stop is in flight routes the handoff to a user turn', async () => {
+      const h = makeHarness();
+      await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+      let settle: () => void = () => undefined;
+      h.dispatcher.stopSubagent.mockReturnValueOnce(
+        new Promise<void>((resolve) => (settle = resolve)),
+      );
+      const pending = h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+      await h.monitor.observe(SESSION, toolResult());
+      settle();
+      await pending;
+
+      expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
+    });
+
+    it('a call known only from task_started counts as returned once its tool result arrives', async () => {
+      const h = makeHarness(null);
+      h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-9', 'Explore');
+      await h.monitor.observe(SESSION, toolResult());
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.stopSubagent).toHaveBeenCalledWith(SESSION, 'task-9');
+      expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
+    });
+
+    it("ignores a subagent's own tool results and results of calls that spawn nothing", async () => {
+      const h = makeHarness();
+      await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+      await h.monitor.observe(SESSION, {
+        ...(toolResult() as Record<string, unknown>),
+        parent_tool_use_id: 'toolu_parent',
+      });
+      await h.monitor.observe(SESSION, toolResult('toolu_read'));
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+
+      expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
+      expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+    });
   });
 });
 

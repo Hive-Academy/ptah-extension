@@ -626,11 +626,7 @@ describe('real watchdog query ownership regressions', () => {
     const result = await executor.executeQuery(
       makeConfig('pump', { initialPrompt: { content: 'hello' } }),
     );
-    const pump = new SessionStreamPump(
-      makeLogger(),
-      registry,
-      messageFactory,
-    );
+    const pump = new SessionStreamPump(makeLogger(), registry, messageFactory);
     result.activityWatchdog.start();
     const stream = pump.createUserMessageStream(
       'pump' as SessionId,
@@ -995,7 +991,12 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       return new SubagentBudgetMonitor(
         makeLogger(),
         config,
-        { stopSubagent: jest.fn(), pushParentMessage: jest.fn() },
+        {
+          stopSubagent: jest.fn(),
+          pushParentMessage: jest.fn(),
+          postMainThreadNotice: jest.fn(),
+          withdrawMainThreadNotice: jest.fn(),
+        },
         {} as SubagentRegistryService,
       );
     }
@@ -1057,7 +1058,10 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
           type: 'assistant',
           session_id: REAL,
           parent_tool_use_id: 'toolu_fm5',
-          message: { id: 'msg_1', usage: { input_tokens: 10, output_tokens: 1 } },
+          message: {
+            id: 'msg_1',
+            usage: { input_tokens: 10, output_tokens: 1 },
+          },
         }),
       );
       await flush();
@@ -1514,9 +1518,14 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
       run.abortController.abort();
     });
 
-    it('lets a real monitor stop a subagent the registry never recorded and hand off', async () => {
-      const stopSubagent = jest.fn().mockResolvedValue(undefined);
-      const pushParentMessage = jest.fn().mockResolvedValue(undefined);
+    /** A real monitor that hands off at 1000 context tokens, with spy ports. */
+    function handoffMonitor() {
+      const port = {
+        stopSubagent: jest.fn().mockResolvedValue(undefined),
+        pushParentMessage: jest.fn().mockResolvedValue(undefined),
+        postMainThreadNotice: jest.fn(),
+        withdrawMainThreadNotice: jest.fn(() => false),
+      };
       const registry = { get: jest.fn(() => undefined), update: jest.fn() };
       const monitor = new SubagentBudgetMonitor(
         makeLogger(),
@@ -1527,9 +1536,75 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
             subagentStopWeightedTokens: Number.MAX_SAFE_INTEGER,
           }),
         } as unknown as CompactionConfigProvider,
-        { stopSubagent, pushParentMessage },
+        port,
         registry as unknown as SubagentRegistryService,
       );
+      return { monitor, port, registry };
+    }
+
+    /** One over-budget request of the subagent spawned by `toolu_big`. */
+    const bigSubagentRequest = () =>
+      msg({
+        type: 'assistant',
+        session_id: REAL,
+        parent_tool_use_id: 'toolu_big',
+        message: {
+          id: 'msg_big',
+          usage: {
+            input_tokens: 2_000,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        },
+      });
+
+    it('streams the handoff as a user turn when the background subagent tool result already returned', async () => {
+      const { monitor, port } = handoffMonitor();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        subagentMonitor: monitor,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_ts5'));
+      feed(run, init());
+      feed(
+        run,
+        taskStarted({ tool_use_id: 'toolu_big', subagent_type: 'Explore' }),
+      );
+      // The background `Agent` call returns at spawn on the main thread.
+      feed(
+        run,
+        msg({
+          type: 'user',
+          session_id: REAL,
+          parent_tool_use_id: null,
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'toolu_big',
+                content: 'Async agent launched',
+              },
+            ],
+          },
+        }),
+      );
+      await flush();
+      feed(run, bigSubagentRequest());
+      await flush();
+      expect(port.stopSubagent).toHaveBeenCalledWith(REAL, 'task-1');
+      expect(port.pushParentMessage).toHaveBeenCalledTimes(1);
+      expect(port.pushParentMessage).toHaveBeenCalledWith(
+        REAL,
+        expect.stringContaining("Ptah's subagent budget monitor stopped"),
+      );
+      expect(port.postMainThreadNotice).not.toHaveBeenCalled();
+      run.abortController.abort();
+    });
+
+    it('lets a real monitor stop a subagent the registry never recorded and hand off', async () => {
+      const { monitor, port, registry } = handoffMonitor();
+      const { stopSubagent, postMainThreadNotice } = port;
       const { executor } = makeHarness('ask', {} as AuthEnv, {
         subagentMonitor: monitor,
       });
@@ -1539,30 +1614,16 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
         run,
         taskStarted({ tool_use_id: 'toolu_big', subagent_type: 'Explore' }),
       );
-      feed(
-        run,
-        msg({
-          type: 'assistant',
-          session_id: REAL,
-          parent_tool_use_id: 'toolu_big',
-          message: {
-            id: 'msg_big',
-            usage: {
-              input_tokens: 2_000,
-              output_tokens: 0,
-              cache_read_input_tokens: 0,
-              cache_creation_input_tokens: 0,
-            },
-          },
-        }),
-      );
+      feed(run, bigSubagentRequest());
       await flush();
       expect(stopSubagent).toHaveBeenCalledWith(REAL, 'task-1');
-      expect(pushParentMessage).toHaveBeenCalledTimes(1);
-      expect(pushParentMessage).toHaveBeenCalledWith(
+      // Foreground: the handoff rides on the `Agent` tool result still due.
+      expect(postMainThreadNotice).toHaveBeenCalledTimes(1);
+      expect(postMainThreadNotice).toHaveBeenCalledWith(
         REAL,
         expect.stringContaining('`Explore`'),
       );
+      expect(port.pushParentMessage).not.toHaveBeenCalled();
       expect(registry.update).not.toHaveBeenCalled();
       run.abortController.abort();
     });
@@ -1626,7 +1687,12 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
       return new SubagentBudgetMonitor(
         makeLogger(),
         config,
-        { stopSubagent: jest.fn(), pushParentMessage: jest.fn() },
+        {
+          stopSubagent: jest.fn(),
+          pushParentMessage: jest.fn(),
+          postMainThreadNotice: jest.fn(),
+          withdrawMainThreadNotice: jest.fn(),
+        },
         {} as SubagentRegistryService,
       );
     }
