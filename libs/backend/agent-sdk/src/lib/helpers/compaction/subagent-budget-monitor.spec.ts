@@ -1268,6 +1268,39 @@ describe('SubagentBudgetMonitor', () => {
         expect(h.notices.take(SESSION)).toContain('Its task was: Map auth');
       });
 
+      it('background handoff whose fallback is cleared and resent in vain is delivered once on the next main-thread message', async () => {
+        jest.useFakeTimers();
+        const h = makeHarness();
+        await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+        await h.monitor.observe(SESSION, toolResult());
+        h.dispatcher.pushParentMessage.mockRejectedValue(
+          new Error('not active'),
+        );
+        const allRetriesMs = PARENT_PUSH_RETRY_DELAY_MS * PARENT_PUSH_ATTEMPTS;
+        const pending = h.monitor.observe(
+          SESSION,
+          assistant({ input: 200_000 }, { id: 'm1' }),
+        );
+        await jest.advanceTimersByTimeAsync(allRetriesMs);
+        await pending;
+        // Turn end clears the fallback notice; its send rejects 3 times too.
+        h.notices.clear(SESSION);
+        await jest.advanceTimersByTimeAsync(allRetriesMs);
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(
+          PARENT_PUSH_ATTEMPTS * 2,
+        );
+        h.dispatcher.pushParentMessage.mockReset();
+        h.dispatcher.pushParentMessage.mockResolvedValue(undefined);
+
+        await h.monitor.observe(SESSION, toolResult('toolu_other'));
+        await h.monitor.observe(SESSION, toolResult('toolu_other_2'));
+
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+        expect(h.dispatcher.pushParentMessage.mock.calls[0][1]).toContain(
+          'Its task was: Map auth',
+        );
+      });
+
       it('handoff file checks that never settle: a degraded handoff after the bound, and no second one', async () => {
         jest.useFakeTimers();
         let finishSave: (saved: boolean) => void = () => undefined;

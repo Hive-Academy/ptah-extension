@@ -40,7 +40,8 @@
  *   the parent as a host-authored user turn (`pushParentMessage`).
  *
  * Both routes go through {@link SubagentHandoffDelivery}: a failed user turn
- * is retried, then kept pending in the notice queue.
+ * is retried, then kept pending in the notice queue, then in a session-owned
+ * record retried on the session's later main-thread messages.
  *
  * The handoff names Ptah's subagent budget monitor as the one that stopped
  * the subagent: the SDK's own task notification calls it "stopped by user".
@@ -339,7 +340,8 @@ export class SubagentBudgetMonitor {
    * that spawns a subagent (an `Agent`/`Task` `tool_use`) records the task
    * text for the handoff. A main-thread user message with `tool_result`
    * blocks marks the spawning calls it answers as returned, and delivers a
-   * handoff still waiting in the notice queue for such a result. Only
+   * handoff still waiting in the notice queue for such a result. Any
+   * main-thread message retries a handoff whose deliveries all failed. Only
    * subagent assistant messages (a string `parent_tool_use_id`) are counted.
    * Resolves once any stop or delivery it triggered has finished; never
    * rejects.
@@ -358,6 +360,7 @@ export class SubagentBudgetMonitor {
       typeof msg['parent_tool_use_id'] !== 'string'
     ) {
       await this.recordToolResults(sessionId, msg);
+      await this.delivery.retryPending(sessionId);
       return;
     }
     if (msg?.['type'] !== 'assistant') {
@@ -366,6 +369,7 @@ export class SubagentBudgetMonitor {
     this.recordTaskTexts(sessionId, msg);
     const toolCallId = msg['parent_tool_use_id'];
     if (typeof toolCallId !== 'string') {
+      await this.delivery.retryPending(sessionId);
       return;
     }
     const session = this.sessionState(sessionId);
@@ -582,6 +586,7 @@ export class SubagentBudgetMonitor {
       }
     }
     this.sessions.delete(sessionId);
+    this.delivery.release();
   }
 
   /** `sessionId` followed by each id a rekey moved it to, in order. */

@@ -4,6 +4,7 @@ import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
 import {
   PARENT_PUSH_ATTEMPTS,
   PARENT_PUSH_RETRY_DELAY_MS,
+  PENDING_HANDOFF_MAX_RETRIES,
   SubagentHandoffDelivery,
 } from './subagent-handoff-delivery';
 
@@ -42,7 +43,23 @@ function makeHarness() {
     port,
     notices,
     release: () => (live = undefined),
+    revive: () => (live = SESSION),
   };
+}
+
+/**
+ * Every push rejects: the send queues its fallback, turn end clears it and
+ * the drop-triggered send rejects as well, leaving a pending record.
+ */
+async function keepPendingRecord(
+  h: ReturnType<typeof makeHarness>,
+): Promise<void> {
+  h.port.pushParentMessage.mockRejectedValue(new Error('inactive'));
+  const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
+  await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
+  await sent;
+  h.notices.clear(SESSION);
+  await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
 }
 
 describe('SubagentHandoffDelivery', () => {
@@ -102,25 +119,81 @@ describe('SubagentHandoffDelivery', () => {
     expect(h.port.postMainThreadNotice).toHaveBeenCalledTimes(1);
   });
 
-  it('send: the last send after a drop that fails too is logged, not queued again', async () => {
+  it('send: 3 rejects, fallback cleared at turn end, 3 rejects: kept pending, then delivered once on the next opportunity', async () => {
     const h = makeHarness();
-    h.port.pushParentMessage.mockRejectedValue(new Error('inactive'));
-    const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
-    await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
-    await sent;
-
-    h.notices.clear(SESSION);
-    await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
+    await keepPendingRecord(h);
 
     expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
       PARENT_PUSH_ATTEMPTS * 2,
     );
     expect(h.port.postMainThreadNotice).toHaveBeenCalledTimes(1);
     expect(h.logger.warn).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain(TEXT);
     expect(h.notices.take(SESSION)).toBeUndefined();
+
+    h.port.pushParentMessage.mockReset();
+    h.port.pushParentMessage.mockResolvedValue(undefined);
+    await h.delivery.retryPending(SESSION);
+    await h.delivery.retryPending(SESSION);
+
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.port.pushParentMessage).toHaveBeenCalledWith(SESSION, TEXT);
   });
 
-  it('send: a timed-out push is neither retried nor queued (the write may still land)', async () => {
+  it('retryPending: concurrent opportunities push a pending record once', async () => {
+    const h = makeHarness();
+    await keepPendingRecord(h);
+    h.port.pushParentMessage.mockReset();
+    let finish: () => void = () => undefined;
+    h.port.pushParentMessage.mockImplementation(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+
+    const first = h.delivery.retryPending(SESSION);
+    await h.delivery.retryPending(SESSION);
+    finish();
+    await first;
+    await h.delivery.retryPending(SESSION);
+
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('release: session end drops the pending record', async () => {
+    const h = makeHarness();
+    await keepPendingRecord(h);
+    h.port.pushParentMessage.mockReset();
+
+    h.release();
+    h.delivery.release();
+    h.revive();
+    await h.delivery.retryPending(SESSION);
+
+    expect(h.port.pushParentMessage).not.toHaveBeenCalled();
+  });
+
+  it('retryPending: after the retry cap the record is dropped with one warn without its text', async () => {
+    const h = makeHarness();
+    await keepPendingRecord(h);
+    h.port.pushParentMessage.mockClear();
+    h.logger.warn.mockClear();
+
+    for (let i = 0; i < PENDING_HANDOFF_MAX_RETRIES; i += 1) {
+      await h.delivery.retryPending(SESSION);
+    }
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
+      PENDING_HANDOFF_MAX_RETRIES,
+    );
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(h.logger.warn.mock.calls[0])).not.toContain(TEXT);
+
+    await h.delivery.retryPending(SESSION);
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
+      PENDING_HANDOFF_MAX_RETRIES,
+    );
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('send: a timed-out push counts as delivered: not retried, queued or kept pending', async () => {
     const h = makeHarness();
     h.port.pushParentMessage.mockRejectedValueOnce(
       new RpcUserError('not read in 10s', 'SEND_TIMEOUT'),
@@ -129,10 +202,25 @@ describe('SubagentHandoffDelivery', () => {
     const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
     await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
     await sent;
+    await h.delivery.retryPending(SESSION);
 
     expect(h.port.pushParentMessage).toHaveBeenCalledTimes(1);
     expect(h.port.postMainThreadNotice).not.toHaveBeenCalled();
     expect(h.logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('retryPending: a timed-out retry counts as delivered and drops the record', async () => {
+    const h = makeHarness();
+    await keepPendingRecord(h);
+    h.port.pushParentMessage.mockReset();
+    h.port.pushParentMessage.mockRejectedValueOnce(
+      new RpcUserError('not read in 10s', 'SEND_TIMEOUT'),
+    );
+
+    await h.delivery.retryPending(SESSION);
+    await h.delivery.retryPending(SESSION);
+
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(1);
   });
 
   it('send: a session released between attempts gets no further push or notice', async () => {
