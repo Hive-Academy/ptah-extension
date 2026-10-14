@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 55 | Batches: 22 | Complete: 17/22
+Total tasks: 55 | Batches: 22 | Complete: 19/22
 
 Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
 only) → Batch 9 (with Task 9.0, moved from 7.1; verified, its commit waits for Batch 17) →
@@ -1463,7 +1463,7 @@ the three from Batch 21 — the unreachable post-resume
 
 Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accepted" is met).
 
-## Batch 14: Agent generation falls back to gathered context - COMPLETE
+## Batch 14: Agent generation falls back to gathered context - COMPLETE (commit 90e577f99)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1497,7 +1497,7 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
   `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/agent-generation --parallel=1`
 
-## Batch 15: Prompt and content generation fall back to gathered context - PENDING
+## Batch 15: Prompt and content generation fall back to gathered context - COMPLETE
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: backend-developer sub-agent
@@ -1506,14 +1506,14 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
 - Tasks: 3 | Depends on: Batches 11, 14
 - Phase: 4 - Self-gathering generation (last batch of the phase) | Phase review: code-logic
 
-### Task 15.1: Content generation omits stale `analysisDir` - PENDING
+### Task 15.1: Content generation omits stale `analysisDir` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/content-generation.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/content-generation.service.spec.ts`
 - Pattern to follow: the resolver at `content-generation.service.ts:571-587`
 - Quality requirements: use phase text only for a fresh manifest. Otherwise use the formatted context summary. Prompt-input test.
 
-### Task 15.2: Enhanced prompts: no hard failure, validated enrichment - PENDING
+### Task 15.2: Enhanced prompts: no hard failure, validated enrichment - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/enhanced-prompts/enhanced-prompts.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/enhanced-prompts/enhanced-prompts.service.spec.ts`
@@ -1530,7 +1530,7 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
 - Validation notes (Phase 3 fix round): the freshness `analysisDir` is workspace-relative; resolve
   it with `resolveAuthorizedAnalysisDir` before comparing with an explicit dir.
 
-### Task 15.3: CLI consumer confirmation - PENDING
+### Task 15.3: CLI consumer confirmation - COMPLETE
 
 - File: none edited.
 - Quality requirements: the ptah-cli prompts, setup and wizard command specs pass. This covers parity rows 32-34 (the plan's batch I CLI verification).
@@ -1549,14 +1549,14 @@ Batch 14 may now start (its Task 14.1 gate "after the Phase 3 re-review is accep
 ## Phases
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
-Done: 1, 2B, 3 (accepted 2026-10-14 after the fix round). Next: Phase 4 (Batch 14, then 15).
+Done: 1, 2B, 3 (accepted 2026-10-14 after the fix round). Next: Phase 4 code-logic review (Batches 14-15 committed).
 
 | Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                                                      | Reviewer (roster)                                                                                  |
 | -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | 1 - Proposal backend             | 1-5, fix 16                            | code-logic, plus style (new platform port, new RPC, shared contracts). First review: both APPROVED WITH FIXES (`code-logic-review.md`, `code-style-review.md`). One re-review due after Batch 16, scoped to its commit | ACCEPTED (code-logic-rereview.md, code-style-rereview.md)                                  | code-logic on a review CLI lane of a different family from the implementer; style per orchestrator |
 | 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8), test fix 18 | code-logic                                                                                                                                                                                                             | ACCEPTED (code-logic-review-phase-2b.md); Batch 18 test-only fix                           | same                                                                                               |
 | 3 - Manifest v4 and freshness    | 10-13, fix 19-22                       | code-logic, plus style (new RPC, exported service). First review: both APPROVED WITH FIXES (`code-logic-review-phase-3.md`, `code-style-review-phase-3.md`). One re-review after Batch 22, scoped to the fix commits   | ACCEPTED (code-logic-rereview-phase-3.md, code-style-rereview-phase-3.md); fix round spent | same                                                                                               |
-| 4 - Self-gathering generation    | 14-15                                  | code-logic                                                                                                                                                                                                             | pending                                                                                    | same                                                                                               |
+| 4 - Self-gathering generation    | 14-15                                  | code-logic                                                                                                                                                                                                             | all batches committed; code-logic review due                                               | same                                                                                               |
 | 2F - Builder adapters (frontend) | 6-8                                    | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7)                                 | same                                                                                               |
 
 Mode 3 completion also needs:

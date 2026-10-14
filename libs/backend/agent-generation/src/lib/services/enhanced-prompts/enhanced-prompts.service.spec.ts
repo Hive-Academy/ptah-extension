@@ -80,7 +80,11 @@ interface Mocks {
   };
   internalQueryService: { execute: jest.Mock };
   workspaceLlm: { resolveForPath: jest.Mock };
-  analysisStorage: { writeEnhancedPromptTrace: jest.Mock };
+  analysisStorage: {
+    writeEnhancedPromptTrace: jest.Mock;
+    resolveAuthorizedAnalysisDir: jest.Mock;
+  };
+  freshness: { getStatus: jest.Mock };
 }
 
 const testWorkspacePath = '/test/workspace';
@@ -135,10 +139,18 @@ function createMocks(): Mocks {
       ),
     },
     analysisStorage: {
+      resolveAuthorizedAnalysisDir: jest.fn((_root: string, dir: string) =>
+        dir.startsWith('.ptah/') ? `${testWorkspacePath}/${dir}` : dir,
+      ),
       writeEnhancedPromptTrace: jest.fn().mockResolvedValue({
         markdownPath: '/test/workspace/.ptah/analysis/enhanced-prompt.md',
         metadataPath: '/test/workspace/.ptah/analysis/enhanced-prompt.json',
       }),
+    },
+    freshness: {
+      getStatus: jest
+        .fn()
+        .mockResolvedValue({ state: 'missing', analysisDir: null }),
     },
   };
 }
@@ -154,6 +166,7 @@ function createService(mocks: Mocks): EnhancedPromptsService {
       mocks.internalQueryService,
       mocks.workspaceLlm,
       mocks.analysisStorage,
+      mocks.freshness,
     ] as unknown as ConstructorParameters<typeof EnhancedPromptsService>),
   );
 }
@@ -1129,8 +1142,20 @@ describe('EnhancedPromptsService', () => {
 
   describe('multi-phase analysis enrichment', () => {
     it('reads manifest from explicit analysis dir and appends sections', async () => {
+      mocks.freshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: '/analysis/dir',
+      });
       const reader = {
-        findLatestMultiPhaseAnalysis: jest.fn(),
+        findLatestMultiPhaseAnalysis: jest.fn().mockResolvedValue({
+          slugDir: '/analysis/dir',
+          manifest: {
+            phases: {
+              'project-profile': { status: 'completed', file: 'pp.md' },
+              'quality-audit': { status: 'completed', file: 'qa.md' },
+            },
+          },
+        }),
         readPhaseFile: jest.fn(async (slug: string, file: string) => {
           if (file === 'manifest.json') {
             return JSON.stringify({
@@ -1183,6 +1208,10 @@ describe('EnhancedPromptsService', () => {
         '/analysis/dir',
       );
       expect(r.success).toBe(true);
+      expect(reader.readPhaseFile).not.toHaveBeenCalledWith(
+        '/analysis/dir',
+        'manifest.json',
+      );
     });
 
     it('warns when manifest cannot be read from explicit dir', async () => {
@@ -1225,12 +1254,15 @@ describe('EnhancedPromptsService', () => {
       );
       expect(r.success).toBe(true);
       expect(mocks.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('No manifest found in explicit analysis dir'),
-        expect.any(Object),
+        expect.stringContaining('Analysis unavailable or stale'),
       );
     });
 
     it('falls back to findLatestMultiPhaseAnalysis when no explicit dir', async () => {
+      mocks.freshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: '/slug',
+      });
       const reader = {
         findLatestMultiPhaseAnalysis: jest.fn().mockResolvedValue({
           slugDir: '/slug',
@@ -1320,6 +1352,10 @@ describe('EnhancedPromptsService', () => {
     });
 
     it('logs warning if reader throws but wizard still completes', async () => {
+      mocks.freshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: '/slug',
+      });
       const reader = {
         findLatestMultiPhaseAnalysis: jest
           .fn()
@@ -1360,29 +1396,32 @@ describe('EnhancedPromptsService', () => {
       expect(r.success).toBe(true);
       expect(mocks.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Failed to read multi-phase analysis'),
-        expect.any(Object),
       );
     });
   });
 
   describe('regenerate', () => {
-    it('returns error when analysisReader not set', async () => {
+    it('returns discovery error when analysisReader not set', async () => {
       const r = await service.regenerate(testWorkspacePath);
       expect(r.success).toBe(false);
-      expect(r.error).toContain('No existing workspace analysis');
+      expect(r.error).toContain('Unable to analyze workspace');
     });
 
-    it('returns error when reader returns null', async () => {
+    it('returns discovery error when reader returns null', async () => {
       service.setAnalysisReader({
         findLatestMultiPhaseAnalysis: jest.fn().mockResolvedValue(null),
         readPhaseFile: jest.fn(),
       });
       const r = await service.regenerate(testWorkspacePath);
       expect(r.success).toBe(false);
-      expect(r.error).toContain('No existing workspace analysis');
+      expect(r.error).toContain('Unable to analyze workspace');
     });
 
     it('invalidates cache when force=true and forwards analysisDir', async () => {
+      mocks.freshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: '/slug',
+      });
       service.setAnalysisReader({
         findLatestMultiPhaseAnalysis: jest.fn().mockResolvedValue({
           slugDir: '/slug',
@@ -1428,6 +1467,14 @@ describe('EnhancedPromptsService', () => {
     });
 
     it('propagates runWizard failure', async () => {
+      mocks.context.globalState.get.mockReturnValue({
+        enabled: true,
+        generatedPrompt: 'prior prompt',
+        generatedAt: null,
+        detectedStack: null,
+        configHash: null,
+        workspacePath: testWorkspacePath,
+      });
       service.setAnalysisReader({
         findLatestMultiPhaseAnalysis: jest.fn().mockResolvedValue({
           slugDir: '/slug',
@@ -1442,7 +1489,65 @@ describe('EnhancedPromptsService', () => {
       const r = await service.regenerate(testWorkspacePath);
       expect(r.success).toBe(false);
       expect(r.error).toContain('Unable to analyze workspace');
+      expect(await service.getEnhancedPromptContent(testWorkspacePath)).toBe(
+        'prior prompt',
+      );
+      expect(mocks.context.globalState.update).not.toHaveBeenCalled();
+      expect(mocks.cacheService.set).not.toHaveBeenCalled();
     });
+
+    it.each(['stale', 'missing'])(
+      'discovers workspace with %s analysis and no phase enrichment',
+      async (state) => {
+        mocks.freshness.getStatus.mockResolvedValue({
+          state,
+          analysisDir: '.ptah/analysis/old',
+        });
+        const reader = {
+          findLatestMultiPhaseAnalysis: jest.fn(),
+          readPhaseFile: jest.fn(),
+        };
+        service.setAnalysisReader(reader);
+        mocks.workspaceIntelligence.getProjectInfo.mockResolvedValue({
+          name: 'p',
+          type: 'app',
+          path: '/p',
+          dependencies: [],
+          devDependencies: [],
+          fileStatistics: {},
+          totalFiles: 0,
+        });
+        mocks.workspaceIntelligence.getCurrentWorkspaceInfo.mockResolvedValue(
+          undefined,
+        );
+        mocks.promptDesignerAgent.buildPrompts.mockImplementation(
+          async (input: PromptDesignerInput) => {
+            expect(input.workspacePath).toBe(testWorkspacePath);
+            expect(input.additionalContext).toBeUndefined();
+            return { systemPrompt: 's', userPrompt: 'u', outputSchema: {} };
+          },
+        );
+        mocks.internalQueryService.execute.mockResolvedValue({
+          stream: (async function* () {})(),
+          close: jest.fn(),
+        });
+        mockProcess.mockResolvedValue({ structuredOutput: { ok: true } });
+        mocks.promptDesignerAgent.parseAndValidateOutput.mockResolvedValue(
+          fullOutput(),
+        );
+        const result = await service.regenerate(testWorkspacePath);
+        expect(result.success).toBe(true);
+        expect(reader.findLatestMultiPhaseAnalysis).not.toHaveBeenCalled();
+        expect(
+          mocks.analysisStorage.writeEnhancedPromptTrace,
+        ).toHaveBeenCalledWith(
+          testWorkspacePath,
+          null,
+          expect.any(String),
+          expect.objectContaining({ analysisDirectory: null }),
+        );
+      },
+    );
   });
 
   describe('generation lock timeout', () => {
@@ -1543,7 +1648,9 @@ describe('EnhancedPromptsService — enhanced prompt trace', () => {
     contents: Record<string, string | null>,
   ) {
     return {
-      findLatestMultiPhaseAnalysis: jest.fn(),
+      findLatestMultiPhaseAnalysis: jest
+        .fn()
+        .mockResolvedValue({ slugDir, manifest: { phases } }),
       readPhaseFile: jest.fn(async (_dir: string, file: string) => {
         if (file === 'manifest.json') return JSON.stringify({ phases });
         return contents[file] ?? null;
@@ -1563,6 +1670,10 @@ describe('EnhancedPromptsService — enhanced prompt trace', () => {
   });
 
   it('writes the trace into the slug directory with only the completed phases it used, before saving state', async () => {
+    mocks.freshness.getStatus.mockResolvedValue({
+      state: 'fresh',
+      analysisDir: '.ptah/analysis/demo',
+    });
     service.setAnalysisReader(
       readerFor(
         {
@@ -1656,6 +1767,10 @@ describe('EnhancedPromptsService — enhanced prompt trace', () => {
 
   it('regenerate traces into the latest slug directory', async () => {
     const latestDir = '/test/workspace/.ptah/analysis/latest';
+    mocks.freshness.getStatus.mockResolvedValue({
+      state: 'fresh',
+      analysisDir: '.ptah/analysis/latest',
+    });
     service.setAnalysisReader({
       findLatestMultiPhaseAnalysis: jest.fn().mockResolvedValue({
         slugDir: latestDir,

@@ -112,6 +112,8 @@ describe('ContentGenerationService', () => {
   let mockLogger: MockLogger;
   let mockInternalQueryService: { execute: jest.Mock };
   let mockWorkspaceLlm: { resolveForPath: jest.Mock };
+  let mockFreshness: { getStatus: jest.Mock };
+  let mockAnalysisStorage: { resolveAuthorizedAnalysisDir: jest.Mock };
 
   beforeEach(() => {
     mockLogger = {
@@ -139,6 +141,16 @@ describe('ContentGenerationService', () => {
         }),
       ),
     };
+    mockFreshness = {
+      getStatus: jest
+        .fn()
+        .mockResolvedValue({ state: 'stale', analysisDir: null }),
+    };
+    mockAnalysisStorage = {
+      resolveAuthorizedAnalysisDir: jest.fn(
+        (_root: string, dir: string) => dir,
+      ),
+    };
 
     SdkStreamProcessorMock.mockImplementation(
       () =>
@@ -151,6 +163,10 @@ describe('ContentGenerationService', () => {
       mockLogger as never,
       mockInternalQueryService as never,
       mockWorkspaceLlm as never,
+      null,
+      undefined,
+      mockFreshness as never,
+      mockAnalysisStorage as never,
     );
   });
 
@@ -1650,6 +1666,26 @@ x
       readFileSyncMock.mockReset();
     });
 
+    it.each(['stale', 'missing'])(
+      'uses gathered context when analysis is %s',
+      async (state) => {
+        mockFreshness.getStatus.mockResolvedValue({ state, analysisDir: null });
+        const template = {
+          ...baseTemplate,
+          content: '<!-- LLM:S -->\nx\n<!-- /LLM:S -->',
+        };
+        await service.generateContent(template, {
+          ...mockContext,
+          analysisDir: '/tmp/old-analysis',
+        });
+        const prompt = mockInternalQueryService.execute.mock.calls[0][0]
+          .prompt as string;
+        expect(prompt).toContain('Project Type: Node');
+        expect(prompt).not.toContain('## Project Profile');
+        expect(readFileSyncMock).not.toHaveBeenCalled();
+      },
+    );
+
     it('should include only the Project Profile phase for a generic agent', async () => {
       readFileSyncMock.mockImplementation(((p: unknown) => {
         const file = String(p);
@@ -1665,6 +1701,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-slug',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,
@@ -1700,6 +1740,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-be',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,
@@ -1731,6 +1775,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-qa',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,
@@ -1763,6 +1811,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-arch',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,
@@ -1795,6 +1847,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-big',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,
@@ -1824,6 +1880,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-skip',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,
@@ -1856,6 +1916,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-cached',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,
@@ -1875,6 +1939,10 @@ x
       expect(readFileSyncMock.mock.calls.length).toBe(firstCount);
 
       // Third call with a DIFFERENT analysisDir → cache miss → re-reads.
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: '/tmp/analysis-different',
+      });
       await service.generateContent(template, {
         ...ctx,
         analysisDir: '/tmp/analysis-different',
@@ -1891,6 +1959,10 @@ x
         ...mockContext,
         analysisDir: '/tmp/analysis-broken',
       };
+      mockFreshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        analysisDir: ctx.analysisDir,
+      });
 
       const template = {
         ...baseTemplate,

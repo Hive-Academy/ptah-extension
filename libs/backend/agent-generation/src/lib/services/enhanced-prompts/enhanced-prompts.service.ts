@@ -41,6 +41,7 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '../../di/tokens';
 import type { AnalysisStorageService } from '../analysis-storage.service';
+import type { AnalysisFreshnessService } from '../analysis-freshness.service';
 import type { PromptDesignerAgent } from '../prompt-designer/prompt-designer-agent';
 import type { PromptCacheService } from '../prompt-designer/prompt-cache.service';
 import type {
@@ -119,7 +120,7 @@ export interface MultiPhaseEnrichment {
 /** Trace target for one enhanced-prompt trace write. */
 type EnhancedPromptTraceWriter = Pick<
   AnalysisStorageService,
-  'writeEnhancedPromptTrace'
+  'writeEnhancedPromptTrace' | 'resolveAuthorizedAnalysisDir'
 >;
 
 /**
@@ -268,6 +269,10 @@ export class EnhancedPromptsService {
     private readonly workspaceLlm: IWorkspaceLlmResolver,
     @inject(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE)
     private readonly traceWriter: EnhancedPromptTraceWriter,
+    @inject(AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE, {
+      isOptional: true,
+    })
+    private readonly freshness: AnalysisFreshnessService | null = null,
   ) {
     this.stateStore = new EnhancedPromptsStateStore(this.context);
     this.cacheService.onInvalidation((event) => {
@@ -642,26 +647,6 @@ export class EnhancedPromptsService {
     onProgress?: (progress: PromptGenerationProgress) => void,
     sdkConfig?: EnhancedPromptsSdkConfig,
   ): Promise<RegeneratePromptsResponse> {
-    let analysisDir: string | undefined;
-    if (this.analysisReader) {
-      const analysis =
-        await this.analysisReader.findLatestMultiPhaseAnalysis(workspacePath);
-      if (analysis) {
-        analysisDir = analysis.slugDir;
-        this.logger.info(
-          'EnhancedPromptsService: Regenerate using existing analysis',
-          { analysisDir },
-        );
-      }
-    }
-
-    if (!analysisDir) {
-      return {
-        success: false,
-        error:
-          'No existing workspace analysis found. Please run the Setup Wizard first to analyze your workspace, then regenerate.',
-      };
-    }
     if (request?.force) {
       await this.cacheService.invalidate(workspacePath, 'manual');
     }
@@ -671,7 +656,7 @@ export class EnhancedPromptsService {
       onProgress,
       undefined,
       sdkConfig,
-      analysisDir,
+      undefined,
     );
 
     if (result.success) {
@@ -988,39 +973,47 @@ export class EnhancedPromptsService {
       analysisDirectory: null,
       phaseIds: [],
     };
-    if (!this.analysisReader) {
+    if (!this.analysisReader || !this.freshness) {
       return none;
     }
 
     try {
-      let slugDir: string;
-      let manifest: {
-        phases: Record<string, { status: string; file: string }>;
-      };
-
-      if (explicitAnalysisDir) {
-        const manifestContent = await this.analysisReader.readPhaseFile(
-          explicitAnalysisDir,
-          'manifest.json',
+      const status = await this.freshness.getStatus(workspacePath);
+      const freshDir =
+        status.state === 'fresh' && status.analysisDir
+          ? this.traceWriter.resolveAuthorizedAnalysisDir(
+              workspacePath,
+              status.analysisDir,
+            )
+          : null;
+      const requestedDir = explicitAnalysisDir
+        ? this.traceWriter.resolveAuthorizedAnalysisDir(
+            workspacePath,
+            explicitAnalysisDir,
+          )
+        : freshDir;
+      if (!freshDir || requestedDir !== freshDir) {
+        this.logger.warn(
+          `${SERVICE_TAG} Analysis unavailable or stale; using workspace discovery`,
         );
-        if (!manifestContent) {
-          this.logger.warn(
-            `${SERVICE_TAG} No manifest found in explicit analysis dir`,
-            { explicitAnalysisDir },
-          );
-          return none;
-        }
-        slugDir = explicitAnalysisDir;
-        manifest = JSON.parse(manifestContent);
-      } else {
-        const multiPhase =
-          await this.analysisReader.findLatestMultiPhaseAnalysis(workspacePath);
-        if (!multiPhase) {
-          return none;
-        }
-        slugDir = multiPhase.slugDir;
-        manifest = multiPhase.manifest;
+        return none;
       }
+      const multiPhase =
+        await this.analysisReader.findLatestMultiPhaseAnalysis(workspacePath);
+      if (
+        !multiPhase ||
+        this.traceWriter.resolveAuthorizedAnalysisDir(
+          workspacePath,
+          multiPhase.slugDir,
+        ) !== freshDir
+      ) {
+        this.logger.warn(
+          `${SERVICE_TAG} Fresh analysis manifest unavailable; using workspace discovery`,
+        );
+        return none;
+      }
+      const slugDir = freshDir;
+      const manifest = multiPhase.manifest;
       const phaseFiles = [
         { key: 'project-profile', label: 'Project Profile', limit: 8_000 },
         {
@@ -1078,10 +1071,9 @@ export class EnhancedPromptsService {
         );
       }
       return { analysisDirectory: slugDir, phaseIds };
-    } catch (error: unknown) {
-      this.logger.warn(`${SERVICE_TAG} Failed to read multi-phase analysis`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      // degradation-audit: optional-capability - analysis enrichment is optional.
+      this.logger.warn(`${SERVICE_TAG} Failed to read multi-phase analysis`);
       return none;
     }
   }
