@@ -238,13 +238,6 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     const layoutServiceMock = {
       observe: jest.fn(),
       containerWidth: signal(0),
-      containerHeight: signal(0),
-      columnsFor: jest.fn(() => 1),
-      computeLayout: jest.fn(() => ({
-        cellHeight: 120,
-        columns: 1,
-        tiles: [],
-      })),
     } as unknown as CanvasLayoutService;
 
     switchSessionMock = jest.fn().mockResolvedValue(undefined);
@@ -732,13 +725,6 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     const layoutServiceMock = {
       observe: observeSpy,
       containerWidth: signal(1200),
-      containerHeight: signal(800),
-      columnsFor: jest.fn(() => 2),
-      computeLayout: jest.fn(() => ({
-        cellHeight: 120,
-        columns: 2,
-        tiles: [],
-      })),
     };
 
     const chatStoreMock = {

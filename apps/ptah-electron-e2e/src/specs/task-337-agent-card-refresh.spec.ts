@@ -54,7 +54,7 @@ import { test, expect } from '../support/fixtures';
 
 const CHAT_CHUNK = 'chat:chunk';
 const AGENT_SUMMARY_CHUNK = 'agent:summary-chunk';
-const TILE = '[data-testid="canvas-tile"]';
+const FOCUSED_SESSION = 'ptah-canvas-focus-area section[aria-label="Focused session"]';
 const AGENT_CARD = 'ptah-inline-agent-bubble';
 
 const SUMMARY_ONE = 'PTAH_E2E_SUMMARY_FIRST';
@@ -194,8 +194,7 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
     const agentId = 'agent337';
     const t0 = Date.now();
 
-    const tile = page.locator(TILE).first();
-    const card = tile.locator(AGENT_CARD);
+    const card = page.locator(FOCUSED_SESSION).locator(AGENT_CARD);
 
     // Root assistant message binds the tile to the session, then spawns the
     // agent.

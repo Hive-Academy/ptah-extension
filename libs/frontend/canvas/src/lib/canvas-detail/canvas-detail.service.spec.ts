@@ -12,7 +12,6 @@ describe('CanvasDetailService', () => {
   ]);
   const focusTile = jest.fn();
   const onTabClosed = jest.fn((_listener: (event: { tabId: string; kind: string }) => void) => jest.fn());
-  const board = { mode: 'grid' };
   let detail: CanvasDetailService;
 
   beforeEach(() => {
@@ -23,11 +22,10 @@ describe('CanvasDetailService', () => {
     ]);
     focusTile.mockClear();
     onTabClosed.mockClear();
-    board.mode = 'grid';
     TestBed.configureTestingModule({
       providers: [
         CanvasDetailService,
-        { provide: CanvasStore, useValue: { tiles, focusTile, boardFor: () => board, activeWorkspacePath: signal('/ws') } },
+        { provide: CanvasStore, useValue: { tiles, focusTile } },
         { provide: TabManagerService, useValue: { onTabClosed } },
       ],
     });
@@ -36,34 +34,12 @@ describe('CanvasDetailService', () => {
 
   it('focuses a known tab and accepts chat lane keys', () => {
     detail.open('a', 'cli:agent-1');
-    expect(detail.detailTabId()).toBe('a');
-    expect(detail.laneKey()).toBe('cli:agent-1');
+    expect(detail.detailTabId()).toBeNull();
+    expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
     expect(focusTile).toHaveBeenCalledWith('a');
     detail.open('missing');
     detail.open('a', 'invalid');
-    expect(detail.laneKey()).toBe('cli:agent-1');
-  });
-
-  it('toggles the same tab and lane closed', () => {
-    detail.toggle('a');
-    detail.toggle('a');
-    expect(detail.detailTabId()).toBeNull();
-    expect(detail.laneKey()).toBe('orchestrator');
-    detail.open('a', 'cli:agent-1');
-    detail.toggle('a');
-    expect(detail.detailTabId()).toBeNull();
-  });
-
-  it('steps through tile order and wraps in both directions', () => {
-    detail.open('a', 'sub:agent');
-    detail.next();
-    expect(detail.detailTabId()).toBe('b');
-    expect(detail.laneKey()).toBe('orchestrator');
-    detail.prev();
-    expect(detail.detailTabId()).toBe('a');
-    tiles.set(tiles().filter((tile) => tile.tabId !== 'a'));
-    detail.next();
-    expect(detail.detailTabId()).toBeNull();
+    expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
   });
 
   it('restores each tab lane after focusing another tab', () => {
@@ -71,23 +47,13 @@ describe('CanvasDetailService', () => {
     detail.open('b', 'sub:agent');
     expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
     detail.open('a', detail.laneKeyFor('a'));
-    expect(detail.laneKey()).toBe('cli:agent-1');
-  });
-
-  it('focuses and selects a lane without opening Grid detail in Rail mode', () => {
-    board.mode = 'rail';
-    detail.open('a', 'cli:agent-1');
-    expect(focusTile).toHaveBeenCalledWith('a');
     expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
-    expect(detail.detailTabId()).toBeNull();
-    board.mode = 'grid';
   });
 
   it('keeps the lane after detail closes', () => {
     detail.open('a', 'cli:agent-1');
     detail.close();
     expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
-    expect(detail.laneKey()).toBe('orchestrator');
   });
 
   it('prunes a closed tab and ignores reset', () => {

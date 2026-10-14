@@ -44,19 +44,7 @@ export class CanvasDetailService {
     if (laneKey !== 'orchestrator' && !parseLaneKey(laneKey)) return;
     this.canvasStore.focusTile(tabId);
     this.selectLaneFor(tabId, laneKey);
-    if (this.canvasStore.boardFor(this.canvasStore.activeWorkspacePath() ?? '').mode === 'grid')
-      this._detailTabId.set(tabId);
-  }
-
-  toggle(tabId: string, laneKey?: string): void {
-    if (
-      this._detailTabId() === tabId &&
-      (laneKey === undefined || this.laneKeyFor(tabId) === laneKey)
-    ) {
-      this.close();
-    } else {
-      this.open(tabId, laneKey ?? 'orchestrator');
-    }
+    this._detailTabId.set(null);
   }
 
   selectLane(laneKey: string): void {
@@ -68,25 +56,4 @@ export class CanvasDetailService {
     this._detailTabId.set(null);
   }
 
-  next(): void {
-    this.step(1);
-  }
-
-  prev(): void {
-    this.step(-1);
-  }
-
-  private step(direction: 1 | -1): void {
-    const current = this._detailTabId();
-    if (!current) return;
-    const ids = [...this.canvasStore.tiles()]
-      .sort((a, b) => a.order - b.order)
-      .map((tile) => tile.tabId);
-    const index = ids.indexOf(current);
-    if (index < 0 || ids.length === 0) {
-      this.close();
-      return;
-    }
-    this.open(ids[(index + direction + ids.length) % ids.length]);
-  }
 }

@@ -1,4 +1,4 @@
-export type CanvasBoardMode = 'rail' | 'grid';
+export type CanvasBoardMode = 'rail';
 export type CanvasRailDensity = 'comfortable' | 'dense';
 
 export interface CanvasBoardState {

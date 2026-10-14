@@ -47,16 +47,6 @@ describe('CanvasLayoutPersistenceService', () => {
     });
   });
 
-  it('writes Rail mode even when the snapshot still has Grid mode', () => {
-    service.markHydrated(path, true);
-    service.schedule(path, () => ({ tiles: intent, board: { ...board, mode: 'grid' } }));
-    service.flush();
-
-    const stored = JSON.parse(localStorage.getItem(service.storageKey(path))!);
-    expect(stored.board).toEqual(board);
-    expect(stored.tiles).toEqual(intent);
-  });
-
   it('opens a stored v3 Grid board as Rail without changing tiles or Rail options', () => {
     const raw = '{"version":3,"tiles":[{"tabId":"A","order":0,"width":{"kind":"span","span":"two-thirds"},"rowBreakBefore":false},{"tabId":"B","order":1,"width":{"kind":"auto","weight":5},"rowBreakBefore":true}],"board":{"mode":"grid","railCollapsed":true,"railDensity":"dense","railScrollTop":123}}';
     localStorage.setItem(service.storageKey(path), raw);
