@@ -9,7 +9,15 @@ import type {
 import type { SubagentRecord } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
-import { SubagentHandoffFiles } from './subagent-handoff-files';
+import {
+  HANDOFF_FILES_TIMEOUT_MS,
+  SubagentHandoffFiles,
+  type SubagentHandoffPaths,
+} from './subagent-handoff-files';
+import {
+  PARENT_PUSH_ATTEMPTS,
+  PARENT_PUSH_RETRY_DELAY_MS,
+} from './subagent-handoff-delivery';
 import { SubagentNoticeQueue } from '../subagent-notice-queue';
 import {
   MAX_STOP_ATTEMPTS,
@@ -19,6 +27,7 @@ import {
   requestContextTokens,
   weightedRequestTokens,
   type SubagentBudgetDispatcherPort,
+  type SubagentHandoffFilesPort,
 } from './subagent-budget-monitor';
 import {
   adviseSubagentResume,
@@ -74,7 +83,11 @@ function assistant(
 
 function makeHarness(
   record: Partial<SubagentRecord> | null = {},
-  opts: { enabled?: boolean; workspace?: string } = {},
+  opts: {
+    enabled?: boolean;
+    workspace?: string;
+    handoffFiles?: SubagentHandoffFilesPort;
+  } = {},
 ) {
   const logger = {
     debug: jest.fn(),
@@ -98,10 +111,12 @@ function makeHarness(
     pushParentMessage: jest.fn(async (_sessionId: string, content: string) => {
       streamed.push(content);
     }),
-    postMainThreadNotice: jest.fn((sessionId: string, text: string) => {
-      streamed.push(text);
-      notices.post(sessionId, text);
-    }),
+    postMainThreadNotice: jest.fn(
+      (sessionId: string, text: string, onDropped?: () => void) => {
+        streamed.push(text);
+        notices.post(sessionId, text, onDropped);
+      },
+    ),
     withdrawMainThreadNotice: jest.fn((sessionId: string, text: string) =>
       notices.withdraw(sessionId, text),
     ),
@@ -134,7 +149,11 @@ function makeHarness(
     dispatcher as unknown as SubagentBudgetDispatcherPort,
     registry as unknown as SubagentRegistryService,
     // No workspace by default: no handoff files.
-    new SubagentHandoffFiles(logger as unknown as Logger, () => opts.workspace),
+    opts.handoffFiles ??
+      new SubagentHandoffFiles(
+        logger as unknown as Logger,
+        () => opts.workspace,
+      ),
   );
   return {
     monitor,
@@ -579,6 +598,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       SESSION,
       h.streamed[0],
+      expect.any(Function),
     );
   });
 
@@ -647,6 +667,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.stringContaining('Its task was: Audit logs'),
+      expect.any(Function),
     );
   });
 
@@ -688,6 +709,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.any(String),
+      expect.any(Function),
     );
     expect(h.registry.update).toHaveBeenCalledTimes(1);
     expect(h.registry.update).toHaveBeenCalledWith(
@@ -750,6 +772,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.any(String),
+      expect.any(Function),
     );
   });
 
@@ -876,6 +899,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.any(String),
+      expect.any(Function),
     );
     expect(h.monitor.getSnapshot('session-2', TOOL_CALL)?.stopped).toBe(true);
   });
@@ -915,6 +939,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledWith(
       'session-2',
       expect.stringContaining('Its task was: Trace the bug'),
+      expect.any(Function),
     );
   });
 
@@ -1099,7 +1124,9 @@ describe('SubagentBudgetMonitor', () => {
         expect(text).toContain(
           `"Read ${notes} first and continue from it; do not redo finished work."`,
         );
-        expect(text).toContain('output file named by the task notification');
+        expect(text).toContain(
+          'Its output file: not yet known; it is in the task notification for task task-9.',
+        );
         expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
       });
 
@@ -1127,7 +1154,195 @@ describe('SubagentBudgetMonitor', () => {
 
         expect(text).not.toContain('.ptah');
         expect(text).toContain(
+          'Its progress notes file: unavailable (workspace unknown).',
+        );
+        expect(text).toContain(
           'its full original task prompt from the Agent call that spawned it',
+        );
+      });
+    });
+
+    describe('delivery under load and failure', () => {
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      /** Spawn a foreground subagent `id` with task `taskId` and stop it. */
+      async function stopForeground(
+        h: ReturnType<typeof makeHarness>,
+        id: string,
+        taskId: string,
+      ): Promise<void> {
+        h.monitor.recordTaskStarted(SESSION, id, taskId, 'Explore');
+        await h.monitor.observe(SESSION, {
+          type: 'assistant',
+          parent_tool_use_id: null,
+          message: {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id,
+                name: 'Agent',
+                input: { description: `Part ${taskId}` },
+              },
+            ],
+          },
+        });
+        await h.monitor.observe(
+          SESSION,
+          assistant({ input: 200_000 }, { id: `m-${id}`, parent: id }),
+        );
+      }
+
+      it('five foreground stops before any drain: every handoff is delivered exactly once', async () => {
+        const h = makeHarness(null);
+        const ids = [1, 2, 3, 4, 5].map((i) => `toolu_fg_${i}`);
+        for (const [i, id] of ids.entries()) {
+          await stopForeground(h, id, `task-fg-${i + 1}`);
+        }
+
+        // The fifth post evicted the first; it went out as a user turn.
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+        const drained = h.notices.take(SESSION) ?? '';
+        for (const id of ids) {
+          await h.monitor.observe(SESSION, toolResult(id));
+        }
+
+        const delivered = [
+          drained,
+          ...h.dispatcher.pushParentMessage.mock.calls.map((call) => call[1]),
+        ].join('\n');
+        for (let i = 1; i <= ids.length; i += 1) {
+          const marker = `task notification for task task-fg-${i}.`;
+          expect(delivered.split(marker)).toHaveLength(2);
+        }
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+      });
+
+      it('background handoff whose first push rejects is retried and sent once', async () => {
+        jest.useFakeTimers();
+        const h = makeHarness();
+        await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+        await h.monitor.observe(SESSION, toolResult());
+        h.dispatcher.pushParentMessage.mockRejectedValueOnce(
+          new Error('not active'),
+        );
+        const pending = h.monitor.observe(
+          SESSION,
+          assistant({ input: 200_000 }, { id: 'm1' }),
+        );
+        await jest.advanceTimersByTimeAsync(PARENT_PUSH_RETRY_DELAY_MS);
+        await pending;
+
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(2);
+        expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
+        expect(h.logger.warn).not.toHaveBeenCalled();
+      });
+
+      it('background handoff whose pushes all reject stays pending in the notice queue, once', async () => {
+        jest.useFakeTimers();
+        const h = makeHarness();
+        await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+        await h.monitor.observe(SESSION, toolResult());
+        h.dispatcher.pushParentMessage.mockRejectedValue(
+          new Error('not active'),
+        );
+        const pending = h.monitor.observe(
+          SESSION,
+          assistant({ input: 200_000 }, { id: 'm1' }),
+        );
+        await jest.advanceTimersByTimeAsync(
+          PARENT_PUSH_RETRY_DELAY_MS * PARENT_PUSH_ATTEMPTS,
+        );
+        await pending;
+
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(
+          PARENT_PUSH_ATTEMPTS,
+        );
+        expect(h.dispatcher.postMainThreadNotice).toHaveBeenCalledTimes(1);
+        expect(h.logger.warn).toHaveBeenCalledTimes(1);
+        const warned = JSON.stringify(h.logger.warn.mock.calls[0]);
+        expect(warned).not.toContain('Map auth');
+        // The next main-thread tool result's PostToolUse carries it.
+        expect(h.notices.take(SESSION)).toContain('Its task was: Map auth');
+      });
+
+      it('handoff file checks that never settle: a degraded handoff after the bound, and no second one', async () => {
+        jest.useFakeTimers();
+        let finishSave: (saved: boolean) => void = () => undefined;
+        const paths: SubagentHandoffPaths = {
+          notes: '/ws/.ptah/subagent-handoffs/n.md',
+          task: '/ws/.ptah/subagent-handoffs/n.task.md',
+        };
+        const handoffFiles = {
+          paths: jest.fn(() => paths),
+          saveTask: jest.fn(
+            () => new Promise<boolean>((resolve) => (finishSave = resolve)),
+          ),
+          notesExist: jest.fn(() => new Promise<boolean>(() => undefined)),
+        };
+        const h = makeHarness(null, { handoffFiles });
+        h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-9', 'Explore');
+        await h.monitor.observe(
+          SESSION,
+          spawn({ description: 'Map auth', prompt: 'Map the auth module' }),
+        );
+        await h.monitor.observe(SESSION, toolResult());
+        const pending = h.monitor.observe(
+          SESSION,
+          assistant({ input: 200_000 }, { id: 'm1' }),
+        );
+        await jest.advanceTimersByTimeAsync(HANDOFF_FILES_TIMEOUT_MS);
+        await pending;
+
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+        const text = h.dispatcher.pushParentMessage.mock.calls[0][1];
+        expect(text).toContain(
+          `Its progress notes file: unavailable (the file check did not finish); look for ${paths.notes}.`,
+        );
+        expect(text).toContain(`If ${paths.notes} exists, read it first`);
+        expect(text).not.toContain(`saved at ${paths.task}`);
+
+        finishSave(true);
+        await jest.advanceTimersByTimeAsync(HANDOFF_FILES_TIMEOUT_MS);
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+        expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
+      });
+
+      it('names the output file a background spawn result reported, with the task id', async () => {
+        const h = makeHarness(null);
+        h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-9', 'Explore');
+        await h.monitor.observe(SESSION, spawn({ description: 'Map auth' }));
+        await h.monitor.observe(SESSION, {
+          type: 'user',
+          parent_tool_use_id: null,
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: TOOL_CALL,
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Async agent launched successfully.\nagentId: a1\noutput_file: /tmp/tasks/task-9.output\nThe agent is working.',
+                  },
+                ],
+              },
+            ],
+          },
+        });
+        await h.monitor.observe(
+          SESSION,
+          assistant({ input: 200_000 }, { id: 'm1' }),
+        );
+
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+          SESSION,
+          expect.stringContaining(
+            'Its output so far is in /tmp/tasks/task-9.output (task task-9).',
+          ),
         );
       });
     });

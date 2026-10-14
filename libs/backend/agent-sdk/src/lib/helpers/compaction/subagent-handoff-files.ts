@@ -15,6 +15,11 @@
  * handoff directory. Without a known workspace there are no paths, and every
  * file operation is skipped. A failed write is logged (error type only) and
  * reported as `false`; it never throws.
+ *
+ * At a stop, {@link prepareHandoffFiles} waits at most
+ * {@link HANDOFF_FILES_TIMEOUT_MS} for the file operations (a stalled or
+ * network workspace must not hold the handoff back); past that the handoff
+ * reports the files as unavailable, and a late result is ignored.
  */
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -29,6 +34,19 @@ export interface SubagentHandoffPaths {
   readonly notes: string;
   /** The full original task prompt the host saves at the stop. */
   readonly task: string;
+}
+
+/** Time a stop waits for its handoff file operations before handing off without them. */
+export const HANDOFF_FILES_TIMEOUT_MS = 5_000;
+
+/** Where the handoff files of a stopped subagent stand. */
+export interface HandoffFileState {
+  /** Absent when the session has no known workspace. */
+  readonly paths?: SubagentHandoffPaths;
+  readonly taskSaved: boolean;
+  readonly notesWritten: boolean;
+  /** The file operations failed or did not finish in time: outcome unknown. */
+  readonly unavailable?: boolean;
 }
 
 export class SubagentHandoffFiles {
@@ -85,5 +103,35 @@ export class SubagentHandoffFiles {
       // A missing or unreadable notes file reads as "not written".
       return false;
     }
+  }
+}
+
+/**
+ * Save the full task `prompt` and check for the subagent's progress notes at
+ * `paths`, waiting at most {@link HANDOFF_FILES_TIMEOUT_MS}. Never rejects.
+ */
+export async function prepareHandoffFiles(
+  files: Pick<SubagentHandoffFiles, 'saveTask' | 'notesExist'>,
+  paths: SubagentHandoffPaths | undefined,
+  prompt: string | undefined,
+): Promise<HandoffFileState> {
+  if (!paths) {
+    return { taskSaved: false, notesWritten: false };
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), HANDOFF_FILES_TIMEOUT_MS);
+  });
+  const done = Promise.all([
+    prompt ? files.saveTask(paths, prompt) : Promise.resolve(false),
+    files.notesExist(paths),
+  ]).catch(() => undefined);
+  try {
+    const result = await Promise.race([done, expired]);
+    return result
+      ? { paths, taskSaved: result[0], notesWritten: result[1] }
+      : { paths, taskSaved: false, notesWritten: false, unavailable: true };
+  } finally {
+    clearTimeout(timer);
   }
 }

@@ -1638,6 +1638,7 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
       expect(postMainThreadNotice).toHaveBeenCalledWith(
         REAL,
         expect.stringContaining('`Explore`'),
+        expect.any(Function),
       );
       expect(port.pushParentMessage).not.toHaveBeenCalled();
       expect(registry.update).not.toHaveBeenCalled();

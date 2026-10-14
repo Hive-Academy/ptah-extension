@@ -32,11 +32,15 @@
  *   back): the handoff is posted to the main-thread notice queue and rides on
  *   that tool result, drained by the PostToolUse hook. When the tool result
  *   then reaches the stream with the notice still pending (no PostToolUse
- *   drained it), the notice is withdrawn and sent as a user turn instead.
+ *   drained it), the notice is withdrawn and sent as a user turn instead;
+ *   so is a notice the queue drops undelivered (past its bound, or cleared).
  * - Background subagent (its tool result came back at spawn, "Async agent
  *   launched"): no later main-thread tool result is due, and the session
  *   budget clears pending notices at turn end, so the handoff is streamed to
  *   the parent as a host-authored user turn (`pushParentMessage`).
+ *
+ * Both routes go through {@link SubagentHandoffDelivery}: a failed user turn
+ * is retried, then kept pending in the notice queue.
  *
  * The handoff names Ptah's subagent budget monitor as the one that stopped
  * the subagent: the SDK's own task notification calls it "stopped by user".
@@ -44,7 +48,9 @@
  * input of the message that spawned it, and gives what a fresh subagent of
  * the same type and name needs ({@link SubagentHandoffFiles}): the full task
  * prompt saved to a file at the stop, the progress notes file (or that it is
- * missing), and where the SDK reports the stopped task's output. Starting the
+ * missing or unavailable), and the stopped task's output file (named by a
+ * background spawn's tool result, else the task id whose task notification
+ * names it). File preparation is time-bounded. Starting the
  * fresh subagent is left to the parent model: the SDK gives the host no API
  * to spawn a Task subagent itself.
  *
@@ -75,16 +81,20 @@ import type {
 import type { SubagentPromptCacheTtl } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import type { SubagentMessageDispatcher } from '../subagent-message-dispatcher';
-import type {
-  SubagentHandoffFiles,
-  SubagentHandoffPaths,
+import {
+  prepareHandoffFiles,
+  type SubagentHandoffFiles,
+  type SubagentHandoffPaths,
 } from './subagent-handoff-files';
 import {
   handoffMessage,
   nearBudgetWarning,
-  type HandoffFileState,
   type StopReason,
 } from './subagent-handoff-message';
+import {
+  SubagentHandoffDelivery,
+  type HandoffDeliveryPort,
+} from './subagent-handoff-delivery';
 
 /** The handoff file operations the monitor uses. */
 export type SubagentHandoffFilesPort = Pick<
@@ -261,6 +271,8 @@ interface SpawnTask {
   readonly prompt?: string;
   /** The `name` input: the teammate name a fresh subagent reuses. */
   readonly name?: string;
+  /** The `output_file:` its spawning tool result named (background subagent). */
+  readonly outputFile?: string;
 }
 
 interface SessionState {
@@ -284,15 +296,11 @@ interface SessionState {
 
 /**
  * The dispatcher and main-thread notice queue operations the monitor uses.
- * `pushParentMessage` streams a user turn; the two notice operations bind to
- * `MainThreadNoticeQueue.post` and `MainThreadNoticeQueue.withdraw`.
+ * `pushParentMessage` streams a user turn; the two main-thread notice
+ * operations bind to `MainThreadNoticeQueue.post` and `.withdraw`.
  */
-export interface SubagentBudgetDispatcherPort extends Pick<
-  SubagentMessageDispatcher,
-  'stopSubagent' | 'pushParentMessage'
-> {
-  /** Queue a notice for the parent's next main-thread tool result. */
-  postMainThreadNotice(sessionId: string, text: string): void;
+export interface SubagentBudgetDispatcherPort
+  extends Pick<SubagentMessageDispatcher, 'stopSubagent'>, HandoffDeliveryPort {
   /** Take back a queued notice; `true` when it was still pending. */
   withdrawMainThreadNotice(sessionId: string, text: string): boolean;
   /** Queue a notice for the subagent's own next tool result (`SubagentNoticeQueue`). */
@@ -311,6 +319,7 @@ export class SubagentBudgetMonitor {
   private readonly sessions = new Map<string, SessionState>();
   /** Old id → new id, one entry per PostCompact rekey; cleared on release. */
   private readonly aliases = new Map<string, string>();
+  private readonly delivery: SubagentHandoffDelivery;
 
   constructor(
     private readonly logger: Logger,
@@ -318,7 +327,12 @@ export class SubagentBudgetMonitor {
     private readonly dispatcher: SubagentBudgetDispatcherPort,
     private readonly registry: SubagentRegistryService,
     private readonly handoffFiles: SubagentHandoffFilesPort,
-  ) {}
+  ) {
+    this.delivery = new SubagentHandoffDelivery(logger, dispatcher, (id) => {
+      const current = this.currentSessionId(id);
+      return this.sessions.has(current) ? current : undefined;
+    });
+  }
 
   /**
    * Observe one forwarded stream message of `sessionId`. An assistant message
@@ -699,6 +713,10 @@ export class SubagentBudgetMonitor {
         continue;
       }
       session.spawnReturned.set(id, true);
+      const outputFile = readOutputFile(block['content']);
+      if (outputFile) {
+        session.tasks.set(id, { ...session.tasks.get(id), outputFile });
+      }
       const state = session.subagents.get(id);
       const pending = state?.pendingNotice;
       if (!state || !pending) {
@@ -711,7 +729,7 @@ export class SubagentBudgetMonitor {
           pending.text,
         )
       ) {
-        await this.pushHandoff(session.sessionId, id, pending.text);
+        await this.delivery.send(session.sessionId, id, pending.text);
       }
     }
   }
@@ -819,20 +837,30 @@ export class SubagentBudgetMonitor {
       // A warning the stopped subagent never received is moot now.
       this.dispatcher.withdrawSubagentNotice(liveState.warnedAgentId);
     }
-    const task = live.tasks.get(toolCallId);
-    const files = await this.prepareHandoffFiles(
+    const files = await prepareHandoffFiles(
+      this.handoffFiles,
       liveState.handoffPaths ?? this.handoffFiles.paths(sessionId, toolCallId),
-      task,
+      live.tasks.get(toolCallId)?.prompt,
     );
+    if (files.unavailable) {
+      this.logger.warn(
+        '[SubagentBudgetMonitor] Handoff files not ready in time; handing off without them',
+        { sessionId, toolCallId },
+      );
+    }
     // Released while the files were written: the session is over.
     const current = this.liveSession(live);
     if (!current) {
       return;
     }
+    // Read after the wait: a background tool result may have named the output file.
+    const task = current.tasks.get(toolCallId);
     const text = handoffMessage(
       {
         agentType: record?.agentType ?? started?.subagentType ?? 'subagent',
         teammateName: record?.teammateName ?? task?.name,
+        taskId,
+        outputFile: task?.outputFile,
       },
       {
         reason,
@@ -845,26 +873,6 @@ export class SubagentBudgetMonitor {
       files,
     );
     await this.deliverHandoff(current, toolCallId, liveState, text);
-  }
-
-  /**
-   * Save the full task prompt and check for the subagent's progress notes at
-   * `paths` (the ones its near-budget warning named, when it got one).
-   */
-  private async prepareHandoffFiles(
-    paths: SubagentHandoffPaths | undefined,
-    task: SpawnTask | undefined,
-  ): Promise<HandoffFileState> {
-    if (!paths) {
-      return { taskSaved: false, notesWritten: false };
-    }
-    const [taskSaved, notesWritten] = await Promise.all([
-      task?.prompt
-        ? this.handoffFiles.saveTask(paths, task.prompt)
-        : Promise.resolve(false),
-      this.handoffFiles.notesExist(paths),
-    ]);
-    return { paths, taskSaved, notesWritten };
   }
 
   /**
@@ -881,37 +889,13 @@ export class SubagentBudgetMonitor {
     if (live.spawnReturned.get(toolCallId) === true) {
       // Background subagent: its tool result already came back, so no
       // main-thread tool result is due to carry a queued notice.
-      await this.pushHandoff(sessionId, toolCallId, text);
+      await this.delivery.send(sessionId, toolCallId, text);
       return;
     }
     // Foreground subagent: the handoff rides on its own tool result.
     const liveState = live.subagents.get(toolCallId) ?? stoppedState;
     liveState.pendingNotice = { sessionId, text };
-    this.dispatcher.postMainThreadNotice(sessionId, text);
-  }
-
-  /** Stream the handoff to the parent as a host-authored user turn. */
-  private async pushHandoff(
-    sessionId: string,
-    toolCallId: string,
-    text: string,
-  ): Promise<void> {
-    try {
-      await this.dispatcher.pushParentMessage(sessionId, text);
-      this.logger.info(
-        '[SubagentBudgetMonitor] Handoff sent to the parent as a user turn',
-        { sessionId, toolCallId },
-      );
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[SubagentBudgetMonitor] Handoff message not delivered to the parent',
-        {
-          sessionId,
-          toolCallId,
-          errorType: error instanceof Error ? error.name : typeof error,
-        },
-      );
-    }
+    this.delivery.post(sessionId, toolCallId, text);
   }
 
   /**
@@ -952,6 +936,17 @@ export class SubagentBudgetMonitor {
       },
     );
   }
+}
+
+/** The `output_file:` line of a spawning tool result (string or text blocks), if any. */
+function readOutputFile(content: unknown): string | undefined {
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.map((block) => asObject(block)?.['text'] ?? '').join('\n')
+        : '';
+  return text.match(/output_file:[ \t]*(\S[^\n]*?)[ \t]*(?:\n|$)/i)?.[1];
 }
 
 /** Track `toolUseId` as a call that may spawn a subagent; a known result stays known. */

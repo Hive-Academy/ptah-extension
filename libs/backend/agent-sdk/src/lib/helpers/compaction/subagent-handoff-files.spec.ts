@@ -2,7 +2,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { SubagentHandoffFiles } from './subagent-handoff-files';
+import {
+  HANDOFF_FILES_TIMEOUT_MS,
+  SubagentHandoffFiles,
+  prepareHandoffFiles,
+} from './subagent-handoff-files';
 
 function makeLogger() {
   return {
@@ -91,5 +95,78 @@ describe('SubagentHandoffFiles', () => {
     expect(await files.saveTask(paths, 'prompt')).toBe(false);
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(await files.notesExist(paths)).toBe(false);
+  });
+});
+
+describe('prepareHandoffFiles', () => {
+  const paths = { notes: '/ws/n.md', task: '/ws/n.task.md' };
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports the outcome of both file operations when they settle in time', async () => {
+    const files = {
+      saveTask: jest.fn(async () => true),
+      notesExist: jest.fn(async () => false),
+    };
+
+    await expect(
+      prepareHandoffFiles(files, paths, 'the prompt'),
+    ).resolves.toEqual({ paths, taskSaved: true, notesWritten: false });
+    expect(files.saveTask).toHaveBeenCalledWith(paths, 'the prompt');
+  });
+
+  it('without paths touches no file', async () => {
+    const files = { saveTask: jest.fn(), notesExist: jest.fn() };
+
+    await expect(prepareHandoffFiles(files, undefined, 'p')).resolves.toEqual({
+      taskSaved: false,
+      notesWritten: false,
+    });
+    expect(files.saveTask).not.toHaveBeenCalled();
+    expect(files.notesExist).not.toHaveBeenCalled();
+  });
+
+  it('reports the files unavailable once the bound expires; a late result changes nothing', async () => {
+    jest.useFakeTimers();
+    let finish: (value: boolean) => void = () => undefined;
+    const files = {
+      saveTask: jest.fn(
+        () => new Promise<boolean>((resolve) => (finish = resolve)),
+      ),
+      notesExist: jest.fn(async () => true),
+    };
+    const settled = jest.fn();
+
+    const result = prepareHandoffFiles(files, paths, 'p').then((state) => {
+      settled(state);
+      return state;
+    });
+    await jest.advanceTimersByTimeAsync(HANDOFF_FILES_TIMEOUT_MS - 1);
+    expect(settled).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+
+    await expect(result).resolves.toEqual({
+      paths,
+      taskSaved: false,
+      notesWritten: false,
+      unavailable: true,
+    });
+    finish(true);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it('a rejected file operation reads as unavailable, never a rejection', async () => {
+    const files = {
+      saveTask: jest.fn(async () => true),
+      notesExist: jest.fn(async (): Promise<boolean> => {
+        throw new Error('EIO');
+      }),
+    };
+
+    await expect(prepareHandoffFiles(files, paths, 'p')).resolves.toMatchObject(
+      { unavailable: true },
+    );
   });
 });

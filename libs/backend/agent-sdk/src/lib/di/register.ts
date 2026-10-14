@@ -520,8 +520,8 @@ export function registerSdkServices(
             dispatcher().stopSubagent(sessionId, taskId),
           pushParentMessage: (sessionId, content) =>
             dispatcher().pushParentMessage(sessionId, content),
-          postMainThreadNotice: (sessionId, text) =>
-            notices.post(sessionId, text),
+          postMainThreadNotice: (sessionId, text, onDropped) =>
+            notices.post(sessionId, text, onDropped),
           withdrawMainThreadNotice: (sessionId, text) =>
             notices.withdraw(sessionId, text),
           postSubagentNotice: (agentId, text) =>

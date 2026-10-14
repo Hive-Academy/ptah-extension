@@ -121,4 +121,67 @@ describe('MainThreadNoticeQueue', () => {
     queue.post('sess-1', 'four');
     expect(queue.take('sess-1')).toBe('four');
   });
+
+  describe('onDropped', () => {
+    it('runs for the notice evicted past the bound, only that one', () => {
+      const queue = new MainThreadNoticeQueue(makeLogger());
+      const dropped = jest.fn();
+      const kept = jest.fn();
+      queue.post('sess-1', 'n1', dropped);
+      for (let i = 2; i <= MAX_PENDING_NOTICES_PER_SESSION; i++) {
+        queue.post('sess-1', `n${i}`, kept);
+      }
+      expect(dropped).not.toHaveBeenCalled();
+
+      queue.post('sess-1', 'last', kept);
+
+      expect(dropped).toHaveBeenCalledTimes(1);
+      expect(kept).not.toHaveBeenCalled();
+    });
+
+    it('runs for every notice clear drops', () => {
+      const queue = new MainThreadNoticeQueue(makeLogger());
+      const first = jest.fn();
+      const second = jest.fn();
+      queue.post('sess-1', 'a', first);
+      queue.post('sess-1', 'b', second);
+
+      queue.clear('sess-1');
+
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it('never runs for a notice that was taken or withdrawn', () => {
+      const queue = new MainThreadNoticeQueue(makeLogger());
+      const taken = jest.fn();
+      const withdrawn = jest.fn();
+      queue.post('sess-1', 'taken', taken);
+      queue.take('sess-1');
+      queue.post('sess-1', 'withdrawn', withdrawn);
+      queue.withdraw('sess-1', 'withdrawn');
+
+      queue.clear('sess-1');
+
+      expect(taken).not.toHaveBeenCalled();
+      expect(withdrawn).not.toHaveBeenCalled();
+    });
+
+    it('a throwing callback is logged and does not stop the others', () => {
+      const logger = makeLogger();
+      const queue = new MainThreadNoticeQueue(logger);
+      const after = jest.fn();
+      queue.post('sess-1', 'a', () => {
+        throw new Error('boom');
+      });
+      queue.post('sess-1', 'b', after);
+
+      expect(() => queue.clear('sess-1')).not.toThrow();
+      expect(after).toHaveBeenCalledTimes(1);
+      expect(logger.debug).toHaveBeenCalledWith(
+        '[MainThreadNoticeQueue] onDropped callback failed',
+        { errorType: 'Error' },
+      );
+    });
+  });
 });
