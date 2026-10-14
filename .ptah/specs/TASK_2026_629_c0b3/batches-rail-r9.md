@@ -332,7 +332,7 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 
 ### Task R9r.1 — COMPLETE (cea73f11f)
 
-## Batch R9k: Slim layout service; delete layout controls and board toggle — PENDING
+## Batch R9k: Slim layout service; delete layout controls and board toggle — COMPLETE (e8e190455; review code-logic-review-R9k.md, fix round done)
 
 - Executor: codex lane | Fallback: Claude frontend-developer | Reviewer: Claude code-logic-reviewer | Wave 5 | Depends: R9m, R9j, R9i, R9b
 - Files: `canvas/src/lib/canvas-layout.service.ts`, its `.spec.ts`, `canvas-layout-controls.component.ts`, its `.spec.ts`,
@@ -342,10 +342,15 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
   intent and store exports for R9t. Cases: width observation/release, Tribunal type import. Rows 45, 46, 61.
 - Writer: SPEC(canvas, canvas-layout.service.spec.ts); rg zero-importer.
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas), TC(@ptah-extension/tribunal-panel).
+- Mode 2 result (Wave 5a, `mode2-wave5a-report.md`): rg 0 live importers (3 spec absence asserts; e2e
+  hits routed to R9l); FULL(canvas) 22 suites / 247 tests green; LINT 0 errors (16 warnings); TC(canvas)
+  and TC(tribunal-panel) each 1 error, only `chat-state/src/lib/tab-persistence.ts:171` TS2367 from R9s's
+  uncommitted edit (not at HEAD), none in R9k files or `tribunal-ui.types.ts`. Review APPROVE-WITH-FIXES
+  7/10; finding 1 fixed; 3 -> R9l, 6 -> R9t; 2, 4, 5, 7 recorded.
 
-### Task R9k.1 — PENDING
+### Task R9k.1 — COMPLETE (e8e190455)
 
-## Batch R9s: Drop compactHeightUnits from TabState — PENDING
+## Batch R9s: Drop compactHeightUnits from TabState — COMPLETE (2365151a8; review code-logic-review-R9s.md APPROVED 8/10, no fix round)
 
 - Executor: opencode lane | Fallback: codex lane | Reviewer: Claude code-logic-reviewer | Wave 5 | Depends: R9r
 - Files: `chat-state/src/lib/tab-persistence.ts`, `tab-restore-sanitize.spec.ts`, `tab-persistence.backoff.spec.ts`,
@@ -359,7 +364,7 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 - Writer: SPEC(chat-state, tab-restore-sanitize.spec.ts), SPEC(chat-state, tab-persistence.backoff.spec.ts)
 - Mode 2: FULL(chat-state), TC(chat-state), LINT(chat-state), TC(@ptah-extension/chat-types), LINT(chat-types).
 
-### Task R9s.1 — PENDING
+### Task R9s.1 — COMPLETE (2365151a8)
 
 ## Batch R9t: Late intent/store Grid cleanup — PENDING
 
@@ -377,7 +382,7 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 
 ### Task R9t.1 — PENDING
 
-## Batch R9h: Rail retention cap 4, stable ChatView, dock by tab id — PENDING
+## Batch R9h: Rail retention cap 4, stable ChatView, dock by tab id — COMPLETE (43d48bf89; review code-logic-review-R9h.md, fix round done)
 
 - Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H1 | Depends: R9e, R9n (hold lifted, decision 81)
 - Files: `chat/src/lib/services/transcript-retention.service.ts`, its `.spec.ts`,
@@ -397,8 +402,12 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
   SESSION_CARD_ACTIONS without SESSION_CONTEXT keeps unresolved agents" (tolerant). These two specs gate R9f.
 - Writer: SPEC(chat, transcript-retention.service.spec.ts), SPEC(chat, chat-view.keepalive.spec.ts), SPEC(chat, chat-view.dock.spec.ts)
 - Mode 2: FULL(chat), TC(chat), LINT(chat); confirm both decision-89 cases by name in the FULL(chat) log.
+- Mode 2 result (Wave H1, `mode2-h1-report.md`): no new `HIDE_AGENT_SIDEBAR: true` (existing: canvas-detail-transcript
+  :56, conductor-tile :221, both R9f's/out of scope); FULL(chat) 202 suites / 3705 passed, 2 skipped; TC green;
+  LINT 0 errors (40 pre-existing warnings). Both decision-89 dock cases passed by name (Jest JSON, 26/26) ->
+  dock specs pass -> R9f unblocked. Review APPROVE-WITH-FIXES 7/10; fix round fixed S1, M1, M2, M4; M3 and m1-m3 recorded.
 
-### Task R9h.1 — PENDING
+### Task R9h.1 — COMPLETE (43d48bf89)
 
 ## Batch R9f: Persistent Rail transcript host, restored dock, live full lane — PENDING
 
