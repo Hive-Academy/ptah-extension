@@ -9,15 +9,15 @@ import {
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
-import { SESSION_CONTEXT } from '../tokens/session-context.token';
+import { RAIL_TRANSCRIPT_RETENTION, SESSION_CONTEXT } from '../tokens/session-context.token';
 
 /**
  * Hard bound on the number of retained (hidden-but-alive) transcript DOM trees
  * kept mounted at once. Beyond this cap the least-recently-active non-active tab
- * is disposed. Single constant so profiling can dial it down without touching
- * the eviction logic.
+ * is disposed. Rail hosts opt into a smaller four-tab cap.
  */
 export const RETAINED_TRANSCRIPT_CAP = 8;
+const RAIL_RETAINED_TRANSCRIPT_CAP = 4;
 
 /**
  * TranscriptRetentionService — component-scoped LRU registry of tab ids whose
@@ -37,13 +37,15 @@ export class TranscriptRetentionService {
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly _destroyRef = inject(DestroyRef);
+  private readonly _railRetention =
+    inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) ?? false;
+  private static readonly owners = new WeakMap<
+    ExecutionTreeBuilderService,
+    Map<string, number>
+  >();
   /**
-   * Present only when this instance is rendered inside a canvas tile (the tile
-   * provides the tab id). Tile-mode `ChatViewComponent`s never read
-   * `retainedTabIds()` (their `transcriptTabIds` computed renders exactly their
-   * own tab), so a per-tile retention LRU is dead weight and its `clearForTab`
-   * eviction would cross-invalidate the main panel's execution-tree cache. When
-   * present the constructor stands up no effects.
+   * Contextual tiles do not retain unless their host opts into Rail retention.
+   * They render one transcript and must not evict another surface's cache.
    */
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
@@ -63,7 +65,12 @@ export class TranscriptRetentionService {
   private _lastRemovedWorkspaceSeq = 0;
 
   constructor() {
-    if (this._sessionContext) return;
+    if (this._sessionContext && !this._railRetention) return;
+    if (this._railRetention) {
+      this._destroyRef.onDestroy(() => {
+        for (const id of [...this._retainedTabIds()]) this.dispose(id);
+      });
+    }
 
     // Active-tab change → retain + refresh recency, and opportunistically prune
     // any retained id that no longer resolves. Piggybacking `disposeUnresolvable`
@@ -71,7 +78,9 @@ export class TranscriptRetentionService {
     // emission is missed (e.g. a switch lands in the same flush before this
     // instance's removed-workspace effect first runs).
     effect(() => {
-      const activeId = this._tabManager.activeTabId();
+      const activeId = this._railRetention && this._sessionContext
+        ? this._sessionContext()
+        : this._tabManager.activeTabId();
       untracked(() => {
         if (activeId) this.touch(activeId);
         this.disposeUnresolvable();
@@ -111,26 +120,38 @@ export class TranscriptRetentionService {
     this._recency.set(tabId, ++this._clock);
     const current = this._retainedTabIds();
     if (!current.includes(tabId)) {
+      const owners =
+        TranscriptRetentionService.owners.get(this._treeBuilder) ??
+        new Map<string, number>();
+      owners.set(tabId, (owners.get(tabId) ?? 0) + 1);
+      TranscriptRetentionService.owners.set(this._treeBuilder, owners);
       this._retainedTabIds.set([...current, tabId]);
     }
     this.evictOverCap(tabId);
   }
 
   /**
-   * Drop `tabId` from the retained set and clear its execution-tree memo cache
-   * so the builder's `tab-${tabId}` entry doesn't leak after the DOM is gone.
+   * Drop a retained tab. Clear its tree memo only after its last owner releases it.
    */
   dispose(tabId: string): void {
     this._recency.delete(tabId);
     const current = this._retainedTabIds();
-    if (current.includes(tabId)) {
-      this._retainedTabIds.set(current.filter((id) => id !== tabId));
+    if (!current.includes(tabId)) return;
+    this._retainedTabIds.set(current.filter((id) => id !== tabId));
+    const owners = TranscriptRetentionService.owners.get(this._treeBuilder);
+    const remaining = (owners?.get(tabId) ?? 1) - 1;
+    if (remaining > 0) owners?.set(tabId, remaining);
+    else {
+      owners?.delete(tabId);
+      this._treeBuilder.clearForTab(tabId);
     }
-    this._treeBuilder.clearForTab(tabId);
   }
 
   private evictOverCap(activeTabId: string): void {
-    while (this._retainedTabIds().length > RETAINED_TRANSCRIPT_CAP) {
+    const cap = this._railRetention
+      ? RAIL_RETAINED_TRANSCRIPT_CAP
+      : RETAINED_TRANSCRIPT_CAP;
+    while (this._retainedTabIds().length > cap) {
       let lruId: string | null = null;
       let lruTick = Number.POSITIVE_INFINITY;
       for (const id of this._retainedTabIds()) {
@@ -154,3 +175,4 @@ export class TranscriptRetentionService {
     }
   }
 }
+

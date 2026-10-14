@@ -19,6 +19,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { By } from '@angular/platform-browser';
 
 // Stub ngx-markdown (ESM-only bundle) BEFORE any component import.
 jest.mock('ngx-markdown', () => {
@@ -97,7 +98,9 @@ import { DisplayDockComponent } from '../organisms/display-dock/display-dock.com
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import {
   HIDE_AGENT_SIDEBAR,
+  RAIL_TRANSCRIPT_RETENTION,
   SESSION_CONTEXT,
+  SESSION_CARD_ACTIONS,
   SESSION_VISIBLE,
 } from '../../tokens/session-context.token';
 
@@ -170,7 +173,9 @@ interface Harness {
   fixture: ComponentFixture<ChatViewComponent>;
   agents: ReturnType<typeof signal<MonitoredAgent[]>>;
   activeTabId: ReturnType<typeof signal<string | null>>;
-  openTabs: ReturnType<typeof signal<{ id: string }[]>>;
+  openTabs: ReturnType<typeof signal<{ id: string; claudeSessionId?: string }[]>>;
+  contextTabId: ReturnType<typeof signal<string | null>>;
+  closeTab(tabId: string): void;
   panelOpenRequest: ReturnType<
     typeof signal<{ seq: number; tabId: string | null }>
   >;
@@ -182,16 +187,24 @@ function mount(
     electron?: boolean;
     hideAgentSidebar?: boolean;
     deferBehavior?: DeferBlockBehavior;
+    contextual?: boolean;
+    cardActions?: boolean;
+    railRetention?: boolean;
   } = {},
 ): Harness {
   const {
     electron = true,
     hideAgentSidebar = false,
     deferBehavior = DeferBlockBehavior.Playthrough,
+    contextual = false,
+    cardActions = false,
+    railRetention = false,
   } = options;
   const agents = signal<MonitoredAgent[]>([]);
   const activeTabId = signal<string | null>('tab-1');
-  const openTabs = signal<{ id: string }[]>([]);
+  const contextTabId = signal<string | null>('tab-1');
+  const openTabs = signal<{ id: string; claudeSessionId?: string }[]>(contextual ? [{ id: 'tab-1', claudeSessionId: 'session-1' }] : []);
+  const closedTabListeners = new Set<(event: { tabId: string; kind: string }) => void>();
   const panelOpenRequest = signal<{ seq: number; tabId: string | null }>({
     seq: 0,
     tabId: null,
@@ -216,9 +229,15 @@ function mount(
     tabs: openTabs.asReadonly(),
     streamingTabIds: signal<Set<string>>(new Set()).asReadonly(),
     closedTab: signal(null).asReadonly(),
-    onTabClosed: jest.fn(() => () => undefined),
+    onTabClosed: jest.fn((listener: (event: { tabId: string; kind: string }) => void) => {
+      closedTabListeners.add(listener);
+      return () => closedTabListeners.delete(listener);
+    }),
     removedWorkspace$: signal(null).asReadonly(),
-    findTabByIdAcrossWorkspaces: jest.fn(() => null),
+    findTabByIdAcrossWorkspaces: jest.fn((id: string) => {
+      const tab = openTabs().find((candidate) => candidate.id === id);
+      return tab ? { tab, workspacePath: '/w' } : null;
+    }),
     findTabBySessionId: jest.fn(() => null),
     findTabsBySessionId: jest.fn(() => []),
     clearRemovedWorkspace: jest.fn(),
@@ -288,7 +307,8 @@ function mount(
         useValue: {
           agents: agents.asReadonly(),
           agentsForSession: (): MonitoredAgent[] => agents(),
-          agentsOwnedBySession: (): MonitoredAgent[] => [],
+          agentsOwnedBySession: (sid: string): MonitoredAgent[] =>
+            agents().filter((agent) => agent.parentSessionId === sid),
           panelOpenRequest: panelOpenRequest.asReadonly(),
           cliOutputDemand: signal([]).asReadonly(),
           tick: signal(0),
@@ -347,7 +367,9 @@ function mount(
         provide: ChangeSetActionsService,
         useValue: { openFile: jest.fn(), review: jest.fn() },
       },
-      { provide: SESSION_CONTEXT, useValue: null },
+      { provide: SESSION_CONTEXT, useValue: contextual ? contextTabId.asReadonly() : null },
+      { provide: RAIL_TRANSCRIPT_RETENTION, useValue: railRetention },
+      { provide: SESSION_CARD_ACTIONS, useValue: cardActions ? { openLane: jest.fn(), openSession: jest.fn() } : null },
       { provide: SESSION_VISIBLE, useValue: null },
       { provide: HIDE_AGENT_SIDEBAR, useValue: hideAgentSidebar },
     ],
@@ -376,6 +398,11 @@ function mount(
     agents,
     activeTabId,
     openTabs,
+    contextTabId,
+    closeTab(tabId: string): void {
+      openTabs.update((tabs) => tabs.filter((tab) => tab.id !== tabId));
+      for (const listener of closedTabListeners) listener({ tabId, kind: 'close' });
+    },
     panelOpenRequest,
     emitHostWidth(width: number): void {
       const entry = {
@@ -813,4 +840,110 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
     });
   });
+
+  it('Rail host (SESSION_CONTEXT) counts only owned agents: an unresolved running agent adds no badge or auto-open', async () => {
+    h = mount({ contextual: true, railRetention: true });
+    h.agents.set([agent('running')]);
+    await settle();
+    expect(h.fixture.componentInstance.sessionAgents()).toEqual([]);
+    expect(h.fixture.componentInstance.agentBadgeType()).toBeNull();
+    expect(store().tab('tab-1').open).toBe(false);
+  });
+
+  it('Rail host counts an owned running agent in Agents (N), shows its badge, and auto-opens the dock', async () => {
+    h = mount({ contextual: true, railRetention: true });
+    h.agents.set([{ ...agent('running'), parentSessionId: 'session-1' }]);
+    await settle();
+    expect(h.fixture.componentInstance.sessionAgents()).toHaveLength(1);
+    expect(h.fixture.componentInstance.agentBadgeType()).toBe('info');
+    expect(store().tab('tab-1').open).toBe(true);
+    expect(dockTab('agents').textContent).toContain('1');
+  });
+
+  it('Rail ChatView retains two transcript DOM nodes and restores its own dock state on context round trip', async () => {
+    h = mount({ contextual: true, railRetention: true });
+    h.openTabs.set([
+      { id: 'tab-1', claudeSessionId: 'session-1' },
+      { id: 'tab-2', claudeSessionId: 'session-2' },
+    ]);
+    h.emitHostWidth(1280);
+    await settle();
+    const transcripts = () => native().querySelectorAll('ptah-chat-transcript');
+    const first = transcripts()[0] as HTMLElement & { active: boolean };
+    expect(first.active).toBe(true);
+    store().open('tab-1');
+    store().setPinned('tab-1', true);
+    store().setWidth('tab-1', 520);
+    h.contextTabId.set('tab-2');
+    await settle();
+    expect(transcripts()).toHaveLength(2);
+    expect(first.active).toBe(false);
+    expect((transcripts()[1] as HTMLElement & { active: boolean }).active).toBe(true);
+    expect(store().tab('tab-2').open).toBe(false);
+    h.contextTabId.set('tab-1');
+    await settle();
+    expect(transcripts()).toHaveLength(2);
+    expect(transcripts()[0]).toBe(first);
+    expect(first.active).toBe(true);
+    expect((transcripts()[1] as HTMLElement & { active: boolean }).active).toBe(false);
+    expect(store().tab('tab-1').open).toBe(true);
+    expect(store().tab('tab-1').pinned).toBe(true);
+    expect(store().tab('tab-1').widthPx).toBe(520);
+    expect(separator()?.getAttribute('aria-valuenow')).toBe('520');
+  });
+
+  it('contextual ChatView without Rail token renders exactly one transcript', async () => {
+    h = mount({ contextual: true });
+    h.openTabs.set([
+      { id: 'tab-1', claudeSessionId: 'session-1' },
+      { id: 'tab-2', claudeSessionId: 'session-2' },
+    ]);
+    await settle();
+    const first = native().querySelector('ptah-chat-transcript');
+    h.contextTabId.set('tab-2');
+    await settle();
+    expect(native().querySelectorAll('ptah-chat-transcript')).toHaveLength(1);
+    expect(native().querySelector('ptah-chat-transcript')).not.toBe(first);
+  });
+
+  it('Rail ChatView removes the closed context tab transcript before context changes', async () => {
+    h = mount({ contextual: true, railRetention: true });
+    await settle();
+    expect(native().querySelectorAll('ptah-chat-transcript')).toHaveLength(1);
+    h.closeTab('tab-1');
+    await settle();
+    expect(native().querySelectorAll('ptah-chat-transcript')).toHaveLength(0);
+  });
+
+  it('single chat view that provides SESSION_CARD_ACTIONS without SESSION_CONTEXT keeps unresolved agents', async () => {
+    h = mount({ cardActions: true });
+    h.agents.set([agent('running')]);
+    await settle();
+    expect(h.fixture.componentInstance.sessionAgents()).toHaveLength(1);
+    expect(h.fixture.componentInstance.agentBadgeType()).toBe('info');
+    expect(store().tab('tab-1').open).toBe(true);
+  });
+
+  it('a fenced ptah-ui display [id] opens in the single chat view dock and updates in place', async () => {
+    h = mount();
+    const first = surface('id:chart');
+    store().setLiveTurn('tab-1', 'turn-1');
+    store().setSurfaces('tab-1', { surfaces: [first], statuses: new Map() });
+    store().requestAutoOpen('tab-1', 'turn-1', first.key);
+    await settle();
+    expect(store().tab('tab-1').open).toBe(true);
+    expect(store().tab('tab-1').surfaces).toHaveLength(1);
+    const panel = h.fixture.debugElement.query(By.directive(StubDisplayPanelComponent));
+    expect(panel).toBeTruthy();
+    expect(panel.componentInstance.surfaces()).toEqual([first]);
+    const updated = { ...first, updatedSeq: 2 };
+    store().setSurfaces('tab-1', { surfaces: [updated], statuses: new Map() });
+    await settle();
+    expect(store().tab('tab-1').surfaces).toEqual([updated]);
+    expect(store().tab('tab-1').surfaces).toHaveLength(1);
+    expect(h.fixture.debugElement.query(By.directive(StubDisplayPanelComponent)).componentInstance).toBe(panel.componentInstance);
+    expect(panel.componentInstance.surfaces()).toEqual([updated]);
+    expect(native().querySelectorAll('ptah-display-dock')).toHaveLength(1);
+  });
+
 });

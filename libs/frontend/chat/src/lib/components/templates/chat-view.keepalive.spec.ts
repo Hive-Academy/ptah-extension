@@ -70,7 +70,7 @@ import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
-import { SESSION_CONTEXT } from '../../tokens/session-context.token';
+import { RAIL_TRANSCRIPT_RETENTION, SESSION_CONTEXT } from '../../tokens/session-context.token';
 
 @Component({
   selector: 'ptah-message-bubble',
@@ -229,4 +229,28 @@ describe('ChatViewComponent keep-alive — workspace-switch transcript survival'
     expect(transcriptAAfter).toBe(transcriptA);
     expect(transcriptAAfter!.active()).toBe(true);
   });
+
+  it('Rail host retains by SESSION_CONTEXT tab id and per-tab dock state survives a tab change', () => {
+    const contextTabId = signal<string | null>(null);
+    TestBed.overrideProvider(SESSION_CONTEXT, { useValue: contextTabId.asReadonly() });
+    TestBed.overrideProvider(RAIL_TRANSCRIPT_RETENTION, { useValue: true });
+    const tabManager = TestBed.inject(TabManagerService);
+    tabManager.switchWorkspace(WS_A);
+    const tabA = tabManager.createTab('A');
+    const tabB = tabManager.createTab('B');
+    const fixture = TestBed.createComponent(KeepAliveHostComponent);
+    const retention = fixture.debugElement.injector.get(TranscriptRetentionService);
+    contextTabId.set(tabA);
+    TestBed.tick();
+    fixture.detectChanges();
+    contextTabId.set(tabB);
+    TestBed.tick();
+    fixture.detectChanges();
+    expect(retention.retainedTabIds()).toEqual([tabA, tabB]);
+    contextTabId.set(tabA);
+    TestBed.tick();
+    fixture.detectChanges();
+    fixture.destroy();
+  });
+
 });

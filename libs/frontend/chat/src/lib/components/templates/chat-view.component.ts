@@ -74,6 +74,7 @@ import {
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
+  RAIL_TRANSCRIPT_RETENTION,
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
@@ -545,7 +546,9 @@ export class ChatViewComponent implements OnDestroy {
       if (this._sessionContext) return [];
       return this.agentMonitorStore.agents();
     }
-    return this.agentMonitorStore.agentsForSession(sid);
+    return this._sessionContext
+      ? this.agentMonitorStore.agentsOwnedBySession(sid)
+      : this.agentMonitorStore.agentsForSession(sid);
   });
 
   /** Badge type for the Agents sidebar tab */
@@ -809,15 +812,18 @@ export class ChatViewComponent implements OnDestroy {
    */
   private readonly _retention = inject(TranscriptRetentionService);
 
+  private readonly _railRetention =
+    inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) ?? false;
+
   /**
    * Tab ids to render as `<ptah-chat-transcript>` instances. Tile mode
-   * (SESSION_CONTEXT present) renders exactly its one tab; the main panel
-   * renders the retained set so switching tabs/workspaces reuses built DOM
+   * (SESSION_CONTEXT present) renders one tab unless Rail retention is opted in;
+   * retained hosts keep their previous tabs mounted across switches
    * instead of rebuilding it.
    */
   protected readonly transcriptTabIds = computed<readonly string[]>(() => {
     const ctx = this._sessionContext;
-    if (ctx) {
+    if (ctx && !this._railRetention) {
       const id = ctx();
       return id ? [id] : [];
     }
@@ -826,7 +832,21 @@ export class ChatViewComponent implements OnDestroy {
     // between an active-tab change and the effect touch. Appending at the end
     // matches where `touch` inserts it, so `@for track tabId` never reorders.
     const retained = this._retention.retainedTabIds();
-    const active = this._tabManager.activeTabId();
+    // A Rail context can briefly point at a tab the user has just closed.
+    // Reading tabs keeps this list reactive when that happens.
+    if (ctx && this._railRetention) {
+      this._tabManager.tabs();
+      const existing = retained.filter((id) =>
+        this._tabManager.findTabByIdAcrossWorkspaces(id),
+      );
+      const active = this.resolvedTabId();
+      return active &&
+        !existing.includes(active) &&
+        this._tabManager.findTabByIdAcrossWorkspaces(active)
+        ? [...existing, active]
+        : existing;
+    }
+    const active = this.resolvedTabId();
     if (active && !retained.includes(active)) {
       return [...retained, active];
     }
@@ -907,8 +927,8 @@ export class ChatViewComponent implements OnDestroy {
   /**
    * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
    * In compact mode the chat view renders a CompactSessionCard instead of the
-   * full message list via `showCompactCard()`. The compact height is
-   * tab state (`compactHeightUnits`) that only canvas reads.
+   * full message list via `showCompactCard()`. The selected view mode is
+   * tab state, shared by surfaces for the same tab.
    */
   readonly resolvedViewMode = computed(() => {
     const ctx = this._sessionContext;
@@ -1895,3 +1915,4 @@ function clampDockWidth(width: number, hostWidth: number): number {
   const min = Math.min(DOCK_MIN_WIDTH, max);
   return Math.round(Math.min(Math.max(width, min), max));
 }
+

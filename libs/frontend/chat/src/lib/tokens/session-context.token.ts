@@ -67,3 +67,8 @@ export interface SessionCardActions {
 export const SESSION_CARD_ACTIONS = new InjectionToken<SessionCardActions>(
   'SESSION_CARD_ACTIONS',
 );
+
+/** Opts a contextual Rail host into four-tab transcript retention. */
+export const RAIL_TRANSCRIPT_RETENTION = new InjectionToken<boolean>(
+  'RAIL_TRANSCRIPT_RETENTION',
+);
