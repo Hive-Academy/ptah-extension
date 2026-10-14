@@ -11,8 +11,10 @@
 import {
   DestroyRef,
   Injectable,
+  effect,
   inject,
   signal,
+  untracked,
   Injector,
 } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
@@ -86,14 +88,31 @@ export class ConversationService {
   private readonly heldCommands = new Map<string, HeldCommands>();
 
   constructor() {
-    // A closed or force-closed tab never flushes the text its held commands
-    // wait behind, so they settle as dropped. A `reset` (`/clear`) keeps the
-    // tab, so its queue path ({@link releaseHeldCommand}) still settles them.
+    // Held commands are released only by a flush of the tab's queue, which
+    // needs the queue and the tab's session. Every event that ends that wait
+    // without a flush settles them as dropped:
+    // - `close` / `forceClose` remove the tab.
+    // - `reset` (`/clear`) discards the queue and unbinds the session; a
+    //   command released afterwards would sit on a session-less tab that no
+    //   turn end flushes. That includes a command held behind the `/clear`
+    //   flush itself: its `chat:complete` reset arrives before the reply.
     inject(DestroyRef).onDestroy(
-      this.tabManager.onTabClosed(({ tabId, kind }) => {
-        if (kind !== 'reset') this.dropHeldCommands(tabId);
-      }),
+      this.tabManager.onTabClosed(({ tabId }) => this.dropHeldCommands(tabId)),
     );
+    // A removed workspace takes its tabs, active and parked, with no close
+    // event (the layout ends their sessions itself).
+    effect(() => {
+      if (!this.tabManager.removedWorkspace$()) return;
+      untracked(() => this.dropHeldCommandsOfRemovedTabs());
+    });
+  }
+
+  private dropHeldCommandsOfRemovedTabs(): void {
+    for (const tabId of Array.from(this.heldCommands.keys())) {
+      if (!this.tabManager.findTabByIdAcrossWorkspaces(tabId)) {
+        this.dropHeldCommands(tabId);
+      }
+    }
   }
 
   /**
@@ -248,8 +267,9 @@ export class ConversationService {
   }
 
   /**
-   * Drop the tab's held commands, after a Stop, a failed turn or a tab close:
-   * like the queued text, they must not be sent on their own later.
+   * Drop the tab's held commands, after a Stop, a failed turn, a tab close or
+   * reset, or a workspace removal: like the queued text, they must not be
+   * sent on their own later.
    */
   dropHeldCommands(tabId: string): void {
     const held = this.heldCommands.get(tabId);

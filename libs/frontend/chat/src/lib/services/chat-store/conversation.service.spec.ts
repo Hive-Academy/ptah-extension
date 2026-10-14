@@ -21,6 +21,7 @@ import { ConversationService } from './conversation.service';
 import {
   TabManagerService,
   type ClosedTabEvent,
+  type WorkspaceRemovalEvent,
 } from '@ptah-extension/chat-state';
 import { MessageValidationService } from '../message-validation.service';
 import { ClaudeRpcService } from '@ptah-extension/core';
@@ -74,6 +75,8 @@ describe('ConversationService', () => {
     setMessages: jest.Mock;
     setLastTerminalReason: jest.Mock;
     onTabClosed: jest.Mock;
+    removedWorkspace$: ReturnType<typeof signal<WorkspaceRemovalEvent | null>>;
+    findTabByIdAcrossWorkspaces: jest.Mock;
   };
   let closedTabListeners: Set<(event: ClosedTabEvent) => void>;
   let validator: jest.Mocked<
@@ -159,6 +162,12 @@ describe('ConversationService', () => {
       onTabClosed: jest.fn((listener: (event: ClosedTabEvent) => void) => {
         closedTabListeners.add(listener);
         return () => closedTabListeners.delete(listener);
+      }),
+      removedWorkspace$: signal<WorkspaceRemovalEvent | null>(null),
+      // Only the active workspace's tabs are modelled here.
+      findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
+        const tab = tabsSignal().find((t) => t.id === tabId);
+        return tab ? { tab, workspacePath: '/ws' } : null;
       }),
     };
     closedTabListeners = new Set();
@@ -563,14 +572,45 @@ describe('ConversationService', () => {
       },
     );
 
-    it('keeps the held command on a reset or when another tab closes', async () => {
-      const { outcome } = holdHandoff();
+    it('settles a held command as dropped on a reset, which discards the queue', async () => {
+      const { held } = holdHandoff();
 
       closeTab('reset');
+
+      await expect(held).resolves.toBe(false);
+      // A later release (the reset's own flush answering) has nothing to queue.
+      service.releaseHeldCommand('tab-1', 'first');
+      expect(tabManager.setQueuedContent).not.toHaveBeenCalledWith(
+        'tab-1',
+        '/session-handoff wrap up',
+      );
+    });
+
+    it('keeps the held command when another tab closes', async () => {
+      const { outcome } = holdHandoff();
+
       closeTab('close', 'tab-2');
+      closeTab('reset', 'tab-2');
       await Promise.resolve();
 
       expect(outcome.value).toBeUndefined();
+    });
+
+    it('settles a held command as dropped when its workspace is removed', async () => {
+      const { held, outcome } = holdHandoff();
+
+      // A removal that leaves the tab in place does not touch it.
+      tabManager.removedWorkspace$.set({ path: '/ws/other', seq: 1 });
+      TestBed.tick();
+      await Promise.resolve();
+      expect(outcome.value).toBeUndefined();
+
+      // TabManagerService.removeWorkspaceState: the tabs go, no close event.
+      tabsSignal.set([]);
+      tabManager.removedWorkspace$.set({ path: '/ws', seq: 2 });
+      TestBed.tick();
+
+      await expect(held).resolves.toBe(false);
     });
 
     it('stops listening for tab closes when the service is destroyed', () => {

@@ -8,7 +8,7 @@
  * the streaming handler's flush: `sendQueuedMessage(tabId, queuedContent)`.
  */
 
-import { signal } from '@angular/core';
+import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   AuthStateService,
@@ -18,6 +18,7 @@ import {
 import {
   TabManagerService,
   type ClosedTabEvent,
+  type WorkspaceRemovalEvent,
 } from '@ptah-extension/chat-state';
 import {
   MessageFinalizationService,
@@ -64,8 +65,32 @@ describe('SessionBudgetActionsService with the real queue', () => {
   let dispatch: MessageDispatchService;
   let conversation: ConversationService;
   let closedTabListeners: Set<(event: ClosedTabEvent) => void>;
+  let removedWorkspace: WritableSignal<WorkspaceRemovalEvent | null>;
 
   const tab = () => tabs.find((t) => t.id === TAB) as TabState;
+  const emitTabClosed = (event: ClosedTabEvent) => {
+    for (const listener of Array.from(closedTabListeners)) listener(event);
+  };
+  /**
+   * TabManagerService.resetTabToFresh, run by ChatMessageHandlerService on
+   * the `chat:complete` (`command: 'clear'`) the backend broadcasts.
+   */
+  const resetTab = () => {
+    patch(TAB, {
+      status: 'fresh',
+      claudeSessionId: null,
+      queuedContent: null,
+      queuedOptions: null,
+    });
+    emitTabClosed({ tabId: TAB, sessionId: SESSION, kind: 'reset' });
+  };
+  const expectWrapUpNotSent = () => {
+    expect(service.wrapUpSent()).toBe(false);
+    expect(showError).toHaveBeenCalledWith(
+      expect.stringContaining('wrap-up request was not sent'),
+      TAB,
+    );
+  };
   const patch = (id: string, update: Partial<TabState>) => {
     tabs = tabs.map((t) => (t.id === id ? { ...t, ...update } : t));
   };
@@ -92,6 +117,7 @@ describe('SessionBudgetActionsService with the real queue', () => {
     ];
     flushed = [];
     showError = jest.fn();
+    removedWorkspace = signal<WorkspaceRemovalEvent | null>(null);
     // Stop logs its RPC steps; the assertions below cover the outcome.
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
 
@@ -123,6 +149,7 @@ describe('SessionBudgetActionsService with the real queue', () => {
         closedTabListeners.add(listener);
         return () => closedTabListeners.delete(listener);
       },
+      removedWorkspace$: removedWorkspace.asReadonly(),
     };
     closedTabListeners = new Set();
 
@@ -299,19 +326,77 @@ describe('SessionBudgetActionsService with the real queue', () => {
       // TabManagerService.closeTab / forceCloseTab: the tab is removed, then
       // the close event is emitted. No flush can release the command now.
       tabs = [];
-      for (const listener of Array.from(closedTabListeners)) {
-        listener({ tabId: TAB, sessionId: SESSION, kind });
-      }
+      emitTabClosed({ tabId: TAB, sessionId: SESSION, kind });
       await wrapUp;
 
-      expect(service.wrapUpSent()).toBe(false);
-      expect(showError).toHaveBeenCalledWith(
-        expect.stringContaining('wrap-up request was not sent'),
-        TAB,
-      );
+      expectWrapUpNotSent();
       expect(flushed).toEqual([]);
     },
   );
+
+  it('settles the wrap-up as not sent when its workspace is removed', async () => {
+    await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
+    const wrapUp = service.sendWrapUp();
+    await settle();
+
+    // TabManagerService.removeWorkspaceState: the workspace's tabs, active
+    // and parked, are dropped with no close event.
+    tabs = [];
+    removedWorkspace.set({ path: '/ws', seq: 1 });
+    TestBed.tick();
+    await wrapUp;
+
+    expectWrapUpNotSent();
+    expect(flushed).toEqual([]);
+  });
+
+  it('settles the wrap-up as not sent when /clear discards the queue it waits behind', async () => {
+    await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
+    const wrapUp = service.sendWrapUp();
+    await settle();
+
+    resetTab();
+    await wrapUp;
+
+    expectWrapUpNotSent();
+    await endTurn();
+    expect(flushed).toEqual([]);
+    expect(tab().queuedContent).toBeNull();
+  });
+
+  it('a wrap-up held behind a queued /clear settles as not sent when the clear runs', async () => {
+    const sender = TestBed.inject(MessageSenderService) as unknown as {
+      continueExistingSessionForQueueFlush: jest.Mock;
+    };
+    // `chat:continue` with `/clear`: the backend broadcasts `chat:complete`
+    // (clear) and only then replies (ChatSlashCommandRouterService).
+    sender.continueExistingSessionForQueueFlush.mockImplementation(
+      (content: string) => {
+        flushed.push(content);
+        if (content === '/clear') resetTab();
+        else patch(TAB, { status: 'streaming' });
+        return Promise.resolve({ success: true });
+      },
+    );
+    await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
+    await dispatch.sendOrQueueMessage('/clear', { tabId: TAB });
+    const wrapUp = service.sendWrapUp();
+    await settle();
+
+    // The text is sent; `/clear` is next, the wrap-up still waits behind it.
+    await endTurn();
+    expect(tab().queuedContent).toBe('/clear');
+    expect(showError).not.toHaveBeenCalled();
+
+    // The clear's reset leaves a session-less tab no turn end flushes.
+    await endTurn();
+    await wrapUp;
+
+    expectWrapUpNotSent();
+    expect(tab().queuedContent).toBeNull();
+    await endTurn();
+    expect(flushed).toEqual(['Please check tests', '/clear']);
+  });
 
   it('drops the command when the queue was reset and unrelated text is sent', async () => {
     await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
