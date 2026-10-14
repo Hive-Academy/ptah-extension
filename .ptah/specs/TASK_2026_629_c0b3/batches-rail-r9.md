@@ -1,6 +1,11 @@
 # Batches - TASK_2026_629_c0b3 (phase R9, Rail only)
 
-Total tasks: 20 | Batches: 20 (R9a-R9t) | Complete: 5/20 (Wave 1) | Held: 3 (R9h, R9f, R9l)
+Total tasks: 24 | Batches: 24 (R9a-R9t, addendum R9u-R9x) | Complete: 9/24 (Wave 1; Wave 2 R9o, R9i, R9e, R9n) | Held: 0
+
+Addendum: `implementation-plan-rail-r9-split.md` Revisions 1-3 (Gate 2 passed, decision 88), notes N1-N6
+(`implementation-plan-rail-r9-split-final-check.md`) and B1-B7 (`implementation-plan-rail-r9-split-rev3-check.md`)
+folded into the R9u-R9x contracts below; user decisions 82, 83, 85, 86. R9h/R9f/R9l run unchanged as approved
+(decision 81) apart from decision 89 (R9h/R9f) and the R9i review note on R9t.
 
 Source: `implementation-plan-rail-r9.md` (Gate 2 APPROVED 9/10, `implementation-plan-rail-r9-rereview-2.md`),
 decisions 73-80, `handoff-6.md` §4, parity rows 1-116 of `parity-inventory-layout.md`. One task per batch
@@ -36,12 +41,15 @@ Assumptions:
 | --- | --- | --- |
 | R1 Shared worktree: a Mode 2 project check sees half-edited files of another in-flight writer | HIGH | Mode 2 checks for a wave start only after ALL writers of that wave returned; next wave launches after this wave's commits (Waves rule 3) |
 | R2 Per-commit greenness is proven on the wave's combined tree, not per commit in isolation | MEDIUM | Batches in one wave have no symbol dependency in either direction (checked); commits go in plan order |
-| R3 Split-focus addendum (items 12/13) will touch files that R9b, R9c, R9t, R9l own (rail board, rail card reorder, store, detail service, e2e) | MEDIUM | Addendum batches are sequenced after the owning R9 batch commits; R9l HELD; R9b/R9c/R9t proceed per decision 80 |
+| R3 Split-focus addendum (items 12/13) will touch files that R9b, R9c, R9t, R9l own (rail board, rail card reorder, store, detail service, e2e) | MEDIUM | Addendum batches R9u-R9x run serially (Waves H4-H7) after every owning R9 batch commits (R9b, R9c, R9t, R9h, R9f, R9l); R9t keeps `reorderTiles` for R9w; HOLD lifted (decision 81) |
 | R4 Persistence migration loses sessions (v3 Grid / v2) | HIGH | R9a cases incl. write-then-read round-trip; v3-Grid case built from raw stored JSON (minor 1) |
 | R5 Strict ownership hides unresolved agents everywhere | MEDIUM | R9d/R9e/R9h keep the main-panel monitor, resume banner, background tray tolerant; strict only under SESSION_CONTEXT |
-| R6 `HIDE_AGENT_SIDEBAR: true` reintroduced on a transcript host (decision 77d) | HIGH | Named refusal in R9f, R9h, R9n contracts and their reviews |
+| R6 `HIDE_AGENT_SIDEBAR: true` reintroduced on a transcript host (decision 77d) | HIGH | Named refusal in R9f, R9h, R9n, R9u, R9w contracts and their reviews; R9f removal gated on R9h decision-89 specs |
 | R7 Opencode quota (83% monthly) runs out mid-wave | LOW | Fallback executor codex lane for every opencode batch |
 | R8 Codex concurrency: 3 codex writers plus codex reviewer lanes for Claude batches | MEDIUM | Total codex lanes (writers + reviewers) <= 3; a Claude batch's codex review waits for a free codex slot |
+| R9 R9w is the heaviest contract (pane state machine, ghost reconcile, close transition, Details overlay, stacked layout, tokens, lane ids, reorder consumer) and cannot be split under the 8-file cap without breaking file disjointness (B7) | HIGH | R9w lane gets `timeout: 2400000` and <= 80 tool calls; the contract lists each named spec case so the reviewer can check them one by one; one fix round; if the lane times out, resume the same session, never start a second writer on the same files |
+| R10 R9x spans three projects (canvas, one chat spec, the e2e app) | LOW | Plan-approved file set; Mode 2 runs each project's own check; e2e is typecheck/lint only, never run |
+| R11 R9i review minors: stale `ptah-canvas-workspace-grid` selector strings in `orchestra-canvas.rail.spec.ts:296` and `orchestra-canvas.component.spec.ts:906` | LOW | Recorded, not fixed (lean rule 4); no later batch owns these files; the phase-diff review lists them |
 
 Edge cases: v3 Grid / v2 / v1 / malformed / newer read-only (R9a); empty name + first-prompt rename, cap 9,
 null addTile (R9b); unowned/mismatched owner (R9d, R9e, R9h); stale permission id (R9g, R9f); fifth-tab eviction,
@@ -80,17 +88,27 @@ Command templates (exact; `P` = Nx project name, `S` = spec file name):
 | Wave | Batches -> executor | Writers | Mode 2 heavy checks (serial order) |
 | --- | --- | --- | --- |
 | 1 | R9a codex, R9b Claude FD, R9c Claude FD, R9d codex, R9g codex | 5 (3 codex, 2 Claude) | FULL canvas, TC/LINT canvas; FULL chat-ui, TC/LINT chat-ui; FULL chat, TC/LINT chat |
-| 2 | R9e codex, R9n Claude FD, R9o Claude FD, R9i opencode | 4 | rg R9i; FULL canvas, TC/LINT canvas; SPECs + TC/LINT chat; SPECs + TC/LINT chat-ui |
+| 2 | R9e codex, R9n Claude FD, R9o Claude FD, R9i opencode | 4 | rg R9i; FULL canvas, TC/LINT canvas; SPECs + TC/LINT chat; SPECs + TC/LINT chat-ui. Wave 2a (R9o, R9i) COMMITTED, `mode2-wave2a-report.md`; R9e, R9n Mode 2 pending |
 | 3 | R9p opencode, R9j opencode, R9q opencode | 3 | rg R9p/R9j; FULL canvas, TC/LINT canvas |
 | 4 | R9m opencode, R9r opencode | 2 | rg R9m; FULL canvas, TC/LINT canvas; FULL chat-state, TC/LINT chat-state |
 | 5 | R9k codex, R9s opencode | 2 | FULL canvas, TC/LINT canvas, TC tribunal-panel; FULL chat-state, TC/LINT chat-state, TC/LINT chat-types |
 | 6 | R9t codex | 1 | FULL canvas, TC/LINT canvas |
-| H1 (after addendum Gate 2) | R9h codex (+ addendum batches on disjoint files) | <=5 | FULL chat, TC/LINT chat |
-| H2 | R9f codex | 1+ | FULL canvas, TC/LINT canvas |
+| H1 | R9h codex | 1 | FULL chat, TC/LINT chat |
+| H2 | R9f codex | 1 | FULL canvas, TC/LINT canvas |
 | H3 | R9l codex | 1 | SPECs canvas, TC/LINT canvas, TC/LINT ptah-electron-e2e |
+| H4 (addendum) | R9u codex | 1 | FULL chat, TC/LINT chat |
+| H5 (addendum) | R9v Claude FD | 1 | FULL canvas, TC/LINT canvas |
+| H6 (addendum) | R9w codex | 1 | FULL canvas, TC/LINT canvas |
+| H7 (addendum) | R9x Claude FD | 1 | FULL canvas, TC/LINT canvas; SPEC + LINT chat; TC/LINT ptah-electron-e2e |
+
+H1-H3 lost their HELD state (decision 81; addendum Gate 2 passed, decision 88) and follow their dependencies.
+H4-H7 run serially in plan order (addendum line 80: R9u -> R9v -> R9w -> R9x). R9h is ready once R9e and R9n commit
+(its chat files are disjoint from Waves 3-6); R9f waits for R9j (Wave 3) and R9h; R9l waits for R9t and R9f. A wave
+that shares a project with another in-flight wave still obeys risk R1 (Mode 2 checks only after all its writers return).
 
 Dependencies: R9n<-R9g; R9i<-R9b; R9p,R9j<-R9b,R9i; R9q<-R9i; R9m<-R9b,R9i,R9j; R9r<-R9i,R9j; R9k<-R9m,R9j,R9i,R9b;
-R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g,R9n,R9d,R9j; R9l<-R9t,R9f.
+R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n; R9f<-R9h (decision 89 specs),R9g,R9n,R9d,R9j; R9l<-R9t,R9f;
+R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v; R9x<-R9l,R9w.
 
 ## Batch R9a: Persistence Grid->Rail normalization — COMPLETE (e24a8c93e; review code-logic-review-R9a.md)
 
@@ -170,7 +188,7 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
 
 ### Task R9g.1 — COMPLETE
 
-## Batch R9e: Strict scoped Agents groups, tolerant main panel — PENDING
+## Batch R9e: Strict scoped Agents groups, tolerant main panel — COMPLETE (df4e9977b; review code-logic-review-R9e.md, fix round done; finding 2 -> R9h, decision 89)
 
 - Executor: codex lane | Fallback: Claude frontend-developer | Reviewer: Claude code-logic-reviewer | Wave 2
 - Files: `chat/src/lib/components/organisms/agent-monitor-panel.component.ts`, `agent-monitor-panel.scope.spec.ts`,
@@ -181,14 +199,18 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
 - Writer: SPEC(chat, agent-monitor-panel.scope.spec.ts), SPEC(chat, display-dock.state.spec.ts),
   SPEC(chat, display-dock.component.spec.ts)
 - Mode 2: SPECs re-run, TC(chat), LINT(chat).
+- Mode 2 result (mode2-wave2b-report.md): FULL(chat) 202 suites, 1 failure caused by R9n (see R9n);
+  TC(chat) green; LINT(chat) 0 errors.
 
-### Task R9e.1 — PENDING
+### Task R9e.1 — COMPLETE
 
-## Batch R9n: Single-chat sub-agent full view — PENDING
+## Batch R9n: Single-chat sub-agent full view — COMPLETE (7ef8d53d3; review codex-review-R9n.md, fix round done)
 
 - Executor: Claude frontend-developer | Fallback: codex lane | Reviewer: codex reviewer lane | Wave 2 | Depends: R9g
 - Files: `chat/src/lib/components/organisms/transcript/chat-transcript.component.ts`, its `.html`, its `.spec.ts`,
-  `chat-transcript.display.spec.ts`, `single-chat-subagent-view.component.ts` (new), its `.spec.ts` (new)
+  `chat-transcript.display.spec.ts`, `single-chat-subagent-view.component.ts` (new), its `.spec.ts` (new),
+  `transcript/testing/transcript-spec-harness.ts` (one stub input, decision 87),
+  `chat/src/lib/components/templates/chat-view.keepalive.spec.ts` (one stub input, added in Mode 2)
 - Contract: only the main transcript passes `agentTileMode=true`; tile opens the live full agent node in place;
   Back restores scroll and draft. `SESSION_CARD_ACTIONS` factory injects the parent with `skipSelf`+`optional`,
   returns it when present, else the local handler (Rail parent wins). Never set `HIDE_AGENT_SIDEBAR: true`.
@@ -202,10 +224,13 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
 - Writer: SPEC(chat, chat-transcript.component.spec.ts), SPEC(chat, chat-transcript.display.spec.ts),
   SPEC(chat, single-chat-subagent-view.component.spec.ts)
 - Mode 2: SPECs re-run, TC(chat), LINT(chat).
+- Mode 2 result (mode2-wave2b-report.md): FULL(chat) failed only in `chat-view.keepalive.spec.ts` (NG0303,
+  its `ptah-message-bubble` stub lacked the new `agentTileMode` input); team-leader added the one stub input
+  (same fix as decision 87), spec re-run green (1/1); TC(chat) green; LINT(chat) 0 errors.
 
-### Task R9n.1 — PENDING
+### Task R9n.1 — COMPLETE
 
-## Batch R9o: Panel Turn summary in inline mini-card style (item 11) — PENDING
+## Batch R9o: Panel Turn summary in inline mini-card style (item 11) — COMPLETE (b78468290; review codex-review-R9o.md, fix round done)
 
 - Executor: Claude frontend-developer | Fallback: codex lane | Reviewer: codex reviewer lane | Wave 2
 - Files: `chat-ui/src/lib/organisms/display-panel/turn-summary.component.ts`, its `.spec.ts`,
@@ -219,10 +244,13 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
 - Writer: SPEC(chat-ui, turn-summary.component.spec.ts), SPEC(chat-ui, turn-summary-chip.component.spec.ts),
   SPEC(chat-ui, ptah-ui-display-chip.component.spec.ts)
 - Mode 2: SPECs re-run, TC(chat-ui), LINT(chat-ui).
+- Mode 2 result: 4 specs + `display-panel.component.spec.ts` green (36, 24, 28, 18); TC green; LINT failed on
+  `turn-summary-chip.component.ts:86-87` (static `class` plus `[class]`, no-duplicate-attributes); team-leader
+  merged both into one `SECTION_CLASS` binding (same rendered classes), chip spec + LINT + TC re-run green.
 
-### Task R9o.1 — PENDING
+### Task R9o.1 — COMPLETE
 
-## Batch R9i: First deletion — workspace grid, grid items, doomed exports — PENDING
+## Batch R9i: First deletion — workspace grid, grid items, doomed exports — COMPLETE (df3b88e8d; review code-logic-review-R9i.md)
 
 - Executor: opencode lane | Fallback: codex lane | Reviewer: Claude code-logic-reviewer | Wave 2 | Depends: R9b
 - Files: `canvas/src/index.ts`, `canvas/src/lib/canvas-workspace-grid.component.ts`, its `.spec.ts`,
@@ -233,8 +261,10 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
   Parity rows 47-49, 51, 53-55.
 - Writer: none (deletions); run rg zero-importer for each deleted basename in `libs` and `apps`.
 - Mode 2: rg zero-importer; FULL(canvas), TC(canvas), LINT(canvas); TC(@ptah-extension/tribunal-panel) (index change).
+- Mode 2 result: rg zero live importers (hits only in R9j/R9p/R9m/R9k-owned files, R9l e2e selectors, two
+  non-import selector strings, risk R11); FULL(canvas) 31 suites / 333 tests green; TC, LINT (0 errors), TC tribunal green.
 
-### Task R9i.1 — PENDING
+### Task R9i.1 — COMPLETE
 
 ## Batch R9p: Delete live budget, gesture observation, empty state — PENDING
 
@@ -321,15 +351,17 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
   and matching specs/intent exports. Keep `MAX_CANVAS_TILES`, `TILE_SPANS`, `TileSpan` (minor 3, needed by
   `TileWidthIntent`), `DEFAULT_TILE_WIDTH`, `TileIntent`, `TileWidthIntent`, `logicalRows`, `reconcileIntent`,
   `retainTilesInLogicalRows`, `sameWidth`; strict v3 width/row-break data. Do not add reorder (item 13 addendum).
+  Keep `reorderTiles` and its specs (addendum S5: R9w's Move up/down consumer) and `commitDragIntent` (not on
+  the removal list; code-logic-review-R9i.md finding 4).
   Parity rows 50, 61, 64.
 - Writer: SPEC(canvas, canvas.store.spec.ts), SPEC(canvas, canvas-layout-intent.spec.ts)
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
 
 ### Task R9t.1 — PENDING
 
-## Batch R9h: Rail retention cap 4, stable ChatView, dock by tab id — HELD (split-focus addendum Gate 2)
+## Batch R9h: Rail retention cap 4, stable ChatView, dock by tab id — PENDING
 
-- Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H1 | Depends: R9e, R9n, addendum gate
+- Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H1 | Depends: R9e, R9n (hold lifted, decision 81)
 - Files: `chat/src/lib/services/transcript-retention.service.ts`, its `.spec.ts`,
   `chat/src/lib/components/templates/chat-view.component.ts`, its `.html`, `chat-view.keepalive.spec.ts`,
   `chat-view.dock.spec.ts`, `chat/src/lib/tokens/session-context.token.ts`, `chat/src/index.ts`
@@ -338,14 +370,24 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
   unchanged; strict owners only in Rail; dock keyed by tab id; remove the `:911` comment's `compactHeightUnits`.
   Never set `HIDE_AGENT_SIDEBAR: true`. Named spec: fenced display opens and updates in place in single chat view.
   Re-validate against the addendum ("one live ChatView, or two while split focus is on"). Rows 68-78, 102.
+  Split deltas are NOT R9h's (decision 81): R9u reworks retention and ChatView after H1-H3.
+- Decision 89 (code-logic-review-R9e.md finding 2): `ChatView.sessionAgents` (`chat-view.component.ts:542-549`)
+  uses `agentsOwnedBySession` when `SESSION_CONTEXT` is injected, else stays on tolerant `agentsForSession`. Key
+  on `SESSION_CONTEXT` ONLY, never on `SESSION_CARD_ACTIONS`. It feeds the dock `Agents (N)`, running count, badge
+  and dock auto-open. Named cases in `chat-view.dock.spec.ts`: "Rail host (SESSION_CONTEXT) counts only owned
+  agents: an unresolved running agent adds no badge or auto-open" (strict) and "single chat view that provides
+  SESSION_CARD_ACTIONS without SESSION_CONTEXT keeps unresolved agents" (tolerant). These two specs gate R9f.
 - Writer: SPEC(chat, transcript-retention.service.spec.ts), SPEC(chat, chat-view.keepalive.spec.ts), SPEC(chat, chat-view.dock.spec.ts)
-- Mode 2: FULL(chat), TC(chat), LINT(chat).
+- Mode 2: FULL(chat), TC(chat), LINT(chat); confirm both decision-89 cases by name in the FULL(chat) log.
 
-### Task R9h.1 — HELD
+### Task R9h.1 — PENDING
 
-## Batch R9f: Persistent Rail transcript host, restored dock, live full lane — HELD (split-focus addendum Gate 2)
+## Batch R9f: Persistent Rail transcript host, restored dock, live full lane — PENDING
 
-- Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H2 | Depends: R9h, R9g, R9n, R9d, R9j
+- Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H2 | Depends: R9h, R9g, R9n, R9d, R9j (hold lifted, decision 81)
+- Gate (decision 89): removing `HIDE_AGENT_SIDEBAR: true` is allowed only after R9h is COMPLETE with both
+  decision-89 `chat-view.dock.spec.ts` cases (Rail strict, single-view SESSION_CARD_ACTIONS tolerant) passing in
+  its Mode 2. If either case is absent or red, R9f does not start.
 - Files: `canvas/src/lib/canvas-detail/canvas-detail-transcript.component.ts`, its `.spec.ts`, `canvas-lane-view.component.ts`,
   its `.spec.ts`, `canvas/src/lib/canvas-rail/canvas-focus-area.component.ts`, its `.spec.ts`,
   `canvas/src/lib/canvas-session-overrides.ts`, `canvas-session-overrides.spec.ts` (new)
@@ -361,11 +403,13 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
   SPEC(canvas, canvas-focus-area.component.spec.ts), SPEC(canvas, canvas-session-overrides.spec.ts)
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
 
-### Task R9f.1 — HELD
+### Task R9f.1 — PENDING
 
-## Batch R9l: Narrow CanvasBoardMode; detail service; e2e selectors — HELD (after R9f; addendum may change detail service/e2e)
+## Batch R9l: Narrow CanvasBoardMode; detail service; e2e selectors — PENDING
 
 - Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H3 | Depends: R9t, R9f
+- Hold lifted: the passed addendum does not own `canvas-detail.service.ts`; its e2e split/reorder cases go to R9x
+  after R9l. R9l keeps its approved contract (decision 81).
 - Files: `canvas/src/lib/canvas-board-mode.ts`, `canvas-detail/canvas-detail.service.ts`, its `.spec.ts`,
   `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts`, `apps/ptah-electron-e2e/src/specs/task-337-agent-card-refresh.spec.ts`
 - Contract: narrow `CanvasBoardMode` to `'rail'`; persistence alone accepts historical `'grid'`; keep Rail lane
@@ -374,11 +418,194 @@ R9s<-R9r; R9t<-R9k,R9p,R9m,R9j,R9i,R9b; R9h<-R9e,R9n,addendum gate; R9f<-R9h,R9g
 - Writer: SPEC(canvas, canvas-detail.service.spec.ts)
 - Mode 2: SPEC re-run, TC(canvas), LINT(canvas), TC(ptah-electron-e2e), LINT(ptah-electron-e2e).
 
-### Task R9l.1 — HELD
+### Task R9l.1 — PENDING
+
+## Addendum batches (items 12 split focus, 13 Rail reorder) — `implementation-plan-rail-r9-split.md`
+
+Common to R9u-R9x: start only after every H1-H3 commit (addendum line 80); serial R9u -> R9v -> R9w -> R9x; if
+R9f/R9h already shipped part of a delta, change their file in place, never a compatibility copy (line 89); no
+backend/RPC change; no e2e run; split state is never persisted (decision 86: no v3 field, no migration). Each
+writer reads the addendum lines cited in its contract. Pattern for menus: `canvas-focus-header.component.ts:19-78`
+(keyboard-reachable overflow menu, Escape returns focus). Parity rows 117-124 (addendum "New parity rows").
+
+## Batch R9u: Board-scoped retention coordinator and per-pane dock width — PENDING
+
+- Executor: codex lane | Fallback: none (codex only, addendum line 84) | Reviewer: Claude code-logic-reviewer | Wave H4 | Depends: R9h, R9l (all H1-H3 commits)
+- Files (8): `chat/src/lib/services/rail-transcript-retention-coordinator.service.ts` (new), its `.spec.ts` (new),
+  `chat/src/lib/services/transcript-retention.service.ts`, its `.spec.ts`,
+  `chat/src/lib/components/templates/chat-view.component.ts`, its `.html`, `chat-view.keepalive.spec.ts`, `chat/src/index.ts`
+- Contract (addendum lines 36, 62, 84): a chat-side coordinator that never imports canvas; R9w provides it at
+  the Rail boundary. ONE cap of four per visible Rail board, counted as DISTINCT tab trees across both Rail
+  ChatViews (not summed service entries); both visible tabs pinned during split and never evicted, so at most two
+  extra frozen trees; each tab id owned at most once across panes; reconciles the two component-scoped
+  `TranscriptRetentionService` instances by tab id and LRU; insertion order kept so `@for` moves no DOM.
+  Transfer X from pane A to pane B: A disposes its frozen X subtree BEFORE B acquires X (never two X subtrees);
+  a transfer is not a last-owner release. Close, workspace removal, split collapse and board destroy release
+  owners; a tab's execution-tree cache clears only after its last surface owner releases. Expose a measurable
+  distinct retained count for the board. Without a coordinator, retention behaves exactly as R9h shipped it
+  (ordinary tile, main panel and single-view dock unchanged).
+  Export `RAIL_MIN_CONTENT_WIDTH: InjectionToken<Signal<number | null>>` from ChatView's module and
+  `chat/src/index.ts`; `isOverlay` = existing 600 px breakpoint OR (token value non-null AND measured host width -
+  `dockWidth()` < token value); token absent or null -> existing breakpoint only (R9w supplies 360 in split).
+  N6(a)/decision 77d: never provide `HIDE_AGENT_SIDEBAR: true`; the display dock stays mounted in every Rail ChatView.
+- Cases (named): coordinator "tab retained in A then shown in B gives exactly one subtree"; "count <= 4 counts
+  distinct tab trees"; fifth distinct tab evicts the LRU frozen tree, never a pinned visible tab; close and
+  workspace release; cache cleared only at last owner, not on transfer; no coordinator -> unchanged behaviour.
+  Keepalive (owned): side dock at 804 px and overlay at 644 px with a 360 px minimum; B2 adds side dock at 976 px
+  (1280 stacked) and overlay at 648 px (920 stacked); token absent -> old breakpoint; B5/N6(a) "Rail ChatView with
+  coordinator keeps the display dock mounted (HIDE_AGENT_SIDEBAR not provided)". R9h's decision-89 dock cases stay green.
+- Writer: SPEC(chat, rail-transcript-retention-coordinator.service.spec.ts), SPEC(chat, transcript-retention.service.spec.ts),
+  SPEC(chat, chat-view.keepalive.spec.ts)
+- Mode 2: FULL(chat), TC(chat), LINT(chat).
+
+### Task R9u.1 — PENDING
+
+## Batch R9v: Rail card Session actions menu, Move up/down, Open beside outputs — PENDING
+
+- Executor: Claude frontend-developer | Fallback: codex lane | Reviewer: codex reviewer lane | Wave H5 | Depends: R9c, R9b, R9l, R9u
+- Files (6): `canvas/src/lib/canvas-rail/canvas-rail-card.component.ts`, its `.spec.ts`, `canvas-rail.component.ts`,
+  its `.spec.ts`, `canvas-rail-keyboard.ts`, its `.spec.ts`
+- Contract (addendum lines 32, 85; N5, N6(b), B6): card and Rail share one API. Card: outputs
+  `openBesideRequested`, `moveUpRequested`, `moveDownRequested` = `output<string>()` carrying the tab id; inputs
+  `canMoveUp`, `canMoveDown` (boolean) and `splitDisabledReason` (`string | null`). Rail: named input
+  `splitDisabledReason: string | null` from the board; forwards the three outputs unchanged (the board is their
+  single consumer, R9w); computes per-card `canMoveUp`/`canMoveDown` from the sorted tab ids (N5).
+  Labelled `Session actions` trigger is a sibling of `ptah-compact-session-card` inside the fixed-height `li`,
+  outside `rc-lane-overflow` and `.rc-select`; expanded 176/96 px cards reserve a trailing action gutter with the
+  trigger at its top; collapsed 56 px Rail drops the list's 8 px horizontal padding and uses a 32/24 px two-cell
+  row (select first, trigger second, no overlap); host heights unchanged. `isIgnoredCardClick` ignores trigger and
+  menu. Collapsed roving Tab: select keeps `[tabIndex]="focused() ? 0 : -1"`, trigger 0 only on the roving current
+  card. Menu items Open beside / Move up / Move down; impossible first/last moves disabled; Escape closes the
+  menu and returns focus to the trigger. `Alt+Shift+ArrowUp/Down` on a card or its select button emits
+  `moveUpRequested`/`moveDownRequested`; unmodified arrows stay with `handleCanvasRailKeydown`.
+  B6 disabled reasons (exact strings, constants in the card file): `'Open another session first to split'` (board:
+  fewer than two sessions, computed by R9w, passed through the Rail to every card) and `'This session is already in
+  the focused pane'` (Rail: the card whose tab id equals `focusedTabId`, when the board reason is null). A stale
+  or cross-workspace id is never a disabled reason; the board rejects it with an announcement (R9w).
+  N6(b): the expanded action gutter must keep the compact card's `+N more` lane overflow fitting at 176/96 px.
+- Cases (named): payload forwarding card -> Rail for all three outputs; disabled reason (both strings) shown and
+  Open beside not emitted; trigger click does not select; collapsed Tab order select then trigger; Alt+Shift
+  forwarding and boundary (first card no Move up, last no Move down); plain arrows unchanged; Escape focus return;
+  176/96/56 px heights with the action gutter and `+N more` still fitting.
+- Writer: SPEC(canvas, canvas-rail-card.component.spec.ts), SPEC(canvas, canvas-rail.component.spec.ts),
+  SPEC(canvas, canvas-rail-keyboard.spec.ts)
+- Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
+
+### Task R9v.1 — PENDING
+
+## Batch R9w: Split focus board, panes, Details overlay, reorder consumer — PENDING
+
+- Executor: codex lane | Fallback: none (codex only, addendum line 86) | Reviewer: Claude code-logic-reviewer | Wave H6 | Depends: R9b, R9f, R9l, R9u, R9v
+- Lane budget (risk R9): `timeout: 2400000`, <= 80 tool calls; resume the same session on timeout.
+- Files (8): `canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`, its `.spec.ts`, `canvas-focus-area.component.ts`,
+  its `.spec.ts`, `canvas/src/lib/canvas-detail/canvas-lane-view.component.ts`, its `.spec.ts`,
+  `canvas-detail-transcript.component.ts`, its `.spec.ts`
+- Contract (addendum lines 22-30, 42-47, 61, 86; N1, N2, N4, N5, N6(a); B1, B2, B4, B5, B6, B7):
+  - Pane state (B7: board owns it): `{ activeSide, otherTabId, visualOrder }` per visible workspace, default
+    `visualOrder = ['left','right']` with left/right (top/bottom when stacked) labels; R9x adds only the swap. The
+    active pane's tab is always `CanvasStore.focusedTabIdFor(path)`; ids always differ. Board owns the pane
+    container, the CSS `order` binding and `splitStacked = layout.containerWidth() < 1440`.
+  - Open beside (R9v output): atomic transition; opening the active tab refused with a polite announcement;
+    inactive tab activates its pane; stale or cross-workspace id rejected with an announcement; never a third host.
+    Board computes `splitDisabledReason` (`'Open another session first to split'` below two sessions, B6).
+  - `lastFocusedId` updated synchronously inside every internal transition (no boolean suppression, N1); the
+    external-focus effect reads it; a new focused id equal to `otherTabId` exchanges sides; else replace only
+    the active pane's tab. jumpTo/newSession/Rail arrows/`CanvasDetailService.open`/main-panel switch go through
+    this rule. Never derive from `focusedId()`'s `tiles[0]` fallback during transient null focus.
+  - `close(id)` captures was-focused and survivor before `removeTile`; inactive close removes only that pane and
+    never focuses a neighbour; active close keeps the survivor (focus it only if the store did not); cancel keeps
+    both panes. N1: reconcile pane ids against `tiles()` after ANY removal (incl. `removeTileOnly`/
+    `removeTileFromAnyWorkspace`): drop a ghost pane, never the same tab in both panes, announce once.
+  - Move up/down (R9v outputs, single consumer, N5): adjacent swap of the sorted ids, one `reorderTiles(ids)` call,
+    no pane/session change, focus restored to the moved card's select button, anchored in view, announce title and
+    position of total; geometry baseline set to `{ key, order: expectedIds }` before the DOM moves; stale/no-op id
+    makes no write and announces; observe `CanvasLayoutPersistenceService.writeFailed` and announce it.
+  - Panes: one stable host per pane keyed by pane identity (not tab id); orchestrator transcript stays outside the
+    keyed lane block in each pane; `SESSION_VISIBLE` = pane displayed, `SESSION_FOCUSED` = active pane (both true
+    in single focus); visibility registration follows `SESSION_VISIBLE`; per-pane unique lane tab/panel ids;
+    `paneFocused` and `splitDisplayed` inputs focus area -> lane view -> transcript (N4); transcript provides
+    `RAIL_MIN_CONTENT_WIDTH` = 360 only when `splitDisplayed`, else null; activation by click or `focusin` calls
+    `focusTile` without remounting. N6(a)/B5: no pane transcript provides `HIDE_AGENT_SIDEBAR: true`.
+  - Layout (decision 85, B2, B4): >= 1440 px side by side, < 1440 stacked top then bottom; crossing changes layout
+    only (no host release, layout name announced once). Pane wrapper (incl. its header) `min-h-[400px]` (derivation:
+    header 48 + lane tabs 36 + about 316 for ChatView with a 2-line to 10 rem composer); column `overflow-y-auto`;
+    pane wrappers `min-w-[360px]`, column `overflow-x-auto` (real floor Rail 272 + 360 = 632 px).
+  - Details (decision 83, N2, B1): in split, Details is an overlay on the active pane at every band (absolutely
+    positioned, reuse the sm pattern at `canvas-rail-board.component.ts:120-155`), opened and closed by a
+    pane-header or overlay control that takes no layout width; follows the active tab; Escape and closing split
+    close it with dialog-style focus return. Entering split closes the single-focus Details aside; in split
+    `effectiveCollapsed` ignores `detailsOpen` and the sm 44 px "i" strip is not a column. Single focus keeps the column.
+  - Collapse to single focus resets `visualOrder` to `['left','right']`; split never persisted (decision 86).
+- Cases (named, board/focus/lane/transcript specs): "external removal drops a ghost pane without close(), never
+  duplicates a surviving tab, announces once"; "split Details overlay opens on active pane at all bands, follows
+  active tab, closes on Escape/collapse with focus return; single focus keeps the column"; "920 split: Details open
+  does not collapse the Rail" (B1); 1280 and 920 stacked keep two live hosts; default dock width: 1280 side docks,
+  920 overlay docks; 400 px wrapper and `overflow-y-auto` bindings asserted (jsdom cannot measure, B2); container
+  1439 stacked vs 1440 side by side (B2); crossing 1440 without host remount; close inactive pane keeps active
+  focus with an ordered neighbour present; close active pane while the other tab is `tiles[0]` keeps that survivor
+  despite transient null focus; jumpTo/newSession/Rail arrows/detail open/main-panel switch; same-id suppression;
+  independent lanes and drafts per pane; both docks and `ptah-ui display [id]`; focusin activation and unique
+  labels; exactly two and <= 2 live ChatViews in split; 1920 side / 1600 overlay; expected reorder permutation with
+  176/96/56 heights; persistence write failure via the service; retained A to live B gives one subtree; B5 "token
+  is 360 when splitDisplayed, null in single focus" and "canvas detail transcript does not provide HIDE_AGENT_SIDEBAR".
+- Writer: SPEC(canvas, canvas-rail-board.component.spec.ts), SPEC(canvas, canvas-focus-area.component.spec.ts),
+  SPEC(canvas, canvas-lane-view.component.spec.ts), SPEC(canvas, canvas-detail-transcript.component.spec.ts)
+- Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
+
+### Task R9w.1 — PENDING
+
+## Batch R9x: Header split actions, swap, stacked Tab order, drafts, e2e selectors — PENDING
+
+- Executor: Claude frontend-developer | Fallback: codex lane | Reviewer: codex reviewer lane | Wave H7 | Depends: R9l, R9w
+- Rationale: addendum says "either"; a Claude writer gives the codex-written R9w board a second family on the same
+  files, and the batch is keyboard/visual work.
+- Files (8): `canvas/src/lib/canvas-rail/canvas-focus-header.component.ts`, its `.spec.ts`,
+  `canvas-rail-board.component.ts`, its `.spec.ts`, `canvas-focus-area.component.ts`, its `.spec.ts`,
+  `chat/src/lib/components/molecules/chat-input/chat-input.component.spec.ts`,
+  `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts`
+- Contract (addendum lines 26, 87; N3, B3, B7): header void outputs `closeSplitRequested`, `closePaneRequested`,
+  `swapPanesRequested`, keyboard reachable in the header menu; focus area forwards each with its stable pane id;
+  board consumes all three and owns the polite live region and focus return. Close pane releases that pane's host
+  (active -> focus survivor; inactive -> focus untouched); Close split keeps the active tab; Escape closes an open
+  menu first and never closes a pane; focus returns to the surviving header when its control is removed.
+  Swap changes ONLY `visualOrder` (CSS `order` of the two stable wrappers): tab ids, injectors, `@for` keys, lane
+  panel ids and ChatView subtrees unchanged; zero transcript transfers or cold mounts; labels follow `visualOrder`.
+  B3: side-by-side Tab keeps DOM order after swap (conscious trade-off, recorded: Tab does not follow the visual
+  order there). Stacked mode with `visualOrder` swapped: a board-hosted keydown handler intercepts Tab/Shift+Tab at
+  the last/first tabbable of a pane and on entry from the Rail so focus goes visual top before bottom; "tabbable"
+  query skips hidden elements and excludes an open dock overlay, Details overlay or menu; the handler is inert in
+  side-by-side mode and when `visualOrder` is default. Lane-tabs spec (R9f) not modified.
+  `chat-input.component.spec.ts`: contextual F5 drafts per `SESSION_CONTEXT` tab. e2e `canvas.spec.ts`: split and
+  reorder selectors/cases, never run.
+- Cases (named): each header output wired through focus area to board state; Escape before close; close active and
+  inactive pane; "stacked swap keeps hosts and top-before-bottom Tab order" (asserts the handler's `focus()` target
+  from synthetic keydown, jsdom moves no focus); "side-by-side swap keeps DOM Tab order" (B3); "collapse resets
+  visualOrder"; after swap ChatView DOM identity unchanged, <= 2 hosts, no duplicate transcript, active tab,
+  selected card, drafts and docks unchanged, labels updated; unique panel ids across panes; contextual F5 drafts.
+- Writer: SPEC(canvas, canvas-focus-header.component.spec.ts), SPEC(canvas, canvas-rail-board.component.spec.ts),
+  SPEC(canvas, canvas-focus-area.component.spec.ts), SPEC(chat, chat-input.component.spec.ts)
+- Mode 2: FULL(canvas), TC(canvas), LINT(canvas); SPEC(chat, chat-input.component.spec.ts) re-run, LINT(chat);
+  TC(ptah-electron-e2e), LINT(ptah-electron-e2e). No e2e run.
+
+### Task R9x.1 — PENDING
 
 ## Phase review and completion
 
-- After the last R9 batch: one phase-diff code-logic review (plus style: new public `subagent-tile`,
-  `single-chat-subagent-view`, Rail token) and visual-reviewer on the Electron re-check list (plan §Electron
-  re-check, dark + light, before/after Rail shots). Mode 3 verifies parity rows 1-116 and the persistence
-  write-path (R9a, R9s).
+- After the last R9 batch (R9x): one phase-diff code-logic review (plus style: new public `subagent-tile`,
+  `single-chat-subagent-view`, Rail token, `RAIL_MIN_CONTENT_WIDTH`, retention coordinator) and visual-reviewer on
+  the Electron re-check list (plan §Electron re-check plus addendum §Electron re-check additions 1-5, dark + light,
+  before/after Rail shots). Mode 3 verifies parity rows 1-124 and the persistence write-path (R9a, R9s, R9w reorder).
+- BL rule (decision 80, N6(c)): at most one live ChatView in single focus, or exactly two (never more) while split
+  is on; frozen retained transcripts are `ptah-chat-transcript` subtrees, one shared cap of four per Rail board.
+  Count with `ptah-canvas-rail-board ptah-chat-view` (excludes the main-panel ChatView) against board
+  `data-canvas-live-views`; fail on duplicate `ptah-chat-transcript` per tab id.
+- s-heap / s-switch criteria (addendum line 38): run in single AND split mode; ten warm switches and active-pane
+  swaps record live ChatViews, distinct retained / 4, JS heap, elements before/after/added, task and layout
+  durations, longest task, CLS; `s-heap.mjs` after 20 swaps and three closes per mode with detached nodes after GC;
+  also collapse 2->1 and reopen 1->2. Pass: warm switches no task > 50 ms, CLS 0, zero detached lane-view,
+  detail-transcript, chat-transcript and `chat-msg-slot` nodes; cold visit recorded separately; update the 628
+  handoff budget.
+- Electron re-check additions from B2/B4: shortest supported window 800 x 600 (`main-window.ts:119-120`) where the
+  stacked column scrolls and the lower composer is keyboard reachable; smallest window with the left sidebar open
+  (canvas container below 800 px; floor Rail 272 + 360 = 632 px) scrolls horizontally.
+- Recorded minors for the phase review: R9i findings 1-2 (risk R11); R9c minor (decision 84).
