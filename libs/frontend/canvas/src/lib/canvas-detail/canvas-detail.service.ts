@@ -1,5 +1,6 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { TabManagerService, parseLaneKey } from '@ptah-extension/chat';
+import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasStore } from '../canvas.store';
 
 /** State shared by the board, its cards and the single detail overlay. */
@@ -7,6 +8,8 @@ import { CanvasStore } from '../canvas.store';
 export class CanvasDetailService {
   private readonly canvasStore = inject(CanvasStore);
   private readonly tabManager = inject(TabManagerService);
+  private readonly monitor = inject(AgentMonitorStore);
+  private readonly background = inject(BackgroundAgentStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly _detailTabId = signal<string | null>(null);
   private readonly _laneKeys = signal<ReadonlyMap<string, string>>(new Map());
@@ -39,12 +42,26 @@ export class CanvasDetailService {
     this._laneKeys.update((current) => new Map(current).set(tabId, key));
   }
 
-  open(tabId: string, laneKey = 'orchestrator'): void {
-    if (!this.canvasStore.tiles().some((tile) => tile.tabId === tabId)) return;
-    if (laneKey !== 'orchestrator' && !parseLaneKey(laneKey)) return;
+  open(tabId: string, laneKey = 'orchestrator'): boolean {
+    if (!this.canvasStore.tiles().some((tile) => tile.tabId === tabId)) return false;
+    if (laneKey !== 'orchestrator') {
+      const parsed = parseLaneKey(laneKey);
+      const sessionId = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId;
+      if (!parsed || !sessionId) return false;
+      const subagent = [...this.monitor.subagents().values()].some((agent) =>
+        agent.parentSessionId === sessionId && agent.parentToolUseId === parsed.id &&
+        (parsed.kind === 'background' ? agent.status === 'background' : parsed.kind === 'subagent'),
+      );
+      const exists = parsed.kind === 'cli'
+        ? this.monitor.agents().some((agent) => agent.parentSessionId === sessionId && agent.agentId === parsed.id)
+        : subagent || (parsed.kind === 'background' && this.background.agents().some((agent) =>
+            agent.sessionId === sessionId && agent.toolCallId === parsed.id));
+      if (!exists) return false;
+    }
     this.canvasStore.focusTile(tabId);
     this.selectLaneFor(tabId, laneKey);
     this._detailTabId.set(null);
+    return true;
   }
 
   selectLane(laneKey: string): void {

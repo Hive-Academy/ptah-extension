@@ -37,7 +37,7 @@ import { freezeSessionOverrides } from '../canvas-session-overrides';
   host: { class: 'block h-full min-h-0', tabindex: '-1' },
   template: `<ng-container
     *ngComponentOutlet="chatView; environmentInjector: childInjector"
-  />`,
+  /><span class="sr-only" role="status" aria-live="polite">{{ agentNotice() }}</span>`,
 })
 export class CanvasDetailTranscriptComponent implements OnDestroy {
   private readonly parentInjector = inject(EnvironmentInjector);
@@ -45,6 +45,7 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly canvasStore = inject(CanvasStore);
   private readonly detail = inject(CanvasDetailService, { optional: true });
+  readonly agentNotice = signal('');
   readonly tabId = input.required<string>();
   readonly visible = input(true);
   readonly paneFocused = input(true);
@@ -71,8 +72,11 @@ export class CanvasDetailTranscriptComponent implements OnDestroy {
       {
         provide: SESSION_CARD_ACTIONS,
         useValue: {
-          openLane: (key: string) => this.detail?.selectLaneFor(this.tabId(), key),
-          openSession: () => this.detail?.selectLaneFor(this.tabId(), 'orchestrator'),
+          openLane: (key: string) => {
+            this.agentNotice.set(this.detail?.open(this.tabId(), key) === true
+              ? '' : 'This agent is not available yet.');
+          },
+          openSession: () => this.detail?.open(this.tabId(), 'orchestrator'),
         },
       },
     ],

@@ -254,8 +254,7 @@ const VIEW_PANEL_KEY = '';
     // Budget banner state belongs to this view's tab and session.
     SessionBudgetActionsService,
     // The Display dock store, only where the dock mounts: Electron (R1.14,
-    // decision #108). HIDE_AGENT_SIDEBAR empties the Agents list only; the
-    // dock stays (decision 77). In VS Code the token resolves to null, so the
+    // decision #108). In VS Code the token resolves to null, so the
     // transcript's live-turn effect and the chips stay inert.
     {
       provide: DisplayDockState,
@@ -287,10 +286,7 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly _forcedCard = inject(SESSION_FORCED_CARD, {
     optional: true,
   });
-  /** When true, the session's Agents list is hidden: the VS Code Agents
-   * sidebar does not mount and the Electron dock's Agents tab is empty (e.g.
-   * Tribunal conductor, whose panelists render as their own tiles). The
-   * display dock stays (decision 77). */
+  /** Hides the VS Code Agents sidebar where panelists render elsewhere. */
   protected readonly hideAgentSidebar =
     inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false;
   private readonly _tabManager = inject(TabManagerService);
@@ -450,7 +446,7 @@ export class ChatViewComponent implements OnDestroy {
 
   /** The Electron dock store; `null` in VS Code. */
   private readonly displayDock = inject(DisplayDockState, { optional: true });
-  /** Electron: the right-side panel is the `Displays | Agents` dock. */
+  /** Electron: the right-side panel is the display dock. */
   protected readonly dockEnabled = this.displayDock !== null;
   /**
    * Open state and the agent user-close rule of the right-side panel. The
@@ -1058,9 +1054,8 @@ export class ChatViewComponent implements OnDestroy {
   };
 
   /**
-   * Lane runs of this surface's own session only (F58). Unlike
-   * {@link sessionAgents}, the main panel with no session gets none, never
-   * every session's runs, and a lane whose parent session is not resolved yet
+   * Lane runs belong only to this surface's own session (F58). The main panel
+   * with no session gets none; a lane whose parent session is not resolved yet
    * is in no session's quota or lane tiles (exact parent match only).
    */
   private readonly sessionLaneRuns = computed<readonly MonitoredAgent[]>(() => {
@@ -1353,6 +1348,7 @@ export class ChatViewComponent implements OnDestroy {
     // runs in all). A request with no tab id came from the main panel, which
     // has no SESSION_CONTEXT, so only main-panel surfaces honour it.
     effect(() => {
+      if (this.dockEnabled) return;
       const request = this.agentMonitorStore.panelOpenRequest();
       if (request.seq === 0) return;
       untracked(() => {
@@ -1386,10 +1382,11 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
-    // Agent auto-open, per panel key (decision #100): running agents or a
-    // pending permission ask for the Agents tab, which the store ignores while
+    // VS Code sidebar auto-open: running agents or a pending permission
+    // ask for the Agents view, which the store ignores while
     // the panel is open or after a user close; settled agents release it.
     effect(() => {
+      if (this.dockEnabled) return;
       const key = this.panelKey();
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');

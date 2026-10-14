@@ -249,14 +249,12 @@
   </div>
 
   @if (dockEnabled && !(_forcedCard?.() ?? false)) {
-    <!-- Electron: one right-side dock with Displays | Agents tabs (R1.3). The
-         toggle hides while the dock is an overlay, as the monitor's did. -->
+    <!-- Electron display dock. The toggle hides while the dock is an overlay. -->
     @if (!isOverlay() || !panelOpen()) {
       <ptah-sidebar-tab
         label="Display"
         side="right"
         [isOpen]="panelOpen()"
-        [badgeType]="agentBadgeType()"
         [newCount]="panelTab().newCount"
         size="sm"
         (toggled)="toggleAgentPanel()"
@@ -294,16 +292,11 @@
         [tabId]="panelKey()"
         [isOverlay]="isOverlay()"
         [widthPx]="dockWidth()"
-        [agents]="sessionAgents()"
-        [sessionId]="resolvedSessionId()"
-        [hideAgents]="hideAgentSidebar"
         [focusRequest]="dockFocusRequest()"
         (closed)="closeAgentPanel()"
       />
     } @error {
-      <!-- The dock chunk failed: say so, and keep the Agents capability by
-           falling back to the eager monitor the dock replaced (decision #109).
-           The dock never renders in this branch, so there is one monitor. -->
+      <!-- The dock chunk failed: show the load error. -->
       @if (panelOpen()) {
         <p
           class="flex-shrink-0 self-start px-3 py-2 text-xs text-error"
@@ -312,16 +305,6 @@
         >
           Display panel failed to load
         </p>
-        <!-- A host that hides its Agents list gets no fallback monitor. -->
-        @if (!hideAgentSidebar) {
-          <ptah-agent-monitor-panel
-            [embeddedAgents]="sessionAgents()"
-            [embeddedOpen]="panelOpen()"
-            [sessionId]="resolvedSessionId()"
-            [isOverlay]="isOverlay()"
-            (closed)="closeAgentPanel()"
-          />
-        }
       }
     }
   } @else if (!hideAgentSidebar && !(_forcedCard?.() ?? false)) {

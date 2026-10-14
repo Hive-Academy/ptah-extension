@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Workflow, PanelRightOpen } from 'lucide-angular';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { VSCodeService } from '@ptah-extension/core';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 
@@ -16,13 +17,11 @@ import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
  *
  * Complexity Level: 1 (simple presentational chip + one action)
  *
- * The SDK `Workflow` tool spawns a background orchestration whose progress is
- * watched in the Agents monitor panel (NOT inline in the transcript — see the
- * Claude Code `/workflows` view parity). This chip therefore renders only a
- * label + the workflow name and a button that opens that panel. It deliberately
- * does NOT build an inline phase/agent tree.
+ * The SDK `Workflow` tool spawns background orchestration. In Electron its
+ * agents appear as session lanes; in VS Code this chip requests the Agents
+ * panel. It does not build an inline phase/agent tree.
  *
- * It injects {@link AgentMonitorStore} to open the panel, so it lives in `chat`
+ * It injects {@link AgentMonitorStore} for the VS Code request, so it lives in `chat`
  * (a stateful organism) rather than the stateless `chat-ui` library.
  */
 @Component({
@@ -51,7 +50,13 @@ import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
             {{ name }}
           </span>
         }
+        @if (isElectron) {
+          <span class="text-[11px] text-base-content-muted">
+            Its agents appear as lanes of this session.
+          </span>
+        }
       </div>
+      @if (!isElectron) {
       <button
         type="button"
         class="btn btn-xs btn-ghost gap-1 text-primary shrink-0"
@@ -65,11 +70,13 @@ import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
         />
         <span>Agents</span>
       </button>
+      }
     </div>
   `,
 })
 export class WorkflowCardComponent {
   private readonly store = inject(AgentMonitorStore);
+  readonly isElectron = inject(VSCodeService).isElectron;
   /**
    * The tile this chip renders in. Present only inside a canvas / tribunal
    * tile (they provide it on a child injector); null on the main panel.
@@ -101,7 +108,7 @@ export class WorkflowCardComponent {
   });
 
   /**
-   * Open the Agents panel of THIS surface. The request carries the tile's
+   * Request the VS Code Agents panel of this surface. The request carries the tile's
    * tab id so sibling tiles ignore it — an unscoped request used to open the
    * embedded panel in every open session at once.
    */

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { CanvasStore } from '../canvas.store';
 import { TabManagerService } from '@ptah-extension/chat';
+import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasDetailService } from './canvas-detail.service';
 
 describe('CanvasDetailService', () => {
@@ -11,6 +12,10 @@ describe('CanvasDetailService', () => {
     { tabId: 'c', order: 1 },
   ]);
   const focusTile = jest.fn();
+  const subagents = signal(new Map([
+    ['agent', { parentSessionId: 'session', parentToolUseId: 'agent', status: 'running' }],
+  ]));
+  const agents = signal([{ parentSessionId: 'session', agentId: 'agent-1' }]);
   const onTabClosed = jest.fn((_listener: (event: { tabId: string; kind: string }) => void) => jest.fn());
   let detail: CanvasDetailService;
 
@@ -26,7 +31,13 @@ describe('CanvasDetailService', () => {
       providers: [
         CanvasDetailService,
         { provide: CanvasStore, useValue: { tiles, focusTile } },
-        { provide: TabManagerService, useValue: { onTabClosed } },
+        { provide: TabManagerService, useValue: {
+          onTabClosed,
+          findTabByIdAcrossWorkspaces: (id: string) =>
+            tiles().some((tile) => tile.tabId === id) ? { tab: { claudeSessionId: 'session' } } : null,
+        } },
+        { provide: AgentMonitorStore, useValue: { subagents, agents } },
+        { provide: BackgroundAgentStore, useValue: { agents: signal([]) } },
       ],
     });
     detail = TestBed.inject(CanvasDetailService);
@@ -48,6 +59,14 @@ describe('CanvasDetailService', () => {
     expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
     detail.open('a', detail.laneKeyFor('a'));
     expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
+  });
+
+  it('rejects an unknown lane without changing the selected lane or focus', () => {
+    expect(detail.open('a', 'cli:agent-1')).toBe(true);
+    focusTile.mockClear();
+    expect(detail.open('a', 'sub:missing')).toBe(false);
+    expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
+    expect(focusTile).not.toHaveBeenCalled();
   });
 
   it('keeps the lane after detail closes', () => {

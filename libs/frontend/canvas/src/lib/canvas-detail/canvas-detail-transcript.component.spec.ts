@@ -85,7 +85,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       deferBlockBehavior: DeferBlockBehavior.Playthrough,
       providers: [
         { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
-        { provide: CanvasDetailService, useValue: { selectLaneFor: jest.fn() } },
+        { provide: CanvasDetailService, useValue: { open: jest.fn(() => false) } },
         { provide: TabManagerService, useValue: tabManager },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         { provide: EffortStateService, useValue: { isLoaded: signal(false), currentEffort: signal(null) } },
@@ -110,9 +110,8 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       ],
     });
     const displayDock = componentImport(ChatViewComponent, 'ptah-display-dock');
-    const agentMonitorPanel = componentImport(displayDock, 'ptah-agent-monitor-panel');
     TestBed.overrideComponent(ChatViewComponent, { set: { imports: [SidebarTabComponent, displayDock, RailAgentPanelStub], schemas: [NO_ERRORS_SCHEMA] } });
-    TestBed.overrideComponent(displayDock, { remove: { imports: [DisplayPanelComponent, agentMonitorPanel] }, add: { imports: [RailDisplayPanelStub, RailAgentPanelStub] } });
+    TestBed.overrideComponent(displayDock, { remove: { imports: [DisplayPanelComponent] }, add: { imports: [RailDisplayPanelStub] } });
     const fixture = TestBed.createComponent(CanvasDetailTranscriptComponent);
     fixture.componentRef.setInput('tabId', 'parent');
     const settle = async () => { for (let round = 0; round < 3; round++) { fixture.detectChanges(); await fixture.whenStable(); } fixture.detectChanges(); };
@@ -122,6 +121,10 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       expect(injector.get(HIDE_AGENT_SIDEBAR, null)).toBeNull();
       expect(injector.get(RAIL_TRANSCRIPT_RETENTION)).toBe(true);
       expect(injector.get(SESSION_CARD_ACTIONS)).toBeTruthy();
+      injector.get(SESSION_CARD_ACTIONS).openLane('sub:missing');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent)
+        .toContain('This agent is not available yet.');
       const chat = fixture.debugElement.query(By.directive(ChatViewComponent));
       expect(chat).toBeTruthy();
       const store = chat.injector.get(PTAH_UI_DISPLAY_DOCK_SYNC) as PtahUiDisplayDockSync & {
@@ -155,13 +158,13 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       else delete (global as Record<string, unknown>)['ResizeObserver'];
     }
   });
-  it('Rail tile click selects sub lane through the real child injector without mounting the single view', () => {
-    const selectLaneFor = jest.fn();
+  it('Rail tile click focuses the owning session and sub lane without opening a display dock or single view', () => {
+    const open = jest.fn();
     TestBed.configureTestingModule({
       imports: [CanvasDetailTranscriptComponent],
       providers: [
         { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
-        { provide: CanvasDetailService, useValue: { selectLaneFor } },
+        { provide: CanvasDetailService, useValue: { open } },
         { provide: TabManagerService, useValue: { visibleTabIds: signal<ReadonlySet<string>>(new Set()), registerVisibleTab: jest.fn(), unregisterVisibleTab: jest.fn() } },
       ],
     });
@@ -176,7 +179,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
     const tile = createComponent(RailTileStub, { environmentInjector: injector, hostElement: host });
     tile.changeDetectorRef.detectChanges();
     (host.querySelector('button') as HTMLButtonElement).click();
-    expect(selectLaneFor).toHaveBeenCalledWith('parent', 'sub:tool');
+    expect(open).toHaveBeenCalledWith('parent', 'sub:tool');
     expect(fixture.nativeElement.querySelector('ptah-single-chat-subagent-view')).toBeNull();
     tile.destroy();
     fixture.destroy();

@@ -85,7 +85,6 @@ import { SessionHistoryReplayer } from '../../services/chat-store/session-histor
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
 import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
-import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { SESSION_CARD_ACTIONS, SESSION_VISIBLE } from '../../tokens/session-context.token';
 
 @Component({
@@ -538,9 +537,9 @@ function mountRail(
     },
   });
   TestBed.overrideComponent(DisplayDockComponent, {
-    remove: { imports: [DisplayPanelComponent, AgentMonitorPanelComponent] },
+    remove: { imports: [DisplayPanelComponent] },
     add: {
-      imports: [StubDisplayPanelComponent, StubAgentMonitorPanelComponent],
+      imports: [StubDisplayPanelComponent],
     },
   });
 
