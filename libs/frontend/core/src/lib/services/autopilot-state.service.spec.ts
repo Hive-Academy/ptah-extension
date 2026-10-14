@@ -476,7 +476,7 @@ describe('AutopilotStateService', () => {
       let resolveRead: (value: unknown) => void = () => undefined;
       rpc.call.mockReturnValueOnce(
         new Promise((resolve) => {
-          resolveRead = resolve;
+          resolveRead = resolve as (value: unknown) => void;
         }),
       );
       const read = service.refreshSession(TAB_B);
@@ -504,7 +504,7 @@ describe('AutopilotStateService', () => {
       let resolveRead: (value: unknown) => void = () => undefined;
       rpc.call.mockReturnValueOnce(
         new Promise((resolve) => {
-          resolveRead = resolve;
+          resolveRead = resolve as (value: unknown) => void;
         }),
       );
       const read = service.refreshSession(TAB_B);
