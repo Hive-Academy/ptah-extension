@@ -477,7 +477,7 @@ backend/RPC change; no e2e run; split state is never persisted (decision 86: no 
 writer reads the addendum lines cited in its contract. Pattern for menus: `canvas-focus-header.component.ts:19-78`
 (keyboard-reachable overflow menu, Escape returns focus). Parity rows 117-124 (addendum "New parity rows").
 
-## Batch R9u: Board-scoped retention coordinator and per-pane dock width — PENDING
+## Batch R9u: Board-scoped retention coordinator and per-pane dock width — COMPLETE (c8fde086d; reviews code-logic-review-R9u.md 6/10 -> fix round -> -R9u-fix.md APPROVE 8/10 -> correction row 101 -> -R9u-correction.md APPROVE 8/10)
 
 - Executor: codex lane | Fallback: none (codex only, addendum line 84) | Reviewer: Claude code-logic-reviewer | Wave H4 | Depends: R9h, R9l (all H1-H3 commits)
 - Files (8): `chat/src/lib/services/rail-transcript-retention-coordinator.service.ts` (new), its `.spec.ts` (new),
@@ -507,7 +507,7 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
   SPEC(chat, chat-view.keepalive.spec.ts)
 - Mode 2: FULL(chat), TC(chat), LINT(chat).
 
-### Task R9u.1 — PENDING
+### Task R9u.1 — COMPLETE (c8fde086d)
 
 ## Batch R9v: Rail card Session actions menu, Move up/down, Open beside outputs — PENDING
 
