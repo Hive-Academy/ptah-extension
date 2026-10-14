@@ -19,6 +19,20 @@ import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor
  */
 export const POINTER_TIMEOUT_MS = 1_000;
 
+/** Error names logged as they are; any other name is logged as `Error`. */
+const BUILT_IN_ERROR_NAMES: ReadonlySet<string> = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'EvalError',
+  'URIError',
+  'AggregateError',
+]);
+/** An error code shaped like `ENOENT` or `ERR_INVALID_ARG`; anything else is dropped. */
+const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,39}$/;
+
 @injectable()
 export class UserPromptSubmitHookHandler {
   constructor(
@@ -106,13 +120,22 @@ export class UserPromptSubmitHookHandler {
         timestamp: Date.now(),
       });
     } catch (error: unknown) {
-      // Type and code only: a callback's message may carry the prompt.
+      // A built-in error name and a code-shaped code only: a callback controls
+      // the message, `name` and `code`, and any of them may carry the prompt.
       const code = (error as { code?: unknown } | null)?.code;
       this.logger.warn(
         '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
         {
-          errorType: error instanceof Error ? error.name : typeof error,
-          errorCode: typeof code === 'string' ? code : undefined,
+          errorType:
+            error instanceof Error
+              ? BUILT_IN_ERROR_NAMES.has(error.name)
+                ? error.name
+                : 'Error'
+              : typeof error,
+          errorCode:
+            typeof code === 'string' && SAFE_ERROR_CODE.test(code)
+              ? code
+              : undefined,
           sessionId: closureSessionId,
         },
       );

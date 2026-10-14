@@ -227,12 +227,24 @@ describe('SubagentHandoffIndex', () => {
     ]);
   });
 
-  it('ignores a temporary record file, however old, and never deletes it', async () => {
+  it('never lists a temporary record file and deletes one older than 7 days (a failed unlink)', async () => {
     const file = record();
     const temp = path.join(dir, `.${path.basename(file)}.tmp`);
     fs.renameSync(file, temp);
     const old = new Date(NOW - 8 * DAY);
     fs.utimesSync(temp, old, old);
+    const { index } = makeIndex();
+
+    await expect(index.pointerFor(root, audience())).resolves.toBeUndefined();
+    expect(fs.existsSync(temp)).toBe(false);
+  });
+
+  it('keeps a temporary record file younger than 7 days and does not list it', async () => {
+    const file = record();
+    const temp = path.join(dir, `.${path.basename(file)}.tmp`);
+    fs.renameSync(file, temp);
+    const recent = new Date(NOW - 1 * DAY);
+    fs.utimesSync(temp, recent, recent);
     const { index } = makeIndex();
 
     await expect(index.pointerFor(root, audience())).resolves.toBeUndefined();

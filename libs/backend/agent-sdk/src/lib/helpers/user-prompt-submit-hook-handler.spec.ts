@@ -138,6 +138,36 @@ describe('UserPromptSubmitHookHandler', () => {
     );
   });
 
+  it('drops a callback-controlled error name and code that are not built-in shaped', async () => {
+    const logger = makeLogger();
+    const registry = new UserPromptSubmitCallbackRegistry(logger);
+    jest.spyOn(registry, 'notifyAll').mockImplementation((payload) => {
+      // A callback that puts its input into the name and the code.
+      throw Object.assign(new Error('x'), {
+        name: payload.prompt,
+        code: payload.prompt,
+      });
+    });
+    jest.spyOn(registry, 'size', 'get').mockReturnValue(1);
+    const handler = new UserPromptSubmitHookHandler(logger, registry);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    const input = {
+      hook_event_name: 'UserPromptSubmit',
+      prompt: 'PROMPT-SECRET text',
+    } as unknown as HookInput;
+
+    await fn(input, undefined, { signal: new AbortController().signal });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
+      { errorType: 'Error', errorCode: undefined, sessionId: 'sess-1' },
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
+      'PROMPT-SECRET',
+    );
+  });
+
   it('keeps the index pointer budget below the hook bound, so its timeout line arrives', () => {
     expect(POINTER_BUDGET_MS).toBeLessThan(POINTER_TIMEOUT_MS);
   });

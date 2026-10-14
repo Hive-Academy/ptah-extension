@@ -47,6 +47,17 @@ export const POINTER_BUDGET_MS = 600;
 export const MAX_HEAD_READS = 10;
 /** A resolved record older than this is deleted. */
 export const HANDOFF_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+/** Temporary record files (left by a failed unlink) checked per load. */
+export const MAX_TEMP_CLEANUPS = 10;
+
+/** `.<record name>.tmp`: a record write that was never removed (`publishComplete`). */
+function isRecordTempName(name: string): boolean {
+  return (
+    name.startsWith('.') &&
+    name.endsWith('.tmp') &&
+    parseRecordName(name.slice(1, -'.tmp'.length)) !== undefined
+  );
+}
 
 const POINTER_HEADER =
   'Ptah: subagent handoff records are pending. For each: read it, continue ' +
@@ -226,6 +237,9 @@ export class SubagentHandoffIndex {
       index.names = [...names].sort();
       index.ready = true;
       index.loadedAt = this.now();
+      if (check.ok) {
+        await this.removeStaleTemps(check.dir, found);
+      }
     } catch (error: unknown) {
       // The next prompt retries.
       this.logger.debug('[SubagentHandoffIndex] Handoff records not listed', {
@@ -344,6 +358,32 @@ export class SubagentHandoffIndex {
         return { kind: 'gone' };
       }
       throw error;
+    }
+  }
+
+  /**
+   * Delete temporary record files older than {@link HANDOFF_RETENTION_MS}
+   * (a record write is bounded to seconds, so none is still in use), at most
+   * {@link MAX_TEMP_CLEANUPS} per load. Never rejects.
+   */
+  private async removeStaleTemps(dir: string, found: string[]): Promise<void> {
+    const temps = found.filter(isRecordTempName).slice(0, MAX_TEMP_CLEANUPS);
+    for (const name of temps) {
+      const file = path.join(dir, name);
+      try {
+        const stat = await this.files.lstat(file);
+        if (
+          stat.isFile() &&
+          this.now() - stat.mtimeMs > HANDOFF_RETENTION_MS
+        ) {
+          await this.files.unlink(file);
+        }
+      } catch (error: unknown) {
+        this.logger.debug(
+          '[SubagentHandoffIndex] Temporary handoff file not removed',
+          { errorCode: errorCodeOf(error) },
+        );
+      }
     }
   }
 
