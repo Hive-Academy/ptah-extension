@@ -27,6 +27,7 @@ import {
   isTerminalTurnPhase,
   GatewayPlatformId,
   createExecutionChatMessage,
+  MessageId,
   type AgentSessionOpenedPayload,
   type SessionHandoffOpenedPayload,
   type SessionStatsEntry,
@@ -1087,6 +1088,46 @@ export class TabManagerService {
     )
       ? 'adopted'
       : 'source-absent';
+  }
+
+  /**
+   * Settle a tab whose announced session never started (TASK_2026_655).
+   *
+   * The host announces a handoff (or agent child) tab before it launches the
+   * SDK session, so the tab is adopted streaming and live. A failed launch is
+   * reported as `chat:error` for that tab id. This turns such a tab into an
+   * idle, non-live tab and appends `reason` as a transcript notice, so it no
+   * longer looks like a running session.
+   *
+   * Only a tab that never bound an SDK session and has not streamed anything
+   * qualifies. Any other tab is left unchanged and `false` is returned: its
+   * errors belong to the ordered `turn_state` path.
+   */
+  markSessionStartFailed(tabId: string, reason: string): boolean {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (
+      !tab ||
+      tab.claudeSessionId ||
+      tab.status !== 'streaming' ||
+      tab.streamingState
+    ) {
+      return false;
+    }
+    this.updateTabInternal(tabId, {
+      status: 'loaded',
+      hasLiveSession: false,
+      currentMessageId: null,
+      messages: [
+        ...tab.messages,
+        createExecutionChatMessage({
+          id: MessageId.create(),
+          role: 'assistant',
+          rawContent: reason,
+        }),
+      ],
+    });
+    this.markTabIdle(tabId);
+    return true;
   }
 
   /**

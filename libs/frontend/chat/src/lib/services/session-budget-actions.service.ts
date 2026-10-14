@@ -174,6 +174,10 @@ export class SessionBudgetActionsService {
    * composer's send path. The button is disabled before the skill probe, so a
    * second click during it sends nothing. A failed send re-enables the
    * button; a thrown error is also shown.
+   *
+   * When the tab already has queued text, the slash command waits behind it
+   * as its own turn. The button stays disabled meanwhile; if the command is
+   * dropped (Stop, failed turn), it is enabled again with a notice.
    */
   async sendWrapUp(): Promise<void> {
     const tabId = this.view().tabId();
@@ -189,7 +193,17 @@ export class SessionBudgetActionsService {
         tabId,
       });
       // The send path already shows its own failure notice in the transcript.
-      if (!outcome?.success) this.setWrapUpSent(sessionId, false);
+      if (!outcome?.success) {
+        this.setWrapUpSent(sessionId, false);
+        return;
+      }
+      if (outcome.heldCommand && !(await outcome.heldCommand)) {
+        this.setWrapUpSent(sessionId, false);
+        this.actionBanner.showError(
+          'The wrap-up request was not sent: the queued messages before it were stopped or failed.',
+          tabId,
+        );
+      }
     } catch (error: unknown) {
       this.setWrapUpSent(sessionId, false);
       this.actionBanner.showError(

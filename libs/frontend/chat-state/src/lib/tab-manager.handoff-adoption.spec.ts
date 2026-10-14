@@ -224,4 +224,63 @@ describe('TabManagerService — handoff tab adoption (TASK_2026_655)', () => {
     expect(restored.tabs().map((t) => t.id)).toEqual([source, NEW_TAB]);
     expect(restored.activeTabId()).toBe(NEW_TAB);
   });
+
+  describe('announce, then a failed start (markSessionStartFailed)', () => {
+    const REASON = 'Handoff session could not start: the SDK is not ready.';
+
+    it('turns the adopted tab idle and not live, with the reason in the transcript', () => {
+      service.switchWorkspace(WS_A);
+      const source = service.createTab('source');
+      service.adoptHandoffTab(payload(source));
+      expect(service.activeTabId()).toBe(NEW_TAB);
+
+      expect(service.markSessionStartFailed(NEW_TAB, REASON)).toBe(true);
+
+      const tab = service.tabs().find((t) => t.id === NEW_TAB);
+      expect(tab?.status).toBe('loaded');
+      expect(tab?.hasLiveSession).toBe(false);
+      expect(tab?.claudeSessionId).toBeNull();
+      expect(service.isTabStreaming(NEW_TAB)).toBe(false);
+      expect(tab?.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+      expect(tab?.messages[1].rawContent).toBe(REASON);
+      // The tab stays where it was, so the user sees why it is not running.
+      expect(service.activeTabId()).toBe(NEW_TAB);
+    });
+
+    it('settles a tab adopted into a background partition', () => {
+      service.switchWorkspace(WS_A);
+      const source = service.createTab('source');
+      service.switchWorkspace(WS_B);
+      service.createTab('b');
+      service.adoptHandoffTab(payload(source));
+
+      expect(service.markSessionStartFailed(NEW_TAB, REASON)).toBe(true);
+
+      const tab = service.getWorkspaceTabs(WS_A).find((t) => t.id === NEW_TAB);
+      expect(tab?.status).toBe('loaded');
+      expect(tab?.hasLiveSession).toBe(false);
+      expect(tab?.messages.at(-1)?.rawContent).toBe(REASON);
+    });
+
+    it('leaves a tab whose session started alone', () => {
+      service.switchWorkspace(WS_A);
+      const source = service.createTab('source');
+      service.adoptHandoffTab(payload(source));
+      service.attachSession(NEW_TAB, SOURCE_SESSION);
+      const before = service.tabs();
+
+      expect(service.markSessionStartFailed(NEW_TAB, REASON)).toBe(false);
+      expect(service.tabs()).toBe(before);
+    });
+
+    it('leaves an ordinary idle tab and an unknown tab id alone', () => {
+      service.switchWorkspace(WS_A);
+      const idle = service.createTab('idle');
+      const before = service.tabs();
+
+      expect(service.markSessionStartFailed(idle, REASON)).toBe(false);
+      expect(service.markSessionStartFailed(NEW_TAB, REASON)).toBe(false);
+      expect(service.tabs()).toBe(before);
+    });
+  });
 });
