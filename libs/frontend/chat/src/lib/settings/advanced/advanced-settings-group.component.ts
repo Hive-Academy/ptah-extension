@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
@@ -24,7 +25,10 @@ import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directi
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const NUMBER_FORMAT = new Intl.NumberFormat('en-US');
-/** A missing host response must reveal Retry instead of leaving the group busy. */
+/**
+ * A missing host response must reveal Retry instead of leaving the group busy. It bounds both the `rpcCall`
+ * response wait and, through the group's own deadline, `rpcCall`'s untimed wait for the host to become ready.
+ */
 const SETTINGS_READ_TIMEOUT_MS = 5_000;
 /** A missing write response must free the group (busy) and say the save is unconfirmed. */
 const SETTINGS_WRITE_TIMEOUT_MS = 5_000;
@@ -276,16 +280,25 @@ export class AdvancedSettingsGroupComponent implements OnInit {
   private readonly savingKey = signal<string | null>(null);
   protected readonly busy = computed(() => this.savingKey() !== null);
   protected readonly status = signal('');
+  /** The deadline timer of the read in flight; cleared when the read settles or the group is destroyed. */
+  private readDeadline: ReturnType<typeof setTimeout> | undefined;
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.readDeadline));
+  }
 
   ngOnInit(): void {
     void this.reload();
   }
 
-  /** Reads every key of the group in parallel; any failed read shows the load error with Retry. */
+  /**
+   * Reads every key of the group in parallel; any failed read, or no answer within the group's own deadline
+   * (`rpcCall` starts its timeout only once the host is ready), shows the load error with Retry.
+   */
   async reload(): Promise<void> {
     this.load.set('loading');
     const settings = this.settings();
-    const results = await Promise.all(
+    const reads = Promise.all(
       settings.map((setting) =>
         rpcCall<{ success: boolean; value?: unknown }>(
           this.vscode,
@@ -295,7 +308,17 @@ export class AdvancedSettingsGroupComponent implements OnInit {
         ).catch(() => null),
       ),
     );
+    clearTimeout(this.readDeadline);
+    const deadline = new Promise<null>((resolve) => {
+      this.readDeadline = setTimeout(
+        () => resolve(null),
+        SETTINGS_READ_TIMEOUT_MS,
+      );
+    });
+    const results = await Promise.race([reads, deadline]);
+    clearTimeout(this.readDeadline);
     if (
+      results === null ||
       results.some(
         (result) => result === null || !result.success || !result.data?.success,
       )
@@ -404,9 +427,8 @@ export class AdvancedSettingsGroupComponent implements OnInit {
     this.setError(key, null);
     let confirmed = false;
     let timedOut = false;
-    let refusal: string | null = null;
     try {
-      const result = await rpcCall<{ success: boolean; error?: string }>(
+      const result = await rpcCall<{ success: boolean }>(
         this.vscode,
         'settings:set',
         { key, value },
@@ -416,8 +438,6 @@ export class AdvancedSettingsGroupComponent implements OnInit {
       timedOut =
         !result.success &&
         (result.error?.startsWith(RPC_TIMEOUT_PREFIX) ?? false);
-      const hostError = result.data?.error;
-      refusal = typeof hostError === 'string' && hostError ? hostError : null;
     } catch {
       // A transport failure is reported below like a refused write (the field's message and the status line).
     }
@@ -429,8 +449,9 @@ export class AdvancedSettingsGroupComponent implements OnInit {
       const message = timedOut
         ? `Could not confirm saving ${label}. Reopen settings to see the saved value.`
         : `Could not save ${label}. The saved setting is unchanged.`;
-      // A refusal from the host (its validator) says what to change, so it is shown under the field.
-      this.setError(key, refusal ?? message);
+      // Host error text is never shown (it may carry paths or secrets); the client validator already refused
+      // out-of-range values, so the field shows the same fixed message as the status line.
+      this.setError(key, message);
       this.status.set(message);
     }
     this.savingKey.set(null);

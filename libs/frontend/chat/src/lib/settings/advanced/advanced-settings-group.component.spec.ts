@@ -180,6 +180,41 @@ describe('AdvancedSettingsGroupComponent', () => {
       );
     });
 
+    it('shows Retry after 5 s when a read never settles (host never ready), and leaves no timer behind', async () => {
+      jest.useFakeTimers();
+      try {
+        mockRpcCall.mockImplementation(
+          () => new Promise<RpcReply>(() => undefined),
+        );
+        fixture = TestBed.createComponent(AdvancedSettingsGroupComponent);
+        fixture.componentRef.setInput('groupId', 'scheduled-jobs');
+        fixture.detectChanges();
+        expect(
+          byTestId('advanced-group-scheduled-jobs-loading'),
+        ).not.toBeNull();
+
+        await jest.advanceTimersByTimeAsync(4_999);
+        fixture.detectChanges();
+        expect(byTestId('advanced-group-scheduled-jobs-retry')).toBeNull();
+
+        await jest.advanceTimersByTimeAsync(1);
+        fixture.detectChanges();
+        expect(byTestId('advanced-group-scheduled-jobs-loading')).toBeNull();
+        expect(byTestId('advanced-group-scheduled-jobs-retry')).not.toBeNull();
+        // Retry starts a new deadline; destroying the group clears it, so it never fires afterwards.
+        byTestId<HTMLButtonElement>(
+          'advanced-group-scheduled-jobs-retry',
+        )?.click();
+        const group = fixture.componentInstance;
+        expect(group['load']()).toBe('loading');
+        fixture.destroy();
+        await jest.advanceTimersByTimeAsync(5_000);
+        expect(group['load']()).toBe('loading');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('a rejected read also reaches the Retry state', async () => {
       mockRpcCall.mockRejectedValueOnce(new Error('gone'));
       await create('scheduled-jobs');
@@ -353,22 +388,27 @@ describe('AdvancedSettingsGroupComponent', () => {
   });
 
   describe('failed write', () => {
-    it('shows the host refusal under the field and keeps the saved value and typed text', async () => {
+    it('never shows host error text: the field and status show the fixed message, the saved value and typed text stay', async () => {
+      const SENTINEL =
+        'SENTINEL-SECRET-7f3a at /home/someone/.ptah/settings.json';
       writeReply = async () => ({
         success: true,
-        data: {
-          success: false,
-          error: 'Use a whole number from 1 to 16 jobs.',
-        },
+        data: { success: false, error: SENTINEL },
       });
       await create('scheduled-jobs');
       await enter('cron.maxConcurrentJobs', '8');
+      const label = ADVANCED_SETTINGS.find(
+        (setting) => setting.key === 'cron.maxConcurrentJobs',
+      )?.label;
+      const fixed = `Could not save ${label}. The saved setting is unchanged.`;
+      expect(host().textContent).not.toContain('SENTINEL-SECRET-7f3a');
+      expect(host().innerHTML).not.toContain('SENTINEL-SECRET-7f3a');
       expect(
         byTestId('advanced-setting-cron.maxConcurrentJobs-error')?.textContent,
-      ).toContain('Use a whole number from 1 to 16 jobs.');
+      ).toContain(fixed);
       expect(
         byTestId('advanced-group-scheduled-jobs-status')?.textContent,
-      ).toContain('Could not save');
+      ).toContain(fixed);
       expect(field('cron.maxConcurrentJobs').value).toBe('8');
       expect(stored['cron.maxConcurrentJobs']).toBe(
         DEFAULTS['cron.maxConcurrentJobs'],
