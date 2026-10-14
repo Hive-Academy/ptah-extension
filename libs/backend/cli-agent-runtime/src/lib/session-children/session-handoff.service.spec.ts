@@ -341,6 +341,22 @@ describe('SessionHandoffService', () => {
       expect(h.host.startHandoffSession).not.toHaveBeenCalled();
     });
 
+    it('handoff-file-missing: the detail carries a safe error kind, not the fs message', async () => {
+      const h = makeHarness();
+      const path = join(root, 'MISSING.md');
+
+      const result = await h.service.handoff(h.request({ handoffPath: path }));
+
+      expect(result).toMatchObject({
+        ok: false,
+        refusal: 'handoff-file-missing',
+      });
+      const detail = (result as { detail: string }).detail;
+      expect(detail).not.toContain('no such file');
+      expect(detail).toContain('could not be read');
+      expect(detail).not.toContain('stat ');
+    });
+
     it('session-start-failed: the host did not start the session', async () => {
       const h = makeHarness();
       h.host.startHandoffSession.mockResolvedValueOnce({

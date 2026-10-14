@@ -331,7 +331,7 @@ export class SessionHandoffService implements ISessionHandoff {
       // closed `handoff-file-missing`; the detail names the path.
       return this.refuse(
         'handoff-file-missing',
-        `${path} could not be read (${errorMessage(error)})`,
+        `${path} could not be read (${safeErrorKind(error)})`,
       );
     }
   }
@@ -373,7 +373,7 @@ export class SessionHandoffService implements ISessionHandoff {
     } catch (error: unknown) {
       // degradation-audit: reported - logged below; the handoff is refused
       // as `chat-runtime-unavailable`, a closed reason the caller reads.
-      this.log(`chat host could not be resolved: ${errorMessage(error)}`);
+      this.log(`chat host could not be resolved: ${safeErrorKind(error)}`);
       return null;
     }
   }
@@ -416,8 +416,4 @@ async function withDeadline<T>(
 
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
