@@ -106,10 +106,13 @@ export class UserPromptSubmitHookHandler {
         timestamp: Date.now(),
       });
     } catch (error: unknown) {
+      // Type and code only: a callback's message may carry the prompt.
+      const code = (error as { code?: unknown } | null)?.code;
       this.logger.warn(
         '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
         {
-          error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.name : typeof error,
+          errorCode: typeof code === 'string' ? code : undefined,
           sessionId: closureSessionId,
         },
       );

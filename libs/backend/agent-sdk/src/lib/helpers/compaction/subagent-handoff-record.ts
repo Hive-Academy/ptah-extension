@@ -12,8 +12,10 @@
  * - `tool`: the spawning tool-use id reduced to `[A-Za-z0-9_-]`, at most 64.
  * - `nonce8`: four random bytes in hex.
  *
- * The file is created exclusively (`wx`) and written once; the host never
- * rewrites it. Its frontmatter carries only `status`: `pending` when written;
+ * The file is written once under a temporary `.<name>.tmp` name the index
+ * ignores, then published under its record name by an exclusive hard link,
+ * so that name only ever shows a complete record; the host never rewrites
+ * it. Its frontmatter carries only `status`: `pending` when written;
  * the agent that reads it sets `consumed` or `dismissed`.
  *
  * One record per tool-use id: concurrent stops of one subagent (two session
@@ -134,8 +136,9 @@ export function parseRecordName(name: string): HandoffRecordName | undefined {
 export function renderRecord(text: string): string {
   return (
     '---\nstatus: pending\n---\n' +
-    'Ptah subagent handoff record. If its subagent is still running or ' +
-    'finished normally, set `status: dismissed`.\n\n' +
+    'Ptah subagent handoff record. Set `status: dismissed` only if you will ' +
+    'not continue it, or if its subagent finished normally and returned its ' +
+    'result. If its subagent is still running, leave it `pending`.\n\n' +
     `${text}\n`
   );
 }
@@ -475,13 +478,52 @@ export class SubagentHandoffRecords {
         return { ok: false, errorType: 'GuardRefused' };
       }
       const recordPath = path.join(check.dir, name);
-      await fs.writeFile(recordPath, renderRecord(text), {
-        encoding: 'utf8',
-        flag: 'wx',
-      });
+      await this.publishComplete(recordPath, renderRecord(text));
       return { ok: true, path: recordPath, workspace, name };
     } catch (error: unknown) {
       return { ok: false, ...errorDetails(error) };
+    }
+  }
+
+  /**
+   * Write `content` to a temporary name the index ignores (it does not match
+   * the record name grammar), close it, then publish it at `recordPath` with
+   * a hard link: atomic, and it fails with `EEXIST` when the name is taken
+   * (POSIX `link`, Windows `CreateHardLink`), so the record name only ever
+   * shows a complete file and never replaces one. The temporary file this
+   * call created is removed on success and on every failure (one it did not
+   * create, an `EEXIST` on open, is left alone). Rejects on a write or
+   * publish error.
+   */
+  private async publishComplete(
+    recordPath: string,
+    content: string,
+  ): Promise<void> {
+    const tempPath = path.join(
+      path.dirname(recordPath),
+      `.${path.basename(recordPath)}.tmp`,
+    );
+    const handle = await fs.open(tempPath, 'wx');
+    try {
+      try {
+        await handle.writeFile(content, 'utf8');
+      } finally {
+        await handle.close();
+      }
+      await fs.link(tempPath, recordPath);
+    } finally {
+      await this.removeTemp(tempPath);
+    }
+  }
+
+  private async removeTemp(tempPath: string): Promise<void> {
+    try {
+      await fs.unlink(tempPath);
+    } catch (error: unknown) {
+      this.logger.debug(
+        '[SubagentHandoffRecords] Temporary handoff file not removed',
+        { ...errorDetails(error) },
+      );
     }
   }
 

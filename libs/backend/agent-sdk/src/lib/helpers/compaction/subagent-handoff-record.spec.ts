@@ -39,7 +39,18 @@ describe('record names and heads', () => {
       nonce: '0a1b2c3d',
     });
     expect(parseRecordHead(renderRecord('the handoff'))).toBe('pending');
-    expect(renderRecord('the handoff')).toContain('set `status: dismissed`');
+    expect(renderRecord('the handoff')).toContain(
+      'Set `status: dismissed` only if',
+    );
+  });
+
+  it('never tells the reader to dismiss a record whose subagent is still running', () => {
+    const record = renderRecord('the handoff');
+    expect(record).not.toMatch(/still running or finished/);
+    expect(record).toContain(
+      'If its subagent is still running, leave it `pending`.',
+    );
+    expect(record).toContain('finished normally and returned its result');
   });
 
   it('reduces a hostile tool id to the name alphabet and refuses one with nothing usable', () => {
@@ -192,6 +203,60 @@ describe('SubagentHandoffRecords', () => {
 
     expect(second).toMatchObject({ ok: false, errorCode: 'EEXIST' });
     expect(fs.readFileSync(first.path, 'utf8')).toContain('first');
+    // The second write's temporary file is gone too.
+    expect(fs.readdirSync(handoffDir())).toEqual([first.name]);
+  });
+
+  it('a failure after the temporary file was written leaves neither the record nor the temporary file', async () => {
+    const fault = Object.assign(new Error('disk gone'), { code: 'EIO' });
+    const link = jest.spyOn(fs.promises, 'link').mockRejectedValueOnce(fault);
+    try {
+      const { store, logger } = makeStore();
+
+      const result = await store.writeOnce(SESSION, TOOL, 'SECRET handoff');
+
+      expect(link).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ ok: false, errorCode: 'EIO' });
+      expect(fs.readdirSync(handoffDir())).toEqual([]);
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('SECRET');
+    } finally {
+      link.mockRestore();
+    }
+  });
+
+  it('the record name appears only for a complete, closed file', async () => {
+    const realLink = fs.promises.link;
+    const atPublish: { names: string[]; from: string; content: string }[] =
+      [];
+    const link = jest
+      .spyOn(fs.promises, 'link')
+      .mockImplementation(async (from, to) => {
+        atPublish.push({
+          names: fs.readdirSync(handoffDir()),
+          from: path.basename(String(from)),
+          content: fs.readFileSync(from, 'utf8'),
+        });
+        return realLink(from, to);
+      });
+    try {
+      const { store } = makeStore();
+
+      const result = await store.writeOnce(SESSION, TOOL, 'the handoff');
+
+      if (!result.ok) throw new Error('expected a record');
+      expect(atPublish).toHaveLength(1);
+      // While it is written, only the temporary name exists, and no reader
+      // of record names can see it.
+      expect(atPublish[0].names).toEqual([atPublish[0].from]);
+      expect(parseRecordName(atPublish[0].from)).toBeUndefined();
+      expect(atPublish[0].content).toBe(renderRecord('the handoff'));
+      expect(fs.readdirSync(handoffDir())).toEqual([result.name]);
+      expect(fs.readFileSync(result.path, 'utf8')).toBe(
+        renderRecord('the handoff'),
+      );
+    } finally {
+      link.mockRestore();
+    }
   });
 
   it('withdraw deletes a record whose stop was never invoked, and keeps an invoked one', async () => {

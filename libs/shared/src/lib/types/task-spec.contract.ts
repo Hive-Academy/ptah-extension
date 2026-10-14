@@ -533,8 +533,9 @@ export const SUBAGENT_HANDOFF_RULE =
   '`subagent-handoff-*.md` stub in your task folder (it names the record), marks work a stopped ' +
   "subagent left unfinished. If the record's frontmatter has `status: pending` and it concerns your " +
   'deliverable: read it, continue from it instead of redoing it, then set `status: consumed` (or ' +
-  '`status: dismissed` if you will not continue it, or its subagent is still running or finished ' +
-  'normally). A record marked as from another or an ended session: continue it only if that ' +
+  '`status: dismissed` only if you will not continue it, or its subagent finished normally and ' +
+  'returned its result; if its subagent is still running, leave the record pending). A record ' +
+  'marked as from another or an ended session: continue it only if that ' +
   'session is not running. Never edit the stub; that status line is the one write allowed besides ' +
   'your deliverable.';
 

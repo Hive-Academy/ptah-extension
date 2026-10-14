@@ -517,6 +517,15 @@ describe('renderTaskSpecAgentBlock', () => {
     },
   );
 
+  it('never tells an agent to dismiss a record whose subagent is still running', () => {
+    expect(SUBAGENT_HANDOFF_RULE).not.toMatch(/still running or finished/);
+    expect(SUBAGENT_HANDOFF_RULE).toContain(
+      '`status: dismissed` only if you will not continue it, or its subagent ' +
+        'finished normally and returned its result; if its subagent is still ' +
+        'running, leave the record pending',
+    );
+  });
+
   it.each(AUDIENCES)(
     'leaves no unresolved template slot for %s',
     (audience) => {

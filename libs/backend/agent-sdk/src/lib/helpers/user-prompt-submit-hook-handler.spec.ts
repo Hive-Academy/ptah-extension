@@ -2,6 +2,7 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
+import { POINTER_BUDGET_MS } from './compaction/subagent-handoff-index';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
 import {
   POINTER_TIMEOUT_MS,
@@ -104,8 +105,11 @@ describe('UserPromptSubmitHookHandler', () => {
   it('registry-throw is swallowed and logger.warn is called; returns continue:true', async () => {
     const logger = makeLogger();
     const registry = new UserPromptSubmitCallbackRegistry(logger);
-    jest.spyOn(registry, 'notifyAll').mockImplementation(() => {
-      throw new Error('fan-out failure');
+    jest.spyOn(registry, 'notifyAll').mockImplementation((payload) => {
+      // A callback that echoes its input into the error message.
+      throw Object.assign(new TypeError(`bad prompt: ${payload.prompt}`), {
+        code: 'E_CALLBACK',
+      });
     });
     jest.spyOn(registry, 'size', 'get').mockReturnValue(1);
     const handler = new UserPromptSubmitHookHandler(logger, registry);
@@ -113,7 +117,7 @@ describe('UserPromptSubmitHookHandler', () => {
 
     const input = {
       hook_event_name: 'UserPromptSubmit',
-      prompt: 'x',
+      prompt: 'PROMPT-SECRET text',
     } as unknown as HookInput;
 
     const result = await fn(input, undefined, {
@@ -123,11 +127,19 @@ describe('UserPromptSubmitHookHandler', () => {
     expect(result).toEqual({ continue: true });
     expect(logger.warn).toHaveBeenCalledWith(
       '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
-      expect.objectContaining({
-        error: 'fan-out failure',
+      {
+        errorType: 'TypeError',
+        errorCode: 'E_CALLBACK',
         sessionId: 'sess-1',
-      }),
+      },
     );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
+      'PROMPT-SECRET',
+    );
+  });
+
+  it('keeps the index pointer budget below the hook bound, so its timeout line arrives', () => {
+    expect(POINTER_BUDGET_MS).toBeLessThan(POINTER_TIMEOUT_MS);
   });
 
   it('prefers input.session_id over closure-captured sessionId when present', async () => {

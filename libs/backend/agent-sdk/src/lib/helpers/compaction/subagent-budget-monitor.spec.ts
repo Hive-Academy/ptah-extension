@@ -1720,14 +1720,15 @@ describe('SubagentBudgetMonitor handoff records', () => {
     jest.useFakeTimers({
       doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
     });
-    const realWriteFile = fs.promises.writeFile;
+    // Gate the publish of the record name (the write's last step).
+    const realLink = fs.promises.link;
     let open: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => (open = resolve));
-    const writeFile = jest
-      .spyOn(fs.promises, 'writeFile')
+    const link = jest
+      .spyOn(fs.promises, 'link')
       .mockImplementationOnce(async (...args) => {
         await gate;
-        return realWriteFile(...args);
+        return realLink(...args);
       });
     const records = new SubagentHandoffRecords(
       quietLogger(),
@@ -1736,21 +1737,17 @@ describe('SubagentBudgetMonitor handoff records', () => {
     const h = makeHarness({}, { records });
 
     const first = h.monitor.observe(SESSION, over('m1'));
-    await waitUntil(() => writeFile.mock.calls.length === 1);
+    await waitUntil(() => link.mock.calls.length === 1);
     jest.advanceTimersByTime(HANDOFF_FILES_TIMEOUT_MS);
     await first;
     expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
     expect(h.index.publish).not.toHaveBeenCalled();
 
     open();
-    await writeFile.mock.results[0].value;
+    await link.mock.results[0].value;
     const dir = path.join(workspace, '.ptah', 'subagent-handoffs');
-    await waitUntil(
-      () =>
-        !fs
-          .readdirSync(dir)
-          .some((name) => name.endsWith(HANDOFF_RECORD_SUFFIX)),
-    );
+    // The late record and its temporary file are both removed.
+    await waitUntil(() => fs.readdirSync(dir).length === 0);
     expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
   });
 

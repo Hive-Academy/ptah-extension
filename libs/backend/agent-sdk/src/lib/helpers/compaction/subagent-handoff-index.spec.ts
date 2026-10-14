@@ -130,6 +130,19 @@ describe('SubagentHandoffIndex', () => {
     expect(pointer).not.toContain('from another or an ended session');
   });
 
+  it('never tells the parent to dismiss a record whose subagent is still running', async () => {
+    record();
+    const { index } = makeIndex();
+
+    const pointer = await index.pointerFor(root, audience());
+
+    expect(pointer).not.toMatch(/still running or finished/);
+    expect(pointer).toContain(
+      'if its subagent is still running, leave the record pending',
+    );
+    expect(pointer).toContain('finished normally and returned its result');
+  });
+
   it('names nothing when the directory is missing or empty', async () => {
     fs.rmSync(path.join(root, '.ptah'), { recursive: true, force: true });
     const { index } = makeIndex();
@@ -214,6 +227,18 @@ describe('SubagentHandoffIndex', () => {
     ]);
   });
 
+  it('ignores a temporary record file, however old, and never deletes it', async () => {
+    const file = record();
+    const temp = path.join(dir, `.${path.basename(file)}.tmp`);
+    fs.renameSync(file, temp);
+    const old = new Date(NOW - 8 * DAY);
+    fs.utimesSync(temp, old, old);
+    const { index } = makeIndex();
+
+    await expect(index.pointerFor(root, audience())).resolves.toBeUndefined();
+    expect(fs.existsSync(temp)).toBe(true);
+  });
+
   it('skips a link entry without deleting it', async () => {
     const target = path.join(root, 'target');
     fs.mkdirSync(target);
@@ -269,6 +294,48 @@ describe('SubagentHandoffIndex', () => {
     release();
     await gate;
     expect(listed(await index.pointerFor(root, audience()))).toEqual([file]);
+  });
+
+  /** Real fs, except that the head read of a file in `stalled` never settles. */
+  function stallingFs(stalled: Set<string>): HandoffIndexFs {
+    const real = nodeFs();
+    return nodeFs({
+      readHead: (file, bytes) =>
+        stalled.has(file)
+          ? new Promise<string>(() => undefined)
+          : real.readHead(file, bytes),
+    });
+  }
+
+  it('a first head read that never settles gives the timeout line and leaves the cursor', async () => {
+    const files = [record(), record()];
+    const stalled = new Set([files[0]]);
+    const { index } = makeIndex(stallingFs(stalled));
+
+    const pointer = await index.pointerFor(root, audience());
+
+    expect(pointer).toBe(
+      `Ptah: handoff records could not be checked in time; look in \`${dir}\` for \`*.handoff.md\` files with \`status: pending\`.`,
+    );
+    stalled.clear();
+    // The cursor did not move past the abandoned visit: both are named.
+    expect(listed(await index.pointerFor(root, audience()))).toEqual(files);
+  });
+
+  it('a later head read that never settles keeps the listed lines and ends with the timeout line', async () => {
+    const files = [record(), record(), record()];
+    const stalled = new Set([files[1]]);
+    const { index } = makeIndex(stallingFs(stalled));
+
+    const pointer = await index.pointerFor(root, audience());
+
+    expect(listed(pointer)).toEqual([files[0]]);
+    expect(pointer).toContain('could not be checked in time');
+    expect(pointer).not.toContain('more handoff records');
+    stalled.clear();
+    expect(listed(await index.pointerFor(root, audience()))).toEqual(
+      files.slice(1),
+    );
   });
 
   it('a record published during the load is merged into the loaded list', async () => {

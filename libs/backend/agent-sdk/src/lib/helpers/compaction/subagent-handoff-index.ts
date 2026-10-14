@@ -12,7 +12,11 @@
  * within {@link POINTER_BUDGET_MS}: it reads the heads of at most
  * {@link MAX_HEAD_READS} records visible to the prompting session, starting
  * after that session's cursor, so every pending record is named within
- * `ceil(C / 10)` prompts (`C` = the session's candidates). A resolved record
+ * `ceil(C / 10)` prompts (`C` = the session's candidates). Each head visit
+ * is raced against the remaining budget; when it expires the pointer ends
+ * with the directory timeout line and the abandoned visit leaves the cursor
+ * where it was. The budget stays below the hook's own bound
+ * (`POINTER_TIMEOUT_MS`) so that line reaches the prompt. A resolved record
  * (`consumed`/`dismissed`) leaves the list; one older than
  * {@link HANDOFF_RETENTION_MS} is deleted. A pending or malformed record is
  * never deleted. A record whose head cannot be read is listed with a note to
@@ -47,8 +51,9 @@ export const HANDOFF_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const POINTER_HEADER =
   'Ptah: subagent handoff records are pending. For each: read it, continue ' +
   'from it, then set `status: consumed` in its frontmatter (or ' +
-  '`status: dismissed` if you will not continue it, or if its subagent is ' +
-  'still running or finished normally).';
+  '`status: dismissed` only if you will not continue it, or if its subagent ' +
+  'finished normally and returned its result; if its subagent is still ' +
+  'running, leave the record pending).';
 const FOREIGN_SUFFIX =
   ' (from another or an ended session; continue it only if that session is ' +
   'not running, else leave it)';
@@ -248,12 +253,24 @@ export class SubagentHandoffIndex {
     const end = Math.min(candidates.length, start + MAX_HEAD_READS);
     const listed: string[] = [];
     let visited = 0;
+    let expired = false;
     for (let i = start; i < end; i += 1) {
-      if (visited > 0 && this.now() >= deadline) {
+      const remaining = deadline - this.now();
+      if (remaining <= 0) {
+        // Out of time before the first visit: nothing was checked.
+        expired = visited === 0;
         break;
       }
       const name = candidates[i];
-      const line = await this.visit(index, name, audience);
+      // A visit the deadline abandons keeps running but never moves the cursor.
+      const line = await raceDeadline(
+        this.visit(index, name, audience),
+        remaining,
+      );
+      if (line === EXPIRED) {
+        expired = true;
+        break;
+      }
       if (line) {
         listed.push(line);
       }
@@ -262,7 +279,9 @@ export class SubagentHandoffIndex {
     }
     const lines = listed.length > 0 ? [POINTER_HEADER, ...listed] : [];
     const more = candidates.length - visited;
-    if (more > 0) {
+    if (expired) {
+      lines.push(timeoutLine(index.dir));
+    } else if (more > 0) {
       lines.push(
         `Ptah: ${more} more handoff records in \`${index.dir}\` are not checked yet; later prompts name them.`,
       );
@@ -346,7 +365,28 @@ function timeoutLine(dir: string): string {
   return `Ptah: handoff records could not be checked in time; look in \`${dir}\` for \`*.handoff.md\` files with \`status: pending\`.`;
 }
 
-/** Wait for `pending` at most `ms`; the timer is cleared. */
+/** What {@link raceDeadline} returns when `ms` passed first. */
+const EXPIRED: unique symbol = Symbol('expired');
+
+/** `pending`'s value, or {@link EXPIRED} once `ms` (at least 0) passed first; the timer is cleared. */
+async function raceDeadline<T>(
+  pending: Promise<T>,
+  ms: number,
+): Promise<T | typeof EXPIRED> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<typeof EXPIRED>((resolve) => {
+        timer = setTimeout(() => resolve(EXPIRED), Math.max(0, ms));
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Wait for `pending` at most `ms`. */
 async function waitUntil(
   pending: Promise<void> | undefined,
   ms: number,
@@ -354,17 +394,7 @@ async function waitUntil(
   if (!pending || ms <= 0) {
     return;
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      pending,
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
+  await raceDeadline(pending, ms);
 }
 
 function insertSorted(names: string[], name: string): void {
