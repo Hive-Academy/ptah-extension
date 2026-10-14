@@ -155,9 +155,9 @@ const PREVIEW_WRITE_DEPENDENT_CONDITION =
 /**
  * RPC handlers for setup wizard generation operations.
  *
- * Concurrency: only one generation runs at a time. `GenerationRunSupervisor`
- * is active from launch until the completion payload has gone out, so a
- * second submit/resume/retry is rejected until the previous run settled.
+ * Concurrency: only one generation runs at a time. A submit reserves the slot
+ * while preparing; `GenerationRunSupervisor` holds it from launch until the
+ * completion payload has gone out. A second submit/resume/retry is rejected.
  */
 @injectable()
 export class WizardGenerationRpcHandlers {
@@ -176,6 +176,9 @@ export class WizardGenerationRpcHandlers {
 
   /** Checkpoint of the last launched run; a retry updates the same record. */
   private lastCheckpoint: GenerationCheckpointLocation | null = null;
+
+  /** Reserves the submit slot while its checkpoint and runtime are prepared. */
+  private submitReserved = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -234,7 +237,7 @@ export class WizardGenerationRpcHandlers {
           error: 'No agents selected. Please select at least one agent.',
         };
       }
-      if (this.runs.isActive) {
+      if (this.runs.isActive || this.submitReserved) {
         this.logger.warn(
           'RPC: wizard:submit-selection rejected - generation already in progress',
         );
@@ -244,150 +247,190 @@ export class WizardGenerationRpcHandlers {
             'Agent generation is already in progress. Please wait for it to complete or cancel it first.',
         };
       }
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-      if (!workspaceRoot) {
-        return {
-          success: false,
-          error:
-            'No workspace folder open. Please open a folder to generate agents.',
-        };
-      }
-      const analysisDir = this.authorizeAnalysisDir(
-        workspaceRoot,
-        parsed.analysisDir,
-      );
-      if (
-        params?.analysisData !== undefined &&
-        parsed.analysisData === undefined
-      ) {
-        this.logger.warn(
-          'RPC: wizard:submit-selection ignored analysisData that is not a ProjectAnalysisResult; the orchestrator will analyze the workspace itself',
-        );
-      }
-
+      this.submitReserved = true;
       try {
-        const freshness = this.resolveService<AnalysisFreshnessService>(
-          AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
-          'AnalysisFreshnessService',
-        );
-        const storage = this.resolveService<AnalysisStorageService>(
-          AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-          'AnalysisStorageService',
-        );
-        let status: Awaited<ReturnType<AnalysisFreshnessService['getStatus']>>;
-        try {
-          status = await freshness.getStatus(workspaceRoot);
-        } catch {
-          // degradation-audit: optional-capability - freshness lookup failure
-          // leaves generation available through current workspace discovery.
-          this.logger.warn(
-            'RPC: wizard:submit-selection could not determine analysis freshness',
-          );
-          status = {
-            state: 'stale',
-            reason: 'unreadable',
-            analysisDir: null,
-            checkedAt: new Date().toISOString(),
-            analyzedAt: null,
-          };
-        }
-        const freshDir =
-          status.state === 'fresh' && status.analysisDir
-            ? storage.resolveAuthorizedAnalysisDir(
-                workspaceRoot,
-                status.analysisDir,
-              )
-            : null;
-        const runtime = await this.resolveRuntime(workspaceRoot);
-        const prepared = resume
-          ? await this.prepareResumedRun(workspaceRoot, analysisDir)
-          : await this.checkpoints.createFresh({
-              workspaceRoot,
-              analysisDir,
-              selectedAgentIds,
-              input: {
-                threshold: parsed.threshold,
-                variableOverrides: parsed.variableOverrides,
-                model: parsed.model,
-                analysisData: parsed.analysisData,
-              },
-            });
-        if (!prepared) {
+        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+        if (!workspaceRoot) {
           return {
             success: false,
-            error: 'No resumable generation run was found for this workspace.',
+            error:
+              'No workspace folder open. Please open a folder to generate agents.',
           };
         }
-        if (prepared.agentIds.length === 0) {
-          await this.completeWithoutWork(prepared, runtime.webviewManager);
-          return { success: true };
-        }
-
-        const requestedDir = analysisDir ?? prepared.location.analysisDir;
-        const trustedDir =
-          freshDir && (!requestedDir || requestedDir === freshDir)
-            ? freshDir
-            : null;
-        if (!trustedDir) {
+        const analysisDir = this.authorizeAnalysisDir(
+          workspaceRoot,
+          parsed.analysisDir,
+        );
+        if (
+          params?.analysisData !== undefined &&
+          parsed.analysisData === undefined
+        ) {
           this.logger.warn(
-            'RPC: wizard:submit-selection using workspace context',
-            {
-              analysisState: status.state,
-              analysisReason: status.reason,
-              analysisDirMatches: !requestedDir || requestedDir === freshDir,
-            },
+            'RPC: wizard:submit-selection ignored analysisData that is not a ProjectAnalysisResult; the orchestrator will analyze the workspace itself',
           );
         }
-        const options = this.buildOptions(
-          workspaceRoot,
-          prepared,
-          runtime,
-          trustedDir,
-        );
-        this.lastGenerationOptions = options;
-        this.lastCheckpoint = prepared.location;
-        this.logger.info('RPC: wizard:submit-selection started', {
-          runId: prepared.manifest.runId,
-          resume,
-          agents: prepared.agentIds,
-          carriedOver: prepared.carriedOver.length,
-          workspace: workspaceRoot,
-        });
-        void this.runs.run({
-          orchestrator: runtime.orchestrator,
-          options,
-          progressCallback: this.createProgressBroadcaster(
-            runtime.webviewManager,
-          ),
-          broadcaster: runtime.webviewManager,
-          outputDirectory: prepared.manifest.outputDirectory,
-          carriedOver: prepared.carriedOver,
-          onSettled: (settled) =>
-            this.afterSettled(
-              'wizard:submit-selection',
-              prepared.location,
-              workspaceRoot,
-              settled,
-            ),
-        });
-        return { success: true };
-      } catch (error: unknown) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          'RPC: wizard:submit-selection unexpected error',
-          error instanceof Error ? error : new Error(errorMessage),
-        );
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(errorMessage),
-          {
-            errorSource: 'WizardGenerationRpcHandlers.registerSubmitSelection',
-          },
-        );
-        return {
-          success: false,
-          error: `Agent generation failed: ${errorMessage}`,
-        };
+
+        try {
+          const freshness = this.resolveService<AnalysisFreshnessService>(
+            AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
+            'AnalysisFreshnessService',
+          );
+          const storage = this.resolveService<AnalysisStorageService>(
+            AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+            'AnalysisStorageService',
+          );
+          let status: Awaited<
+            ReturnType<AnalysisFreshnessService['getStatus']>
+          >;
+          try {
+            status = await freshness.getStatus(workspaceRoot);
+          } catch (error: unknown) {
+            // degradation-audit: optional-capability - freshness lookup failure
+            // leaves generation available through current workspace discovery.
+            this.logger.warn(
+              'RPC: wizard:submit-selection could not determine analysis freshness',
+              { cause: error instanceof Error ? error.name : typeof error },
+            );
+            status = {
+              state: 'stale',
+              reason: 'unreadable',
+              analysisDir: null,
+              checkedAt: new Date().toISOString(),
+              analyzedAt: null,
+            };
+          }
+          const freshDir =
+            status.state === 'fresh' && status.analysisDir
+              ? storage.resolveAuthorizedAnalysisDir(
+                  workspaceRoot,
+                  status.analysisDir,
+                )
+              : null;
+          const runtime = await this.resolveRuntime(workspaceRoot);
+          const prepared = resume
+            ? await this.prepareResumedRun(workspaceRoot, analysisDir)
+            : await this.checkpoints.createFresh({
+                workspaceRoot,
+                analysisDir,
+                selectedAgentIds,
+                input: {
+                  threshold: parsed.threshold,
+                  variableOverrides: parsed.variableOverrides,
+                  model: parsed.model,
+                  analysisData: parsed.analysisData,
+                },
+              });
+          if (!prepared) {
+            return {
+              success: false,
+              error:
+                'No resumable generation run was found for this workspace.',
+            };
+          }
+          if (prepared.agentIds.length === 0) {
+            await this.completeWithoutWork(prepared, runtime.webviewManager);
+            return { success: true };
+          }
+
+          const requestedDir = analysisDir ?? prepared.location.analysisDir;
+          const trustedDir =
+            freshDir && (!requestedDir || requestedDir === freshDir)
+              ? freshDir
+              : null;
+          if (!trustedDir) {
+            this.logger.warn(
+              'RPC: wizard:submit-selection using workspace context',
+              {
+                analysisState: status.state,
+                analysisReason: status.reason,
+                analysisDirMatches: !requestedDir || requestedDir === freshDir,
+              },
+            );
+          }
+          const options = this.buildOptions(
+            workspaceRoot,
+            prepared,
+            runtime,
+            trustedDir,
+          );
+          if (this.runs.isActive) {
+            await this.checkpoints.finalize(prepared.location, 'failed');
+            return {
+              success: false,
+              error:
+                'Agent generation is already in progress. Please wait for it to complete or cancel it first.',
+            };
+          }
+          this.lastGenerationOptions = options;
+          this.lastCheckpoint = prepared.location;
+          this.logger.info('RPC: wizard:submit-selection started', {
+            runId: prepared.manifest.runId,
+            resume,
+            agents: prepared.agentIds,
+            carriedOver: prepared.carriedOver.length,
+            workspace: workspaceRoot,
+          });
+          void this.runs
+            .run({
+              orchestrator: runtime.orchestrator,
+              options,
+              progressCallback: this.createProgressBroadcaster(
+                runtime.webviewManager,
+              ),
+              broadcaster: runtime.webviewManager,
+              outputDirectory: prepared.manifest.outputDirectory,
+              carriedOver: prepared.carriedOver,
+              onSettled: (settled) =>
+                this.afterSettled(
+                  'wizard:submit-selection',
+                  prepared.location,
+                  workspaceRoot,
+                  settled,
+                ),
+            })
+            .catch(async (error: unknown) => {
+              try {
+                this.logger.error('RPC: wizard:submit-selection launch failed');
+                this.sentryService.captureException(
+                  error instanceof Error
+                    ? error
+                    : new Error('Generation run launch failed'),
+                  {
+                    errorSource:
+                      'WizardGenerationRpcHandlers.registerSubmitSelection',
+                  },
+                );
+              } finally {
+                await this.checkpoints.finalize(prepared.location, 'failed');
+              }
+            })
+            .catch(() => {
+              // degradation-audit: reported - the launch failure was already logged,
+              // captured and its checkpoint finalized; a secondary reporting failure
+              // must not become an unhandled rejection.
+            });
+          return { success: true };
+        } catch (error: unknown) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            'RPC: wizard:submit-selection unexpected error',
+            error instanceof Error ? error : new Error(errorMessage),
+          );
+          this.sentryService.captureException(
+            error instanceof Error ? error : new Error(errorMessage),
+            {
+              errorSource:
+                'WizardGenerationRpcHandlers.registerSubmitSelection',
+            },
+          );
+          return {
+            success: false,
+            error: `Agent generation failed: ${errorMessage}`,
+          };
+        }
+      } finally {
+        this.submitReserved = false;
       }
     });
   }
@@ -758,7 +801,7 @@ export class WizardGenerationRpcHandlers {
       WizardRetryItemResponse
     >('wizard:retry-item', async (params) => {
       const parsed = this.parse(WizardRetryItemParamsSchema, params);
-      if (this.runs.isActive) {
+      if (this.runs.isActive || this.submitReserved) {
         return {
           success: false,
           error:

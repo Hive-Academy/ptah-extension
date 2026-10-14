@@ -395,6 +395,7 @@ function createMockContainer(
 
 interface Harness {
   handlers: WizardGenerationRpcHandlers;
+  runs: GenerationRunSupervisor;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   pluginLoader: MockPluginLoader;
@@ -491,6 +492,7 @@ function makeHarness(
 
   return {
     handlers,
+    runs,
     logger,
     rpcHandler,
     pluginLoader,
@@ -875,6 +877,119 @@ describe('WizardGenerationRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('wizard:submit-selection — launch', () => {
+    it('reserves the submit slot while freshness is pending', async () => {
+      const h = makeHarness();
+      let releaseFreshness!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        releaseFreshness = resolve;
+      });
+      h.freshness.getStatus.mockImplementationOnce(async () => {
+        await pending;
+        return {
+          state: 'fresh',
+          reason: 'ok',
+          analysisDir: '.ptah/analysis/acme',
+          checkedAt: '2026-10-14T00:00:00.000Z',
+          analyzedAt: '2026-10-14T00:00:00.000Z',
+        };
+      });
+      h.handlers.register();
+
+      const first = call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+      const second = await call<{ success: boolean; error?: string }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+
+      expect(second.success).toBe(false);
+      expect(second.error).toMatch(/already in progress/i);
+      releaseFreshness();
+      expect((await first).success).toBe(true);
+      expect(h.storage.writeGenerationManifest).toHaveBeenCalledTimes(1);
+      expect(h.orchestrator.generateAgents).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the submit slot after a missing resume checkpoint', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const missing = await call<{ success: boolean; error?: string }>(
+        h,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+      const next = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+
+      expect(missing.success).toBe(false);
+      expect(missing.error).toMatch(/no resumable/i);
+      expect(next.success).toBe(true);
+    });
+
+    it('finalizes the checkpoint and reports a rejected launch', async () => {
+      const h = makeHarness();
+      jest
+        .spyOn(h.runs, 'run')
+        .mockRejectedValueOnce(new Error('launch failed'));
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+      await settle();
+
+      expect(result.success).toBe(true);
+      expect(manifestAt(h).lifecycle).toBe('failed');
+      expect(h.storage.updateGenerationManifest).toHaveBeenCalled();
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: wizard:submit-selection launch failed',
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        { errorSource: 'WizardGenerationRpcHandlers.registerSubmitSelection' },
+      );
+    });
+
+    it('refuses retry while a submit is preparing', async () => {
+      const h = makeHarness();
+      let releaseFreshness!: () => void;
+      h.freshness.getStatus.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseFreshness = () =>
+              resolve({
+                state: 'stale',
+                reason: 'missing',
+                analysisDir: null,
+                checkedAt: '2026-10-14T00:00:00.000Z',
+                analyzedAt: null,
+              });
+          }),
+      );
+      h.handlers.register();
+
+      const submit = call(h, 'wizard:submit-selection', BASE_SUBMIT_PARAMS);
+      const retry = await call<{ success: boolean; error?: string }>(
+        h,
+        'wizard:retry-item',
+        { itemId: 'agent-a' },
+      );
+      expect(retry.success).toBe(false);
+      expect(retry.error).toMatch(/already in progress/i);
+      releaseFreshness();
+      await submit;
+    });
+
     it('returns success immediately (fire-and-forget orchestration)', async () => {
       const h = makeHarness();
       h.handlers.register();
