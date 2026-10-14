@@ -521,6 +521,23 @@ export function renderTaskSpecAgentBlock(
     : renderSpecialistBlock();
 }
 
+/**
+ * The subagent handoff rule both audiences carry, word for word as in the
+ * `.claude/agents/*.md` "Task folder" line: Ptah's subagent budget monitor
+ * leaves a handoff record (and a stub in the task folder) for work a stopped
+ * subagent left unfinished, and the record's `status:` line is the one write
+ * an agent makes besides its deliverable.
+ */
+export const SUBAGENT_HANDOFF_RULE =
+  'Subagent handoffs: a Ptah line naming a `.ptah/subagent-handoffs/*.handoff.md` record, or a ' +
+  '`subagent-handoff-*.md` stub in your task folder (it names the record), marks work a stopped ' +
+  "subagent left unfinished. If the record's frontmatter has `status: pending` and it concerns your " +
+  'deliverable: read it, continue from it instead of redoing it, then set `status: consumed` (or ' +
+  '`status: dismissed` if you will not continue it, or its subagent is still running or finished ' +
+  'normally). A record marked as from another or an ended session: continue it only if that ' +
+  'session is not running. Never edit the stub; that status line is the one write allowed besides ' +
+  'your deliverable.';
+
 function recognisedDocList(): string {
   return `${DOC_FILES.filter((name) => !isLegacyDocFile(name))
     .map((name) => `\`${name}\``)
@@ -536,6 +553,7 @@ function renderSpecialistBlock(): string {
 - State is not yours: the carrier \`status:\` and task states in \`${BATCHES_FILE}\` belong to the team-leader alone
   (status also to the orchestrator and project-manager). Report what you finished, with evidence.
 - Write only the deliverable your output contract names. Read from a task folder: ${recognisedDocList()}.
+- ${SUBAGENT_HANDOFF_RULE}
 `;
 }
 
@@ -553,7 +571,9 @@ function renderCoordinatorBlock(): string {
 - To change status, \`Edit\` exactly the \`status:\` line (\`${statuses}\`). Never rewrite the carrier
   with \`Write\` — Ptah writes it too, and a stale whole-file write discards the other writer's change.
 - The team-leader alone sets task states in \`${BATCHES_FILE}\`. Specialists never edit
-  \`${CARRIER_FILE}\` or \`${BATCHES_FILE}\`; do not ask them to.
+  \`${CARRIER_FILE}\` or \`${BATCHES_FILE}\`; do not ask them to. They do set the \`status:\`
+  line of a subagent handoff record they continue (below).
+- ${SUBAGENT_HANDOFF_RULE}
 - \`description\` (and a \`title\` with a colon) MUST be a \`>-\` block scalar, or the carrier is
   unparseable and the task vanishes from the board.
 - Allocate an id: scan \`${SPEC_ROOT}\` on \`origin/main\` (\`git fetch\`, \`git ls-tree\`), every path

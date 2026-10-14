@@ -35,6 +35,7 @@ import {
   renderTaskMd,
   renderTaskSpecAgentBlock,
   roundJudgeFile,
+  SUBAGENT_HANDOFF_RULE,
   type TaskSpecAgentAudience,
 } from './task-spec.contract';
 import { TASK_STATUSES } from './task-spec.types';
@@ -507,6 +508,16 @@ describe('renderTaskSpecAgentBlock', () => {
   );
 
   it.each(AUDIENCES)(
+    'carries the subagent handoff rule word for word for %s',
+    (audience) => {
+      const block = renderTaskSpecAgentBlock(audience);
+      expect(block).toContain(`- ${SUBAGENT_HANDOFF_RULE}\n`);
+      expect(block).toContain('subagent-handoff');
+      expect(block).toContain('status: consumed');
+    },
+  );
+
+  it.each(AUDIENCES)(
     'leaves no unresolved template slot for %s',
     (audience) => {
       expect(renderTaskSpecAgentBlock(audience)).not.toContain('{{');
@@ -570,9 +581,10 @@ describe('renderTaskSpecAgentBlock', () => {
       );
     });
 
-    it('is materially smaller than the coordinator block', () => {
-      expect(block.length).toBeLessThan(
-        renderTaskSpecAgentBlock('coordinator').length * 0.6,
+    it('is materially smaller than the coordinator block, apart from the shared handoff rule', () => {
+      const own = (text: string) => text.replace(SUBAGENT_HANDOFF_RULE, '');
+      expect(own(block).length).toBeLessThan(
+        own(renderTaskSpecAgentBlock('coordinator')).length * 0.6,
       );
     });
   });

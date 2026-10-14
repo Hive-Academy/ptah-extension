@@ -3,7 +3,10 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
-import { UserPromptSubmitHookHandler } from './user-prompt-submit-hook-handler';
+import {
+  POINTER_TIMEOUT_MS,
+  UserPromptSubmitHookHandler,
+} from './user-prompt-submit-hook-handler';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -28,7 +31,20 @@ function getHookCallback(
     input: HookInput,
     toolUseId: string | undefined,
     options: { signal: AbortSignal },
-  ) => Promise<{ continue: true }>;
+  ) => Promise<Record<string, unknown>>;
+}
+
+const SIGNAL = { signal: new AbortController().signal };
+const POINTER = 'Ptah: subagent handoff records are pending.';
+
+function promptInput(extra: Record<string, unknown> = {}): HookInput {
+  return {
+    hook_event_name: 'UserPromptSubmit',
+    session_id: 'sdk-sess',
+    cwd: '/hook-cwd',
+    prompt: 'go on',
+    ...extra,
+  } as unknown as HookInput;
 }
 
 describe('UserPromptSubmitHookHandler', () => {
@@ -184,5 +200,100 @@ describe('UserPromptSubmitHookHandler', () => {
 
     expect(result).toEqual({ continue: true });
     expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  describe('pending-handoff pointer', () => {
+    function pointerHandler(
+      handoffPointer: jest.Mock,
+      registry = new UserPromptSubmitCallbackRegistry(makeLogger()),
+    ) {
+      const logger = makeLogger();
+      const handler = new UserPromptSubmitHookHandler(logger, registry, {
+        handoffPointer,
+      });
+      return { fn: getHookCallback(handler, 'closure-sess', '/ws'), logger };
+    }
+
+    it('adds the pointer as additionalContext on a main-thread prompt, even with no fan-out subscribers', async () => {
+      const handoffPointer = jest.fn().mockResolvedValue(POINTER);
+      const { fn } = pointerHandler(handoffPointer);
+
+      const result = await fn(promptInput(), undefined, SIGNAL);
+
+      expect(handoffPointer).toHaveBeenCalledWith('sdk-sess', '/hook-cwd');
+      expect(result).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: POINTER,
+        },
+      });
+    });
+
+    it('names nothing on a subagent prompt (agent_id set)', async () => {
+      const handoffPointer = jest.fn().mockResolvedValue(POINTER);
+      const { fn } = pointerHandler(handoffPointer);
+
+      const result = await fn(
+        promptInput({ agent_id: 'agent-7' }),
+        undefined,
+        SIGNAL,
+      );
+
+      expect(handoffPointer).not.toHaveBeenCalled();
+      expect(result).toEqual({ continue: true });
+    });
+
+    it('returns continue:true without context when nothing is pending', async () => {
+      const { fn } = pointerHandler(jest.fn().mockResolvedValue(undefined));
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+      });
+    });
+
+    it('a pointer that throws is swallowed with one warn', async () => {
+      const { fn, logger } = pointerHandler(
+        jest.fn().mockRejectedValue(new TypeError('boom')),
+      );
+
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[UserPromptSubmitHookHandler] Handoff pointer failed, skipping',
+        { errorType: 'TypeError', sessionId: 'sdk-sess' },
+      );
+    });
+
+    it('a pointer slower than the bound is dropped for this prompt', async () => {
+      jest.useFakeTimers();
+      try {
+        const { fn } = pointerHandler(
+          jest.fn(() => new Promise<string>(() => undefined)),
+        );
+        const pending = fn(promptInput(), undefined, SIGNAL);
+        await jest.advanceTimersByTimeAsync(POINTER_TIMEOUT_MS);
+        expect(await pending).toEqual({ continue: true });
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps the fan-out unchanged next to the pointer', async () => {
+      const registry = new UserPromptSubmitCallbackRegistry(makeLogger());
+      const captured: string[] = [];
+      registry.register((payload) => {
+        captured.push(payload.sessionId);
+      });
+      const { fn } = pointerHandler(
+        jest.fn().mockResolvedValue(POINTER),
+        registry,
+      );
+
+      await fn(promptInput(), undefined, SIGNAL);
+
+      expect(captured).toEqual(['sdk-sess']);
+    });
   });
 });

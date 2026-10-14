@@ -9,8 +9,15 @@ import type {
 } from '../types/sdk-types/claude-sdk.types';
 import { isUserPromptSubmitHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
-import { resolveHookSessionId } from './hook-session-resolver';
+import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
+import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+
+/**
+ * Upper bound for the pending-handoff pointer of one prompt. It backs the
+ * index's own 600 ms budget, so a stalled filesystem never holds the prompt.
+ */
+export const POINTER_TIMEOUT_MS = 1_000;
 
 @injectable()
 export class UserPromptSubmitHookHandler {
@@ -18,6 +25,15 @@ export class UserPromptSubmitHookHandler {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY)
     private readonly callbackRegistry: UserPromptSubmitCallbackRegistry,
+    /**
+     * Names pending subagent handoff records on main-thread prompts. Absent
+     * in callers that construct the handler without one: no pointer.
+     */
+    @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { isOptional: true })
+    private readonly subagentBudgetMonitor?: Pick<
+      SubagentBudgetMonitor,
+      'handoffPointer'
+    >,
   ) {}
 
   createHooks(
@@ -33,45 +49,100 @@ export class UserPromptSubmitHookHandler {
               _toolUseId: string | undefined,
               _options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
-              try {
-                if (!isUserPromptSubmitHook(input)) {
-                  return { continue: true };
-                }
-                if (this.callbackRegistry.size === 0) {
-                  return { continue: true };
-                }
-                const resolvedSessionId = resolveHookSessionId(
-                  input.session_id,
-                  sessionId,
-                );
-                if (!resolvedSessionId) {
-                  this.logger.warn(
-                    '[UserPromptSubmitHookHandler] UserPromptSubmit missing sessionId, skipping fan-out',
-                    { promptLength: input.prompt?.length ?? 0 },
-                  );
-                  return { continue: true };
-                }
-                this.callbackRegistry.notifyAll({
-                  prompt: input.prompt,
-                  sessionId: resolvedSessionId,
-                  workspaceRoot: cwd,
-                  timestamp: Date.now(),
-                });
-              } catch (error: unknown) {
-                this.logger.warn(
-                  '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
-                  {
-                    error:
-                      error instanceof Error ? error.message : String(error),
-                    sessionId,
-                  },
-                );
+              if (!isUserPromptSubmitHook(input)) {
+                return { continue: true };
               }
-              return { continue: true };
+              const resolvedSessionId = resolveHookSessionId(
+                input.session_id,
+                sessionId,
+              );
+              this.fanOut(input.prompt, resolvedSessionId, cwd, sessionId);
+              // Main thread only: a subagent's own prompt carries `agent_id`.
+              if (input.agent_id || !resolvedSessionId) {
+                return { continue: true };
+              }
+              const additionalContext = await this.pointer(
+                resolvedSessionId,
+                resolveHookCwd(input.cwd, cwd) ?? undefined,
+              );
+              return additionalContext
+                ? {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: 'UserPromptSubmit',
+                      additionalContext,
+                    },
+                  }
+                : { continue: true };
             },
           ],
         },
       ],
     };
+  }
+
+  /** Notify the registered prompt callbacks; never throws. */
+  private fanOut(
+    prompt: string,
+    resolvedSessionId: string | null,
+    cwd: string,
+    closureSessionId: string | undefined,
+  ): void {
+    try {
+      if (this.callbackRegistry.size === 0) {
+        return;
+      }
+      if (!resolvedSessionId) {
+        this.logger.warn(
+          '[UserPromptSubmitHookHandler] UserPromptSubmit missing sessionId, skipping fan-out',
+          { promptLength: prompt?.length ?? 0 },
+        );
+        return;
+      }
+      this.callbackRegistry.notifyAll({
+        prompt,
+        sessionId: resolvedSessionId,
+        workspaceRoot: cwd,
+        timestamp: Date.now(),
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
+        {
+          error: error instanceof Error ? error.message : String(error),
+          sessionId: closureSessionId,
+        },
+      );
+    }
+  }
+
+  /** The pending-handoff pointer, within {@link POINTER_TIMEOUT_MS}; never rejects. */
+  private async pointer(
+    sessionId: string,
+    hookCwd: string | undefined,
+  ): Promise<string | undefined> {
+    if (!this.subagentBudgetMonitor) {
+      return undefined;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.subagentBudgetMonitor.handoffPointer(sessionId, hookCwd),
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), POINTER_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[UserPromptSubmitHookHandler] Handoff pointer failed, skipping',
+        {
+          errorType: error instanceof Error ? error.name : typeof error,
+          sessionId,
+        },
+      );
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

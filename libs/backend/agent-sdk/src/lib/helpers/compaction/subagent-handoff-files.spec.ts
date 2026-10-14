@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   HANDOFF_FILES_TIMEOUT_MS,
+  withinHandoffTimeout,
   SubagentHandoffFiles,
   prepareHandoffFiles,
 } from './subagent-handoff-files';
@@ -168,5 +169,43 @@ describe('prepareHandoffFiles', () => {
     await expect(prepareHandoffFiles(files, paths, 'p')).resolves.toMatchObject(
       { unavailable: true },
     );
+  });
+});
+
+describe('withinHandoffTimeout', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('resolves the value of an operation that settles in time and clears its timer', async () => {
+    const onLate = jest.fn();
+    await expect(
+      withinHandoffTimeout(Promise.resolve(7), onLate),
+    ).resolves.toEqual({ value: 7 });
+    expect(jest.getTimerCount()).toBe(0);
+    expect(onLate).not.toHaveBeenCalled();
+  });
+
+  it('times out at the bound; a late value goes to onLate', async () => {
+    let finish: (value: string) => void = () => undefined;
+    const onLate = jest.fn();
+    const result = withinHandoffTimeout(
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+      onLate,
+    );
+    await jest.advanceTimersByTimeAsync(HANDOFF_FILES_TIMEOUT_MS);
+    await expect(result).resolves.toBeUndefined();
+
+    finish('late');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(onLate).toHaveBeenCalledWith('late');
+  });
+
+  it('a rejected operation resolves undefined, never a rejection', async () => {
+    await expect(
+      withinHandoffTimeout(Promise.reject(new Error('io'))),
+    ).resolves.toBeUndefined();
+    expect(jest.getTimerCount()).toBe(0);
   });
 });

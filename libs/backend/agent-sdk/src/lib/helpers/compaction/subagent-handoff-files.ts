@@ -19,7 +19,9 @@
  * At a stop, {@link prepareHandoffFiles} waits at most
  * {@link HANDOFF_FILES_TIMEOUT_MS} for the file operations (a stalled or
  * network workspace must not hold the handoff back); past that the handoff
- * reports the files as unavailable, and a late result is ignored.
+ * reports the files as unavailable, and a late result is ignored. The
+ * handoff record (`subagent-handoff-record.ts`) uses the same bound through
+ * {@link withinHandoffTimeout}.
  */
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -36,7 +38,7 @@ export interface SubagentHandoffPaths {
   readonly task: string;
 }
 
-/** Time a stop waits for its handoff file operations before handing off without them. */
+/** Time a stop waits for one group of handoff file operations. */
 export const HANDOFF_FILES_TIMEOUT_MS = 5_000;
 
 /** Where the handoff files of a stopped subagent stand. */
@@ -107,6 +109,40 @@ export class SubagentHandoffFiles {
 }
 
 /**
+ * Wait at most {@link HANDOFF_FILES_TIMEOUT_MS} for `op`. Resolves `{ value }`
+ * when it settles in time, `undefined` when it rejects or the time runs out;
+ * never rejects. A value that arrives after the timeout goes to `onLate`, so
+ * the caller can undo a write nobody waited for. The timer is cleared.
+ */
+export async function withinHandoffTimeout<T>(
+  op: Promise<T>,
+  onLate?: (value: T) => void,
+): Promise<{ readonly value: T } | undefined> {
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => {
+      expired = true;
+      resolve(undefined);
+    }, HANDOFF_FILES_TIMEOUT_MS);
+  });
+  const done = op.then(
+    (value) => {
+      if (expired) {
+        onLate?.(value);
+      }
+      return { value };
+    },
+    () => undefined,
+  );
+  try {
+    return await Promise.race([done, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Save the full task `prompt` and check for the subagent's progress notes at
  * `paths`, waiting at most {@link HANDOFF_FILES_TIMEOUT_MS}. Never rejects.
  */
@@ -118,20 +154,13 @@ export async function prepareHandoffFiles(
   if (!paths) {
     return { taskSaved: false, notesWritten: false };
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), HANDOFF_FILES_TIMEOUT_MS);
-  });
-  const done = Promise.all([
-    prompt ? files.saveTask(paths, prompt) : Promise.resolve(false),
-    files.notesExist(paths),
-  ]).catch(() => undefined);
-  try {
-    const result = await Promise.race([done, expired]);
-    return result
-      ? { paths, taskSaved: result[0], notesWritten: result[1] }
-      : { paths, taskSaved: false, notesWritten: false, unavailable: true };
-  } finally {
-    clearTimeout(timer);
-  }
+  const result = await withinHandoffTimeout(
+    Promise.all([
+      prompt ? files.saveTask(paths, prompt) : Promise.resolve(false),
+      files.notesExist(paths),
+    ]),
+  );
+  return result
+    ? { paths, taskSaved: result.value[0], notesWritten: result.value[1] }
+    : { paths, taskSaved: false, notesWritten: false, unavailable: true };
 }

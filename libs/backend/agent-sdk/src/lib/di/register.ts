@@ -114,6 +114,8 @@ import { CompactionCoordinator } from '../helpers/compaction/compaction-coordina
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
 import { SubagentHandoffFiles } from '../helpers/compaction/subagent-handoff-files';
+import { SubagentHandoffRecords } from '../helpers/compaction/subagent-handoff-record';
+import { SubagentHandoffIndex } from '../helpers/compaction/subagent-handoff-index';
 import {
   MODEL_DISPATCH_PROVENANCE_TAP,
   type ModelDispatchProvenanceTap,
@@ -503,13 +505,13 @@ export function registerSdkServices(
       const logger = c.resolve<Logger>(TOKENS.LOGGER);
       // Resolved on first use, like the dispatcher: the lifecycle manager
       // injects this monitor.
-      const handoffFiles = new SubagentHandoffFiles(logger, (sessionId) =>
+      const workspaceOf = (sessionId: string) =>
         c
           .resolve<SessionLifecycleManager>(
             SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
           )
-          .getSessionWorkspace(sessionId),
-      );
+          .getSessionWorkspace(sessionId);
+      const handoffFiles = new SubagentHandoffFiles(logger, workspaceOf);
       return new SubagentBudgetMonitor(
         logger,
         c.resolve<CompactionConfigProvider>(
@@ -531,6 +533,10 @@ export function registerSdkServices(
         },
         c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
         handoffFiles,
+        // The durable handoff records and the index that names pending ones
+        // on main-thread prompts (UserPromptSubmit hook).
+        new SubagentHandoffRecords(logger, workspaceOf),
+        new SubagentHandoffIndex(logger),
       );
     }),
   });

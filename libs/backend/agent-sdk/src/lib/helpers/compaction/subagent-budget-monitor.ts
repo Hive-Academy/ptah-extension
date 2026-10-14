@@ -24,9 +24,24 @@
  * - Handoff: `contextTokens` at or above `compaction.subagentHandoffTokens`.
  * - Safety: `weightedUsed` at or above `compaction.subagentStopWeightedTokens`.
  *
- * Either one stops the subagent through `SubagentMessageDispatcher.stopSubagent`,
- * marks it not resumable in the registry when it has a record there, and
- * hands the parent one message with a ready handoff, exactly once:
+ * Before the stop, the handoff text is built and written once to a handoff
+ * record ({@link SubagentHandoffRecords}): `.ptah/subagent-handoffs/` in the
+ * session workspace, `status: pending` until the parent resolves it. A
+ * handoff stop runs only after its record is on disk; a failed write leaves
+ * the subagent running and is retried on its next request, at most
+ * {@link MAX_RECORD_ATTEMPTS} writes, after which only the safety stop
+ * applies. A safety stop does not wait for its record (see the class
+ * comment).
+ *
+ * Then the subagent is stopped through `SubagentMessageDispatcher.stopSubagent`.
+ * Once that call was made with a record, the record is never deleted (a
+ * rejected stop may still have ended the subagent) and the record index
+ * ({@link SubagentHandoffIndex}) names it on every main-thread prompt until
+ * it is resolved ({@link SubagentBudgetMonitor.handoffPointer}). A stop that
+ * will not run (the session was released, or another stop of the subagent
+ * finished first) withdraws its record. After a successful stop the subagent
+ * is marked not resumable in the registry when it has a record there, and the
+ * parent gets the handoff message once, best effort:
  *
  * - Foreground subagent (its spawning `Agent`/`Task` tool result has not come
  *   back): the handoff is posted to the main-thread notice queue and rides on
@@ -40,9 +55,9 @@
  *   the parent as a host-authored user turn (`pushParentMessage`).
  *
  * Both routes go through {@link SubagentHandoffDelivery}: a failed user turn
- * is retried, then kept pending in the notice queue, then in a session-owned
- * record retried on the session's later main-thread messages, then replaced
- * by a short undelivered notice in the notice queue.
+ * is retried, then posted once to the notice queue. The durable copy is the
+ * record; a best-effort stub in the task folder the spawning prompt names
+ * points to it.
  *
  * The handoff names Ptah's subagent budget monitor as the one that stopped
  * the subagent: the SDK's own task notification calls it "stopped by user".
@@ -65,12 +80,13 @@
  * snapshot and the resume advice still work) but never stops a subagent.
  *
  * Failure: a subagent message without usage leaves the monitor observe-only
- * for it (one log line per session). A stop that fails is retried on the next
- * subagent request (a new API message id; the content-block messages of the
- * request that failed do not retry), at most {@link MAX_STOP_ATTEMPTS}
- * attempts in all, then given up with one log line; no handoff message is
- * sent for it. A stop still in flight when the session is released is neither
- * retried nor handed off.
+ * for it (one log line per session). A failed record write (handoff stop) or
+ * a rejected stop is retried on the next subagent request (a new API message
+ * id; the content-block messages of the request that failed do not retry).
+ * Stops are given up after {@link MAX_STOP_ATTEMPTS} attempts with one log
+ * line; the record is kept and no handoff message is sent. A stop retry
+ * reuses the prepared handoff and its record. A stop still in flight when the
+ * session is released is neither retried nor handed off.
  *
  * Rekey: after a PostCompact rekey the old id stays an alias of the new one
  * until either is released, so subagent messages still queued under the old
@@ -91,6 +107,8 @@ import {
 import {
   handoffMessage,
   nearBudgetWarning,
+  type HandoffSubject,
+  type HandoffUsage,
   type StopReason,
 } from './subagent-handoff-message';
 import {
@@ -98,11 +116,33 @@ import {
   type Handoff,
   type HandoffDeliveryPort,
 } from './subagent-handoff-delivery';
+import {
+  ownerHash,
+  type SubagentHandoffRecords,
+} from './subagent-handoff-record';
+import type { SubagentHandoffIndex } from './subagent-handoff-index';
 
 /** The handoff file operations the monitor uses. */
 export type SubagentHandoffFilesPort = Pick<
   SubagentHandoffFiles,
   'paths' | 'saveTask' | 'notesExist'
+>;
+
+/** The handoff record operations the monitor uses. */
+export type SubagentHandoffRecordsPort = Pick<
+  SubagentHandoffRecords,
+  | 'workspaceOf'
+  | 'writeOnce'
+  | 'markInvoked'
+  | 'withdraw'
+  | 'forget'
+  | 'writeStub'
+>;
+
+/** The handoff record index operations the monitor uses. */
+export type SubagentHandoffIndexPort = Pick<
+  SubagentHandoffIndex,
+  'publish' | 'forgetCursor' | 'pointerFor'
 >;
 
 /** Token usage of one model request, as the subagent message reports it. */
@@ -136,6 +176,8 @@ const CACHE_WRITE_WEIGHT: Readonly<Record<SubagentPromptCacheTtl, number>> = {
 const SDK_DEFAULT_TTL: SubagentPromptCacheTtl = '5m';
 /** `stopSubagent` calls per subagent: the first one and two retries. */
 export const MAX_STOP_ATTEMPTS = 3;
+/** Handoff record writes per subagent before the handoff stop is given up. */
+export const MAX_RECORD_ATTEMPTS = 3;
 /** Share of `compaction.subagentHandoffTokens` at which a subagent is asked to write its notes. */
 export const NEAR_BUDGET_RATIO = 0.85;
 /** Tools that spawn a subagent (`Task` is the SDK's earlier name for `Agent`). */
@@ -247,8 +289,14 @@ interface SubagentState {
   stopInFlight: boolean;
   /** `stopSubagent` calls that rejected. */
   stopFailures: number;
-  /** API message id of the request whose stop attempt last rejected; its other blocks do not retry. */
-  failedStopMessageId?: string;
+  /** API message id of the request whose stop or record write last failed; its other blocks do not retry. */
+  failedAttemptMessageId?: string;
+  /** Handoff records that could not be saved for a handoff stop. */
+  recordFailures: number;
+  /** {@link MAX_RECORD_ATTEMPTS} record writes failed: no handoff stop, only the safety stop. */
+  recordGaveUp: boolean;
+  /** The handoff built for a stop that was invoked; a stop retry reuses it (no second write). */
+  prepared?: PreparedHandoff;
   stopped: boolean;
   /** A stop could not start (no task id from `task_started` or the registry yet); logged once. */
   stopDeferredLogged: boolean;
@@ -258,6 +306,19 @@ interface SubagentState {
   warnedAgentId?: string;
   /** Handoff paths the warning named; the stop names the same ones. */
   handoffPaths?: SubagentHandoffPaths;
+}
+
+/** A handoff record on disk. */
+interface SavedRecord {
+  readonly path: string;
+  readonly workspace: string;
+  readonly name: string;
+}
+
+/** The handoff of a stop and its record (absent: a safety stop whose write failed). */
+interface PreparedHandoff {
+  readonly record?: SavedRecord;
+  readonly handoff: Handoff;
 }
 
 /** What the SDK's `task_started` message reported for one spawning tool_use. */
@@ -317,6 +378,11 @@ export interface SubagentBudgetDispatcherPort
  * `SessionLifecycleManager` injects this monitor, and the dispatcher depends
  * back on `SessionLifecycleManager`. The factory hands in a narrow dispatcher
  * port resolved on first use, which breaks that construction cycle.
+ *
+ * Safety-stop limit (user decision B2): A safety (cost) stop does not wait
+ * for a durable record: when its record write fails, the handoff travels only
+ * through the in-memory send, so it is lost only if both the disk write and
+ * that send fail.
  */
 export class SubagentBudgetMonitor {
   private readonly sessions = new Map<string, SessionState>();
@@ -330,6 +396,8 @@ export class SubagentBudgetMonitor {
     private readonly dispatcher: SubagentBudgetDispatcherPort,
     private readonly registry: SubagentRegistryService,
     private readonly handoffFiles: SubagentHandoffFilesPort,
+    private readonly records: SubagentHandoffRecordsPort,
+    private readonly index: SubagentHandoffIndexPort,
   ) {
     this.delivery = new SubagentHandoffDelivery(logger, dispatcher, (id) => {
       const current = this.currentSessionId(id);
@@ -342,8 +410,7 @@ export class SubagentBudgetMonitor {
    * that spawns a subagent (an `Agent`/`Task` `tool_use`) records the task
    * text for the handoff. A main-thread user message with `tool_result`
    * blocks marks the spawning calls it answers as returned, and delivers a
-   * handoff still waiting in the notice queue for such a result. Any
-   * main-thread message retries a handoff whose deliveries all failed. Only
+   * handoff still waiting in the notice queue for such a result. Only
    * subagent assistant messages (a string `parent_tool_use_id`) are counted.
    * Resolves once any stop or delivery it triggered has finished; never
    * rejects.
@@ -362,7 +429,6 @@ export class SubagentBudgetMonitor {
       typeof msg['parent_tool_use_id'] !== 'string'
     ) {
       await this.recordToolResults(sessionId, msg);
-      await this.delivery.retryPending(sessionId);
       return;
     }
     if (msg?.['type'] !== 'assistant') {
@@ -371,7 +437,6 @@ export class SubagentBudgetMonitor {
     this.recordTaskTexts(sessionId, msg);
     const toolCallId = msg['parent_tool_use_id'];
     if (typeof toolCallId !== 'string') {
-      await this.delivery.retryPending(sessionId);
       return;
     }
     const session = this.sessionState(sessionId);
@@ -393,17 +458,18 @@ export class SubagentBudgetMonitor {
       return;
     }
     if (
-      state.failedStopMessageId !== undefined &&
-      state.failedStopMessageId === state.lastMessageId
+      state.failedAttemptMessageId !== undefined &&
+      state.failedAttemptMessageId === state.lastMessageId
     ) {
-      // Another content block of the request whose stop rejected: retry on the next request.
+      // Another content block of the request whose stop or record write
+      // failed: retry on the next request.
       return;
     }
 
     const { enabled, subagentHandoffTokens, subagentStopWeightedTokens } =
       this.config.getConfig();
     const reason: StopReason | undefined =
-      state.contextTokens >= subagentHandoffTokens
+      state.contextTokens >= subagentHandoffTokens && !state.recordGaveUp
         ? 'handoff'
         : state.weightedUsed >= subagentStopWeightedTokens
           ? 'safety'
@@ -588,7 +654,50 @@ export class SubagentBudgetMonitor {
       }
     }
     this.sessions.delete(sessionId);
-    this.delivery.release();
+    this.records.forget(new Set([...stale, sessionId]));
+    this.index.forgetCursor(ownerHash(sessionId));
+  }
+
+  /**
+   * The pending-handoff pointer for a main-thread prompt of `sessionId`, or
+   * `undefined` when none is pending. Records owned by the session (its id
+   * or an alias that resolves to it) are listed plainly; records of another
+   * live session of this process are hidden; any other owner's records (an
+   * ended session, or another process) carry takeover text. The workspace is
+   * the session's, else `hookCwd`. Never rejects.
+   */
+  async handoffPointer(
+    sessionId: string,
+    hookCwd: string | undefined,
+  ): Promise<string | undefined> {
+    const current = this.currentSessionId(sessionId);
+    const workspace = this.records.workspaceOf(current) ?? hookCwd;
+    if (!workspace) {
+      return undefined;
+    }
+    const hidden = new Set<string>();
+    for (const id of this.sessions.keys()) {
+      if (id !== current) {
+        for (const alias of this.idsOf(id)) {
+          hidden.add(ownerHash(alias));
+        }
+      }
+    }
+    return this.index.pointerFor(workspace, {
+      own: new Set(this.idsOf(current).map(ownerHash)),
+      hidden,
+      cursorKey: ownerHash(current),
+    });
+  }
+
+  /** `sessionId` and every old id that resolves to it. */
+  private idsOf(sessionId: string): string[] {
+    return [
+      sessionId,
+      ...[...this.aliases.keys()].filter(
+        (from) => this.currentSessionId(from) === sessionId,
+      ),
+    ];
   }
 
   /** `sessionId` followed by each id a rekey moved it to, in order. */
@@ -648,6 +757,8 @@ export class SubagentBudgetMonitor {
         stopFired: false,
         stopInFlight: false,
         stopFailures: 0,
+        recordFailures: 0,
+        recordGaveUp: false,
         stopped: false,
         stopDeferredLogged: false,
       };
@@ -762,6 +873,14 @@ export class SubagentBudgetMonitor {
     state.contextTokens = requestContextTokens(usage);
   }
 
+  /**
+   * Stop one subagent: prepare its handoff and record, stop it, then hand
+   * the parent the handoff. Steps, in order: progress files and the full
+   * prompt ({@link prepareHandoffFiles}), the handoff text, the record write
+   * (a handoff stop without a record stops nothing and waits for the next
+   * request), `stopSubagent`, publishing the record to the index, delivery,
+   * and the task-folder stub. A stop retry reuses the prepared handoff.
+   */
   private async stop(
     session: SessionState,
     toolCallId: string,
@@ -772,9 +891,9 @@ export class SubagentBudgetMonitor {
       readonly stopWeightedTokens: number;
     },
   ): Promise<void> {
-    const record = this.registry.get(toolCallId);
+    const registryRecord = this.registry.get(toolCallId);
     const started = session.startedTasks.get(toolCallId);
-    const taskId = started?.taskId ?? record?.taskId;
+    const taskId = started?.taskId ?? registryRecord?.taskId;
     if (!taskId) {
       // Neither task_started nor the registry has the task id yet; the next
       // subagent message retries.
@@ -788,11 +907,55 @@ export class SubagentBudgetMonitor {
       return;
     }
 
+    // Set over the preparation too: an overlapping message starts no other stop.
     state.stopInFlight = true;
     const attemptMessageId = state.lastMessageId;
+    let prepared: PreparedHandoff | undefined;
+    try {
+      prepared =
+        state.prepared ??
+        (await this.prepareHandoff(
+          session,
+          toolCallId,
+          state,
+          reason,
+          limits,
+          {
+            agentType:
+              registryRecord?.agentType ?? started?.subagentType ?? 'subagent',
+            teammateName: registryRecord?.teammateName,
+            taskId,
+          },
+          attemptMessageId,
+        ));
+    } finally {
+      if (!prepared) {
+        state.stopInFlight = false;
+      }
+    }
+    if (!prepared) {
+      return;
+    }
+
+    // Released while the handoff was prepared, or another stop of this
+    // subagent finished first: this stop does not run.
+    const live = this.liveSession(session);
+    const preparedState = live?.subagents.get(toolCallId) ?? state;
+    if (!live || preparedState.stopFired) {
+      state.stopInFlight = false;
+      if (prepared.record) {
+        await this.records.withdraw(toolCallId, prepared.record.path);
+      }
+      return;
+    }
+    preparedState.prepared = prepared;
+    if (prepared.record) {
+      this.records.markInvoked(toolCallId);
+    }
+
     let stopFailure: { readonly errorType: string } | undefined;
     try {
-      await this.dispatcher.stopSubagent(session.sessionId, taskId);
+      await this.dispatcher.stopSubagent(live.sessionId, taskId);
     } catch (error: unknown) {
       stopFailure = {
         errorType: error instanceof Error ? error.name : typeof error,
@@ -800,18 +963,24 @@ export class SubagentBudgetMonitor {
     } finally {
       state.stopInFlight = false;
     }
+    // The stop may have ended the subagent even when it rejected: from here
+    // on the record is kept and named on main-thread prompts.
+    if (prepared.record) {
+      this.index.publish(prepared.record.workspace, prepared.record.name);
+    }
+
     // Released while the stop ran: the session is over, so no retry and no handoff.
-    const live = this.liveSession(session);
-    if (!live) {
+    const current = this.liveSession(session);
+    if (!current) {
       return;
     }
     // A rekey merge may have replaced this subagent's state; finish on the kept one.
-    const liveState = live.subagents.get(toolCallId) ?? state;
+    const liveState = current.subagents.get(toolCallId) ?? state;
     if (liveState.stopFired) {
       // Another stop of this subagent already finished its bookkeeping.
       return;
     }
-    const sessionId = live.sessionId;
+    const sessionId = current.sessionId;
     if (stopFailure) {
       this.onStopFailed(
         sessionId,
@@ -820,13 +989,14 @@ export class SubagentBudgetMonitor {
         reason,
         stopFailure,
         attemptMessageId,
+        prepared.record !== undefined,
       );
       return;
     }
     liveState.stopFired = true;
     liveState.stopped = true;
     // A completed record is dropped from the registry, so it is never offered for resume.
-    if (record) {
+    if (registryRecord) {
       this.registry.update(toolCallId, {
         status: 'completed',
         completedAt: Date.now(),
@@ -844,44 +1014,143 @@ export class SubagentBudgetMonitor {
       // A warning the stopped subagent never received is moot now.
       this.dispatcher.withdrawSubagentNotice(liveState.warnedAgentId);
     }
+    await this.deliverHandoff(current, toolCallId, liveState, prepared.handoff);
+    const prompt = current.tasks.get(toolCallId)?.prompt;
+    if (prepared.record && prompt) {
+      await this.records.writeStub(
+        prompt,
+        prepared.handoff.subject.agentType,
+        prepared.record.path,
+      );
+    }
+  }
+
+  /**
+   * Build the handoff of a stop and write its record. `undefined` when the
+   * stop does not run now: the session was released, or a handoff stop's
+   * record was not saved (counted; the next request retries). A safety stop
+   * whose record was not saved goes on without one.
+   */
+  private async prepareHandoff(
+    session: SessionState,
+    toolCallId: string,
+    state: SubagentState,
+    reason: StopReason,
+    limits: {
+      readonly handoffTokens: number;
+      readonly stopWeightedTokens: number;
+    },
+    who: Omit<HandoffSubject, 'outputFile'>,
+    attemptMessageId: string | undefined,
+  ): Promise<PreparedHandoff | undefined> {
     const files = await prepareHandoffFiles(
       this.handoffFiles,
-      liveState.handoffPaths ?? this.handoffFiles.paths(sessionId, toolCallId),
-      live.tasks.get(toolCallId)?.prompt,
+      state.handoffPaths ??
+        this.handoffFiles.paths(session.sessionId, toolCallId),
+      session.tasks.get(toolCallId)?.prompt,
     );
     if (files.unavailable) {
       this.logger.warn(
         '[SubagentBudgetMonitor] Handoff files not ready in time; handing off without them',
-        { sessionId, toolCallId },
+        { sessionId: session.sessionId, toolCallId },
       );
     }
     // Released while the files were written: the session is over.
-    const current = this.liveSession(live);
-    if (!current) {
-      return;
+    const live = this.liveSession(session);
+    if (!live) {
+      return undefined;
     }
     // Read after the wait: a background tool result may have named the output file.
-    const task = current.tasks.get(toolCallId);
-    const subject = {
-      agentType: record?.agentType ?? started?.subagentType ?? 'subagent',
-      teammateName: record?.teammateName ?? task?.name,
-      taskId,
+    const task = live.tasks.get(toolCallId);
+    const subject: HandoffSubject = {
+      ...who,
+      teammateName: who.teammateName ?? task?.name,
       outputFile: task?.outputFile,
     };
-    const text = handoffMessage(
-      subject,
-      {
-        reason,
-        contextTokens: state.contextTokens,
-        weightedUsed: state.weightedUsed,
-        handoffTokens: limits.handoffTokens,
-        stopWeightedTokens: limits.stopWeightedTokens,
-      },
-      task?.text,
-      files,
+    const usage: HandoffUsage = {
+      reason,
+      contextTokens: state.contextTokens,
+      weightedUsed: state.weightedUsed,
+      handoffTokens: limits.handoffTokens,
+      stopWeightedTokens: limits.stopWeightedTokens,
+    };
+    const recordText = handoffMessage(subject, usage, task?.text, files);
+    const write = await this.records.writeOnce(
+      live.sessionId,
+      toolCallId,
+      recordText,
     );
-    const handoff = { text, subject, notesPath: files.paths?.notes };
-    await this.deliverHandoff(current, toolCallId, liveState, handoff);
+    if (write.ok) {
+      return {
+        record: {
+          path: write.path,
+          workspace: write.workspace,
+          name: write.name,
+        },
+        handoff: {
+          text: handoffMessage(subject, usage, task?.text, files, write.path),
+          subject,
+          recordPath: write.path,
+        },
+      };
+    }
+    const current = this.liveSession(live);
+    if (reason === 'handoff') {
+      if (current) {
+        this.onRecordFailed(
+          current.sessionId,
+          toolCallId,
+          current.subagents.get(toolCallId) ?? state,
+          write,
+          attemptMessageId,
+        );
+      }
+      return undefined;
+    }
+    this.logger.warn(
+      '[SubagentBudgetMonitor] Safety stop without a durable record',
+      {
+        sessionId: current?.sessionId ?? live.sessionId,
+        toolCallId,
+        errorType: write.errorType,
+        errorCode: write.errorCode,
+      },
+    );
+    return { handoff: { text: recordText, subject } };
+  }
+
+  /**
+   * A handoff stop's record was not saved: the subagent keeps running and
+   * the next request retries, until {@link MAX_RECORD_ATTEMPTS} writes failed;
+   * then only the safety stop applies.
+   */
+  private onRecordFailed(
+    sessionId: string,
+    toolCallId: string,
+    state: SubagentState,
+    failure: { readonly errorType: string; readonly errorCode?: string },
+    attemptMessageId: string | undefined,
+  ): void {
+    state.recordFailures += 1;
+    state.failedAttemptMessageId = attemptMessageId;
+    if (state.recordFailures < MAX_RECORD_ATTEMPTS) {
+      this.logger.debug(
+        '[SubagentBudgetMonitor] Handoff record not saved; the handoff stop waits for the next subagent request',
+        { sessionId, toolCallId, attempt: state.recordFailures },
+      );
+      return;
+    }
+    state.recordGaveUp = true;
+    this.logger.warn(
+      '[SubagentBudgetMonitor] Handoff record not saved after 3 attempts; subagent left running, no handoff',
+      {
+        sessionId,
+        toolCallId,
+        attempts: state.recordFailures,
+        errorType: failure.errorType,
+        errorCode: failure.errorCode,
+      },
+    );
   }
 
   /**
@@ -911,7 +1180,8 @@ export class SubagentBudgetMonitor {
    * Count a rejected stop; the next subagent request retries until the
    * attempts run out. Not counted while another stop of the same subagent is
    * in flight on `state` (two records merged by a rekey): that stop decides,
-   * so a failure here cannot give up on a stop that then succeeds.
+   * so a failure here cannot give up on a stop that then succeeds. A record
+   * the stop was invoked with is kept either way.
    */
   private onStopFailed(
     sessionId: string,
@@ -920,12 +1190,13 @@ export class SubagentBudgetMonitor {
     reason: StopReason,
     failure: { readonly errorType: string },
     attemptMessageId: string | undefined,
+    recordKept: boolean,
   ): void {
     if (state.stopInFlight) {
       return;
     }
     state.stopFailures += 1;
-    state.failedStopMessageId = attemptMessageId;
+    state.failedAttemptMessageId = attemptMessageId;
     if (state.stopFailures < MAX_STOP_ATTEMPTS) {
       this.logger.debug(
         '[SubagentBudgetMonitor] Stopping the subagent failed; retrying on its next message',
@@ -935,7 +1206,9 @@ export class SubagentBudgetMonitor {
     }
     state.stopFired = true;
     this.logger.warn(
-      '[SubagentBudgetMonitor] Stopping the subagent failed; giving up, no handoff sent',
+      recordKept
+        ? '[SubagentBudgetMonitor] Stopping the subagent failed; giving up, record kept'
+        : '[SubagentBudgetMonitor] Stopping the subagent failed; giving up, no handoff sent',
       {
         sessionId,
         toolCallId,

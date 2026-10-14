@@ -2,7 +2,9 @@
  * The texts of the subagent budget monitor: the near-budget warning a
  * subagent gets, and the parent message sent when it stops a subagent: who
  * stopped it (Ptah's monitor, not the user) and why, and everything a fresh
- * subagent of the same type and name needs to continue.
+ * subagent of the same type and name needs to continue. With a handoff
+ * record (`subagent-handoff-record.ts`) the second line names it, and the
+ * fresh subagent's instruction repeats that line.
  */
 import type { HandoffFileState } from './subagent-handoff-files';
 
@@ -51,11 +53,21 @@ export function nearBudgetWarning(
   );
 }
 
+/** The line that names a handoff record and how to resolve it. */
+function recordLine(recordPath: string): string {
+  return (
+    `This handoff is saved at \`${recordPath}\`. Read it, continue from it, ` +
+    `then set \`status: consumed\` in its frontmatter (or \`status: dismissed\` ` +
+    `if you will not continue it).`
+  );
+}
+
 export function handoffMessage(
   subject: HandoffSubject,
   usage: HandoffUsage,
   taskText: string | undefined,
   files: HandoffFileState,
+  recordPath?: string,
 ): string {
   const name = subject.teammateName
     ? `\`${subject.agentType}\` ('${subject.teammateName}')`
@@ -70,6 +82,9 @@ export function handoffMessage(
       `The user did not stop it; a task notification that reports it as ` +
       `stopped by the user refers to this automatic stop. It cannot be resumed.`,
   ];
+  if (recordPath) {
+    lines.push(recordLine(recordPath));
+  }
   if (taskText) {
     lines.push(`Its task was: ${taskText}`);
   }
@@ -94,12 +109,15 @@ export function handoffMessage(
   const fresh = subject.teammateName
     ? `a fresh \`${subject.agentType}\` subagent named '${subject.teammateName}'`
     : `a fresh \`${subject.agentType}\` subagent`;
-  const resume =
+  const resumeFiles =
     paths && unavailable
       ? `If ${paths.notes} exists, read it first and continue from it; otherwise check the files the stopped subagent changed. Do not redo finished work.`
       : paths && notesWritten
         ? `Read ${paths.notes} first and continue from it; do not redo finished work.`
         : 'Check the files the stopped subagent changed and continue from them; do not redo finished work.';
+  const resume = recordPath
+    ? `${resumeFiles} ${recordLine(recordPath)}`
+    : resumeFiles;
   lines.push(
     `If its task is not finished, spawn ${fresh} with ${taskSource}, ` +
       `plus this instruction: "${resume}"`,

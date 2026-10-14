@@ -47,6 +47,8 @@ import { CompactionCoordinator } from '../compaction/compaction-coordinator';
 import {
   SubagentBudgetMonitor,
   type SubagentHandoffFilesPort,
+  type SubagentHandoffIndexPort,
+  type SubagentHandoffRecordsPort,
 } from '../compaction/subagent-budget-monitor';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 
@@ -55,6 +57,26 @@ const noHandoffFiles: SubagentHandoffFilesPort = {
   paths: () => undefined,
   saveTask: async () => false,
   notesExist: async () => false,
+};
+/** A monitor's handoff records: every write succeeds, nothing touches disk. */
+const memoryHandoffRecords: SubagentHandoffRecordsPort = {
+  workspaceOf: () => undefined,
+  writeOnce: async () => ({
+    ok: true,
+    path: '/ws/.ptah/subagent-handoffs/record.handoff.md',
+    workspace: '/ws',
+    name: 'record.handoff.md',
+  }),
+  markInvoked: () => undefined,
+  withdraw: async () => undefined,
+  forget: () => undefined,
+  writeStub: async () => undefined,
+};
+/** A monitor's record index that never names a record. */
+const noHandoffIndex: SubagentHandoffIndexPort = {
+  publish: () => undefined,
+  forgetCursor: () => undefined,
+  pointerFor: async () => undefined,
 };
 import {
   COMPACTION_MAX_DWELL_MS,
@@ -1011,6 +1033,8 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
         },
         {} as SubagentRegistryService,
         noHandoffFiles,
+        memoryHandoffRecords,
+        noHandoffIndex,
       );
     }
 
@@ -1554,6 +1578,8 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
         port,
         registry as unknown as SubagentRegistryService,
         noHandoffFiles,
+        memoryHandoffRecords,
+        noHandoffIndex,
       );
       return { monitor, port, registry };
     }
@@ -1714,6 +1740,8 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
         },
         {} as SubagentRegistryService,
         noHandoffFiles,
+        memoryHandoffRecords,
+        noHandoffIndex,
       );
     }
     /** 1000 cache-write tokens and no `cache_creation` TTL split. */
