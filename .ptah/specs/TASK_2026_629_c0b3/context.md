@@ -182,3 +182,5 @@ serve or e2e targets unless the user asks.
 - W6 (02:33Z): R9t codex `2a663fe8` (carries R9k finding 6 + R9s reviewer note). Mode 2 W5b (R9s) team-leader-W5b running. R9f writer reported done (6/7/6/1; self-reported gaps: Rail fenced-display integration, steer/copy, reduced motion); reviewer reviewer-R9f.
 - R9f delivered (18m 20s, session `01a13830-d65c-71d3-9009-0c7e5f84350e`).
 - R9t delivered (6m 42s, session `01a13841-cb77-7b63-9128-b6fc8a5e159f`, 17/17, 37/37); reviewer reviewer-R9t.
+- R9t review APPROVE-WITH-FIXES 8/10: 2 Moderate (stale comments in canvas-layout-intent.ts: deleted lock; removed height clamp), 3 Minor. Zero callers of removed symbols; old v3 grid record loads as Rail. User asked to stop after this round (R9f/R9t reviews) and hand off (handoff-9.md).
+- R9f review REVISE 5/10 (S1-S5, M1-M6, m1-m3). Session 9 ended at the user's request after the R9f/R9t reviews; handoff-9.md written. R9f + R9t code left uncommitted in W (12 paths, handoff-9 §1).
