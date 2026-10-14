@@ -139,6 +139,7 @@ describe('budget tables', () => {
       'ptah_session_send',
       'ptah_session_status',
       'ptah_session_stop',
+      'ptah_session_handoff',
     ]) {
       expect(getToolResultBudget(name)).toEqual(DEFAULT);
     }
@@ -175,6 +176,7 @@ describe('budget tables', () => {
       ptah_session_status: 'preformatted',
       ptah_session_read: 'preformatted',
       ptah_session_stop: 'preformatted',
+      ptah_session_handoff: 'preformatted',
       ptah_task_list: 'preformatted',
     });
   });

@@ -15,6 +15,7 @@ import {
 import type { SessionNamespace } from '../namespace-builders/session-namespace.builder';
 import { MAX_AGENT_MESSAGE_LENGTH } from './tool-description.builder';
 import {
+  SessionHandoffArgsSchema,
   SessionReadArgsSchema,
   SessionSendArgsSchema,
   SessionStartArgsSchema,
@@ -23,6 +24,7 @@ import {
 } from './session-tool-args.schema';
 import {
   SESSION_TOOL_NAMES,
+  buildSessionHandoffTool,
   buildSessionReadTool,
   buildSessionSendTool,
   buildSessionStartTool,
@@ -46,6 +48,11 @@ const PARITY = [
   [buildSessionStatusTool, SessionStatusArgsSchema, []],
   [buildSessionReadTool, SessionReadArgsSchema, ['sessionId']],
   [buildSessionStopTool, SessionStopArgsSchema, ['sessionId']],
+  [
+    buildSessionHandoffTool,
+    SessionHandoffArgsSchema,
+    ['handoffPath', 'prompt'],
+  ],
 ] as const;
 
 describe('session tool definitions', () => {
@@ -67,7 +74,7 @@ describe('session tool definitions', () => {
     },
   );
 
-  it('lists the five names in order', () => {
+  it('lists the six names in order', () => {
     expect(PARITY.map(([build]) => build().name)).toEqual([
       ...SESSION_TOOL_NAMES,
     ]);
@@ -78,6 +85,7 @@ describe('session tool definitions', () => {
     expect(buildSessionReadTool().annotations?.readOnlyHint).toBe(true);
     expect(buildSessionStartTool().annotations).toBeUndefined();
     expect(buildSessionStopTool().annotations).toBeUndefined();
+    expect(buildSessionHandoffTool().annotations).toBeUndefined();
   });
 
   it('is deterministic: two builds serialise byte-identically', () => {
@@ -177,6 +185,81 @@ describe('session tool schemas', () => {
     ).toBe(false);
   });
 
+  describe('ptah_session_handoff (TASK_2026_655)', () => {
+    const ok = { handoffPath: '/repo/HANDOFF.md', prompt: 'Continue' };
+
+    it.each([
+      ['/repo/HANDOFF.md', true],
+      ['D:\\repo\\HANDOFF.md', true],
+      ['D:/repo/HANDOFF.md', true],
+      ['\\\\server\\share\\HANDOFF.md', true],
+      ['HANDOFF.md', false],
+      ['./HANDOFF.md', false],
+      ['repo/HANDOFF.md', false],
+      ['', false],
+    ] as const)('handoffPath %p accepted: %p', (handoffPath, accepted) => {
+      const result = SessionHandoffArgsSchema.safeParse({ ...ok, handoffPath });
+      expect(result.success).toBe(accepted);
+    });
+
+    it('names the absolute-path rule in the failure', () => {
+      const result = SessionHandoffArgsSchema.safeParse({
+        ...ok,
+        handoffPath: 'HANDOFF.md',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toBe('must be an absolute path');
+    });
+
+    it('requires a non-empty prompt, bounded like every agent message', () => {
+      const { prompt: _omitted, ...withoutPrompt } = ok;
+      expect(SessionHandoffArgsSchema.safeParse(withoutPrompt).success).toBe(
+        false,
+      );
+      expect(
+        SessionHandoffArgsSchema.safeParse({ ...ok, prompt: '' }).success,
+      ).toBe(false);
+      expect(
+        SessionHandoffArgsSchema.safeParse({
+          ...ok,
+          prompt: 'x'.repeat(MAX_AGENT_MESSAGE_LENGTH),
+        }).success,
+      ).toBe(true);
+      expect(
+        SessionHandoffArgsSchema.safeParse({
+          ...ok,
+          prompt: 'x'.repeat(MAX_AGENT_MESSAGE_LENGTH + 1),
+        }).success,
+      ).toBe(false);
+    });
+
+    it('bounds the label to 1..60 and keeps it optional', () => {
+      expect(SessionHandoffArgsSchema.safeParse(ok).success).toBe(true);
+      for (const [label, accepted] of [
+        ['', false],
+        ['x'.repeat(60), true],
+        ['x'.repeat(61), false],
+      ] as const) {
+        expect(
+          SessionHandoffArgsSchema.safeParse({ ...ok, label }).success,
+        ).toBe(accepted);
+      }
+    });
+
+    it('rejects every caller, cwd or permission key', () => {
+      for (const key of [
+        'callerSessionId',
+        'cwd',
+        'workspaceRoot',
+        'permissionLevel',
+      ]) {
+        expect(
+          SessionHandoffArgsSchema.safeParse({ ...ok, [key]: 'x' }).success,
+        ).toBe(false);
+      }
+    });
+  });
+
   it('bounds tailKiB to an integer 1..256', () => {
     for (const [tailKiB, ok] of [
       [1, true],
@@ -218,6 +301,15 @@ const HELD: SessionChildCompletionEnvelope = {
   text: '<agent-lane-completed cli="ptah-session" turn="2"/>',
 };
 
+const HANDED_OFF = {
+  ok: true,
+  tabId: 'tab-new',
+  label: 'Continued: parser fix',
+  workspaceRoot: '/repo',
+  cwd: '/repo/packages/core',
+  tabOpened: true,
+} as const;
+
 function logger(): Logger & { warn: jest.Mock } {
   return { warn: jest.fn() } as unknown as Logger & { warn: jest.Mock };
 }
@@ -244,6 +336,7 @@ function fakeSession(
     stop: jest
       .fn()
       .mockResolvedValue({ ok: true, child: { ...CHILD, status: 'stopped' } }),
+    handoff: jest.fn().mockResolvedValue(HANDED_OFF),
     ...overrides,
     takeHeldCompletions: jest.fn(() => held),
   } as SessionNamespace & { takeHeldCompletions: jest.Mock };
@@ -414,6 +507,7 @@ describe('handleSessionToolCall', () => {
         ptah_session_status: {},
         ptah_session_read: { sessionId: 'c-1' },
         ptah_session_stop: { sessionId: 'c-1' },
+        ptah_session_handoff: { handoffPath: '/repo/HANDOFF.md', prompt: 'p' },
       };
       for (const name of SESSION_TOOL_NAMES) {
         const session = fakeSession({}, [HELD]);
@@ -480,6 +574,147 @@ describe('handleSessionToolCall', () => {
       isError: true,
       text: 'ptah_session_start failed: Agent sessions are unavailable',
     });
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+
+describe('handleSessionToolCall › ptah_session_handoff (TASK_2026_655)', () => {
+  const PROMPT = 'SECRET-CONTINUATION Continue from /repo/HANDOFF.md';
+  const ARGS = { handoffPath: '/repo/HANDOFF.md', prompt: PROMPT };
+
+  it('passes the parsed arguments to the namespace (no caller key)', async () => {
+    const session = fakeSession();
+    await call('ptah_session_handoff', { ...ARGS, label: 'next' }, session);
+    expect(session.handoff).toHaveBeenCalledWith({ ...ARGS, label: 'next' });
+  });
+
+  it('an opened tab names label, tab and cwd, and states tabOpened: true', async () => {
+    const reply = await call('ptah_session_handoff', ARGS, fakeSession());
+    expect(reply.isError).toBe(false);
+    expect(reply.text).toMatch(
+      /^Opened a new session "Continued: parser fix" \(tab tab-new\) in \/repo\/packages\/core\./,
+    );
+    expect(reply.text).toMatch(/tabOpened: true\./);
+    expect(reply.text).toMatch(/ask them to close this session/);
+    expect(reply.text).toMatch(/Do no further work here\./);
+    expect(reply.text).not.toContain(PROMPT);
+  });
+
+  it('a tab no window took states tabOpened: false and where to find it', async () => {
+    const session = fakeSession({
+      handoff: jest.fn().mockResolvedValue({ ...HANDED_OFF, tabOpened: false }),
+    });
+    const reply = await call('ptah_session_handoff', ARGS, session);
+    expect(reply.isError).toBe(false);
+    expect(reply.text).toMatch(
+      /^Started a new session "Continued: parser fix"/,
+    );
+    expect(reply.text).toMatch(/tabOpened: false\./);
+    expect(reply.text).toMatch(/No Ptah window took the tab/);
+    expect(reply.text).toMatch(/session sidebar/);
+    expect(reply.text).not.toMatch(/tabOpened: true/);
+  });
+
+  it.each([
+    'unattributed-caller',
+    'child-session',
+    'already-handed-off',
+    'chat-runtime-unavailable',
+    'mcp-unavailable',
+    'no-workspace',
+    'handoff-file-missing',
+  ] as const)(
+    'refusal %s is a plain-text answer with code and detail',
+    async (refusal) => {
+      const session = fakeSession({
+        handoff: jest
+          .fn()
+          .mockResolvedValue({ ok: false, refusal, detail: 'the detail' }),
+      });
+      const reply = await call('ptah_session_handoff', ARGS, session);
+      expect(reply).toEqual({
+        isError: false,
+        text: `ptah_session_handoff refused (${refusal}): the detail`,
+      });
+    },
+  );
+
+  it('session-start-failed is isError and keeps the late-open detail verbatim', async () => {
+    const detail =
+      'The new session did not confirm its start in time; it may still open ' +
+      'late. Look for it in the sessions panel.';
+    const session = fakeSession({
+      handoff: jest.fn().mockResolvedValue({
+        ok: false,
+        refusal: 'session-start-failed',
+        detail,
+      }),
+    });
+    const reply = await call('ptah_session_handoff', ARGS, session);
+    expect(reply).toEqual({
+      isError: true,
+      text: `ptah_session_handoff refused (session-start-failed): ${detail}`,
+    });
+  });
+
+  it.each([
+    ['a missing prompt', { handoffPath: '/repo/HANDOFF.md' }, /prompt/],
+    ['an empty prompt', { ...ARGS, prompt: '' }, /prompt/],
+    ['a relative path', { ...ARGS, handoffPath: 'HANDOFF.md' }, /absolute/],
+  ])(
+    '%s is isError naming the rule, and the namespace is not called',
+    async (_case, args, field) => {
+      const session = fakeSession();
+      const reply = await call('ptah_session_handoff', args, session);
+      expect(reply.isError).toBe(true);
+      expect(reply.text).toMatch(/invalid ptah_session_handoff arguments/);
+      expect(reply.text).toMatch(field);
+      expect(reply.text).toMatch(
+        /Required: "handoffPath" \(absolute\) and a non-empty "prompt"/,
+      );
+      expect(reply.text).not.toContain('SECRET-CONTINUATION');
+      expect(session.handoff).not.toHaveBeenCalled();
+    },
+  );
+
+  it('an oversized prompt is rejected without echoing it', async () => {
+    const huge = `SECRET-CONTINUATION ${'x'.repeat(MAX_AGENT_MESSAGE_LENGTH)}`;
+    const reply = await call(
+      'ptah_session_handoff',
+      { ...ARGS, prompt: huge },
+      fakeSession(),
+    );
+    expect(reply.isError).toBe(true);
+    expect(reply.text).not.toContain('SECRET-CONTINUATION');
+  });
+
+  it('a thrown namespace error is isError naming the cause, and the prompt is never logged', async () => {
+    const log = logger();
+    const session = fakeSession({
+      handoff: jest
+        .fn()
+        .mockRejectedValue(new Error('Session handoff is unavailable')),
+    });
+    const reply = await call('ptah_session_handoff', ARGS, session, log);
+    expect(reply).toEqual({
+      isError: true,
+      text: 'ptah_session_handoff failed: Session handoff is unavailable',
+    });
+    expect(log.warn).toHaveBeenCalled();
+    for (const [line] of log.warn.mock.calls) {
+      expect(String(line)).not.toContain('SECRET-CONTINUATION');
+    }
+  });
+
+  it('appends held completions after the handoff reply', async () => {
+    const reply = await call(
+      'ptah_session_handoff',
+      ARGS,
+      fakeSession({}, [HELD]),
+    );
+    expect(reply.text).toMatch(/^Opened a new session/);
+    expect(reply.text).toContain(HELD_COMPLETIONS_HEADING);
   });
 });
 

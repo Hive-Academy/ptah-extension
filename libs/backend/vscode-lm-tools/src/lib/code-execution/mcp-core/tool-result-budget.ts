@@ -119,6 +119,8 @@ export const TOOL_CONTENT_HINTS: Readonly<Record<string, ContentKind>> =
     ptah_session_status: 'preformatted',
     ptah_session_read: 'preformatted',
     ptah_session_stop: 'preformatted',
+    // Session handoff (TASK_2026_655): a short reply naming the new tab.
+    ptah_session_handoff: 'preformatted',
     ptah_task_list: 'preformatted',
   });
 
