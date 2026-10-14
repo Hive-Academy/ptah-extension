@@ -114,9 +114,6 @@ export const MultiPhaseManifestV3Schema = z.object({
   phases: z.record(MultiPhaseIdSchema, PhaseResultSchema),
 });
 
-/** Kept for existing v3 writer and consumer imports during the read-path migration. */
-export const MultiPhaseManifestSchema = MultiPhaseManifestV3Schema;
-
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 
 const PhaseResultV4Schema = z

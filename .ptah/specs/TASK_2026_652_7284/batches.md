@@ -1238,7 +1238,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   re-review: `isLegacyArchiveDirName` matches the marker anywhere in the name (`includes`), so a
   project slugified to contain `-v3-archive-` would be skipped; a ULID-anchored match is tighter.
 
-## Batch 20: Phase 3 fix - fingerprint module, freshness refactor, barrel - COMPLETE
+## Batch 20: Phase 3 fix - fingerprint module, freshness refactor, barrel - COMPLETE (commit 6b6effdeb)
 
 - Recommended executor: implementation CLI lane (codex), one lane
 - Fallback executor: backend-developer sub-agent
@@ -1303,7 +1303,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   (`--maxWorkers=2`, no cache) 37 suites, 1271 passed, 1 skipped; rpc-handlers typecheck
   pass; di-lint OK (1827 `@inject` sites).
 
-## Batch 21: Phase 3 fix - checkpoint fallback, phase recording, types - PENDING
+## Batch 21: Phase 3 fix - checkpoint fallback, phase recording, types - COMPLETE
 
 - Recommended executor: implementation CLI lane (codex), one lane
 - Fallback executor: backend-developer sub-agent
@@ -1312,7 +1312,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
 - Tasks: 3 | Depends on: Batches 19, 20
 - Phase: 3 fix round | Phase review: the one re-review
 
-### Task 21.1: Checkpoint open: archive failure falls back; degraded fingerprint; docs - PENDING
+### Task 21.1: Checkpoint open: archive failure falls back; degraded fingerprint; docs - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/analysis-run-checkpoint.ts` (second owner, after Task 20.1)
 - Findings: L2 (checkpoint half), L5, S3, S4
@@ -1325,7 +1325,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   can never qualify as fresh. `isCompleted` uses `hashFileOrNull`. Restore one-line docs on every
   public method plus the model-pinning rationale at `open`.
 
-### Task 21.2: Phase recording never leaves a phase `running` - PENDING
+### Task 21.2: Phase recording never leaves a phase `running` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/multi-phase-analysis.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/services/wizard/multi-phase-analysis.service.spec.ts`
@@ -1341,7 +1341,7 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   still runs; hash read failure after a phase → phase `failed` with the error text, lifecycle not
   `running`; a null session id → `failed`.
 
-### Task 21.3: Drop the alias and unused type exports - PENDING
+### Task 21.3: Drop the alias and unused type exports - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/types/multi-phase.types.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/backend/agent-generation/src/lib/types/index.ts`
@@ -1358,6 +1358,26 @@ Named follow-ups added by Phase 3 (outside this run's batches; Mode 3 lists them
   `npx nx typecheck @ptah-extension/rpc-handlers`; `npx nx typecheck ptah-cli`;
   `npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src/cli/commands/analyze.spec.ts --coverage=false --maxWorkers=2`
   (CLI deep-analysis consumer of `analysisDir`).
+- Verified (team-leader, 2026-10-14, report `batch-21-report.md`): `open` takes the logger,
+  warns and switches to `legacy-fallback` on an archive error (v3 bytes untouched, `archiveDir`
+  logged), resumes primary then fallback under the model/lifecycle rules, and creates with the
+  chosen variant; fingerprint failure warns and uses a random `sha256Hex` digest; `isCompleted`
+  uses `hashFileOrNull`; one-line docs on every public method and the model-pinning note at
+  `open`. `completeOrFailPhase` covers both completion sites (null session id and hash or
+  `markCompleted` errors become `markFailed`, no `!`); the outer catch pauses a running
+  checkpoint best-effort; error classes are module-private with constructor `this.name`. Alias
+  and four unused barrel exports removed. Checks, one at a time: prettier clean (5 files);
+  agent-generation typecheck+lint pass; agent-generation test (`--maxWorkers=2`, no cache) 37
+  suites, 1274 passed, 1 skipped; rpc-handlers typecheck pass; ptah-cli typecheck pass; CLI
+  `analyze.spec.ts` 6 passed. First commit attempt failed the degradation audit
+  (`orphaned-suppression` at `multi-phase-analysis.service.ts:445`: the pause catch logs, so no
+  marker is needed); the marker was removed and `degradation-audit:lint` re-run clean
+  (agent-generation 1, baseline 1).
+- Minor, recorded not fixed (fix-round rule): the post-resume
+  `variant === 'primary' && !primaryResumable && fallbackResumable` branch in
+  `analysis-run-checkpoint.ts` is unreachable, and the resumable test is evaluated twice;
+  `AnalysisStorageService.ensureSlugDir` now has no production caller (spec only). Candidates
+  for the Phase 3 re-review or a later cleanup task.
 
 ## Batch 22: Phase 3 fix - shared docs and baseline order - PENDING
 

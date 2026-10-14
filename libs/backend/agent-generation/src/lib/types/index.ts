@@ -40,18 +40,11 @@ export type {
   MultiPhaseId,
   AnalysisPhaseStatus,
   PhaseResult,
-  PhaseResultV4,
   MultiPhaseManifest,
-  MultiPhaseManifestV3,
   MultiPhaseManifestV4,
   MultiPhaseAnalysisOptions,
 } from './multi-phase.types';
-export {
-  PHASE_CONFIGS,
-  MultiPhaseManifestSchema,
-  MultiPhaseManifestV3Schema,
-  MultiPhaseManifestV4Schema,
-} from './multi-phase.types';
+export { PHASE_CONFIGS } from './multi-phase.types';
 export type {
   GenerationAgentCheckpoint,
   GenerationCheckpointManifest,

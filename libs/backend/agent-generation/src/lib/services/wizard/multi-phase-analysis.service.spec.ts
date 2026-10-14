@@ -405,7 +405,7 @@ describe('MultiPhaseAnalysisService', () => {
       'project-profile'
     ];
     expect(phase.status).toBe('failed');
-    expect(phase.error).toContain('did not provide a session_id');
+    expect(phase.error).toBe('Phase finished without an SDK session id');
     expect(phase.sessionId).toBeNull();
     expect(phase.verification.outputSha256).toBeNull();
   });
@@ -926,25 +926,115 @@ describe('MultiPhaseAnalysisService', () => {
       );
     });
 
-    it('leaves v3 intact and starts no SDK work when archiving fails', async () => {
+    it('preserves v3 bytes and runs in the v4 fallback when archiving fails', async () => {
       const legacy = seedLegacyManifest();
       await storage.writeManifest(SLUG_DIR, legacy);
       await storage.writePhaseFile(SLUG_DIR, FILES[0], 'LEGACY PROFILE');
+      const legacyBytes = await fs.readFile(join(SLUG_DIR, 'manifest.json'));
       fs.copy.mockRejectedValueOnce(new Error('EIO'));
-      scenarios = FILES.map((file) => agentWritesFile(file));
+      const fallbackDir = `${SLUG_DIR}--v4`;
+      scenarios = FILES.map((file) =>
+        streamOf(
+          [assistant('fallback output'), success('fallback output')],
+          () =>
+            storage.writePhaseFile(
+              fallbackDir,
+              file,
+              `# ${file}\nfallback output`,
+            ),
+        ),
+      );
 
       const result = await service.analyzeWorkspace(WORKSPACE, {
         mcpServerRunning: true,
         resume: true,
       });
 
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.name).toBe('LegacyRunArchiveError');
-      expect(execute).not.toHaveBeenCalled();
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.version).toBe(4);
+      expect(result.value?.slug).toBe('demo--v4');
+      expect(execute).toHaveBeenCalledTimes(4);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Analysis run opened'),
+        expect.objectContaining({ slugDir: fallbackDir }),
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('archive failed'),
+        expect.objectContaining({ archiveDir: null }),
+      );
       expect(await storage.loadManifest(SLUG_DIR)).toEqual(legacy);
+      expect(await fs.readFile(join(SLUG_DIR, 'manifest.json'))).toBe(
+        legacyBytes,
+      );
       expect(await fs.readFile(join(SLUG_DIR, FILES[0]))).toBe(
         'LEGACY PROFILE',
       );
+      expect((await storage.loadManifest(fallbackDir))?.runId).toBe(
+        result.value?.runId,
+      );
+    });
+
+    it('resumes a paused fallback run after archive failure', async () => {
+      await storage.writeManifest(SLUG_DIR, seedLegacyManifest());
+      const fallbackDir = `${SLUG_DIR}--v4`;
+      const paused = await seedPausedManifest();
+      await storage.writeManifest(fallbackDir, { ...paused, slug: 'demo--v4' });
+      fs.copy.mockRejectedValueOnce(new Error('EIO'));
+      scenarios = FILES.map((file) =>
+        streamOf([assistant('resumed'), success('resumed')], () =>
+          storage.writePhaseFile(fallbackDir, file, `# ${file}\nresumed`),
+        ),
+      );
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.runId).toBe('RUN-KEEP');
+      expect(result.value?.slug).toBe('demo--v4');
+      expect((await storage.loadManifest(fallbackDir))?.lifecycle).toBe(
+        'completed',
+      );
+    });
+
+    it('continues with an unmatchable fingerprint when fingerprinting fails', async () => {
+      fs.readDirectory.mockRejectedValueOnce(new Error('fingerprint EIO'));
+      scenarios = FILES.map((file) => agentWritesFile(file));
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+      });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.version).toBe(4);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('fingerprint failed'),
+        expect.any(Error),
+      );
+    });
+
+    it('fails a phase when hashing its output fails after the SDK result', async () => {
+      scenarios = [
+        streamOf([assistant('written'), success('written')], async () => {
+          await storage.writePhaseFile(SLUG_DIR, FILES[0], 'written');
+          fs.readFileBytes.mockRejectedValueOnce(new Error('hash EIO'));
+        }),
+        ...FILES.slice(1).map((file) => agentWritesFile(file)),
+      ];
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+      });
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.phases['project-profile'].status).toBe('failed');
+      expect(result.value?.phases['project-profile'].error).toContain(
+        'hash EIO',
+      );
+      expect(result.value?.lifecycle).toBe('failed');
+      expect((await storage.loadManifest(SLUG_DIR))?.lifecycle).toBe('failed');
     });
 
     it('invalidates a changed output and every downstream completed phase', async () => {

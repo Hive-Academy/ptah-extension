@@ -19,7 +19,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { createHash } from 'crypto';
 import { join, relative } from 'path';
 import {
   PLATFORM_TOKENS,
@@ -58,6 +57,7 @@ import type {
   StreamEvent,
 } from '@ptah-extension/agent-sdk';
 import type { AnalysisStorageService } from '../analysis-storage.service';
+import { hashFileOrNull, sha256Hex } from '../analysis-fingerprint';
 import { AGENT_GENERATION_TOKENS } from '../../di/tokens';
 import type {
   MultiPhaseManifest,
@@ -131,12 +131,18 @@ interface PhaseTextCapture {
   sessionId: string | null;
 }
 
-export class PhaseSessionIdentityError extends Error {
-  override name = 'PhaseSessionIdentityError';
+class PhaseSessionIdentityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PhaseSessionIdentityError';
+  }
 }
 
-export class PhaseSessionMissingError extends Error {
-  override name = 'PhaseSessionMissingError';
+class PhaseSessionMissingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PhaseSessionMissingError';
+  }
 }
 
 /**
@@ -214,11 +220,13 @@ export class MultiPhaseAnalysisService {
     const masterAbortController = new AbortController();
     this.activeAbortController = masterAbortController;
 
+    let checkpoint: AnalysisRunCheckpoint | null = null;
     try {
       const folderName = workspacePath.split(/[\\/]/).pop() || 'project';
-      const checkpoint = await AnalysisRunCheckpoint.open(
+      checkpoint = await AnalysisRunCheckpoint.open(
         this.storageService,
         this.fs,
+        this.logger,
         workspacePath,
         folderName,
         model,
@@ -247,22 +255,15 @@ export class MultiPhaseAnalysisService {
           relative(workspacePath, slugDir).replace(/\\/g, '/'),
           pluginSkillsContext,
         );
-        const promptSha256 = createHash('sha256')
-          .update(JSON.stringify([prompts.systemPrompt, prompts.userPrompt]))
-          .digest('hex');
+        const promptSha256 = sha256Hex(
+          JSON.stringify([prompts.systemPrompt, prompts.userPrompt]),
+        );
         let priorPhaseSha256: string | null = null;
         if (i > 0) {
-          try {
-            priorPhaseSha256 = createHash('sha256')
-              .update(
-                await this.fs.readFileBytes(
-                  join(slugDir, PHASE_CONFIGS[i - 1].file),
-                ),
-              )
-              .digest('hex');
-          } catch {
-            // A missing prior output changes this phase's input on resume.
-          }
+          priorPhaseSha256 = await hashFileOrNull(
+            this.fs,
+            join(slugDir, PHASE_CONFIGS[i - 1].file),
+          );
         }
         const input = checkpoint.input(promptSha256, priorPhaseSha256);
 
@@ -439,6 +440,16 @@ export class MultiPhaseAnalysisService {
     } catch (error: unknown) {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
+      if (checkpoint && checkpoint.manifest.lifecycle === 'running') {
+        try {
+          await checkpoint.pause(null);
+        } catch (pauseError) {
+          this.logger.warn(
+            `${SERVICE_TAG} Could not pause failed analysis run`,
+            pauseError,
+          );
+        }
+      }
       this.logger.error(`${SERVICE_TAG} Multi-phase analysis failed`, errorObj);
       return Result.err(errorObj);
     } finally {
@@ -539,11 +550,12 @@ export class MultiPhaseAnalysisService {
           outcome.assistantText,
         );
       }
-      await checkpoint.markCompleted(
+      await this.completeOrFailPhase(
+        checkpoint,
         phaseId,
+        filename,
         durationMs,
-        outcome.sessionId!,
-        await this.hashPhaseOutput(checkpoint.slugDir, filename),
+        outcome.sessionId,
       );
       return;
     }
@@ -569,17 +581,20 @@ export class MultiPhaseAnalysisService {
         `${SERVICE_TAG} Phase ${phaseId} hit max turns cap but produced a substantial file (${currentFileBytes} bytes); recording as completed with partial document`,
         { phaseId, durationMs, bytes: currentFileBytes },
       );
-      await checkpoint.markCompleted(
+      await this.completeOrFailPhase(
+        checkpoint,
         phaseId,
+        filename,
         durationMs,
         outcome.sessionId,
-        await this.hashPhaseOutput(checkpoint.slugDir, filename),
       );
       return;
     }
 
     const error =
-      outcome.error ??
+      (outcome.resultReceived && outcome.sessionId === null
+        ? 'Phase finished without an SDK session id'
+        : outcome.error) ??
       (outcome.timedOut
         ? `analysis_timeout: phase exceeded ${PER_PHASE_TIMEOUT_MS} ms`
         : 'Stream ended without a result');
@@ -610,13 +625,39 @@ export class MultiPhaseAnalysisService {
     await checkpoint.markFailed(phaseId, durationMs, error, outcome.sessionId);
   }
 
-  private async hashPhaseOutput(
-    slugDir: string,
+  private async completeOrFailPhase(
+    checkpoint: AnalysisRunCheckpoint,
+    phaseId: MultiPhaseId,
     filename: string,
-  ): Promise<string> {
-    return createHash('sha256')
-      .update(await this.fs.readFileBytes(join(slugDir, filename)))
-      .digest('hex');
+    durationMs: number,
+    sessionId: string | null,
+  ): Promise<void> {
+    if (sessionId === null) {
+      await checkpoint.markFailed(
+        phaseId,
+        durationMs,
+        'Phase finished without an SDK session id',
+      );
+      return;
+    }
+    try {
+      const outputSha256 = sha256Hex(
+        await this.fs.readFileBytes(join(checkpoint.slugDir, filename)),
+      );
+      await checkpoint.markCompleted(
+        phaseId,
+        durationMs,
+        sessionId,
+        outputSha256,
+      );
+    } catch (error) {
+      await checkpoint.markFailed(
+        phaseId,
+        durationMs,
+        error instanceof Error ? error.message : String(error),
+        sessionId,
+      );
+    }
   }
 
   private async restorePriorPhaseFileIfMissing(

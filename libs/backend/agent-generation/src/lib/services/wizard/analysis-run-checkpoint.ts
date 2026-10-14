@@ -1,10 +1,18 @@
 /** Durable v4 lifecycle and verification for one multi-phase analysis run. */
-import { createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { ulid } from 'ulid';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
-import type { AnalysisStorageService } from '../analysis-storage.service';
-import { computeWorkspaceFingerprint } from '../analysis-fingerprint';
+import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  AnalysisStorageService,
+  LegacyRunArchiveError,
+} from '../analysis-storage.service';
+import {
+  computeWorkspaceFingerprint,
+  hashFileOrNull,
+  sha256Hex,
+} from '../analysis-fingerprint';
 import {
   MultiPhaseManifestV4Schema,
   PHASE_CONFIGS,
@@ -40,30 +48,75 @@ export class AnalysisRunCheckpoint {
     this.baseDurationMs = manifest.totalDurationMs;
   }
 
-  /** Persist before returning so archive or checkpoint failures precede SDK work. */
+  /** Open a run, pinning resume to the requested model because SDK sessions are model-specific. */
   static async open(
     storage: AnalysisStorageService,
     fs: IFileSystemProvider,
+    logger: Logger,
     workspacePath: string,
     projectDescription: string,
     model: string,
     resume: boolean,
   ): Promise<AnalysisRunCheckpoint> {
-    const fingerprint = await computeWorkspaceFingerprint(workspacePath, fs);
-    const { slugDir } = await storage.ensureSlugDir(
+    let fingerprint: MultiPhaseManifestV4['workspaceFingerprint'];
+    try {
+      fingerprint = await computeWorkspaceFingerprint(workspacePath, fs);
+    } catch (error) {
+      // degradation-audit: optional-capability - a random digest cannot match a future workspace fingerprint.
+      logger.warn(
+        'Workspace fingerprint failed; starting an unverified analysis run',
+        error,
+      );
+      fingerprint = {
+        algorithm: 'sha256-v1',
+        digest: sha256Hex(randomUUID()),
+        capturedAt: new Date().toISOString(),
+      };
+    }
+    const { slugDir } = storage.getRunDir(workspacePath, projectDescription);
+    const existing = await storage.readManifest(slugDir);
+    let variant: 'primary' | 'legacy-fallback' = 'primary';
+    if (existing?.kind === 'legacy-v3') {
+      try {
+        await storage.archiveLegacyRun(workspacePath, slugDir);
+      } catch (error) {
+        // degradation-audit: optional-capability - preserve the legacy bytes and use a separate v4 folder.
+        logger.warn(
+          'Legacy analysis archive failed; using v4 fallback directory',
+          {
+            error: error instanceof Error ? error.message : String(error),
+            archiveDir:
+              error instanceof LegacyRunArchiveError ? error.archiveDir : null,
+          },
+        );
+        variant = 'legacy-fallback';
+      }
+    }
+    const fallbackDir = storage.getRunDir(
       workspacePath,
       projectDescription,
-    );
-    const existing = await storage.readManifest(slugDir);
-    if (existing?.kind === 'legacy-v3') {
-      await storage.archiveLegacyRun(workspacePath, slugDir);
-    } else if (
-      resume &&
+      'legacy-fallback',
+    ).slugDir;
+    const fallback = resume ? await storage.readManifest(fallbackDir) : null;
+    const primaryResumable =
       existing?.kind === 'current' &&
       existing.manifest.lifecycle !== 'completed' &&
-      existing.manifest.model === model
+      existing.manifest.model === model;
+    const fallbackResumable =
+      fallback?.kind === 'current' &&
+      fallback.manifest.lifecycle !== 'completed' &&
+      fallback.manifest.model === model;
+    const resumeDir =
+      variant === 'primary' && primaryResumable ? slugDir : fallbackDir;
+    const resumable = resumeDir === slugDir ? existing : fallback;
+    if (
+      resume &&
+      resumable?.kind === 'current' &&
+      resumable.manifest.lifecycle !== 'completed' &&
+      resumable.manifest.model === model
     ) {
-      const manifest = existing.manifest;
+      variant = resumeDir === slugDir ? 'primary' : 'legacy-fallback';
+      const manifest = resumable.manifest;
       for (const phase of Object.values(manifest.phases)) {
         if (phase.status === 'running') phase.status = 'pending';
       }
@@ -72,7 +125,7 @@ export class AnalysisRunCheckpoint {
       const checkpoint = new AnalysisRunCheckpoint(
         storage,
         fs,
-        slugDir,
+        resumeDir,
         manifest,
         true,
       );
@@ -80,9 +133,14 @@ export class AnalysisRunCheckpoint {
       return checkpoint;
     }
 
+    if (variant === 'primary' && !primaryResumable && fallbackResumable) {
+      variant = 'legacy-fallback';
+    }
+
     const created = await storage.createSlugDir(
       workspacePath,
       projectDescription,
+      variant,
     );
     const now = new Date().toISOString();
     const phases = {} as Record<MultiPhaseId, PhaseResultV4>;
@@ -120,6 +178,7 @@ export class AnalysisRunCheckpoint {
     return checkpoint;
   }
 
+  /** Capture the inputs whose bytes must match before a completed phase is reused. */
   input(promptSha256: string, priorPhaseSha256: string | null): PhaseInput {
     return {
       workspaceSha256: this.manifest.workspaceFingerprint.digest,
@@ -134,16 +193,10 @@ export class AnalysisRunCheckpoint {
     const phase = this.manifest.phases[id];
     if (phase.status !== 'completed') return false;
     const config = PHASE_CONFIGS.find((candidate) => candidate.id === id);
-    let outputSha256: string | null = null;
-    if (phase.file === config?.file) {
-      try {
-        outputSha256 = createHash('sha256')
-          .update(await this.fs.readFileBytes(join(this.slugDir, phase.file)))
-          .digest('hex');
-      } catch {
-        // An absent or unreadable output cannot be trusted for resume.
-      }
-    }
+    const outputSha256 =
+      phase.file === config?.file
+        ? await hashFileOrNull(this.fs, join(this.slugDir, phase.file))
+        : null;
     if (
       phase.input?.workspaceSha256 === input.workspaceSha256 &&
       phase.input.promptSha256 === input.promptSha256 &&
@@ -169,6 +222,7 @@ export class AnalysisRunCheckpoint {
     return false;
   }
 
+  /** Return phase statuses in pipeline order. */
   statuses(): PhaseStatusSnapshot {
     return PHASE_CONFIGS.map((config) => ({
       id: config.id,
@@ -176,6 +230,7 @@ export class AnalysisRunCheckpoint {
     }));
   }
 
+  /** Persist the start of a phase attempt. */
   async markRunning(id: MultiPhaseId, input: PhaseInput): Promise<void> {
     const phase = this.manifest.phases[id];
     phase.attempt += 1;
@@ -187,6 +242,7 @@ export class AnalysisRunCheckpoint {
     await this.persist();
   }
 
+  /** Persist a phase's verified output and SDK session. */
   async markCompleted(
     id: MultiPhaseId,
     durationMs: number,
@@ -206,6 +262,7 @@ export class AnalysisRunCheckpoint {
     await this.persist();
   }
 
+  /** Persist a phase failure with its diagnostic text. */
   async markFailed(
     id: MultiPhaseId,
     durationMs: number,
@@ -225,6 +282,7 @@ export class AnalysisRunCheckpoint {
     await this.persist();
   }
 
+  /** Pause an interrupted run and reset its active phase for retry. */
   async pause(activeId: MultiPhaseId | null): Promise<void> {
     if (activeId) {
       const phase = this.manifest.phases[activeId];
@@ -235,6 +293,7 @@ export class AnalysisRunCheckpoint {
     await this.persist();
   }
 
+  /** Set the run lifecycle from its completed phase statuses. */
   async finish(): Promise<void> {
     this.manifest.lifecycle = PHASE_CONFIGS.every(
       (config) => this.manifest.phases[config.id].status === 'completed',
