@@ -88,8 +88,12 @@ export class AutopilotStateService implements MessageHandler {
   private readonly _sessionLevels = signal<
     ReadonlyMap<SessionId, PermissionLevel>
   >(new Map());
-  /** Bumped by every toggle so a host read started earlier cannot undo it. */
-  private writeEpoch = 0;
+  /**
+   * Toggles sent per session. A host read of a session is discarded only when
+   * that session was re-gated after the read started, so it cannot undo the
+   * toggle, while a toggle in another tab leaves the read valid.
+   */
+  private readonly sessionWrites = new Map<SessionId, number>();
   /**
    * Autopilot enabled state (the saved default for new and resumed sessions)
    * Read-only signal, updates reactively when toggled
@@ -167,12 +171,17 @@ export class AutopilotStateService implements MessageHandler {
   /**
    * Read a session's live level from the host. A session that is not live
    * drops its entry: it starts at the saved default when it resumes. A read
-   * overtaken by a toggle is discarded, so it cannot undo that toggle.
+   * overtaken by a toggle of the same session is discarded, so it cannot undo
+   * that toggle.
    */
   async refreshSession(sessionId: SessionId): Promise<void> {
-    const epoch = this.writeEpoch;
+    const writes = this.sessionWrites.get(sessionId) ?? 0;
     const result = await this.rpc.call('config:autopilot-get', { sessionId });
-    if (!result.isSuccess() || !result.data || epoch !== this.writeEpoch) {
+    if (
+      !result.isSuccess() ||
+      !result.data ||
+      writes !== (this.sessionWrites.get(sessionId) ?? 0)
+    ) {
       return;
     }
     const level = result.data.sessionPermissionLevel;
@@ -265,7 +274,12 @@ export class AutopilotStateService implements MessageHandler {
       return;
     }
     this._isPending.set(true);
-    this.writeEpoch++;
+    if (sessionId) {
+      this.sessionWrites.set(
+        sessionId,
+        (this.sessionWrites.get(sessionId) ?? 0) + 1,
+      );
+    }
 
     const previousEnabled = this._enabled();
     const previousLevel = this._permissionLevel();

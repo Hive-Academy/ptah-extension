@@ -494,5 +494,41 @@ describe('AutopilotStateService', () => {
 
       expect(service.stateFor(TAB_B).enabled).toBe(false);
     });
+
+    it("keeps tab B's first host read when tab A is toggled while it loads", async () => {
+      rpc.call.mockResolvedValueOnce(
+        rpcSuccess({ enabled: false, permissionLevel: 'ask' }),
+      );
+      const service = createService();
+      await makeSignalStoreHarness<AutopilotStoreState>(service).flush();
+      let resolveRead: (value: unknown) => void = () => undefined;
+      rpc.call.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+      );
+      const read = service.refreshSession(TAB_B);
+      rpc.call.mockResolvedValue(rpcSuccess({ success: true }));
+      await service.setPermissionLevel('yolo', TAB_A);
+      await service.toggleAutopilot(TAB_A);
+
+      resolveRead(
+        rpcSuccess({
+          enabled: true,
+          permissionLevel: 'yolo',
+          sessionPermissionLevel: 'auto-edit',
+        }),
+      );
+      await read;
+
+      expect(service.stateFor(TAB_B)).toEqual({
+        enabled: true,
+        permissionLevel: 'auto-edit',
+      });
+      expect(service.stateFor(TAB_A)).toEqual({
+        enabled: true,
+        permissionLevel: 'yolo',
+      });
+    });
   });
 });
