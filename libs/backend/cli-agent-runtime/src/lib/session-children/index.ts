@@ -32,8 +32,20 @@ export type {
 export type {
   ChildChatSessionStartInput,
   ChildChatSessionStartOutcome,
+  HandoffChatSessionStartInput,
   IChildChatSessionHost,
 } from './child-chat-session-host.port';
+export type {
+  ISessionHandoff,
+  SessionHandoffRefusalCode,
+  SessionHandoffRequest,
+  SessionHandoffResult,
+} from './session-handoff.port';
+export {
+  SessionHandoffService,
+  SESSION_HANDOFF_HISTORY_SIZE,
+  SESSION_HANDOFF_LABEL_MAX,
+} from './session-handoff.service';
 export {
   SessionChildRegistry,
   SESSION_CHILD_ENDED_HISTORY_SIZE,

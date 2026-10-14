@@ -13,6 +13,7 @@ export * from './helpers';
 export * from './workspace';
 export * from './gateway';
 export * from './agent-session';
+export * from './session-handoff';
 export * from './voice';
 export * from './update';
 export * from './git-status';
