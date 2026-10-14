@@ -1,6 +1,6 @@
 # Batches - TASK_2026_629_c0b3 (phase R9, Rail only)
 
-Total tasks: 24 | Batches: 24 (R9a-R9t, addendum R9u-R9x) | Complete: 9/24 (Wave 1; Wave 2 R9o, R9i, R9e, R9n) | Held: 0
+Total tasks: 24 | Batches: 24 (R9a-R9t, addendum R9u-R9x) | Complete: 12/24 (Wave 1; Wave 2 R9o, R9i, R9e, R9n; Wave 3 R9p, R9j, R9q) | Held: 0
 
 Addendum: `implementation-plan-rail-r9-split.md` Revisions 1-3 (Gate 2 passed, decision 88), notes N1-N6
 (`implementation-plan-rail-r9-split-final-check.md`) and B1-B7 (`implementation-plan-rail-r9-split-rev3-check.md`)
@@ -266,16 +266,19 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 
 ### Task R9i.1 — COMPLETE
 
-## Batch R9p: Delete live budget, gesture observation, empty state — PENDING
+## Batch R9p: Delete live budget, gesture observation, empty state — COMPLETE (1fd6e99cb; review code-logic-review-R9p.md)
 
 - Executor: opencode lane | Fallback: codex lane | Reviewer: Claude code-logic-reviewer | Wave 3 | Depends: R9b, R9i
 - Files: `canvas/src/lib/canvas-live-budget.ts`, its `.spec.ts`, `canvas-gesture-observation.ts`, `canvas-empty-state.component.ts`
 - Contract: delete Grid-only files; Rail empty-board trigger (R9b) is the replacement. Parity rows 53, 113.
 - Writer: rg zero-importer. Mode 2: rg; Wave 3 FULL(canvas), TC(canvas), LINT(canvas).
+- Mode 2 result (Wave 3, combined tree): rg zero live importers (hits: `ptah-canvas-empty-state` strings in R9l e2e
+  specs incl. decision 90a, and kept canvas specs per R11); FULL(canvas) 27 suites / 275 tests green; TC green;
+  LINT 0 errors (16 warnings). No fix round (decision 90).
 
-### Task R9p.1 — PENDING
+### Task R9p.1 — COMPLETE
 
-## Batch R9j: Delete Grid detail panel, geometry, tile, indicator — PENDING
+## Batch R9j: Delete Grid detail panel, geometry, tile, indicator — COMPLETE (77b41f02c; review code-logic-review-R9j.md)
 
 - Executor: opencode lane | Fallback: codex lane | Reviewer: Claude code-logic-reviewer | Wave 3 | Depends: R9b, R9i
 - Files: `canvas/src/lib/canvas-detail/canvas-detail-panel.component.ts`, its `.spec.ts`,
@@ -283,17 +286,21 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
   `tile-agent-indicator.component.ts`
 - Contract: delete; preserve `CanvasDetailService`, `canvas-session-overrides.ts`, lane tabs/lane view. Rows 56-58.
 - Writer: rg zero-importer. Mode 2: rg; Wave 3 FULL(canvas), TC(canvas), LINT(canvas).
+- Mode 2 result (Wave 3, combined tree): rg zero live importers (hits: four `ptah-tile-agent-indicator` showcase
+  locators, decision 90b; `ptah-canvas-detail-panel` string in `orchestra-canvas.component.spec.ts:906`, R11);
+  Wave 3 canvas checks green as R9p. No fix round (decision 90).
 
-### Task R9j.1 — PENDING
+### Task R9j.1 — COMPLETE
 
-## Batch R9q: Remove dead gridUpdates metric — PENDING
+## Batch R9q: Remove dead gridUpdates metric — COMPLETE (9a17fd085; review code-logic-review-R9q.md)
 
 - Executor: opencode lane | Fallback: codex lane | Reviewer: Claude code-logic-reviewer | Wave 3 | Depends: R9i (A5)
 - Files: `canvas/src/lib/canvas-render-metrics.service.ts`, its `.spec.ts`
 - Contract: remove `gridUpdates` metric and test; `canvas-rail.component.ts` and spec unchanged.
 - Writer: SPEC(canvas, canvas-render-metrics.service.spec.ts). Mode 2: Wave 3 canvas checks.
+- Mode 2 result: `gridUpdates` rg 0 hits in libs/apps; Wave 3 canvas checks green as R9p. No fix round.
 
-### Task R9q.1 — PENDING
+### Task R9q.1 — COMPLETE
 
 ## Batch R9m: Delete grid release, mini-panel, detail keyboard — PENDING
 
@@ -411,10 +418,16 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 - Hold lifted: the passed addendum does not own `canvas-detail.service.ts`; its e2e split/reorder cases go to R9x
   after R9l. R9l keeps its approved contract (decision 81).
 - Files: `canvas/src/lib/canvas-board-mode.ts`, `canvas-detail/canvas-detail.service.ts`, its `.spec.ts`,
-  `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts`, `apps/ptah-electron-e2e/src/specs/task-337-agent-card-refresh.spec.ts`
+  `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts`, `apps/ptah-electron-e2e/src/specs/task-337-agent-card-refresh.spec.ts`,
+  `apps/ptah-electron-e2e/src/specs/git/hunk-revert-top-layer.spec.ts` (decision 90a; 6 files, within the 8-file cap)
 - Contract: narrow `CanvasBoardMode` to `'rail'`; persistence alone accepts historical `'grid'`; keep Rail lane
   memory; rewrite e2e selectors and task-337 tile/full-view assertion; do not run e2e; `packaged-deps.spec.ts`
   unowned and unchanged; Gridstack kept. Rows 63-66, 115, 116.
+  Decision 90a: in `hunk-revert-top-layer.spec.ts:193-196` replace the deleted `ptah-canvas-empty-state` locator
+  and the "Orchestra Canvas" heading expectation with the Rail empty-board equivalent (a painted element that
+  fills the board behind the dialog) so the modal-above-canvas bounding-box assertion still runs.
+  Decision 90c: `CanvasDetailService.toggle/next/prev` have no production caller after R9j; remove them (and
+  their spec cases) or keep them only with a named caller.
 - Writer: SPEC(canvas, canvas-detail.service.spec.ts)
 - Mode 2: SPEC re-run, TC(canvas), LINT(canvas), TC(ptah-electron-e2e), LINT(ptah-electron-e2e).
 
