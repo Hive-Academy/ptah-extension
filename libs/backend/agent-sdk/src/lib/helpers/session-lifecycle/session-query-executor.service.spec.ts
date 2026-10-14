@@ -44,8 +44,18 @@ import {
 } from './session-query-executor.service';
 import type { SubagentBudgetSink } from './session-query-executor.service';
 import { CompactionCoordinator } from '../compaction/compaction-coordinator';
-import { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
+import {
+  SubagentBudgetMonitor,
+  type SubagentHandoffFilesPort,
+} from '../compaction/subagent-budget-monitor';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
+
+/** A monitor's handoff files when the session has no workspace. */
+const noHandoffFiles: SubagentHandoffFilesPort = {
+  paths: () => undefined,
+  saveTask: async () => false,
+  notesExist: async () => false,
+};
 import {
   COMPACTION_MAX_DWELL_MS,
   type CompactionTimers,
@@ -998,6 +1008,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
           withdrawMainThreadNotice: jest.fn(),
         },
         {} as SubagentRegistryService,
+        noHandoffFiles,
       );
     }
 
@@ -1538,6 +1549,7 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
         } as unknown as CompactionConfigProvider,
         port,
         registry as unknown as SubagentRegistryService,
+        noHandoffFiles,
       );
       return { monitor, port, registry };
     }
@@ -1694,6 +1706,7 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
           withdrawMainThreadNotice: jest.fn(),
         },
         {} as SubagentRegistryService,
+        noHandoffFiles,
       );
     }
     /** 1000 cache-write tokens and no `cache_creation` TTL split. */

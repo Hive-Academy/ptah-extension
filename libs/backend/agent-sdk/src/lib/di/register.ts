@@ -112,6 +112,7 @@ import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import { SubagentHandoffFiles } from '../helpers/compaction/subagent-handoff-files';
 import {
   MODEL_DISPATCH_PROVENANCE_TAP,
   type ModelDispatchProvenanceTap,
@@ -496,8 +497,18 @@ export function registerSdkServices(
           SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
         );
       const notices = c.resolve(MainThreadNoticeQueue);
+      const logger = c.resolve<Logger>(TOKENS.LOGGER);
+      // Resolved on first use, like the dispatcher: the lifecycle manager
+      // injects this monitor.
+      const handoffFiles = new SubagentHandoffFiles(logger, (sessionId) =>
+        c
+          .resolve<SessionLifecycleManager>(
+            SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+          )
+          .getSessionWorkspace(sessionId),
+      );
       return new SubagentBudgetMonitor(
-        c.resolve<Logger>(TOKENS.LOGGER),
+        logger,
         c.resolve<CompactionConfigProvider>(
           SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
         ),
@@ -512,6 +523,7 @@ export function registerSdkServices(
             notices.withdraw(sessionId, text),
         },
         c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
+        handoffFiles,
       );
     }),
   });

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   Logger,
@@ -8,6 +9,7 @@ import type {
 import type { SubagentRecord } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
+import { SubagentHandoffFiles } from './subagent-handoff-files';
 import {
   MAX_STOP_ATTEMPTS,
   SubagentBudgetMonitor,
@@ -69,7 +71,7 @@ function assistant(
 
 function makeHarness(
   record: Partial<SubagentRecord> | null = {},
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean; workspace?: string } = {},
 ) {
   const logger = {
     debug: jest.fn(),
@@ -121,6 +123,8 @@ function makeHarness(
     config as unknown as CompactionConfigProvider,
     dispatcher as unknown as SubagentBudgetDispatcherPort,
     registry as unknown as SubagentRegistryService,
+    // No workspace by default: no handoff files.
+    new SubagentHandoffFiles(logger as unknown as Logger, () => opts.workspace),
   );
   return { monitor, logger, dispatcher, registry, streamed, notices };
 }
@@ -217,7 +221,7 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.streamed).toHaveLength(1);
     expect(h.streamed[0]).toContain('`Explore`');
     expect(h.streamed[0]).toContain('150000 context tokens');
-    expect(h.streamed[0]).toContain('start a fresh `Explore` subagent');
+    expect(h.streamed[0]).toContain('spawn a fresh `Explore` subagent');
     expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)?.stopped).toBe(true);
   });
 
@@ -297,7 +301,7 @@ describe('SubagentBudgetMonitor', () => {
       expect(h.registry.update).not.toHaveBeenCalled();
       expect(h.streamed).toHaveLength(1);
       expect(h.streamed[0]).toContain('stopped subagent `Plan`');
-      expect(h.streamed[0]).toContain('start a fresh `Plan` subagent');
+      expect(h.streamed[0]).toContain('spawn a fresh `Plan` subagent');
       expect(h.logger.warn).not.toHaveBeenCalled();
       expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)?.stopped).toBe(true);
     });
@@ -1027,6 +1031,87 @@ describe('SubagentBudgetMonitor', () => {
       expect(h.dispatcher.stopSubagent).toHaveBeenCalledWith(SESSION, 'task-9');
       expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
       expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
+    });
+
+    describe('handoff files', () => {
+      let workspace: string;
+      beforeEach(() => {
+        workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-handoff-'));
+      });
+      afterEach(() => {
+        fs.rmSync(workspace, { recursive: true, force: true });
+      });
+      const dir = () => path.join(workspace, '.ptah', 'subagent-handoffs');
+      const longPrompt = `Design the auth module. ${'y'.repeat(400)} END`;
+
+      async function stopSpawned(h: ReturnType<typeof makeHarness>) {
+        h.monitor.recordTaskStarted(SESSION, TOOL_CALL, 'task-9', 'architect');
+        await h.monitor.observe(
+          SESSION,
+          spawn({
+            description: 'Design auth',
+            prompt: longPrompt,
+            name: 'arch',
+          }),
+        );
+        await h.monitor.observe(SESSION, toolResult());
+        await h.monitor.observe(
+          SESSION,
+          assistant({ input: 200_000 }, { id: 'm1' }),
+        );
+        return h.streamed[0];
+      }
+
+      it('saves the full prompt and points a fresh subagent of the same type and name at the notes', async () => {
+        const h = makeHarness(null, { workspace });
+        fs.mkdirSync(dir(), { recursive: true });
+        const notes = path.join(dir(), `${TOOL_CALL}.md`);
+        fs.writeFileSync(notes, 'state: half done');
+
+        const text = await stopSpawned(h);
+        const taskFile = path.join(dir(), `${TOOL_CALL}.task.md`);
+
+        expect(fs.readFileSync(taskFile, 'utf8')).toBe(longPrompt);
+        expect(text).not.toContain(' END');
+        expect(text).toContain(`saved at ${taskFile}`);
+        expect(text).toContain(`Its progress notes are at ${notes}.`);
+        expect(text).toContain(
+          "spawn a fresh `architect` subagent named 'arch'",
+        );
+        expect(text).toContain(
+          `"Read ${notes} first and continue from it; do not redo finished work."`,
+        );
+        expect(text).toContain('output file named by the task notification');
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+      });
+
+      it('without a notes file still hands off and says the file is missing', async () => {
+        const h = makeHarness(null, { workspace });
+
+        const text = await stopSpawned(h);
+        const notes = path.join(dir(), `${TOOL_CALL}.md`);
+
+        expect(text).toContain(
+          `Its progress notes file is missing: ${notes} was not written.`,
+        );
+        expect(text).not.toContain(`Read ${notes} first`);
+        expect(text).toContain('do not redo finished work');
+        expect(fs.existsSync(path.join(dir(), `${TOOL_CALL}.task.md`))).toBe(
+          true,
+        );
+        expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+      });
+
+      it('without a workspace names no files and takes the prompt from the spawning call', async () => {
+        const h = makeHarness(null);
+
+        const text = await stopSpawned(h);
+
+        expect(text).not.toContain('.ptah');
+        expect(text).toContain(
+          'its full original task prompt from the Agent call that spawned it',
+        );
+      });
     });
 
     it("ignores a subagent's own tool results and results of calls that spawn nothing", async () => {

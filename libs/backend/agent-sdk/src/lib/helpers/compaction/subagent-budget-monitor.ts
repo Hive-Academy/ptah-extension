@@ -35,9 +35,12 @@
  * The handoff names Ptah's subagent budget monitor as the one that stopped
  * the subagent: the SDK's own task notification calls it "stopped by user".
  * It restates the subagent's task, read from the `Agent`/`Task` `tool_use`
- * input of the message that spawned it. Starting the fresh subagent is left
- * to the parent model: the SDK gives the host no API to spawn a Task subagent
- * itself.
+ * input of the message that spawned it, and gives what a fresh subagent of
+ * the same type and name needs ({@link SubagentHandoffFiles}): the full task
+ * prompt saved to a file at the stop, the progress notes file (or that it is
+ * missing), and where the SDK reports the stopped task's output. Starting the
+ * fresh subagent is left to the parent model: the SDK gives the host no API
+ * to spawn a Task subagent itself.
  *
  * Task id: `stopSubagent` needs the SDK task id. It comes from the SDK's
  * `task_started` message ({@link SubagentBudgetMonitor.recordTaskStarted}),
@@ -66,6 +69,18 @@ import type {
 import type { SubagentPromptCacheTtl } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import type { SubagentMessageDispatcher } from '../subagent-message-dispatcher';
+import type { SubagentHandoffFiles } from './subagent-handoff-files';
+import {
+  handoffMessage,
+  type HandoffFileState,
+  type StopReason,
+} from './subagent-handoff-message';
+
+/** The handoff file operations the monitor uses. */
+export type SubagentHandoffFilesPort = Pick<
+  SubagentHandoffFiles,
+  'paths' | 'saveTask' | 'notesExist'
+>;
 
 /** Token usage of one model request, as the subagent message reports it. */
 export interface SubagentRequestUsage {
@@ -227,8 +242,6 @@ export function readSubagentTaskText(input: unknown): string | undefined {
   return description || excerpt || undefined;
 }
 
-type StopReason = 'handoff' | 'safety';
-
 interface SubagentState {
   contextTokens: number;
   weightedUsed: number;
@@ -256,18 +269,22 @@ interface StartedTask {
   readonly subagentType?: string;
 }
 
-/** Who the handoff names: the registry record when there is one, else `task_started`. */
-interface HandoffSubject {
-  readonly agentType: string;
-  readonly teammateName?: string;
+/** What a spawning `Agent`/`Task` tool_use input says about its subagent. */
+interface SpawnTask {
+  /** Description and prompt excerpt ({@link readSubagentTaskText}). */
+  readonly text?: string;
+  /** The full prompt, saved to the task file at a stop. */
+  readonly prompt?: string;
+  /** The `name` input: the teammate name a fresh subagent reuses. */
+  readonly name?: string;
 }
 
 interface SessionState {
   /** Current id of the session; moves on {@link SubagentBudgetMonitor.rekey}. */
   sessionId: string;
   readonly subagents: Map<string, SubagentState>;
-  /** Task text per spawning `Agent`/`Task` tool_use id. */
-  readonly taskTexts: Map<string, string>;
+  /** Task per spawning `Agent`/`Task` tool_use id. */
+  readonly tasks: Map<string, SpawnTask>;
   /** SDK task per spawning tool_use id, from `task_started`. */
   readonly startedTasks: Map<string, StartedTask>;
   /**
@@ -312,6 +329,7 @@ export class SubagentBudgetMonitor {
     private readonly config: CompactionConfigProvider,
     private readonly dispatcher: SubagentBudgetDispatcherPort,
     private readonly registry: SubagentRegistryService,
+    private readonly handoffFiles: SubagentHandoffFilesPort,
   ) {}
 
   /**
@@ -472,9 +490,9 @@ export class SubagentBudgetMonitor {
           session.subagents.set(toolCallId, state);
         }
       }
-      for (const [toolUseId, text] of existing.taskTexts) {
-        if (!session.taskTexts.has(toolUseId)) {
-          session.taskTexts.set(toolUseId, text);
+      for (const [toolUseId, task] of existing.tasks) {
+        if (!session.tasks.has(toolUseId)) {
+          session.tasks.set(toolUseId, task);
         }
       }
       for (const [toolUseId, started] of existing.startedTasks) {
@@ -536,7 +554,7 @@ export class SubagentBudgetMonitor {
       session = {
         sessionId,
         subagents: new Map(),
-        taskTexts: new Map(),
+        tasks: new Map(),
         startedTasks: new Map(),
         spawnReturned: new Map(),
         noUsageLogged: false,
@@ -602,10 +620,18 @@ export class SubagentBudgetMonitor {
       }
       const session = this.sessionState(sessionId);
       trackSpawn(session, id);
-      const text = readSubagentTaskText(block['input']);
-      if (text) {
-        session.taskTexts.set(id, text);
-      }
+      const input = asObject(block['input']);
+      const prompt = input?.['prompt'];
+      const teammate = input?.['name'];
+      session.tasks.set(id, {
+        text: readSubagentTaskText(input),
+        prompt:
+          typeof prompt === 'string' && prompt.trim() ? prompt : undefined,
+        name:
+          typeof teammate === 'string' && teammate.trim()
+            ? teammate.trim()
+            : undefined,
+      });
     }
   }
 
@@ -754,16 +780,61 @@ export class SubagentBudgetMonitor {
       weightedUsed: Math.round(state.weightedUsed),
     });
 
+    const task = live.tasks.get(toolCallId);
+    const files = await this.prepareHandoffFiles(sessionId, toolCallId, task);
+    // Released while the files were written: the session is over.
+    const current = this.liveSession(live);
+    if (!current) {
+      return;
+    }
     const text = handoffMessage(
       {
         agentType: record?.agentType ?? started?.subagentType ?? 'subagent',
-        teammateName: record?.teammateName,
+        teammateName: record?.teammateName ?? task?.name,
       },
-      state,
-      reason,
-      limits,
-      live.taskTexts.get(toolCallId),
+      {
+        reason,
+        contextTokens: state.contextTokens,
+        weightedUsed: state.weightedUsed,
+        handoffTokens: limits.handoffTokens,
+        stopWeightedTokens: limits.stopWeightedTokens,
+      },
+      task?.text,
+      files,
     );
+    await this.deliverHandoff(current, toolCallId, liveState, text);
+  }
+
+  /** Save the full task prompt and check for the subagent's progress notes. */
+  private async prepareHandoffFiles(
+    sessionId: string,
+    toolCallId: string,
+    task: SpawnTask | undefined,
+  ): Promise<HandoffFileState> {
+    const paths = this.handoffFiles.paths(sessionId, toolCallId);
+    if (!paths) {
+      return { taskSaved: false, notesWritten: false };
+    }
+    const [taskSaved, notesWritten] = await Promise.all([
+      task?.prompt
+        ? this.handoffFiles.saveTask(paths, task.prompt)
+        : Promise.resolve(false),
+      this.handoffFiles.notesExist(paths),
+    ]);
+    return { paths, taskSaved, notesWritten };
+  }
+
+  /**
+   * Hand the parent the handoff once: as a user turn when the spawning tool
+   * result already returned, else through the notice queue.
+   */
+  private async deliverHandoff(
+    live: SessionState,
+    toolCallId: string,
+    stoppedState: SubagentState,
+    text: string,
+  ): Promise<void> {
+    const sessionId = live.sessionId;
     if (live.spawnReturned.get(toolCallId) === true) {
       // Background subagent: its tool result already came back, so no
       // main-thread tool result is due to carry a queued notice.
@@ -771,6 +842,7 @@ export class SubagentBudgetMonitor {
       return;
     }
     // Foreground subagent: the handoff rides on its own tool result.
+    const liveState = live.subagents.get(toolCallId) ?? stoppedState;
     liveState.pendingNotice = { sessionId, text };
     this.dispatcher.postMainThreadNotice(sessionId, text);
   }
@@ -849,32 +921,4 @@ function trackSpawn(session: SessionState, toolUseId: string): void {
 /** A stop of this subagent is running or has finished. */
 function hasStopStarted(state: SubagentState): boolean {
   return state.stopInFlight || state.stopFired;
-}
-
-function handoffMessage(
-  subject: HandoffSubject,
-  state: SubagentState,
-  reason: StopReason,
-  limits: {
-    readonly handoffTokens: number;
-    readonly stopWeightedTokens: number;
-  },
-  taskText: string | undefined,
-): string {
-  const name = subject.teammateName
-    ? `\`${subject.agentType}\` ('${subject.teammateName}')`
-    : `\`${subject.agentType}\``;
-  const why =
-    reason === 'handoff'
-      ? `at ${state.contextTokens} context tokens (handoff limit ${limits.handoffTokens} tokens)`
-      : `after ${Math.round(state.weightedUsed)} weighted tokens (safety limit ${limits.stopWeightedTokens})`;
-  const task = taskText ? ` Its task was: ${taskText}` : '';
-  return (
-    `Ptah's subagent budget monitor stopped subagent ${name} ${why}. ` +
-    `The user did not stop it; a task notification that reports it as ` +
-    `stopped by the user refers to this automatic stop. ` +
-    `It cannot be resumed.${task} ` +
-    `If its task is not finished, start a fresh \`${subject.agentType}\` subagent with a handoff: ` +
-    `restate its task and what remains; its output so far is in the session transcript.`
-  );
 }
