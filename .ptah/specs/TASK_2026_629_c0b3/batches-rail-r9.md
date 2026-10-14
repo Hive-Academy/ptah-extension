@@ -366,7 +366,7 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 
 ### Task R9s.1 — COMPLETE (2365151a8)
 
-## Batch R9t: Late intent/store Grid cleanup — PENDING
+## Batch R9t: Late intent/store Grid cleanup — COMPLETE (ad3234690; review code-logic-review-R9t.md APPROVE-WITH-FIXES 8/10, Moderates fixed by row 94)
 
 - Executor: codex lane | Fallback: Claude frontend-developer | Reviewer: Claude code-logic-reviewer | Wave 6 | Depends: R9k, R9p, R9m, R9j, R9i, R9b
 - Files: `canvas/src/lib/canvas.store.ts`, its `.spec.ts`, `canvas-layout-intent.ts`, its `.spec.ts`
@@ -380,7 +380,13 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 - Writer: SPEC(canvas, canvas.store.spec.ts), SPEC(canvas, canvas-layout-intent.spec.ts)
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
 
-### Task R9t.1 — PENDING
+- Mode 2 result (Wave 6, `mode2-wave6-report.md`): FULL(canvas) 22/23 suites, 241/243 tests; the
+  2 failures are only in R9f's mid-edit `canvas-lane-view.component.spec.ts` (`stop` removed, decision 93),
+  so R9t has none. TC green, LINT 0 errors (no warning in R9t files). rg: removed symbols have zero callers;
+  `reorderTiles`/`commitDragIntent` kept. Row-94 comments accurate. Review APPROVE-WITH-FIXES 8/10;
+  M1-M2 fixed (row 94), m3-m5 recorded.
+
+### Task R9t.1 — COMPLETE (ad3234690)
 
 ## Batch R9h: Rail retention cap 4, stable ChatView, dock by tab id — COMPLETE (43d48bf89; review code-logic-review-R9h.md, fix round done)
 
@@ -409,7 +415,11 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 
 ### Task R9h.1 — COMPLETE (43d48bf89)
 
-## Batch R9f: Persistent Rail transcript host, restored dock, live full lane — PENDING
+## Batch R9f: Persistent Rail transcript host, restored dock, live full lane — COMPLETE (19db607e8; reviews code-logic-review-R9f.md REVISE 5/10 -> fix round -> -R9f-fix.md 7/10 -> correction (row 98) -> -R9f-correction.md APPROVED 8/10)
+
+- Mode 2 H2 (2026-10-14): NOT ACCEPTED. FULL(canvas) 255/255 and TC(canvas) pass; LINT(canvas) fails with 9
+  errors in `canvas-detail-transcript.component.spec.ts:4,13-20` (component-selector, enforce-module-boundaries).
+  Not VERIFIED, so row 95's commit waits for a lint fix and a green LINT(canvas). See `mode2-h2-report.md`.
 
 - Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H2 | Depends: R9h, R9g, R9n, R9d, R9j (hold lifted, decision 81)
 - Gate (decision 89): removing `HIDE_AGENT_SIDEBAR: true` is allowed only after R9h is COMPLETE with both
@@ -417,7 +427,8 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
   its Mode 2. If either case is absent or red, R9f does not start.
 - Files: `canvas/src/lib/canvas-detail/canvas-detail-transcript.component.ts`, its `.spec.ts`, `canvas-lane-view.component.ts`,
   its `.spec.ts`, `canvas/src/lib/canvas-rail/canvas-focus-area.component.ts`, its `.spec.ts`,
-  `canvas/src/lib/canvas-session-overrides.ts`, `canvas-session-overrides.spec.ts` (new)
+  `canvas/src/lib/canvas-session-overrides.ts`, `canvas-session-overrides.spec.ts` (new),
+  `canvas-detail/canvas-lane-tabs.component.ts` + `.spec.ts` (decision 98, post-cap correction)
 - Contract: remove `HIDE_AGENT_SIDEBAR: true` (`canvas-detail-transcript.component.ts:56`); provide Rail
   `SESSION_CARD_ACTIONS` (selectLaneFor parent tab + `sub:`/`bg:`); stable lane host (no keyed `@for` on tab id);
   transcript outside keyed non-orchestrator block; cover hides/freezes via SESSION_VISIBLE/SURFACE_ACTIVE; Open/Back
@@ -430,7 +441,7 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
   SPEC(canvas, canvas-focus-area.component.spec.ts), SPEC(canvas, canvas-session-overrides.spec.ts)
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
 
-### Task R9f.1 — PENDING
+### Task R9f.1 — COMPLETE (19db607e8)
 
 ## Batch R9l: Narrow CanvasBoardMode; detail service; e2e selectors — PENDING
 
@@ -439,7 +450,8 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
   after R9l. R9l keeps its approved contract (decision 81).
 - Files: `canvas/src/lib/canvas-board-mode.ts`, `canvas-detail/canvas-detail.service.ts`, its `.spec.ts`,
   `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts`, `apps/ptah-electron-e2e/src/specs/task-337-agent-card-refresh.spec.ts`,
-  `apps/ptah-electron-e2e/src/specs/git/hunk-revert-top-layer.spec.ts` (decision 90a; 6 files, within the 8-file cap)
+  `apps/ptah-electron-e2e/src/specs/git/hunk-revert-top-layer.spec.ts` (decision 90a),
+  `canvas/src/lib/orchestra-canvas.component.spec.ts` (decision 96; 7 files, within the 8-file cap)
 - Contract: narrow `CanvasBoardMode` to `'rail'`; persistence alone accepts historical `'grid'`; keep Rail lane
   memory; rewrite e2e selectors and task-337 tile/full-view assertion; do not run e2e; `packaged-deps.spec.ts`
   unowned and unchanged; Gridstack kept. Rows 63-66, 115, 116.
@@ -448,7 +460,11 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
   fills the board behind the dialog) so the modal-above-canvas bounding-box assertion still runs.
   Decision 90c: `CanvasDetailService.toggle/next/prev` have no production caller after R9j; remove them (and
   their spec cases) or keep them only with a named caller.
-- Writer: SPEC(canvas, canvas-detail.service.spec.ts)
+  Decision 96 (R9k finding 2): remove `containerHeight`, `columnsFor`, `computeLayout` from the `CanvasLayoutService`
+  mocks in `orchestra-canvas.component.spec.ts:241-248,735-740` so the mocks match the current service.
+  R9k finding 3: rewrite the deleted-control e2e selectors in `canvas.spec.ts:145,553,569,883,898` ("Layout options",
+  "Layout presets", "Lock tiles") to Rail equivalents or remove those steps with a reason in the lane report.
+- Writer: SPEC(canvas, canvas-detail.service.spec.ts), SPEC(canvas, orchestra-canvas.component.spec.ts)
 - Mode 2: SPEC re-run, TC(canvas), LINT(canvas), TC(ptah-electron-e2e), LINT(ptah-electron-e2e).
 
 ### Task R9l.1 — PENDING
