@@ -45,6 +45,9 @@ class HeaderStub {
   readonly band = input('lg');
   readonly splitDisplayed = input(false);
   readonly detailsOpen = input(false);
+  readonly paneFocused = input(true);
+  readonly paneNumber = input<1 | 2 | null>(null);
+  readonly panePlace = input('');
   readonly stop = output<void>();
   readonly toggleViewMode = output<void>();
   readonly closeRequested = output<void>();
@@ -163,6 +166,20 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.detectChanges();
     return { fixture, lanes, tabs, selectLaneFor };
   }
+
+  it('row 113: forwards pane activity, visual number and place to the header without remounting it', () => {
+    const { fixture } = mountWithLanes();
+    const header = () => fixture.debugElement.query(By.directive(HeaderStub)).componentInstance as HeaderStub;
+    const first = header();
+    expect([first.paneFocused(), first.paneNumber(), first.panePlace()]).toEqual([true, null, '']);
+    fixture.componentRef.setInput('splitDisplayed', true);
+    fixture.componentRef.setInput('paneFocused', false);
+    fixture.componentRef.setInput('paneNumber', 2);
+    fixture.componentRef.setInput('panePlace', 'Bottom');
+    fixture.detectChanges();
+    expect(header()).toBe(first);
+    expect([first.splitDisplayed(), first.paneFocused(), first.paneNumber(), first.panePlace()]).toEqual([true, false, 2, 'Bottom']);
+  });
 
   it('activates an inactive tab before stopping its session', async () => {
     const focus = jest.fn();

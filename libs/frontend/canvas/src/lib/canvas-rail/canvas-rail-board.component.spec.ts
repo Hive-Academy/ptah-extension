@@ -100,6 +100,7 @@ class SelectCardStub {
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
   readonly holdText = input(false);
+  readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
   readonly railState = output<CompactRailState>();
   readonly staleAction = output<void>();
@@ -153,6 +154,8 @@ class FocusStub {
   readonly paneLabel = input('Focused session');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
+  readonly paneNumber = input<1 | 2 | null>(null);
+  readonly panePlace = input('');
   readonly detailsOpen = input(false);
   readonly state = input<CompactRailState>('idle');
   readonly band = input('lg');
@@ -1486,5 +1489,93 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(chats.map((chat) => chat.dockOpen())).toEqual([false, true]);
     expect(chatNodes.map((node) => node.querySelector('[data-dock]')?.getAttribute('data-open'))).toEqual(['false', 'true']);
     expect(fixture.nativeElement.querySelectorAll('ptah-chat-view')).toHaveLength(2);
+  });
+
+  // ---- Row 113: split pane separation, active accent and 1/2 markers ----
+
+  const container = (fixture: Fixture) =>
+    fixture.nativeElement.querySelector<HTMLElement>('[data-testid="rail-pane-container"]') as HTMLElement;
+  const identity = (fixture: Fixture) =>
+    (['left', 'right'] as const).map((side) => {
+      const stub = stubOf(fixture, side);
+      return [side, stub.paneNumber(), stub.panePlace(), stub.paneFocused()];
+    });
+
+  it('row 113: side by side shows a vertical divider and markers 1/2 that follow visualOrder on swap', () => {
+    const { fixture, width } = mount(true, 3);
+    width.set(1600);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    expect(instance.splitStacked()).toBe(false);
+    expect(container(fixture).classList).toContain('gap-1');
+    const left = paneOf(fixture, 'left') as HTMLElement;
+    const right = paneOf(fixture, 'right') as HTMLElement;
+    expect(identity(fixture)).toEqual([['left', 1, 'Left', false], ['right', 2, 'Right', true]]);
+    expect(right.getAttribute('data-pane-divider')).toBe('vertical');
+    expect(right.classList).toContain('border-l');
+    expect(right.classList).toContain('border-base-content-muted');
+    expect(right.classList).not.toContain('border-t');
+    expect(left.hasAttribute('data-pane-divider')).toBe(false);
+    expect(left.classList).not.toContain('border-l');
+    instance.swapPanes();
+    fixture.detectChanges();
+    // Same wrappers; the marker and the divider follow the visual order.
+    expect(paneOf(fixture, 'left')).toBe(left);
+    expect(paneOf(fixture, 'right')).toBe(right);
+    expect(identity(fixture)).toEqual([['left', 2, 'Right', false], ['right', 1, 'Left', true]]);
+    expect(left.getAttribute('data-pane-divider')).toBe('vertical');
+    expect(left.classList).toContain('border-l');
+    expect(right.hasAttribute('data-pane-divider')).toBe(false);
+    expect(right.classList).not.toContain('border-l');
+    for (const pane of [left, right]) {
+      expect(pane.classList).toContain('min-w-[360px]');
+      expect(pane.classList).toContain('min-h-[400px]');
+    }
+  });
+
+  it('row 113: stacked panes use a horizontal divider on the bottom pane and Top/Bottom markers', () => {
+    const { fixture } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    expect(instance.splitStacked()).toBe(true);
+    expect(container(fixture).classList).toContain('gap-1');
+    const right = paneOf(fixture, 'right') as HTMLElement;
+    expect(identity(fixture)).toEqual([['left', 1, 'Top', false], ['right', 2, 'Bottom', true]]);
+    expect(right.getAttribute('data-pane-divider')).toBe('horizontal');
+    expect(right.classList).toContain('border-t');
+    expect(right.classList).not.toContain('border-l');
+    expect(paneOf(fixture, 'left')?.classList).not.toContain('border-t');
+  });
+
+  it('row 113: only the active pane is marked active, and activating the other pane moves it without remount', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    const hosts = (['left', 'right'] as const).map((side) => paneOf(fixture, side)?.querySelector('ptah-canvas-focus-area'));
+    expect([stubOf(fixture, 'left').paneFocused(), stubOf(fixture, 'right').paneFocused()]).toEqual([false, true]);
+    paneOf(fixture, 'left')?.click();
+    fixture.detectChanges();
+    expect(focused()).toBe('a');
+    expect([stubOf(fixture, 'left').paneFocused(), stubOf(fixture, 'right').paneFocused()]).toEqual([true, false]);
+    expect((['left', 'right'] as const).map((side) => paneOf(fixture, side)?.querySelector('ptah-canvas-focus-area'))).toEqual(hosts);
+    // Activation changes neither the visual numbers nor the divider.
+    expect(identity(fixture).map(([side, number]) => [side, number])).toEqual([['left', 1], ['right', 2]]);
+  });
+
+  it('row 113: single focus has no divider, gap or marker', () => {
+    const { fixture, width } = mount(true, 3);
+    width.set(1600);
+    fixture.detectChanges();
+    expect(container(fixture).classList).not.toContain('gap-1');
+    const panes = [...container(fixture).querySelectorAll<HTMLElement>(':scope > [data-pane-side]')];
+    expect(panes).toHaveLength(1);
+    expect(panes[0].hasAttribute('data-pane-divider')).toBe(false);
+    for (const name of ['border-l', 'border-t', 'border-base-content-muted', 'min-w-[360px]', 'min-h-[400px]'])
+      expect(panes[0].classList).not.toContain(name);
+    const stub = fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
+    expect([stub.splitDisplayed(), stub.paneNumber(), stub.panePlace()]).toEqual([false, null, '']);
   });
 });

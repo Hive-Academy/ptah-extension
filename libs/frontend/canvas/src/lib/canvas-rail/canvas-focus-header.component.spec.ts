@@ -142,6 +142,70 @@ describe('CanvasFocusHeaderComponent', () => {
     expect(host.querySelector('[data-stop]')?.getAttribute('aria-label')).toBe('Stop session');
     expect(host.querySelector('[aria-label="Close session"]')?.textContent).not.toContain('Close');
   });
+  describe('row 113: split pane identity', () => {
+    function pane(active: boolean, number: 1 | 2, place: string) {
+      const { fixture, host } = split();
+      fixture.componentRef.setInput('branch', 'feat/x'); fixture.componentRef.setInput('model', 'claude-opus-5-5');
+      fixture.componentRef.setInput('paneFocused', active); fixture.componentRef.setInput('paneNumber', number);
+      fixture.componentRef.setInput('panePlace', place); fixture.detectChanges();
+      const header = host.querySelector<HTMLElement>('header')!;
+      const chips = [...header.querySelectorAll<HTMLElement>('span.bg-base-200:not([data-pane-marker])')].filter((chip) => /feat\/x|claude-opus/.test(chip.textContent ?? ''));
+      return { fixture, header, chips, marker: header.querySelector<HTMLElement>('[data-pane-marker]'), title: header.querySelector<HTMLElement>('strong')! };
+    }
+    it('the active split header carries the primary accent and a filled marker; its title keeps full contrast', () => {
+      const { header, marker, title, chips } = pane(true, 1, 'Left');
+      expect(header.classList).toContain('pane-active');
+      expect(header.classList).not.toContain('pane-quiet');
+      expect(header.getAttribute('data-pane-active')).toBe('true');
+      expect(marker?.querySelector('[aria-hidden="true"]')?.textContent).toBe('1');
+      expect(marker?.querySelector('.sr-only')?.textContent).toBe('Left pane 1');
+      expect(marker?.classList).toContain('pane-marker-active');
+      expect(header.firstElementChild).toBe(marker);
+      expect(title.classList).not.toContain('text-base-content-muted');
+      expect(chips).toHaveLength(2);
+      chips.forEach((chip) => expect(chip.classList).not.toContain('text-base-content-muted'));
+    });
+    it('the inactive split header is quiet: muted title, meta chips and marker, no accent', () => {
+      const { header, marker, title, chips } = pane(false, 2, 'Right');
+      expect(header.classList).toContain('pane-quiet');
+      expect(header.classList).not.toContain('pane-active');
+      expect(header.getAttribute('data-pane-active')).toBe('false');
+      expect(marker?.querySelector('[aria-hidden="true"]')?.textContent).toBe('2');
+      expect(marker?.querySelector('.sr-only')?.textContent).toBe('Right pane 2');
+      expect(marker?.classList).toContain('text-base-content-muted');
+      expect(marker?.classList).not.toContain('pane-marker-active');
+      expect(title.classList).toContain('text-base-content-muted');
+      expect(chips).toHaveLength(2);
+      chips.forEach((chip) => expect(chip.classList).toContain('text-base-content-muted'));
+      // The state chip keeps its state ink.
+      expect(header.querySelector('.state-idle')?.classList).not.toContain('text-base-content-muted');
+    });
+    it('switching the active pane moves the accent without remounting the header', () => {
+      const { fixture, header } = pane(true, 1, 'Left');
+      fixture.componentRef.setInput('paneFocused', false); fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('header')).toBe(header);
+      expect(header.classList).toContain('pane-quiet');
+      expect(header.classList).not.toContain('pane-active');
+    });
+    it('both split headers keep the 48 px header height class', () => {
+      for (const active of [true, false]) {
+        const { header } = pane(active, active ? 1 : 2, active ? 'Top' : 'Bottom');
+        expect(header.classList).toContain('h-12');
+      }
+    });
+    it('single focus has no marker, no accent, no quiet styling, even with a stale pane number', () => {
+      const fixture = mount(); const host = fixture.nativeElement as HTMLElement;
+      fixture.componentRef.setInput('paneFocused', false); fixture.componentRef.setInput('paneNumber', 2);
+      fixture.componentRef.setInput('model', 'claude-opus-5-5'); fixture.detectChanges();
+      const header = host.querySelector<HTMLElement>('header')!;
+      expect(header.querySelector('[data-pane-marker]')).toBeNull();
+      expect(header.classList).not.toContain('pane-active');
+      expect(header.classList).not.toContain('pane-quiet');
+      expect(header.hasAttribute('data-pane-active')).toBe(false);
+      expect(header.classList).toContain('h-12');
+      expect(header.querySelectorAll('.text-base-content-muted')).toHaveLength(0);
+    });
+  });
   it('hides button words and model in a narrow band while preserving labels', () => {
     const fixture = mount(); fixture.componentRef.setInput('band', 'sm'); fixture.componentRef.setInput('model', 'Opus'); fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;

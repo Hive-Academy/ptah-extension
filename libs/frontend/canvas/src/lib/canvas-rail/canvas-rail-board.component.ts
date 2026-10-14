@@ -136,10 +136,15 @@ function isTabbable(element: HTMLElement): boolean {
             }
           </section>
         } @else {
-          <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" data-testid="rail-pane-container">
+          <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" data-testid="rail-pane-container">
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
-                <section class="relative overflow-y-auto" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true" [style.order]="visualOrder().indexOf(side)" [attr.data-pane-side]="side" [attr.aria-label]="paneLabel(side, id)" (click)="activatePane(side)" (focusin)="activatePane(side)">
+                <section class="relative overflow-y-auto" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
+                  [class.border-base-content-muted]="splitDisplayed()"
+                  [class.border-l]="splitDisplayed() && !splitStacked() && paneNumber(side) === 2"
+                  [class.border-t]="splitDisplayed() && splitStacked() && paneNumber(side) === 2"
+                  [attr.data-pane-divider]="splitDisplayed() && paneNumber(side) === 2 ? (splitStacked() ? 'horizontal' : 'vertical') : null"
+                  [style.order]="visualOrder().indexOf(side)" [attr.data-pane-side]="side" [attr.aria-label]="paneLabel(side, id)" (click)="activatePane(side)" (focusin)="activatePane(side)">
                   <ptah-canvas-focus-area
                     class="block h-full min-w-0"
                     [focusedTabId]="id"
@@ -147,6 +152,8 @@ function isTabbable(element: HTMLElement): boolean {
                     [paneLabel]="paneLabel(side, id)"
                     [paneFocused]="activeSide() === side"
                     [splitDisplayed]="splitDisplayed()"
+                    [paneNumber]="splitDisplayed() ? paneNumber(side) : null"
+                    [panePlace]="splitDisplayed() ? panePlace(side) : ''"
                     [detailsOpen]="detailsOpen() && activeSide() === side"
                     [state]="railStates().get(id) ?? 'idle'"
                     [band]="band()"
@@ -497,11 +504,19 @@ export class CanvasRailBoardComponent {
     return this.activeId();
   }
 
+  /** Visual position of a pane: 1 for left/top, 2 for right/bottom. Follows Swap panes. */
+  paneNumber(side: 'left' | 'right'): 1 | 2 {
+    return this.visualOrder().indexOf(side) === 0 ? 1 : 2;
+  }
+
+  panePlace(side: 'left' | 'right'): 'Left' | 'Right' | 'Top' | 'Bottom' {
+    const first = this.paneNumber(side) === 1;
+    return this.splitStacked() ? (first ? 'Top' : 'Bottom') : (first ? 'Left' : 'Right');
+  }
+
   paneLabel(side: 'left' | 'right', id: string): string {
-    const position = this.visualOrder().indexOf(side);
-    const place = this.splitStacked() ? (position === 0 ? 'Top' : 'Bottom') : (position === 0 ? 'Left' : 'Right');
     const title = this.title(id);
-    return this.splitDisplayed() ? `${place} session: ${title}${this.activeSide() === side ? ', active' : ''}` : `Focused session: ${title}`;
+    return this.splitDisplayed() ? `${this.panePlace(side)} session: ${title}${this.activeSide() === side ? ', active' : ''}` : `Focused session: ${title}`;
   }
 
   activatePane(side: 'left' | 'right'): void {

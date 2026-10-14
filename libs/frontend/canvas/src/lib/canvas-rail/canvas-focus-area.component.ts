@@ -43,6 +43,9 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           [band]="band()"
           [splitDisplayed]="splitDisplayed()"
           [detailsOpen]="detailsOpen()"
+          [paneFocused]="paneFocused()"
+          [paneNumber]="paneNumber()"
+          [panePlace]="panePlace()"
           (stop)="stop(id)"
           (toggleViewMode)="tabs.toggleTabViewMode(id)"
           (closeRequested)="closeRequested.emit(id)"
@@ -83,6 +86,9 @@ export class CanvasFocusAreaComponent {
   readonly paneLabel = input('Focused session');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
+  /** Split only: visual position (1 = left/top) and its positional word, for the header marker. */
+  readonly paneNumber = input<1 | 2 | null>(null);
+  readonly panePlace = input('');
   /** The split Details overlay is open on this pane. */
   readonly detailsOpen = input(false);
   readonly panelId = computed(() => `rail-${this.paneId()}-lane-panel`);
