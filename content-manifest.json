@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:ac5814cf272ad83296320f18d599e1affc4802464422ef5a54e98af4abf7fe6a",
-  "generatedAt": "2026-10-13T03:14:52.562Z",
+  "contentHash": "sha256:3c080f821c2020c625b83085f31d3437571cdcfa6f058459b597d25ef856e43e",
+  "generatedAt": "2026-10-14T00:09:11.992Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -70,6 +70,7 @@
       "ptah-core/skills/ptah-surface-authoring/SKILL.md",
       "ptah-core/skills/ptah-surface-authoring/references/catalog.md",
       "ptah-core/skills/ptah-surface-authoring/references/ptah-ui.md",
+      "ptah-core/skills/session-handoff/SKILL.md",
       "ptah-core/skills/skill-creator/LICENSE.txt",
       "ptah-core/skills/skill-creator/SKILL.md",
       "ptah-core/skills/skill-creator/references/output-patterns.md",
