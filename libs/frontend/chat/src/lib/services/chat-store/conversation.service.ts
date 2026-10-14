@@ -8,7 +8,15 @@
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  */
 
-import { Injectable, inject, signal, Injector } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  effect,
+  inject,
+  signal,
+  untracked,
+  Injector,
+} from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import type { SendMessageOptions, TabState } from '@ptah-extension/chat-types';
@@ -19,6 +27,25 @@ import {
 import { MessageFinalizationService } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from '../message-validation.service';
 import { SessionLoaderService } from './session-loader.service';
+
+/**
+ * The backend's slash-command test (`SlashCommandInterceptor.isSlashCommand`):
+ * a message is routed as a command only when it STARTS with one.
+ */
+const SLASH_COMMAND = /^\/[a-zA-Z]/;
+
+/** A slash command waiting behind a tab's queued text. */
+interface HeldCommand {
+  readonly content: string;
+  /** `true` once it is the tab's queued message, `false` when dropped. */
+  readonly settle: (queued: boolean) => void;
+}
+
+/** A tab's held commands and the queued text the first one waits behind. */
+interface HeldCommands {
+  behind: string;
+  readonly commands: HeldCommand[];
+}
 
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
@@ -50,6 +77,43 @@ export class ConversationService {
    * reaches the backend.
    */
   private readonly _lastAbortedTurnKey = signal<string | null>(null);
+
+  /**
+   * Slash commands queued while the tab already had queued text, per tab,
+   * oldest first (TASK_2026_655). Appended to that text, a command would no
+   * longer start the message and would be sent as plain text, so each one
+   * waits as its own turn: once the text in front of it is sent, it becomes
+   * the tab's queued message ({@link releaseHeldCommand}).
+   */
+  private readonly heldCommands = new Map<string, HeldCommands>();
+
+  constructor() {
+    // Held commands are released only by a flush of the tab's queue, which
+    // needs the queue and the tab's session. Every event that ends that wait
+    // without a flush settles them as dropped:
+    // - `close` / `forceClose` remove the tab.
+    // - `reset` (`/clear`) discards the queue and unbinds the session; a
+    //   command released afterwards would sit on a session-less tab that no
+    //   turn end flushes. That includes a command held behind the `/clear`
+    //   flush itself: its `chat:complete` reset arrives before the reply.
+    inject(DestroyRef).onDestroy(
+      this.tabManager.onTabClosed(({ tabId }) => this.dropHeldCommands(tabId)),
+    );
+    // A removed workspace takes its tabs, active and parked, with no close
+    // event (the layout ends their sessions itself).
+    effect(() => {
+      if (!this.tabManager.removedWorkspace$()) return;
+      untracked(() => this.dropHeldCommandsOfRemovedTabs());
+    });
+  }
+
+  private dropHeldCommandsOfRemovedTabs(): void {
+    for (const tabId of Array.from(this.heldCommands.keys())) {
+      if (!this.tabManager.findTabByIdAcrossWorkspaces(tabId)) {
+        this.dropHeldCommands(tabId);
+      }
+    }
+  }
 
   /**
    * Clear the queue restore signal after content has been consumed by ChatInputComponent.
@@ -100,24 +164,36 @@ export class ConversationService {
    * If content already queued, append with newline separator.
    * Options (files, images, effort) are stored only for the first queued message;
    * subsequent appends are text-only.
+   *
+   * Exception: a slash command is not appended to queued text. It is held as
+   * its own turn behind that text, and the returned promise settles `true`
+   * when it becomes the tab's queued message, or `false` when it is dropped.
+   * Every other call returns `null`.
    */
   public queueOrAppendMessage(
     content: string,
     options?: SendMessageOptions,
-  ): void {
+  ): Promise<boolean> | null {
     const targetTabId = options?.tabId ?? this.tabManager.activeTabId();
-    if (!targetTabId) return;
+    if (!targetTabId) return null;
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
         `[ConversationService] Invalid queue content: ${validation.reason}`,
       );
-      return;
+      return null;
     }
     const sanitized = this.validator.sanitize(content);
 
     const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
     const existingQueue = targetTab?.queuedContent?.trim() ?? '';
+
+    if (
+      SLASH_COMMAND.test(sanitized.trim()) &&
+      (existingQueue || this.heldCommands.has(targetTabId))
+    ) {
+      return this.holdCommand(targetTabId, sanitized, existingQueue);
+    }
 
     if (existingQueue) {
       this.tabManager.setQueuedContent(
@@ -133,6 +209,73 @@ export class ConversationService {
     } else {
       this.tabManager.setQueuedContent(targetTabId, sanitized);
     }
+    return null;
+  }
+
+  private holdCommand(
+    tabId: string,
+    content: string,
+    behind: string,
+  ): Promise<boolean> {
+    return new Promise<boolean>((settle) => {
+      const held = this.heldCommands.get(tabId);
+      if (held) {
+        held.commands.push({ content, settle });
+      } else {
+        this.heldCommands.set(tabId, {
+          behind,
+          commands: [{ content, settle }],
+        });
+      }
+    });
+  }
+
+  /**
+   * Make the tab's oldest held command its queued message, so it is sent as
+   * its own turn when the running turn ends.
+   *
+   * - `sent`: the queued text a flush just delivered. When it is not the text
+   *   the command waited behind (with any text appended to it), the queue was
+   *   reset in between, and the held commands are dropped instead of sent.
+   * - Omitted `sent`: the user removed the queued text (cancel or edit).
+   *
+   * When newer text was queued meanwhile, the command keeps waiting behind it.
+   */
+  releaseHeldCommand(tabId: string, sent?: string): void {
+    const held = this.heldCommands.get(tabId);
+    if (!held) return;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab || (sent !== undefined && !sent.trim().startsWith(held.behind))) {
+      this.dropHeldCommands(tabId);
+      return;
+    }
+    const waiting = tab.queuedContent?.trim();
+    if (waiting) {
+      held.behind = waiting;
+      return;
+    }
+    const [next, ...rest] = held.commands;
+    // The removed text's attachments must not travel with the command.
+    this.tabManager.clearQueuedContentAndOptions(tabId);
+    this.tabManager.setQueuedContent(tabId, next.content);
+    if (rest.length > 0) {
+      this.heldCommands.set(tabId, { behind: next.content, commands: rest });
+    } else {
+      this.heldCommands.delete(tabId);
+    }
+    next.settle(true);
+  }
+
+  /**
+   * Drop the tab's held commands, after a Stop, a failed turn, a tab close or
+   * reset, or a workspace removal: like the queued text, they must not be
+   * sent on their own later.
+   */
+  dropHeldCommands(tabId: string): void {
+    const held = this.heldCommands.get(tabId);
+    if (!held) return;
+    this.heldCommands.delete(tabId);
+    for (const command of held.commands) command.settle(false);
   }
 
   /**
@@ -217,6 +360,7 @@ export class ConversationService {
         });
         this.clearQueuedContent();
       }
+      if (activeTab) this.dropHeldCommands(activeTab.id);
       console.log(
         '[ConversationService] Calling chat:abort RPC for session:',
         sessionId,

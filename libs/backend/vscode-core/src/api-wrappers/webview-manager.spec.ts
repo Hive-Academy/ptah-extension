@@ -409,6 +409,40 @@ describe('WebviewManager', () => {
       );
     });
 
+    it('returns false when postMessage resolves false (webview not live)', async () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.send.notlive',
+        title: 'Not live',
+      });
+      panels[0].webview.postMessage.mockResolvedValueOnce(false);
+
+      const result = await manager.sendMessage(
+        'ptah.send.notlive',
+        MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+        {},
+      );
+
+      expect(result).toBe(false);
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('returns false when a registered view postMessage resolves false', async () => {
+      const view = createMockView();
+      view.webview.postMessage.mockResolvedValueOnce(false);
+      manager.registerWebviewView(
+        'ptah.view.notlive',
+        view as unknown as vscode.WebviewView,
+      );
+
+      await expect(
+        manager.sendMessage(
+          'ptah.view.notlive',
+          MESSAGE_TYPES.CHAT_MESSAGE_CHUNK,
+          {},
+        ),
+      ).resolves.toBe(false);
+    });
+
     it('returns false and logs an error when postMessage rejects', async () => {
       manager.createWebviewPanel({
         viewType: 'ptah.send.err',
@@ -503,7 +537,10 @@ describe('WebviewManager', () => {
         events: [],
       };
 
-      await manager.broadcastMessage(MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT, payload);
+      await manager.broadcastMessage(
+        MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload,
+      );
 
       expect(panels[0].webview.postMessage).toHaveBeenCalledWith({
         type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
