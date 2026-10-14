@@ -15,6 +15,21 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
 - Prefer one foreground run with a long timeout. Filter its output (`| tail`, `grep`) instead of
   re-running the command to read it.
 
+## Git: start every task in its own worktree
+
+- Before you change any file for a new task, create a worktree on a new branch from `main`:
+  `git worktree add -b <type>/<short-name> .claude-worktrees/<short-name> main`.
+  `.claude-worktrees/` is git-ignored. Keep `<type>` to the commit type (`fix`, `feat`, ...).
+- Make every edit, check and commit of the task inside that worktree. The main checkout stays
+  on `main` with no task changes in it. Give the worktree path to each subagent and as the
+  `workingDirectory` of each CLI lane for that task.
+- Pure questions, read-only investigation and status commands need no worktree.
+- Changes that are already in the main checkout move to a worktree before more work starts:
+  create the worktree, copy the changed files, confirm they are identical (`cmp`), and only
+  then revert them in the main checkout.
+- The worktree and its branch stay until the user says to remove them. After the PR merges,
+  remove it with `git worktree remove .claude-worktrees/<short-name>`.
+
 ## Git: commit in the foreground, push in the background
 
 - Run `git commit` in the foreground. Never run it in the background: lint-staged hides
