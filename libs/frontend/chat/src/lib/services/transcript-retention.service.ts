@@ -10,6 +10,7 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { RAIL_TRANSCRIPT_RETENTION, SESSION_CONTEXT } from '../tokens/session-context.token';
+import { RailTranscriptRetentionCoordinator } from './rail-transcript-retention-coordinator.service';
 
 /**
  * Hard bound on the number of retained (hidden-but-alive) transcript DOM trees
@@ -39,6 +40,9 @@ export class TranscriptRetentionService {
   private readonly _destroyRef = inject(DestroyRef);
   private readonly _railRetention =
     inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) ?? false;
+  private readonly _coordinator = this._railRetention
+    ? inject(RailTranscriptRetentionCoordinator, { optional: true })
+    : null;
   private static readonly owners = new WeakMap<
     ExecutionTreeBuilderService,
     Map<string, number>
@@ -56,6 +60,10 @@ export class TranscriptRetentionService {
   readonly retainedTabIds: Signal<readonly string[]> =
     this._retainedTabIds.asReadonly();
 
+  liveElsewhere(tabId: string): boolean {
+    return this._coordinator?.liveElsewhere(this, tabId) ?? false;
+  }
+
   /** Monotonic recency map: tabId → last-touched tick. Drives LRU eviction. */
   private readonly _recency = new Map<string, number>();
   private _clock = 0;
@@ -66,9 +74,13 @@ export class TranscriptRetentionService {
 
   constructor() {
     if (this._sessionContext && !this._railRetention) return;
+    if (this._coordinator && this._sessionContext) {
+      this._coordinator.register(this, this._sessionContext);
+    }
     if (this._railRetention) {
       this._destroyRef.onDestroy(() => {
-        for (const id of [...this._retainedTabIds()]) this.dispose(id);
+        if (this._coordinator) this._coordinator.releaseHost(this);
+        else for (const id of [...this._retainedTabIds()]) this.dispose(id);
       });
     }
 
@@ -117,6 +129,16 @@ export class TranscriptRetentionService {
    * (active) tab is never evicted.
    */
   touch(tabId: string): void {
+    if (this._coordinator) {
+      this._coordinator.touch(this, tabId);
+      return;
+    }
+    this.retainFromCoordinator(tabId);
+    this.evictOverCap(tabId);
+  }
+
+  /** Called only by the board coordinator; keeps the local DOM order stable. */
+  retainFromCoordinator(tabId: string): void {
     this._recency.set(tabId, ++this._clock);
     const current = this._retainedTabIds();
     if (!current.includes(tabId)) {
@@ -127,13 +149,20 @@ export class TranscriptRetentionService {
       TranscriptRetentionService.owners.set(this._treeBuilder, owners);
       this._retainedTabIds.set([...current, tabId]);
     }
-    this.evictOverCap(tabId);
   }
 
   /**
    * Drop a retained tab. Clear its tree memo only after its last owner releases it.
    */
   dispose(tabId: string): void {
+    if (this._coordinator) {
+      this._coordinator.release(this, tabId);
+      return;
+    }
+    this.releaseFromCoordinator(tabId);
+  }
+
+  releaseFromCoordinator(tabId: string, preserveCache = false): void {
     this._recency.delete(tabId);
     const current = this._retainedTabIds();
     if (!current.includes(tabId)) return;
@@ -143,8 +172,12 @@ export class TranscriptRetentionService {
     if (remaining > 0) owners?.set(tabId, remaining);
     else {
       owners?.delete(tabId);
-      this._treeBuilder.clearForTab(tabId);
+      if (!preserveCache) this._treeBuilder.clearForTab(tabId);
     }
+  }
+
+  releaseForTransfer(tabId: string): void {
+    this.releaseFromCoordinator(tabId, true);
   }
 
   private evictOverCap(activeTabId: string): void {

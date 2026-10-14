@@ -277,6 +277,13 @@ describe('TranscriptRetentionService', () => {
     expect(h.clearForTabMock).toHaveBeenCalledWith('shared');
   });
 
+  it('no coordinator -> unchanged behaviour', () => {
+    const h = makeHarness({ rail: true });
+    for (const id of ['A', 'B', 'C', 'D', 'E']) h.service.touch(id);
+    expect(h.service.retainedTabIds()).toEqual(['B', 'C', 'D', 'E']);
+    expect(h.clearForTabMock).toHaveBeenCalledWith('A');
+  });
+
   it('main panel destroy leaves its retained tree cache intact', () => {
     const h = makeHarness();
     h.service.touch('main-tab');

@@ -13,6 +13,8 @@ import {
   LOCALE_ID,
   NgZone,
   OnDestroy,
+  InjectionToken,
+  Signal,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -97,6 +99,22 @@ import type {
   SubagentRecord,
   MessageAnchorHint,
 } from '@ptah-extension/shared';
+
+/** Minimum transcript/composer width requested by a Rail pane. */
+export const RAIL_MIN_CONTENT_WIDTH = new InjectionToken<Signal<number | null>>(
+  'RAIL_MIN_CONTENT_WIDTH',
+);
+
+export function shouldOverlayDock(
+  hostWidth: number,
+  dockWidth: number,
+  minContentWidth: number | null,
+  panelOpen: boolean,
+): boolean {
+  if (hostWidth === 0) return panelOpen;
+  return hostWidth < AGENT_PANEL_OVERLAY_BREAKPOINT ||
+    (minContentWidth !== null && hostWidth - dockWidth < minContentWidth);
+}
 
 /** Product names of the lane CLIs, for runs that carry no display name. */
 const CLI_LABELS: Readonly<Record<CliType, string>> = {
@@ -255,6 +273,7 @@ export class ChatViewComponent implements OnDestroy {
   readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
+  private readonly railMinContentWidth = inject(RAIL_MIN_CONTENT_WIDTH, { optional: true });
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly ngZone = inject(NgZone);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
@@ -421,10 +440,12 @@ export class ChatViewComponent implements OnDestroy {
    * `ResizeObserver` is missing, so 0 is transient and never a resting state.
    */
   protected readonly isOverlay = computed(() => {
-    const width = this.hostWidth();
-    return width === 0
-      ? this.panelOpen()
-      : width < AGENT_PANEL_OVERLAY_BREAKPOINT;
+    return shouldOverlayDock(
+      this.hostWidth(),
+      this.dockWidth(),
+      this.railMinContentWidth?.() ?? null,
+      this.panelOpen(),
+    );
   });
 
   /** The Electron dock store; `null` in VS Code or with the sidebar hidden. */
@@ -452,15 +473,22 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly dockFocusRequest = signal(0);
 
   /** The dock width beside the chat: the user's width or 400 px, clamped. */
-  protected readonly dockWidth = computed(() =>
-    clampDockWidth(
-      this.panelResizeService.customWidth() ?? DISPLAY_DOCK_DEFAULT_WIDTH,
+  protected readonly dockWidth = computed(() => {
+    const custom = this.panelResizeService.customWidth();
+    const width = clampDockWidth(
+      custom ?? DISPLAY_DOCK_DEFAULT_WIDTH,
       this.hostWidth(),
-    ),
-  );
+    );
+    return custom === null ? width : Math.min(width, this.dockMaxWidth() ?? Infinity);
+  });
   protected readonly dockMaxWidth = computed(() => {
     const host = this.hostWidth();
-    return host > 0 ? Math.round(host * DOCK_MAX_WIDTH_RATIO) : null;
+    if (host <= 0) return null;
+    const proportionalMax = Math.round(host * DOCK_MAX_WIDTH_RATIO);
+    const minimum = this.railMinContentWidth?.() ?? null;
+    return minimum === null
+      ? proportionalMax
+      : Math.max(DOCK_MIN_WIDTH, Math.min(proportionalMax, host - minimum));
   });
   protected readonly dockMinWidth = computed(() =>
     Math.min(DOCK_MIN_WIDTH, this.dockMaxWidth() ?? DOCK_MIN_WIDTH),
@@ -837,7 +865,8 @@ export class ChatViewComponent implements OnDestroy {
     if (ctx && this._railRetention) {
       this._tabManager.tabs();
       const existing = retained.filter((id) =>
-        this._tabManager.findTabByIdAcrossWorkspaces(id),
+        this._tabManager.findTabByIdAcrossWorkspaces(id) &&
+        !this._retention.liveElsewhere(id),
       );
       const active = this.resolvedTabId();
       return active &&
