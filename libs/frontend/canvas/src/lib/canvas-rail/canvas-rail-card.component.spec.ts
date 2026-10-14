@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import {
   CompactSessionCardComponent,
   SESSION_CARD_ACTIONS,
@@ -17,13 +18,28 @@ import {
 } from '@ptah-extension/chat';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
+  CompactRailCardComponent,
+  type CompactLaneSummary,
   type CompactRailDensity,
   type CompactRailState,
+  type CompactSessionSummary,
 } from '@ptah-extension/chat-ui';
+import { NativePopoverComponent } from '@ptah-extension/ui';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
-import { CanvasRailCardComponent } from './canvas-rail-card.component';
+import {
+  CanvasRailCardComponent,
+  SPLIT_ALREADY_FOCUSED_REASON,
+  SPLIT_NEEDS_TWO_SESSIONS_REASON,
+} from './canvas-rail-card.component';
 import { focusRailSelectButton } from './canvas-rail-keyboard';
+
+// jsdom has no layout or ResizeObserver: position the menu at the origin.
+jest.mock('@floating-ui/dom', () => ({
+  ...jest.requireActual('@floating-ui/dom'),
+  computePosition: jest.fn(async () => ({ x: 0, y: 0 })),
+  autoUpdate: jest.fn(() => () => undefined),
+}));
 
 const tabState = signal<CompactRailState>('idle');
 /** Hover may repaint, never resize: these properties cannot move layout. */
@@ -59,7 +75,13 @@ const hoverRules = () =>
     <button type="button" (click)="actions?.openLane('orchestrator')">
       Lane
     </button>
-    <button type="button" (click)="lanesRequested.emit()">+1</button>`,
+    <button
+      type="button"
+      class="rc-action rc-lane-overflow"
+      (click)="lanesRequested.emit()"
+    >
+      +2 more
+    </button>`,
 })
 class CardStub {
   readonly actions = inject(SESSION_CARD_ACTIONS, { optional: true });
@@ -75,6 +97,83 @@ class CardStub {
   constructor() {
     effect(() => this.railState.emit(tabState()));
   }
+}
+
+/** Five running lanes: three rows plus two in the overflow. */
+const FIVE_LANES: CompactLaneSummary = {
+  rows: [0, 1, 2].map((i) => ({
+    id: `lane-${i}`,
+    name: `Lane ${i}`,
+    kind: 'cli' as const,
+    status: 'running' as const,
+    startedAt: 1,
+    endedAt: null,
+  })),
+  moreCount: 2,
+  total: 5,
+  counts: { running: 5, waiting: 0, error: 0, done: 0, stopped: 0 },
+};
+const RAIL_SUMMARY: CompactSessionSummary = {
+  status: {
+    text: 'Running',
+    icon: '●',
+    tone: 'live',
+    sessionColor: '#123456',
+    workspaceLabel: 'work',
+  },
+  marks: [],
+  content: {
+    kind: 'prose',
+    text: 'Working now',
+    format: 'plain',
+    additionalPromptCount: 0,
+    actionable: false,
+  },
+  metrics: {
+    model: 'sonnet',
+    tokens: 42,
+    cost: 0.01,
+    agentCount: 0,
+    compactionCount: 0,
+  },
+};
+
+/**
+ * Stands in for the smart chat wrapper only (its store injections), with the
+ * same host classes and rail bindings, and renders the REAL presentational
+ * `ptah-compact-rail-card` from chat-ui, so the N6(b) case sees the real
+ * lane overflow control.
+ */
+@Component({
+  selector: 'ptah-compact-session-card',
+  standalone: true,
+  imports: [CompactRailCardComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block h-full min-h-0 overflow-hidden' },
+  template: `<ptah-compact-rail-card
+    title="Alpha"
+    [summary]="summary"
+    [lanes]="lanes"
+    [density]="density()"
+    [focused]="focused()"
+    [innerTabbable]="focused()"
+    [holdText]="holdText()"
+    (selectRequested)="expandToFull.emit()"
+    (moreLanes)="lanesRequested.emit()"
+  />`,
+})
+class RealRailCardHost {
+  readonly summary = RAIL_SUMMARY;
+  readonly lanes = FIVE_LANES;
+  readonly tab = input.required<unknown>();
+  readonly variant = input('rail');
+  readonly density = input<CompactRailDensity>('comfortable');
+  readonly focused = input(false);
+  readonly holdText = input(false);
+  readonly expandToFull = output<void>();
+  readonly railState = output<CompactRailState>();
+  readonly staleAction = output<void>();
+  readonly lanesRequested = output<void>();
 }
 
 describe('CanvasRailCardComponent', () => {
@@ -244,5 +343,317 @@ describe('CanvasRailCardComponent', () => {
     expect(
       fixture.nativeElement.querySelector('button span')?.getAttribute('style'),
     ).toContain('var(--rail-state-ink)');
+  });
+  const trigger = (host: HTMLElement) =>
+    host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Session actions"][aria-haspopup="menu"]',
+    ) as HTMLButtonElement;
+  const item = (host: HTMLElement, action: string) =>
+    host.querySelector<HTMLButtonElement>(
+      `[data-action="${action}"]`,
+    ) as HTMLButtonElement;
+  const settle = () => new Promise((resolve) => setTimeout(resolve));
+
+  async function openMenu(fixture: ReturnType<typeof mount>) {
+    const host = fixture.nativeElement as HTMLElement;
+    trigger(host).focus();
+    trigger(host).click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(host.querySelector('[role="menu"]')).not.toBeNull();
+    return host;
+  }
+
+  function keydown(
+    target: Element,
+    key: string,
+    init: KeyboardEventInit = {},
+  ): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('emits the tab id from Open beside, Move up and Move down (payload forwarding, card side)', async () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('canMoveUp', true);
+    fixture.componentRef.setInput('canMoveDown', true);
+    fixture.detectChanges();
+    const card = fixture.componentInstance;
+    const beside = jest.fn();
+    const up = jest.fn();
+    const down = jest.fn();
+    card.openBesideRequested.subscribe(beside);
+    card.moveUpRequested.subscribe(up);
+    card.moveDownRequested.subscribe(down);
+    for (const [action, spy] of [
+      ['open-beside', beside],
+      ['move-up', up],
+      ['move-down', down],
+    ] as const) {
+      const host = await openMenu(fixture);
+      expect(trigger(host).getAttribute('aria-expanded')).toBe('true');
+      item(host, action).click();
+      fixture.detectChanges();
+      expect(spy).toHaveBeenCalledWith('a');
+      expect(host.querySelector('[role="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(trigger(host));
+    }
+    expect([beside, up, down].map((spy) => spy.mock.calls.length)).toEqual([
+      1, 1, 1,
+    ]);
+    expect(focusTile).not.toHaveBeenCalled();
+  });
+
+  it.each([SPLIT_NEEDS_TWO_SESSIONS_REASON, SPLIT_ALREADY_FOCUSED_REASON])(
+    'shows the disabled reason "%s" and does not emit Open beside',
+    async (reason) => {
+      expect([
+        'Open another session first to split',
+        'This session is already in the focused pane',
+      ]).toContain(reason);
+      const fixture = mount();
+      fixture.componentRef.setInput('splitDisabledReason', reason);
+      fixture.detectChanges();
+      const beside = jest.fn();
+      fixture.componentInstance.openBesideRequested.subscribe(beside);
+      const host = await openMenu(fixture);
+      const openBeside = item(host, 'open-beside');
+      expect(openBeside.getAttribute('role')).toBe('menuitem');
+      expect(openBeside.getAttribute('aria-disabled')).toBe('true');
+      const describedBy = openBeside.getAttribute('aria-describedby');
+      expect(
+        host.querySelector(`[id="${describedBy}"]`)?.textContent?.trim(),
+      ).toBe(reason);
+      expect(openBeside.textContent).toContain(reason);
+      openBeside.click();
+      fixture.detectChanges();
+      expect(beside).not.toHaveBeenCalled();
+      expect(host.querySelector('[role="menu"]')).not.toBeNull();
+    },
+  );
+
+  it('enables Open beside without a reason (a stale id is never a disabled reason)', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    const openBeside = item(host, 'open-beside');
+    expect(openBeside.getAttribute('aria-disabled')).toBeNull();
+    expect(openBeside.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('does not select the session from a trigger, menu or backdrop click', async () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(trigger(host).closest('ptah-compact-session-card')).toBeNull();
+    expect(trigger(host).closest('.rc-select, .rc-lane-overflow')).toBeNull();
+    host
+      .querySelector('[data-rail-actions]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await openMenu(fixture);
+    host
+      .querySelector('[role="menu"]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    item(host, 'move-up').click();
+    expect(focusTile).not.toHaveBeenCalled();
+    host
+      .querySelector('div.fixed.inset-0')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(focusTile).not.toHaveBeenCalled();
+  });
+
+  it('closes the menu on Escape and returns focus to the trigger', async () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('canMoveDown', true);
+    fixture.detectChanges();
+    const host = await openMenu(fixture);
+    expect(document.activeElement).toBe(item(host, 'open-beside'));
+    keydown(item(host, 'open-beside'), 'ArrowDown');
+    expect(document.activeElement).toBe(item(host, 'move-up'));
+    const escape = keydown(item(host, 'move-up'), 'Escape');
+    fixture.detectChanges();
+    expect(escape.defaultPrevented).toBe(true);
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(trigger(host).getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('ignores a late opened after the menu closed (no focus pulled into the menu)', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    // Closed in the card, not yet re-rendered: the items are still in the DOM.
+    fixture.componentInstance.closeMenu();
+    expect(document.activeElement).toBe(trigger(host));
+    expect(item(host, 'open-beside')).not.toBeNull();
+    fixture.debugElement
+      .query(By.directive(NativePopoverComponent))
+      .componentInstance.opened.emit();
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('puts the collapsed select first and the trigger second in Tab order, only on the roving card', () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const select = host.querySelector<HTMLButtonElement>(
+      'button.rail-collapsed',
+    ) as HTMLButtonElement;
+    const tabbable = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].filter(
+        (button) =>
+          !button.closest('[aria-hidden="true"]') && button.tabIndex === 0,
+      );
+    expect(tabbable()).toEqual([select, trigger(host)]);
+    fixture.componentRef.setInput('focused', false);
+    fixture.detectChanges();
+    expect(tabbable()).toEqual([]);
+    expect(select.tabIndex).toBe(-1);
+    expect(trigger(host).tabIndex).toBe(-1);
+  });
+
+  it('forwards Alt+Shift+ArrowUp/Down from the select button and stops at the first and last card', () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    const card = fixture.componentInstance;
+    const up = jest.fn();
+    const down = jest.fn();
+    card.moveUpRequested.subscribe(up);
+    card.moveDownRequested.subscribe(down);
+    const alt = { altKey: true, shiftKey: true };
+    // The visible select button: the expanded .rc-select or the collapsed one.
+    const select = () =>
+      [
+        ...host.querySelectorAll<HTMLElement>('.rc-select, .rail-collapsed'),
+      ].find((button) => !button.closest('[aria-hidden="true"]')) as HTMLElement;
+    // A single card is both first and last: no move either way.
+    expect(keydown(select(), 'ArrowUp', alt).defaultPrevented).toBe(false);
+    expect(keydown(select(), 'ArrowDown', alt).defaultPrevented).toBe(false);
+    expect(up).not.toHaveBeenCalled();
+    expect(down).not.toHaveBeenCalled();
+    fixture.componentRef.setInput('canMoveUp', true);
+    fixture.componentRef.setInput('canMoveDown', true);
+    fixture.detectChanges();
+    expect(keydown(select(), 'ArrowUp', alt).defaultPrevented).toBe(true);
+    expect(up).toHaveBeenCalledWith('a');
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    expect(select().classList).toContain('rail-collapsed');
+    expect(keydown(select(), 'ArrowDown', alt).defaultPrevented).toBe(true);
+    expect(down).toHaveBeenCalledWith('a');
+    // The trigger is not the select button; it never reorders.
+    keydown(trigger(host), 'ArrowDown', alt);
+    expect(down).toHaveBeenCalledTimes(1);
+    expect(up).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves plain arrows alone (no move, not prevented)', () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('canMoveUp', true);
+    fixture.componentRef.setInput('canMoveDown', true);
+    fixture.detectChanges();
+    const up = jest.fn();
+    const down = jest.fn();
+    fixture.componentInstance.moveUpRequested.subscribe(up);
+    fixture.componentInstance.moveDownRequested.subscribe(down);
+    const select = (fixture.nativeElement as HTMLElement).querySelector(
+      '.rc-select',
+    ) as HTMLElement;
+    expect(keydown(select, 'ArrowUp').defaultPrevented).toBe(false);
+    expect(
+      keydown(select, 'ArrowDown', { shiftKey: true }).defaultPrevented,
+    ).toBe(false);
+    expect(
+      keydown(select, 'ArrowDown', { altKey: true }).defaultPrevented,
+    ).toBe(false);
+    expect(up).not.toHaveBeenCalled();
+    expect(down).not.toHaveBeenCalled();
+  });
+
+  it('keeps 176/96/56 px heights with the action gutter and +N more still fitting (N6b)', () => {
+    expect(COMPACT_RAIL_CARD_HEIGHT).toEqual({ comfortable: 176, dense: 96 });
+    // The real chat-ui compact card, not CardStub: its own overflow control.
+    TestBed.overrideComponent(CanvasRailCardComponent, {
+      remove: { imports: [CardStub] },
+      add: { imports: [RealRailCardHost] },
+    });
+    const fixture = mount();
+    fixture.componentRef.setInput('focused', true);
+    const host = fixture.nativeElement as HTMLElement;
+    // Comfortable renders "+N more" for the lanes beyond the three rows;
+    // dense has no rows and renders "+N" for all lanes.
+    const expected = { comfortable: '+2 more', dense: '+5' } as const;
+    for (const density of ['comfortable', 'dense'] as const) {
+      fixture.componentRef.setInput('density', density);
+      fixture.detectChanges();
+      expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT[density]}px`);
+      const card = host.querySelector(
+        'ptah-compact-session-card',
+      ) as HTMLElement;
+      const railCard = card.querySelector('ptah-compact-rail-card');
+      expect(railCard?.classList.contains('rc-dense')).toBe(
+        density === 'dense',
+      );
+      const gutter = host.querySelector('[data-rail-actions]') as HTMLElement;
+      // A flex sibling, never an overlay: the card keeps every pixel it is given.
+      expect(host.classList.contains('flex')).toBe(true);
+      expect([...card.classList]).toEqual(
+        expect.arrayContaining(['flex-1', 'min-w-0']),
+      );
+      expect(card.nextElementSibling).toBe(gutter);
+      expect([...gutter.classList]).toEqual(
+        expect.arrayContaining(['w-7', 'shrink-0', 'items-start']),
+      );
+      for (const overlay of ['absolute', 'fixed', 'sticky']) {
+        expect(gutter.classList).not.toContain(overlay);
+      }
+      expect(gutter.contains(trigger(host))).toBe(true);
+      expect(card.contains(trigger(host))).toBe(false);
+      expect(trigger(host).classList).toContain('h-6');
+      // The real overflow control: the lanes button of this density.
+      const overflow = [
+        ...card.querySelectorAll<HTMLButtonElement>('.rc-lanes button'),
+      ].find((button) => button.textContent?.trim().startsWith('+'));
+      expect(overflow?.textContent?.trim()).toBe(expected[density]);
+      expect(overflow?.classList).toContain('rc-action');
+      expect(overflow?.classList.contains('rc-lane-overflow')).toBe(
+        density === 'comfortable',
+      );
+      expect(overflow?.tabIndex).toBe(0);
+      expect(gutter.contains(overflow as HTMLElement)).toBe(false);
+      // It closes its lane line, so its trailing edge is the card edge that
+      // sits beside the gutter, not under it.
+      expect(overflow?.parentElement?.classList).toContain('rc-line');
+      expect(overflow?.parentElement?.lastElementChild).toBe(overflow);
+    }
+    // jsdom has no layout, so the pixel fit at the narrowest (sm, 272 px)
+    // rail is not measured here; it stays with the Electron visual re-check
+    // (decisions row 102). Budget: aside border 1, scrollbar gutter 8, list
+    // padding 16, action gutter 28, card padding 14 + 10 and border 2 leave
+    // a 193 px lane line for "Lanes" (about 30 px) and the overflow button
+    // (min 39 px; "+99 more" about 50 px).
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.detectChanges();
+    expect(host.style.height).toBe('56px');
+    const select = host.querySelector('button.rail-collapsed') as HTMLElement;
+    const cell = host.querySelector('[data-rail-actions]') as HTMLElement;
+    expect([...select.classList]).toEqual(
+      expect.arrayContaining(['w-8', 'shrink-0', 'h-14']),
+    );
+    expect([...cell.classList]).toEqual(
+      expect.arrayContaining(['w-6', 'shrink-0']),
+    );
+    expect(cell.classList).not.toContain('w-7');
+    expect(select.nextElementSibling).toBe(cell);
+    expect(trigger(host).classList).toContain('h-14');
   });
 });

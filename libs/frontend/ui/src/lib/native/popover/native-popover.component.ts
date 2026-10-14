@@ -41,10 +41,20 @@ import {
   ElementRef,
   inject,
   effect,
+  isDevMode,
   OnDestroy,
 } from '@angular/core';
 import { Placement } from '@floating-ui/dom';
 import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
+
+/**
+ * Upper bound on the wait for the first position. Positioning normally settles
+ * within a frame; past this bound the panel is shown unpositioned rather than
+ * left invisible behind its backdrop.
+ */
+export const POPOVER_POSITION_TIMEOUT_MS = 1000;
+
+type PositionOutcome = 'positioned' | 'failed' | 'timed out';
 
 /**
  * Native popover component using Floating UI for positioning.
@@ -169,6 +179,12 @@ export class NativePopoverComponent implements OnDestroy {
    */
   private previousActiveElement: HTMLElement | null = null;
 
+  /**
+   * Bumped by every open, close and destroy, so an open whose positioning
+   * settles after the popover closed (or reopened) is recognised as stale.
+   */
+  private openGeneration = 0;
+
   constructor() {
     effect(() => {
       const isOpen = this.isOpen();
@@ -184,20 +200,67 @@ export class NativePopoverComponent implements OnDestroy {
    * Open the popover: store focus, position content, focus popover.
    */
   private async openPopover(): Promise<void> {
+    // Closed again before the queued open ran: nothing to open.
+    if (!this.isOpen()) return;
+    const generation = ++this.openGeneration;
     this.previousActiveElement = document.activeElement as HTMLElement;
 
     const trigger = this.triggerRef()?.nativeElement;
     const floating = this.floatingRef()?.nativeElement;
+    if (!trigger || !floating) return;
 
-    if (trigger && floating) {
-      await this.floatingUI.position(trigger, floating, {
-        placement: this.placement(),
-        offset: this.offset(),
-        flip: true,
-        shift: true,
-      });
-      floating.focus();
-      this.opened.emit();
+    const outcome = await this.positionPanel(trigger, floating);
+    // Closed, destroyed or reopened while positioning ran: the close path has
+    // already restored focus, so a stale open neither focuses nor reports.
+    // Its cleanup() (or the newer position()) cancelled the request in the
+    // service, which installs no auto-update when it settles late.
+    if (generation !== this.openGeneration) return;
+    if (outcome !== 'positioned') {
+      // Fallback: show the panel where it sits unpositioned (its static
+      // position under the trigger) so it stays usable and dismissable.
+      if (isDevMode()) {
+        console.error(
+          `ptah-native-popover: positioning ${outcome}; showing the panel unpositioned.`,
+        );
+      }
+      floating.style.visibility = 'visible';
+    }
+    floating.focus();
+    this.opened.emit();
+  }
+
+  /**
+   * First positioning of the panel, bounded by POPOVER_POSITION_TIMEOUT_MS.
+   * A late success still applies its position through the service while the
+   * popover stays open; after a close the service drops it.
+   */
+  private async positionPanel(
+    trigger: HTMLElement,
+    floating: HTMLElement,
+  ): Promise<PositionOutcome> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<PositionOutcome>((resolve) => {
+      timer = setTimeout(
+        () => resolve('timed out'),
+        POPOVER_POSITION_TIMEOUT_MS,
+      );
+    });
+    try {
+      return await Promise.race([
+        this.floatingUI
+          .position(trigger, floating, {
+            placement: this.placement(),
+            offset: this.offset(),
+            flip: true,
+            shift: true,
+          })
+          .then((): PositionOutcome => 'positioned'),
+        timedOut,
+      ]);
+    } catch {
+      return 'failed';
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -205,6 +268,7 @@ export class NativePopoverComponent implements OnDestroy {
    * Close the popover: cleanup positioning, restore focus.
    */
   private closePopover(): void {
+    this.openGeneration++;
     this.floatingUI.cleanup();
     if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();
@@ -234,6 +298,7 @@ export class NativePopoverComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.openGeneration++;
     this.floatingUI.cleanup();
     if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();

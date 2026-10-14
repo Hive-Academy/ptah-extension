@@ -17,7 +17,10 @@ import {
   MAX_RUNNING_SESSIONS,
   RUNNING_CAP_MESSAGE,
 } from '../canvas-running-cap';
-import { CanvasRailCardComponent } from './canvas-rail-card.component';
+import {
+  CanvasRailCardComponent,
+  SPLIT_ALREADY_FOCUSED_REASON,
+} from './canvas-rail-card.component';
 import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
 
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
@@ -58,6 +61,16 @@ const CHIP_STATES = [
       }
       .state-idle {
         color: var(--state-ink-idle, oklch(var(--bc)));
+      }
+      /* Collapsed: the 32/24 px card row needs the rail's full inner width, so
+         no scrollbar gutter; the 1 px aside border is clipped, never scrolled. */
+      .rail-scroll-collapsed {
+        scrollbar-width: none;
+        scrollbar-gutter: auto;
+        overflow-x: hidden;
+      }
+      .rail-scroll-collapsed::-webkit-scrollbar {
+        display: none;
       }
     `,
   ],
@@ -144,6 +157,7 @@ const CHIP_STATES = [
       </header>
       <div
         class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+        [class.rail-scroll-collapsed]="collapsed()"
         (scroll)="onScroll($event)"
       >
         @if (orderedTiles().length === 0) {
@@ -153,10 +167,16 @@ const CHIP_STATES = [
         }
         <ul
           role="list"
-          class="flex flex-col gap-2 p-2"
+          class="flex flex-col gap-2"
+          [class.p-2]="!collapsed()"
+          [class.py-2]="collapsed()"
           (keydown)="onKeydown($event)"
         >
-          @for (tile of orderedTiles(); track tile.tabId; let i = $index) {
+          @for (
+            tile of orderedTiles();
+            track tile.tabId;
+            let i = $index, first = $first, last = $last
+          ) {
             <li
               ptah-canvas-rail-card
               [tabId]="tile.tabId"
@@ -166,10 +186,16 @@ const CHIP_STATES = [
               [focused]="focusedTabId() === tile.tabId"
               [holdText]="holdTabId() === tile.tabId"
               [state]="states().get(tile.tabId) ?? 'idle'"
+              [canMoveUp]="!first"
+              [canMoveDown]="!last"
+              [splitDisabledReason]="cardSplitReason(tile.tabId)"
               (focusRequested)="focusRequested.emit($event)"
               (railState)="railState.emit({ tabId: tile.tabId, state: $event })"
               (staleAction)="staleAction.emit($event)"
               (lanesRequested)="lanesRequested.emit($event)"
+              (openBesideRequested)="openBesideRequested.emit($event)"
+              (moveUpRequested)="moveUpRequested.emit($event)"
+              (moveDownRequested)="moveDownRequested.emit($event)"
             ></li>
           }
         </ul>
@@ -211,6 +237,8 @@ export class CanvasRailComponent {
   readonly canAdd = input(true);
   readonly holdTabId = input<string | null>(null);
   readonly surfaceActive = input(true);
+  /** The board's reason no card can open beside (B6); null when split is possible. */
+  readonly splitDisabledReason = input<string | null>(null);
   readonly focusRequested = output<string>();
   readonly collapseToggled = output<void>();
   readonly densityToggled = output<void>();
@@ -220,6 +248,9 @@ export class CanvasRailComponent {
   readonly railState = output<{ tabId: string; state: CompactRailState }>();
   readonly staleAction = output<string>();
   readonly lanesRequested = output<string>();
+  readonly openBesideRequested = output<string>();
+  readonly moveUpRequested = output<string>();
+  readonly moveDownRequested = output<string>();
   readonly maxRunning = MAX_RUNNING_SESSIONS;
   readonly chips = CHIP_STATES;
   readonly orderedTiles = computed(() =>
@@ -238,6 +269,13 @@ export class CanvasRailComponent {
         ? RUNNING_CAP_MESSAGE
         : null,
   );
+  /** The board's reason wins; otherwise only the focused card cannot open beside. */
+  cardSplitReason(tabId: string): string | null {
+    return (
+      this.splitDisabledReason() ??
+      (this.focusedTabId() === tabId ? SPLIT_ALREADY_FOCUSED_REASON : null)
+    );
+  }
   count(state: CompactRailState): number {
     return this.orderedTiles().filter(
       (tile) => this.states().get(tile.tabId) === state,

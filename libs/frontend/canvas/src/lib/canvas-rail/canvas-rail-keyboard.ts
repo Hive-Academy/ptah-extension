@@ -13,6 +13,15 @@ export function focusRailSelectButton(card: HTMLElement | undefined): void {
     ?.focus();
 }
 
+/**
+ * Alt+Shift+ArrowUp/Down asks to move the card one place; any other modifier
+ * set, or a plain arrow (left to `handleCanvasRailKeydown`), is not a move.
+ */
+export function railMoveKey(event: KeyboardEvent): 'up' | 'down' | null {
+  if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return null;
+  return event.key === 'ArrowUp' ? 'up' : event.key === 'ArrowDown' ? 'down' : null;
+}
+
 const IGNORED_TARGET =
   'input, textarea, select, [contenteditable], [role="menu"], [role="listbox"], [role="dialog"], [popover]';
 

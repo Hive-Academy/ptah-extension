@@ -1,4 +1,4 @@
-import { handleCanvasRailKeydown, type CanvasRailKeyboardContext } from './canvas-rail-keyboard';
+import { handleCanvasRailKeydown, railMoveKey, type CanvasRailKeyboardContext } from './canvas-rail-keyboard';
 
 describe('handleCanvasRailKeydown', () => {
   const focus = jest.fn();
@@ -52,5 +52,32 @@ describe('handleCanvasRailKeydown', () => {
     prevented.preventDefault();
     handleCanvasRailKeydown(prevented, ctx);
     expect(focus).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['ArrowUp', { altKey: true, shiftKey: true }, 'up'],
+    ['ArrowDown', { altKey: true, shiftKey: true }, 'down'],
+    ['ArrowUp', {}, null],
+    ['ArrowDown', { shiftKey: true }, null],
+    ['ArrowDown', { altKey: true }, null],
+    ['ArrowUp', { altKey: true, shiftKey: true, ctrlKey: true }, null],
+    ['ArrowUp', { altKey: true, shiftKey: true, metaKey: true }, null],
+    ['Home', { altKey: true, shiftKey: true }, null],
+  ] as const)('reads %s %o as a move of %s', (key, mods, expected) => {
+    expect(railMoveKey(new KeyboardEvent('keydown', { key, ...mods }))).toBe(expected);
+  });
+
+  it('leaves Alt+Shift arrows to the card and keeps plain arrows moving focus', () => {
+    const card = document.createElement('li'); card.dataset['railCard'] = ''; card.dataset['tabId'] = 'b';
+    const select = document.createElement('button'); select.className = 'rc-select'; card.append(select);
+    for (const key of ['ArrowUp', 'ArrowDown']) {
+      const event = new KeyboardEvent('keydown', { key, altKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      select.addEventListener('keydown', (e) => handleCanvasRailKeydown(e, ctx), { once: true });
+      select.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(focus).not.toHaveBeenCalled();
+    expect(focusSelectButton).not.toHaveBeenCalled();
+    expect(dispatch(select, 'ArrowDown').defaultPrevented).toBe(true);
+    expect(focus).toHaveBeenCalledWith('c');
   });
 });
