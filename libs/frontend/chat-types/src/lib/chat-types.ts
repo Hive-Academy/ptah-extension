@@ -443,10 +443,7 @@ function cascadeCleanForEvictedEvent(
  * 'full' = standard chat view with full message list and input
  * 'compact' = condensed card view with activity feed and mini input
  *
- * A compact tile's height is not part of the mode: it lives in
- * {@link TabState.compactHeightUnits}, so the header toggle can stay binary
- * (full <-> compact) and still return to the last compact height. Tabs saved
- * with the retired `'compact-tall'` mode are migrated on restore
+ * Tabs saved with the retired `'compact-tall'` mode are migrated on restore
  * (`sanitizeRestoredTab` in chat-state, TASK_2026_583).
  */
 export type TabViewMode = 'full' | 'compact';
@@ -459,9 +456,6 @@ export type TabViewMode = 'full' | 'compact';
  * compact card at all, `tab-item` draws the tab affordance, `conductor-tile`
  * reads it for the tribunal, and canvas projects geometry from it. `chat-types`
  * is the one lib all four may import.
- *
- * Height is deliberately NOT derived here: grid units are canvas's concern and
- * mean nothing to the card. Canvas clamps `compactHeightUnits` on read.
  */
 export function isCompactViewMode(mode: TabViewMode | undefined): boolean {
   return mode === 'compact';
@@ -728,13 +722,6 @@ export interface TabState {
    * Each tab can independently switch between modes.
    */
   viewMode?: TabViewMode;
-
-  /**
-   * Compact tile height in canvas grid rows. Opaque to chat; canvas clamps it
-   * on read. Absent means the canvas default. Kept when the tab returns to
-   * full so the next switch to compact restores the same height.
-   */
-  compactHeightUnits?: number;
 
   /**
    * Number of context compactions that occurred during this session.

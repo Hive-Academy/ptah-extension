@@ -31,8 +31,6 @@ import { TabManagerService } from './tab-manager.service';
 import { TabSessionBinding } from './tab-session-binding.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
 import {
-  LEGACY_COMPACT_HEIGHT_UNITS,
-  LEGACY_COMPACT_TALL_HEIGHT_UNITS,
   PERSISTED_TAB_STATE_VERSION,
   projectTabForPersist,
   sanitizeRestoredTab,
@@ -208,25 +206,22 @@ describe('restored tabs — one sanitize, both readers', () => {
       expect(tab.messages).toHaveLength(1);
     });
 
-    it('migrates a legacy compact-tall tab to compact at 3 units (TASK_2026_583)', () => {
+    it('migrates a legacy compact-tall tab to compact (TASK_2026_583)', () => {
       const [tab] = restore([
         storedTab('tab-1', 'loaded', { viewMode: 'compact-tall' }),
       ]);
       expect(tab.viewMode).toBe('compact');
-      expect(tab.compactHeightUnits).toBe(LEGACY_COMPACT_TALL_HEIGHT_UNITS);
-      expect(LEGACY_COMPACT_TALL_HEIGHT_UNITS).toBe(3);
     });
 
-    it('gives a legacy compact tab without a height 2 units', () => {
-      const [tab] = restore([
+    it('preserves the stored view mode on compact and full tabs', () => {
+      const tabs = restore([
         storedTab('tab-1', 'loaded', { viewMode: 'compact' }),
+        storedTab('tab-2', 'loaded', { viewMode: 'full' }),
       ]);
-      expect(tab.viewMode).toBe('compact');
-      expect(tab.compactHeightUnits).toBe(LEGACY_COMPACT_HEIGHT_UNITS);
-      expect(LEGACY_COMPACT_HEIGHT_UNITS).toBe(2);
+      expect(tabs.map((tab) => tab.viewMode)).toEqual(['compact', 'full']);
     });
 
-    it('keeps a valid stored height, on compact, full and legacy compact-tall tabs', () => {
+    it('old payload with compactHeightUnits loads and the field is dropped', () => {
       const tabs = restore([
         storedTab('tab-1', 'loaded', {
           viewMode: 'compact',
@@ -240,39 +235,33 @@ describe('restored tabs — one sanitize, both readers', () => {
           viewMode: 'compact-tall',
           compactHeightUnits: 5,
         }),
+        // A garbage height value must not break the load either.
+        storedTab('tab-4', 'loaded', {
+          viewMode: 'compact',
+          compactHeightUnits: '4',
+        }),
       ]);
+
+      // The load succeeds and every mode survives it (incl. the migration).
+      expect(tabs.map((tab) => tab.viewMode)).toEqual([
+        'compact',
+        'full',
+        'compact',
+        'compact',
+      ]);
+      // The retired key is gone from the restored tabs, so the next save
+      // cannot write it back either (code-logic-review-R9r.md Minor 2).
       expect(
-        tabs.map((tab) => [tab.viewMode, tab.compactHeightUnits]),
-      ).toEqual([
-        ['compact', 4],
-        ['full', 5],
-        ['compact', 5],
-      ]);
+        tabs.map((tab) => 'compactHeightUnits' in tab),
+      ).toEqual([false, false, false, false]);
+      expect(
+        tabs.map((tab) => 'compactHeightUnits' in projectTabForPersist(tab)),
+      ).toEqual([false, false, false, false]);
     });
 
-    it.each([0, -2, 2.5, '4', null, true])(
-      'drops an invalid stored height %p',
-      (value) => {
-        const [compact, full] = restore([
-          storedTab('tab-1', 'loaded', {
-            viewMode: 'compact',
-            compactHeightUnits: value,
-          }),
-          storedTab('tab-2', 'loaded', {
-            viewMode: 'full',
-            compactHeightUnits: value,
-          }),
-        ]);
-        expect(compact.compactHeightUnits).toBe(LEGACY_COMPACT_HEIGHT_UNITS);
-        expect(full.viewMode).toBe('full');
-        expect(full.compactHeightUnits).toBeUndefined();
-      },
-    );
-
-    it('leaves a tab with no view mode without a mode or height', () => {
+    it('leaves a tab with no view mode without a mode', () => {
       const [tab] = restore([storedTab('tab-1', 'loaded')]);
       expect(tab.viewMode).toBeUndefined();
-      expect(tab.compactHeightUnits).toBeUndefined();
     });
 
     it('sanitizes every tab in the set, not just the first', () => {
