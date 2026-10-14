@@ -825,6 +825,29 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
     });
 
+    it('delivers a filtered live event to sibling tabs once without implicit fan-out', () => {
+      let deferred: ((excludeTabIds?: ReadonlySet<string>) => void) | undefined;
+      tabManager.tabs.mockReturnValue([
+        { id: 'tab-1', claudeSessionId: CHUNK_SESSION },
+        { id: 'tab-2', claudeSessionId: CHUNK_SESSION },
+        { id: 'other', claudeSessionId: 'other-session' },
+      ]);
+      chatStore.deferLiveStreamEvent.mockImplementation(
+        (_event: unknown, _tabId: unknown, _sessionId: unknown,
+          deliver: (excludeTabIds?: ReadonlySet<string>) => void) => {
+          deferred = deliver;
+          return true;
+        },
+      );
+      handler.handleMessage({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: makeChunkPayload('tab-1') });
+      deferred?.(new Set(['tab-1']));
+      expect(chatStore.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(chatStore.processStreamEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'evt-1' }), 'tab-2', CHUNK_SESSION, { fanOut: false },
+      );
+      expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
+    });
+
     it('skips tab adoption on session:id-resolved for a claimed surface', () => {
       const correlationId = VALID_UUID;
       const surfaceId = SurfaceId.create();
@@ -1080,6 +1103,78 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       });
 
       expect(chatStore.resyncStream).toHaveBeenCalledWith('tab-1', 'session-1');
+    });
+
+    it('passes the resync seed and applies only the events kept by the fence', () => {
+      const first = { eventType: 'message_start', id: 'start' };
+      const second = { eventType: 'text_delta', id: 'delta' };
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: [first, second], liveSeedBlocks: { message: 1 },
+        },
+      });
+      const seed = chatStore.resyncStream.mock.calls[0][2];
+      expect(seed.events).toEqual([first, second]);
+      expect(seed.liveSeedBlocks).toEqual({ message: 1 });
+      seed.apply([second]);
+      expect(chatStore.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(chatStore.processStreamEvent).toHaveBeenCalledWith(
+        second, 'tab-1', 'session-1', { fanOut: false },
+      );
+      expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects liveSeed on an events snapshot', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', fromSequence: 1,
+          toSequence: 1, events: [], liveSeed: [],
+        },
+      });
+      expect(chatStore.resyncStream).not.toHaveBeenCalled();
+      expect(chatStore.processStreamEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects a resync snapshot with a non-array liveSeed', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: { eventType: 'message_start' },
+        },
+      });
+      expect(chatStore.resyncStream).not.toHaveBeenCalled();
+    });
+
+    it.each([null, 42, { eventType: 42 }])('rejects a resync snapshot with a malformed seed element %p', (bad) => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: [{ eventType: 'message_start' }, bad],
+        },
+      });
+      expect(chatStore.resyncStream).not.toHaveBeenCalled();
+    });
+
+    it('ignores malformed liveSeedBlocks while retaining the snapshot', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: [{ eventType: 'message_start', id: 'start' }],
+          liveSeedBlocks: { message: -1 },
+        },
+      });
+      expect(consoleWarnSpy).toHaveBeenCalled();
+      expect(chatStore.resyncStream.mock.calls[0][2].liveSeedBlocks).toBeUndefined();
     });
   });
 });

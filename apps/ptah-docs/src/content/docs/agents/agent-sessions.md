@@ -73,7 +73,12 @@ Takes a `sessionId`. The child's tab, transcript, worktree and branch remain.
 
 ## Permissions
 
-A child runs without a permission prompt for two things only: file edits inside its own worktree, and Bash commands that start with an entry of the allowlist below. Any other action waits in the child's tab for you to answer, and is **denied** when the wait window ends. `AskUserQuestion` and plan mode are not available to a child.
+A child starts at the parent session's autopilot level, read when `ptah_session_start` runs. Change the level before the start and the child gets the new one.
+
+- **Full autopilot (YOLO).** The child runs without permission prompts.
+- **Any other level.** The child runs without a permission prompt for two things only: file edits inside its own worktree, and Bash commands that start with an entry of the allowlist below. Any other action waits in the child's tab for you to answer, and is **denied** when the wait window ends.
+
+`AskUserQuestion` and plan mode are not available to a child at any level. A parent in plan mode starts its child at Ask.
 
 A child cannot start sessions of its own (depth is limited to 1).
 

@@ -53,6 +53,25 @@ export class StreamViewportController {
       : 'hidden';
   }
 
+  /** Request a fresh snapshot immediately after a fenced resync overflow. */
+  async requestStreamResync(tabId: string): Promise<void> {
+    if (!this.v2Accepted) return;
+    const viewport = this.currentViewport ?? this.deriveViewport();
+    this.declaredViewport = viewport;
+    try {
+      const result = await this.rpc.call('chat:setStreamViewport', {
+        protocolVersion: 2,
+        ...viewport,
+        resyncTabIds: [tabId],
+      });
+      if (!result?.success) {
+        console.warn('[StreamViewportController] stream resync request failed');
+      }
+    } catch {
+      console.warn('[StreamViewportController] stream resync request failed');
+    }
+  }
+
   private deriveViewport(): StreamViewport {
     const visible = new Set(this.tabs.visibleTabIds());
     const activeTabId = this.tabs.activeTabId();
@@ -89,12 +108,17 @@ export class StreamViewportController {
     viewport: StreamViewport,
     generation: number,
   ): Promise<void> {
-    const result = await this.rpc.call('chat:setStreamViewport', {
-      protocolVersion: 2,
-      ...viewport,
-    });
-    if (generation !== this.declarationGeneration) return;
-    this.v2Accepted = result.success && result.data?.acceptedProtocolVersion === 2;
+    try {
+      const result = await this.rpc.call('chat:setStreamViewport', {
+        protocolVersion: 2,
+        ...viewport,
+      });
+      if (generation !== this.declarationGeneration) return;
+      this.v2Accepted = result?.success === true && result.data?.acceptedProtocolVersion === 2;
+    } catch {
+      if (generation === this.declarationGeneration) this.v2Accepted = false;
+      console.warn('[StreamViewportController] viewport declaration failed');
+    }
   }
 
   private sameViewport(

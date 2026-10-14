@@ -54,7 +54,13 @@ export interface ConfigAutopilotToggleParams {
   enabled: boolean;
   /** Permission level for autopilot */
   permissionLevel: PermissionLevel;
-  /** Active session ID for live SDK sync (optional) */
+  /**
+   * The session whose live level the toggle also changes.
+   * - A session id: that session.
+   * - `null`: the caller's tab has no session; save the default only and
+   *   change no live session (the webview popover sends this).
+   * - Omitted: the most recently active session (CLI/TUI callers).
+   */
   sessionId?: SessionId | null;
 }
 
@@ -64,10 +70,23 @@ export interface ConfigAutopilotToggleResult {
   permissionLevel: PermissionLevel;
 }
 
+/** Parameters for config:autopilot-get RPC method */
+export interface ConfigAutopilotGetParams {
+  /** Also report this session's live permission level (TASK_2026_660). */
+  sessionId?: SessionId | null;
+}
+
 /** Response from config:autopilot-get RPC method */
 export interface ConfigAutopilotGetResult {
+  /** The saved default: what a new or resumed session starts at. */
   enabled: boolean;
   permissionLevel: PermissionLevel;
+  /**
+   * The live level of the requested `sessionId`; `null` when that session is
+   * not live (it starts at the saved default when it resumes). Absent when no
+   * session was requested.
+   */
+  sessionPermissionLevel?: PermissionLevel | null;
 }
 
 /** Model information for config:models-list response. IDs are always full model IDs (e.g., 'claude-opus-4-6'). */

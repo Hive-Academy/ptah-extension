@@ -86,6 +86,7 @@ export const ChatResumeParamsSchema = z
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
     ptahUiFence: z.boolean().optional(),
+    historyBlockOwners: z.literal(true).optional(),
     historyPage: z
       .object({ maxEvents: HistoryPageSizeSchema })
       .strict()
@@ -99,6 +100,7 @@ export const ChatSetStreamViewportParamsSchema = z
     protocolVersion: z.literal(2),
     focusedTabId: uuidString('focusedTabId').optional(),
     visibleTabIds: z.array(uuidString('visibleTabIds')).max(128),
+    resyncTabIds: z.array(uuidString('resyncTabIds')).max(128).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -106,6 +108,15 @@ export const ChatSetStreamViewportParamsSchema = z
       ctx.addIssue({
         code: 'custom',
         message: 'visibleTabIds must not contain duplicates',
+      });
+    }
+    if (
+      value.resyncTabIds &&
+      new Set(value.resyncTabIds).size !== value.resyncTabIds.length
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'resyncTabIds must not contain duplicates',
       });
     }
   });
