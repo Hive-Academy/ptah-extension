@@ -214,13 +214,13 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
       );
       delivered = results.filter(Boolean).length;
     } catch (error: unknown) {
-      // degradation-audit: optional-capability - enumeration racing a
-      // disposal is a headless start, logged below like a failed send.
+      // Enumeration racing a disposal is a headless start, logged below
+      // like a failed send.
       failureKinds.push(safeErrorKind(error));
     }
     if (delivered > 0) return true;
-    // degradation-audit: optional-capability - an undelivered announcement
-    // degrades to a headless start (`uiAnnounced: false`); the session still
+    // An undelivered announcement degrades to a headless start
+    // (`uiAnnounced: false`); the session still
     // starts. A child tab is adopted late through `chat:agent-sessions`; a
     // handoff session is listed in the sessions sidebar.
     this.logger.warn(
