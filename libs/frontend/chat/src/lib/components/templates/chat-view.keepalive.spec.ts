@@ -85,6 +85,8 @@ class MessageBubbleStub {
   @Input() isStreaming = false;
   @Input() isFinalizing = false;
   @Input() isSessionActive = false;
+  // The transcript renders bubbles in sub-agent tile mode (R9n).
+  @Input() agentTileMode = false;
   // Mirrors MessageBubbleComponent's ptah-ui inputs (TASK_2026_610 B7/C2a).
   @Input() ptahUiOrderKey = 0;
   @Input() ptahUiSnapshot: unknown = null;
