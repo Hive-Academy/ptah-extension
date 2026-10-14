@@ -302,17 +302,21 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 
 ### Task R9q.1 — COMPLETE
 
-## Batch R9m: Delete grid release, mini-panel, detail keyboard — PENDING
+## Batch R9m: Delete grid release, mini-panel, detail keyboard — COMPLETE (b3626c50d; review code-logic-review-R9m.md)
 
 - Executor: opencode lane | Fallback: codex lane | Reviewer: Claude code-logic-reviewer | Wave 4 | Depends: R9b, R9i, R9j
 - Files: `canvas/src/lib/canvas-grid-release.ts`, `canvas-grid-release.engine.spec.ts`,
   `tile-agent-mini-panel.component.ts`, its `.spec.ts`, `canvas-detail/canvas-detail-keyboard.ts`, its `.spec.ts`
 - Contract: delete before R9k drops geometry references. Parity rows 59, 60.
 - Writer: rg zero-importer. Mode 2: rg; FULL(canvas), TC(canvas), LINT(canvas).
+- Mode 2 result (Wave 4a, `mode2-wave4a-report.md`): rg 0 hits in libs/apps for 3 basenames + 9 symbols;
+  FULL(canvas) 24 suites / 269 tests green; TC green; LINT 0 errors (16 warnings). Review APPROVED 9/10,
+  3 Minors recorded (mcp-bench fixture paths; row-60 leak evidence deferred to perf `s-heap`; Escape-in-tablist
+  Rail spec gap), no fix round.
 
-### Task R9m.1 — PENDING
+### Task R9m.1 — COMPLETE (b3626c50d)
 
-## Batch R9r: Remove setCompactHeight and compactHeightUnits from tab manager — PENDING
+## Batch R9r: Remove setCompactHeight and compactHeightUnits from tab manager — COMPLETE (cea73f11f; review code-logic-review-R9r.md)
 
 - Executor: opencode lane | Fallback: codex lane | Reviewer: Claude code-logic-reviewer | Wave 4 | Depends: R9i, R9j
 - Files: `chat-state/src/lib/tab-manager.service.ts`, its `.spec.ts`, `tab-manager.persistence.spec.ts`, `tab-manager.intent-mutators.spec.ts`
@@ -321,8 +325,12 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 - Writer: SPEC(@ptah-extension/chat-state, tab-manager.service.spec.ts), SPEC(chat-state, tab-manager.persistence.spec.ts),
   SPEC(chat-state, tab-manager.intent-mutators.spec.ts)
 - Mode 2: FULL(chat-state) (first chat-state run), TC(chat-state), LINT(chat-state).
+- Mode 2 result (Wave 4b, `mode2-wave4b-report.md`): rg `setCompactHeight|getTabCompactHeightUnits` 0 hits in
+  libs/apps; FULL(chat-state) 24 suites / 566 tests green; TC green; LINT 0 errors (2 pre-existing warnings).
+  Review APPROVED 9/10, 2 Minors recorded (reload case not discriminating, optional; restore still injects
+  `compactHeightUnits` -> carry-over for R9s), no fix round.
 
-### Task R9r.1 — PENDING
+### Task R9r.1 — COMPLETE (cea73f11f)
 
 ## Batch R9k: Slim layout service; delete layout controls and board toggle — PENDING
 
@@ -345,6 +353,9 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 - Contract: drop field and its comments from current `TabState`; remove current writes; tolerate the old stored
   field; preserve `viewMode`. Case: old payload with `compactHeightUnits` loads. The `chat-view.component.ts:911`
   comment is R9h's. Parity row 114.
+- Carry-over from R9r review Minor 2: `sanitizeRestoredTab`/`restoredCompactView` (`tab-persistence.ts:188-208`,
+  `:272`) still stamps `compactHeightUnits: 2` on restored compact tabs and the spread in `projectTabForPersist`
+  writes it back; R9s must delete the restore injection and the legacy constants.
 - Writer: SPEC(chat-state, tab-restore-sanitize.spec.ts), SPEC(chat-state, tab-persistence.backoff.spec.ts)
 - Mode 2: FULL(chat-state), TC(chat-state), LINT(chat-state), TC(@ptah-extension/chat-types), LINT(chat-types).
 
