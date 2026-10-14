@@ -11,7 +11,10 @@
  * The Set provides O(1) lookup for routing checks in workspace providers.
  */
 
-import { SESSION_BUDGET_SETTINGS } from '@ptah-extension/shared';
+import {
+  ADVANCED_SETTINGS,
+  SESSION_BUDGET_SETTINGS,
+} from '@ptah-extension/shared';
 
 /**
  * BUILT-IN provider auth keys that each get a `selectedModel` +
@@ -162,6 +165,17 @@ const SESSION_BUDGET_SETTINGS_DEFAULTS: Record<string, unknown> =
       setting.default,
     ]),
   );
+
+/**
+ * The Settings "advanced" keys → default (TASK_2026_658), derived from the
+ * shared `ADVANCED_SETTINGS` table so each default literal lives in one place;
+ * the same table bounds the `settings:set` write and the settings groups.
+ * `budgetDefault` in agent-sdk throws when a `compaction.*` default is missing
+ * or not a positive integer, so those entries must stay positive integers.
+ */
+const ADVANCED_SETTINGS_DEFAULTS: Record<string, unknown> = Object.fromEntries(
+  ADVANCED_SETTINGS.map((setting) => [setting.key, setting.default]),
+);
 
 /**
  * Settings keys that route to file-based storage (~/.ptah/settings.json).
@@ -447,12 +461,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // `contributes.configuration` declares. Reads returned undefined and writes
   // were dropped silently, so the keys were unsettable on VS Code.
   //
-  // Neither has an entry in FILE_BASED_SETTINGS_DEFAULTS, and that is
-  // deliberate rather than an omission: their defaults belong to
-  // `harness-sync` (DEFAULT_PREFLIGHT_TIMEOUT_MS, DEFAULT_MANAGE_GITIGNORE),
-  // and restating them here would be the second copy that drifts. An unset key
-  // reads as undefined, which every reader already spells "use the lib
-  // default".
+  // Their defaults come from ADVANCED_SETTINGS_DEFAULTS (TASK_2026_658) so the
+  // Settings page reads a value instead of undefined. They must equal
+  // `harness-sync` DEFAULT_PREFLIGHT_TIMEOUT_MS (1500) and
+  // DEFAULT_MANAGE_GITIGNORE (true), which every reader still falls back to.
   'harness.preflightTimeoutMs',
   'harness.manageGitignore',
   // User-defined provider entries (TASK_2026_236) — one JSON array of
@@ -499,10 +511,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.codexModel': '',
   'agentOrchestration.codexReasoningEffort': '',
   'agentOrchestration.codexAutoApprove': true,
-  // Codex lane budgets: integers >= 0, where 0 means "use the Codex runtime default".
-  'agentOrchestration.codexAutoCompactTokens': 120000,
-  'agentOrchestration.codexToolOutputTokenLimit': 2500,
-  'agentOrchestration.codexWebSearch': true,
+  // Codex lane budgets and codexWebSearch: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.copilotModel': '',
   'agentOrchestration.copilotReasoningEffort': '',
   'agentOrchestration.copilotAutoApprove': true,
@@ -518,12 +527,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.laneToolCallSteerAt': 40,
   'agentOrchestration.laneToolCallStopAt': 60,
   'agentOrchestration.laneRepeatCallStopAt': 20,
-  // Compaction budgets, in tokens.
-  'compaction.toolOutputBudgetTokens': 2500,
-  'compaction.subagentHandoffTokens': 150000,
-  'compaction.rotationSuggestTokens': 300000,
-  // Provisional: the final value comes from the Batch 36 p95.
-  'compaction.subagentStopWeightedTokens': 3000000,
+  // Compaction budgets: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],
   'provider.cursor.apiKey': '',
@@ -565,7 +569,6 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'memory.curatorProvider': '',
   'memory.searchTopK': 20,
   'memory.searchAlpha': 0.5,
-  'memory.symbolInjectionEnabled': true,
   'skillSynthesis.enabled': true,
   'skillSynthesis.successesToPromote': 3,
   'skillSynthesis.dedupCosineThreshold': 0.85,
@@ -587,8 +590,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.curatorIntervalHours': 24,
   'skillSynthesis.suggestionMinClusterSize': 2,
   'skillSynthesis.suggestionMaxCandidates': 1000,
-  'skillSynthesis.retirement.dormantAfterDays': 30,
-  'skillSynthesis.retirement.retireAfterDormantDays': 30,
+  // skillSynthesis.retirement.*: see ADVANCED_SETTINGS_DEFAULTS.
   // TASK_2026_180 Phase 0. Every numeric value here MUST equal its counterpart
   // in `SKILL_DRAIN_DEFAULTS` (`skill-synthesis/src/lib/queue/skill-drain.service.ts`).
   // That constant is the fallback the drain passes to `getConfiguration`, so a
@@ -629,25 +631,10 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // `replayValidation`, not `replay` — that sub-tree is the replay LANE's.
   // See the key-list block above.
   'skillSynthesis.replayValidation.enabled': true,
-  // The floor a replay must clear to count as corroborating evidence. On the
-  // same 0–1 scale as the stored `replay_confidence`, which is why the store
-  // range-checks that column: a threshold on one scale and a measurement on
-  // another is a comparison that always answers the same way.
-  //
-  // `0.5` is a deliberate midpoint, not a tuned number — no corpus has been
-  // measured yet. It is compared with `<`, so it also decides nothing about a
-  // candidate whose `replay_confidence` is NULL: unmeasured is not "below
-  // threshold", and SQL agrees (`NULL < 0.5` is NULL, never true).
-  'skillSynthesis.replayValidation.minConfidence': 0.5,
+  // replayValidation.minConfidence: see ADVANCED_SETTINGS_DEFAULTS.
   'skillSynthesis.triggerEval.enabled': true,
   'skillSynthesis.judgePanel.enabled': true,
-  // The gap between two judges' headline scores that escalates a verdict. On
-  // the judge's 0–10 scale (`minJudgeScore` above lives on the same one), so
-  // `3` means "the two panellists disagree by more than three points out of
-  // ten". R8: the second judge only runs on a `scored` first verdict, and
-  // escalation only above this threshold, which is what keeps the panel from
-  // quadrupling promotion cost.
-  'skillSynthesis.judgePanel.disagreementThreshold': 3,
+  // judgePanel.disagreementThreshold: see ADVANCED_SETTINGS_DEFAULTS.
   // TASK_2026_180 Phase 1 — see SKILL_LANE_DEFAULTS_FOR_FILE_ROUTING. Both
   // halves (key list + defaults) come from that one table on purpose.
   ...SKILL_LANE_SETTINGS_DEFAULTS,
@@ -655,15 +642,10 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // user turns it off.
   'memory.enabled': true,
   // Must equal the `memory-retention-config.ts` fallbacks (MemoryRetentionService);
-  // pinned by memory-retention.service.spec.ts.
+  // pinned by memory-retention.service.spec.ts. The numeric retention and
+  // lifecycle keys come from ADVANCED_SETTINGS_DEFAULTS.
   'memory.retention.enabled': true,
-  'memory.retention.processedDays': 7,
-  'memory.retention.stuckDays': 14,
-  'memory.retention.batchSize': 500,
   'memory.lifecycle.enabled': true,
-  'memory.lifecycle.archiveAfterDays': 30,
-  'memory.lifecycle.deleteAfterDays': 60,
-  'memory.lifecycle.maxPerWorkspace': 25000,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,
   'memory.triggers.bootScan': true,
@@ -682,25 +664,20 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'memory.triggers.maxCuratesPerHour': 20,
   'skillSynthesis.triggers.idleMs': 600000,
   'skillSynthesis.triggers.bootScan': true,
-  // Match `SKILL_TRIGGER_DEFAULTS.bootScanDelayMs` /
-  // `.bootScanIdleBackoffMs` (5 min each).
-  'skillSynthesis.triggers.bootScanDelayMs': 300000,
-  'skillSynthesis.triggers.bootScanIdleBackoffMs': 300000,
+  // bootScanDelayMs / bootScanIdleBackoffMs must match
+  // `SKILL_TRIGGER_DEFAULTS` (5 min each); they come from ADVANCED_SETTINGS_DEFAULTS.
   'skillSynthesis.triggers.subagentStop.enabled': true,
   'skillSynthesis.triggers.postToolUse.enabled': true,
   'skillSynthesis.triggers.postToolUse.minEditCount': 3,
   'skillSynthesis.triggers.maxAnalyzesPerHour': 6,
-  // Match `DEFAULT_MAX_CONCURRENT`, `DEFAULT_MAX_CONCURRENT_PER_LANE`, and
-  // `DEFAULT_QUEUE_TIMEOUT_MS` in
+  // internalQuery.* must match `DEFAULT_MAX_CONCURRENT`,
+  // `DEFAULT_MAX_CONCURRENT_PER_LANE` and `DEFAULT_QUEUE_TIMEOUT_MS` in
   // `agent-sdk/src/lib/internal-query/internal-query-concurrency-gate.ts`. A
-  // drift here is invisible: the service falls back to its own constant, so
-  // the two would disagree only for a user who never wrote the setting.
-  'internalQuery.maxConcurrent': 3,
-  'internalQuery.maxConcurrentPerLane': 1,
-  'internalQuery.queueTimeoutMs': 60000,
+  // drift is invisible: the service falls back to its own constant, so the two
+  // would disagree only for a user who never wrote the setting. They, and
+  // cron.maxConcurrentJobs / cron.catchupWindowMs, come from
+  // ADVANCED_SETTINGS_DEFAULTS.
   'cron.enabled': true,
-  'cron.maxConcurrentJobs': 3,
-  'cron.catchupWindowMs': 86400000,
   'gateway.enabled': false,
   'gateway.coalesceMs': 250,
   'gateway.rateLimit.minTimeMs': 500,
@@ -733,6 +710,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   ),
   // Session budget (TASK_2026_597 N7). Same table as the key list above.
   ...SESSION_BUDGET_SETTINGS_DEFAULTS,
+  // Settings "advanced" keys (TASK_2026_658). Same table as the Settings groups.
+  ...ADVANCED_SETTINGS_DEFAULTS,
 };
 
 /**
