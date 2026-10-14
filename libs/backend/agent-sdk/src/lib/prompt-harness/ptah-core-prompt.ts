@@ -30,7 +30,7 @@ import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
  */
 export const PTAH_MCP_SUBSTITUTION_SECTION = `## Ptah MCP Tools — MANDATORY Substitutions
 
-Prefer ptah_* tools over built-in alternatives. They use VS Code's LSP, the workspace index and AI providers: faster, more accurate, and far cheaper in context.
+Prefer ptah_* tools over built-in alternatives. They use VS Code's LSP, the workspace index and AI providers: faster, more accurate, and far cheaper in context. A tool below that is named only in the deferred-tools list is still available: load it with ToolSearch (\`select:<name>\`), then call it. Never use Grep because a ptah tool is deferred.
 
 ### Required Substitutions — Use These Tools Directly
 
@@ -39,12 +39,12 @@ Prefer ptah_* tools over built-in alternatives. They use VS Code's LSP, the work
 | Manual workspace exploration | ptah_workspace_analyze | Full project structure in one call |
 | Bash \`find\` / Glob tool | ptah_search_files | Respects .gitignore, workspace-indexed |
 | Running build to check errors | ptah_get_diagnostics | Workspace type-check; call once after edits, not on every step |
-| Grep for symbol usages | ptah_lsp_references | LSP-accurate, cross-file, rename-safe |
+| Grep for symbol usages | ptah_lsp_references | LSP-accurate, rename-safe; take file/line/col from ptah_code_search_symbols first |
 | Navigating to find definitions | ptah_lsp_definitions | Go-to-definition via LSP |
 | \`git status\` via Bash | ptah_get_dirty_files | Shows unsaved VS Code buffers too |
 | Reading a file to check size | ptah_count_tokens | Token count, not byte count |
 | Web search / browsing | ptah_web_search | Grounded web search via LLM providers |
-| Grep/Glob to find a **function, class, or method** | ptah_code_search_symbols { query } | BM25+vector symbol index — no false positives from string matches; degrades to a graceful "unavailable" result where there is no index |
+| Grep/Glob to find a **function, class, or method** | ptah_code_search_symbols { query } | Symbol index — no false positives from string matches |
 | Reading a full file to inspect structure | ptah_ast_analyze { file } | Functions/classes/imports/exports with line ranges; 40-60% fewer tokens than Read |
 | Reading a full file for its API surface only | ptah_context_enrich_file { file } | .d.ts-style summary — signatures without bodies |
 | Checking what breaks before changing a file | ptah_get_dependents { file } | Reverse import edges = blast radius |
@@ -54,6 +54,8 @@ Prefer ptah_* tools over built-in alternatives. They use VS Code's LSP, the work
 | Finding where a symbol is exported | ptah_get_symbol_index | Map of file → exported symbol names |
 
 Fall back to Bash, Grep or Glob only to **write** files (ptah is read-only), to run build/test/git commands, or when a ptah tool errors.
+
+Grep stays the right tool for free text: string literals, config keys, error messages.
 
 > [!IMPORTANT]
 > **Symbol and AST lookups are MANDATORY via ptah before Grep/Glob.** To find a function, class, method or type, call \`ptah_code_search_symbols\` or \`ptah_ast_analyze\` FIRST. Fall back to Grep only after those return no results or an error.

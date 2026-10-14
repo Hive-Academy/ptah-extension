@@ -34,7 +34,8 @@ import { PTAH_MCP_SUBSTITUTION_SECTION } from '@ptah-extension/agent-sdk';
 export const MAX_SERVER_INSTRUCTIONS_CHARS = 512;
 
 const HEADER = 'Prefer these ptah_* tools when listed in tools/list:';
-const UNLISTED_FALLBACK = 'If a tool is not listed, use the built-in.';
+const UNLISTED_FALLBACK =
+  'A deferred tool is listed: load it, then call it. If a tool is not listed, use the built-in.';
 const OMITTED_TOOLS_PREFIX = 'Also, if listed: ';
 const HELP_CLOSING = 'execute_code API: ptah.help()';
 const MORE_CLOSING = `More substitutions: see available ptah_* tools in tools/list. ${HELP_CLOSING}`;
