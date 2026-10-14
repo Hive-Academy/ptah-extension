@@ -443,7 +443,7 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 
 ### Task R9f.1 — COMPLETE (19db607e8)
 
-## Batch R9l: Narrow CanvasBoardMode; detail service; e2e selectors — PENDING
+## Batch R9l: Narrow CanvasBoardMode; detail service; e2e selectors — COMPLETE (27be43205; review code-logic-review-R9l.md APPROVE-WITH-FIXES 6/10, fix round done, row 99)
 
 - Executor: codex lane | Fallback: none (codex only) | Reviewer: Claude code-logic-reviewer | Wave H3 | Depends: R9t, R9f
 - Hold lifted: the passed addendum does not own `canvas-detail.service.ts`; its e2e split/reorder cases go to R9x
@@ -467,7 +467,7 @@ R9u<-R9h,R9l (all H1-H3 commits); R9v<-R9c,R9b,R9l,R9u; R9w<-R9b,R9f,R9l,R9u,R9v
 - Writer: SPEC(canvas, canvas-detail.service.spec.ts), SPEC(canvas, orchestra-canvas.component.spec.ts)
 - Mode 2: SPEC re-run, TC(canvas), LINT(canvas), TC(ptah-electron-e2e), LINT(ptah-electron-e2e).
 
-### Task R9l.1 — PENDING
+### Task R9l.1 — COMPLETE (27be43205)
 
 ## Addendum batches (items 12 split focus, 13 Rail reorder) — `implementation-plan-rail-r9-split.md`
 
