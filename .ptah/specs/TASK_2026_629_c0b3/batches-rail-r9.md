@@ -542,7 +542,7 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
 
 ### Task R9v.1 — COMPLETE (61078e201)
 
-## Batch R9w: Split focus board, panes, Details overlay, reorder consumer — PENDING
+## Batch R9w: Split focus board, panes, Details overlay, reorder consumer — COMPLETE (8c9fc364a; reviews code-logic-review-R9w.md REVISE 5/10 -> fix round -> -R9w-fix.md 6/10 -> correction row 105 -> -R9w-correction.md 6/10; C1-C3 routed to R9x, row 106)
 
 - Executor: codex lane | Fallback: none (codex only, addendum line 86) | Reviewer: Claude code-logic-reviewer | Wave H6 | Depends: R9b, R9f, R9l, R9u, R9v
 - Lane budget (risk R9): `timeout: 2400000`, <= 80 tool calls; resume the same session on timeout.
@@ -601,7 +601,7 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
   SPEC(canvas, canvas-lane-view.component.spec.ts), SPEC(canvas, canvas-detail-transcript.component.spec.ts)
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas).
 
-### Task R9w.1 — PENDING
+### Task R9w.1 — COMPLETE (8c9fc364a)
 
 ## Batch R9x: Header split actions, swap, stacked Tab order, drafts, e2e selectors — PENDING
 
@@ -635,6 +635,14 @@ writer reads the addendum lines cited in its contract. Pattern for menus: `canva
   SPEC(canvas, canvas-focus-area.component.spec.ts), SPEC(chat, chat-input.component.spec.ts)
 - Mode 2: FULL(canvas), TC(canvas), LINT(canvas); SPEC(chat, chat-input.component.spec.ts) re-run, LINT(chat);
   TC(ptah-electron-e2e), LINT(ptah-electron-e2e). No e2e run.
+
+- Added by rows 105 and 106 (R9x owns `canvas-rail-board.component.ts` + spec): fix R9w C1 (Serious: the board's
+  repair `focusTile` is gated on `visible()` only, so in single-chat mode a removal calls `switchTab`; gate it on
+  `SURFACE_ACTIVE` and repair when the surface becomes active; spec with SURFACE_ACTIVE false), C2 (hidden removal
+  during split keeps the survivor as `lastFocusedId`; spec that returns to the board), C3 (delete the unreachable
+  reorder-specific failure branch and flag, rename its spec). NEW-3: move Close split AND the Details control into
+  the header (menu or header controls) so no absolute control covers the pane header or lane-tab strip. NEW-6:
+  single focus can carry `data-pane-side="right"`; selectors and keyboard code must not assume `left`.
 
 ### Task R9x.1 — PENDING
 
