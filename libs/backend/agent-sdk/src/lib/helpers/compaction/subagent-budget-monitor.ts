@@ -41,7 +41,8 @@
  *
  * Both routes go through {@link SubagentHandoffDelivery}: a failed user turn
  * is retried, then kept pending in the notice queue, then in a session-owned
- * record retried on the session's later main-thread messages.
+ * record retried on the session's later main-thread messages, then replaced
+ * by a short undelivered notice in the notice queue.
  *
  * The handoff names Ptah's subagent budget monitor as the one that stopped
  * the subagent: the SDK's own task notification calls it "stopped by user".
@@ -94,6 +95,7 @@ import {
 } from './subagent-handoff-message';
 import {
   SubagentHandoffDelivery,
+  type Handoff,
   type HandoffDeliveryPort,
 } from './subagent-handoff-delivery';
 
@@ -251,7 +253,7 @@ interface SubagentState {
   /** A stop could not start (no task id from `task_started` or the registry yet); logged once. */
   stopDeferredLogged: boolean;
   /** The handoff waiting in the notice queue for the spawning tool result. */
-  pendingNotice?: { readonly sessionId: string; readonly text: string };
+  pendingNotice?: { readonly sessionId: string; readonly handoff: Handoff };
   /** SDK agent id the near-budget warning was posted for; set at most once. */
   warnedAgentId?: string;
   /** Handoff paths the warning named; the stop names the same ones. */
@@ -731,10 +733,10 @@ export class SubagentBudgetMonitor {
       if (
         this.dispatcher.withdrawMainThreadNotice(
           pending.sessionId,
-          pending.text,
+          pending.handoff.text,
         )
       ) {
-        await this.delivery.send(session.sessionId, id, pending.text);
+        await this.delivery.send(session.sessionId, id, pending.handoff);
       }
     }
   }
@@ -860,13 +862,14 @@ export class SubagentBudgetMonitor {
     }
     // Read after the wait: a background tool result may have named the output file.
     const task = current.tasks.get(toolCallId);
+    const subject = {
+      agentType: record?.agentType ?? started?.subagentType ?? 'subagent',
+      teammateName: record?.teammateName ?? task?.name,
+      taskId,
+      outputFile: task?.outputFile,
+    };
     const text = handoffMessage(
-      {
-        agentType: record?.agentType ?? started?.subagentType ?? 'subagent',
-        teammateName: record?.teammateName ?? task?.name,
-        taskId,
-        outputFile: task?.outputFile,
-      },
+      subject,
       {
         reason,
         contextTokens: state.contextTokens,
@@ -877,7 +880,8 @@ export class SubagentBudgetMonitor {
       task?.text,
       files,
     );
-    await this.deliverHandoff(current, toolCallId, liveState, text);
+    const handoff = { text, subject, notesPath: files.paths?.notes };
+    await this.deliverHandoff(current, toolCallId, liveState, handoff);
   }
 
   /**
@@ -888,19 +892,19 @@ export class SubagentBudgetMonitor {
     live: SessionState,
     toolCallId: string,
     stoppedState: SubagentState,
-    text: string,
+    handoff: Handoff,
   ): Promise<void> {
     const sessionId = live.sessionId;
     if (live.spawnReturned.get(toolCallId) === true) {
       // Background subagent: its tool result already came back, so no
       // main-thread tool result is due to carry a queued notice.
-      await this.delivery.send(sessionId, toolCallId, text);
+      await this.delivery.send(sessionId, toolCallId, handoff);
       return;
     }
     // Foreground subagent: the handoff rides on its own tool result.
     const liveState = live.subagents.get(toolCallId) ?? stoppedState;
-    liveState.pendingNotice = { sessionId, text };
-    this.delivery.post(sessionId, toolCallId, text);
+    liveState.pendingNotice = { sessionId, handoff };
+    this.delivery.post(sessionId, toolCallId, handoff);
   }
 
   /**

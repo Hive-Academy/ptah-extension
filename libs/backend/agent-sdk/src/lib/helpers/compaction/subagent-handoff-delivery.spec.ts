@@ -6,11 +6,20 @@ import {
   PARENT_PUSH_RETRY_DELAY_MS,
   PENDING_HANDOFF_MAX_RETRIES,
   SubagentHandoffDelivery,
+  undeliveredHandoffNotice,
+  type Handoff,
 } from './subagent-handoff-delivery';
 
 const SESSION = 'session-1';
 const TOOL_CALL = 'toolu_1';
-const TEXT = 'handoff for task-1';
+const TEXT = 'handoff for task-1; Its task was: SECRET-PROMPT';
+const NOTES = '/ws/.ptah/subagent-handoffs/session-1/toolu_1.md';
+const HANDOFF: Handoff = {
+  text: TEXT,
+  subject: { agentType: 'Explore', taskId: 'task-1' },
+  notesPath: NOTES,
+};
+const UNDELIVERED = undeliveredHandoffNotice(HANDOFF);
 /** Total backoff of one send that fails every attempt. */
 const ALL_RETRIES_MS = PARENT_PUSH_RETRY_DELAY_MS * PARENT_PUSH_ATTEMPTS;
 
@@ -55,7 +64,7 @@ async function keepPendingRecord(
   h: ReturnType<typeof makeHarness>,
 ): Promise<void> {
   h.port.pushParentMessage.mockRejectedValue(new Error('inactive'));
-  const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
+  const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
   await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
   await sent;
   h.notices.clear(SESSION);
@@ -74,7 +83,7 @@ describe('SubagentHandoffDelivery', () => {
     const h = makeHarness();
     h.port.pushParentMessage.mockRejectedValueOnce(new Error('inactive'));
 
-    const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
+    const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
     expect(h.port.pushParentMessage).toHaveBeenCalledTimes(1);
     await jest.advanceTimersByTimeAsync(PARENT_PUSH_RETRY_DELAY_MS - 1);
     expect(h.port.pushParentMessage).toHaveBeenCalledTimes(1);
@@ -90,7 +99,7 @@ describe('SubagentHandoffDelivery', () => {
     const h = makeHarness();
     h.port.pushParentMessage.mockRejectedValue(new Error('inactive'));
 
-    const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
+    const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
     await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
     await sent;
 
@@ -105,7 +114,7 @@ describe('SubagentHandoffDelivery', () => {
   it('send: a fallback notice the queue drops (turn end) gets one last send, then no more', async () => {
     const h = makeHarness();
     h.port.pushParentMessage.mockRejectedValue(new Error('inactive'));
-    const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
+    const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
     await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
     await sent;
     h.port.pushParentMessage.mockClear();
@@ -171,10 +180,67 @@ describe('SubagentHandoffDelivery', () => {
     expect(h.port.pushParentMessage).not.toHaveBeenCalled();
   });
 
-  it('retryPending: after the retry cap the record is dropped with one warn without its text', async () => {
+  it('retryPending: a message during the drop-triggered send backoff is remembered and used right after it fails', async () => {
+    const h = makeHarness();
+    const inactive = new Error('inactive');
+    for (let i = 0; i < PARENT_PUSH_ATTEMPTS * 2; i += 1) {
+      h.port.pushParentMessage.mockRejectedValueOnce(inactive);
+    }
+    const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
+    await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
+    await sent;
+    h.notices.clear(SESSION);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
+      PARENT_PUSH_ATTEMPTS + 1,
+    );
+
+    // The parent's next message arrives inside the drop-triggered backoff.
+    await h.delivery.retryPending(SESSION);
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
+      PARENT_PUSH_ATTEMPTS + 1,
+    );
+    await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
+
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
+      PARENT_PUSH_ATTEMPTS * 2 + 1,
+    );
+    expect(h.port.pushParentMessage).toHaveBeenLastCalledWith(SESSION, TEXT);
+    await h.delivery.retryPending(SESSION);
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
+      PARENT_PUSH_ATTEMPTS * 2 + 1,
+    );
+    expect(h.notices.take(SESSION)).toBeUndefined();
+  });
+
+  it('retryPending: a remembered retry that fails too keeps the record for a later message', async () => {
+    const h = makeHarness();
+    h.port.pushParentMessage.mockRejectedValue(new Error('inactive'));
+    const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
+    await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
+    await sent;
+    h.notices.clear(SESSION);
+    await jest.advanceTimersByTimeAsync(0);
+    await h.delivery.retryPending(SESSION);
+    await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
+      PARENT_PUSH_ATTEMPTS * 2 + 1,
+    );
+
+    h.port.pushParentMessage.mockReset();
+    h.port.pushParentMessage.mockResolvedValue(undefined);
+    await h.delivery.retryPending(SESSION);
+    await h.delivery.retryPending(SESSION);
+
+    expect(h.port.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.port.pushParentMessage).toHaveBeenCalledWith(SESSION, TEXT);
+  });
+
+  it('retryPending: at the retry cap the undelivered notice is queued once and the record dropped', async () => {
     const h = makeHarness();
     await keepPendingRecord(h);
     h.port.pushParentMessage.mockClear();
+    h.port.postMainThreadNotice.mockClear();
     h.logger.warn.mockClear();
 
     for (let i = 0; i < PENDING_HANDOFF_MAX_RETRIES; i += 1) {
@@ -183,14 +249,75 @@ describe('SubagentHandoffDelivery', () => {
     expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
       PENDING_HANDOFF_MAX_RETRIES,
     );
+    expect(h.port.postMainThreadNotice).toHaveBeenCalledTimes(1);
     expect(h.logger.warn).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(h.logger.warn.mock.calls[0])).not.toContain(TEXT);
 
+    // Later opportunities neither push nor post the notice again.
+    await h.delivery.retryPending(SESSION);
     await h.delivery.retryPending(SESSION);
     expect(h.port.pushParentMessage).toHaveBeenCalledTimes(
       PENDING_HANDOFF_MAX_RETRIES,
     );
+    expect(h.port.postMainThreadNotice).toHaveBeenCalledTimes(1);
+    expect(h.notices.take(SESSION)).toBe(UNDELIVERED);
     expect(h.logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('retryPending: an undelivered notice the queue drops comes back on the next message, never pushed', async () => {
+    const h = makeHarness();
+    await keepPendingRecord(h);
+    for (let i = 0; i < PENDING_HANDOFF_MAX_RETRIES; i += 1) {
+      await h.delivery.retryPending(SESSION);
+    }
+    h.port.pushParentMessage.mockClear();
+    h.port.postMainThreadNotice.mockClear();
+
+    h.notices.clear(SESSION);
+    expect(h.port.postMainThreadNotice).not.toHaveBeenCalled();
+    await h.delivery.retryPending(SESSION);
+    await h.delivery.retryPending(SESSION);
+
+    expect(h.port.pushParentMessage).not.toHaveBeenCalled();
+    expect(h.port.postMainThreadNotice).toHaveBeenCalledTimes(1);
+    expect(h.notices.take(SESSION)).toBe(UNDELIVERED);
+    expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain(TEXT);
+  });
+
+  it('release: an undelivered notice dropped at session end is not kept', async () => {
+    const h = makeHarness();
+    await keepPendingRecord(h);
+    for (let i = 0; i < PENDING_HANDOFF_MAX_RETRIES; i += 1) {
+      await h.delivery.retryPending(SESSION);
+    }
+    h.port.postMainThreadNotice.mockClear();
+
+    h.release();
+    h.notices.clear(SESSION);
+    h.delivery.release();
+    h.revive();
+    await h.delivery.retryPending(SESSION);
+
+    expect(h.port.postMainThreadNotice).not.toHaveBeenCalled();
+  });
+
+  it('undeliveredHandoffNotice: names the notes and output file, never the task text', () => {
+    expect(UNDELIVERED).toContain('could not be delivered');
+    expect(UNDELIVERED).toContain(NOTES);
+    expect(UNDELIVERED).toContain('task notification for task task-1');
+    expect(UNDELIVERED).not.toContain('SECRET-PROMPT');
+    const withOutput = undeliveredHandoffNotice({
+      ...HANDOFF,
+      subject: {
+        ...HANDOFF.subject,
+        teammateName: 'scout',
+        outputFile: '/tmp/task-1.output',
+      },
+      notesPath: undefined,
+    });
+    expect(withOutput).toContain("`Explore` ('scout')");
+    expect(withOutput).toContain('/tmp/task-1.output (task task-1)');
+    expect(withOutput).toContain('unavailable (workspace unknown)');
   });
 
   it('send: a timed-out push counts as delivered: not retried, queued or kept pending', async () => {
@@ -199,7 +326,7 @@ describe('SubagentHandoffDelivery', () => {
       new RpcUserError('not read in 10s', 'SEND_TIMEOUT'),
     );
 
-    const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
+    const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
     await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
     await sent;
     await h.delivery.retryPending(SESSION);
@@ -227,7 +354,7 @@ describe('SubagentHandoffDelivery', () => {
     const h = makeHarness();
     h.port.pushParentMessage.mockRejectedValue(new Error('inactive'));
 
-    const sent = h.delivery.send(SESSION, TOOL_CALL, TEXT);
+    const sent = h.delivery.send(SESSION, TOOL_CALL, HANDOFF);
     h.release();
     await jest.advanceTimersByTimeAsync(ALL_RETRIES_MS);
     await sent;
@@ -238,7 +365,7 @@ describe('SubagentHandoffDelivery', () => {
 
   it('post: a notice drained by take is never sent again', async () => {
     const h = makeHarness();
-    h.delivery.post(SESSION, TOOL_CALL, TEXT);
+    h.delivery.post(SESSION, TOOL_CALL, HANDOFF);
 
     expect(h.notices.take(SESSION)).toBe(TEXT);
     h.notices.clear(SESSION);
@@ -249,7 +376,7 @@ describe('SubagentHandoffDelivery', () => {
 
   it('post: a notice evicted past the queue bound is sent as a user turn', async () => {
     const h = makeHarness();
-    h.delivery.post(SESSION, TOOL_CALL, TEXT);
+    h.delivery.post(SESSION, TOOL_CALL, HANDOFF);
     for (let i = 0; i < 4; i += 1) {
       h.notices.post(SESSION, `other ${i}`);
     }
