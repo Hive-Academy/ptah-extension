@@ -12,9 +12,15 @@ after `/session-handoff` (for example a context-usage figure) is context only, n
 
 - Start no new work. Bring the current step to a safe stopping point: finish or revert a
   half-made edit; never leave a file broken.
-- Wait for everything still running: subagents, CLI agent lanes (`ptah_agent_wait`,
-  `ptah_agent_status`; lane mechanics live in the `agent-lanes` skill) and child sessions
-  (`ptah_session_status`). Collect their results. Stop one only if it cannot finish; record it.
+- Check everything still running once: subagents, CLI agent lanes (`ptah_agent_status`; lane
+  mechanics live in the `agent-lanes` skill) and child sessions (`ptah_session_status`). Collect
+  the results of those that finished.
+- Wait for the rest briefly, at most 5 minutes in total (`ptah_agent_wait` for lanes). Never wait
+  indefinitely.
+- Record and continue: anything waiting on a permission or other outside input (for example
+  `awaiting-permission`), or still not settled after that wait, is unfinished. Do not wait for it
+  any longer. Record it under **Background work** in HANDOFF.md (its id, its state, how to check
+  on it), then go on.
 
 ## 2. Write HANDOFF.md
 
@@ -42,11 +48,19 @@ own budget runs low.
 Call `ptah_session_handoff` exactly once with `handoffPath` (absolute path of HANDOFF.md),
 `prompt` (the continuation prompt) and optionally a short `label`.
 
-On success, tell the user the new session is open (by its label) and ask them to close this
-one. Do no further work here.
+On success, read `tabOpened`:
+
+- `true`: tell the user the new session is open (by its label) and ask them to close this one.
+- `false`: tell the user the new session started (by its label) but no tab appeared. They can
+  find it in the session list in the Ptah sessions panel and open it from there. Ask them to
+  close this one only after they have found it.
+
+Do no further work here.
 
 ## Fallback
 
 If `ptah_session_handoff` is not available, or the call is refused (any code) or fails: do not
 retry. Print the continuation prompt in exactly one fenced code block and tell the user to paste
-it into a new session. HANDOFF.md stays where you wrote it.
+it into a new session. HANDOFF.md stays where you wrote it. If the refusal says the new session
+may still open late, tell the user to look for it in the sessions panel first, and to paste the
+prompt only if it does not appear.

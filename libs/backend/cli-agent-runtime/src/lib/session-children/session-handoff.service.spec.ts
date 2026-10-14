@@ -11,7 +11,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { container as rootContainer, type DependencyContainer } from 'tsyringe';
-import { SessionHandoffService } from './session-handoff.service';
+import {
+  SESSION_HANDOFF_START_FAILED_DETAIL,
+  SESSION_HANDOFF_START_TIMEOUT_DETAIL,
+  SESSION_HANDOFF_START_TIMEOUT_MS,
+  SessionHandoffService,
+} from './session-handoff.service';
 import type { SessionHandoffRequest } from './session-handoff.port';
 import type {
   ChildChatSessionStartOutcome,
@@ -148,6 +153,7 @@ function makeHarness() {
     children,
     workspace,
     lines,
+    output,
     mcpStatus,
   };
 }
@@ -345,7 +351,7 @@ describe('SessionHandoffService', () => {
       await expect(h.service.handoff(h.request())).resolves.toEqual({
         ok: false,
         refusal: 'session-start-failed',
-        detail: 'workspace is unsafe',
+        detail: SESSION_HANDOFF_START_FAILED_DETAIL,
       });
     });
 
@@ -356,9 +362,42 @@ describe('SessionHandoffService', () => {
       await expect(h.service.handoff(h.request())).resolves.toEqual({
         ok: false,
         refusal: 'session-start-failed',
-        detail: 'kaput',
+        detail: SESSION_HANDOFF_START_FAILED_DETAIL,
       });
     });
+
+    it.each([
+      [
+        'throws',
+        (): Promise<ChildChatSessionStartOutcome> =>
+          Promise.reject(new TypeError(`could not send: ${PROMPT}`)),
+      ],
+      [
+        'reports',
+        (): Promise<ChildChatSessionStartOutcome> =>
+          Promise.resolve({ started: false, error: `bad input ${PROMPT}` }),
+      ],
+    ])(
+      'session-start-failed: a host that %s an error quoting the prompt leaks it nowhere',
+      async (_name, outcome) => {
+        const h = makeHarness();
+        h.host.startHandoffSession.mockImplementationOnce(outcome);
+
+        const result = await h.service.handoff(h.request());
+
+        expect(result).toEqual({
+          ok: false,
+          refusal: 'session-start-failed',
+          detail: SESSION_HANDOFF_START_FAILED_DETAIL,
+        });
+        expect(JSON.stringify(result)).not.toContain(PROMPT);
+        expect(h.output.appendLine).toHaveBeenCalled();
+        for (const [line] of h.output.appendLine.mock.calls) {
+          expect(line).not.toContain(PROMPT);
+          expect(line).not.toContain('could not send');
+        }
+      },
+    );
 
     it('already-handed-off: a second call names the earlier tab', async () => {
       const h = makeHarness();
@@ -416,6 +455,34 @@ describe('SessionHandoffService', () => {
       await expect(first).resolves.toMatchObject({ ok: true });
     });
 
+    it('already-handed-off: a concurrent call by the SDK id while the tab id call starts', async () => {
+      const h = makeHarness();
+      let release: () => void = () => undefined;
+      h.host.startHandoffSession.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ started: true, uiAnnounced: true });
+          }),
+      );
+
+      const first = h.service.handoff(h.request({ callerSessionId: CALLER }));
+      while (h.host.startHandoffSession.mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const second = await h.service.handoff(
+        h.request({ callerSessionId: CALLER_SDK }),
+      );
+      release();
+
+      expect(second).toEqual({
+        ok: false,
+        refusal: 'already-handed-off',
+        detail: 'a handoff from this session is already in progress',
+      });
+      await expect(first).resolves.toMatchObject({ ok: true });
+      expect(h.host.startHandoffSession).toHaveBeenCalledTimes(1);
+    });
+
     it('a failed start does not count as a handoff', async () => {
       const h = makeHarness();
       h.host.startHandoffSession.mockResolvedValueOnce({
@@ -426,6 +493,120 @@ describe('SessionHandoffService', () => {
 
       await expect(h.service.handoff(h.request())).resolves.toMatchObject({
         ok: true,
+      });
+    });
+  });
+
+  describe('a host start that does not settle in time', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+    /** Runs a handoff past its deadline; the host start settles on `settle`. */
+    async function startHanging(h: ReturnType<typeof makeHarness>) {
+      let settle: (outcome: ChildChatSessionStartOutcome) => void = () =>
+        undefined;
+      h.host.startHandoffSession.mockImplementationOnce(
+        () =>
+          new Promise<ChildChatSessionStartOutcome>((resolve) => {
+            settle = resolve;
+          }),
+      );
+      const pending = h.service.handoff(h.request());
+      while (h.host.startHandoffSession.mock.calls.length === 0) {
+        await flush();
+      }
+      jest.advanceTimersByTime(SESSION_HANDOFF_START_TIMEOUT_MS);
+      return {
+        result: await pending,
+        settle: (o: ChildChatSessionStartOutcome) => settle(o),
+      };
+    }
+
+    it('refuses at the deadline, saying it may still open late', async () => {
+      const h = makeHarness();
+
+      const { result } = await startHanging(h);
+
+      expect(result).toEqual({
+        ok: false,
+        refusal: 'session-start-failed',
+        detail: SESSION_HANDOFF_START_TIMEOUT_DETAIL,
+      });
+      expect(SESSION_HANDOFF_START_TIMEOUT_DETAIL).toContain(
+        'may still open late',
+      );
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('keeps the caller reserved until a late success, then records it', async () => {
+      const h = makeHarness();
+      const { settle } = await startHanging(h);
+
+      await expect(
+        h.service.handoff(h.request({ callerSessionId: CALLER_SDK })),
+      ).resolves.toEqual({
+        ok: false,
+        refusal: 'already-handed-off',
+        detail: 'a handoff from this session is already in progress',
+      });
+
+      settle({ started: true, uiAnnounced: true });
+      await flush();
+      const lateTab = h.host.startHandoffSession.mock.calls[0][0].tabId;
+
+      await expect(h.service.handoff(h.request())).resolves.toEqual({
+        ok: false,
+        refusal: 'already-handed-off',
+        detail: `this session already handed off to tab ${lateTab}`,
+      });
+      expect(h.host.startHandoffSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('frees the caller after a late failure', async () => {
+      const h = makeHarness();
+      const { settle } = await startHanging(h);
+
+      settle({ started: false, error: 'boom' });
+      await flush();
+
+      await expect(h.service.handoff(h.request())).resolves.toMatchObject({
+        ok: true,
+      });
+      expect(h.host.startHandoffSession).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('an output channel that throws', () => {
+    const throwing = () => {
+      throw new Error('channel closed');
+    };
+
+    it('still resolves a successful start', async () => {
+      const h = makeHarness();
+      h.output.appendLine.mockImplementation(throwing);
+
+      await expect(h.service.handoff(h.request())).resolves.toMatchObject({
+        ok: true,
+        tabOpened: true,
+      });
+      expect(h.host.startHandoffSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('still resolves the refusal already decided', async () => {
+      const h = makeHarness();
+      h.output.appendLine.mockImplementation(throwing);
+
+      await expect(
+        h.service.handoff(h.request({ handoffPath: 'HANDOFF.md' })),
+      ).resolves.toMatchObject({
+        ok: false,
+        refusal: 'handoff-file-missing',
       });
     });
   });

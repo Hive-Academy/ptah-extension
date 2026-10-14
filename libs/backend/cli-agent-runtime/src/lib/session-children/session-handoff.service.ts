@@ -8,8 +8,10 @@
  * `SessionChildRegistry`), so it can hand off again later. A child session is
  * refused: its parent supervises its work.
  *
- * No event subscriptions and no timers, so nothing needs disposing. The only
- * state is a bounded record of callers that already handed off.
+ * No event subscriptions, so nothing needs disposing. Each start has one
+ * deadline timer, cleared when the start settles or the deadline fires. The
+ * state is a bounded record of callers that already handed off and the
+ * callers whose start has not settled yet, both keyed by the caller's tab id.
  */
 import { inject, injectable, type DependencyContainer } from 'tsyringe';
 import { promises as fs } from 'node:fs';
@@ -47,6 +49,19 @@ const LOG_PREFIX = '[SessionHandoff]';
 export const SESSION_HANDOFF_HISTORY_SIZE = 64;
 /** Longest tab label, in characters. */
 export const SESSION_HANDOFF_LABEL_MAX = 60;
+/** How long the host may take to start the new session before the call is refused. */
+export const SESSION_HANDOFF_START_TIMEOUT_MS = 30_000;
+
+/** Fixed details: host error text may quote the prompt, so it is never passed on. */
+export const SESSION_HANDOFF_START_FAILED_DETAIL =
+  'the host could not start the new session';
+export const SESSION_HANDOFF_START_TIMEOUT_DETAIL =
+  `the host did not confirm the new session within ` +
+  `${SESSION_HANDOFF_START_TIMEOUT_MS / 1000} s; it may still open late, so ` +
+  'look for it in the sessions panel before starting another one';
+const UNEXPECTED_FAULT_DETAIL = 'an unexpected fault stopped the handoff';
+
+const TIMED_OUT: unique symbol = Symbol('session-handoff-timed-out');
 
 type CallerRecord = NonNullable<ReturnType<SessionLifecycleManager['find']>>;
 type HandoffRefusal = Extract<SessionHandoffResult, { ok: false }>;
@@ -61,7 +76,11 @@ interface HandedOff {
 export class SessionHandoffService implements ISessionHandoff {
   /** Keyed by the caller's tab id, in insertion order (oldest first). */
   private readonly handedOff = new Map<string, HandedOff>();
-  /** Callers whose handoff is between its guards and its start. */
+  /**
+   * Tab ids of callers whose start has not settled. A start that outlives
+   * its deadline stays here until it settles, so a retry cannot open a
+   * second session.
+   */
   private readonly inFlight = new Set<string>();
 
   constructor(
@@ -95,7 +114,9 @@ export class SessionHandoffService implements ISessionHandoff {
       // degradation-audit: reported - an unexpected fault in a collaborator
       // is logged and returned as the closed `session-start-failed`, so the
       // tool never throws and the skill falls back to printing the prompt.
-      return this.refuse('session-start-failed', errorMessage(error));
+      // Only the error's kind is logged: its message may quote the request.
+      this.log(`handoff faulted: ${errorKind(error)}`);
+      return this.refuse('session-start-failed', UNEXPECTED_FAULT_DETAIL);
     }
   }
 
@@ -139,25 +160,47 @@ export class SessionHandoffService implements ISessionHandoff {
     const handoffFile = await this.checkHandoffFile(request.handoffPath);
     if (handoffFile) return handoffFile;
 
-    const earlier = this.findHandedOff(caller, record.realSessionId);
+    // The caller may be named by its tab id or its SDK id; both resolve to
+    // one record, whose tab id keys every duplicate check and reservation.
+    const key = record.tabId;
+    const earlier = this.findHandedOff(key, record.realSessionId);
     if (earlier) {
       return this.refuse(
         'already-handed-off',
         `this session already handed off to tab ${earlier.tabId}`,
       );
     }
-    if (this.inFlight.has(caller)) {
+    if (this.inFlight.has(key)) {
       return this.refuse(
         'already-handed-off',
         'a handoff from this session is already in progress',
       );
     }
-    this.inFlight.add(caller);
-    try {
-      return await this.start(host, request, record, paths);
-    } finally {
-      this.inFlight.delete(caller);
+    this.inFlight.add(key);
+    // Never rejects; releases the reservation only when the start settles,
+    // even after the deadline below has answered the caller.
+    const attempt = this.start(host, request, record, paths)
+      .catch((error: unknown) => {
+        // degradation-audit: reported - logged by kind only (its message may
+        // quote the prompt) and returned as the closed `session-start-failed`.
+        this.log(`handoff start faulted: ${errorKind(error)}`);
+        return this.refuse(
+          'session-start-failed',
+          SESSION_HANDOFF_START_FAILED_DETAIL,
+        );
+      })
+      .finally(() => this.inFlight.delete(key));
+    const result = await withDeadline(
+      attempt,
+      SESSION_HANDOFF_START_TIMEOUT_MS,
+    );
+    if (result === TIMED_OUT) {
+      return this.refuse(
+        'session-start-failed',
+        SESSION_HANDOFF_START_TIMEOUT_DETAIL,
+      );
     }
+    return result;
   }
 
   private async start(
@@ -198,11 +241,21 @@ export class SessionHandoffService implements ISessionHandoff {
       });
     } catch (error: unknown) {
       // degradation-audit: reported - the port's contract is never-throw; a
-      // throw means the session did not start, returned by name.
-      return this.refuse('session-start-failed', errorMessage(error));
+      // throw means the session did not start. Its message may quote the
+      // prompt, so only its kind is logged and the detail is fixed.
+      this.log(`host start threw: ${errorKind(error)}`);
+      return this.refuse(
+        'session-start-failed',
+        SESSION_HANDOFF_START_FAILED_DETAIL,
+      );
     }
     if (!outcome.started) {
-      return this.refuse('session-start-failed', outcome.error);
+      // The host's error text may quote the prompt: it is not passed on.
+      this.log('host reported that the new session did not start');
+      return this.refuse(
+        'session-start-failed',
+        SESSION_HANDOFF_START_FAILED_DETAIL,
+      );
     }
     this.remember(record.tabId, {
       sdkSessionId: record.realSessionId,
@@ -333,8 +386,30 @@ export class SessionHandoffService implements ISessionHandoff {
     return { ok: false, refusal, detail };
   }
 
+  /** Never throws: a failing output channel must not change the result. */
   private log(message: string): void {
-    this.output.appendLine(`${LOG_PREFIX} ${message}`);
+    try {
+      this.output.appendLine(`${LOG_PREFIX} ${message}`);
+    } catch {
+      // degradation-audit: suppressed - the log line is lost; the result
+      // already decided is returned unchanged, keeping the never-throw port.
+    }
+  }
+}
+
+/** `work`'s value, or `TIMED_OUT` after `ms`. The timer is always cleared. */
+async function withDeadline<T>(
+  work: Promise<T>,
+  ms: number,
+): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -344,4 +419,13 @@ function truncate(text: string, max: number): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The error's name and code, never its message, which may quote the prompt. */
+function errorKind(error: unknown): string {
+  if (!(error instanceof Error)) return typeof error;
+  const code = 'code' in error ? error.code : undefined;
+  return typeof code === 'string' || typeof code === 'number'
+    ? `${error.name} (${code})`
+    : error.name;
 }
