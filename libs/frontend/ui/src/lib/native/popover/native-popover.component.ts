@@ -257,7 +257,12 @@ export class NativePopoverComponent implements OnDestroy {
           .then((): PositionOutcome => 'positioned'),
         timedOut,
       ]);
-    } catch {
+    } catch (error: unknown) {
+      // Keep the cause: openPopover only sees the 'failed' outcome and logs
+      // the fallback it takes, not why positioning rejected.
+      if (isDevMode()) {
+        console.error('ptah-native-popover: positioning rejected:', error);
+      }
       return 'failed';
     } finally {
       clearTimeout(timer);
