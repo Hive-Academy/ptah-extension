@@ -82,3 +82,26 @@ export type {
   MatrixCellSource,
   MatrixProfile,
 } from './lib/matrix/matrix.types';
+export {
+  CapabilityMatrixStore,
+  capabilityMatrixUserPath,
+  capabilityMatrixViewPath,
+  EMPTY_CAPABILITY_MATRIX_TEXT,
+  MATRIX_INVALID_PREFIX,
+  NO_OUTCOME_HISTORY_REASON,
+  OUTCOMES_UNAVAILABLE_REASON,
+  type CapabilityMatrixSnapshot,
+  type CapabilityMatrixStoreDependencies,
+  type CapabilityMatrixView,
+  type MatrixLoadInput,
+  type MatrixOutcomeQuery,
+  type MatrixViewCell,
+  type MatrixViewProfile,
+  type MatrixViewUnknown,
+  type MatrixViewValue,
+  type ResolvedMatrixCell,
+} from './lib/matrix/capability-matrix.store';
+export {
+  AUTOMATIC_MATRIX_MODEL,
+  deriveLocalMatrix,
+} from './lib/matrix/local-derivation';
