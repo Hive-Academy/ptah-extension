@@ -182,3 +182,7 @@ export {
   roleIconFor,
   type CliMark,
 } from './lib/atoms/agent-avatar/agent-marks';
+// Badge text formatter as a pure fn (TASK_2026_677 A1-1) for the turn
+// activity panel. The cost text formatter is `formatUsdCost` in
+// `@ptah-extension/shared`, already shared by `ptah-cost-badge`.
+export { formatTokenCount } from './lib/atoms/token-badge.component';
