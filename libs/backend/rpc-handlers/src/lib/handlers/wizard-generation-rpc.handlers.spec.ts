@@ -960,6 +960,29 @@ describe('WizardGenerationRpcHandlers', () => {
       );
     });
 
+    it('warns when failed-launch reporting also fails', async () => {
+      const h = makeHarness();
+      jest
+        .spyOn(h.runs, 'run')
+        .mockRejectedValueOnce(new Error('launch failed'));
+      h.sentry.captureException.mockImplementationOnce(() => {
+        throw new Error('reporting failed');
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+      await settle();
+
+      expect(result.success).toBe(true);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        'RPC: wizard:submit-selection failure reporting did not complete',
+      );
+    });
+
     it('refuses retry while a submit is preparing', async () => {
       const h = makeHarness();
       let releaseFreshness!: () => void;

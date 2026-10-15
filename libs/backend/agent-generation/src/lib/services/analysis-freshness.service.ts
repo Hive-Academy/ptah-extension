@@ -81,7 +81,8 @@ export class AnalysisFreshnessService {
       this.logger.warn(
         `${SERVICE_TAG} Could not determine analysis freshness`,
         {
-          error,
+          errorName: error instanceof Error ? error.name : typeof error,
+          errorMessage: error instanceof Error ? error.message : String(error),
           analysisRoot,
         },
       );

@@ -1686,6 +1686,24 @@ x
       },
     );
 
+    it('logs the freshness failure cause and uses gathered context', async () => {
+      mockFreshness.getStatus.mockRejectedValueOnce(
+        new Error('freshness failed'),
+      );
+      const template = {
+        ...baseTemplate,
+        content: '<!-- LLM:S -->\nx\n<!-- /LLM:S -->',
+      };
+      await service.generateContent(template, {
+        ...mockContext,
+        analysisDir: '/tmp/old-analysis',
+      });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'ContentGenerationService: Analysis freshness unavailable',
+        { errorName: 'Error', errorMessage: 'freshness failed' },
+      );
+    });
+
     it('should include only the Project Profile phase for a generic agent', async () => {
       readFileSyncMock.mockImplementation(((p: unknown) => {
         const file = String(p);

@@ -1071,9 +1071,12 @@ export class EnhancedPromptsService {
         );
       }
       return { analysisDirectory: slugDir, phaseIds };
-    } catch {
+    } catch (error) {
       // degradation-audit: optional-capability - analysis enrichment is optional.
-      this.logger.warn(`${SERVICE_TAG} Failed to read multi-phase analysis`);
+      this.logger.warn(`${SERVICE_TAG} Failed to read multi-phase analysis`, {
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       return none;
     }
   }

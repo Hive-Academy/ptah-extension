@@ -617,10 +617,15 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown or empty string>
         this.logger.warn(
           'ContentGenerationService: Analysis unavailable or stale; using gathered context',
         );
-      } catch {
+      } catch (error) {
         // degradation-audit: optional-capability - freshness failure uses gathered context.
         this.logger.warn(
           'ContentGenerationService: Analysis freshness unavailable',
+          {
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          },
         );
       }
     }

@@ -1396,6 +1396,7 @@ describe('EnhancedPromptsService', () => {
       expect(r.success).toBe(true);
       expect(mocks.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Failed to read multi-phase analysis'),
+        { errorName: 'Error', errorMessage: 'reader broken' },
       );
     });
   });

@@ -408,6 +408,9 @@ export class WizardGenerationRpcHandlers {
               // degradation-audit: reported - the launch failure was already logged,
               // captured and its checkpoint finalized; a secondary reporting failure
               // must not become an unhandled rejection.
+              this.logger.warn(
+                'RPC: wizard:submit-selection failure reporting did not complete',
+              );
             });
           return { success: true };
         } catch (error: unknown) {

@@ -358,7 +358,10 @@ describe('AnalysisFreshnessService', () => {
     });
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('[AnalysisFreshness]'),
-      expect.objectContaining({ error: expect.any(Error) }),
+      expect.objectContaining({
+        errorName: 'Error',
+        errorMessage: 'I/O failure',
+      }),
     );
     expectNoWrites();
   });
