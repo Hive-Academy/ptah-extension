@@ -57,4 +57,7 @@ export {
   type SessionStatsHost,
   type SessionStatsSource,
 } from './lib/services/session-stats/session-stats-source';
-export { SESSION_EMBED_CHROME, type SessionEmbedChrome } from './lib/tokens/session-embed-chrome.token';
+export {
+  SESSION_EMBED_CHROME,
+  type SessionEmbedChrome,
+} from './lib/tokens/session-embed-chrome.token';

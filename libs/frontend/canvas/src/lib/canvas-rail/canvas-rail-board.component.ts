@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   isDevMode,
@@ -13,9 +14,10 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorComponent, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
-import { StatsTileExpansionState, type CompactRailState } from '@ptah-extension/chat-ui';
+import { StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { railWidthBand } from '../canvas-board-mode';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
@@ -38,9 +40,11 @@ const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-dock.absolut
 // 272 px Rail + 44 px details control + about 320 px for the session pane.
 const RAIL_AUTO_COLLAPSE_PX = 640;
 
-function isTabbable(element: HTMLElement): boolean {
+function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   if (element.tabIndex < 0 || (element as HTMLButtonElement).disabled) return false;
-  if (element.closest(`[hidden], [inert], ${PANE_OVERLAYS}`)) return false;
+  if (element.closest('[hidden], [inert]')) return false;
+  const overlay = element.closest(PANE_OVERLAYS);
+  if (overlay && overlay !== sheet) return false;
   if (typeof element.checkVisibility === 'function') return element.checkVisibility({ visibilityProperty: true });
   // Environments without checkVisibility (jsdom): walk the computed styles.
   const view = element.ownerDocument.defaultView;
@@ -165,6 +169,9 @@ function isTabbable(element: HTMLElement): boolean {
                     [paneNumber]="splitDisplayed() ? paneNumber(side) : null"
                     [panePlace]="splitDisplayed() ? panePlace(side) : ''"
                     [detailsOpen]="detailsOpen() && activeSide() === side"
+                    [limitCue]="activeSide() === side ? stats.inputs()?.limitSummary ?? null : null"
+                    [contextRingPercent]="activeSide() === side ? stats.inputs()?.context.percent ?? null : null"
+                    [toggleDescription]="activeSide() === side ? closedDetailsDescription() : ''"
                     [state]="railStates().get(id) ?? 'idle'"
                     [band]="band()"
                     (closeRequested)="close($event)"
@@ -174,7 +181,7 @@ function isTabbable(element: HTMLElement): boolean {
                     (detailsRequested)="openSplitDetails($event)"
                   />
                   @if (splitDisplayed() && detailsOpen() && activeSide() === side && !compactSheet()) {
-                    <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" (keydown.escape)="closeSplitDetails($event)">
+                    <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" tabindex="-1" (keydown.escape)="closeSplitDetails($event)">
                       @defer (on idle) {
                         <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" (closeRequested)="closeSplitDetails()" />
                       } @placeholder {
@@ -239,9 +246,9 @@ function isTabbable(element: HTMLElement): boolean {
         }
         @if (compactSheetOpen()) {
           @if (focusedId(); as id) {
-            <div class="absolute inset-0 z-30 bg-base-100" (keydown.escape)="closeCompactSheet($event)" (keydown)="onSheetKeydown($event)">
+             <div class="absolute inset-0 z-30 bg-base-100" tabindex="-1" data-compact-sheet (keydown.escape)="closeCompactSheet($event)" (keydown)="onSheetKeydown($event)">
               @defer (on idle) {
-                <ptah-session-inspector [tabId]="id" presentation="sheet" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" (closeRequested)="closeCompactSheet()" />
+                 <ptah-session-inspector [tabId]="id" presentation="sheet" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="openLaneFromCompactSheet(id, $event)" (closeRequested)="closeCompactSheet()" />
               } @placeholder {
                 <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
               }
@@ -267,6 +274,8 @@ export class CanvasRailBoardComponent {
   private readonly tabs = inject(TabManagerService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+  private detailsFocusObserver: MutationObserver | null = null;
   readonly railStates = signal<ReadonlyMap<string, CompactRailState>>(
     new Map(),
   );
@@ -323,6 +332,12 @@ export class CanvasRailBoardComponent {
     budget: () => this.focusedTab()?.sessionBudget ?? null,
     available: () => this.focusedTab() !== null,
   });
+  readonly closedDetailsDescription = computed(() => {
+    const current = this.stats.inputs();
+    return current
+      ? inspectorToggleDescription(current.context, current.limitSummary, 0)
+      : '';
+  });
   readonly band = computed(() => railWidthBand(this.layout.containerWidth()));
   readonly newSessionBlockReason = computed(() =>
     this.store.canStartRunningSession() ? null : RUNNING_CAP_MESSAGE,
@@ -340,6 +355,7 @@ export class CanvasRailBoardComponent {
   private restoredScroll = false;
 
   constructor() {
+    this.destroyRef.onDestroy(() => this.stopDetailsFocusObserver());
     effect((onCleanup) => {
       if (!this.visible()) return;
       const document = this.host.nativeElement.ownerDocument;
@@ -661,11 +677,33 @@ export class CanvasRailBoardComponent {
     this.activatePane(side);
     this.detailsFocusReturn = true;
     this.detailsOpen.set(true);
-    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"] [data-inspector-close]')?.focus(), { injector: this.injector });
+    this.stopDetailsFocusObserver();
+    afterNextRender(() => {
+      const shell = this.host.nativeElement.querySelector<HTMLElement>(
+        this.compactSheet() ? '[data-compact-sheet]' : '[role="dialog"][aria-label="Session details"]',
+      );
+      if (!shell || !this.detailsOpen()) return;
+      shell.focus();
+      const focusClose = () => {
+        const close = shell.querySelector<HTMLElement>('[data-inspector-close]');
+        if (!close || !this.detailsOpen()) return;
+        close.focus();
+        this.stopDetailsFocusObserver();
+      };
+      this.detailsFocusObserver = new MutationObserver(focusClose);
+      this.detailsFocusObserver.observe(shell, { childList: true, subtree: true });
+      focusClose();
+    }, { injector: this.injector });
+  }
+
+  private stopDetailsFocusObserver(): void {
+    this.detailsFocusObserver?.disconnect();
+    this.detailsFocusObserver = null;
   }
 
   closeSplitDetails(event?: Event): void {
     event?.stopPropagation();
+    this.stopDetailsFocusObserver();
     this.detailsOpen.set(false);
     if (!this.detailsFocusReturn) return;
     this.detailsFocusReturn = false;
@@ -682,16 +720,24 @@ export class CanvasRailBoardComponent {
 
   closeCompactSheet(event?: Event): void {
     event?.stopPropagation();
+    this.stopDetailsFocusObserver();
     this.detailsOpen.set(false);
     this.detailsFocusReturn = false;
     afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`)?.focus(), { injector: this.injector });
   }
 
+  openLaneFromCompactSheet(id: string, laneKey: string): void {
+    this.detail.selectLaneFor(id, laneKey);
+    this.closeCompactSheet();
+  }
+
   onSheetKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Tab') return;
     const sheet = this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"]');
-    if (!sheet) return;
-    const items = [...sheet.querySelectorAll<HTMLElement>(TABBABLE)].filter(isTabbable);
+    if (!sheet) { event.preventDefault(); return; }
+    const items = [...sheet.querySelectorAll<HTMLElement>(TABBABLE)].filter((element) =>
+      isTabbable(element, sheet),
+    );
     if (!items.length) { event.preventDefault(); return; }
     const active = sheet.ownerDocument.activeElement;
     if (event.shiftKey && active === items[0]) {
@@ -871,7 +917,7 @@ export class CanvasRailBoardComponent {
     const topPane = container?.querySelector<HTMLElement>(`:scope > [data-pane-side="${top}"]`);
     const bottomPane = container?.querySelector<HTMLElement>(`:scope > [data-pane-side="${bottom}"]`);
     if (!container || !topPane || !bottomPane) return;
-    const dom = [...this.host.nativeElement.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)].filter(isTabbable);
+    const dom = [...this.host.nativeElement.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)].filter((element) => isTabbable(element));
     const outside = (position: number) =>
       dom.filter((el) => !container.contains(el) && !!(container.compareDocumentPosition(el) & position));
     const visual = [
