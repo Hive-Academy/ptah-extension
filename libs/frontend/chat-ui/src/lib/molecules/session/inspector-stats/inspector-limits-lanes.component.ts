@@ -49,7 +49,7 @@ let nextSectionId = 0;
       <section class="p-4 border-t border-surface-border" [attr.aria-labelledby]="lanesHeadingId">
         <div class="flex items-center justify-between gap-2">
           <h3 [id]="lanesHeadingId" tabindex="-1" class="sec-label text-[10.5px] font-semibold uppercase">LANES</h3>
-          <span class="text-[11px] text-base-content-muted" [attr.aria-label]="lanesAriaLabelFor(vm.lanesCount)">
+          <span role="img" class="text-[11px] text-base-content-muted" [attr.aria-label]="lanesAriaLabelFor(vm.lanesCount)">
             {{ vm.laneTiles.length }} {{ vm.laneTiles.length === 1 ? 'lane' : 'lanes' }} · {{ vm.lanesCount }} runs
           </span>
         </div>

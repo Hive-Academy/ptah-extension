@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { ModelStateService } from '@ptah-extension/core';
-import { resolveModelDisplayName } from '@ptah-extension/shared';
+import { resolveModelDisplayName, type SessionBudgetStage } from '@ptah-extension/shared';
 import { AlertTriangle, ChevronRight, Info, LucideAngularModule } from 'lucide-angular';
 import { ContextRingComponent } from '../../../atoms/context-ring.component';
 import { CostBadgeComponent } from '../../../atoms/cost-badge.component';
@@ -21,7 +21,7 @@ let nextSessionId = 0;
   imports: [LucideAngularModule, ContextRingComponent, CostBadgeComponent, NgTemplateOutlet],
   template: `
     @let s = stats();
-    <section class="p-4" [attr.aria-labelledby]="headingId">
+    <section class="p-4" data-testid="inspector-session-stats" [attr.aria-labelledby]="headingId">
       <div class="mb-2 flex items-center justify-between gap-2">
         <h3 [id]="headingId" class="sec-label text-[10.5px] font-semibold uppercase">SESSION</h3>
         @if (s.snapshot?.provisional) { <span class="text-[11px] text-base-content-muted">~ = estimate</span> }
@@ -38,13 +38,13 @@ let nextSessionId = 0;
         </p>
       }
       <div class="grid grid-cols-2 gap-2">
-        <div class="relative col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5"
-          [class.col-span-2]="true" [attr.role]="s.context.known ? 'progressbar' : null"
-          [attr.aria-valuemin]="s.context.known ? 0 : null" [attr.aria-valuemax]="s.context.known ? 100 : null"
-          [attr.aria-valuenow]="s.context.percent === null ? null : round(s.context.percent)"
-          [attr.aria-labelledby]="s.context.known ? contextLabelId : null"
-          [attr.aria-valuetext]="s.context.known && s.context.usedTokens !== null ? s.context.label + ' of the context window, ' + formatTokens(s.context.usedTokens) + ' tokens used' : null">
-          <div class="flex items-center gap-3">
+        <div class="relative col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5">
+          <div class="flex items-center gap-3"
+            [attr.role]="s.context.known ? 'progressbar' : null"
+            [attr.aria-valuemin]="s.context.known ? 0 : null" [attr.aria-valuemax]="s.context.known ? 100 : null"
+            [attr.aria-valuenow]="s.context.percent === null ? null : clampPercent(s.context.percent)"
+            [attr.aria-labelledby]="s.context.known ? contextLabelId : null"
+            [attr.aria-valuetext]="s.context.known && s.context.usedTokens !== null ? s.context.label + ' of the context window, ' + formatTokens(s.context.usedTokens) + ' tokens used' : null">
             @if (s.context.percent !== null) { <ptah-context-ring [percent]="s.context.percent" /> }
             <div class="min-w-0 flex-1">
               <div [id]="contextLabelId" class="text-[11px] text-base-content-muted">Context</div>
@@ -69,9 +69,9 @@ let nextSessionId = 0;
           @if (tokensBudgetSuffix(s.budget); as suffix) { <p class="text-[11px] text-base-content-muted">of {{ suffix.slice(2) }} budget</p> }
           @if (s.budget?.measure === 'tokens' && s.budget?.percent !== null) {
             <div role="progressbar" aria-label="Session token budget" aria-valuemin="0" aria-valuemax="100"
-              [attr.aria-valuenow]="round(s.budget!.percent!)" [attr.aria-valuetext]="round(s.budget!.percent!) + '% of the ' + formatTokens(s.budget!.limit) + ' token budget'"
+              [attr.aria-valuenow]="clampPercent(s.budget!.percent!)" [attr.aria-valuetext]="floor(s.budget!.percent!) + '% of the ' + formatTokens(s.budget!.limit) + ' token budget'"
               class="mt-1 h-1 rounded-full bg-[var(--surface-border-strong)]">
-              <span class="block h-full rounded-full" [style.width.%]="s.budget!.percent!" [style.background-color]="budgetInk(s.budget!.percent!)"></span>
+              <span class="block h-full rounded-full" [style.width.%]="clampPercent(s.budget!.percent!)" [style.background-color]="budgetInk(s.budget!.stage)"></span>
             </div>
           }
           <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Tokens', key: 'sd-tokens', text: tokenDetails() }" />
@@ -84,12 +84,14 @@ let nextSessionId = 0;
             @else { <ptah-cost-badge [cost]="s.snapshot?.totalCost ?? null" /> }
           </div>
           @if (costBudgetSuffix(s.budget); as suffix) { <p class="text-[11px] text-base-content-muted">of {{ suffix.slice(2) }} budget</p> }
-          @else if (knownSubtotal(); as subtotal) { <p class="text-[11px] text-base-content-muted">known subtotal {{ formatCost(subtotal.value) }}</p> }
+          @else if (!costBudgetText(s.budget)) {
+            @if (knownSubtotal(); as subtotal) { <p class="text-[11px] text-base-content-muted">known subtotal {{ formatCost(subtotal.value) }}</p> }
+          }
           @if (s.budget?.measure === 'cost' && s.budget?.percent !== null) {
             <div role="progressbar" aria-label="Session cost budget" aria-valuemin="0" aria-valuemax="100"
-              [attr.aria-valuenow]="round(s.budget!.percent!)" [attr.aria-valuetext]="round(s.budget!.percent!) + '% of the ' + costBudgetSuffix(s.budget)!.slice(2) + ' cost budget'"
+              [attr.aria-valuenow]="clampPercent(s.budget!.percent!)" [attr.aria-valuetext]="floor(s.budget!.percent!) + '% of the ' + costBudgetSuffix(s.budget)!.slice(2) + ' cost budget'"
               class="mt-1 h-1 rounded-full bg-[var(--surface-border-strong)]">
-              <span class="block h-full rounded-full" [style.width.%]="s.budget!.percent!" [style.background-color]="budgetInk(s.budget!.percent!)"></span>
+              <span class="block h-full rounded-full" [style.width.%]="clampPercent(s.budget!.percent!)" [style.background-color]="budgetInk(s.budget!.stage)"></span>
             </div>
           }
           @if (costDetails(); as details) { <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Cost', key: 'sd-cost', text: details }" /> }
@@ -115,7 +117,7 @@ let nextSessionId = 0;
         } @else if (modelNames().length >= 2) {
           <button type="button" class="col-span-2 min-h-10 flex items-center gap-2 rounded-md border border-surface-border bg-surface-1 p-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
             [attr.aria-expanded]="isOpen('sd-models')" [attr.aria-controls]="modelsPanelId"
-            [title]="isOpen('sd-models') ? 'Hide per-model breakdown' : 'Show per-model breakdown'" (click)="toggle('sd-models')">
+            [title]="isOpen('sd-models') ? 'Hide per-model breakdown' : 'Show per-model breakdown'" (click)="toggle('sd-models')" (keydown.escape)="closeOnEscape($event, 'sd-models')">
             <span class="text-xs text-base-content-muted">Models</span>
             <span class="min-w-0 flex-1 truncate text-xs">{{ modelNames().slice(0, 2).join(', ') }}</span>
             <span class="text-xs tabular-nums">{{ modelNames().length }}</span>
@@ -146,7 +148,7 @@ let nextSessionId = 0;
     <ng-template #detail let-name="name" let-key="key" let-text="text">
       <button type="button" class="absolute right-2 top-2 flex size-7 items-center justify-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
         [attr.aria-label]="name + ' details'" [attr.aria-expanded]="isOpen(key)" [attr.aria-controls]="detailId(key)"
-        (click)="toggle(key)" (keydown.escape)="close(key)">
+        (click)="toggle(key)" (keydown.escape)="closeOnEscape($event, key)">
         <lucide-angular [img]="InfoIcon" class="size-3.5 text-base-content-muted" aria-hidden="true" />
       </button>
       @if (isOpen(key)) {
@@ -178,7 +180,7 @@ export class InspectorSessionStatsComponent {
   protected readonly costBudgetSuffix = costBudgetSuffix;
   protected readonly costBudgetText = costBudgetText;
   protected readonly tokensBudgetSuffix = tokensBudgetSuffix;
-  protected readonly round = Math.round;
+  protected readonly floor = Math.floor;
   protected readonly knownSubtotal = computed(() => knownSubtotalOf(this.stats().snapshot));
   protected readonly agents = computed(() => agentCountOf(this.stats().snapshot));
   protected readonly duration = computed(() => durationMsOf(this.stats().snapshot));
@@ -201,5 +203,14 @@ export class InspectorSessionStatsComponent {
   protected isOpen(key: string): boolean { return this.expansion.isOpen(this.stats().sessionId ?? '', key); }
   protected toggle(key: string): void { this.expansion.toggle(this.stats().sessionId ?? '', key); }
   protected close(key: string): void { this.expansion.setOpen(this.stats().sessionId ?? '', key, false); }
-  protected budgetInk(percent: number): string { return percent >= 100 ? 'var(--state-ink-err)' : percent >= 80 ? 'var(--state-ink-need)' : 'var(--ptah-gold)'; }
+  protected closeOnEscape(event: Event, key: string): void {
+    if (!this.isOpen(key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.close(key);
+  }
+  protected clampPercent(percent: number): number { return Math.min(100, Math.max(0, Math.floor(percent))); }
+  protected budgetInk(stage: SessionBudgetStage): string {
+    return stage === 'limit' ? 'var(--state-ink-err)' : stage === 'tighten' || stage === 'handoff' ? 'var(--state-ink-need)' : 'var(--ptah-gold)';
+  }
 }

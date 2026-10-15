@@ -113,12 +113,16 @@ async function exploreTransparency(
     });
   }
 
-  // Spotlight the per-message stats (tokens / cost / time) on the latest
-  // assistant bubble — the heart of the "every turn is transparent" message.
+  // Spotlight the session totals while the latest assistant turn is in view.
   const assistantBubble = tile
     .locator('ptah-message-bubble .chat-start')
     .last();
-  const stats = assistantBubble.locator('ptah-session-stats-summary').first();
+  const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]').first();
+  if (await visible(inspectorToggle) && await inspectorToggle.getAttribute('aria-expanded') === 'false') {
+    await inspectorToggle.click();
+  }
+  const stats = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
+    .locator('ptah-session-inspector:visible [data-testid="inspector-session-stats"]').first();
   if (await visible(stats)) {
     await director.say(1, {
       target: stats,
