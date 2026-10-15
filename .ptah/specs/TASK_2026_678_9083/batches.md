@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 19/28 | Phases A and B CLOSED; B9 and B11 done (D32); next: B10 and B12 after the B0 baseline
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 19/28 | Phases A and B CLOSED; B9 and B11 done (D32); B0 waived (D34); next: B10 and B12
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -142,6 +142,7 @@ Edge cases:
 | D31 | The user chose "Popover fix only" on 2026-10-15. The node popover flicker on dense scenes is fixed in Batch 14 only: Task 14.1 replaces the per-label instant tooltip with ONE shared node card keyed by stable node ID (hover intent with open/close delays, safe area, no close while the canvas hit test still reports the node, sphere anchor for hidden labels, click/Enter pin, `FloatingUIService` positioning at most once per frame, reduced motion), adds `command-overlay.component.spec.ts`, and Task 14.2 wires and specs it. Task 12.2 gains ONLY a `hoveredNodeId` output, because the canvas pointer hit test lives in `CommandSceneComponent` and the overlay cannot know the hovered node otherwise; nothing else in Batch 12 changes, and Batches 11 and 13 do not change. Zoom and pan are OUT of scope for this task: no scene camera, zoom, pan, fit-to-view or zoom-to-node in any batch. Candidate follow-up task: zoom and pan with a hand-written bounded camera (`{scale,tx,ty}`), d3-zoom as the fallback, no minimap (research recommendation). Batch 14 now carries 7 files in one project (one over the 6-file rule); kept as one batch because the card and its page wiring are one rollback unit. Rules are tagged in Task 14.1: delay values (150/200 ms, tunable at B18) and the bridge safe-area method are lane-proposed. | (a) popover fix only; (b) popover fix plus zoom and pan across B11-B14 (research amendment, one new camera helper) | User decision 2026-10-15. `research-canvas-zoom-pan.md` "Flicker root cause" and "Popover options"; `prototype/command-center.html:81` (label `mouseenter` -> `showTip`, `mouseleave` -> `display='none'`, no delay, safe area or pin) and `:95` (`positionLabels` moves, compacts or hides labels while drawing; dense at `nodes.length > 12`); `floating-ui.service.ts:125-163` (`offset`, `flip`, `shift`, fixed strategy, `autoUpdate`; no hover intent or safe area). | yes |
 | D32 | The user chose "Unblock B9/B11 now" on 2026-10-15. The B0 gate (D2) now covers only B10 (voice loop) and B12 (scene renderer), the first batches that consume the measured frame and voice budgets. B9 (pure voice primitives) and B11 (brand-art entry, pure layout, sprite cache) start now. The user records the B0 baseline in `test-report.md` before B10 and B12. Per the user's relayed instruction for 2026-10-15/16 (Claude usage near its limit), CLI lanes do the implementation and review work, and the orchestrator records team-leader bookkeeping and commits. | (a) unblock B9/B11 now; (b) user measures now, keep D2; (c) defer every measurement to B18 | User decision 2026-10-15. B9 and B11 read no measured number: B9 tasks 9.1-9.4 are pure logic, and B11 tasks 11.1-11.3 are an export entry, pure geometry and a sprite cache; the frame and voice budgets first apply in B10 (voice loop) and B12 (renderer). | yes |
 | D33 | B9 (`b65372ba1`) and B11 (`4b7455a36`) are accepted after one orchestrator fix round each (3 defects per batch, all fixed by the same codex lane, recorded in each batch's verification). The B11 lane found that child nodes cannot show `Codex · Builder` because the B8 projection carries no child session name and no provider ids; the fix is carried to Task 14.2, which already owns `work-projection.ts` (D28). No per-batch review (plan); the Phase C logic review runs after B10, and the Phase D reviews after B16. | (a) carry the child-label fix to Task 14.2; (b) a new bounded batch now | `reports/batch-11-report.md` "Carry-over"; `work-projection.ts` child label `'Child session'` and `providerId: null`; Task 14.2 already lists `work-projection.ts` (D28), so (a) adds no new file owner. | yes |
+| D34 | The user waived the B0 baseline on 2026-10-15 ("continue as if the test went well"). B0 is WAIVED, and nothing gates B10 or B12 any more. No measured number is recorded or invented: `test-report.md` "Preimplementation baseline" records the waiver only. Until B18, code and specs use the plan's fixed scene targets (p95 draw at most 8 ms at N=24, sustained at least 30 FPS, implementation-plan.md:60) and record latency marks without a pass/fail bound. B18 (the Electron Scene and Voice Gate) now also takes the baseline: the refresh interval, the provider pair, the 30 or more end-of-utterance to first-audio samples, and the voice p95 bound; AC20 is judged there. Risk: a budget problem first shows at B18, after B10-B17 are built. | (a) waive B0 and measure at B18; (b) wait for the user's measurements | User instruction 2026-10-15. The plan forbids invented numbers (implementation-plan.md:60, B0 validation notes). | yes |
 
 ## Phases and reviews
 
@@ -158,7 +159,7 @@ Reviewer for every phase review is a different model family from the batch imple
 implementer is reviewed by a lane of another family or an in-process subagent). Record both families on the phase's
 last batch header.
 
-## Batch 0: Preimplementation Electron spike (user-run gate) - IN_PROGRESS
+## Batch 0: Preimplementation Electron spike (user-run gate) - WAIVED (D34)
 
 - Recommended executor: user-run on target Electron hardware, recorded by the orchestrator
 - Execution mode: sequential
@@ -166,10 +167,10 @@ last batch header.
 - Subagent reason: N/A - this needs the user's Electron hardware and an Electron run, which `CLAUDE.md` bars agents from starting
 - Review family: N/A
 - Rationale: plan line 60 requires measured frame and audio baselines before voice/scene code; it is a user action.
-- Tasks: 1 | Depends on: none | Gates: B10, B12 (Decision D2, narrowed by D32)
+- Tasks: 1 | Depends on: none | Gates: none (waived by the user, D34; measurements move to B18)
 - Phase: 0 - Baseline | Phase review: none
 
-### Task 0.1: Record the baseline in test-report.md - IN_PROGRESS
+### Task 0.1: Record the baseline in test-report.md - WAIVED (D34)
 
 - File: `TASK/test-report.md` (section "Preimplementation baseline")
 - Plan reference: implementation-plan.md:60, :68; task-description.md "Pre-implementation measurement gate"
@@ -1831,7 +1832,7 @@ Lane rules for this batch:
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: integrates the primitives with the coordinator; 6 files.
-- Tasks: 3 | Depends on: B0 recorded (D2, D32), B6, B8, B9
+- Tasks: 3 | Depends on: B6, B8, B9
 - Phase: C (last batch) | Phase review: code-logic on the combined diff B9-B10
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
   Verification rules above apply.
@@ -1964,7 +1965,7 @@ Lane rules for this batch:
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: frame loop and its Angular host; 4 files.
-- Tasks: 2 | Depends on: B0 recorded (D2, D32), B11
+- Tasks: 2 | Depends on: B11
 - Phase: D | Phase review: after B16
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
   Verification rules above apply.
@@ -2357,7 +2358,7 @@ Lane rules for this batch:
   produce; the Electron run itself is user-run because `CLAUDE.md` bars agents from build/serve/e2e.
 - Review family: visual-reviewer is independent of every implementer
 - Rationale: plan line 60 gate and the Mode 3 rendered-evidence requirement.
-- Tasks: 2 | Depends on: B17 (and B0 recorded bound)
+- Tasks: 2 | Depends on: B17 (B18 records the baseline and the voice bound, D34)
 - Phase: E | Phase review: none (measurement); visual review verdict recorded here for Phase D
 - Suggested commit: `docs(task-specs): batch 18 - electron scene and voice gate evidence`
 
@@ -2367,7 +2368,7 @@ Lane rules for this batch:
 - Plan reference: implementation-plan.md:60; risks R4, R12, R13; design-spec-review R3-6, R3-7
 - Quality requirements: 30-second dark and light traces at N=24 after 10 s warmup, 1280x720, integrated GPU: full
   frame including composite, p95 draw (pass at most 8 ms), sustained at least 30 FPS, no persistent layout spike,
-  stable memory after navigation teardown, voice p95 within the B0 bound (cold worker and post-barge-in separate);
+  stable memory after navigation teardown, voice p95 within the bound recorded in B18 (D34; B0 was waived) (cold worker and post-barge-in separate);
   laptop-speaker and headset echo/barge-in cases; Blob-URL worklet capture works (assumption 6); manual Tribunal
   check that no agent spawns during the discovery turn or after Decline (R4 - if one does, the orchestrator escalates
   a host-side hold before release); spoken status summary distinguishes running/completed/failed (AC10, AC13).
