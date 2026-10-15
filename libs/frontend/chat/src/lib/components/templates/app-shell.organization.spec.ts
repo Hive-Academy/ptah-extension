@@ -307,10 +307,11 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       const rows = queryAll(fixture, 'li.group');
       expect(rows).toHaveLength(2);
       const badge = rows[0].querySelector('ptah-workflow-badge');
-      expect(badge?.textContent?.trim()).toBe('New Project');
-      expect(
-        badge?.querySelector('[aria-label]')?.getAttribute('aria-label'),
-      ).toBe('Workflow: New Project');
+      expect(badge?.textContent?.trim()).toBe('Workflow: New Project');
+      expect(badge?.querySelector('.sr-only')?.textContent?.trim()).toBe(
+        'Workflow:',
+      );
+      expect(badge?.textContent?.trim()).toBe('Workflow: New Project');
       expect(
         rows[1].querySelector('ptah-workflow-badge')?.textContent?.trim(),
       ).toBe('');

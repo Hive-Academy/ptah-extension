@@ -58,11 +58,13 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     'data-rail-card': '',
     '[attr.data-tab-id]': 'tabId()',
     '[attr.data-state]': 'state()',
-    '[style.height.px]': 'collapsed() ? 56 : cardHeight()',
+    '[style.height.px]':
+      'collapsed() ? 56 : cardHeight() + (tab()?.workflow ? 20 : 0)',
     // The host click is a pointer shortcut; its keyboard equivalent is the
     // card's select button (or the collapsed button), so the li stays a listitem.
     role: 'listitem',
     class: 'flex relative cursor-pointer',
+    '[class.flex-col]': '!collapsed() && !!tab()?.workflow',
     '(click)': 'onClick($event)',
     '(keydown)': 'onKeydown($event)',
   },
@@ -132,7 +134,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
       } @else {
         @if (current.workflow) {
           <ptah-workflow-badge
-            class="absolute bottom-1 left-2 z-10"
+            class="ml-4 shrink-0 self-start"
             [workflow]="current.workflow"
           />
         }
@@ -160,7 +162,9 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
         [class]="
           collapsed()
             ? 'flex w-6 shrink-0 items-center justify-center'
-            : 'absolute right-1.5 top-1.5 z-10 flex'
+            : tab()?.workflow
+              ? 'absolute right-1.5 top-[26px] z-10 flex'
+              : 'absolute right-1.5 top-1.5 z-10 flex'
         "
       >
         <!-- A block trigger wrapper adds no inline baseline gap to the cell. -->

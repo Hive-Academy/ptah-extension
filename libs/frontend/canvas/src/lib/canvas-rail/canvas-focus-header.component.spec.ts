@@ -49,10 +49,13 @@ describe('CanvasFocusHeaderComponent', () => {
   it('shows the workflow badge as a separate header element', () => {
     const fixture = mount();
     expect(
-      fixture.nativeElement.querySelector(
-        'ptah-workflow-badge [aria-label="Workflow: Configure Harness"]',
-      ),
+      fixture.nativeElement.querySelector('ptah-workflow-badge .sr-only'),
     ).not.toBeNull();
+    expect(
+      fixture.nativeElement
+        .querySelector('ptah-workflow-badge')
+        ?.textContent?.trim(),
+    ).toBe('Workflow: Configure Harness');
   });
   it('keeps the focused Stop node on title and state changes', () => {
     const fixture = mount();

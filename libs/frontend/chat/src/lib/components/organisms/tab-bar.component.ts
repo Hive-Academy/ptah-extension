@@ -102,7 +102,11 @@ export function tailPath(path: string, segments = 2): string {
             (viewModeToggle)="onToggleViewMode($event)"
           >
             @if (tab.workflow) {
-              <ptah-workflow-badge tabItemLeading [workflow]="tab.workflow" />
+              <ptah-workflow-badge
+                tabItemLeading
+                [workflow]="tab.workflow"
+                variant="compact"
+              />
             }
             @if (tab.agentOrigin; as origin) {
               <!-- Agent-started tab (TASK_2026_584), inside its own tab before

@@ -220,14 +220,23 @@ describe('CanvasRailCardComponent', () => {
     const fixture = mount();
     const host = fixture.nativeElement as HTMLElement;
     const badge = host.querySelector('ptah-workflow-badge');
-    expect(badge?.textContent?.trim()).toBe('Configure Harness');
-    expect(
-      badge?.querySelector('[aria-label]')?.getAttribute('aria-label'),
-    ).toBe('Workflow: Configure Harness');
+    expect(badge?.textContent?.trim()).toBe('Workflow: Configure Harness');
+    expect(badge?.querySelector('.sr-only')?.textContent?.trim()).toBe(
+      'Workflow:',
+    );
+    expect(host.classList).toContain('flex-col');
+    expect(host.style.height).toBe(
+      `${COMPACT_RAIL_CARD_HEIGHT.comfortable + 20}px`,
+    );
+    expect(badge?.classList).not.toContain('absolute');
+    expect(badge?.nextElementSibling?.tagName.toLowerCase()).toBe(
+      'ptah-compact-session-card',
+    );
 
     fixture.componentRef.setInput('collapsed', true);
     fixture.detectChanges();
     expect(host.querySelector('ptah-workflow-badge')).toBeNull();
+    expect(host.classList).not.toContain('flex-col');
     expect(host.querySelector('button.rail-collapsed')?.classList).toContain(
       'h-14',
     );
@@ -238,6 +247,8 @@ describe('CanvasRailCardComponent', () => {
     const fixture = mount();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('ptah-workflow-badge')).toBeNull();
+    expect(host.classList).not.toContain('flex-col');
+    expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable}px`);
     expect(host.querySelector('ptah-compact-session-card')).not.toBeNull();
   });
 

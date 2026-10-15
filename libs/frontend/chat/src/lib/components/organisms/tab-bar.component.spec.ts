@@ -186,10 +186,15 @@ describe('TabBarComponent', () => {
     ) as NodeListOf<HTMLElement>;
     expect(items).toHaveLength(2);
     const badge = items[0].querySelector('ptah-workflow-badge');
-    expect(badge?.textContent?.trim()).toBe('Configure Harness');
+    expect(badge?.querySelector('.sr-only')?.textContent?.trim()).toBe(
+      'Workflow: Configure Harness',
+    );
+    expect(badge?.querySelector('span[title]')?.getAttribute('title')).toBe(
+      'Configure Harness',
+    );
     expect(
-      badge?.querySelector('[aria-label]')?.getAttribute('aria-label'),
-    ).toBe('Workflow: Configure Harness');
+      badge?.querySelector('lucide-angular[aria-hidden="true"]'),
+    ).not.toBeNull();
     expect(items[1].querySelector('ptah-workflow-badge')).toBeNull();
   });
 
