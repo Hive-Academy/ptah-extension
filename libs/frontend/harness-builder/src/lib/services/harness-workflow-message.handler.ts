@@ -1,66 +1,107 @@
-import { Injectable, effect, inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { LoggingService, type MessageHandler } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
+  isNewProjectStack,
   type HarnessConfigProposedPayload,
   type HarnessOpenWorkflowPayload,
+  type NewProjectIntake,
 } from '@ptah-extension/shared';
-import { HarnessBuilderStateService } from './harness-builder-state.service';
-import { HarnessRpcService } from './harness-rpc.service';
+import { canonicalHarnessRoot } from './harness-builder-records.service';
+import { HarnessProposalHydrationService } from './harness-proposal-hydration.service';
 import { HarnessWorkflowRequestService } from './harness-workflow-request.service';
-import { HarnessWorkflowService } from './harness-workflow.service';
+import { NEW_PROJECT_PLATFORM_OPTIONS } from './new-project-intake';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isProposalPush(value: unknown): value is HarnessConfigProposedPayload {
+  return (
+    isRecord(value) &&
+    typeof value['sessionId'] === 'string' &&
+    isRecord(value['configUpdates'])
+  );
+}
+
+function isIntake(value: unknown): value is NewProjectIntake {
+  if (!isRecord(value)) return false;
+  const audience = value['audience'];
+  const stack = value['stack'];
+  const platform = value['platform'];
+  return (
+    typeof value['what'] === 'string' &&
+    !!value['what'].trim() &&
+    (audience === 'b2b' ||
+      audience === 'b2c' ||
+      audience === 'internal' ||
+      audience === 'unsure') &&
+    typeof stack === 'string' &&
+    isNewProjectStack(stack) &&
+    (platform === undefined ||
+      NEW_PROJECT_PLATFORM_OPTIONS.some(
+        (option) => option.value === platform,
+      )) &&
+    (value['constraints'] === undefined ||
+      typeof value['constraints'] === 'string') &&
+    (stack !== 'other' ||
+      (typeof value['stackOther'] === 'string' && !!value['stackOther'].trim()))
+  );
+}
 
 @Injectable({ providedIn: 'root' })
 export class HarnessWorkflowMessageHandler implements MessageHandler {
   private readonly logger = inject(LoggingService);
-  private readonly state = inject(HarnessBuilderStateService);
-  private readonly workflow = inject(HarnessWorkflowService);
-  private readonly harnessRpc = inject(HarnessRpcService);
   private readonly requests = inject(HarnessWorkflowRequestService);
-  private currentSurface: string | null = null;
-  private knownSessions = new Set<string>();
-  private hydrationQueue: string[] = [];
-  private generation = 0;
-  private hydrationPending = false;
-  private buffered: HarnessConfigProposedPayload[] = [];
+  private readonly proposals = inject(HarnessProposalHydrationService);
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
     MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
   ] as const;
 
-  constructor() {
-    effect(() =>
-      this.syncWorkflow(this.workflow.surfaceId(), this.workflow.sessionIds()),
-    );
-  }
-
   handleMessage(message: { type: string; payload?: unknown }): void {
-    switch (message.type) {
-      case MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW:
-        this.handleOpenWorkflow(message.payload);
-        break;
-      case MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED:
-        this.handleConfigProposed(message.payload);
-        break;
+    if (message.type === MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW) {
+      this.handleOpenWorkflow(message.payload);
+    } else if (message.type === MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED) {
+      if (isProposalPush(message.payload)) {
+        this.proposals.handlePush(message.payload);
+      }
     }
   }
 
   private handleOpenWorkflow(payload: unknown): void {
-    const data = payload as HarnessOpenWorkflowPayload | undefined;
+    const root = this.requests.workspaceRoot;
     if (
-      !data ||
-      (data.mode !== 'new-project' && data.mode !== 'configure-harness')
+      !isRecord(payload) ||
+      (payload['mode'] !== 'new-project' &&
+        payload['mode'] !== 'configure-harness') ||
+      !root ||
+      (payload['workspaceRoot'] !== undefined &&
+        (typeof payload['workspaceRoot'] !== 'string' ||
+          canonicalHarnessRoot(payload['workspaceRoot']) !== root)) ||
+      (payload['mode'] === 'new-project' &&
+        !isIntake(payload['intake']) &&
+        !this.requests.hasResumableMode('new-project'))
     ) {
-      this.logger.warn(
+      const error = new Error('Malformed builder relay or workspace');
+      this.logger.error(
         'HarnessWorkflowMessageHandler',
         'Invalid workflow request',
+        error,
       );
-      this.workflow.setError(
-        'The workspace sent a malformed workflow request, so it was ignored. Try starting it again.',
+      this.requests.reportHubError(
+        'The workspace sent an invalid builder request. Try again.',
       );
       return;
     }
+    const data: HarnessOpenWorkflowPayload = {
+      mode: payload['mode'],
+      ...(typeof payload['seedPrompt'] === 'string'
+        ? { seedPrompt: payload['seedPrompt'] }
+        : {}),
+      ...(isIntake(payload['intake']) ? { intake: payload['intake'] } : {}),
+    };
     void this.requests.requestAndNavigate(data).then(
       (outcome) => {
         if (outcome !== 'failed') return;
@@ -69,8 +110,8 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
           'Workflow navigation failed',
           new Error('Navigation did not land'),
         );
-        this.workflow.setError(
-          'The harness builder could not be opened, so the workflow was not shown. Try starting it again.',
+        this.requests.reportHubError(
+          'The harness builder could not be opened. Try again.',
         );
       },
       (cause: unknown) => {
@@ -80,95 +121,10 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
           'Workflow request failed',
           error,
         );
-        this.workflow.setError(error.message);
+        this.requests.reportHubError(
+          'The harness builder could not be opened. Try again.',
+        );
       },
     );
-  }
-
-  private syncWorkflow(
-    surfaceId: string | null,
-    sessionIds: readonly string[],
-  ): void {
-    if (surfaceId !== this.currentSurface) {
-      if (this.currentSurface) this.state.reset();
-      this.currentSurface = surfaceId;
-      this.knownSessions = new Set();
-      this.hydrationQueue = [];
-      this.buffered = [];
-      this.hydrationPending = false;
-      this.generation++;
-    }
-    if (!surfaceId) return;
-    for (const sessionId of sessionIds) {
-      if (this.knownSessions.has(sessionId)) continue;
-      this.knownSessions.add(sessionId);
-      this.hydrationQueue.push(sessionId);
-    }
-    if (this.hydrationQueue.length && !this.hydrationPending) {
-      this.hydrationPending = true;
-      void this.hydrate(this.generation);
-    }
-  }
-
-  private async hydrate(generation: number): Promise<void> {
-    while (this.hydrationQueue.length && generation === this.generation) {
-      const sessionId = this.hydrationQueue.shift();
-      if (!sessionId) continue;
-      try {
-        const { proposal } = await this.harnessRpc.getProposal(sessionId);
-        if (generation !== this.generation) return;
-        if (proposal && proposal.sessionId === sessionId) {
-          this.state.applyConfigUpdates(proposal.configUpdates);
-          if (proposal.isConfigComplete) this.state.setConfigComplete(true);
-        }
-      } catch (cause: unknown) {
-        if (generation !== this.generation) return;
-        const error = cause instanceof Error ? cause : new Error(String(cause));
-        this.logger.error(
-          'HarnessWorkflowMessageHandler',
-          'Proposal hydration failed',
-          error,
-        );
-      }
-    }
-    if (generation !== this.generation) return;
-    this.hydrationPending = false;
-    const buffered = this.buffered;
-    this.buffered = [];
-    for (const event of buffered) {
-      try {
-        this.applyProposal(event);
-      } catch (cause: unknown) {
-        const error = cause instanceof Error ? cause : new Error(String(cause));
-        this.logger.error(
-          'HarnessWorkflowMessageHandler',
-          'Buffered proposal replay failed',
-          error,
-        );
-      }
-    }
-  }
-
-  private handleConfigProposed(payload: unknown): void {
-    const sessionIds = this.workflow.sessionIds();
-    this.syncWorkflow(this.workflow.surfaceId(), sessionIds);
-    if (!this.currentSurface || this.workflow.mode() !== 'configure-harness')
-      return;
-    const data = payload as HarnessConfigProposedPayload | undefined;
-    if (!data || !data.configUpdates) return;
-    if (!sessionIds.some((sessionId) => sessionId === data.sessionId)) {
-      this.logger.debug(
-        'HarnessWorkflowMessageHandler',
-        `Proposal ignored for unknown session ${data.sessionId}`,
-      );
-      return;
-    }
-    if (this.hydrationPending) this.buffered.push(data);
-    else this.applyProposal(data);
-  }
-
-  private applyProposal(data: HarnessConfigProposedPayload): void {
-    this.state.applyConfigUpdates(data.configUpdates);
-    if (data.isConfigComplete) this.state.setConfigComplete(true);
   }
 }
