@@ -423,6 +423,7 @@ describe('CLI DI — session organization recorder binding (TASK_2026_580 R-TL11
     });
 
     registerSdkServices(c, logger);
+    expect(c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY)).toBeDefined();
     if (withCliAgentRuntime) {
       registerCliAgentRuntimeServices(c, logger);
       for (const token of [

@@ -15,6 +15,7 @@ import type { ToolOutputCapper } from './compaction/tool-output-capper';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 import { MainThreadNoticeQueue } from './main-thread-notice-queue';
 import { SubagentNoticeQueue } from './subagent-notice-queue';
+import { buildSubagentRunTag } from './subagent-run-tag';
 
 /**
  * Upper bound for one output cap. The SDK's hook timeout defaults to 60 s; a
@@ -72,6 +73,10 @@ export class PostToolUseHookHandler {
     /** Absent in callers that construct the handler without one: no subagent notices. */
     @inject(SubagentNoticeQueue)
     private readonly subagentNotices?: SubagentNoticeQueue,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry?: {
+      get(toolCallId: string): { agentId: string } | null | undefined;
+    },
   ) {}
 
   /**
@@ -86,6 +91,35 @@ export class PostToolUseHookHandler {
     return input.agent_id
       ? this.subagentNotices?.take(input.agent_id)
       : this.takeMainThreadNotice(input, sessionId);
+  }
+
+  private runTag(input: PostToolUseHookInput): string | null {
+    try {
+      const result = buildSubagentRunTag(
+        input,
+        (toolUseId) => this.subagentRegistry?.get(toolUseId)?.agentId,
+      );
+      if (result.registryAgentId && result.responseAgentId &&
+          result.registryAgentId !== result.responseAgentId) {
+        this.logger.warn('[PostToolUseHookHandler] subagent agent ids disagree', {
+          registryAgentId: result.registryAgentId,
+          responseAgentId: result.responseAgentId,
+        });
+      }
+      if (result.reason) {
+        this.logger.debug('[PostToolUseHookHandler] subagent run tag skipped', {
+          reason: result.reason,
+          toolName: input.tool_name,
+        });
+      }
+      return result.tag;
+    } catch (error: unknown) {
+      this.logger.debug('[PostToolUseHookHandler] subagent run tag lookup failed', {
+        error: error instanceof Error ? error.message : String(error),
+        toolName: input.tool_name,
+      });
+      return null;
+    }
   }
 
   /**
@@ -145,7 +179,11 @@ export class PostToolUseHookHandler {
               this.fanOut(input, sessionId, cwd);
               const rewritten = cappedOutput !== input.tool_response;
               const notice = this.takeNotice(input, sessionId);
-              if (!rewritten && notice === undefined) {
+              const tag = this.runTag(input);
+              const additionalContext = [notice, tag].filter(
+                (part): part is string => part !== undefined && part !== null,
+              ).join('\n');
+              if (!rewritten && additionalContext.length === 0) {
                 return { continue: true };
               }
               return {
@@ -153,8 +191,8 @@ export class PostToolUseHookHandler {
                 hookSpecificOutput: {
                   hookEventName: 'PostToolUse',
                   ...(rewritten ? { updatedToolOutput: cappedOutput } : {}),
-                  ...(notice !== undefined
-                    ? { additionalContext: notice }
+                   ...(additionalContext.length > 0
+                     ? { additionalContext }
                     : {}),
                 },
               };

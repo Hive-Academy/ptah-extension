@@ -324,6 +324,8 @@ describe('Electron DI — SDK process spawner (plan Assumption 1)', () => {
     registerSdkServices(c, logger);
 
     const spawner = c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER);
+    const budgetStops = c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY);
+    expect(budgetStops).toBeDefined();
 
     expect(spawner).toBeDefined();
     expect(typeof (spawner as { spawnProcess: unknown }).spawnProcess).toBe(

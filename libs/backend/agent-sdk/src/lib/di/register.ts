@@ -113,6 +113,7 @@ import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import { SubagentBudgetStopCallbackRegistry } from '../helpers/subagent-budget-stop-callback-registry';
 import { SubagentHandoffFiles } from '../helpers/compaction/subagent-handoff-files';
 import { SubagentHandoffRecords } from '../helpers/compaction/subagent-handoff-record';
 import { SubagentHandoffIndex } from '../helpers/compaction/subagent-handoff-index';
@@ -262,6 +263,11 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY,
     { useClass: SubagentStopCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+    { useClass: SubagentBudgetStopCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -537,6 +543,9 @@ export function registerSdkServices(
         // on main-thread prompts (UserPromptSubmit hook).
         new SubagentHandoffRecords(logger, workspaceOf),
         new SubagentHandoffIndex(logger),
+        c.resolve<SubagentBudgetStopCallbackRegistry>(
+          SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+        ),
       );
     }),
   });

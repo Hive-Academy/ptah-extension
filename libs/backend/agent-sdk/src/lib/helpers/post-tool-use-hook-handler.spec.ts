@@ -37,6 +37,47 @@ function getHookCallback(
 }
 
 describe('PostToolUseHookHandler', () => {
+  it.each([
+    ['sync result', 'Agent', { agentId: 'response_id' }, 'registry_id'],
+    ['async launch', 'Task', { agentId: 'async_id', status: 'running' }, 'registry_id'],
+    ['registry miss', 'Agent', { agentId: 'fallback_id' }, undefined],
+  ])('adds the Ptah run tag for %s', async (_name, toolName, response, registryId) => {
+    const logger = makeLogger();
+    const notices = new MainThreadNoticeQueue(logger);
+    notices.post('parent', 'existing notice');
+    const lookup = { get: jest.fn(() => registryId ? { agentId: registryId } : null) };
+    const handler = new PostToolUseHookHandler(
+      logger, new PostToolUseCallbackRegistry(logger), undefined, notices, undefined, lookup,
+    );
+    const fn = getHookCallback(handler, 'parent', '/workspace');
+    const result = await fn({
+      hook_event_name: 'PostToolUse', tool_name: toolName,
+      tool_use_id: 'tool-1', tool_input: {}, tool_response: response,
+      session_id: 'parent',
+    } as HookInput, undefined, { signal: new AbortController().signal });
+    expect(result).toEqual(expect.objectContaining({
+      hookSpecificOutput: expect.objectContaining({
+        additionalContext: `existing notice\nptah-run: runId=subagent:${registryId ?? response.agentId}`,
+      }),
+    }));
+    expect(lookup.get).toHaveBeenCalledWith('tool-1');
+    if (registryId) expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the tool result intact when the registry lookup throws', async () => {
+    const logger = makeLogger();
+    const handler = new PostToolUseHookHandler(
+      logger, new PostToolUseCallbackRegistry(logger), undefined, undefined, undefined,
+      { get: () => { throw new Error('lookup unavailable'); } },
+    );
+    const fn = getHookCallback(handler, 'parent', '/workspace');
+    const result = await fn({
+      hook_event_name: 'PostToolUse', tool_name: 'Agent',
+      tool_use_id: 'tool-1', tool_input: {}, tool_response: { agentId: 'fallback' },
+    } as HookInput, undefined, { signal: new AbortController().signal });
+    expect(result).toEqual({ continue: true });
+    expect(logger.debug).toHaveBeenCalled();
+  });
   it('happy path: validated PostToolUse input → registry.notifyAll with mapped payload', async () => {
     const logger = makeLogger();
     const registry = new PostToolUseCallbackRegistry(logger);
