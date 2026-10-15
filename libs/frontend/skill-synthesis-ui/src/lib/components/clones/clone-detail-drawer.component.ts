@@ -37,6 +37,7 @@ import {
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
 import type {
+  AgentOutcomeSignals,
   AgentScorecard,
   CloneSummary,
   ScorecardInvocationRow,
@@ -44,6 +45,10 @@ import type {
   SkillCloneStatus,
 } from '@ptah-extension/shared';
 
+import {
+  type CloneMetric,
+  formatAgentOutcomeSignals,
+} from './agent-outcome-signals';
 import { CloneBodyEditorComponent } from './clone-body-editor.component';
 import { LazyDiffViewComponent } from './lazy-diff-view.component';
 import { ScorecardBadgeComponent } from './scorecard-badge.component';
@@ -87,7 +92,7 @@ interface DrawerViewModel {
   readonly actions: CloneActionModel;
   readonly status: SkillCloneStatus;
   readonly dotClass: string;
-  readonly metrics: ReadonlyArray<{ label: string; value: string }>;
+  readonly metrics: readonly CloneMetric[];
 }
 
 const STATUS_DOT: Record<SkillCloneStatus, string> = {
@@ -147,14 +152,19 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
               class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4"
               data-testid="drawer-metrics"
             >
-              @for (metric of m.metrics; track metric.label) {
+              @for (metric of m.metrics; track metric.testId) {
                 <div class="min-w-0">
                   <dt
                     class="text-[10px] uppercase tracking-wide text-base-content-muted"
                   >
                     {{ metric.label }}
                   </dt>
-                  <dd class="truncate tabular-nums">{{ metric.value }}</dd>
+                  <dd
+                    class="truncate tabular-nums"
+                    [attr.data-testid]="metric.testId"
+                  >
+                    {{ metric.value }}
+                  </dd>
                 </div>
               }
             </dl>
@@ -432,6 +442,15 @@ export class CloneDetailDrawerComponent {
   public readonly history = input<readonly SkillCloneHistoryEntry[]>([]);
   public readonly detailLoading = input<boolean>(false);
   public readonly scorecard = input<AgentScorecard | null>(null);
+  /**
+   * Outcome signals for this agent. `null` means the slug had no records
+   * in the window (Req 9.2), never a fabricated rate. Ignored unless
+   * `clone.kind === 'agent'`. A record whose `slug` is not this entry's
+   * slug is treated as absent.
+   */
+  public readonly outcomeSignals = input<AgentOutcomeSignals | null>(null);
+  /** Window echoed by `agent:outcomeSignals`. `null` until that call returns. */
+  public readonly outcomeWindowDays = input<number | null>(null);
   public readonly scorecardRows = input<ScorecardInvocationRow[]>([]);
   public readonly scorecardFindings = input<string | null>(null);
   public readonly scorecardLoading = input<boolean>(false);
@@ -549,23 +568,42 @@ export class CloneDetailDrawerComponent {
   }
 
   /** Only metrics that carry real data — never a row of em dashes. */
-  private buildMetrics(
-    clone: CloneSummary,
-  ): ReadonlyArray<{ label: string; value: string }> {
-    const out: Array<{ label: string; value: string }> = [];
+  private buildMetrics(clone: CloneSummary): readonly CloneMetric[] {
+    const out: CloneMetric[] = [];
     if (clone.invocationCount > 0) {
-      out.push({ label: 'Invocations', value: String(clone.invocationCount) });
+      out.push({
+        label: 'Invocations',
+        value: String(clone.invocationCount),
+        testId: 'clone-metric-invocations',
+      });
     }
-    const success = formatSuccessRate(clone);
-    if (success !== null) out.push({ label: 'Success', value: success });
+    if (clone.kind !== 'agent') {
+      const success = formatSuccessRate(clone);
+      if (success !== null) {
+        out.push({
+          label: 'Success',
+          value: success,
+          testId: 'clone-metric-success',
+        });
+      }
+    } else {
+      const raw = this.outcomeSignals();
+      const signals = raw !== null && raw.slug === clone.slug ? raw : null;
+      out.push(...formatAgentOutcomeSignals(signals, this.outcomeWindowDays()));
+    }
     if (clone.lastEnhancedAt !== null) {
       out.push({
         label: 'Last enhanced',
         value: formatRelative(clone.lastEnhancedAt),
+        testId: 'clone-metric-last-enhanced',
       });
     }
     if (clone.historyCount > 0) {
-      out.push({ label: 'History', value: String(clone.historyCount) });
+      out.push({
+        label: 'History',
+        value: String(clone.historyCount),
+        testId: 'clone-metric-history',
+      });
     }
     return out;
   }

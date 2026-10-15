@@ -960,6 +960,8 @@ describe('SkillSynthesisTabComponent — diverged-clones deep link', () => {
       detailLoading: signal<boolean>(false),
       detail: signal<unknown>(null),
       scorecards: signal<Record<string, unknown>>({}),
+      agentOutcomeSignals: signal<Record<string, unknown>>({}),
+      outcomeWindowDays: signal<number | null>(null),
       scorecardDetails: signal<Record<string, unknown>>({}),
       scorecardDetailLoading: signal<string | null>(null),
       refreshClones: jest.fn(async () => undefined),

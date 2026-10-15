@@ -1,5 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { AgentScorecard, CloneSummary } from '@ptah-extension/shared';
+import type {
+  AgentOutcomeSignals,
+  AgentScorecard,
+  CloneSummary,
+} from '@ptah-extension/shared';
 
 import { CloneCardComponent } from './clone-card.component';
 import type { AgentSyncChip } from './agent-sync-chips';
@@ -21,6 +25,21 @@ function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
   };
 }
 
+function signals(
+  overrides: Partial<AgentOutcomeSignals> = {},
+): AgentOutcomeSignals {
+  return {
+    slug: 'planner',
+    windowDays: 30,
+    runCount: 5,
+    delivered: { numerator: 4, denominator: 5 },
+    reviewPass: { numerator: 3, denominator: 4 },
+    avgReviseRounds: 1.5,
+    topFailureClass: 'timeout',
+    ...overrides,
+  };
+}
+
 describe('CloneCardComponent', () => {
   let fixture: ComponentFixture<CloneCardComponent>;
 
@@ -30,12 +49,25 @@ describe('CloneCardComponent', () => {
 
   function render(
     c: CloneSummary,
-    opts: { scorecard?: AgentScorecard | null; busy?: boolean } = {},
+    opts: {
+      scorecard?: AgentScorecard | null;
+      busy?: boolean;
+      outcomeSignals?: AgentOutcomeSignals | null;
+      outcomeWindowDays?: number | null;
+    } = {},
   ): void {
     fixture = TestBed.createComponent(CloneCardComponent);
     fixture.componentRef.setInput('clone', c);
     fixture.componentRef.setInput('scorecard', opts.scorecard ?? null);
     fixture.componentRef.setInput('busy', opts.busy ?? false);
+    fixture.componentRef.setInput(
+      'outcomeSignals',
+      opts.outcomeSignals ?? null,
+    );
+    fixture.componentRef.setInput(
+      'outcomeWindowDays',
+      opts.outcomeWindowDays ?? null,
+    );
     fixture.detectChanges();
   }
 
@@ -291,5 +323,122 @@ describe('CloneCardComponent', () => {
     render(clone({ kind: 'agent', slug: 'planner' }));
     expect(q('scorecard-badge')).toBeTruthy();
     expect(q('scorecard-success')?.textContent?.trim()).toBe('no data yet');
+  });
+
+  // ── Outcome signals (Req 9) ──────────────────────────────────────────────
+
+  it('keeps Success on a skill card', () => {
+    render(
+      clone({
+        kind: 'skill',
+        invocationCount: 4,
+        successRate: 0.5,
+        lastEnhancedAt: null,
+        historyCount: 0,
+      }),
+    );
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('50%');
+    expect(q('clone-metric-outcome-empty')).toBeNull();
+    expect(q('clone-metric-outcome-delivered')).toBeNull();
+  });
+
+  it('keeps Success on a command card', () => {
+    render(
+      clone({
+        kind: 'command',
+        invocationCount: 4,
+        successRate: 0.25,
+        lastEnhancedAt: null,
+        historyCount: 0,
+      }),
+    );
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('25%');
+    expect(q('clone-metric-outcome-delivered')).toBeNull();
+  });
+
+  it('drops Success on an agent card and says no data yet when nothing was recorded', () => {
+    render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 7,
+        successRate: 1,
+        lastEnhancedAt: null,
+        historyCount: 0,
+      }),
+    );
+    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-invocations')?.textContent?.trim()).toBe('7');
+    expect(q('clone-metric-outcome-empty')?.textContent?.trim()).toBe(
+      'no data yet',
+    );
+    expect(q('scorecard-badge')).toBeTruthy();
+  });
+
+  it('keeps invocations, last enhanced, history and the scorecard on an agent card', () => {
+    render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 7,
+        successRate: 1,
+        lastEnhancedAt: Date.now() - 3 * 60 * 60_000,
+        historyCount: 3,
+      }),
+      { outcomeSignals: signals(), outcomeWindowDays: 30 },
+    );
+    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-invocations')?.textContent?.trim()).toBe('7');
+    expect(q('clone-metric-last-enhanced')?.textContent?.trim()).toBe('3h ago');
+    expect(q('clone-metric-history')?.textContent?.trim()).toBe('3 snapshots');
+    expect(q('clone-metric-outcome-delivered')?.textContent?.trim()).toBe(
+      '80% (4/5)',
+    );
+    expect(q('scorecard-badge')).toBeTruthy();
+    expect(q('scorecard-success')?.textContent?.trim()).toBe('no data yet');
+  });
+
+  it('shows different signals for two agents and ignores a mismatched slug', () => {
+    render(clone({ kind: 'agent', slug: 'planner', successRate: 1 }), {
+      outcomeSignals: signals({ slug: 'planner' }),
+      outcomeWindowDays: 30,
+    });
+    expect(q('clone-metric-outcome-delivered')?.textContent?.trim()).toBe(
+      '80% (4/5)',
+    );
+    expect(q('clone-metric-outcome-failure')?.textContent?.trim()).toBe(
+      'timeout',
+    );
+    expect(q('clone-metric-success')).toBeNull();
+
+    render(clone({ kind: 'agent', slug: 'reviewer', successRate: 1 }), {
+      outcomeSignals: signals({
+        slug: 'reviewer',
+        runCount: 2,
+        delivered: { numerator: 1, denominator: 2 },
+        reviewPass: { numerator: 0, denominator: 0 },
+        avgReviseRounds: null,
+        topFailureClass: 'auth',
+      }),
+      outcomeWindowDays: 30,
+    });
+    expect(q('clone-metric-outcome-delivered')?.textContent?.trim()).toBe(
+      '50% (1/2)',
+    );
+    expect(q('clone-metric-outcome-review')?.textContent?.trim()).toBe(
+      'not reviewed yet',
+    );
+    expect(q('clone-metric-outcome-revise')).toBeNull();
+    expect(q('clone-metric-outcome-failure')?.textContent?.trim()).toBe('auth');
+    expect(q('clone-metric-success')).toBeNull();
+
+    render(clone({ kind: 'agent', slug: 'planner', successRate: 1 }), {
+      outcomeSignals: signals({ slug: 'reviewer' }),
+      outcomeWindowDays: 30,
+    });
+    expect(q('clone-metric-outcome-empty')?.textContent?.trim()).toBe(
+      'no data yet',
+    );
+    expect(q('clone-metric-outcome-delivered')).toBeNull();
   });
 });

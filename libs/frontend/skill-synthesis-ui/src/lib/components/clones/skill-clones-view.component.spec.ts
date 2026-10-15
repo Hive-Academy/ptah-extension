@@ -3,6 +3,7 @@ import { computed, signal } from '@angular/core';
 import { ThemeService, VSCodeService } from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import type {
+  AgentOutcomeSignals,
   AgentScorecard,
   CloneSummary,
   HarnessHealth,
@@ -81,6 +82,10 @@ interface StateStub {
   readonly scorecards: ReturnType<
     typeof signal<Record<string, AgentScorecard>>
   >;
+  readonly agentOutcomeSignals: ReturnType<
+    typeof signal<Record<string, AgentOutcomeSignals>>
+  >;
+  readonly outcomeWindowDays: ReturnType<typeof signal<number | null>>;
   readonly scorecardDetails: ReturnType<
     typeof signal<Record<string, SkillSynthesisGetScorecardDetailResult>>
   >;
@@ -100,6 +105,8 @@ function makeStateStub(initial: CloneSummary[] = []): StateStub {
     detailLoading: signal<boolean>(false),
     detail: signal<SkillCloneDetail | null>(null),
     scorecards: signal<Record<string, AgentScorecard>>({}),
+    agentOutcomeSignals: signal<Record<string, AgentOutcomeSignals>>({}),
+    outcomeWindowDays: signal<number | null>(null),
     scorecardDetails: signal<
       Record<string, SkillSynthesisGetScorecardDetailResult>
     >({}),

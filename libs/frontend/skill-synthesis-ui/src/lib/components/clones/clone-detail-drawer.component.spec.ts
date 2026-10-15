@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { CloneSummary } from '@ptah-extension/shared';
+import type { AgentOutcomeSignals, CloneSummary } from '@ptah-extension/shared';
 
 import {
   CloneBodySaveRequest,
@@ -129,9 +129,7 @@ describe('CloneDetailDrawerComponent — body edit mode', () => {
     textarea.value = '# edited';
     textarea.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (
-      require_(fixture, 'clone-body-editor-save') as HTMLButtonElement
-    ).click();
+    (require_(fixture, 'clone-body-editor-save') as HTMLButtonElement).click();
 
     expect(requests).toHaveLength(1);
     expect(requests[0].body).toBe('# edited');
@@ -168,9 +166,7 @@ describe('CloneDetailDrawerComponent — body edit mode', () => {
     textarea.value = '# edited';
     textarea.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (
-      require_(fixture, 'clone-body-editor-save') as HTMLButtonElement
-    ).click();
+    (require_(fixture, 'clone-body-editor-save') as HTMLButtonElement).click();
 
     // The view flips bodySaving on and back off without the body changing.
     fixture.componentRef.setInput('bodySaving', true);
@@ -198,9 +194,7 @@ describe('CloneDetailDrawerComponent — body edit mode', () => {
     textarea.value = '# edited';
     textarea.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    (
-      require_(fixture, 'clone-body-editor-save') as HTMLButtonElement
-    ).click();
+    (require_(fixture, 'clone-body-editor-save') as HTMLButtonElement).click();
 
     fixture.componentRef.setInput('body', '# edited');
     fixture.detectChanges();
@@ -222,5 +216,156 @@ describe('CloneDetailDrawerComponent — body edit mode', () => {
     fixture.detectChanges();
 
     expect(find(fixture, 'clone-body-editor')).toBeNull();
+  });
+});
+
+describe('CloneDetailDrawerComponent — outcome signals', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function signals(
+    overrides: Partial<AgentOutcomeSignals> = {},
+  ): AgentOutcomeSignals {
+    return {
+      slug: 'planner',
+      windowDays: 30,
+      runCount: 5,
+      delivered: { numerator: 4, denominator: 5 },
+      reviewPass: { numerator: 3, denominator: 4 },
+      avgReviseRounds: 1.5,
+      topFailureClass: 'timeout',
+      ...overrides,
+    };
+  }
+
+  async function render(
+    entry: CloneSummary,
+    outcomeSignals: AgentOutcomeSignals | null = null,
+  ): Promise<Fixture> {
+    await TestBed.configureTestingModule({
+      imports: [CloneDetailDrawerComponent],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(CloneDetailDrawerComponent);
+    fixture.componentRef.setInput('clone', entry);
+    fixture.componentRef.setInput('body', '# live body');
+    fixture.componentRef.setInput('outcomeSignals', outcomeSignals);
+    fixture.componentRef.setInput(
+      'outcomeWindowDays',
+      outcomeSignals === null ? null : 30,
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('keeps Success on a skill drawer', async () => {
+    const fixture = await render(
+      clone({ kind: 'skill', invocationCount: 4, successRate: 0.5 }),
+    );
+    expect(find(fixture, 'clone-metric-success')?.textContent?.trim()).toBe(
+      '50%',
+    );
+    expect(find(fixture, 'clone-metric-outcome-delivered')).toBeNull();
+    expect(find(fixture, 'drawer-scorecard')).toBeNull();
+  });
+
+  it('keeps Success on a command drawer', async () => {
+    const fixture = await render(
+      clone({ kind: 'command', invocationCount: 4, successRate: 0.25 }),
+    );
+    expect(find(fixture, 'clone-metric-success')?.textContent?.trim()).toBe(
+      '25%',
+    );
+    expect(find(fixture, 'clone-metric-outcome-empty')).toBeNull();
+  });
+
+  it('drops Success on an agent drawer and keeps the other metrics and the scorecard', async () => {
+    const fixture = await render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 7,
+        successRate: 1,
+        lastEnhancedAt: Date.now() - 3 * 60 * 60_000,
+        historyCount: 3,
+      }),
+      signals(),
+    );
+    expect(find(fixture, 'clone-metric-success')).toBeNull();
+    expect(find(fixture, 'clone-metric-invocations')?.textContent?.trim()).toBe(
+      '7',
+    );
+    expect(
+      find(fixture, 'clone-metric-last-enhanced')?.textContent?.trim(),
+    ).toBe('3h ago');
+    expect(find(fixture, 'clone-metric-history')?.textContent?.trim()).toBe(
+      '3',
+    );
+    expect(
+      find(fixture, 'clone-metric-outcome-delivered')?.textContent?.trim(),
+    ).toBe('80% (4/5)');
+    expect(
+      find(fixture, 'clone-metric-outcome-window')?.textContent?.trim(),
+    ).toBe('(last 30 days)');
+    expect(find(fixture, 'drawer-scorecard')).toBeTruthy();
+    expect(find(fixture, 'scorecard-badge')).toBeTruthy();
+  });
+
+  it('shows different signals for two agents', async () => {
+    const planner = await render(
+      clone({ kind: 'agent', slug: 'planner', successRate: 1 }),
+      signals({ slug: 'planner' }),
+    );
+    expect(
+      find(planner, 'clone-metric-outcome-delivered')?.textContent?.trim(),
+    ).toBe('80% (4/5)');
+    expect(
+      find(planner, 'clone-metric-outcome-failure')?.textContent?.trim(),
+    ).toBe('timeout');
+    expect(find(planner, 'clone-metric-success')).toBeNull();
+
+    TestBed.resetTestingModule();
+
+    const reviewer = await render(
+      clone({ kind: 'agent', slug: 'reviewer', successRate: 1 }),
+      signals({
+        slug: 'reviewer',
+        runCount: 2,
+        delivered: { numerator: 1, denominator: 2 },
+        reviewPass: { numerator: 0, denominator: 0 },
+        avgReviseRounds: null,
+        topFailureClass: 'auth',
+      }),
+    );
+    expect(
+      find(reviewer, 'clone-metric-outcome-delivered')?.textContent?.trim(),
+    ).toBe('50% (1/2)');
+    expect(
+      find(reviewer, 'clone-metric-outcome-review')?.textContent?.trim(),
+    ).toBe('not reviewed yet');
+    expect(find(reviewer, 'clone-metric-outcome-revise')).toBeNull();
+    expect(
+      find(reviewer, 'clone-metric-outcome-failure')?.textContent?.trim(),
+    ).toBe('auth');
+    expect(find(reviewer, 'clone-metric-success')).toBeNull();
+  });
+
+  it('says no data yet for an agent with no outcome record', async () => {
+    const fixture = await render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 0,
+        successRate: 0,
+        lastEnhancedAt: null,
+        historyCount: 0,
+      }),
+    );
+    expect(find(fixture, 'drawer-unused')).toBeNull();
+    expect(find(fixture, 'clone-metric-success')).toBeNull();
+    expect(
+      find(fixture, 'clone-metric-outcome-empty')?.textContent?.trim(),
+    ).toBe('no data yet');
+    expect(find(fixture, 'drawer-scorecard')).toBeTruthy();
   });
 });

@@ -31,11 +31,16 @@ import {
 } from '@angular/core';
 import { NativeCardComponent, NativeCardTone } from '@ptah-extension/ui';
 import type {
+  AgentOutcomeSignals,
   AgentScorecard,
   CloneSummary,
   SkillCloneStatus,
 } from '@ptah-extension/shared';
 
+import {
+  type CloneMetric,
+  formatAgentOutcomeSignals,
+} from './agent-outcome-signals';
 import { ScorecardBadgeComponent } from './scorecard-badge.component';
 import {
   CloneActionModel,
@@ -48,12 +53,6 @@ import {
 import type { AgentSyncChip, AgentSyncChipState } from './agent-sync-chips';
 import { AgentModelEditorComponent } from './agent-model-editor.component';
 import type { ReconcileGuardComponent } from './reconcile-guard';
-
-interface CloneMetric {
-  readonly label: string;
-  readonly value: string;
-  readonly testId: string;
-}
 
 interface SyncChipView extends AgentSyncChip {
   readonly toneClass: string;
@@ -311,6 +310,15 @@ export class CloneCardComponent {
   public readonly clone = input.required<CloneSummary>();
   /** Batched agent scorecard; `null` means "no data yet", never zeros. */
   public readonly scorecard = input<AgentScorecard | null>(null);
+  /**
+   * Outcome signals for this agent. `null` means the slug had no records
+   * in the window (Req 9.2), never a fabricated rate. Ignored unless
+   * `clone.kind === 'agent'`. A record whose `slug` is not this card's
+   * slug is treated as absent.
+   */
+  public readonly outcomeSignals = input<AgentOutcomeSignals | null>(null);
+  /** Window echoed by `agent:outcomeSignals`. `null` until that call returns. */
+  public readonly outcomeWindowDays = input<number | null>(null);
   /** An action for this entry is in flight. */
   public readonly busy = input<boolean>(false);
   /**
@@ -394,9 +402,11 @@ export class CloneCardComponent {
   });
 
   /**
-   * Only the metrics that actually carry data. An entry that has never run
-   * produces an EMPTY list, which the template renders as one explanatory
-   * sentence instead of a row of em dashes.
+   * Only the metrics that actually carry data. A skill or command that has
+   * never run produces an EMPTY list, which the template renders as one
+   * explanatory sentence instead of a row of em dashes. Agent cards always
+   * include outcome signals in place of Success, so an agent with no
+   * records shows "no data yet" instead of that sentence.
    */
   protected readonly metrics = computed<CloneMetric[]>(() => {
     const c = this.clone();
@@ -410,13 +420,19 @@ export class CloneCardComponent {
       });
     }
 
-    const success = formatSuccessRate(c);
-    if (success !== null) {
-      out.push({
-        label: 'Success',
-        value: success,
-        testId: 'clone-metric-success',
-      });
+    if (c.kind !== 'agent') {
+      const success = formatSuccessRate(c);
+      if (success !== null) {
+        out.push({
+          label: 'Success',
+          value: success,
+          testId: 'clone-metric-success',
+        });
+      }
+    } else {
+      const raw = this.outcomeSignals();
+      const signals = raw !== null && raw.slug === c.slug ? raw : null;
+      out.push(...formatAgentOutcomeSignals(signals, this.outcomeWindowDays()));
     }
 
     if (c.lastEnhancedAt !== null) {
