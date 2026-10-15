@@ -85,7 +85,7 @@ keep passing; "postponed (T2)" where no spec exists or the existing spec does no
 | C-3 | Stats strip compaction count (shown when > 0) | `chat-view.component.html:45`; rendered `session-stats-summary.component.html:165-175`, `:373-383` | `resolvedCompactionCount()` (`chat-view.component.ts:1037`) | move | inspector (Delta 3): session stats, omitted at 0 (req. 21.3, 21.5) | `session-stats-summary.component.spec.ts` |
 | C-4 | Stats strip limits (plan limits) | `chat-view.component.html:46`; rendered `session-stats-summary.component.html:14-17`, `:406-450` | `resolvedStatsLimits()` (`chat-view.component.ts:1083`), `PlanLimitsStore` | move | inspector (Delta 3): PLAN LIMITS tiles with bar or ring (req. 21.12-21.18). Item-level rows: C-29..C-34 | `session-stats-summary.component.spec.ts`; `CU/molecules/session/plan-limits/plan-limit-tile.component.spec.ts`; `stats-limit-view-model.spec.ts` |
 | C-5 | Stats strip session budget (tokens and cost suffixes, budget text, budget tooltip lines) | `chat-view.component.html:47-48`; rendered `session-stats-summary.component.html:74-80`, `:97-107`, `:294-326` | `resolvedSessionBudget()` (`chat-view.component.ts:1105`), `resolvedSessionId()`; `session-budget-format.ts` | move | inspector (Delta 3): session stats tokens and cost (req. 21.8); budget banner C-12 stays in the main column | `session-stats-summary.component.spec.ts`; `CU/molecules/session/session-budget-format.spec.ts` |
-| C-6 | Background-agent tray: focus, steer, stop, background, view transcript; scoped per canvas tile | `chat-view.component.html:53-64` | `BackgroundAgentStore`, `AgentMonitorStore`, `traySessionId()` (`chat-view.component.ts:548-564`) | move | inspector (Delta 3): AGENTS section absorbs the tray (req. 21.22-21.24; design-spec D3.6). Item-level rows: C-40..C-48b | `C/organisms/background-agent-tray.component.spec.ts`, `background-agent-tray.scope.spec.ts`; `CU/molecules/background-agent-strip.component.spec.ts` |
+| C-6 | Background-agent tray: focus, steer, stop, background, view transcript; scoped per canvas tile | `chat-view.component.html:53-64` | `BackgroundAgentStore`, `AgentMonitorStore`, `traySessionId()` (`chat-view.component.ts:548-564`) | move | inspector (Delta 3): AGENTS section absorbs the tray (req. 21.22-21.24; design-spec D3.6). Item-level rows: C-40..C-48b. Tray component deleted in CV-1 (approved removal R2, decisions.md row 64) | `C/organisms/background-agent-tray.component.spec.ts`, `background-agent-tray.scope.spec.ts` (renamed in CV-1 to `C/services/session-agents/session-agent-tray.service.spec.ts`, `session-agent-tray.spec.ts`, same cases, R2); `CU/molecules/background-agent-strip.component.spec.ts` |
 | C-7 | Compaction-in-progress notification | `chat-view.component.html:68` | `resolvedIsCompacting()` | keep | Unchanged | `CU/molecules/notifications/compaction-notification.component.spec.ts` |
 | C-8 | Compaction marker (summary, measurement, duration) | `chat-view.component.html:69-76` | `visibleCompactionMarker()` | keep | Unchanged | `CU/molecules/notifications/compaction-marker.component.spec.ts` |
 | C-9 | Fresh-chat empty state with prompt suggestions and project setup | `chat-view.component.html:94-102` | `handlePromptSelected` | keep | Unchanged | `chat-view.component.spec.ts` |
@@ -139,8 +139,8 @@ LIMITS, LANES); task-description requirement 21 gives the criteria.
 | C-46 | Send to background (running foreground agents only) | `STRIP:363-378`; `TRAY:367-372` | `AgentMonitorStore.backgroundAgent` (owning session) | move | inspector (Delta 3): AGENTS row menu (req. 21.23) | `background-agent-strip.component.spec.ts`; `background-agent-tray.component.spec.ts` |
 | C-47 | Stop (running or background agents; by task id) | `STRIP:380-393`; `TRAY:360-365` | `AgentMonitorStore.stopAgent` (owning session) | move | inspector (Delta 3): AGENTS row menu (req. 21.23) | `background-agent-strip.component.spec.ts`; `background-agent-tray.component.spec.ts` |
 | C-48 | Tray population: active sub-agents plus background agents, deduplicated by `toolCallId` with the background record winning; a canvas tile shows only its own session | `TRAY:148-160`, `:212-238`; `chat-view.component.ts:548-564` | `AgentMonitorStore.subagents`, `BackgroundAgentStore.agents`, `agentVisibleInSession` | move | inspector (Delta 3): AGENTS lists the shown session's agents with the same dedupe (req. 21.22, 21.24) | `background-agent-tray.scope.spec.ts`; `background-agent-tray.component.spec.ts` |
-| C-48b | Main panel (no canvas tile context) tray lists every session's agents (`traySessionId` = null) | `chat-view.component.ts:548-564`; `TRAY:192-199` | `BackgroundAgentStore`, `AgentMonitorStore` (unscoped) | remove-proposed | The session-scoped inspector lists only the shown session's agents (design-spec D3.6, PM-19); other sessions' agents and their actions stay reachable from their own tab. Needs the user's approval | `background-agent-tray.scope.spec.ts` (keeps passing; the component stays) |
-| C-49 | Inline agent bubble footer model badge (display name, raw id as title) | `C/organisms/execution/inline-agent-bubble.component.ts:515-521`, `:889-900` | `node().agentModel` / `node().model`, `resolveModelDisplayName` | move | inspector (Delta 3): that agent's model reachable from its entry or the SESSION Models data (req. 21.10-21.11, PM-18); placement is an open question for the designer | none (testing postponed); `inline-agent-bubble.component.spec.ts` has no model case |
+| C-48b | Main panel (no canvas tile context) tray lists every session's agents (`traySessionId` = null) | `chat-view.component.ts:548-564`; `TRAY:192-199` | `BackgroundAgentStore`, `AgentMonitorStore` (unscoped) | settled (decisions.md row 54): covered by AGENTS + own tab | The tray merges into the session-scoped inspector AGENTS section, which lists only the shown session's agents with no "other sessions" group (design-spec D3.6, PM-19); other sessions' agents and their actions stay reachable from their own tab | `background-agent-tray.scope.spec.ts` (keeps passing; the component stays) |
+| C-49 | Inline agent bubble footer model badge (display name, raw id as title) | `C/organisms/execution/inline-agent-bubble.component.ts:515-521`, `:889-900` | `node().agentModel` / `node().model`, `resolveModelDisplayName` | move | inspector (Delta 3): that agent's inspector AGENTS entry only, display name with the raw id accessible; not in the dock hover card or any main-column surface (req. 21.10-21.11, PM-18; design-spec-review-delta3.md finding 2, ruling D56) | none (testing postponed); `inline-agent-bubble.component.spec.ts` has no model case |
 | C-50 | Session model on the Orchestrator card line (`{model} · {state}`; planned in design-spec §4.1 and req. 7.1 before Delta 3, not yet shipped) | Not in the shipped build; planned in `plan-part-b-inspector.md:215` (`model` field of the orchestrator view model) | `TabState.liveModelStats.model` / `sessionModel` | move | inspector (Delta 3): SESSION Models row; the card shows the state only (req. 7.1, 21.10; design-spec D3.2) | none (testing postponed) |
 
 ## D. Canvas Rail details aside (`canvas-session-details`)
@@ -198,13 +198,28 @@ Delta 2 adds rows B-5a and E-1..E-18; each is `keep` or `move` (E-16 is `keep` w
 
 Approved removal (decisions.md row 45): B-25, the assistant avatar, `Claude` label and per-message time line.
 
-Delta 3 (decisions.md row 50) adds one proposed removal that needs the user's decision:
+Delta 3 (decisions.md row 50) raised one proposed removal, now settled (decisions.md row 54):
 
 - C-48b: on the main panel (no canvas tile context) the background-agent tray lists every session's agents. The
   inspector is session-scoped and lists only the shown session's agents (design-spec D3.6; task-description PM-19).
   Other sessions' agents, with Focus, View transcript, Steer, Send to background and Stop, stay reachable from their
-  own session's tab. Recommended: approve. The alternative keeps a labelled "other sessions" group in the
-  inspector's AGENTS section.
+  own session's tab. User answer (row 54): the tray merges into AGENTS, no "other sessions" group; covered by
+  AGENTS + own tab.
+
+Approved removal R2 (decisions.md row 64, user answer option (a); implementation-plan.md §6.1 and §8 R2;
+plan-part-d-stats.md "Proposed Removals" 1). A CODE removal, no capability is removed:
+
+- `BackgroundAgentTrayComponent` (`libs/frontend/chat/src/lib/components/organisms/background-agent-tray.component.ts`)
+  is deleted in batch CV-1. Its only host is chat-view, which unmounts it in the same batch.
+- Its two specs move, with the same cases (none added or dropped, no new spec file), onto the tray code that B-4
+  extracts: `background-agent-tray.component.spec.ts` -> `libs/frontend/chat/src/lib/services/session-agents/session-agent-tray.service.spec.ts`
+  (action cases: focus, steer, stop, background, transcript, against `SessionAgentTrayService`) and
+  `background-agent-tray.scope.spec.ts` -> `libs/frontend/chat/src/lib/services/session-agents/session-agent-tray.spec.ts`
+  (population, scope and dedupe cases, against `buildTrayContexts`).
+- Every tray capability stays reachable in the inspector AGENTS section: C-6 (tray), C-40 (population summary), C-41
+  (agent row), C-42 (Focus), C-43 (actions menu), C-44 (View transcript), C-45 (Steer), C-46 (Send to background),
+  C-47 (Stop), C-48 (population, dedupe, session scope). The Mode 3 parity check verifies each of these rows against
+  the build and the renamed specs.
 
 Every other Delta 3 row (C-2..C-6, C-19..C-48, C-49, C-50) is `move`, and C-39 is `keep`.
 
@@ -241,7 +256,9 @@ Delta 3 (decisions.md row 50, user-directed) changes where kept capabilities are
   actions are in the inspector. Below 960 px and in `compact`, the inspector is closed by default, so they are one
   action away (task-description req. 21.25). With the inspector closed, the context level and the at-limit or
   near-limit state stay perceivable at rest (req. 21.18, PM-20).
-- C-23, C-24, C-49, C-50: read-only model text leaves the main column and the Orchestrator card; it is in the
-  inspector SESSION stats only. The composer model / effort selector (C-18) is unchanged (PM-18).
+- C-23, C-24, C-49, C-50: read-only model text leaves the main column and the Orchestrator card; the session
+  model is in the inspector SESSION stats only, and a sub-agent's model (C-49) is in that agent's inspector AGENTS
+  entry only, never in the dock hover card. The composer model / effort selector (C-18) is unchanged and stays the
+  only model control in the main column (PM-18).
 - C-25: the context indicator uses requirement 7.4's 80 % / 95 % thresholds instead of the strip's 70 % / 90 %
   (PM-21).

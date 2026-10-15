@@ -124,3 +124,23 @@ body[data-reduce='true'] .ring__a, body[data-reduce='true'] .bar__f { transition
 .hchip--lim[hidden] { display: none; }
 .hchip--lim-near { color: var(--state-ink-need); border-color: color-mix(in srgb, var(--state-ink-need) 55%, transparent); }
 .hchip--lim-at { color: var(--state-ink-err); border-color: color-mix(in srgb, var(--state-ink-err) 55%, transparent); }
+
+/* SESSION tile details (design-spec D3.3, revised r1): one 28 x 28 info button per tile with details, an in-tile region, nothing hover-only */
+.tile--d { position: relative; }
+.tile--d .tl { padding-right: 26px; }
+.tile--d.tile--ctx .tile__end { margin-right: 26px; }
+.tile--d.is-open { grid-column: span 2; }
+.tile--ctx.tile--d { flex-wrap: wrap; }
+.tile__info {
+  position: absolute; top: 2px; right: 2px; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; color: oklch(var(--bcm, var(--bc))); background: transparent; border: 0; cursor: pointer;
+}
+.tile__info:hover { background: var(--surface-2); color: oklch(var(--bc)); }
+.tile__info[aria-expanded='true'] { color: oklch(var(--bc)); }
+.tile__det {
+  flex: 1 0 100%; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--surface-border); font-size: 11px; line-height: 1.45;
+  color: oklch(var(--bcm, var(--bc))); white-space: pre-line;
+}
+.tile__det[hidden] { display: none; }
+/* AGENTS row: sub-agent model token (design-spec D3.6, D56 revised r1) */
+.agent__model { flex: none; font-size: 11px; color: oklch(var(--bcm, var(--bc))); white-space: nowrap; }

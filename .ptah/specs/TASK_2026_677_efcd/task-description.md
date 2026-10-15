@@ -68,7 +68,7 @@ chat view has no place to answer a CLI-lane permission request at all (T1-07). T
 | PM-16 | Delta 2: the work log wraps today's tool-call rows; their components and styles are not changed (requirement 20; parity B-5a). | restyle tool rows to the reference | user decision, decisions.md row 32 | yes |
 | PM-17 | Delta 3: the stats strip, its expanded panel and the background-agent tray leave the chat-view main column, and all of their information moves into the inspector (requirement 21). This is a `move` (parity C-2..C-6, C-19..C-50), not a removal. `ptah-session-stats-summary`, `ptah-background-agent-tray` and `ptah-background-agent-strip` stay in the codebase for their other hosts, unchanged there. | delete the components; keep a slim strip in the main column | decisions.md row 50; other hosts `harness-builder-view.component.ts:400`, `canvas-lane-view.component.ts:124` | yes |
 | PM-18 | Delta 3, model labels: "chat area" means the chat-view main column (transcript including the work log, banners, composer) plus the inspector Orchestrator card. There, the composer model / effort selector (requirement 12.4) is the only model text and the only model control. Read-only model text appears only in the inspector session stats. Other surfaces keep their model labels: the agent monitor panel (`chat-view.component.html:340`, `agent-card-header.component.ts:93-98`, `cli-agent-output.component.ts:45-47`), lane headers (requirement 14.1), the Rail focus header (`canvas-focus-area.component.ts:39`) and harness builder. | also strip the agent monitor panel and lane headers | decisions.md row 50 (USER: "every read-only model label in the chat area / orchestrator card goes"); design-spec D3.1 | yes |
-| PM-19 | Delta 3: the inspector lists the agents of the session it shows, which is the canvas-tile tray scope today (`traySessionId`, `chat-view.component.ts:548-564`). On the main panel the tray also lists other sessions' agents. That cross-session listing is parity C-48b `remove-proposed`, waiting for the user. Those agents stay reachable, with all their actions, through their own session's tab. | keep a cross-session list inside "This session"; keep a tray row in the main column | design-spec D3.6 ("Tray scope", flagged as architect check 8); `background-agent-tray.component.ts:192-199` | yes |
+| PM-19 | Delta 3: the inspector lists the agents of the session it shows, which is the canvas-tile tray scope today (`traySessionId`, `chat-view.component.ts:548-564`). On the main panel the tray also lists other sessions' agents. That cross-session listing is parity C-48b, settled (decisions.md row 54): the tray merges into AGENTS with no "other sessions" group. Those agents stay reachable, with all their actions, through their own session's tab. | keep a cross-session list inside "This session"; keep a tray row in the main column | design-spec D3.6 ("Tray scope", flagged as architect check 8); `background-agent-tray.component.ts:192-199` | yes |
 | PM-20 | Delta 3: when the inspector is closed, the limit state (`at limit` / `near limit`) and the context level stay perceivable without opening it. Today the collapsed strip shows the limits alert at rest (`session-stats-summary.component.html:14-17`). The design picks the cue: design-spec D3.7 uses a ring and dot on the inspector toggle plus an accessible description. The cue is never colour alone. | show limit state only inside the inspector | `limits-alert.component.ts:9-16` (alert shown at rest while at or near limit); NFR Accessibility (status never by colour alone) | yes |
 | PM-21 | Delta 3: the inspector context indicator uses the thresholds of requirement 7.4 (80 % warning, 95 % error). The strip's 70 % warning and 90 % critical (`session-stats-summary.component.ts:232-237`, `.html:504-507`) are not kept as a second rule. This changes a moved capability's visual (parity C-25, "User-visible changes"); the capability itself is kept. | keep 70 / 90 in the inspector; show two rules | requirement 7.4; design-spec D3.3 (one colour rule for the SESSION ring) | yes |
 
@@ -147,7 +147,8 @@ Out of scope:
 - New spec files or new test coverage, including T1-10, T1-13, T1-16, T1-17, T1-18 and all of T2 — postponed by the
   user (decisions.md row 3).
 - Removing any capability. A removal needs the user's approval first. `parity-inventory.md` "Proposed removals"
-  lists one pending row (Delta 3): C-48b, the main panel's cross-session agent list (PM-19).
+  has no pending row: C-48b, the main panel's cross-session agent list (PM-19), is settled (decisions.md row 54)
+  as covered by AGENTS plus each session's own tab.
 - PR #730 style findings other than T1-27: `distinctRetainedCount` consumer, ignored output payloads,
   `chat-transcript.component.ts` size, glyph controls, retention coupling, canvas token names (T3-09..T3-14) —
   refactoring task T3 (PM-9).
@@ -594,8 +595,8 @@ Acceptance criteria:
    stated new location.
 2. When the implementation is reviewed, no capability listed in `parity-inventory.md` shall be absent from the
    product; the inventory has no `remove-proposed` row (PM-5), and the visibility changes listed under Scope are the
-   only changes in how often a capability is seen. Delta 3 exceptions: row C-48b (cross-session agent list on the
-   main panel, PM-19) is `remove-proposed` and needs the user's decision before it can be removed. B-25 is the
+   only changes in how often a capability is seen. Delta 3: row C-48b (cross-session agent list on the main panel,
+   PM-19) is settled (decisions.md row 54), covered by AGENTS plus each session's own tab. B-25 is the
    user-approved removal of decisions.md row 45.
 3. When the per-tab view-mode toggle is used (tab item or Rail focus header), the session shall switch between the
    `full` and `compact` presentations defined in requirement 16, and the choice shall survive a reload (PM-1).
@@ -860,9 +861,12 @@ Session totals (21.3-21.8)
    cache creation, total, and "Some usage could not be counted." when coverage is partial), the context details,
    the agents explanation and the budget lines (`session-stats-summary.component.ts:186-190, 316-360`).
 5. When a value is unknown or absent, the inspector shall follow today's rules. Unknown tokens or cost show `—`,
-   never `0` (requirement 7.5). An unknown context window shows the percent without a bar or ring. Lanes, time,
-   agents and compactions are omitted when absent or zero (`session-stats-summary.component.ts:140-145, 276-286`;
-   `.html:165`).
+   never `0` (requirement 7.5). When the context capacity is unknown (`hasKnownContextWindow()` is false), the
+   context percent shows `—` and the used-token count is not shown; no bar or ring is drawn and no measured
+   percentage is implied (`contextPercentLabel` returns `'—'`, `session-stats-summary.component.ts:215-225`; the
+   `({{ formatTokens(live.contextUsed) }})` count renders only inside `@if (hasKnownContextWindow())`, `.html:338-350`).
+   Lanes, time, agents and compactions are omitted when absent or zero
+   (`session-stats-summary.component.ts:140-145, 276-286`; `.html:165`).
 6. When the snapshot is an in-turn estimate (`provisional`), tokens and cost shall carry today's `~` estimate mark
    and the estimate line in their description (`session-stats-summary.component.html:61-73, 89-96`).
 7. When the total cost is unavailable and pricing coverage is partial, the inspector shall show
@@ -882,10 +886,12 @@ Models (21.9-21.11)
     composer's model / effort selector (requirement 12.4, unchanged as the control; PM-18). The strip's `Model` and
     `Models` items leave with the strip. The Orchestrator card has no model line (requirement 7.1). The inline agent
     bubble footer badge (`C/organisms/execution/inline-agent-bubble.component.ts:515-521`) is not shown in the
-    transcript.
+    transcript. No sub-agent model shall appear in the main-view agent dock hover or focus card, or on any other
+    main-column surface (design-spec-review-delta3.md finding 2, ruling D56).
 11. When a sub-agent's model is known (`agentModel` or `model` of its node, `inline-agent-bubble.component.ts:889-900`),
-    that model shall be reachable in the inspector from that agent's entry or from the session Models data (parity
-    C-49). The design decides where.
+    that model shall show only in that agent's inspector AGENTS entry, as its display name with the raw model id
+    available as its description (parity C-49). It shall not show in the dock hover card or any main-column
+    surface; the composer selector stays the only model control in the main column (criterion 10).
 
 Plan limits (21.12-21.18)
 
@@ -946,7 +952,9 @@ Background agents (21.22-21.24)
     close on Escape with focus back on its trigger.
 24. When the session view is the main panel (no canvas tile context), the inspector shall list the shown session's
     agents (PM-19). Agents of other sessions shall stay reachable, with the actions of criterion 23, from their own
-    session's tab. Removing the main panel's cross-session list waits for the user's decision on parity C-48b.
+    session's tab. The main panel's cross-session list (parity C-48b) is settled (decisions.md row 54): the tray
+    merges into AGENTS, which is session-scoped with no "other sessions" group; C-48b is covered by AGENTS plus each
+    session's own tab.
 
 Reach and live behaviour (21.25-21.28)
 
@@ -1057,16 +1065,17 @@ Reach and live behaviour (21.25-21.28)
   the tasks-ui and git-ui code, recorded in `implementation-plan.md` before batching.
 - Request field names and identity (`requestKey`) for the `Review`/`Answer` routes are marked `[verify]` in
   design-spec §4.5. Answer: the architect, from the stores.
-- Delta 3: may the main panel lose its cross-session agent list (parity C-48b, PM-19)? The design scopes the
-  inspector to this session (D3.6). Recommended: approve, because those agents stay reachable from their own tab.
-  The alternative keeps a labelled "other sessions" group in the inspector. Answer: the user, through the
-  orchestrator. Requirement 21.24 holds for either answer.
+- Answered (decisions.md row 54): may the main panel lose its cross-session agent list (parity C-48b, PM-19)? Yes;
+  the tray merges into the session-scoped AGENTS section with no "other sessions" group, and other sessions'
+  agents stay reachable from their own tab (requirement 21.24).
 - Delta 3: which entry makes the stats reachable within one action when the inspector is closed (requirement
   21.25), and which cue shows limit state at rest (21.18). Answer: the designer (design-spec D3.7, in progress in
   parallel), checked at the codex Gate 1.7 delta 3 review.
-- Delta 3: where a sub-agent's model appears in the inspector once the inline agent bubble badge leaves the
-  transcript (requirement 21.11, parity C-49). design-spec D3.1 does not list that badge yet. Answer: the designer,
-  then the architect.
+- Answered (design-spec-review-delta3.md finding 2 and ruling D56): where a sub-agent's model appears once the
+  inline agent bubble badge leaves the transcript (requirement 21.11, parity C-49). It shows only in that agent's
+  inspector AGENTS entry, raw id accessible, never in the dock hover card. Still open for the architect: which
+  frontend source or join supplies each AGENTS entry's model, since today's tray row has no model field
+  (`background-agent-strip.component.ts:46-80`); recorded in `implementation-plan.md`.
 
 ## Handoff
 
@@ -1081,7 +1090,7 @@ Reach and live behaviour (21.25-21.28)
 - Delta 3: software-architect writes plan part D after design-spec Delta 3 passes the codex Gate 1.7 delta 3
   review (decisions.md row 50). It must land before waves W4 (B-4) and W5 (CV-1). The shape questions are: where
   the moved stats read their inputs, the plan-limits scope, AGENTS absorbing the tray actions, and the closed-toggle
-  cue. One removal decision is pending: C-48b (PM-19).
+  cue. No removal decision is pending: C-48b (PM-19) is settled (decisions.md row 54).
 
 ## Revision round 1
 
@@ -1164,7 +1173,7 @@ aligned by the designer in parallel and are not edited here.
 
 Requirement count after this delta: 21 numbered requirements (1-21).
 
-Proposed removals (user decision): one, C-48b. The main panel's tray lists every session's agents, and the
-session-scoped inspector lists only the shown session's agents (design-spec D3.6, PM-19). Recommended: approve,
-because those agents and their actions stay reachable from their own session's tab. Every other Delta 3 row is
-`move` or `keep`.
+Proposed removals (user decision): one, C-48b, now settled (decisions.md row 54). The main panel's tray lists every
+session's agents, and the session-scoped inspector lists only the shown session's agents (design-spec D3.6, PM-19).
+The user's answer: the tray merges into AGENTS, no "other sessions" group; those agents and their actions stay
+reachable from their own session's tab. Every other Delta 3 row is `move` or `keep`.

@@ -1,7 +1,11 @@
 # Batches - TASK_2026_677_efcd
 
-Total tasks: 17 implementation batches + 1 measurement step (BUILD-1) | Batches: 18 | Complete: 6/18
+Total tasks: 18 implementation batches + 1 measurement step (BUILD-1) | Batches: 19 | Complete: 6/19
 Waves: 8 (W1-W7 implementation, W8 measurement) | Phase: one phase "clean-session-view" (all batches)
+Delta 3 update (team-leader MODE 1 update, 2026-10-15): plan part D (`plan-part-d-stats.md`, Gate 2 delta APPROVED
+9/10, `implementation-plan-review-delta3-r1.md`) adds batch D-1 to W3 and amends B-4, A1-3, CV-1, CV-2, B-5 in
+their waves. Waves 1-2 unchanged. W3 status: B-3, A2-1, D-1 = NEXT (not started, decisions.md row 62); C-3 = HOLD
+until PR #733 (TASK_2026_648) merges and this branch rebases (decisions.md rows 55, 58, 62).
 
 Root for every relative path: `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\`
 (branch `feat/clean-session-view`). Every batch runs and is committed here. `F` = `libs/frontend`.
@@ -71,11 +75,54 @@ Edge cases:
 - Tool rows render exactly as today through `ptah-execution-node` (row 32) - A1-3.
 - Dock overflow keeps a `waiting` agent visible, hides a `done` one at small width - C-3.
 
+### Plan validation - Delta 3 (MODE 1 update)
+
+Status: PASSED WITH RISKS (Gate 2 delta APPROVED 9/10, no new Blocking or Serious finding)
+
+Assumptions (Delta 3):
+
+- Every D-1 CREATE target is absent and every D-1 MODIFY target exists - verified on disk 2026-10-15
+  (`session-stats-view.ts`, `plan-limits/session-limit-summary.ts`, `atoms/context-ring.component.ts`,
+  `session/inspector-stats/`, `background-agent-population.ts` absent; `session-stats-summary.component.ts`,
+  `background-agent-strip.component.ts`, `plan-limits/{lane-usage-tile,plan-limit-tile,lane-subtotal-tile}.component.ts`
+  and their specs present).
+- A-D2 `LaneLimitState` literals `at-limit` / `near-limit` / `confirmed-room` / `unknown` - partly verified
+  (`stats-limit-view-model.types.ts:126`, `plan-limit-tiles.ts:328-358` use `at-limit` / `near-limit`); D-1 confirms the
+  full union in `lane-tiles.ts` before the exhaustive switch (D-O1).
+- B-4 / CV-1 targets: `background-agent-tray.component.ts` + its two specs and `inline-agent-bubble.component.ts` (+ spec)
+  exist; `chat/src/lib/services/session-stats/` absent; `services/session-agents/` holds only the C-2 files
+  (`owned-by-session.ts`, `session-agent-roster{,.service}.ts`) - verified.
+- `SessionBudgetState` import path for `session-stats-source.ts` - unverified; CV-1 copies it from
+  `session-budget-actions.service.ts` (D3-8 assumption).
+- Part B section input name `hasLaneSurface` on `inspector-agents-section` - set by B-4 itself (it creates the section).
+
+| Risk (Delta 3) | Severity | Mitigation |
+| --- | --- | --- |
+| R-D1 D-1 delegation changes strip internals | MEDIUM | strip, agent-strip, lane-usage and plan-limit tile specs must pass UNCHANGED; any spec edit in D-1 is a reject reason for MODE 2 and the reviewer (Task D-1.1) |
+| R-D2 W3 runs four batches incl. one lane | MEDIUM | executors run NO nx checks (row 59); MODE 2 runs each changed project's checks once on the combined tree |
+| R-D3 B-4 grows (tray service, actions menu, mounts) | MEDIUM | decided now, before B-4 starts: NOT split (see Decisions); B-4 keeps one Claude executor and one project |
+| R-D4 barrel orders `chat-ui` C-1 -> A1-1 -> D-1 -> A2-2; `chat` C-2 -> B-3 -> B-4 -> CV-1 | MEDIUM | wave order forces both (D-1 W3, A2-2 W4; B-3 W3, B-4 W4, CV-1 W5); append-only lines |
+| R-D5 one source per value | MEDIUM | reviewer focus: no template outside the chat-ui pure layer formats context, tokens, cost, limit state (plan §9 risk 9) |
+| R-D6 showcase scenes `canvas-orchestra.scene.ts:154`, `chat-code-edit.scene.ts:121` locate the strip | LOW | out of 677 scope (no e2e run); orchestrator records it in the handoff |
+| Plan-limits refresh scope | MEDIUM | stays a chat-view field (C-39); reject any `registerScope` in the inspector, the source factory or the Rail board (CV-1, B-5) |
+| D-O6 Rail board closed-state cue | LOW | B-5 reports to the orchestrator if the Rail aside can close while a limit is near/at; no invented cue |
+| C-3 waits for PR #733; B-5 (W6) depends on C-3 | MEDIUM | C-3 floats (Wave rule): it joins the first wave that starts after #733 merges and the branch rebases; if #733 is not merged when W6 is due, MODE 2 stops before W6 and escalates |
+| R2 removal of the tray component | LOW | user-approved (row 64); CV-1 renames the two specs with the same cases; parity rows C-6, C-40..C-48 checked in Mode 3 |
+
+Edge cases (Delta 3):
+
+- Unknown context / no live stats -> `—`, `No data yet`, no ring, no progressbar role; never `0` - D-1.
+- `limits` null -> PLAN LIMITS / LANES omitted, `limitSummary.state = 'none'`, no chip / dot change / alert - D-1, B-4, CV-2.
+- Main panel has no tab: stats come from the ChatStore branch, `inputs` null only when the view has no messages - CV-1.
+- Tray action on a vanished context no-ops; steer `finally` clears `pendingSteerId`; menu returns focus - B-4.
+- Completed foreground sub-agent keeps its model via `agentModelsByKey`; no Focus without a tray context (D-13) - B-4.
+- `limitAwareDot`: `null` while open; pending `need` > `err` (at) > `need` (near) > base - D-1, CV-2.
+
 ## Decisions
 
 | Decision | Options | Evidence | Reversible |
 | --- | --- | --- | --- |
-| Executor for every batch: Claude `frontend-developer` sub-agent | CLI lane (default) | user rule: Claude builds the frontend, CLI lanes only review (team-leader prompt; plan §1 line 19) | yes |
+| Executor for every batch: Claude `frontend-developer` sub-agent (W1-W2; superseded for D-1 and C-3 by the Delta 3 rows below, USER row 60) | CLI lane (default) | user rule: Claude builds the frontend, CLI lanes only review (team-leader prompt; plan §1 line 19) | yes |
 | 8 waves, max 3 parallel batches per wave, file-disjoint incl. barrels | plan §5 orders 1-10 as-is | plan §5 allows 4 in order 1; cap 3 moves A1-4 to W2; A2-1 stays in W3 per §5 | yes |
 | A1-2 also depends on C-2 | plan §5 (A1-1, C-1 only) | chips consume `SessionAgent` (plan §2.2 C2 / "A1 consumption"); no ordering cost (A1-2 is W4) | yes |
 | Wave-level verification, per-batch commits | verify and commit each batch alone | shared worktree; a per-batch check sees the sibling's uncommitted files | yes |
@@ -83,16 +130,30 @@ Edge cases:
 | BUILD-1 after CV-3 (W8), label `webview-bundle` | right after B-5 | B-5 is the last Part B batch (W6); W8 still follows it and measures every eager delta | yes |
 | CV-3 may close as a no-op without a commit | force an empty commit | plan §3.1 "None expected"; Mode 3 accepts `Commit: none (verified no-op)` for CV-3 only | yes |
 | C-3 owns `canvas-focus-area.component.spec.ts` | leave to B-5 | C §handoff: stub input `sessionId` -> `tabId` (`:59-69`) follows C-3's binding change | yes |
+| Delta 3: row 1 superseded for D-1 and C-3: D-1 on a CLI lane (`codex`, role frontend-developer); C-3 lane-suitable (`codex` or `grok`, ONE lane for the whole batch); every other remaining batch stays Claude `frontend-developer` | all Claude; more lane batches | USER row 60; plan §5 lane table (`implementation-plan.md:317-326`); Gate 2 delta ruling (`implementation-plan-review-delta3.md:21-29`) | yes |
+| Delta 3: a lane-built batch is reviewed by a different family than its builder (D-1 codex -> Claude `code-logic-reviewer` or a grok lane); Claude-built batches keep the codex phase review | one codex review for all | USER row 60 | yes |
+| Delta 3: max 4 batches per wave (W3 = B-3, A2-1, D-1, C-3) | max 3 | orchestrator brief; plan §5 "No wave grows past 4" | yes |
+| Delta 3: executors of a parallel wave run NO nx checks; `ptah_get_diagnostics` scoped to their files only; MODE 2 runs each changed project's test / typecheck / lint once on the combined tree | executors run their own scoped checks | decisions.md row 59 (applied in W2, kept for W3-W7); one-heavy-check rule | yes |
+| Delta 3: C-3 floats on HOLD - starts in the first wave after PR #733 merges and the branch rebases (rebase only between waves, clean tree); latest before W6 (B-5 depends on it) | keep C-3 pinned to W3 and block W4 | rows 55, 58, 62; C-3 is file-disjoint from every W4 / W5 batch (canvas only); W4 has 3 batches and W5 2, so adding C-3 keeps <= 4 | yes |
+| Delta 3: B-4 NOT split | split agents additions into a new batch owning `inspector-agents-section` | plan §9 risk 8 / R-D3 (decide before B-4 starts); a split batch must precede CV-1 (CV-1 deletes the tray and renames its specs onto B-4's service files) and B-4's `session-inspector` imports the section, so a split adds one serial step to W4/W5 for one project; D-1 already delivers the finished SESSION / LIMITS sections | yes (split before B-4 starts if its executor reports overrun) |
+| Delta 3: D-1 exceeds the 6-file batch guide (6 CREATE, 3-5 MODIFY, 1 barrel) | split D-1 | one project (`chat-ui`), plan D6 defines it as one lane batch with one contract D3-1..D3-7; splitting would put two owners on the chat-ui barrel in one wave | yes |
+| Delta 3: CV-3 cannot fold into W6 as a batch; it stays W7 but closes inside the W6 MODE 2 invocation when A1-3 reported no chat-view binding | fold CV-3 into CV-2; run CV-3 parallel with CV-2 | CV-3 edits CV-2's files (chat-view chain is strictly serial, plan §3.1, §9 risk 1); plan §3.1 "None expected" and CV-3's only input is A1-3's report (W5); folding its scope into CV-2 would move A1's ownership to A2 contrary to §3.1 | yes |
 
 ## Wave rule (applies to W1-W7)
 
-- The orchestrator spawns the wave's batches in parallel (one `frontend-developer` sub-agent each, at most 3),
-  waits for all of them, then re-invokes team-leader (Mode 2) once with every report path of the wave.
-- Executors may run their own scoped checks, one heavy check at a time across all agents; a failure located in
-  another batch's file is reported, not fixed.
+- The orchestrator spawns the wave's batches in parallel (at most 4 per wave: Claude `frontend-developer`
+  sub-agents, and for D-1 / C-3 one CLI lane each, at most 3 lanes at once), waits for all of them, then
+  re-invokes team-leader (Mode 2) once with every report path of the wave.
+- **Executors in a parallel wave run NO nx checks (decisions.md row 59).** They use `ptah_get_diagnostics` scoped
+  to their own files only. The "Scoped checks" listed in each batch are run by the team-leader in MODE 2, once per
+  changed project on the combined tree, one heavy check at a time. A diagnostic located in another batch's file is
+  reported, not fixed.
 - Team-leader verifies each batch on disk, runs each changed project's test, typecheck and lint once on the
   combined tree, then commits each batch separately in the foreground with explicit paths. The next wave starts
   only after every batch of the current wave is COMPLETE.
+- Exception C-3 (HOLD): it is not part of the W3 completion condition. It starts in the first wave that begins
+  after PR #733 merges and this branch rebases onto main (rebase only between waves, on a clean tree, never while
+  an executor runs). If #733 is still open when W6 is due, MODE 2 stops before W6 and escalates (B-5 needs C-3).
 
 ## STRICT executor rules
 
@@ -382,21 +443,33 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Wave 3 - B-3, C-3, A2-1 (parallel; after W2)
+## Wave 3 - B-3, A2-1, D-1 (parallel; after W2) + C-3 (HOLD, PR #733)
 
-## Batch B-3: inspector services, add-on token, git branch (chat, webview app) - IN_PROGRESS
+- Status: NOT started (decisions.md row 62). B-3, A2-1, D-1 = NEXT; C-3 = HOLD until PR #733 (TASK_2026_648) merges
+  and this branch rebases (rows 55, 58, 62; #733 still OPEN at this update). Start B-3, A2-1 and D-1 now; C-3 floats
+  per the Wave rule exception.
+- File-disjoint: B-3 (chat services, tokens, both chat barrels, webview `app.config.ts`), A2-1 (one new chat
+  molecule), D-1 (chat-ui only, chat-ui barrel 3rd owner), C-3 (canvas only). No file is edited by two W3 batches.
+- Executors run NO nx checks (row 59); MODE 2 runs: `@ptah-extension/chat`, `ptah-extension-webview`,
+  `@ptah-extension/chat-ui` (+ `@ptah-extension/canvas` when C-3 lands) - test, typecheck, lint, once each.
+- Reviews: B-3, A2-1 (Claude-built) -> codex phase review; D-1 (codex-built) -> Claude `code-logic-reviewer` or a
+  grok lane; C-3 -> a family different from the lane that builds it.
+
+## Batch B-3: inspector services, add-on token, git branch (chat, webview app) - NEXT (not started)
 
 - Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
-- Execution mode: sequential (parallel with C-3, A2-1)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Execution mode: sequential (parallel with A2-1, D-1; C-3 on HOLD)
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (existing chat services, shared barrels, webview `app.config.ts`); row 60 keeps shared-barrel edits with Claude
+- Delta 3: NOT amended (plan §5, M-10): `OrchestratorCardModel` model / context / tokens / cost fields are still built
+  but B-4 does not render them (§6.3); `showDot()` stays as specified - CV-2 composes `limitAwareDot` outside B-3
 - Review family: implementer Claude; phase reviewer codex
 - Rationale: the store, open-state and shell controller that A1-3, A2-2, B-4, CV-1 and B-5 bind to; second owner of
   both chat barrels
 - Tasks: 1 | Depends on: C-2 (and B-1 committed, since it shares the webview project)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task B-3.1: create session-inspector services, `SESSION_WORKFLOW_ADDONS`, git `branch` + `sessionBranch` - IN_PROGRESS
+### Task B-3.1: create session-inspector services, `SESSION_WORKFLOW_ADDONS`, git `branch` + `sessionBranch` - PENDING
 
 - Files:
   - CREATE `F/chat/src/lib/services/session-inspector/session-inspector.types.ts`
@@ -428,7 +501,9 @@ executor prompt.
   - `node .ptah/tmp/check-run.mjs b3-lint -- npx nx run-many -t lint -p @ptah-extension/chat ptah-extension-webview --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat,webview): batch B-3 - inspector store, controller, add-ons`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -439,18 +514,27 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch C-3: agent dock rewrite (canvas) - IN_PROGRESS
+## Batch C-3: agent dock rewrite (canvas) - HOLD (PR #733)
 
-- Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
-- Execution mode: sequential (parallel with B-3, A2-1)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
-- Review family: implementer Claude; phase reviewer codex
+- Wave: W3 (floating, see Wave rule exception) | Recommended executor: CLI lane, capability frontend-developer
+  (`codex` or `grok`, whichever has room at spawn time; USER row 60); ONE lane builds the WHOLE batch
+- HOLD: do not start until PR #733 (TASK_2026_648) merges and `feat/clean-session-view` rebases onto main (decisions.md
+  rows 55, 58, 62; #733 OPEN at this update). 648 rewrites `canvas-lane-view.component.spec.ts` and touches canvas
+  files this batch edits; building before the rebase means building twice. After the rebase, re-verify the C-3
+  file list against main before spawning.
+- Execution mode: sequential, one lane (ownership guard: no other lane or agent edits a C-3 file while it runs)
+- Fallback order: other lane family with frontend capability -> Claude `frontend-developer` sub-agent
+- Subagent reason: N/A (lane-suitable per plan §5 table, Gate 2 delta ruling)
+- Review family: a family different from the builder (codex-built -> Claude `code-logic-reviewer` or grok lane;
+  grok-built -> codex lane or Claude)
+- Lane brief: before spawning, the orchestrator gives the lane this batch section verbatim plus absolute paths
+  (root `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\`, `F` = `libs\frontend`), the cited
+  `plan-part-c-agents.md` ranges by absolute path, and the Executor notes below; workingDirectory = the worktree root
 - Rationale: canvas-only rewrite on top of the roster and avatar; disjoint from chat batches
-- Tasks: 1 | Depends on: C-1, C-2
-- Phase: clean-session-view | Phase review: as phase
+- Tasks: 1 | Depends on: C-1, C-2 (COMPLETE), PR #733 merged + rebase
+- Phase: clean-session-view | Phase review: as phase (C-3 gets its own different-family code-logic review)
 
-### Task C-3.1: rewrite `ptah-canvas-lane-tabs` as the agent dock; add card, menu, overflow; delete `lane-owner.ts` - IN_PROGRESS
+### Task C-3.1: rewrite `ptah-canvas-lane-tabs` as the agent dock; add card, menu, overflow; delete `lane-owner.ts` - PENDING
 
 - Files:
   - REWRITE `F/canvas/src/lib/canvas-detail/canvas-lane-tabs.component.ts` (+ `canvas-lane-tabs.component.spec.ts`)
@@ -479,7 +563,9 @@ executor prompt.
   - `node .ptah/tmp/check-run.mjs c3-lint -- npx nx lint @ptah-extension/canvas --parallel=1 --skip-nx-cache`
 - Commit: `feat(canvas): batch C-3 - agent dock, hover card, overflow menu`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -490,18 +576,21 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch A2-1: session header molecule (chat) - IN_PROGRESS
+## Batch A2-1: session header molecule (chat) - NEXT (not started)
 
 - Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
-- Execution mode: sequential (parallel with B-3, C-3)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Execution mode: sequential (parallel with B-3, D-1; C-3 on HOLD)
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (header contract is revisited by CV-2; one owner family avoids drift)
 - Review family: implementer Claude; phase reviewer codex
+- Delta 3: NOT amended (M-11). CV-2 is the named SECOND owner of `session-header.component.ts` and adds the four
+  delta-3 inputs (`inspectorDot` incl. `'err'`, `limitCue`, `contextRingPercent`, `toggleDescription`). A2-1 builds
+  the A2 contract only; keep the dot input and the toggle markup easy to extend (no closed union in a private helper)
 - Rationale: one new presentational file; no barrel (chat-view imports it relatively in CV-2)
 - Tasks: 1 | Depends on: none (placed in W3 per plan §5)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A2-1.1: create `SessionHeaderComponent` - IN_PROGRESS
+### Task A2-1.1: create `SessionHeaderComponent` - PENDING
 
 - Files:
   - CREATE `F/chat/src/lib/components/molecules/session-header/session-header.component.ts`
@@ -521,7 +610,9 @@ executor prompt.
   - `node .ptah/tmp/check-run.mjs a21-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat): batch A2-1 - session header molecule`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -532,17 +623,176 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
+## Batch D-1: inspector stats presentation (chat-ui; Delta 3) - NEXT (not started)
+
+- Wave: W3 (4th batch) | Recommended executor: CLI lane `codex`, role frontend-developer (USER row 60; plan §5 lane
+  table; Gate 2 delta ruling `implementation-plan-review-delta3.md:21-29`)
+- Execution mode: sequential, one lane (parallel with B-3, A2-1)
+- Fallback order: grok lane (frontend capability) -> Claude `frontend-developer` sub-agent
+- Subagent reason: N/A (lane-suitable: new self-contained chat-ui files, behaviour-preserving delegations guarded by
+  unchanged specs, one mechanical barrel append with exact names)
+- Review family: implementer codex -> reviewer Claude (`code-logic-reviewer`) or a grok lane; never codex
+- Rationale: builds the pure stats layer, limit summary, context ring and the SESSION / PLAN LIMITS / LANES sections
+  that B-4 mounts, CV-1's source returns and CV-2's header cues read; file-disjoint from B-3, A2-1, C-3
+- Tasks: 1 | Depends on: C-1, A1-1 (COMPLETE; chat-ui barrel order C-1 -> A1-1 -> D-1 -> A2-2)
+- Phase: clean-session-view | Phase review: as phase + its own different-family code-logic review (new public API in
+  `@ptah-extension/chat-ui`, so style focus on the exports too)
+
+### Task D-1.1: pure stats layer, limit summary, context ring, inspector stats sections, population helper - PENDING
+
+- Files (root `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\`, `CU` = `libs\frontend\chat-ui\src`):
+  - CREATE `CU\lib\molecules\session\session-stats-view.ts`
+  - CREATE `CU\lib\molecules\session\plan-limits\session-limit-summary.ts`
+  - CREATE `CU\lib\atoms\context-ring.component.ts`
+  - CREATE `CU\lib\molecules\session\inspector-stats\inspector-session-stats.component.ts` (template inline or `.html` beside it)
+  - CREATE `CU\lib\molecules\session\inspector-stats\inspector-limits-lanes.component.ts` (template inline or `.html` beside it)
+  - CREATE `CU\lib\molecules\background-agent-population.ts`
+  - MODIFY `CU\lib\molecules\session\session-stats-summary.component.ts` (computeds delegate; template, inputs, outputs unchanged)
+  - MODIFY `CU\lib\molecules\background-agent-strip.component.ts` (`summaryText` delegates)
+  - MODIFY `CU\lib\molecules\session\plan-limits\lane-usage-tile.component.ts` (opt-in `linkPlanTiles` / `planTileRequested`)
+  - MODIFY only if D-O2 needs it: `CU\lib\molecules\session\plan-limits\plan-limit-tile.component.ts`,
+    `CU\lib\molecules\session\plan-limits\lane-subtotal-tile.component.ts` (opt-in `variant` input, default `'strip'`)
+  - MODIFY `CU\index.ts` (chat-ui barrel, 3rd owner; append-only, exact names below)
+- Plan reference: `plan-part-d-stats.md:88-219` (D3-1..D3-7), `:429-441` (D5 failure), `:462-472` (D7 checks D-O1..D-O3);
+  `implementation-plan.md:240` (§3.3 D-1 row), `:205-210` (§3.2 barrel order), `:540-541` (§9 risk 7);
+  design `design-spec.md:1369-1531` (D3.1-D3.7), `:1532-1561` (D3.8 a11y); prototype
+  `prototype/assets/delta3.js`, `prototype/assets/delta3.css` (visual reference only)
+- Pattern to follow: `session-stats-summary.component.ts` (strip computeds and `StatsTileExpansionState` injection
+  pattern), `plan-limits/stats-tile-expansion.state.ts`, existing atoms in `CU\lib\atoms\`
+- Quality requirements: standalone, OnPush, signals, `input()` / `output()`, `inject()`; pure files import no Angular;
+  strings MOVED verbatim (no re-derivation, no copy left behind); unknown -> `null` / `'—'`, never `0`; exhaustive
+  switch over `LaneLimitState`; no `title` carrying detail text in the new sections; no `aria-live` except the PLAN
+  LIMITS refresh notice (`role="status"`); no timer; chat-ui never imports `@ptah-extension/chat`
+- Validation notes: R-D1 - the strip, agent-strip, lane-usage-tile and plan-limit-tile specs must pass UNCHANGED (a spec
+  edit is a reject reason); D-O1 confirm the `LaneLimitState` union in `plan-limits/lane-tiles.ts` before coding;
+  D-O2 add `variant` only where the tile face cannot meet D3.4 / D3.5 through host classes, strip markup
+  byte-identical; D-O3 provenance mark: provider id only if the VM / `planSectionProvenance` already exposes one,
+  else lucide `Gauge`, no new field
+- Existing specs to keep green UNCHANGED: `session-stats-summary.component.spec.ts`, `session-budget-format.spec.ts`,
+  `session-stats-format.spec.ts`, `background-agent-strip.component.spec.ts`, `lane-usage-tile.component.spec.ts`,
+  `plan-limit-tile.component.spec.ts`, `stats-limit-*.spec.ts`; no new spec files
+- Acceptance:
+  1. Every D3-1..D3-7 export exists with the exact signatures of the Lane brief; the barrel gains exactly the D3-7 names.
+  2. `sessionLimitSummary`: worst wins (at before near), tie keeps the session indicator then lane order; `extra` and
+     `fullText` (`text (+{extra} more)`); `confirmed-room` / `unknown` never candidates; null VM -> state `'none'`.
+  3. `limitAwareDot`: `null` while open; `'need'` when base `'need'`; else `'err'` at; else `'need'` near; else base.
+  4. `inspectorToggleDescription` parts in order, each only when true, joined by one space.
+  5. Context ring 80 / 95 ink rule, `aria-hidden` host, no ring rendered by callers when percent is null.
+  6. Strip, agent strip and tiles render byte-identical markup (their specs unchanged and green in MODE 2).
+  7. No TODO / stub / placeholder; no file outside the list touched.
+- Scoped checks (run by team-leader MODE 2 on the combined tree, NOT by the lane):
+  - `node .ptah/tmp/check-run.mjs d1-test -- npx nx test @ptah-extension/chat-ui --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
+  - `node .ptah/tmp/check-run.mjs d1-typecheck -- npx nx typecheck @ptah-extension/chat-ui --parallel=1 --skip-nx-cache`
+  - `node .ptah/tmp/check-run.mjs d1-lint -- npx nx lint @ptah-extension/chat-ui --parallel=1 --skip-nx-cache`
+- Commit: `feat(chat-ui): batch D-1 - inspector stats, limits, context ring`
+
+#### Lane brief (D-1, paste verbatim into the lane prompt; workingDirectory = worktree root)
+
+You build batch D-1 of TASK_2026_677_efcd in the Angular Nx repo at
+`D:\projects\ptah-extension\.claude-worktrees\clean-session-view` (branch `feat/clean-session-view`). You share no
+context with anyone; this brief is complete. You have about 40 tool calls: read only the line ranges named here,
+write each file in one go, and do not explore the repository.
+
+Objective: create the chat-ui presentational layer that moves the session stats strip, plan limits and lanes into
+the session inspector: one pure stats module, one limit-summary module, a context ring atom, two inspector section
+components, one population helper; make the existing strip components delegate to the pure functions without any
+markup change; append exact exports to the chat-ui barrel. Nothing in `libs/frontend/chat` is touched.
+
+Read first (absolute paths, only these ranges):
+- `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\.ptah\specs\TASK_2026_677_efcd\plan-part-d-stats.md`
+  lines 88-219 (contracts D3-1..D3-7), 429-441 (failure rules), 462-472 (open checks D-O1..D-O3).
+- `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\.ptah\specs\TASK_2026_677_efcd\design-spec.md`
+  lines 1401-1531 (D3.3 SESSION, D3.4 PLAN LIMITS, D3.5 LANES, D3.7 cues) and 1532-1561 (a11y, motion, contrast).
+- Source to move from: `libs\frontend\chat-ui\src\lib\molecules\session\session-stats-summary.component.ts`
+  (computeds ~140-380, AGENTS / known-subtotal texts ~186-190, context window rule ~193-218),
+  `libs\frontend\chat-ui\src\lib\molecules\background-agent-strip.component.ts` (`summaryText` 491-514),
+  `libs\frontend\chat-ui\src\lib\molecules\session\plan-limits\lane-tiles.ts` (LaneLimitState union),
+  `...\plan-limits\stats-limit-view-model.types.ts` (`StatsLimitViewModel`), `...\plan-limits\lane-usage-tile.component.ts`,
+  `...\plan-limits\stats-tile-expansion.state.ts`, `libs\frontend\chat-ui\src\index.ts` (barrel tail).
+
+Files (all under `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\libs\frontend\chat-ui\src\`):
+CREATE `lib\molecules\session\session-stats-view.ts`, `lib\molecules\session\plan-limits\session-limit-summary.ts`,
+`lib\atoms\context-ring.component.ts`, `lib\molecules\session\inspector-stats\inspector-session-stats.component.ts`,
+`lib\molecules\session\inspector-stats\inspector-limits-lanes.component.ts`, `lib\molecules\background-agent-population.ts`;
+MODIFY `lib\molecules\session\session-stats-summary.component.ts`, `lib\molecules\background-agent-strip.component.ts`,
+`lib\molecules\session\plan-limits\lane-usage-tile.component.ts`, and `index.ts`; MODIFY
+`lib\molecules\session\plan-limits\plan-limit-tile.component.ts` / `lane-subtotal-tile.component.ts` ONLY to add an
+opt-in `variant = input<'strip' | 'inspector'>('strip')` where D-O2 requires it. No other file.
+
+Contracts (exact signatures; full rules in plan lines cited):
+- `session-stats-view.ts` (pure, no Angular): `interface SessionStatsInputs { sessionId: string | null; snapshot:
+  SessionStatsEntry | null; liveModelStats: LiveModelStats | null; compactionCount: number; limits:
+  StatsLimitViewModel | null; budget: SessionBudgetState | null; context: SessionContextCue; limitSummary:
+  SessionLimitSummary }` (all readonly); `interface SessionContextCue { hasLive: boolean; known: boolean; percent:
+  number | null; label: string; usedTokens: number | null }`; functions `sessionContextCue(live)`,
+  `contextDetailsText(live, compactions): string | null` (appends `Number of context compactions during this session: {n}`
+  only when `compactions > 0`), `tokenDetailsText(s, b): string`, `costDetailsText(s, b): string | null`,
+  `knownSubtotalOf(s): { value: number } | null`, `agentCountOf(s): number | null`, `durationMsOf(s): number | null`,
+  `lanesAriaLabelFor(count): string`; consts `KNOWN_SUBTOTAL_DETAILS`, `AGENTS_DETAILS` (verbatim strip text).
+- `session-limit-summary.ts`: `interface SessionLimitSummary { state: 'none' | 'near' | 'at'; text: string | null;
+  extra: number; source: 'session' | 'lane' | null; fullText: string | null }`; `sessionLimitSummary(vm:
+  StatsLimitViewModel | null): SessionLimitSummary`; `inspectorToggleDescription(context: SessionContextCue, summary:
+  SessionLimitSummary, needsYou: number): string`; `limitAwareDot(base: 'need' | 'sel' | null, open: boolean, summary:
+  SessionLimitSummary | null): 'need' | 'err' | 'sel' | null`. Rules: plan lines 149-157.
+- `ContextRingComponent` (`ptah-context-ring`): `percent = input.required<number>()`, `size = input<44 | 28>(44)`,
+  host `aria-hidden="true"`, ink gold < 80, `--state-ink-need` 80-94, `--state-ink-err` >= 95; arc transition 400 ms
+  `--ptah-ease-soft`, none under reduced motion. Plan lines 159-166.
+- `InspectorSessionStatsComponent` (`ptah-inspector-session-stats`): `stats = input.required<SessionStatsInputs>()`,
+  `limitsLinkActivated = output<'session' | 'lane'>()`, optional `turns = input<number | null>(null)` (D-O4; caption only
+  when non-null); injects `ModelStateService` from `@ptah-extension/core` and `inject(StatsTileExpansionState,
+  { optional: true }) ?? new StatsTileExpansionState()`. Plan lines 168-186.
+- `InspectorLimitsLanesComponent` (`ptah-inspector-limits-lanes`): `limits = input.required<StatsLimitViewModel>()`,
+  `sessionId = input<string | null>(null)`, public `focusHeading(which: 'session' | 'lane'): void`; renders PLAN
+  LIMITS and LANES sections. Plan lines 188-205.
+- `lane-usage-tile.component.ts`: add `linkPlanTiles = input<boolean>(false)`, `planTileRequested = output<string>()`;
+  with `false` the chip stays today's `<span>` (byte-identical).
+- `background-agent-population.ts`: `backgroundAgentPopulation(entries: readonly BackgroundAgentStripEntry[]): string`
+  = body of `summaryText` verbatim; the strip delegates.
+- Barrel `libs\frontend\chat-ui\src\index.ts`: APPEND only (never edit, reorder or delete existing lines) exports of
+  `ContextRingComponent`, `InspectorSessionStatsComponent`, `InspectorLimitsLanesComponent`, `sessionContextCue`,
+  `sessionLimitSummary`, `inspectorToggleDescription`, `limitAwareDot`, `backgroundAgentPopulation`, and types
+  `SessionStatsInputs`, `SessionContextCue`, `SessionLimitSummary`. `LiveModelStats` is already exported: do not
+  duplicate. Nothing else.
+
+Acceptance: the seven numbered criteria under "Task D-1.1" in
+`D:\projects\ptah-extension\.claude-worktrees\clean-session-view\.ptah\specs\TASK_2026_677_efcd\batches.md` (read that
+task block only; do not edit the file). Specs that must pass UNCHANGED: `session-stats-summary.component.spec.ts`,
+`session-budget-format.spec.ts`, `session-stats-format.spec.ts`, `background-agent-strip.component.spec.ts`,
+`lane-usage-tile.component.spec.ts`, `plan-limit-tile.component.spec.ts`, `stats-limit-*.spec.ts`. Do not edit any
+spec and do not add a spec file.
+
+STRICT rules (mandatory):
+- Run NO nx, jest, build or npm command: this is a parallel wave (decisions.md row 59); the team-leader runs
+  `nx test/typecheck/lint @ptah-extension/chat-ui` afterwards. If you have `ptah_get_diagnostics`, run it scoped to
+  your changed files only.
+- Never run workspace-wide checks, build, serve, dev, e2e, package, or npm install.
+- No git at all (no commit, push, stash, restore, checkout, reset, clean); never touch D:\projects\ptah-final-run-ws.
+- Never kill processes by image name. Do not edit `batches.md`, `task.md` or any `.ptah/specs` file.
+- Angular: standalone, OnPush, signals, `input()` / `output()`, `inject()`; no `[innerHTML]` with untrusted content;
+  lucide-angular icons; `ptah-provider-mark` / `ProviderMarkComponent` for CLI marks; imports only through lib
+  public `index.ts` aliases across libs; chat-ui never imports `@ptah-extension/chat`.
+- No TODO, stub, placeholder or mock data standing in for logic. Handoff files, if any, are handoff-N.md.
+
+Return: every created or modified absolute path; for each of D-O1, D-O2, D-O3 what you found and decided; the barrel
+lines you appended; confirmation that no spec file changed; anything you could not finish.
+
 ## Wave 4 - A2-2, A1-2, B-4 (parallel; after W3)
+
+- C-3 may join W4 as a 4th batch if PR #733 has merged and the branch is rebased by then (Wave rule exception).
+- B-4 now also depends on D-1; A2-2 is the 4th owner of the chat-ui barrel (after D-1).
+- File check: A2-2 (`chat-input.*`, `autopilot-popover.*`, `chat-ui/src/index.ts`), A1-2 (`molecules/turn/*`), B-4
+  (`organisms/session-inspector/*`, `services/session-agents/session-agent-tray{,.service}.ts`,
+  `background-agent-tray.component.ts`, `components/index.ts`, `chat/src/index.ts`). Disjoint.
 
 ## Batch A2-2: composer chips + autopilot trigger re-skin (chat, chat-ui) - PENDING
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A1-2, B-4)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
-- Rationale: composer files only; reads `sessionBranch` (B-3); third owner of the `chat-ui` barrel
-- Tasks: 1 | Depends on: B-3, A1-1
+- Rationale: composer files only; reads `sessionBranch` (B-3); fourth owner of the `chat-ui` barrel (after D-1)
+- Tasks: 1 | Depends on: B-3, A1-1, D-1 (chat-ui barrel order C-1 -> A1-1 -> D-1 -> A2-2)
 - Phase: clean-session-view | Phase review: as phase
 
 ### Task A2-2.1: composer top strip, bar order, send restyle; autopilot popover trigger re-skin - PENDING
@@ -550,7 +800,7 @@ executor prompt.
 - Files:
   - MODIFY `F/chat/src/lib/components/molecules/chat-input/chat-input.component.ts` (+ `chat-input.component.spec.ts`)
   - MODIFY `F/chat-ui/src/lib/molecules/chat-input/autopilot-popover.component.ts` (+ `autopilot-popover.component.spec.ts`)
-  - MODIFY `F/chat-ui/src/index.ts` only if a new export is needed (shared barrel, 3rd owner; expected none)
+  - MODIFY `F/chat-ui/src/index.ts` only if a new export is needed (shared barrel, 4th owner after D-1; expected none)
 - Plan reference: A2:52-55 (component 3), A2:105-141 (component 5), A2:142-157 (exact edits rows 5-6);
   implementation-plan.md §4 A2 O3-O7 (O4: keep both Stop and Send)
 - Pattern to follow: current `chat-input.component.ts` structure; popover content unchanged
@@ -565,7 +815,9 @@ executor prompt.
   - `node .ptah/tmp/check-run.mjs a22-lint -- npx nx run-many -t lint -p @ptah-extension/chat @ptah-extension/chat-ui --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat,chat-ui): batch A2-2 - composer chips, autopilot trigger`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -580,8 +832,8 @@ executor prompt.
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A2-2, B-4)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
 - Rationale: four new files only, consumed by A1-3
 - Tasks: 1 | Depends on: A1-1, C-1, C-2 (chips take `SessionAgent`)
@@ -609,7 +861,9 @@ executor prompt.
   - `node .ptah/tmp/check-run.mjs a12-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat): batch A1-2 - turn disclosure, activity panel, agent chips`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -624,11 +878,13 @@ executor prompt.
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A2-2, A1-2)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
-- Rationale: new organism files; single owner of `components/index.ts`, third owner of `chat/src/index.ts`
-- Tasks: 1 | Depends on: B-2, B-3, C-1, C-2
+- Rationale: new organism files; single owner of `components/index.ts`, third owner of `chat/src/index.ts`;
+  Delta 3 (amended, plan §3.3 B-4 row, Part D §D3-9..D3-10): tray service + actions menu, SESSION / PLAN LIMITS /
+  LANES mounts from D-1, slimmer Orchestrator card. Not split (Decisions, R-D3)
+- Tasks: 1 | Depends on: B-2, B-3, C-1, C-2, D-1
 - Phase: clean-session-view | Phase review: as phase
 
 ### Task B-4.1: create `ptah-session-inspector` and its sections, `SessionTaskReader` - PENDING
@@ -644,10 +900,20 @@ executor prompt.
   - CREATE `F/chat/src/lib/components/organisms/session-inspector/inspector-git-section.component.ts`
   - CREATE `F/chat/src/lib/components/organisms/session-inspector/session-task-reader.ts`
     (exact file names per B §5-6 if they differ in suffix)
+  - CREATE (Delta 3) `F/chat/src/lib/components/organisms/session-inspector/inspector-agent-actions-menu.component.ts`
+  - CREATE (Delta 3) `F/chat/src/lib/services/session-agents/session-agent-tray.ts` (pure: moved `agentLabel`,
+    `agentSummary`, `basename`, `tidyAgentSummary`, `backgroundStatus`, `fromSubagent`, `fromBackground`,
+    `buildTrayContexts`, `agentModelsByKey`; `TrayAgentContext`, `AgentRowExtras`)
+  - CREATE (Delta 3) `F/chat/src/lib/services/session-agents/session-agent-tray.service.ts` (`SessionAgentTrayService`, root)
+  - MODIFY (Delta 3) `F/chat/src/lib/components/organisms/background-agent-tray.component.ts` (delegate to the moved
+    code and the service; no duplicate copy; its two specs stay green UNCHANGED in B-4; CV-1 deletes it, R2)
   - MODIFY `F/chat/src/lib/components/index.ts` (single owner; append-only)
   - MODIFY `F/chat/src/index.ts` (shared barrel, 3rd owner; append-only)
 - Plan reference: B:307-425 (§5-6); implementation-plan.md:305-331 (§7.2 rendering: `inspectorSection` outlets after
-  the Orchestrator card, before AGENTS), :254-256 (row 44), §4 B O4, B O6, B O7; §8 D-B-1, D-B-3, D-B-4
+  the Orchestrator card, before AGENTS), :254-256 (row 44), §4 B O4, B O6, B O7; §8 D-B-1, D-B-3, D-B-4;
+  Delta 3: `plan-part-d-stats.md:277-369` (D3-9 tray service, D3-10 inspector amendments), :429-441 (D5),
+  :469 (D-O4 turns); implementation-plan.md:241 (§3.3 B-4 row), §6.2 M-9, §6.3 (Delta 3 overrides of Part B),
+  §8 D-D-1
 - Pattern to follow: latest-`TodoWrite` locator copied verbatim from
   `F/canvas/src/lib/canvas-detail/canvas-session-details.component.ts:125-143` (B-5 deletes the source);
   `FILE_LINK_OPENER` (`tasks-store.service.ts:1351-1376`) for artifact open
@@ -656,15 +922,44 @@ executor prompt.
   `@ptah-extension/tasks-ui/presentation`; token injected `{ optional: true }`
 - Validation notes: lint must show no `@nx/enforce-module-boundaries` error for chat -> `tasks-ui/presentation`;
   if chat jest cannot resolve `/presentation`, report it (assumption from B-2)
-- Existing specs to update: none (new files)
-- Acceptance: `SessionInspectorComponent` exported from `@ptah-extension/chat`; chat suite, typecheck, lint green
+- Delta 3 tasks (D3-9, D3-10):
+  - `session-inspector`: input `stats = input<SessionStatsInputs | null>(null)` REPLACES Part B's optional `usage`
+    input; order D45: Orchestrator, add-on slot, SESSION (`ptah-inspector-session-stats` when `stats` non-null),
+    AGENTS, PLAN LIMITS + LANES (`ptah-inspector-limits-lanes` when `stats?.limits`), TASK, TODOS, GIT; wire
+    `limitsLinkActivated` to `viewChild(InspectorLimitsLanesComponent)?.focusHeading(source)`; new sections count as
+    stagger rows (cap 6 unchanged).
+  - `inspector-orchestrator-card`: dot, `Orchestrator`, state line WITHOUT model, request line; no context bar, no
+    stats `dl`, no `Usage and limits` disclosure (B-3's model / context / tokens / cost fields not read).
+  - `inspector-agents-section`: population summary line via `backgroundAgentPopulation(...)` (omitted when empty);
+    `extras = computed(() => tray.extrasFor(sessionId(), rows()))` over ALL roster rows; model token from
+    `extras.model` via `resolveModelDisplayName` (`title` raw id, hidden `aria-describedby` span); `· {tokens} tokens`
+    when known; 28 x 28 ellipsis actions button when `extras.tray` has an action; inline `ptah-agent-steer-input`
+    with section-level `pendingSteerId`; row activation order: lane surface -> `laneRequested(row.key)`; else tray
+    context -> `SessionAgentTrayService.focus(extras.tray)`; else select only, no Focus label (D-13).
+  - `SessionAgentTrayService` per D3-9 signatures (`contextsFor`, `extrasFor`, `focus`, `steer`, `stop`,
+    `sendToBackground`, `viewTranscript`); `buildTrayContexts` keeps today's `agentVisibleInSession` filter, the
+    `toolCallId` dedupe (background wins) and the active-only foreground population; `agentModelsByKey` walks the
+    roster's own store reads (completed sub-agents keep their model). `SessionAgent` (C-2) is NOT changed.
+  - `inspector-agent-actions-menu`: `role="menu"`, `menuitem`s by flags, Up / Down / Home / End, `Esc` closes and
+    returns focus to the trigger; one open menu per section.
+  - D-O4: pass B-3's `OrchestratorCardModel.turns` to the SESSION section's `turns` input only if B-3 built a
+    non-null count; else omit (no invented value).
+- Delta 3 failure rules: tray action on a vanished context no-ops; steer `finally` clears `pendingSteerId`; menu
+  closes and focus returns; unknown model -> no token, no placeholder; no `registerScope` anywhere in the inspector.
+- Existing specs to update: none (new files); keep `background-agent-tray.component.spec.ts` and
+  `background-agent-tray.scope.spec.ts` green UNCHANGED (they are renamed in CV-1, R2)
+- Acceptance: `SessionInspectorComponent` exported from `@ptah-extension/chat`; inspector renders D45 order with
+  SESSION / PLAN LIMITS / LANES from `stats`; AGENTS shows model, tokens, actions, steer and the Focus fallback;
+  tray component delegates (no duplicated mapping code); chat suite, typecheck, lint green
 - Scoped checks:
   - `node .ptah/tmp/check-run.mjs b4-test -- npx nx test @ptah-extension/chat --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs b4-typecheck -- npx nx typecheck @ptah-extension/chat --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs b4-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat): batch B-4 - session inspector component tree`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -677,12 +972,18 @@ executor prompt.
 
 ## Wave 5 - A1-3, CV-1 (parallel; after W4)
 
+- File check: A1-3 owns `message-bubble.*`, `chat-transcript.*` and (Delta 3) `inline-agent-bubble.component.*`;
+  CV-1 owns `chat-view.component.*` + chat-view specs, (Delta 3) `services/session-stats/session-stats-source.ts`,
+  `chat/src/index.ts` (4th owner), the tray component delete and the two spec renames. Disjoint.
+- C-3 may join W5 if it did not run in W4 and PR #733 has merged and the branch is rebased (Wave rule exception).
+  Decisions row 58 also prefers the rebase before CV-1; if #733 merged, rebase before W5 starts.
+
 ## Batch A1-3: message bubble assistant branch + transcript (chat) - PENDING
 
 - Wave: W5 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with CV-1)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
 - Rationale: the turn rewrite; owns the five `.st-t` hooks CV-2 indexes
 - Tasks: 1 | Depends on: A1-2, C-2, B-3
@@ -698,6 +999,11 @@ executor prompt.
   - MODIFY `F/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts`
   - MODIFY `F/chat/src/lib/components/organisms/transcript/chat-transcript.component.html` (`:47-60`)
   - MODIFY existing transcript specs where they break (see below)
+  - MODIFY (Delta 3) `F/chat/src/lib/components/organisms/execution/inline-agent-bubble.component.ts`: remove the model
+    badge block (`:515-523`), `rawModelId` / `modelDisplayName` (`:889-904`), and the `ModelStateService` injection /
+    `resolveModelDisplayName` import if nothing else uses them (+ `inline-agent-bubble.component.spec.ts` only if it
+    asserts the badge). The ONE sanctioned execution-tree edit; row 32 still forbids any tool-row diff
+    (plan-part-d-stats.md:397-401, implementation-plan.md:242)
 - Plan reference: A1:90-167; A1:187-234 (parity map, data flow + empty/failure); implementation-plan.md:102-114
   ("A1 consumption"), :179 (`st-t` on the five items: user `<article aria-label="You">`,
   `ptah-turn-disclosure-row` host, `.cs-answer`, `ptah-turn-agent-chips` host, action-row wrapper; class only,
@@ -713,14 +1019,17 @@ executor prompt.
   `chat-transcript.component.spec.ts:1034` stub `ptah-message-bubble` gains the new inputs/outputs and drops
   `messageIndex`/`totalMessages`; re-run `chat-transcript.display`, `.ptah-ui`, `.replay-*` specs and fix only
   intended breaks
-- Acceptance: closed turn shows disclosure row, answer, chips, action row; live turn shows live line; chat suite green
+- Acceptance: closed turn shows disclosure row, answer, chips, action row; live turn shows live line; inline
+  sub-agent bubble shows no model badge (the model lives in the AGENTS row, C-49); chat suite green
 - Scoped checks:
   - `node .ptah/tmp/check-run.mjs a13-test -- npx nx test @ptah-extension/chat --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs a13-typecheck -- npx nx typecheck @ptah-extension/chat --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs a13-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat): batch A1-3 - clean turn in message bubble and transcript`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -735,11 +1044,12 @@ executor prompt.
 
 - Wave: W5 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A1-3; first of the chat-view chain)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
-- Rationale: first chat-view edit; hosts the deferred inspector and provides the controller
-- Tasks: 1 | Depends on: B-4
+- Rationale: first chat-view edit; hosts the deferred inspector and provides the controller; Delta 3 (amended):
+  removes the strip and tray mounts, creates the one stats source, deletes the tray component (R2)
+- Tasks: 1 | Depends on: B-4 (and transitively D-1)
 - Phase: clean-session-view | Phase review: as phase
 
 ### Task CV-1.1: shell root, inert main column, deferred inspector aside, controller wiring - PENDING
@@ -750,8 +1060,21 @@ executor prompt.
   - MODIFY `F/chat/src/lib/components/templates/chat-view.component.css`
   - MODIFY where they break: `chat-view.component.spec.ts`, `chat-view.dock.spec.ts`, `chat-view.keepalive.spec.ts`,
     `chat-view.memo.spec.ts` (same folder; provide `SessionInspectorStore` / `InspectorShellController`)
+  - CREATE (Delta 3) `F/chat/src/lib/services/session-stats/session-stats-source.ts` (`injectSessionStatsSource`,
+    `SessionStatsHost`, `SessionStatsSource`; MOVED `toStatsLimitLaneRun`, `recordedOwnerKeys`, `sameStrings`)
+  - MODIFY (Delta 3) `F/chat/src/index.ts` (shared barrel, 4th owner after B-4; append-only: `injectSessionStatsSource`
+    and its types, for the Rail board)
+  - DELETE (Delta 3, R2, USER-approved decisions.md row 64) `F/chat/src/lib/components/organisms/background-agent-tray.component.ts`
+  - RENAME + harness rewrite (R2; same cases, none added or dropped, no new spec file; `git mv`-style so history follows):
+    `F/chat/src/lib/components/organisms/background-agent-tray.component.spec.ts` ->
+    `F/chat/src/lib/services/session-agents/session-agent-tray.service.spec.ts` (action cases against
+    `SessionAgentTrayService`); `F/chat/src/lib/components/organisms/background-agent-tray.scope.spec.ts` ->
+    `F/chat/src/lib/services/session-agents/session-agent-tray.spec.ts` (population / scope / dedupe cases against
+    `buildTrayContexts`). The executor uses a file move, not git; the team-leader stages the delete + add pair
 - Plan reference: implementation-plan.md:121-131 (§3.1 CV-1 row), §7.1 (inside an embed `hostsInspector()` is false),
-  §7.3 (no `[inspectorSection]` re-projection); B:426-463 (§7 a-e)
+  §7.3 (no `[inspectorSection]` re-projection); B:426-463 (§7 a-e); Delta 3: implementation-plan.md:182 (§3.1 CV-1
+  delta 3 row), :243 (§3.3), §6.1 R2, §6.2 M-8; `plan-part-d-stats.md:221-276` (D3-8 source), :371-385 (D3-11 CV-1),
+  :539-556 (Proposed Removals 1, approved)
 - Pattern to follow: existing `afterNextRender` usage in `chat-view.component.ts`
 - Quality requirements: root `<div class="cs-shell ...">` + `container-type: inline-size`; `[attr.inert]` on the
   main column; inspector `@if` / `@defer (on immediate)` with `id="inspector"` on the aside;
@@ -759,15 +1082,33 @@ executor prompt.
   `hasLaneSurface`, tab-feed effect calling `onTabChanged()`, `openLaneFromInspector`, `focusQuestionCard`;
   `controller.attach(...)` in `afterNextRender` with lazy opener/title getters
 - Validation notes: no compact-card change here (CV-2 owns A-6 / A-16); `SESSION_CONTEXT` present -> no inspector
-- Existing specs to update: the four chat-view specs above, only for the new providers / host markup
-- Acceptance: main panel renders the inspector aside without `SESSION_CONTEXT`; chat suite green
+- Delta 3 tasks (D3-8, D3-11): delete the strip block (`chat-view.component.html:35-51`) and the tray block (`:53-64`);
+  drop `SessionStatsSummaryComponent` / `BackgroundAgentTrayComponent` imports (`chat-view.component.ts:34,39,231,235`),
+  `showBackgroundStrip`, `traySessionId`, `resolvedSessionStats`, `resolvedLiveModelStats`, `resolvedCompactionCount`,
+  `resolvedStatsLimits`, `sessionLaneRuns`, `sessionRunOwnerKeys`, `_limitTime` - their bodies MOVE verbatim into the
+  source (tab values when `tab()` non-null, else ChatStore; never null just because the main panel has no tab); add
+  `protected readonly stats = injectSessionStatsSource({ tab: () => this.resolvedTab(), sessionId: () =>
+  this.resolvedSessionId(), budget: () => this.resolvedSessionBudget(), available: () =>
+  this.resolvedMessages().length > 0 })`; scope effect (`:1328-1337`) reads `stats.runOwnerKeys()`; KEEP
+  `_planLimitsScope` (the ONE scope, C-39), `resolvedSessionBudget`, the `StatsTileExpansionState` provider; bind
+  `[stats]="stats.inputs()"` on the inspector. Confirm the `SessionBudgetState` import path from
+  `session-budget-actions.service.ts` before writing the factory. No `registerScope` and no timer in the source.
+- Existing specs to update: the four chat-view specs above, only for the new providers / host markup; Delta 3:
+  `chat-view.component.spec.ts:68` re-points `toStatsLimitLaneRun` to `../../services/session-stats/session-stats-source`,
+  strip / tray mount assertions removed; the two renamed tray specs (same cases)
+- Acceptance: main panel renders the inspector aside without `SESSION_CONTEXT`; the inspector's SESSION / PLAN LIMITS /
+  LANES show the values the strip showed (ChatStore fallback, active session id, view budget) from the first message
+  on; no `ptah-session-stats-summary` / `ptah-background-agent-tray` in chat-view; no file references
+  `background-agent-tray.component`; renamed specs hold the same case count as before; chat suite green
 - Scoped checks:
   - `node .ptah/tmp/check-run.mjs cv1-test -- npx nx test @ptah-extension/chat --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs cv1-typecheck -- npx nx typecheck @ptah-extension/chat --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs cv1-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat): batch CV-1 - chat-view shell and inspector host`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -780,15 +1121,21 @@ executor prompt.
 
 ## Wave 6 - CV-2, B-5 (parallel; after W5)
 
+- File check: CV-2 owns `chat-view.component.*` + chat-view specs and (Delta 3) `session-header.component.ts`; B-5
+  owns canvas `canvas-rail-board.*`, `canvas-focus-header.*`, the session-details delete. Disjoint.
+- Gate: C-3 must be COMPLETE before W6 (B-5 depends on it). If PR #733 is still open, MODE 2 stops and escalates.
+- CV-3 (W7) is closed inside this wave's MODE 2 invocation when A1-3 reported no chat-view binding (see CV-3).
+
 ## Batch CV-2: chat-view header, motion, compact-card retirement (chat, owner A2) - PENDING
 
 - Wave: W6 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with B-5; second of the chat-view chain)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
-- Rationale: the one owner of A-6 / A-16; needs CV-1's controller, A2-1's header and A1-3's `.st-t` hooks
-- Tasks: 1 | Depends on: CV-1, A2-1, A1-3
+- Rationale: the one owner of A-6 / A-16; needs CV-1's controller, A2-1's header and A1-3's `.st-t` hooks;
+  Delta 3 (amended): header closed-state cues; second owner of `session-header.component.ts` (A2-1 -> CV-2 serial)
+- Tasks: 1 | Depends on: CV-1, A2-1, A1-3 (D-1 transitively via CV-1)
 - Phase: clean-session-view | Phase review: as phase
 
 ### Task CV-2.1: header block, add-on outlets, session-switch stagger, compact-card retirement - PENDING
@@ -799,9 +1146,22 @@ executor prompt.
   - MODIFY `F/chat/src/lib/components/templates/chat-view.component.css`
   - MODIFY where they break: `chat-view.component.spec.ts`, `chat-view.dock.spec.ts`, `chat-view.keepalive.spec.ts`,
     `chat-view.memo.spec.ts`
+  - MODIFY (Delta 3; named SECOND owner after A2-1, M-11) `F/chat/src/lib/components/molecules/session-header/session-header.component.ts`
 - Plan reference: implementation-plan.md:126 (CV-2 row), :129-131, :326-327 (header slot outlets, `ngProjectAs`),
   §8 (D-A2-2 withdrawn; trigger `resolvedTabId`); A2:46-51 (component 2), A2:56-104 (component 4 stagger),
-  A2:142-157 (chat-view rows), A2:158-193 (binding contract)
+  A2:142-157 (chat-view rows), A2:158-193 (binding contract); Delta 3: implementation-plan.md:183-189 (§3.1 CV-2
+  delta 3 row, second owner), §6.2 M-10, M-11; `plan-part-d-stats.md:386-395` (D3-11 CV-2), :472 (D-O7)
+- Delta 3 tasks: header inputs `inspectorDot: 'need' | 'err' | 'sel' | null` (widens A2-1's dot input),
+  `limitCue = input<SessionLimitSummary | null>(null)` (chip `Limit near` / `At limit`, `role="status"`, 22 px,
+  `TriangleAlert` 12 dropped below 440 px, `title` + sr-only `: {fullText}`, only while the inspector is closed and
+  state not `none`), `contextRingPercent = input<number | null>(null)` (28 px `ptah-context-ring` around `panel-right`
+  while closed and known), `toggleDescription = input<string>('')` (`aria-describedby`, per-instance id; accessible
+  NAME unchanged). chat-view computeds: `inspectorDot = limitAwareDot(shell.showDot(), shell.isOpen(),
+  stats.inputs()?.limitSummary ?? null)` (REPLACES the A2 `shell.isOpen() ? null : shell.showDot()` binding),
+  `limitCue = stats.inputs()?.limitSummary ?? null`, `contextRingPercent = stats.inputs()?.context.percent ?? null`,
+  `toggleDescription = inspectorToggleDescription(context, summary, inspectorModel().needsYouCount)` ('' without stats).
+  D-O7: grep templates for `modelDisplayName`, `formatModelName`, `Model ` - no model text left in the main column
+  except the composer selector
 - Pattern to follow: `chat-view.component.ts:974` `showCompactCard` -> `this._forcedCard?.() ?? false`
 - Quality requirements: compact view renders the transcript; forced Rail card path (A-5) untouched;
   `expandToFullView` kept only if the forced branch still binds it; stagger keyed on `resolvedTabId`,
@@ -812,14 +1172,18 @@ executor prompt.
   renders nothing; component-style budget 20 kB (`project.json:66`) - keep CSS lean
 - Existing specs to update: chat-view specs (header element, count chip copy, toggle `aria-pressed`, dot; compact
   view now renders the transcript)
-- Acceptance: header + stagger visible on session switch; compact card shows only when forced; chat suite green
+- Acceptance: header + stagger visible on session switch; compact card shows only when forced; with the inspector
+  closed the header shows the limit chip, context ring and dot (`err` at limit, `need` near / pending) and the
+  toggle description, all read from `stats.inputs()` (one source); none of them while open; chat suite green
 - Scoped checks:
   - `node .ptah/tmp/check-run.mjs cv2-test -- npx nx test @ptah-extension/chat --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs cv2-typecheck -- npx nx typecheck @ptah-extension/chat --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs cv2-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat): batch CV-2 - session header, stagger, compact card retire`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -834,8 +1198,8 @@ executor prompt.
 
 - Wave: W6 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with CV-2)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
 - Rationale: canvas-only; replaces `ptah-canvas-session-details` with `ptah-session-inspector` in the Rail board
 - Tasks: 1 | Depends on: B-4, C-3, CV-1
@@ -855,17 +1219,26 @@ executor prompt.
 - Pattern to follow: current asides at `canvas-rail-board.component.ts:182, 209, 240`
 - Quality requirements: board provides `InspectorShellController`; parity D-1..D-11 mapped to the inspector;
   no canvas -> chat-internal imports (public `@ptah-extension/chat` only)
+- Delta 3 (amended, `plan-part-d-stats.md:402-407`, :471 D-O6; implementation-plan.md:244): the board adds
+  `StatsTileExpansionState` to its `providers` and binds the board inspector's `[stats]` from
+  `injectSessionStatsSource({ tab: focusedTab, sessionId: () => focusedTab()?.claudeSessionId ?? null, budget: () =>
+  focusedTab()?.sessionBudget ?? null, available: () => focusedTab() !== null })` imported from `@ptah-extension/chat`
+  (CV-1 export). No `registerScope`. D-O6: if the Rail aside can be closed while a limit is near / at, report it to
+  the orchestrator for a design call; do not invent a cue
 - Validation notes: one inspector in Rail (the board aside); `SESSION_CONTEXT` hosts never show chat-view's
 - Existing specs to update: `canvas-rail-board.component.spec.ts` (`DetailsStub` -> inspector stub);
   `canvas-focus-header.component.spec.ts` if the gate changes an assertion
-- Acceptance: no reference to `canvas-session-details` remains; canvas suite green
+- Acceptance: no reference to `canvas-session-details` remains; the Rail board inspector shows SESSION / PLAN
+  LIMITS / LANES for the focused tab; D-O6 outcome reported; canvas suite green
 - Scoped checks:
   - `node .ptah/tmp/check-run.mjs b5-test -- npx nx test @ptah-extension/canvas --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs b5-typecheck -- npx nx typecheck @ptah-extension/canvas --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs b5-lint -- npx nx lint @ptah-extension/canvas --parallel=1 --skip-nx-cache`
 - Commit: `feat(canvas): batch B-5 - Rail board inspector, drop session details`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -882,10 +1255,16 @@ executor prompt.
 
 - Wave: W7 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (third and last of the chat-view chain)
-- Fallback order: other Claude frontend-developer instance -> none (CLI lanes review only)
-- Subagent reason: user rule, Claude builds the frontend; CLI lanes only review
+- Fallback order: other Claude frontend-developer instance -> none
+- Subagent reason: plan §5 lane table: NO lane (inspector tree, execution-tree edit, chat-view chain, Rail integration, shared barrels stay with Claude; USER row 60)
 - Review family: implementer Claude; phase reviewer codex
 - Rationale: any chat-view binding A1-3 discovered lands here, after CV-2
+- Delta 3 decision (fold into W6?): NO as a batch - CV-3 edits the same three chat-view files as CV-2 (strictly serial
+  chain, plan §3.1, §9 risk 1), and folding its scope into CV-2 would move A1's ownership to A2 against §3.1. Delta 3
+  adds nothing to CV-3 (plan D6). Fast path: its only input is A1-3's report (W5). If that report names no
+  chat-view binding, the team-leader confirms it by reading chat-view and the transcript bindings during the W6
+  MODE 2 invocation, after CV-2 commits, and records `Commit: none (verified no-op)` here - no executor, no extra
+  wave. Only a reported binding spawns a W7 executor.
 - Tasks: 1 | Depends on: CV-2, A1-3
 - Phase: clean-session-view | Phase review: as phase
 
@@ -905,7 +1284,9 @@ executor prompt.
   - `node .ptah/tmp/check-run.mjs cv3-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit (if any): `feat(chat): batch CV-3 - chat-view turn bindings`
 - Executor notes (STRICT):
-  - Run checks only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
+  - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
+    changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
+    is ever run goes only through `node .ptah/tmp/check-run.mjs <label> -- <command>` from the worktree root.
   - Changed projects only: `npx nx test <project> --coverage=false --maxWorkers=2 --parallel=1 --skip-nx-cache`, `npx nx typecheck <project> --parallel=1 --skip-nx-cache`, `npx nx lint <project> --parallel=1 --skip-nx-cache`. Several projects: `npx nx run-many -t test -p A B --parallel=1 --skip-nx-cache` (never positional `nx test A B`).
   - One heavy check at a time across all agents. Never push while a check or build runs. No workspace-wide runs.
   - No build/serve/dev/e2e/package, except the Electron renderer rebuild (visual review) and the one webview bundle build (BUILD-1). No npm install.
@@ -931,10 +1312,16 @@ executor prompt.
 
 ## Phase review (after W8)
 
-- Phase: clean-session-view = all 17 implementation batches; combined diff = parent of the first batch commit
+- Phase: clean-session-view = all 18 implementation batches; combined diff = parent of the first batch commit
   (`2e273fd3c`, current HEAD before W1) to `HEAD`.
+- Step 0 (Delta 3, USER row 60): lane-built batches get a code-logic review from a different family than their
+  builder, scoped to that batch's commit: D-1 (codex-built) -> Claude `code-logic-reviewer` or a grok lane, with
+  R-D1 (strip specs unchanged), R-D5 (one source per value) and the D3-7 export list as focus; C-3 -> the family not
+  used to build it. These may run as soon as the batch commits; their findings join the one fix round of Step 2.
 - Step 1: one codex code-logic review of the phase diff (orchestrator spawns it; implementer family Claude,
-  reviewer family codex). The phase adds new public API (`@ptah-extension/chat-ui` avatar vocabulary,
+  reviewer family codex). Delta 3 focus additions: plan §9 risks 7-10 (D-1 strip specs unchanged, B-4 tray service
+  and Focus fallback D-13, one source per value, no `registerScope` outside chat-view), R2 renamed specs keep their
+  case count, D-O7 (no model text in the main column). The phase adds new public API (`@ptah-extension/chat-ui` avatar vocabulary,
   `@ptah-extension/chat` roster, inspector services, `SESSION_WORKFLOW_ADDONS`), so a style pass on those exports
   is due by the team-leader rule; recommended folded into the same codex lane as a second focus.
   Reviewer focus: plan §9 (one `cliId -> providerId` table, exhaustive switches, no per-item timer/observer,

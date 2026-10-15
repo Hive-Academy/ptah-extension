@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   var P = new URLSearchParams(location.search);
-  var V = P.get('stats') || 'full'; // full | at | none | single | ctx   (partial / empty / loading follow ?body=)
+  var V = P.get('stats') || 'full'; // full | at | none | single | ctx | lane | unk | more   (partial / empty / loading follow ?body=)
   var CIRC = 2 * Math.PI * 18;
 
   // lucide icons the shared sprite does not carry yet (same path data as lucide-angular)
@@ -29,10 +29,13 @@
     var ctx = V === 'ctx' ? 91.4 : 15.3;
     var weekly = V === 'at'
       ? { pct: 100, chip: { tone: 'error', text: 'At limit', glyph: '!' }, level: 'crit' }
-      : { pct: 85, chip: { tone: 'warning', text: 'Near limit', glyph: '!' }, level: 'warn' };
+      : V === 'lane'
+        ? { pct: 40, chip: null, level: 'ok' } /* lane-only: the session window is healthy, only a lane is near its limit */
+        : { pct: 85, chip: { tone: 'warning', text: 'Near limit', glyph: '!' }, level: 'warn' };
     return {
-      ctx: ctx, ctxTok: V === 'ctx' ? '914.0k' : '152.9k', compactions: 2,
-      estimate: true, tokens: '19.1M', tokBudget: 'of 50.0M budget', tokPct: 38, cost: '$8.87', costCap: 'known subtotal $0.00',
+      ctxKnown: V !== 'unk', ctx: ctx, ctxTok: V === 'ctx' ? '914.0k' : '152.9k', compactions: 2,
+      estimate: true, tokens: '19.1M', tokBudget: V === 'more' ? '' : 'of 50.0M budget', tokPct: 38, cost: '$8.87', costCap: 'known subtotal $0.00',
+      costBudget: V === 'more' ? { cap: 'of $20.00 budget', pct: 44, vt: '44% of the $20.00 cost budget' } : null,
       time: '15m 59s', turns: '6 turns', agents: 4,
       models: V === 'single' ? [{ name: 'Opus 5.5', id: 'claude-opus-5-5', cost: '$8.87', i: '15.5k', o: '79.9k', cr: '12.0M', cc: '506k' }]
         : [{ name: 'Opus 5.5', id: 'claude-opus-5-5', cost: '$7.41', i: '12.4k', o: '61.2k', cr: '9.8M', cc: '410k' },
@@ -44,17 +47,57 @@
           facts: ['Next reset: Fri 16 Oct 16:00 GMT+3 (in 23h 32m)', 'Last reset: Fri 9 Oct 16:00 GMT+3'], note: weekly.pct >= 100 ? 'Requests are refused until the reset.' : '', src: ['Provider API'] },
         { id: 'h5', label: '5-hour', pct: 32, level: 'ok', used: '32% used', reset: 'resets today 20:10 · in 3h 42m',
           facts: ['Next reset: today 20:10 (in 3h 42m)'], note: '', src: ['Provider API'] }],
+      extraPlan: V === 'more' ? [
+        { id: 'status', label: 'Antigravity', chip: { tone: 'neutral', glyph: '◷', text: 'Stale' }, line: 'No usage source for this account', lines: ['No usage source is connected for this account.', 'Shown as unknown, never as room.'] },
+        { id: 'evidence', label: 'Local usage evidence', chip: { tone: 'info', glyph: '~', text: 'Estimate only' }, line: 'A local estimate suggests a limit, not confirmed', lines: ['Observed on this device at 17:02.', 'Not confirmed by the provider.'] },
+        { id: 'cooldown', label: 'Cooldown', chip: { tone: 'info', text: 'Cooldown' }, line: 'Retry after today 18:30 · in 1h 12m', lines: ['The provider asked to wait before the next request.', 'Next attempt: today 18:30 (in 1h 12m).'] }] : [],
       provenance: 'Claude account', tail: '721c', provSrc: 'Provider API',
       lanes: (V === 'none' || V === 'single') ? [] : [{
         id: 'lane:codex:software-architect', cli: 'codex', label: 'Codex CLI · software-architect', run: 'Completed', tokens: '2.7M tokens', cost: 'cost unknown', runs: '2 runs',
-        limit: { tone: 'success', glyph: '✓', text: 'Room' }, src: 'Provider API', level: 'ok',
+        limit: V === 'lane' ? { tone: 'warning', glyph: '▲', text: 'Near limit' } : { tone: 'success', glyph: '✓', text: 'Room' }, src: 'Provider API', level: 'ok',
         sub: { heading: 'Codex CLI · gpt-5-codex', owner: 'Different owner', ownerText: 'OpenAI account, not the session account', state: 'Room',
           runsRows: [['Run 1 · software-architect', 'Completed', '1.6M tokens', 'cost unknown'], ['Run 2 · software-architect', 'Completed', '1.1M tokens', 'cost unknown']],
           win: { label: '5-hour', pct: 18, used: '18% used', reset: 'resets today 21:40 · in 4h 12m', level: 'ok' },
           evidence: 'Observed from the provider API at 17:28', note: 'Lane usage is not part of the session totals above.' } }],
       subtotal: (V === 'none' || V === 'single') ? null : { caption: 'Subtotal', tokens: '2.7M tokens known', summary: '$0.00 known cost · 1 lane · 2 runs · 2 cost unknown' },
-      alert: V === 'none' ? null : (weekly.pct >= 100 ? { tone: 'crit', text: 'Weekly plan limit reached' } : { tone: 'warn', text: 'Weekly plan limit is near' })
+      alert: (V === 'none' || V === 'lane') ? null : (weekly.pct >= 100 ? { tone: 'crit', text: 'Weekly plan limit reached' } : { tone: 'warn', text: 'Weekly plan limit is near' })
     };
+  }
+  /* The session limit summary (design-spec D3.7): worst of the session window indicator AND every lane's limit state (at before near). */
+  function limitSummary(d) {
+    var c = [];
+    if (d.alert) c.push({ rank: d.alert.tone === 'crit' ? 2 : 1, text: d.alert.text, source: 'session' });
+    d.lanes.forEach(function (l) {
+      if (l.limit.text === 'At limit' || l.limit.text === 'Near limit') c.push({ rank: l.limit.text === 'At limit' ? 2 : 1, text: l.label + ' · ' + l.limit.text, source: 'lane' });
+    });
+    if (!c.length) return { state: 'none' };
+    var best = c.reduce(function (b, x) { return x.rank > b.rank ? x : b; }, c[0]);
+    return { state: best.rank === 2 ? 'at' : 'near', text: best.text + (c.length > 1 ? ' (+' + (c.length - 1) + ' more)' : ''), source: best.source, extra: c.length - 1 };
+  }
+  var EST = 'Live estimate while the turn runs; final figures replace it when it ends.';
+  var BUDGET_TAIL = 'At 50% Ptah lowers auto-compact; at 80% you can ask the agent to wrap up and hand off.';
+  function detailsFor(key, d) {
+    var L = [];
+    if (key === 'ctx') {
+      if (!d.ctxKnown) return 'Context unknown: the latest main request or its verified capacity is unavailable.';
+      L = ['Context used (latest main request): 152,900 tokens', 'Context Window: 1,000,000 tokens', 'Usage: 15.3%'];
+      if (d.compactions) L.push('Number of context compactions during this session: ' + d.compactions);
+      return L.join('\n');
+    }
+    if (key === 'tok') {
+      if (d.estimate) L.push(EST, '');
+      L.push('Input (uncached): 15,500', 'Output: 79,900', 'Cache Read: 18,498,600', 'Cache Creation: 506,000', 'Total: 19,100,000');
+      if (!d.costBudget) L.push('', 'Session budget: 38% used (19.1M of 50.0M). ' + BUDGET_TAIL);
+      return L.join('\n');
+    }
+    if (key === 'cost') {
+      if (d.estimate) L.push(EST);
+      if (d.costBudget) L.push('', 'Session budget: 44% used ($8.87 of $20.00). ' + BUDGET_TAIL);
+      if (d.costCap) L.push('', 'Only part of this session has a known price. This is the sum of the priced part, not the session total.');
+      return L.join('\n').replace(/^\n+/, '');
+    }
+    if (key === 'agents') return 'Unique subagents this session has run, over its whole lifetime.';
+    return '';
   }
   function ctxLevel(p) { return p >= 95 ? 'crit' : p >= 80 ? 'warn' : 'ok'; }
   var ui = { open: {}, models: false, menu: null, steer: null, steerText: '', announce: '' };
@@ -87,33 +130,44 @@
     }
     var empty = body === 'empty', partial = body === 'partial';
     var h = '<section class="insp-sec d3-sec st-r" style="--i:' + i + '" aria-labelledby="sessH">' + head('sessH', 'Session', d.estimate && !empty && !partial ? '<span aria-hidden="true">~</span> = estimate' : '');
-    if (d.alert && !empty && !partial) {
-      h += '<p class="d3-alert d3-alert--' + d.alert.tone + '" data-testid="limits-alert">' + ic('triangle-alert', 'ico--14') + '<span>' + d.alert.text + '</span>' +
-        '<button type="button" class="link-btn d3-alert__go" data-d3="goto-plan">Plan limits</button></p>';
+    var sum = limitSummary(d);
+    if (sum.state !== 'none' && !empty && !partial) {
+      h += '<p class="d3-alert d3-alert--' + (sum.state === 'at' ? 'crit' : 'warn') + '" data-testid="limits-alert">' + ic('triangle-alert', 'ico--14') + '<span>' + esc(sum.text) + '</span>' +
+        '<button type="button" class="link-btn d3-alert__go" data-d3="goto-' + (sum.source === 'lane' ? 'lanes' : 'plan') + '">' + (sum.source === 'lane' ? 'Lanes' : 'Plan limits') + '</button></p>';
     }
     h += '<div class="d3-grid">';
-    // Context tile
-    var cp = d.ctx;
+    // a tile with details gets ONE 28 x 28 info button (keyboard reachable disclosure) and an in-tile region; the tile content stays static so its progressbars keep their semantics
+    function dtile(key, label, cls, inner, text) {
+      if (!text) return '<div class="tile ' + cls + '">' + inner + '</div>';
+      var k = 's:' + key, open = isOpen(k), id = 'sd-' + key;
+      return '<div class="tile tile--d ' + cls + (open ? ' is-open' : '') + '" data-tile-d="' + key + '">' + inner +
+        '<button type="button" class="tile__info" data-d3="sdet" data-k="' + k + '" aria-expanded="' + open + '" aria-controls="' + id + '" aria-label="' + label + ' details" data-testid="sdet-' + key + '">' + ic('info', 'ico--14') + '</button>' +
+        '<div class="tile__det" id="' + id + '" role="region" aria-label="' + label + ' details"' + (open ? '' : ' hidden') + '>' + esc(text) + '</div></div>';
+    }
+    // Context tile. Unknown window (hasKnownContextWindow() false, and body=partial): em dash, no ring, no used-token count, caption Window unknown. No data: em dash + No data yet.
+    var cp = d.ctx, ctxInner;
     if (empty) {
-      h += '<div class="tile tile--ctx"><div class="tile__txt"><span class="tl" id="ctxL">Context</span><span class="tv tv--lg">-</span></div></div>';
-    } else if (partial) {
-      h += '<div class="tile tile--ctx"><div class="tile__txt"><span class="tl" id="ctxL">Context</span><span class="tv tv--lg">-</span><span class="tc">Window unknown</span></div></div>';
+      h += dtile('ctx', 'Context', 'tile--ctx', '<div class="tile__txt"><span class="tl" id="ctxL">Context</span><span class="tv tv--lg">\u2014</span><span class="tc">No data yet</span></div>', '');
+    } else if (partial || !d.ctxKnown) {
+      h += dtile('ctx', 'Context', 'tile--ctx', '<div class="tile__txt"><span class="tl" id="ctxL">Context</span><span class="tv tv--lg" data-testid="stats-context">\u2014</span><span class="tc">Window unknown</span></div>', detailsFor('ctx', { ctxKnown: false }));
     } else {
-      h += '<div class="tile tile--ctx" title="Context window usage">' + ring(cp, ctxLevel(cp), 'ctxL', cp.toFixed(1) + '% of the context window, ' + d.ctxTok + ' tokens used') +
+      ctxInner = ring(cp, ctxLevel(cp), 'ctxL', cp.toFixed(1) + '% of the context window, ' + d.ctxTok + ' tokens used') +
         '<div class="tile__txt"><span class="tl" id="ctxL">Context</span><span class="tv tv--lg tnum" data-testid="stats-context">' + cp.toFixed(1) + '%</span><span class="tc tnum">' + d.ctxTok + ' tokens</span></div>' +
-        (d.compactions ? '<span class="tc tile__end" title="Number of context compactions during this session"><span data-testid="stats-compactions">' + d.compactions + '</span> compactions</span>' : '') + '</div>';
+        (d.compactions ? '<span class="tc tile__end"><span data-testid="stats-compactions">' + d.compactions + '</span> compactions</span>' : '');
+      h += dtile('ctx', 'Context', 'tile--ctx', ctxInner, detailsFor('ctx', d));
     }
     // Tokens
-    var tokV = empty ? '0' : partial ? '-' : d.tokens;
-    h += '<div class="tile" title="Tokens used in this session (input + output + cache)"><span class="tl">Tokens</span><span class="tv tnum" data-testid="stats-tokens">' + (empty || partial ? '' : tilde(d.estimate)) + tokV + '</span>' +
-      (empty || partial ? '' : '<span class="tc">' + d.tokBudget + '</span>' + bar(d.tokPct, 'ok', 'Token budget', d.tokPct + '% of the 50.0M token budget', 'bar--s')) + '</div>';
+    var tokV = empty ? '0' : partial ? '\u2014' : d.tokens;
+    h += dtile('tok', 'Tokens', '', '<span class="tl">Tokens</span><span class="tv tnum" data-testid="stats-tokens">' + (empty || partial ? '' : tilde(d.estimate)) + tokV + '</span>' +
+      (empty || partial || !d.tokBudget ? '' : '<span class="tc">' + d.tokBudget + '</span>' + bar(d.tokPct, 'ok', 'Token budget', d.tokPct + '% of the 50.0M token budget', 'bar--s')), empty || partial ? '' : detailsFor('tok', d));
     // Cost
-    h += '<div class="tile" title="Estimated cost of the session"><span class="tl">Cost</span><span class="tv tnum" data-testid="stats-cost">' + (empty ? '$0.00' : partial ? '-' : tilde(d.estimate) + d.cost) + '</span>' +
-      (empty || partial ? '' : '<span class="tc tnum">' + d.costCap + '</span>') + '</div>';
-    // Time + Agents
+    var cb = !empty && !partial && d.costBudget;
+    h += dtile('cost', 'Cost', '', '<span class="tl">Cost</span><span class="tv tnum" data-testid="stats-cost">' + (empty ? '$0.00' : partial ? '\u2014' : tilde(d.estimate) + d.cost) + '</span>' +
+      (empty || partial ? '' : cb ? '<span class="tc tnum">' + d.costBudget.cap + '</span>' + bar(d.costBudget.pct, 'ok', 'Cost budget', d.costBudget.vt, 'bar--s') : '<span class="tc tnum">' + d.costCap + '</span>'), empty || partial ? '' : detailsFor('cost', d));
+    // Time (static, no details) + Agents
     if (!empty) {
-      h += '<div class="tile" title="Session duration"><span class="tl">Time</span><span class="tv tnum" data-testid="stats-duration">' + (partial ? '-' : d.time) + '</span>' + (partial ? '' : '<span class="tc">' + d.turns + '</span>') + '</div>';
-      h += '<div class="tile" title="Agents spawned in this session"><span class="tl">Agents</span><span class="tv tnum" data-testid="stats-agents">' + (partial ? '-' : d.agents) + '</span></div>';
+      h += '<div class="tile"><span class="tl">Time</span><span class="tv tnum" data-testid="stats-duration">' + (partial ? '\u2014' : d.time) + '</span>' + (partial ? '' : '<span class="tc">' + d.turns + '</span>') + '</div>';
+      h += dtile('agents', 'Agents', '', '<span class="tl">Agents</span><span class="tv tnum" data-testid="stats-agents">' + (partial ? '\u2014' : d.agents) + '</span>', partial ? '' : detailsFor('agents', d));
     }
     // Models
     if (!empty && !partial) {
@@ -157,6 +211,13 @@
         '<span class="tile__l2">' + bar(w.pct, w.level, w.label + ' plan usage', w.label + ': ' + w.used + ', ' + w.reset) + '<span class="tv2 tnum">' + esc(w.used) + '</span></span>' +
         '<span class="tile__l3">' + esc(w.reset) + '</span></button><div class="tile__panel" id="' + pnid(k) + '"' + (isOpen(k) ? '' : ' hidden') + '>' + windowDetail(w) + '</div></div>';
     });
+    (d.extraPlan || []).forEach(function (x) {
+      var k = 'plan:' + x.id;
+      h += '<div class="tile tile--win tile--neutral" data-tile-id="' + k + '"><button type="button" class="tile__btn"' + disc(k) + ' data-testid="plan-limit-tile-' + x.id + '">' +
+        '<span class="tile__l1"><span class="tl2">' + esc(x.label) + '</span>' + chip(x.chip) + ic('chevron-down', 'ico--12 chev12') + '</span>' +
+        '<span class="tile__l3">' + esc(x.line) + '</span></button><div class="tile__panel" id="' + pnid(k) + '"' + (isOpen(k) ? '' : ' hidden') + '><dl class="wdl">' +
+        x.lines.map(function (t) { return '<div><dt>Detail</dt><dd>' + esc(t) + '</dd></div>'; }).join('') + '</dl></div></div>';
+    });
     return h + '</div></section>';
   }
 
@@ -172,7 +233,7 @@
         '<span class="tile__l1"><span class="prov__mark prov__mark--20"><svg class="ico" aria-hidden="true"><use href="#m-codex"/></svg></span><span class="tl2 tl2--trunc" title="' + esc(l.label) + '">' + esc(l.label) + '</span><span class="schip schip--success" data-run>' + esc(l.run) + '</span>' + ic('chevron-down', 'ico--12 chev12') + '</span>' +
         '<span class="tile__l2b"><b class="tnum">' + esc(l.tokens) + '</b><span class="tc">' + esc(l.cost) + '</span><span class="tc">' + esc(l.runs) + '</span></span>' +
         '<span class="tile__l3b">' + chip(l.limit) + srcChip(l.src) + '</span></button>' +
-        '<div class="tile__panel" id="' + pnid(k) + '"' + (isOpen(k) ? '' : ' hidden') + '><div class="sub"><div class="sub__h"><b>' + esc(s.heading) + '</b>' + chip({ tone: 'success', glyph: '✓', text: s.state }) + '</div>' +
+        '<div class="tile__panel" id="' + pnid(k) + '"' + (isOpen(k) ? '' : ' hidden') + '><div class="sub"><div class="sub__h"><b>' + esc(s.heading) + '</b>' + chip(l.limit) + '</div>' +
         '<p class="sub__own"><b>' + esc(s.owner) + '</b> · ' + esc(s.ownerText) + '</p><ul class="sub__runs">' +
         s.runsRows.map(function (r) { return '<li><span class="r1">' + esc(r[0]) + '</span><span class="tc">' + esc(r[1]) + ' · ' + esc(r[2]) + ' · ' + esc(r[3]) + '</span></li>'; }).join('') + '</ul>' +
         '<div class="sub__win"><span class="tl2">' + esc(s.win.label) + '</span><span class="tile__l2">' + bar(s.win.pct, s.win.level, s.win.label + ' plan usage, Codex', s.win.label + ': ' + s.win.used + ', ' + s.win.reset) + '<span class="tv2 tnum">' + esc(s.win.used) + '</span></span><span class="tc">' + esc(s.win.reset) + '</span></div>' +
@@ -221,12 +282,12 @@
     var d = data(), ringEl = document.getElementById('togRing'), dot = document.getElementById('needDot'), desc = document.getElementById('togDesc');
     if (!ringEl) return;
     var known = body === 'full' || body === 'error', parts = [];
-    var lim = d.alert ? (d.alert.tone === 'crit' ? 'at' : 'near') : 'none';
-    if (known) parts.push('Context ' + Math.round(d.ctx) + '%');
-    if (lim === 'near') parts.push('Weekly plan limit is near'); else if (lim === 'at') parts.push('Weekly plan limit reached');
+    var sm = limitSummary(d), lim = sm.state === 'none' ? 'none' : sm.state;
+    if (known) parts.push(d.ctxKnown ? 'Context ' + Math.round(d.ctx) + '%' : 'Context unknown');
+    if (lim !== 'none') parts.push(sm.text);
     if (needN) parts.push(needN + (needN === 1 ? ' needs you' : ' need you'));
     desc.textContent = parts.join('. ') + (parts.length ? '.' : '');
-    var showRing = !inspOpen && known;
+    var showRing = !inspOpen && known && d.ctxKnown;
     ringEl.style.display = showRing ? '' : 'none';
     if (showRing) {
       var c = ringEl.querySelector('.ring__a'), len = 2 * Math.PI * 12;
@@ -236,7 +297,7 @@
     var kind = needN > 0 ? 'need' : lim === 'at' ? 'err' : lim === 'near' ? 'need' : null;
     var lc = document.getElementById('limChip');
     lc.hidden = inspOpen || lim === 'none';
-    if (!lc.hidden) { lc.className = 'hchip hchip--lim hchip--lim-' + lim; lc.title = d.alert.text; lc.innerHTML = '<svg class="ico ico--12" aria-hidden="true"><use href="#i-triangle-alert"/></svg><span>' + (lim === 'at' ? 'At limit' : 'Limit near') + '</span>'; }
+    if (!lc.hidden) { lc.className = 'hchip hchip--lim hchip--lim-' + lim; lc.title = sm.text; lc.innerHTML = '<svg class="ico ico--12" aria-hidden="true"><use href="#i-triangle-alert"/></svg><span>' + (lim === 'at' ? 'At limit' : 'Limit near') + '</span><span class="sr-only">: ' + esc(sm.text) + '</span>'; }
     dot.hidden = inspOpen || !kind;
     dot.className = 'badge-dot' + (kind === 'err' ? ' badge-dot--err' : '');
   }
@@ -250,6 +311,8 @@
     var a = t.dataset.d3;
     if (a === 'models') { ui.models = !ui.models; rerender('[data-d3="models"]'); }
     else if (a === 'tile') { ui.open[t.dataset.k] = !isOpen(t.dataset.k); rerender('[data-d3="tile"][data-k="' + t.dataset.k + '"]'); }
+    else if (a === 'sdet') { ui.open[t.dataset.k] = !isOpen(t.dataset.k); rerender('[data-d3="sdet"][data-k="' + t.dataset.k + '"]'); }
+    else if (a === 'goto-lanes') { var hl = document.getElementById('lanesH'); if (hl) { hl.scrollIntoView({ block: 'start' }); hl.focus(); } }
     else if (a === 'goto-plan') { var h = document.getElementById('planH'); if (h) { h.scrollIntoView({ block: 'start' }); h.focus(); } }
     else if (a === 'menu') {
       var id = t.dataset.id; ui.menu = ui.menu === id ? null : id; rerender(ui.menu ? '.amenu__i' : '[data-d3="menu"][data-id="' + id + '"]');
@@ -262,6 +325,7 @@
   });
   document.addEventListener('input', function (e) { if (e.target.classList && e.target.classList.contains('steer__in')) ui.steerText = e.target.value; });
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && e.target.closest && e.target.closest('[data-d3="sdet"]') && isOpen(e.target.dataset.k)) { e.stopPropagation(); ui.open[e.target.dataset.k] = false; rerender('[data-d3="sdet"][data-k="' + e.target.dataset.k + '"]'); return; }
     if (!ui.menu) { if (e.key === 'Escape' && ui.steer) { e.stopPropagation(); var s = ui.steer; ui.steer = null; rerender('[data-d3="menu"][data-id="' + s + '"]'); } return; }
     var items = [].slice.call(document.querySelectorAll('.amenu__i')), i = items.indexOf(document.activeElement);
     if (e.key === 'Escape') { e.stopPropagation(); var id = ui.menu; ui.menu = null; rerender('[data-d3="menu"][data-id="' + id + '"]'); }
@@ -272,5 +336,5 @@
     else if (e.key === 'Tab') { ui.menu = null; rerender(); }
   }, true);
 
-  var D3 = window.D3 = { sessionHTML: sessionHTML, planHTML: planHTML, laneHTML: laneHTML, menuBtn: menuBtn, steerRow: steerRow, hasMenu: hasMenu, trayLine: trayLine, syncToggle: syncToggle, data: data, ui: ui, rerender: null, variant: V };
+  var D3 = window.D3 = { sessionHTML: sessionHTML, planHTML: planHTML, laneHTML: laneHTML, menuBtn: menuBtn, steerRow: steerRow, hasMenu: hasMenu, trayLine: trayLine, syncToggle: syncToggle, data: data, summary: limitSummary, ui: ui, rerender: null, variant: V };
 })();

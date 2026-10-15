@@ -1,6 +1,6 @@
 # Implementation Plan - TASK_2026_677_efcd (clean session view) - integration document
 
-This document merges four part plans into one build order. It owns: cross-part contracts, file ownership,
+This document merges five part plans into one build order. It owns: cross-part contracts, file ownership,
 seam resolutions, batch order, decisions applied, the TASK_2026_648 hook-up and the deviation list for Gate 2.
 Per-component detail stays in the parts (Appendices). Where this document and a part disagree, THIS document wins;
 every override is listed in §6.3.
@@ -12,10 +12,13 @@ Frontend only. No backend, no new stored field, no new lane type, no new Nx proj
 
 - Requirements used: `context.md`, `task-description.md` (reqs 1-19), `design-spec.md` (§2-§9, D1-D43),
   `parity-inventory.md` (A-, B-, C-, D-, E- rows), `decisions.md` rows 1-44, `handoff-3.md` §3 and §3.4.
-- Part plans (appendices, by reference): A1 turn, A2 header/composer/motion, B inspector, C agents.
+- Part plans (appendices, by reference): A1 turn, A2 header/composer/motion, B inspector, C agents, D delta-3 stats.
 - Corrections applied: decisions rows 32, 38, 43, 44 (USER / Gate 1.7), and the 648 embed contract (row 42).
 - Design handoff used: `design-spec.md`, `prototype/` (not re-read here; the parts cite it).
 - Missing decision-critical input: none. Rows 43 and 44 settled the two user items the parts left open.
+- Delta 3 (session stats into the inspector; req 21, PM-17..PM-21, design-spec D3.1-D3.9 / D44-D56, decisions rows
+  50, 54, 56-61): `plan-part-d-stats.md` (Appendix E), merged into §2-§9 below. Row 60 supersedes "CLI lanes only
+  review" in the next bullet for self-contained, mostly-new-file batches (D-1 is one).
 - Build constraints (repeat in every executor prompt): Claude frontend-developer sub-agents build; CLI lanes only
   review. Angular 22 (`package.json:97`): standalone, OnPush, signals, `input()`/`output()`, `inject()`. Icons from
   `lucide-angular`; CLI marks via `ptah-provider-mark`. Imports only through lib `index.ts` aliases; canvas -> chat
@@ -50,8 +53,16 @@ Frontend only. No backend, no new stored field, no new lane type, no new Nx proj
 | canvas | `lane-owner.ts` DELETED (moved to chat); 3 importers re-pointed | DELETE / MODIFY | C §2.4 |
 | canvas | Rail board asides host `ptah-session-inspector`; `canvas-session-details` DELETED | MODIFY / DELETE | B §8 |
 | webview app | per-theme status-ink tokens, tailwind, `state-ink-contrast.spec.ts`, `app.config.ts` | MODIFY | B §1 |
+| chat-ui | `session-stats-view.ts` (pure stats texts, extracted; strip delegates), `plan-limits/session-limit-summary.ts`, `ptah-context-ring`, `inspector-stats/{inspector-session-stats,inspector-limits-lanes}`, `background-agent-population.ts` (strip delegates); `lane-usage-tile` opt-in plan-chip link | CREATE / MODIFY (behaviour-preserving) | D §D3-1..D3-7 |
+| chat | `services/session-stats/session-stats-source.ts` (`injectSessionStatsSource`, moved chat-view helpers) | CREATE | D §D3-8 |
+| chat | `services/session-agents/session-agent-tray{,.service}.ts` (tray mapping + actions moved); `background-agent-tray.component.ts` delegates in B-4, then is DELETED in CV-1 with its two specs renamed onto the tray service files (R2, USER-approved, row 64) | CREATE / MODIFY / DELETE | D §D3-9 |
+| chat | inspector delta 3: card shrink (D3.2), `stats` input + SESSION / PLAN LIMITS / LANES mounts, AGENTS summary / model / actions menu (`inspector-agent-actions-menu`) | CREATE / scope change of B-4 files | D §D3-10 |
+| chat | chat-view loses the stats strip and tray mounts; header closed-state cues (`session-header` inputs) | MODIFY (CV-1, CV-2) | D §D3-11 |
+| chat | `inline-agent-bubble.component.ts` model badge removed (C-49 move) | MODIFY | D §D3-12 |
+| canvas | Rail board binds inspector `stats`, provides `StatsTileExpansionState` | MODIFY (B-5) | D §D3-12 |
 
-chat-state and core: no change.
+chat-state and core: no change. The stats strip (`ptah-session-stats-summary`) and the agent strip stay for
+harness-builder and `canvas-lane-view` (PM-17, req 21.2).
 
 ### 2.2 Shared contracts (exact signatures)
 
@@ -113,6 +124,49 @@ A1 consumption (settles A1 open checks 3 and 8):
 - Duration text: A1 drops `formatTurnElapsed` and uses `formatAgentDuration` (Part C line 16: one formatter). A
   `null` result (under 1 s) renders the label `Worked` / `Working`, which §3.9 already defines for "not derivable".
 
+Delta 3 contracts (exact signatures in `plan-part-d-stats.md` §D3; one source per value, req 21.28):
+
+D1. `SessionStatsInputs` (chat-ui, exported): `sessionId`, `snapshot`, `liveModelStats`, `compactionCount`,
+`limits: StatsLimitViewModel | null`, `budget` (the six inputs of the removed mount,
+`chat-view.component.html:42-49`) plus `context: SessionContextCue` and `limitSummary: SessionLimitSummary`,
+computed ONCE by D2. No consumer formats context, tokens, cost or limit state itself.
+
+D2. `injectSessionStatsSource({ tab, sessionId, budget, available }): { inputs: Signal<SessionStatsInputs | null>;
+runOwnerKeys: Signal<readonly string[]> }` (chat, `services/session-stats/session-stats-source.ts`, exported from
+`@ptah-extension/chat`). Body = chat-view's `resolvedSessionStats` / `resolvedLiveModelStats` /
+`resolvedCompactionCount` (`chat-view.component.ts:1023-1042`, `tab !== null ? tab field : ChatStore field`),
+`sessionLaneRuns` / `sessionRunOwnerKeys` (`:1061-1076`) and `resolvedStatsLimits` (`:1083-1099`), MOVED verbatim;
+`budget` and `sessionId` come from the host (chat-view: `resolvedSessionBudget` `:1105`, `resolvedSessionId`
+`:798-807`). `inputs` is null only when `available()` is false (chat-view: `resolvedMessages().length > 0`, today's
+strip rule `chat-view.component.html:35-36`; Rail: a focused tab). So the MAIN PANEL, where `resolvedTab()` is
+always null (`:948-953`), keeps today's ChatStore values, active session id and budget (Part D §D3-8, rev 1).
+Called once by chat-view (CV-1) and once by the Rail board (B-5). Registers NO plan-limits scope: chat-view's
+`registerScope` field (`:1044-1049`) stays and feeds on `runOwnerKeys` (C-39).
+
+D3. `sessionLimitSummary(vm) -> { state: 'none'|'near'|'at'; text; extra; source: 'session'|'lane'|null; fullText }`
+over `indicator` AND every `laneTiles[].subgroups[]` near/at (design D3.7); `inspectorToggleDescription(context,
+summary, needsYou): string`; `limitAwareDot(showDot(), isOpen(), summary): 'need'|'err'|'sel'|null` (pending >
+at > near > workflow, `null` while open). All pure, chat-ui.
+
+D4. Presentational chat-ui: `ptah-inspector-session-stats` (`stats` in, `limitsLinkActivated: 'session'|'lane'`
+out), `ptah-inspector-limits-lanes` (`limits`, `sessionId` in; `focusHeading(which)`), `ptah-context-ring`
+(`percent`, `size: 44 | 28`, `aria-hidden`).
+
+D5. `SessionAgentTrayService` (chat, root): `contextsFor(sessionId)` (tray contexts by `toolCallId`, this session
+only, tray dedupe and today's population kept: active foreground sub-agents + background records),
+`extrasFor(sessionId, rows)` (`{ tray, model, tokens }`, one entry per roster row), and `focus / steer / stop /
+sendToBackground / viewTranscript(ctx)`. `model` comes from the pure `agentModelsByKey(subagents, cliAgents)` over
+ALL roster agents (`SubagentRecord.usage.model`, `agent-monitor.store.ts:141,613`; `MonitoredAgent.model` `:448`),
+independent of tray contexts, so completed foreground sub-agents keep their model (`session-agent-roster.ts:145-157`).
+AGENTS row activation: `laneRequested` when a lane surface exists, else `focus(extras.tray)` (main panel, req
+21.23), else no Focus action (no tray context). No change to `SessionAgent` (C-2 committed) or to the B-3 store.
+
+D6. `ptah-session-inspector` gains `stats = input<SessionStatsInputs | null>(null)`, which REPLACES Part B's optional
+`usage` input; section order D45: Orchestrator, add-on slot, SESSION, AGENTS, PLAN LIMITS, LANES, TASK, TODOS,
+GIT. SESSION shows when `stats` is non-null and PLAN LIMITS + LANES when `stats.limits` is non-null, in the main
+panel too (D2). Header (A2 contract) gains `limitCue`, `contextRingPercent`, `toggleDescription`, and `inspectorDot` widens to
+`'need' | 'err' | 'sel' | null` (CV-2).
+
 ## 3. File ownership
 
 Each file has exactly one owning batch (batch ids in §5), with two named exceptions: the chat-view chain (§3.1)
@@ -125,6 +179,14 @@ and the three shared barrels (§3.2 "Shared barrels"). Every other file in §3.3
 | CV-1 | B | Root `<div class="cs-shell ...">` + `container-type: inline-size` (css); `[attr.inert]` on the main column; inspector `@if` / `@defer (on immediate)` block with `id="inspector"` on its aside; `[attr.data-request-id]` on `ptah-question-card`; `providers: [InspectorShellController]`; `hostsInspector`, `hasLaneSurface`, tab-feed effect calling `onTabChanged()`, `openLaneFromInspector`, `focusQuestionCard`; `controller.attach(...)` in `afterNextRender` with lazy opener/title getters (B §7 a-e). No `[inspectorSection]` re-projection (§7.3). |
 | CV-2 | A2 | **Compact-card retirement (the ONE owner of A-6 / A-16):** `showCompactCard` narrows to `this._forcedCard?.() ?? false` (`chat-view.component.ts:974-978`) so compact view renders the transcript; the forced Rail card path (A-5) is untouched; `expandToFullView` stays only if the forced branch still binds it. Header block (A2 binding contract) at the top of the transcript branch; add-on outlets in the header slots (§7.2); stagger effect keyed on `resolvedTabId`, `playEnter()` in `afterNextRender` with the one `.st-t` index pass (`--i = min(k+1, 8)`, DOM order), timer release; `ptahStaggerUp` on `.st-t` and reduced-motion block (css) (A2 §4, Decision A2-3; the `.st-t` hooks come from A1-3); composer wrapper `st-f`. |
 | CV-3 | A1 | None expected (A1 binds in `chat-transcript`). Any chat-view binding A1-B3 discovers lands here, after CV-2. |
+| CV-1 (delta 3) | B | Delete the stats strip block (`chat-view.component.html:35-51`) and the tray block (`:53-64`); drop `SessionStatsSummaryComponent` / `BackgroundAgentTrayComponent` imports (`chat-view.component.ts:34,39,231,235`), `showBackgroundStrip`, `traySessionId`, the four stats computeds (`:1023-1042`, `:1083-1100`), `sessionLaneRuns`, `sessionRunOwnerKeys`, `_limitTime` (their bodies MOVE into the source, §2.2 D2); move `toStatsLimitLaneRun`, `recordedOwnerKeys`, `sameStrings` (`:142-171`) to `session-stats-source.ts`; `stats = injectSessionStatsSource({ tab: resolvedTab, sessionId: resolvedSessionId, budget: resolvedSessionBudget, available: () => resolvedMessages().length > 0 })`; delete `background-agent-tray.component.ts` and rename its two specs onto the tray service files (R2, §6.1); scope effect (`:1328-1337`) reads `stats.runOwnerKeys()`; keep `_planLimitsScope`, `resolvedSessionBudget`, `StatsTileExpansionState` provider; bind `[stats]` on the inspector (Part D §D3-11). |
+| CV-2 (delta 3) | A2 | Header closed-state cues: computeds `inspectorDot` (`limitAwareDot`, replaces the A2 `shell.isOpen() ? null : shell.showDot()` binding), `limitCue`, `contextRingPercent`, `toggleDescription`, bound to the new header inputs (Part D §D3-11). |
+
+Named second owner (delta 3): `chat/.../molecules/session-header/session-header.component.ts`: A2-1 -> CV-2 (CV-2
+adds the four delta-3 header inputs and the chip / ring / description markup). A2-1 has NOT started (`decisions.md`
+row 62) but is still not amended: the inputs need D-1's `SessionLimitSummary` and `ContextRingComponent`, and D-1
+runs in the same wave W3, so moving them into A2-1 would serialize A2-1 after D-1. Kept as a sequential second owner
+(accepted as safe by the Gate 2 delta review). Same serial rule as the chat-view chain.
 
 Settles A2 O2: the compact card no longer replaces the transcript, so the header always renders above the one
 branch. chat-view specs (`chat-view.component.spec.ts`, `.dock`, `.keepalive`, `.memo`) are updated by the batch
@@ -142,9 +204,9 @@ whose edit breaks them.
 
   | Barrel | Serialized owners | Lines added | Order forced by (§5) |
   | --- | --- | --- | --- |
-  | `libs/frontend/chat-ui/src/index.ts` | C-1 -> A1-1 -> A2-2 | C-1 avatar vocabulary; A1-1 formatters; A2-2 popover export only if needed (expected none) | A1-1 depends on C-1; A2-2 depends on A1-1 |
+  | `libs/frontend/chat-ui/src/index.ts` | C-1 -> A1-1 -> D-1 -> A2-2 | C-1 avatar vocabulary; A1-1 formatters; D-1 delta-3 stats exports (Part D §D3-7, exact list); A2-2 popover export only if needed (expected none) | A1-1 depends on C-1; D-1 (W3) depends on A1-1; A2-2 (W4) depends on A1-1 and runs after W3 |
   | `libs/frontend/chat/src/lib/services/index.ts` | C-2 -> B-3 | C-2 roster, `ownedBySession`; B-3 session-inspector barrel, `sessionBranch` | B-3 depends on C-2 |
-  | `libs/frontend/chat/src/index.ts` | C-2 -> B-3 -> B-4 | C-2 roster; B-3 token file; B-4 `SessionInspectorComponent` (Rail board) | B-3 depends on C-2; B-4 depends on B-3 |
+  | `libs/frontend/chat/src/index.ts` | C-2 -> B-3 -> B-4 -> CV-1 | C-2 roster; B-3 token file; B-4 `SessionInspectorComponent` (Rail board); CV-1 `injectSessionStatsSource` (Rail board, delta 3) | B-3 depends on C-2; B-4 depends on B-3; CV-1 depends on B-4 |
 
   Why serialization rather than one final barrel batch: every order above is already forced by a code dependency
   except A2-2 -> A1-1, and that edge costs nothing (A1-1 sits at order 2, A2-2 at order 4), so the critical path is
@@ -175,10 +237,11 @@ whose edit breaks them.
 | A2-1 | C: `chat/src/lib/components/molecules/session-header/session-header.component.ts` | A2 §1 |
 | C-3 | R: `canvas/src/lib/canvas-detail/canvas-lane-tabs.component.ts` (+ spec); C: `canvas-detail/{agent-dock-card,agent-dock-menu}.component.ts`, `dock-overflow.ts`; M: `canvas-rail/canvas-focus-area.component.ts`, `canvas-detail/canvas-lane-view.component.ts`, `canvas-needs-you-queue.ts`; D: `canvas-detail/lane-owner.ts` | C §5-6 |
 | A1-2 | C: `chat/src/lib/components/molecules/turn/{turn-disclosure-row,turn-activity-panel,turn-live-line,turn-agent-chips}.component.ts` | A1 §3-6 |
-| B-4 | C: `chat/src/lib/components/organisms/session-inspector/{session-inspector.component.ts,.html,inspector-orchestrator-card,inspector-agents-section,inspector-request-panel,inspector-task-section,inspector-todos-section,inspector-git-section,session-task-reader}`; M: `chat/src/lib/components/index.ts` (single owner), `chat/src/index.ts` (shared barrel 3rd, §3.2) | B §5-6 |
-| A1-3 | REWRITE assistant branch: `chat/.../organisms/message-bubble.component.{ts,html,css}` (+ spec), including the stagger hook class `st-t` (class only, no `--i`) on the five turn items: user `<article aria-label="You">`, `ptah-turn-disclosure-row` host, `.cs-answer`, `ptah-turn-agent-chips` host, action-row wrapper (A2 §4); M: `chat/.../transcript/chat-transcript.component.{ts,html}` (+ specs) | A1 §7-8 |
-| CV-1, CV-2, CV-3 | `chat/src/lib/components/templates/chat-view.component.{html,ts,css}` + chat-view specs (§3.1) | B §7, A2 §2/§4, A1 §11 |
-| B-5 | M: `canvas/src/lib/canvas-rail/canvas-rail-board.component.ts` (+ spec), `canvas-rail/canvas-focus-header.component.ts`; D: `canvas-detail/canvas-session-details.component.ts` + `.spec.ts` | B §8 |
+| D-1 (delta 3, NEW) | C: `chat-ui/src/lib/molecules/session/session-stats-view.ts`, `chat-ui/src/lib/molecules/session/plan-limits/session-limit-summary.ts`, `chat-ui/src/lib/atoms/context-ring.component.ts`, `chat-ui/src/lib/molecules/session/inspector-stats/{inspector-session-stats,inspector-limits-lanes}.component.ts`, `chat-ui/src/lib/molecules/background-agent-population.ts`; M (behaviour-preserving, specs unchanged): `chat-ui/.../session/session-stats-summary.component.ts`, `chat-ui/.../background-agent-strip.component.ts`, `chat-ui/.../plan-limits/lane-usage-tile.component.ts` (opt-in `linkPlanTiles` / `planTileRequested`), `plan-limit-tile` / `lane-subtotal-tile` opt-in `variant` only if Part D check D-O2 needs it; `chat-ui/src/index.ts` (shared barrel 3rd, §3.2) | D §D3-1..D3-7 |
+| B-4 | C: `chat/src/lib/components/organisms/session-inspector/{session-inspector.component.ts,.html,inspector-orchestrator-card,inspector-agents-section,inspector-request-panel,inspector-task-section,inspector-todos-section,inspector-git-section,session-task-reader}`; M: `chat/src/lib/components/index.ts` (single owner), `chat/src/index.ts` (shared barrel 3rd, §3.2). Delta 3 additions: C `organisms/session-inspector/inspector-agent-actions-menu.component.ts`, `chat/src/lib/services/session-agents/{session-agent-tray,session-agent-tray.service}.ts`; M `chat/.../organisms/background-agent-tray.component.ts` (delegates to the moved code; its two specs stay green unchanged in B-4; CV-1 then deletes it, R2); card / inspector / AGENTS scope per Part D §D3-10 | B §5-6, D §D3-9..D3-10 |
+| A1-3 | REWRITE assistant branch: `chat/.../organisms/message-bubble.component.{ts,html,css}` (+ spec), including the stagger hook class `st-t` (class only, no `--i`) on the five turn items: user `<article aria-label="You">`, `ptah-turn-disclosure-row` host, `.cs-answer`, `ptah-turn-agent-chips` host, action-row wrapper (A2 §4); M: `chat/.../transcript/chat-transcript.component.{ts,html}` (+ specs). Delta 3: M `chat/.../organisms/execution/inline-agent-bubble.component.ts` (remove the model badge `:515-523`, `rawModelId` / `modelDisplayName` `:889-904`; + `inline-agent-bubble.component.spec.ts` only if it asserts the badge) - the one sanctioned execution-tree edit, row 32 still forbids tool-row diffs | A1 §7-8, D §D3-12 |
+| CV-1, CV-2, CV-3 | `chat/src/lib/components/templates/chat-view.component.{html,ts,css}` + chat-view specs (§3.1). Delta 3: CV-1 also C `chat/src/lib/services/session-stats/session-stats-source.ts`, M `chat/src/index.ts` (shared barrel 4th, §3.2), re-points `toStatsLimitLaneRun` in `chat-view.component.spec.ts:68`; D `chat/.../organisms/background-agent-tray.component.ts` (R2, USER-approved, `decisions.md` row 64, option (a)); R (rename + harness rewrite, same cases, no new spec file) `organisms/background-agent-tray.component.spec.ts` -> `chat/src/lib/services/session-agents/session-agent-tray.service.spec.ts` and `organisms/background-agent-tray.scope.spec.ts` -> `chat/src/lib/services/session-agents/session-agent-tray.spec.ts`. CV-2 also M `chat/.../molecules/session-header/session-header.component.ts` (named second owner, §3.1) | B §7, A2 §2/§4, A1 §11, D §D3-11 |
+| B-5 | M: `canvas/src/lib/canvas-rail/canvas-rail-board.component.ts` (+ spec), `canvas-rail/canvas-focus-header.component.ts`; D: `canvas-detail/canvas-session-details.component.ts` + `.spec.ts`. Delta 3: the board provides `StatsTileExpansionState` and binds the inspector `[stats]` from `injectSessionStatsSource` (no plan-limits scope) | B §8, D §D3-12 |
 
 `app.config.ts` moves from B's component list into B-3 (only file with a provider change; B line 628). Any canvas
 barrel (`canvas/src/index.ts`) export of `CanvasSessionDetailsComponent` is removed in B-5 (implementer greps).
@@ -210,6 +273,13 @@ barrel (`canvas/src/index.ts`) export of `CanvasSessionDetailsComponent` is remo
 | B O10 | Tab field names | settled in part: `TabState.claudeSessionId` (`libs/frontend/chat-types/src/lib/chat-types.ts:608`); `workspacePath` is NOT a TabState field there -> read `findTabByIdAcrossWorkspaces(tabId)?.workspacePath` as A2 lines 104-107 do. |
 | B O11 | chat-view CSS location | settled: `styleUrl: './chat-view.component.css'` (`chat-view.component.ts:247`). |
 | B O12 | bundle headroom | settled by row 43: BUILD-1 in §5. |
+| D-O1 | `LaneLimitState` literals for the limit summary switch | for implementer (D-1): read the type in `plan-limits/lane-tiles.ts` first; exhaustive switch. |
+| D-O2 | plan / subtotal tile faces vs D3.4 / D3.5 | for implementer (D-1) + visual review: opt-in `variant` only where host classes cannot meet the design; strip markup byte-identical (PM-17). |
+| D-O3 | provider id for the PLAN LIMITS provenance mark | for implementer (D-1): use an authoritative id only if the VM / `planSectionProvenance` already carries one; else lucide `Gauge` (D37). No new field. |
+| D-O4 | `{n} turns` caption on the Time tile | for implementer (B-4): pass B-3's `OrchestratorCardModel.turns` when non-null through an optional `turns` input; else omit the caption. |
+| D-O5 | chat-view with no `resolvedTab()` but messages | for implementer (CV-1): grep; if reachable, report (stats were strip-only there); no invented fallback. |
+| D-O6 | Rail closed-state cue (req 21.18) | for implementer (B-5): if the Rail aside can be closed while a limit is near / at, report to the orchestrator for a design call; build nothing unspecified. |
+| D-O7 | no model text in the main column except the composer selector | reviewer after CV-2: grep templates for `modelDisplayName`, `formatModelName`, `Model `. |
 
 ## 5. Batch order (advisory for the team-leader)
 
@@ -224,9 +294,10 @@ barrel (`canvas/src/index.ts`) export of `CanvasSessionDetailsComponent` is remo
 | 3 | B-3 inspector services + token + git branch | C-2 | C-3, A2-1 |
 | 3 | C-3 agent dock (canvas) | C-2 | B-3, A2-1, A1-2 |
 | 3 | A2-1 session header | - | B-3, C-3 |
-| 4 | A2-2 composer chips | B-3 (`sessionBranch`), A1-1 (shared barrel `chat-ui/src/index.ts`, §3.2) | A1-2, B-4 |
+| 3 | D-1 inspector stats presentation (chat-ui; delta 3; lane-suitable: yes) | A1-1 (barrel order) | B-3, C-3, A2-1 (file-disjoint) |
+| 4 | A2-2 composer chips | B-3 (`sessionBranch`), A1-1 + D-1 (shared barrel `chat-ui/src/index.ts`, §3.2) | A1-2, B-4 |
 | 4 | A1-2 turn molecules | A1-1, C-1 | B-4, A2-2 |
-| 5 | B-4 inspector component tree | B-2, B-3, C-1 | A1-3 |
+| 5 | B-4 inspector component tree (+ delta 3 §3.3) | B-2, B-3, C-1, D-1 | A1-3 |
 | 5 | A1-3 bubble + transcript | A1-2, C-2, B-3 | B-4 |
 | 6 | CV-1 (B) chat-view shell + inspector host | B-4 | - |
 | 7 | CV-2 (A2) header, motion, compact-card retirement | CV-1, A2-1, A1-3 (`.st-t` stagger hooks) | - |
@@ -234,8 +305,28 @@ barrel (`canvas/src/index.ts`) export of `CanvasSessionDetailsComponent` is remo
 | 9 | B-5 Rail board inspector (last Part B batch) | B-4, C-3, CV-1 | - |
 | 10 | BUILD-1 one webview build (row 43) | all batches | - |
 
+Delta 3 placement (advisory; `batches.md` waves): D-1 joins W3 as its 4th batch (B-3, C-3, A2-1 touch no D-1
+file). Execution state: W3 has NOT started (`decisions.md` row 62, authoritative); `batches.md` shows B-3, C-3, A2-1
+as IN_PROGRESS only because MODE 2 flagged the next wave, no executor ran. D-1 is the only NEW delta 3 batch.
+Everything else is an amendment of a PENDING batch in its existing wave: B-4 (W4: tray service, actions menu, card
+shrink, section mounts; now depends on D-1), A1-3 and CV-1 (W5), CV-2 and B-5 (W6). No wave grows past 4 and the
+critical path is unchanged. B-3 and A2-1 are NOT amended although not started: what they would need
+(`SessionLimitSummary`, `ContextRingComponent`, `limitAwareDot`) is built by D-1 in the same wave, so amending them
+would serialize W3 behind D-1; their delta 3 needs are composed outside them (§6.2 M-8..M-11).
+
+Lane suitability (USER row 60: CLI lanes may build self-contained batches that mostly add new files; table as ruled
+by the Gate 2 delta review, `implementation-plan-review-delta3.md:21-29`):
+
+| Batch | Lane-suitable | Reason |
+| --- | --- | --- |
+| D-1 | YES (codex lane) | mostly new, self-contained chat-ui files; behaviour-preserving strip delegations guarded by unchanged specs; one mechanical append to `chat-ui/src/index.ts` with the exact lines of Part D §D3-7; file-disjoint from the other W3 batches |
+| C-3 | YES, with ownership guard | canvas-only dock work, file-disjoint from other W3 batches (§3.3); it replaces a component and touches several canvas files, so ONE lane builds the WHOLE batch and ONE reviewer from a separate model family reviews it |
+| B-3 | NO (Claude) | existing chat services, shared barrels, webview `app.config.ts` |
+| A2-1 | NO (Claude) | header contract is revisited by CV-2; one owner family avoids contract drift |
+| B-4, A1-3, CV-1, CV-2, CV-3, B-5 | NO (Claude) | inspector composition, execution-tree edit, serialized chat-view chain, Rail integration |
+
 A2-2 waits for B-3 because the composer branch hint reads `sessionBranch`. Batches sharing a barrel (§3.2) are never
-parallel: C-1/A1-1/A2-2, C-2/B-3, C-2/B-3/B-4 run in that order (no "Parallel-safe" cell pairs them). B-5 is placed last on purpose:
+parallel: C-1/A1-1/D-1/A2-2, C-2/B-3, C-2/B-3/B-4/CV-1 run in that order (no "Parallel-safe" cell pairs them). B-5 is placed last on purpose:
 it is the last Part B batch, so the one build allowed by row 43 measures the complete eager delta (B ~10 kB, A2
 header ~2-3 kB, C avatar, A1 molecules). Parallel batches touching the same Nx project still run their heavy checks
 one at a time (§9).
@@ -267,6 +358,20 @@ one at a time (§9).
     `closeInsp()`), and on resize into the band; it never reopens by itself, also not for workflow tabs; it opens only
     by toggle; sheet state is never written to the per-tab docked choice (B-4). Workflow tabs show the `sel` dot.
   - Resize overlay -> docked with the sheet open writes `manual = {open: true, mode}`.
+- Row 50 (USER) + row 61 (Gate 1.7 delta 3 PASSED): the stats strip, its expanded panel and the tray leave the chat
+  column; a MOVE (C-2..C-6 keep). Built per Part D.
+- Row 54 (USER, C-48b): AGENTS is session-scoped; no "other sessions" group; the tray's main-panel all-sessions list
+  is covered by AGENTS plus each session's own tab.
+- Row 60 (USER): CLI lanes may build self-contained, mostly-new-file batches; D-1 (codex) and C-3 (one lane, whole
+  batch, separate reviewer family) are lane-suitable; the rest are Claude-built (§5 table).
+- Row 62: W2 COMPLETE; W3 NOT started (held for this plan delta and the Gate 2 delta pass).
+- Row 64 (USER), removal **R2 APPROVED, option (a)**: CV-1 deletes `BackgroundAgentTrayComponent`
+  (`chat/src/lib/components/organisms/background-agent-tray.component.ts`, sole host chat-view) and moves its two
+  specs onto the tray service files: `background-agent-tray.component.spec.ts` ->
+  `services/session-agents/session-agent-tray.service.spec.ts`, `background-agent-tray.scope.spec.ts` ->
+  `services/session-agents/session-agent-tray.spec.ts` (`git mv`-style rename + harness rewrite, the SAME cases, no
+  new spec file). No capability lost: every tray capability is in AGENTS (parity C-6, C-40..C-48). parity-inventory
+  is updated by the team-leader, not by this plan.
 
 ### 6.2 Cross-part decisions made here
 
@@ -278,6 +383,12 @@ one at a time (§9).
 | M-4 | Workflow add-ons register through a multi-provider token (§7.2); no `[inspectorSection]` / header re-projection through ChatView | `ngComponentOutletContent`; keep re-projection | no host can project into ChatView (M-3 evidence); B O3 unverified; row 42 prefers the registry | yes |
 | M-5 | Header stays presentational (A2 inputs); chat-view provides and binds the controller | header injects the controller (B line 295) | A2 §1; the header renders only in chat-view | yes |
 | M-6 | One duration formatter `formatAgentDuration`; A1 `formatTurnElapsed` dropped | two formatters | Part C line 16, same §3.9 rule | yes |
+| M-7 | Delta 3: strip texts extracted to one pure chat-ui layer the strip and the inspector both read; sections built in chat-ui | copy logic into new components; export the five tiles and build in chat | strip logic in computeds (`session-stats-summary.component.ts:140-380`); tiles not exported (`chat-ui/src/index.ts:91-101`); req 21.3/21.4 same numbers and text | yes |
+| M-8 | Delta 3: `injectSessionStatsSource` factory, one call per host (chat-view, Rail board); today's resolution moved verbatim (tab values in a scoped view, ChatStore values + active session id + view budget in the main panel); `inputs` null only when the host is unavailable (no messages / no focused tab); no inspector scope, ONE plan-limits scope per chat view | chat-view input + Rail `null` (Part B `usage`); root per-tab cache; null without a tab (r0, drops main-panel stats) | values are functions of `TabState` or ChatStore + root stores (`chat-view.component.ts:1023-1105`); main panel `resolvedTab()` always null (`:948-953`); strip mount rule (`.html:35-49`); scope is a chat-view field (`:1044-1049`); Rail tiles lose the strip too (req 21.1) | yes |
+| M-9 | Delta 3: tray mapping + actions move to `SessionAgentTrayService` (B-4); AGENTS joins `extrasFor(sessionId, rows)` to ALL roster rows; model from `agentModelsByKey` (`rec.usage.model` / `MonitoredAgent.model`) over every roster agent, independent of tray contexts (which keep today's active-only population); row activation = lane request with a lane surface, else tray `focus`, else none | add fields to `SessionAgent` (C-2 committed) or to the B-3 store (not started, row 62, but it would couple B-3 to B-4's moved code); model from tray contexts only (r0: loses completed sub-agents); node walk | `background-agent-tray.component.ts:196-383` (active filter `:217-222,241-244`, focus `:338-343`); `session-agent-roster.ts:22-31,145-157`; `agent-monitor.store.ts:141,448,613`; `plan-part-b-inspector.md:329,452`; design D3.6 / D56 r1 | yes |
+| M-10 | Delta 3: dot precedence composed in chat-view with `limitAwareDot(shell.showDot(), ...)`; B-3 controller unchanged | widen `showDot` in B-3 | B-3 not started (row 62) but `SessionLimitSummary` is a D-1 type in the same wave: widening B-3 would serialize it after D-1; §2.2 B1 | yes |
+| M-11 | Delta 3: KEEP CV-2 as the second owner of `session-header.component.ts` for the closed-state cue inputs; `limitAwareDot` stays in D-1 and is composed by CV-2 | amend A2-1 (not started, row 62); separate batch | the inputs need D-1's `SessionLimitSummary` / `ContextRingComponent` (same wave W3), so A2-1 would serialize after D-1; CV-2 already follows A2-1 and CV-1 and is the first batch that binds the header; the Gate 2 delta review accepts the sequential second owner as safe | yes |
+| M-12 | Delta 3: only one NEW batch (D-1, chat-ui, lane-suitable, W3); every other delta 3 change amends a PENDING batch in its wave | 2-3 new chat batches | file ownership (one owner per file) and waves capped at 4 (row 60, task rules) | yes |
 
 ### 6.3 Overrides of part text
 
@@ -285,6 +396,11 @@ A1: `TurnAgentChip`, `formatTurnElapsed`, A1-B5 compact-card removal (-> CV-2); 
 change" now allows the `st-t` class on the user `<article>` (A2-3 hook, §3.3 A1-3). A2: `inspectorDot` guard (-> B1
 amendment), slot re-projection from ChatView (-> §7.2 outlets). B: Part B Decisions B-5 input (-> M-3) and B-6 projection (-> M-4),
 "648 binds in session-embed" (-> §7.4), `app.config.ts` placement (-> B-3). C: none.
+Delta 3 overrides of Part B: the Orchestrator card has no model line, context bar, stats `dl` or `Usage and limits`
+disclosure (design D3.2 / D46); the optional `usage` input (B line 326) is replaced by `stats` (§2.2 D6); B-3's
+`OrchestratorCardModel` model / context / tokens / cost fields are built but not rendered (B-3 keeps its approved
+scope so W3 stays file-disjoint and independent of D-1; a later cleanup may drop them). Part B's AGENTS row button
+(`laneRequested` only when `hasLaneSurface`, B lines 328-329) gains the main-panel Focus path (§2.2 D5).
 
 ## 7. TASK_2026_648 integration
 
@@ -367,6 +483,11 @@ which the reviewer accepted, so it is no deviation.
 | D-B-3 | §4.6 lead task "first in stored order" | most recent `createdAt` when no primary | req 17 Terms and PM-12 outrank the design | no |
 | D-B-4 | req 17.6 | no section (row 44) | user decision | no |
 | D-M-4 | row 35 projection slots | registry token + outlets (§7) | M-3/M-4 evidence | no (same slot positions) |
+| D-D-1 | D3.6 / D3.9 item 10 ("the tray mapper sets `model?` on the AGENTS row view model") | `SessionAgentTrayService.extrasFor(sessionId, rows)` supplies `model` (from `agentModelsByKey` over ALL roster agents, so completed sub-agents keep theirs) / `tokens` / actions by roster key; `SessionAgent` and the B-3 store unchanged | C-2 committed, B-3 kept independent of the tray (M-9); same sources, same values | no |
+| D-D-2 | D3.9 item 2 (`showBackgroundStrip()` / `traySessionId()` stay "if the canvas tile still mounts the tray") | both deleted from chat-view: no host mounts the tray after CV-1 (`canvas-lane-view` mounts the presentational strip) | grep: tray referenced only by `chat-view.component.{html:60,ts:34,231}` | no (dead code) |
+| D-D-3 | D3.7 closed-state cues | built for the chat-view header only; Rail board cue routed as Part D check D-O6 | design names only the chat-view header | no (pending design call if D-O6 fires) |
+| D-D-4 | D3.4 / D3.5 tile re-skin | existing tiles reused; opt-in `variant` / `linkPlanTiles` inputs keep the strip identical | PM-17; Part D D-O2 | no |
+| R2 | parity C-6 tray component | CV-1 deletes `BackgroundAgentTrayComponent` after it unmounts it and renames its two specs onto `session-agent-tray.service.spec.ts` / `session-agent-tray.spec.ts` (same cases, no new spec file); every tray capability is in AGENTS (Part D "Proposed Removals" 1) | its only host is chat-view | **YES: code removal, no capability, approved by the USER, option (a) (decisions row 64; §6.1).** parity-inventory row updated by the team-leader. |
 | R1 | parity (row added after approval) | A1-D5 removes the assistant avatar + `Claude` + time line (`message-bubble.component.html:22-31`); per-message time appears only in the activity panel for N > 1 turns | §3 anatomy has none | **YES: removal of the assistant message time for single-message turns, approved by the USER (decisions row 45).** Time stays reachable as the turn duration; parity row added. A1-3 builds as planned. |
 
 ## 9. Verification per batch and risks
@@ -383,6 +504,7 @@ Per batch run `test`, `typecheck`, `lint` for each project it changed, e.g.
 | Batch | Projects |
 | --- | --- |
 | C-1 | `@ptah-extension/chat-ui`, `@ptah-extension/ui` |
+| D-1 | `@ptah-extension/chat-ui` (strip, agent strip, lane / plan tile specs must pass UNCHANGED) |
 | C-2, B-3, A2-1, A1-2, B-4, A1-3, CV-1..3 | `@ptah-extension/chat` |
 | A1-1 | `@ptah-extension/chat`, `@ptah-extension/chat-ui` |
 | A2-2 | `@ptah-extension/chat`, `@ptah-extension/chat-ui` |
@@ -415,6 +537,19 @@ Risks:
    (A1 check 2) the fallback keeps `Date.now()`, so behaviour is never worse than today.
 6. R1 removal approved by the USER (decisions row 45); single-message turns show time only as the "Worked for"
    duration, and the revert stays one template block.
+7. Delta 3, D-1 changes strip internals (delegation): the unchanged strip specs are the guard; any spec edit in D-1
+   is a reviewer red flag (PM-17, req 21.2).
+8. Delta 3, B-4 grows (tray service, actions menu, section mounts). If it must split, the team-leader decides before
+   B-4 starts and gives `inspector-agents-section` + the tray files to ONE new batch from the start; never a second
+   owner mid-wave.
+9. Delta 3, one source per value: reviewers check that no template outside the chat-ui pure layer formats context,
+   tokens, cost or limit state, and that the chip, dot, description and SESSION alert all read
+   `SessionStatsInputs.limitSummary` (risk task-description:1053).
+10. Delta 3, plan-limits refresh: the scope stays a chat-view field (C-39); reviewers reject any `registerScope` in
+    the inspector, the source factory or the Rail board.
+11. Delta 3, showcase scenes `apps/ptah-electron-e2e/src/showcase/canvas-orchestra.scene.ts:154` and
+    `chat-code-edit.scene.ts:121` locate `ptah-session-stats-summary` in chat-view and fail on re-record; outside 677
+    batches (e2e not run); the orchestrator records it in the handoff.
 
 ## Appendices (by reference)
 
@@ -435,3 +570,9 @@ Read these for per-component detail. Section names are the part headings.
   (avatar vocabulary + `ptah-agent-avatar`, session agent roster, monogram helpers, compact lane status delegation,
   dock hover card + menu, agent dock rewrite); Parity map E-1..E-18; Integration architecture; Decisions C1-C11;
   Team-leader handoff (existing specs to update); Open checks.
+- E. `plan-part-d-stats.md` (part D, Delta 3) - D0 Inputs; D1 Codebase evidence (rows 1-23); D2 Architecture
+  decision; D3 Components (D3-1 pure stats layer, D3-2 limit summary + cue helpers, D3-3 context ring, D3-4 SESSION,
+  D3-5 PLAN LIMITS + LANES, D3-6 population summary, D3-7 chat-ui barrel lines, D3-8 stats source factory, D3-9 tray
+  service, D3-10 inspector amendments, D3-11 chat-view + header, D3-12 bubble badge + Rail board); D4 Data flow; D5
+  Failure behaviour; D6 File list and batch proposal; D7 Open checks D-O1..D-O7; D8 Decisions D-1..D-10; D9 Risks;
+  D10 Parity mapping (req 21, C-2..C-6, C-19..C-50, C-48b, C-49); Proposed Removals.

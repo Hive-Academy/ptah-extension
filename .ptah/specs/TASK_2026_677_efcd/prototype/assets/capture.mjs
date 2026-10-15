@@ -642,12 +642,74 @@ try {
         const { page, ctx } = await open('bare=1&replay=0&insp=closed&stats=' + stats, { width: w, height: h });
         const r = await page.evaluate(() => ({ chip: (document.getElementById('limChip').hidden ? '' : document.getElementById('limChip').textContent), ring: document.getElementById('togRing').style.display !== 'none',
           dot: !document.getElementById('needDot').hidden, desc: document.getElementById('togDesc').textContent, name: document.getElementById('inspToggle').getAttribute('aria-label') }));
-        ok(r.chip === (stats === 'at' ? 'At limit' : 'Limit near') && r.ring && r.dot && /Context 15%/.test(r.desc) && /limit/.test(r.desc) && r.name === 'Show session details', w + ' px closed, stats=' + stats + ': limit chip with text, context ring, dot and description (' + r.chip + ' | ' + r.desc + ')');
+        ok(r.chip.indexOf(stats === 'at' ? 'At limit' : 'Limit near') === 0 && r.ring && r.dot && /Context 15%/.test(r.desc) && /limit/.test(r.desc) && r.name === 'Show session details', w + ' px closed, stats=' + stats + ': limit chip with text, context ring, dot and description (' + r.chip + ' | ' + r.desc + ')');
         await page.focus('#inspToggle'); await page.keyboard.press('Enter'); await page.waitForTimeout(250);
         const o = await page.evaluate(() => ({ sess: !!document.getElementById('sessH'), plan: !!document.getElementById('planH'), chip: document.getElementById('limChip').hidden }));
         ok(o.sess && o.plan && o.chip, w + ' px sheet, stats=' + stats + ': one action reaches SESSION and PLAN LIMITS; the chip hides while the sheet is open');
         await ctx.close();
       }
+    }
+    // K'. Delta 3 revise round 1: tile details by keyboard, lane-only limit, unknown window, sub-agent model in AGENTS, status / evidence / cooldown tiles, cost budget bar
+    for (const th of ['dark', 'light']) {
+      const { page, ctx, errors } = await open('bare=1&replay=0&insp=open&theme=' + th, { width: 1440, height: 1500 });
+      const keys = ['ctx', 'tok', 'cost', 'agents'];
+      const r = await page.evaluate((keys) => {
+        const btn = (k) => document.querySelector('[data-d3="sdet"][data-k="s:' + k + '"]');
+        return {
+          btns: keys.map((k) => { const b = btn(k); return b ? { exp: b.getAttribute('aria-expanded'), ctl: b.getAttribute('aria-controls'), has: !!document.getElementById(b.getAttribute('aria-controls')), w: b.getBoundingClientRect().width, h: b.getBoundingClientRect().height, name: b.getAttribute('aria-label') } : null; }),
+          timeStatic: !document.querySelector('[data-tile-d="time"]') && !!Array.from(document.querySelectorAll('.d3-grid .tile')).find((t) => /Time/.test(t.textContent) && !t.querySelector('button')),
+          titles: Array.from(document.querySelectorAll('.tile--d')).filter((t) => t.hasAttribute('title')).length,
+          model: Array.from(document.querySelectorAll('[data-testid="agent-model"]')).map((e) => e.textContent + '|' + e.title),
+          desc: (document.getElementById('agm-fe') || {}).textContent,
+          rows: document.querySelectorAll('.agent').length,
+          dockModel: /Model/.test(Array.from(document.querySelectorAll('.dk-tip')).map((e) => e.textContent).join(' ')),
+        };
+      }, keys);
+      ok(r.btns.every((b) => b && b.exp === 'false' && b.has && b.w >= 24 && b.h >= 24 && /details$/.test(b.name)), th + ': Context, Tokens, Cost and Agents tiles each have a >= 24 px details button with aria-expanded=false and an aria-controls region');
+      ok(r.timeStatic && r.titles === 0, th + ': Time tile is static, no tile with details carries a hover-only title (' + r.titles + ')');
+      await page.focus('[data-d3="sdet"][data-k="s:tok"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(120);
+      const o = await page.evaluate(() => { const d = document.getElementById('sd-tok'); return { shown: !d.hidden, txt: d.textContent, exp: document.activeElement.getAttribute('aria-expanded'), foc: document.activeElement.getAttribute('data-k'), col: getComputedStyle(d.parentElement).gridColumnEnd }; });
+      ok(o.shown && /Input \(uncached\)/.test(o.txt) && /Cache Creation/.test(o.txt) && /Total: 19,100,000/.test(o.txt) && /Live estimate/.test(o.txt) && o.exp === 'true' && o.foc === 's:tok', th + ': Enter on the Tokens details button opens the breakdown (estimate line, input, cache, total, budget) and keeps focus');
+      await page.keyboard.press('Escape'); await page.waitForTimeout(120);
+      ok(await page.evaluate(() => document.getElementById('sd-tok').hidden && document.activeElement.getAttribute('data-k') === 's:tok'), th + ': Escape closes the details and keeps focus on its button');
+      await page.keyboard.press('Tab'); await page.waitForTimeout(60);
+      ok((await page.evaluate(() => document.activeElement.getAttribute('data-k'))) === 's:cost', th + ': Tab moves Tokens -> Cost (focus order follows the grid)');
+      await page.keyboard.press('Space'); await page.waitForTimeout(120);
+      ok(await page.evaluate(() => /Only part of this session has a known price/.test(document.getElementById('sd-cost').textContent) && !document.getElementById('sd-cost').hidden), th + ': Cost details show the estimate line and the known-subtotal sentence');
+      ok(r.model.length === 3 && r.model.some((m) => m === 'Sonnet 5 \u00b7|claude-sonnet-5') && /id claude-sonnet-5/.test(r.desc || ''), th + ': AGENTS rows show the sub-agent model (visible token, raw id in title and in the accessible description) (' + r.model.join('; ') + ')');
+      ok(r.model.length < r.rows && !r.dockModel, th + ': an agent without a model source shows nothing, and no dock hover card carries a Model line');
+      ok(errors.length === 0, th + ': revise r1, no script errors (' + errors.length + ')');
+      await ctx.close();
+    }
+    {
+      const { page, ctx } = await open('bare=1&replay=0&insp=closed&stats=lane', { width: 760, height: 900 });
+      const r = await page.evaluate(() => ({ chip: document.getElementById('limChip').textContent, hidden: document.getElementById('limChip').hidden, title: document.getElementById('limChip').title,
+        desc: document.getElementById('togDesc').textContent, dot: !document.getElementById('needDot').hidden }));
+      ok(!r.hidden && /Limit near/.test(r.chip) && /Codex CLI/.test(r.title) && /Codex CLI \u00b7 software-architect \u00b7 Near limit/.test(r.desc) && /Context 15%/.test(r.desc) && r.dot, 'lane-only near limit, inspector closed: chip, title, toggle description and dot all carry the lane warning (' + r.desc + ')');
+      await page.focus('#inspToggle'); await page.keyboard.press('Enter'); await page.waitForTimeout(250);
+      const a = await page.evaluate(() => { const e = document.querySelector('[data-testid="limits-alert"]'); return e ? e.textContent : ''; });
+      ok(/Codex CLI/.test(a) && /Lanes/.test(a) && !/Plan limits/.test(a), 'lane-only near limit, inspector open: the SESSION alert says the same text with a Lanes link (' + a + ')');
+      await ctx.close();
+    }
+    {
+      const { page, ctx } = await open('bare=1&replay=0&insp=closed&stats=unk', { width: 760, height: 900 });
+      const r = await page.evaluate(() => ({ ring: document.getElementById('togRing').style.display, desc: document.getElementById('togDesc').textContent }));
+      ok(r.ring === 'none' && /Context unknown/.test(r.desc) && !/Context \d/.test(r.desc), 'unknown window, closed: no toggle ring, description says Context unknown (' + r.desc + ')');
+      await page.focus('#inspToggle'); await page.keyboard.press('Enter'); await page.waitForTimeout(250);
+      const c = await page.evaluate(() => { const t = document.getElementById('ctxL').closest('.tile'); return { txt: t.textContent, ring: !!t.querySelector('svg.ring'), pct: /%/.test(t.querySelector('.tv').textContent) }; });
+      ok(/\u2014/.test(c.txt) && /Window unknown/.test(c.txt) && !c.ring && !c.pct && !/152\.9k/.test(c.txt), 'unknown window, open: em dash, Window unknown, no ring, no percent, no used-token count (' + c.txt.replace(/\s+/g, ' ') + ')');
+      await page.focus('[data-d3="sdet"][data-k="s:ctx"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(120);
+      ok(await page.evaluate(() => /Context unknown: the latest main request or its verified capacity is unavailable\./.test(document.getElementById('sd-ctx').textContent)), 'unknown window: Context details hold the unknown sentence of contextTooltip()');
+      await ctx.close();
+    }
+    {
+      const { page, ctx } = await open('bare=1&replay=0&insp=open&stats=more', { width: 1440, height: 1700 });
+      const r = await page.evaluate(() => ({ ids: ['status', 'evidence', 'cooldown'].map((k) => !!document.querySelector('[data-testid="plan-limit-tile-' + k + '"]')),
+        bars: Array.from(document.querySelectorAll('#inspBody [role="progressbar"]')).map((b) => b.getAttribute('aria-valuetext') || ''), small: Array.from(document.querySelectorAll('#inspBody button')).filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect()).filter((b) => b.width < 24 || b.height < 24).length }));
+      ok(r.ids.every(Boolean), 'stats=more: status, evidence and cooldown tiles are drawn in PLAN LIMITS');
+      ok(r.bars.some((t) => /44% of the \$20\.00 cost budget/.test(t)), 'stats=more: the cost budget bar is drawn with a text value');
+      ok(r.small === 0, 'stats=more: all inspector buttons >= 24 x 24 px');
+      await ctx.close();
     }
     console.log(report.join('\n'));
   }

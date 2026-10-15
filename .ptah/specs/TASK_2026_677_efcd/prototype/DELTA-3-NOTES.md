@@ -1,7 +1,7 @@
 # Delta 3 notes - session stats move into the inspector (TASK_2026_677_efcd)
 
 Source: decisions.md row 50 (user), row 54 (tray scope). Spec: `design-spec.md` section "Delta 3 - session stats in the inspector" (D3.1-D3.9), decisions D44-D56.
-Open `index.html?bare=1&replay=0&insp=open` (dark; add `&theme=light`). Variants: `stats=full|at|none|single|ctx`, `body=partial|empty|loading`, `insp=closed`, viewport 1440 / 760 / 400.
+Open `index.html?bare=1&replay=0&insp=open` (dark; add `&theme=light`). Variants: `stats=full|at|none|single|ctx|lane|unk|more`, `body=partial|empty|loading`, `insp=closed`, viewport 1440 / 760 / 400.
 Files: `assets/delta3.js` (mock data + sections), `assets/delta3.css`, small edits in `assets/app.js` (inspector composition, Orchestrator card, toggle sync) and `index.html` (toggle ring, limit chip),
 `assets/contrast-delta3.mjs` (measured pairs, all pass), `assets/capture.mjs checks` (section K) and `capture.mjs delta3` (screenshots `screenshots/delta3-<state>-<width>-<theme>.png`, git-ignored).
 Result: `capture.mjs checks` 200 PASS, 0 FAIL; contrast-delta3 all pairs pass (anubis, anubis-light).
@@ -44,7 +44,7 @@ header limit chip `Limit near` / `At limit` (glyph + word) while the inspector i
 - Plan-window state words (`Near limit` at 85 %) are mock values; the product uses the engine's `PlanWindowState`.
 - Lucide `eye`, `info`, `gauge`, `message-square-text`, `arrow-down-to-line` are injected by `delta3.js` (the shared sprite does not carry them); the product imports them from `lucide-angular`.
 - The `Plan limits` provider mark uses the Claude mark; with no authoritative provider id the product shows the neutral `Gauge` (D37).
-- Not drawn: status / evidence / cooldown tiles, the cost-budget bar, dock hover-card `Model` line, tray token count; they are specified in the spec only.
+- Revise r1 draws: tile details as keyboard disclosures (`info` button per tile), lane-only limit (`stats=lane`), unknown window (`stats=unk`), status / evidence / cooldown tiles and the cost-budget bar (`stats=more`), the sub-agent model in AGENTS rows. Still not drawn: the tray token count (spec only). The dock hover card carries NO model line (review finding 2).
 - Gap kept honest (D55): only the session owner's windows and lane states that exist today are shown; Codex is shown with its window because the mock lane has a different owner.
 
 ## Architect flags

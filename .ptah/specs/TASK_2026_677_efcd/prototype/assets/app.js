@@ -30,11 +30,11 @@
   var SESSION_PROVIDER = P.get('prov') === 'unknown' ? null : 'claude-cli'; // mock declaration: authoritative provider id, or null = unknown
   var PROVIDER_MARK = { 'claude-cli': 'claude' }; // provider id -> sprite mark id (m-<id>); an id without artwork is treated as unknown
   var AG = [
-    { id: 'fe', name: 'frontend-developer', kind: 'Sub-agent', group: 'sub', role: 'layout-template', status: 'running', dur: '2m 13s', act: 'Read session-context.token.ts' },
-    { id: 'codex', name: 'Codex', kind: 'CLI lane', group: 'cli', mark: 'codex', status: 'running', dur: '1m 50s', act: 'Fixing a failing assertion' },
+    { id: 'fe', name: 'frontend-developer', kind: 'Sub-agent', group: 'sub', role: 'layout-template', status: 'running', dur: '2m 13s', act: 'Read session-context.token.ts', model: ['Sonnet 5', 'claude-sonnet-5'] },
+    { id: 'codex', name: 'Codex', kind: 'CLI lane', group: 'cli', mark: 'codex', status: 'running', dur: '1m 50s', act: 'Fixing a failing assertion', model: ['gpt-5-codex', 'gpt-5-codex'] },
     { id: 'antigravity', name: 'Antigravity', kind: 'CLI lane', group: 'cli', mark: 'antigravity', status: 'running', dur: '33s', act: 'Running npx nx lint chat' },
     { id: 'bg', name: 'nx test chat', kind: 'Background', group: 'bg', role: 'square-terminal', status: 'running', dur: '1m 51s', act: 'npx nx test chat --parallel=1' },
-    { id: 'arch', name: 'software-architect', kind: 'Sub-agent', group: 'sub', role: 'drafting-compass', status: 'done', dur: '2m 41s', act: 'Wrote implementation-plan.md' }
+    { id: 'arch', name: 'software-architect', kind: 'Sub-agent', group: 'sub', role: 'drafting-compass', status: 'done', dur: '2m 41s', act: 'Wrote implementation-plan.md', model: ['Opus 5.5', 'claude-opus-5-5'] }
   ];
   var ORCH = { id: 'orch', name: 'Orchestrator', kind: 'Orchestrator', group: 'main', sessionProvider: SESSION_PROVIDER, mark: (SESSION_PROVIDER && PROVIDER_MARK[SESSION_PROVIDER]) || null, status: 'running', dur: '6m 05s', act: 'Delegating to 4 agents' };
   var TODOS = [
@@ -159,10 +159,10 @@
       var label = a.name + ', ' + a.kind.toLowerCase().replace('cli lane', 'CLI lane') + ', ' + s + (dur ? ' ' + words(dur) : '') + '.' + (actLine ? ' ' + actLine : '');
       // delta 2 tile: avatar 32 (status ring + corner glyph) | line 1 name + status word + duration | line 2 kind badge + activity
       h += '<li class="agent' + (s === 'done' ? ' agent--finished' : '') + (D3.hasMenu(a.id) ? ' agent--menu' : '') + ' st-r" style="--i:' + (i + 3) + '" data-agent="' + a.id + '"' + (ui.selected === a.id ? ' aria-current="true"' : '') + '>' +
-        '<button type="button" class="agent__main" data-act="select" data-agent="' + a.id + '" aria-label="' + esc(label) + '">' + av(a, 32, s) +
+        '<button type="button" class="agent__main" data-act="select" data-agent="' + a.id + '" aria-label="' + esc(label) + '"' + (a.model && !partial ? ' aria-describedby="agm-' + a.id + '"' : '') + '>' + av(a, 32, s) +
         '<span class="agent__body"><span class="agent__l1"><span class="agent__name" title="' + esc(a.name) + '">' + esc(a.name) + '</span>' +
         '<span class="agent__stat"><span class="w ' + WORD[s] + '">' + s + '</span>' + (dur ? ' <span class="t">' + dur + '</span>' : '') + '</span></span>' +
-        '<span class="agent__l2"><span class="kind">' + a.kind + '</span>' + (actLine ? '<span class="agent__act">' + esc(actLine) + '</span>' : '') + '</span></span></button>' + D3.menuBtn(a) + D3.steerRow(a) + reqHTML(a.id) + '</li>';
+        '<span class="agent__l2"><span class="kind">' + a.kind + '</span>' + (a.model && !partial ? '<span class="agent__model" data-testid="agent-model" title="' + esc(a.model[1]) + '">' + esc(a.model[0]) + ' \u00b7</span>' : '') + (actLine ? '<span class="agent__act">' + esc(actLine) + '</span>' : '') + '</span></span></button>' + (a.model && !partial ? '<span class="sr-only" id="agm-' + a.id + '">Model ' + esc(a.model[0]) + ', id ' + esc(a.model[1]) + '</span>' : '') + D3.menuBtn(a) + D3.steerRow(a) + reqHTML(a.id) + '</li>';
     });
     return h + '</ul></section>';
   }
