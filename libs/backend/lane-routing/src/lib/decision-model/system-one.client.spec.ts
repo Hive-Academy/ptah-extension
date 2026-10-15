@@ -177,7 +177,7 @@ describe('SystemOneClient', () => {
     expect(calls[0].url).toBe('https://api.typesafe.ai/v1/systemone');
   });
 
-  it('flags a plain-text 404 as not-found with the body text', async () => {
+  it('flags a plain-text 404 as not-found without the body text', async () => {
     const { fetch } = recordingFetch(404, '404 page not found');
     const client = new SystemOneClient(
       { baseUrl: 'http://127.0.0.1:11434', model: 'nimble' },
@@ -189,12 +189,12 @@ describe('SystemOneClient', () => {
     expect(failure).toEqual({
       ok: false,
       cause: 'provider-error',
-      detail: '404 page not found',
+      detail: 'http 404',
       notFound: true,
     });
   });
 
-  it('reads the error field of a json 404 body and cuts the detail to 200 characters', async () => {
+  it('keeps a json 404 body out of the detail', async () => {
     const { fetch } = recordingFetch(404, {
       error: `model "qwen3:0.6b" not found ${'x'.repeat(300)}`,
     });
@@ -207,9 +207,40 @@ describe('SystemOneClient', () => {
 
     expect(failure.cause).toBe('provider-error');
     expect(failure.notFound).toBe(true);
-    const prefix = 'model "qwen3:0.6b" not found ';
-    expect(failure.detail).toBe(`${prefix}${'x'.repeat(200 - prefix.length)}`);
-    expect(failure.detail.length).toBe(200);
+    expect(failure.detail).toBe('http 404');
+  });
+
+  it('never copies an error body that echoes SECRET-PROMPT into the result or the logger', async () => {
+    const lines: string[] = [];
+    const logger: LaneRoutingLogger = {
+      debug: (message, meta) => {
+        lines.push(JSON.stringify({ level: 'debug', message, meta }));
+      },
+      info: (message, meta) => {
+        lines.push(JSON.stringify({ level: 'info', message, meta }));
+      },
+      warn: (message, meta) => {
+        lines.push(JSON.stringify({ level: 'warn', message, meta }));
+      },
+      error: (message, meta) => {
+        lines.push(JSON.stringify({ level: 'error', message, meta }));
+      },
+    };
+    const { fetch } = recordingFetch(404, {
+      error: 'echo SECRET-PROMPT from the request',
+    });
+    const client = new SystemOneClient(
+      { baseUrl: 'http://127.0.0.1:11434', model: 'nimble' },
+      { fetch, logger },
+    );
+
+    const failure = requireFailure(await client.decide(payload));
+
+    expect(failure.notFound).toBe(true);
+    expect(failure.detail).toBe('http 404');
+    expect(failure.detail).not.toContain('SECRET-PROMPT');
+    expect(lines.join('\n')).not.toContain('SECRET-PROMPT');
+    expect(lines.some((line) => line.includes('"level":"warn"'))).toBe(true);
   });
 
   it('flags a 405 as not-found but never a 500', async () => {

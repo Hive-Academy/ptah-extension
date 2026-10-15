@@ -423,4 +423,31 @@ describe('DecisionModelFailureClassifier', () => {
       { runId: INPUT.runId, name: 'Error' },
     );
   });
+
+  it('returns null when the structured completer never settles', async () => {
+    jest.useFakeTimers();
+    const clear = jest.spyOn(global, 'clearTimeout');
+    try {
+      const { classifier } = await harness({
+        selection: {
+          kind: 'structured',
+          providerId: 'anthropic',
+          model: 'claude',
+        },
+        structured: structuredCompleter(() => new Promise(() => undefined)),
+      });
+      const pending = classifier.classify(INPUT);
+
+      await jest.advanceTimersByTimeAsync(
+        FAILURE_CLASSIFICATION_TIMEOUT_MS + 1,
+      );
+
+      await expect(pending).resolves.toBeNull();
+      expect(clear).toHaveBeenCalled();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      clear.mockRestore();
+      jest.useRealTimers();
+    }
+  });
 });

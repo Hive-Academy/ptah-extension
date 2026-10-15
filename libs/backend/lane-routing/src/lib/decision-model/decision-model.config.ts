@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type {
   ISecretStorage,
   IStateStorage,
@@ -6,6 +5,17 @@ import type {
 } from '@ptah-extension/platform-core';
 import { OLLAMA_PROVIDER_ENTRY } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
+import {
+  buildProbeUrls,
+  checkVersion,
+  discriminate,
+  errorMessage,
+  isLocalUrl,
+  keyOf,
+  normaliseBaseUrl,
+  toRowState,
+  type ProbeAnswer,
+} from './decision-model.probe';
 import {
   DECISION_MODEL_CONFIG_KEY,
   DECISION_MODEL_CONFIG_SECTION,
@@ -17,9 +27,6 @@ import {
   DecisionModelUnsupportedMarkSchema,
   JEV_BASE_URL,
   OLLAMA_BASE_URL_CONFIG_KEY,
-  OLLAMA_MIN_LAYA_VERSION,
-  OLLAMA_MIN_SYSTEM_ONE_VERSION,
-  SYSTEM_ONE_CONTROL_PATH,
   type DecisionModelLocality,
   type DecisionModelProbeResult,
   type DecisionModelSelection,
@@ -28,7 +35,7 @@ import {
   type DecisionModelUnsupportedMark,
 } from './decision-model.types';
 import type { StructuredDecisionCompleter } from './structured-decision.port';
-import { SYSTEM_ONE_PATH, type SystemOneFetch } from './system-one.client';
+import type { SystemOneFetch } from './system-one.client';
 
 /** Where a System One call goes for the current selection. */
 export interface SystemOneTarget {
@@ -46,18 +53,6 @@ export interface DecisionModelConfigSeams {
   /** Shared budget of one probe; `DECISION_MODEL_PROBE_TIMEOUT_MS` by default. */
   readonly probeTimeoutMs?: number;
 }
-
-const OLLAMA_VERSION_PATH = '/api/version';
-const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
-const OllamaVersionSchema = z.object({ version: z.string().min(1) });
-
-type ProbeAnswer =
-  | {
-      readonly kind: 'answered';
-      readonly status: number;
-      readonly body: string;
-    }
-  | { readonly kind: 'failed'; readonly detail: string };
 
 interface ProbeRecord {
   readonly startedAt: number;
@@ -259,8 +254,9 @@ export class DecisionModelConfig {
         return this.structuredStatus(selection);
       case 'ollama': {
         const baseUrl = this.ollamaBaseUrl();
+        const startedKey = keyOf(selection, baseUrl);
         const probe = await this.probe(baseUrl, selection.model);
-        return this.applyProbe(selection, baseUrl, probe, null);
+        return this.applyProbe(selection, baseUrl, probe, null, startedKey);
       }
     }
   }
@@ -280,14 +276,23 @@ export class DecisionModelConfig {
   }
 
   /**
-   * Persists the unsupported mark for the current selection at `baseUrl`.
-   * A persistence failure is logged at warn; the in-memory mark still holds
-   * for this session.
+   * Persists the unsupported mark for the selection this probe started with.
+   * A key that no longer matches the current selection is discarded: no
+   * in-memory mark and no storage write. A persistence failure is logged at
+   * warn; the in-memory mark still holds for this session.
    */
-  async markUnsupported(baseUrl: string, detail: string): Promise<void> {
+  async markUnsupported(
+    baseUrl: string,
+    detail: string,
+    selection: DecisionModelSelection,
+  ): Promise<void> {
+    const normalised = normaliseBaseUrl(baseUrl);
+    if (this.currentProbeKey() !== keyOf(selection, normalised)) {
+      return;
+    }
     const mark: DecisionModelUnsupportedMark = {
-      selection: this.getSelection(),
-      baseUrl: normaliseBaseUrl(baseUrl),
+      selection,
+      baseUrl: normalised,
       detail,
       at: this.now(),
     };
@@ -337,12 +342,13 @@ export class DecisionModelConfig {
       return this.getStatus();
     }
     const base = normaliseBaseUrl(baseUrl);
+    const startedKey = keyOf(selection, base);
     const probe = await this.coalescedRecheck(
-      keyOf(selection, base),
+      startedKey,
       base,
       selection.model,
     );
-    return this.applyProbe(selection, base, probe, liveDetail);
+    return this.applyProbe(selection, base, probe, liveDetail, startedKey);
   }
 
   // ---------------------------------------------------------- internals
@@ -411,14 +417,18 @@ export class DecisionModelConfig {
     baseUrl: string,
     probe: DecisionModelProbeResult,
     liveDetail: string | null,
+    startedKey: string,
   ): Promise<DecisionModelStatusDto> {
-    const key = keyOf(selection, baseUrl);
+    if (this.currentProbeKey() !== startedKey) {
+      return this.getStatus();
+    }
+    const key = startedKey;
     if (probe.outcome === 'unsupported-endpoint') {
       const base = probe.detail ?? 'endpoint does not serve /v1/systemone';
       const detail =
         liveDetail === null ? base : `${base}; last call: ${liveDetail}`;
       if (!this.markMatches(key)) {
-        await this.markUnsupported(baseUrl, detail);
+        await this.markUnsupported(baseUrl, detail, selection);
       }
       return this.dto(
         selection,
@@ -539,9 +549,17 @@ export class DecisionModelConfig {
   }
 
   private loadMark(): DecisionModelUnsupportedMark | null {
-    const raw = this.storage.get<unknown>(
-      DECISION_MODEL_UNSUPPORTED_STORAGE_KEY,
-    );
+    let raw: unknown;
+    try {
+      raw = this.storage.get<unknown>(DECISION_MODEL_UNSUPPORTED_STORAGE_KEY);
+    } catch (error: unknown) {
+      // degradation-audit: reported - a failed unsupported-mark read starts with no mark so routing can continue
+      this.logger.warn(
+        '[lane-routing] decision model unsupported mark could not be read',
+        { name: error instanceof Error ? error.name : 'UnknownError' },
+      );
+      return null;
+    }
     if (raw === undefined || raw === null) {
       return null;
     }
@@ -601,203 +619,16 @@ export class DecisionModelConfig {
       detail,
     };
   }
-}
 
-// ------------------------------------------------------------- helpers
-
-/** Probe outcome → row state; the row state set is fixed (decision #46). */
-function toRowState(
-  outcome: DecisionModelProbeResult['outcome'],
-): DecisionModelState {
-  switch (outcome) {
-    case 'auth':
-      return 'no-credential';
-    case 'provider-error':
-      return 'unreachable';
-    default:
-      return outcome;
+  /** Selection plus the base URL that selection would be probed against now. */
+  private currentProbeKey(): string {
+    const selection = this.getSelection();
+    if (selection.kind === 'ollama') {
+      return keyOf(selection, this.ollamaBaseUrl());
+    }
+    if (selection.kind === 'jev') {
+      return keyOf(selection, JEV_BASE_URL);
+    }
+    return keyOf(selection, '');
   }
-}
-
-/** `null` when the version passes (the POSTs run next); else the probe result. */
-function checkVersion(
-  answer: ProbeAnswer,
-  model: string,
-): DecisionModelProbeResult | null {
-  if (answer.kind === 'failed') {
-    return { outcome: 'unreachable', detail: answer.detail };
-  }
-  if (answer.status === 401 || answer.status === 403) {
-    return {
-      outcome: 'auth',
-      detail: `version check answered http ${answer.status}`,
-    };
-  }
-  if (answer.status === 404 || answer.status === 405) {
-    return {
-      outcome: 'unsupported-endpoint',
-      detail: `endpoint does not serve ${OLLAMA_VERSION_PATH}`,
-    };
-  }
-  if (answer.status < 200 || answer.status >= 300) {
-    return {
-      outcome: 'provider-error',
-      detail: `version check answered http ${answer.status}`,
-    };
-  }
-  const parsed = OllamaVersionSchema.safeParse(parseJson(answer.body));
-  if (!parsed.success) {
-    return {
-      outcome: 'provider-error',
-      detail: 'version check answered an unreadable body',
-    };
-  }
-  const minimum = model.toLowerCase().startsWith('laya')
-    ? OLLAMA_MIN_LAYA_VERSION
-    : OLLAMA_MIN_SYSTEM_ONE_VERSION;
-  if (!isVersionAtLeast(parsed.data.version, minimum)) {
-    return {
-      outcome: 'unsupported-endpoint',
-      detail: `Ollama ${parsed.data.version} < ${minimum}`,
-    };
-  }
-  return null;
-}
-
-/**
- * Route discriminator (decision #42, part A §5). 401/403 and other statuses
- * are not route evidence; otherwise an answer equal to the control's
- * normalised answer is ambiguous and therefore unsupported.
- */
-function discriminate(
-  route: ProbeAnswer,
-  control: ProbeAnswer,
-): DecisionModelProbeResult {
-  if (route.kind === 'failed') {
-    return { outcome: 'unreachable', detail: route.detail };
-  }
-  const notFound = route.status === 404 || route.status === 405;
-  if (route.status === 401 || route.status === 403) {
-    return { outcome: 'auth', detail: `route answered http ${route.status}` };
-  }
-  const routeSpecific =
-    (route.status >= 200 && route.status < 300) ||
-    route.status === 400 ||
-    route.status === 422;
-  if (!routeSpecific && !notFound) {
-    return {
-      outcome: 'provider-error',
-      detail: `route answered http ${route.status}`,
-    };
-  }
-  if (control.kind === 'failed') {
-    return notFound
-      ? {
-          outcome: 'unsupported-endpoint',
-          detail: `endpoint does not serve ${SYSTEM_ONE_PATH} (route answered ${route.status}; control request failed: ${control.detail})`,
-        }
-      : { outcome: 'ready', detail: null };
-  }
-  const same =
-    normaliseAnswer(route.status, route.body, SYSTEM_ONE_PATH) ===
-    normaliseAnswer(control.status, control.body, SYSTEM_ONE_CONTROL_PATH);
-  if (same) {
-    return {
-      outcome: 'unsupported-endpoint',
-      detail: `endpoint does not serve ${SYSTEM_ONE_PATH}`,
-    };
-  }
-  return notFound
-    ? { outcome: 'ready', detail: `route answered ${route.status}` }
-    : { outcome: 'ready', detail: null };
-}
-
-/**
- * Status plus body with the request path masked as `<path>`; a JSON body is
- * compared by value (canonical key order), any other body as trimmed text.
- */
-function normaliseAnswer(status: number, body: string, path: string): string {
-  const masked = body.split(path).join('<path>').trim();
-  const json = parseJson(masked);
-  const value =
-    json === NOT_JSON ? `text:${masked}` : `json:${canonicalJson(json)}`;
-  return `${status}\n${value}`;
-}
-
-const NOT_JSON: unique symbol = Symbol('not-json');
-
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    // A non-JSON body is a valid answer here: callers compare it as text or
-    // reject it by schema. The sentinel is a unique symbol, never data.
-    return NOT_JSON;
-  }
-}
-
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(',')}]`;
-  }
-  if (isRecord(value)) {
-    const entries = Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
-    return `{${entries.join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
-
-function buildProbeUrls(
-  baseUrl: string,
-): { version: string; route: string; control: string } | null {
-  if (!URL.canParse(baseUrl)) {
-    return null;
-  }
-  return {
-    version: new URL(OLLAMA_VERSION_PATH, baseUrl).toString(),
-    route: new URL(SYSTEM_ONE_PATH, baseUrl).toString(),
-    control: new URL(SYSTEM_ONE_CONTROL_PATH, baseUrl).toString(),
-  };
-}
-
-function isLocalUrl(baseUrl: string): boolean {
-  return (
-    URL.canParse(baseUrl) && LOCAL_HOSTNAMES.has(new URL(baseUrl).hostname)
-  );
-}
-
-/** Same comparison as `ollama-model-discovery.service.ts:316-327`. */
-function isVersionAtLeast(actual: string, minimum: string): boolean {
-  const parse = (v: string): number[] =>
-    v.split('.').map((n) => parseInt(n, 10) || 0);
-  const a = parse(actual);
-  const m = parse(minimum);
-  for (let i = 0; i < Math.max(a.length, m.length); i++) {
-    const av = a[i] ?? 0;
-    const mv = m[i] ?? 0;
-    if (av > mv) return true;
-    if (av < mv) return false;
-  }
-  return true;
-}
-
-function normaliseBaseUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '');
-}
-
-/** Coalescing and mark key: canonical selection plus normalised base URL. */
-function keyOf(selection: DecisionModelSelection, baseUrl: string): string {
-  return `${canonicalJson(selection)}|${normaliseBaseUrl(baseUrl)}`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message.length > 0
-    ? error.message
-    : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

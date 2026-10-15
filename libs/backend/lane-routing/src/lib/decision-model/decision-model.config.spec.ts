@@ -684,3 +684,111 @@ describe('DecisionModelConfig credential, locality and other kinds', () => {
     });
   });
 });
+
+describe('DecisionModelConfig probe binding and mark read', () => {
+  function heldProbe(): {
+    readonly fetch: SystemOneFetch;
+    readonly bothPosts: Promise<void>;
+    releaseStale(): void;
+  } {
+    let releaseStale = false;
+    let pendingPosts = 0;
+    let bothWaiting: () => void = () => undefined;
+    const bothPosts = new Promise<void>((resolve) => {
+      bothWaiting = resolve;
+    });
+    const resumes: Array<() => void> = [];
+    const fetchImpl: SystemOneFetch = async (url) => {
+      const path = new URL(url).pathname;
+      if (path === VERSION_PATH) {
+        return { ok: true, status: 200, text: async () => VERSION_OK.body };
+      }
+      if (!releaseStale) {
+        pendingPosts += 1;
+        if (pendingPosts === 2) bothWaiting();
+        await new Promise<void>((resolve) => {
+          resumes.push(resolve);
+        });
+        return {
+          ok: false,
+          status: 404,
+          text: async () => 'SECRET-PROMPT 404 page not found',
+        };
+      }
+      if (path === SYSTEM_ONE_PATH) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () => MODEL_REQUIRED.body,
+        };
+      }
+      return { ok: false, status: 404, text: async () => GO_NOT_FOUND.body };
+    };
+    return {
+      fetch: fetchImpl,
+      bothPosts,
+      releaseStale: () => {
+        releaseStale = true;
+        for (const resume of resumes) resume();
+      },
+    };
+  }
+
+  it('does not mark B when A probe resolves after the selection changes', async () => {
+    const held = heldProbe();
+    const h = harness({
+      selection: { kind: 'ollama', model: 'alpha' },
+      fetch: held.fetch,
+    });
+    const pending = h.config.getStatus();
+    await held.bothPosts;
+    await h.config.setSelection({ kind: 'ollama', model: 'beta' });
+    held.releaseStale();
+
+    const status = await pending;
+
+    expect(status.selection).toEqual({ kind: 'ollama', model: 'beta' });
+    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(h.storage.update).not.toHaveBeenCalled();
+    expect(h.storage.__state.entries.has(KEY)).toBe(false);
+    expect(JSON.stringify(h.logger.info.mock.calls)).not.toContain(
+      'SECRET-PROMPT',
+    );
+  });
+
+  it('does not mark B when a live 404 recheck for A resolves after the selection changes', async () => {
+    const held = heldProbe();
+    const h = harness({
+      selection: { kind: 'ollama', model: 'alpha' },
+      fetch: held.fetch,
+    });
+    const pending = h.config.recheckAfterLiveNotFound(BASE, 'http 404');
+    await held.bothPosts;
+    await h.config.setSelection({ kind: 'ollama', model: 'beta' });
+    held.releaseStale();
+
+    await pending;
+
+    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(h.storage.update).not.toHaveBeenCalled();
+    expect(h.storage.__state.entries.has(KEY)).toBe(false);
+  });
+
+  it('constructs with a null mark when storage.get throws', () => {
+    const storage = createMockStateStorage();
+    jest.spyOn(storage, 'get').mockImplementation(() => {
+      throw new Error('SECRET-PROMPT');
+    });
+    const h = harness({ storage, selection: OLLAMA });
+
+    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model unsupported mark could not be read',
+      { name: 'Error' },
+    );
+    expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain(
+      'SECRET-PROMPT',
+    );
+  });
+});

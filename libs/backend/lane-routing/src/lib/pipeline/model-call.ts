@@ -10,6 +10,10 @@ import type {
 import type { SystemOneResult } from '../decision-model/system-one.schema';
 import type { FallbackCause } from '../reasons/compile-reasons';
 import {
+  DECISION_REQUEST_TIMEOUT_MS,
+  DECISION_RETURN_MARGIN_MS,
+} from '../routing-constants';
+import {
   validateChoiceAnswer,
   type ChoiceValidation,
 } from './answer-validation';
@@ -100,15 +104,38 @@ export async function callStructured(
   questions: readonly AskedQuestion[],
   logger: LaneRoutingLogger,
 ): Promise<ModelRequestOutcome> {
+  const pending = dispatch.completer.complete({
+    providerId: dispatch.providerId,
+    model: dispatch.model,
+    prompt,
+    jsonSchema: schema,
+    signal: dispatch.signal,
+  });
   let payload: unknown;
   try {
-    payload = await dispatch.completer.complete({
-      providerId: dispatch.providerId,
-      model: dispatch.model,
-      prompt,
-      jsonSchema: schema,
-      signal: dispatch.signal,
-    });
+    const raced = await raceDeadline(
+      pending,
+      STRUCTURED_DEADLINE_MS,
+      (error) => {
+        logger.warn(
+          '[lane-routing] structured decision rejected after the deadline',
+          structuredFacts(error),
+        );
+      },
+    );
+    if (raced.expired) {
+      return {
+        sent: true,
+        succeeded: false,
+        requestCause: 'timeout',
+        notFoundDetail: null,
+        answers: new Map(),
+        offered,
+        inputTokens: null,
+        outputTokens: null,
+      };
+    }
+    payload = raced.value;
   } catch (error: unknown) {
     logger.warn(
       '[lane-routing] structured decision failed',
@@ -220,6 +247,55 @@ function stringRecord(payload: unknown): Record<string, string> | null {
     if (typeof value === 'string') record[key] = value;
   }
   return record;
+}
+
+const STRUCTURED_DEADLINE_MS =
+  DECISION_REQUEST_TIMEOUT_MS + DECISION_RETURN_MARGIN_MS;
+
+/**
+ * The completer promise against the routing deadline. A late rejection is
+ * logged and not rethrown. The timer is cleared on every exit.
+ */
+function raceDeadline(
+  work: Promise<unknown>,
+  budgetMs: number,
+  onLateRejection: (error: unknown) => void,
+): Promise<
+  | { readonly expired: true }
+  | { readonly expired: false; readonly value: unknown }
+> {
+  const deadlineWon = { current: false };
+  const guarded = work.then(
+    (value) => value,
+    (error: unknown) => {
+      if (deadlineWon.current) {
+        onLateRejection(error);
+        return undefined;
+      }
+      throw error;
+    },
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(() => resolve(), budgetMs);
+  });
+  const finish = async (): Promise<
+    | { readonly expired: true }
+    | { readonly expired: false; readonly value: unknown }
+  > => {
+    const winner = await Promise.race([
+      guarded.then((value) => ({ expired: false as const, value })),
+      deadline.then(() => ({ expired: true as const })),
+    ]);
+    if (winner.expired) {
+      deadlineWon.current = true;
+      return { expired: true };
+    }
+    return { expired: false, value: winner.value };
+  };
+  return finish().finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 function structuredCause(error: unknown): FallbackCause {

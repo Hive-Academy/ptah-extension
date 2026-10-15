@@ -64,7 +64,11 @@ import {
 } from './pipeline/phase-plan';
 import { isSendable } from './pipeline/phase-resolve';
 import type { RoutingCandidate } from './ranking/candidate.types';
-import { rotationKey, withPick } from './ranking/rotation.store';
+import {
+  emptyRotationState,
+  rotationKey,
+  withPick,
+} from './ranking/rotation.store';
 import { overallConfidence } from './reasons/confidence';
 import { compilePreflightReasons } from './reasons/compile-reasons';
 import {
@@ -365,16 +369,16 @@ export class RouteDecideService {
     if (gathered.rotationUnavailable) return;
     const chosen = result.roster.filter((entry) => entry.status === 'chosen');
     if (chosen.length === 0) return;
-    let state = gathered.rotation;
+    let picks = emptyRotationState();
     for (const entry of chosen) {
-      state = withPick(
-        state,
+      picks = withPick(
+        picks,
         rotationKey(entry.phaseId, entry.taskKind),
         entry.executor.id,
       );
     }
     try {
-      await this.deps.rotation.save(state);
+      await this.deps.rotation.save(picks);
     } catch (error: unknown) {
       this.deps.logger.warn(
         '[lane-routing] rotation state could not be saved',

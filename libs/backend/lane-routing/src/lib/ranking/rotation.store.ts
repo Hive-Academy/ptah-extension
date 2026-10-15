@@ -16,7 +16,9 @@
  * as not persisted; the caller still returns the decision.
  * `record` does not write when the read threw, so a transient read
  * failure cannot replace a document this process never saw.
- * `save` writes the document it is given (the pipeline's merged state).
+ * `save` re-reads the stored document under an in-process lock and
+ * replaces only the keys present in the document it is given. Stored
+ * keys absent from that document stay. A read failure does not write.
  */
 import { z } from 'zod';
 import {
@@ -143,6 +145,9 @@ export function withPick(
  * unregistered token. The register function builds this with `useFactory`.
  */
 export class RotationStore {
+  /** Serialises read-modify-write so concurrent saves cannot drop a key. */
+  private writeChain: Promise<void> = Promise.resolve();
+
   constructor(
     /** `PLATFORM_TOKENS.STATE_STORAGE`, global scope. */
     private readonly storage: IStateStorage,
@@ -182,20 +187,48 @@ export class RotationStore {
    * Read, remember one pick, write. Does not write when the read threw.
    */
   async record(key: string, candidateId: string): Promise<RotationWrite> {
-    const loaded = this.load();
-    if (loaded.reason !== null) {
-      return { persisted: false };
-    }
-    return this.persist(withPick(loaded.state, key, candidateId));
+    return this.enqueue(async () => {
+      const loaded = this.load();
+      if (loaded.reason !== null) {
+        return { persisted: false };
+      }
+      return this.persist(withPick(loaded.state, key, candidateId));
+    });
   }
 
-  /** Write a document the caller already built. Does not read first. */
+  /**
+   * Merge `state` into the stored document. Only keys in `state` are
+   * replaced; every other stored key is kept. Callers pass the picks this
+   * call touched, not a stale copy of the whole document.
+   */
   async save(state: RotationState): Promise<RotationWrite> {
     const parsed = RotationDocumentSchema.safeParse(state);
     if (!parsed.success) {
       throw new Error('rotation state is invalid');
     }
-    return this.persist(copyState(parsed.data));
+    const incoming = copyState(parsed.data);
+    return this.enqueue(() => this.merge(incoming));
+  }
+
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.writeChain.then(work, work);
+    this.writeChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async merge(incoming: RotationState): Promise<RotationWrite> {
+    const loaded = this.load();
+    if (loaded.reason !== null) {
+      return { persisted: false };
+    }
+    let merged = loaded.state;
+    for (const entry of incoming.entries) {
+      merged = withPick(merged, entry.key, entry.candidateId);
+    }
+    return this.persist(merged);
   }
 
   private async persist(state: RotationState): Promise<RotationWrite> {

@@ -168,14 +168,23 @@ export class DecisionModelFailureClassifier implements LaneFailureClassifier {
       );
       return null;
     }
+    const budgetMs = this.timeoutMs();
     const request: StructuredDecisionRequest = {
       providerId: selection.providerId,
       model: selection.model,
       prompt,
       jsonSchema,
-      signal: AbortSignal.timeout(this.timeoutMs()),
+      signal: AbortSignal.timeout(budgetMs),
     };
-    return acceptedFailureClass(await structured.complete(request));
+    const pending = structured.complete(request);
+    const raced = await raceClassification(pending, budgetMs, (error) => {
+      this.deps.logger.warn(
+        '[lane-routing] failure classification rejected after the deadline',
+        classificationErrorFacts(runId, error),
+      );
+    });
+    if (raced.expired) return null;
+    return acceptedFailureClass(raced.value);
   }
 
   private async classifySystemOne(
@@ -396,6 +405,54 @@ function parseJsonBody(
   }
   if (invalid) return undefined;
   return parsed;
+}
+
+/**
+ * The structured completer against the classification deadline. A late
+ * rejection is logged. The timer is cleared on every exit. The deadline is
+ * `DECISION_REQUEST_TIMEOUT_MS + DECISION_RETURN_MARGIN_MS` unless a seam
+ * overrides `timeoutMs`.
+ */
+function raceClassification(
+  work: Promise<unknown>,
+  budgetMs: number,
+  onLateRejection: (error: unknown) => void,
+): Promise<
+  | { readonly expired: true }
+  | { readonly expired: false; readonly value: unknown }
+> {
+  const deadlineWon = { current: false };
+  const guarded = work.then(
+    (value) => value,
+    (error: unknown) => {
+      if (deadlineWon.current) {
+        onLateRejection(error);
+        return undefined;
+      }
+      throw error;
+    },
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(() => resolve(), budgetMs);
+  });
+  const finish = async (): Promise<
+    | { readonly expired: true }
+    | { readonly expired: false; readonly value: unknown }
+  > => {
+    const winner = await Promise.race([
+      guarded.then((value) => ({ expired: false as const, value })),
+      deadline.then(() => ({ expired: true as const })),
+    ]);
+    if (winner.expired) {
+      deadlineWon.current = true;
+      return { expired: true };
+    }
+    return { expired: false, value: winner.value };
+  };
+  return finish().finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 function classificationErrorFacts(

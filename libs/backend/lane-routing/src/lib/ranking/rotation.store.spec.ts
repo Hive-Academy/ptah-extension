@@ -288,4 +288,50 @@ describe('rotation store', () => {
       ...OUTCOME_TASK_KINDS,
     ]);
   });
+
+  it('persists both keys when two saves run at the same time', async () => {
+    const storage = new MemoryStorage();
+    const store = new RotationStore(storage, recordingLogger());
+    const keyA = rotationKey('build', 'implement');
+    const keyB = rotationKey('review', 'review');
+
+    const [first, second] = await Promise.all([
+      store.save({
+        version: ROTATION_DOCUMENT_VERSION,
+        entries: [{ key: keyA, candidateId: 'codex' }],
+      }),
+      store.save({
+        version: ROTATION_DOCUMENT_VERSION,
+        entries: [{ key: keyB, candidateId: 'grok' }],
+      }),
+    ]);
+
+    expect(first).toEqual({ persisted: true });
+    expect(second).toEqual({ persisted: true });
+    expect(lastCandidateId(store.load().state, keyA)).toBe('codex');
+    expect(lastCandidateId(store.load().state, keyB)).toBe('grok');
+  });
+
+  it('keeps the other key when two saves touch the same key', async () => {
+    const storage = new MemoryStorage();
+    const store = new RotationStore(storage, recordingLogger());
+    const other = rotationKey('docs', 'docs');
+    const key = rotationKey('build', 'implement');
+    await store.record(other, 'kept');
+
+    await Promise.all([
+      store.save({
+        version: ROTATION_DOCUMENT_VERSION,
+        entries: [{ key, candidateId: 'first' }],
+      }),
+      store.save({
+        version: ROTATION_DOCUMENT_VERSION,
+        entries: [{ key, candidateId: 'second' }],
+      }),
+    ]);
+
+    const loaded = store.load().state;
+    expect(lastCandidateId(loaded, other)).toBe('kept');
+    expect(lastCandidateId(loaded, key)).toBe('second');
+  });
 });

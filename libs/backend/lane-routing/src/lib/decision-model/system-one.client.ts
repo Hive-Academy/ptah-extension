@@ -14,7 +14,7 @@ export const SYSTEM_ONE_TIMEOUT_MS = 3000;
 /** Request size limit for every kind (Req 12.6, part A limits table: 64 KiB). */
 export const SYSTEM_ONE_MAX_REQUEST_BYTES = 64 * 1024;
 
-/** Any body-derived detail text is cut to this length (part A §5 live calls). */
+/** Fixed failure text is cut to this length. Provider bodies are never copied. */
 const DETAIL_MAX_CHARS = 200;
 
 /**
@@ -158,16 +158,14 @@ export class SystemOneClient {
     }
 
     if (response.status === 401 || response.status === 403) {
-      return this.logged(
-        this.failure('auth', this.errorDetail(bodyText, response.status)),
-      );
+      return this.logged(this.failure('auth', `http ${response.status}`));
     }
     if (!response.ok) {
       const notFound = response.status === 404 || response.status === 405;
       return this.logged({
         ok: false,
         cause: 'provider-error',
-        detail: this.errorDetail(bodyText, response.status),
+        detail: `http ${response.status}`,
         notFound,
       });
     }
@@ -222,29 +220,6 @@ export class SystemOneClient {
     return this.logged(this.failure('unreachable', message));
   }
 
-  /**
-   * Detail text of a non-2xx answer: the body's `error` text when it has
-   * one, else the trimmed body, else `http <status>` — always cut to
-   * `DETAIL_MAX_CHARS` characters.
-   */
-  private errorDetail(bodyText: string, status: number): string {
-    const trimmed = bodyText.trim();
-    if (trimmed.length === 0) {
-      return `http ${status}`;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      return cutDetail(trimmed);
-    }
-    const error = isRecord(parsed) ? parsed['error'] : undefined;
-    if (typeof error === 'string' && error.trim().length > 0) {
-      return cutDetail(error);
-    }
-    return cutDetail(trimmed);
-  }
-
   private failure(
     cause: SystemOneFailureCause,
     detail: string,
@@ -266,8 +241,4 @@ function cutDetail(text: string): string {
   return text.length <= DETAIL_MAX_CHARS
     ? text
     : text.slice(0, DETAIL_MAX_CHARS);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
