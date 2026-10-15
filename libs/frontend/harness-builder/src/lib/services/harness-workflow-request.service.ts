@@ -52,6 +52,15 @@ export class HarnessWorkflowRequestService {
   private readonly _hubWarning = signal<string | null>(null);
   private readonly _hubError = signal<string | null>(null);
   private readonly _entryErrors = signal<Readonly<Record<string, string>>>({});
+  private readonly pendingFirstSends = new Map<
+    string,
+    {
+      root: string;
+      content: string;
+      failedMessageId?: string;
+    }
+  >();
+  private readonly firstSendsInFlight = new Set<string>();
   private transitioning = false;
 
   readonly pendingIntent = this._pendingIntent.asReadonly();
@@ -103,6 +112,96 @@ export class HarnessWorkflowRequestService {
       delete next[tabId];
       return next;
     });
+  }
+
+  /** Retry only the failed first send for its original tab and workspace. */
+  async retryFirstSend(tabId: string): Promise<boolean> {
+    const pending = this.pendingFirstSends.get(tabId);
+    if (
+      !pending ||
+      !this._entryErrors()[tabId] ||
+      this.firstSendsInFlight.has(tabId)
+    ) {
+      return false;
+    }
+    const located = this.tabs.findTabByIdAcrossWorkspaces(tabId);
+    if (
+      located?.tab.workflow !== 'harness-new-project' ||
+      canonicalHarnessRoot(located.workspacePath ?? '') !== pending.root
+    ) {
+      this._entryErrors.update((errors) => ({
+        ...errors,
+        [tabId]:
+          'The original New Project session is no longer available. Start over.',
+      }));
+      return false;
+    }
+    if (pending.failedMessageId) {
+      const messages = located.tab.messages;
+      this.tabs.setMessages(
+        tabId,
+        messages.filter((message) => message.id !== pending.failedMessageId),
+      );
+      pending.failedMessageId = undefined;
+    }
+    return this.sendFirstMessage(tabId, pending.content);
+  }
+
+  private async sendFirstMessage(
+    tabId: string,
+    content: string,
+  ): Promise<boolean> {
+    if (this.firstSendsInFlight.has(tabId)) return false;
+    this.firstSendsInFlight.add(tabId);
+    const beforeIds = new Set(
+      this.tabs
+        .findTabByIdAcrossWorkspaces(tabId)
+        ?.tab.messages?.map((message) => message.id) ?? [],
+    );
+    try {
+      const send = await this.chat.sendOrQueueMessage(content, { tabId });
+      if (!send.success) {
+        this.captureFailedFirstMessage(tabId, beforeIds);
+        this._entryErrors.update((errors) => ({
+          ...errors,
+          [tabId]: 'The first message could not be sent. Please retry it.',
+        }));
+        return false;
+      }
+      this.pendingFirstSends.delete(tabId);
+      this.clearEntryError(tabId);
+      return true;
+    } catch (cause: unknown) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      this.logger.error(
+        'HarnessWorkflowRequestService',
+        'First message send failed',
+        error,
+      );
+      this.captureFailedFirstMessage(tabId, beforeIds);
+      this._entryErrors.update((errors) => ({
+        ...errors,
+        [tabId]: 'The first message could not be sent. Please retry it.',
+      }));
+      return false;
+    } finally {
+      this.firstSendsInFlight.delete(tabId);
+    }
+  }
+
+  private captureFailedFirstMessage(
+    tabId: string,
+    beforeIds: ReadonlySet<string>,
+  ): void {
+    const pending = this.pendingFirstSends.get(tabId);
+    if (!pending) return;
+    const messages =
+      this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.messages ?? [];
+    pending.failedMessageId = messages
+      .filter(
+        (message) => message.role === 'user' && !beforeIds.has(message.id),
+      )
+      .at(-1)?.id;
   }
 
   /** The guard is set before the first await, so a second click is ignored. */
@@ -288,6 +387,8 @@ export class HarnessWorkflowRequestService {
       landed = true;
       if (mode === 'new-project' && intake) {
         const targetId = tabId;
+        const content = formatIntakeSummary(intake);
+        this.pendingFirstSends.set(targetId, { root, content });
         await firstValueFrom(
           this.visibleTabs$.pipe(
             filter((ids) => ids.has(targetId)),
@@ -295,17 +396,7 @@ export class HarnessWorkflowRequestService {
             timeout({ first: 10_000 }),
           ),
         );
-        const send = await this.chat.sendOrQueueMessage(
-          formatIntakeSummary(intake),
-          { tabId },
-        );
-        if (!send.success) {
-          this._entryErrors.update((errors) => ({
-            ...errors,
-            [targetId]: 'The first message could not be sent. Please retry it.',
-          }));
-          return 'failed';
-        }
+        if (!(await this.sendFirstMessage(targetId, content))) return 'failed';
       }
       return 'landed';
     } catch (cause: unknown) {

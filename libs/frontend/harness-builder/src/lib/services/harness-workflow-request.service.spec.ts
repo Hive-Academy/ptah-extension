@@ -29,6 +29,7 @@ describe('HarnessWorkflowRequestService', () => {
     setWorkflow: jest.Mock;
     setFirstMessagePreamble: jest.Mock;
     closeTab: jest.Mock;
+    setMessages: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
   };
   let rpc: { startNewProject: jest.Mock; workflowPrompt: jest.Mock };
@@ -49,6 +50,7 @@ describe('HarnessWorkflowRequestService', () => {
       setWorkflow: jest.fn(),
       setFirstMessagePreamble: jest.fn(),
       closeTab: jest.fn().mockResolvedValue(undefined),
+      setMessages: jest.fn(),
       findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
     };
     rpc = {
@@ -206,6 +208,100 @@ describe('HarnessWorkflowRequestService', () => {
       await service.requestAndNavigate({ mode: 'new-project', intake }),
     ).toBe('landed');
     expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the same New Project intake after a failed first send without reseeding', async () => {
+    chat.sendOrQueueMessage.mockResolvedValueOnce({ success: false });
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('failed');
+    expect(service.entryErrors()['new-tab']).toContain('could not be sent');
+    const firstContent = chat.sendOrQueueMessage.mock.calls[0][0];
+    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
+      tab: { id: 'new-tab', workflow: 'harness-new-project' },
+      workspacePath: 'C:/work',
+    });
+
+    chat.sendOrQueueMessage.mockResolvedValueOnce({ success: false });
+    expect(await service.retryFirstSend('new-tab')).toBe(false);
+    expect(service.entryErrors()['new-tab']).toContain('could not be sent');
+
+    expect(await service.retryFirstSend('new-tab')).toBe(true);
+    expect(service.entryErrors()['new-tab']).toBeUndefined();
+    expect(
+      chat.sendOrQueueMessage.mock.calls.map(([content]) => content),
+    ).toEqual([firstContent, firstContent, firstContent]);
+    expect(
+      chat.sendOrQueueMessage.mock.calls.every(
+        ([, options]) => options.tabId === 'new-tab',
+      ),
+    ).toBe(true);
+    expect(rpc.startNewProject).toHaveBeenCalledTimes(1);
+    expect(tabs.createTab).toHaveBeenCalledTimes(1);
+    expect(await service.retryFirstSend('new-tab')).toBe(false);
+    expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it('ignores a second retry while the first retry is sending', async () => {
+    chat.sendOrQueueMessage.mockResolvedValueOnce({ success: false });
+    await service.requestAndNavigate({ mode: 'new-project', intake });
+    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
+      tab: { id: 'new-tab', workflow: 'harness-new-project' },
+      workspacePath: 'C:/work',
+    });
+    let resolveSend!: (outcome: { success: boolean }) => void;
+    chat.sendOrQueueMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSend = resolve;
+        }),
+    );
+    const retry = service.retryFirstSend('new-tab');
+    expect(await service.retryFirstSend('new-tab')).toBe(false);
+    expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(2);
+    resolveSend({ success: true });
+    expect(await retry).toBe(true);
+    expect(chat.sendOrQueueMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('replaces the failed first bubble before retrying the same intake', async () => {
+    const tab = {
+      id: 'new-tab',
+      workflow: 'harness-new-project',
+      messages: [] as Array<{ id: string; role: 'user'; rawContent: string }>,
+    };
+    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
+      tab,
+      workspacePath: 'C:/work',
+    });
+    tabs.setMessages.mockImplementation((_tabId, messages) => {
+      tab.messages = [...messages];
+    });
+    chat.sendOrQueueMessage.mockImplementationOnce(async (content: string) => {
+      tab.messages.push({
+        id: 'failed-first',
+        role: 'user',
+        rawContent: content,
+      });
+      return { success: false };
+    });
+    await service.requestAndNavigate({ mode: 'new-project', intake });
+    expect(tab.messages.map((message) => message.id)).toEqual(['failed-first']);
+
+    chat.sendOrQueueMessage.mockImplementationOnce(async (content: string) => {
+      tab.messages.push({
+        id: 'retried-first',
+        role: 'user',
+        rawContent: content,
+      });
+      return { success: true };
+    });
+    expect(await service.retryFirstSend('new-tab')).toBe(true);
+    expect(tab.messages.map((message) => message.id)).toEqual([
+      'retried-first',
+    ]);
+    expect(tabs.setMessages).toHaveBeenCalledWith('new-tab', []);
+    expect(rpc.startNewProject).toHaveBeenCalledTimes(1);
   });
 
   it('keeps an abort warning until dismissed', () => {

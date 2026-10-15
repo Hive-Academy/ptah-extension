@@ -2,22 +2,9 @@ import { test, expect } from '../../support/fixtures';
 import type { UiDriver } from '../../support/ui-driver';
 
 /**
- * New Project flow (TASK_2026_263) — Setup Hub intake -> `harness:start-new-project`
- * -> `harness:open-workflow` broadcast -> harness-builder surface, including the
- * two defects context.md called out as recurring: AskUserQuestion cards never
- * rendering on the harness surface (§A — `hasSurfaceQuestionTargets`, fixed
- * TASK_2026_263) and the workflow dropping on navigation/reload (§C — root-provided
- * `HarnessWorkflowService` + `localStorage` rehydrate).
- *
- * All five scenarios drive the flow with mocked RPC + pushed renderer messages
- * (see `UiDriver`) rather than a real backend/SDK — same technique as
- * `harness-builder.spec.ts` and `streaming-message-handlers.spec.ts`.
- *
- * `openNewProjectWorkflow()` is shared by tests 2-5 rather than chaining them
- * as literal follow-on steps of one another: `electronApp` is a per-test
- * fixture (`fixtures.ts`), so every `test()` gets a fresh Electron process —
- * there is no cross-test app state to continue from. Each test re-runs the
- * same "open the workflow" setup and then does its own thing from there.
+ * New Project integration: Hub intake opens a routed, tagged chat tab.
+ * These scenarios use mocked RPC and renderer messages, then check the
+ * shared chat transcript, question cards, Hub resume and reload restoration.
  */
 
 const SEED_PROMPT_MARKER = 'AGENT_INSTRUCTIONS::';
@@ -25,9 +12,6 @@ const SEED_PROMPT_MARKER = 'AGENT_INSTRUCTIONS::';
 /** Valid UUID v4s (`isWireUuid`/`isUuidV4String` in `permission.parsers.ts` require this shape). */
 const SESSION_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const QUESTION_ID = '5b6a7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d';
-
-/** `HarnessWorkflowService.HARNESS_WORKFLOW_STORAGE_KEY` (harness-workflow.service.ts). */
-const HARNESS_WORKFLOW_STORAGE_KEY = 'ptah.harness.workflow.v1';
 
 const AUDIENCE_LABELS = {
   b2b: 'B2B',
@@ -88,7 +72,16 @@ async function openNewProjectWorkflow(
   seedPrompt: string,
 ): Promise<{ tabId: string }> {
   await ui.mockRpc({
-    'harness:start-new-project': { success: true },
+    'harness:start-new-project': {
+      success: true,
+      seedPrompt,
+      intake,
+      plugins: {
+        enabledBundled: [],
+        missingExternal: [],
+        availableSkillIds: [],
+      },
+    },
     'chat:start': { success: true },
   });
   await ui.pushEvent({
@@ -99,25 +92,24 @@ async function openNewProjectWorkflow(
   await expect(ui.page.locator('ptah-harness-builder-view')).toBeVisible();
 
   const startCall = await ui.waitForObservedCall('chat:start');
-  const params = startCall.params as {
-    tabId: string;
-    prompt: string;
-    surfaceMode: boolean;
-  };
-  expect(params.surfaceMode).toBe(true);
-  expect(params.prompt).toBe(seedPrompt);
+  const params = startCall.params as { tabId: string; prompt: string };
+  expect(params.prompt).toContain(seedPrompt);
+  await expect(ui.page).toHaveURL(
+    new RegExp(`/harness-builder/new-project/${params.tabId}`),
+  );
+  await expect(ui.page.locator('ptah-session-embed')).toBeVisible();
 
   return { tabId: params.tabId };
 }
 
 // `SetupHubComponent` reads `presets().length` unguarded in five template
-// spots (setup-hub.component.ts:772/783/785/799/803) with no `?? []` — a
+// spots (setup-hub.component.ts:772/783/785/799/803) with no `?? []` Ã¢â‚¬â€ a
 // real backend always resolves `harness:load-presets` to `{ presets: [] }`
 // (never bare `{}`), but `UiDriver`'s unmocked-method fallback returns the
 // merged empty-defaults object, which has no `presets` key. That undefined
 // signal throws on every change-detection pass from then on (see the "found
 // bug" note in the final report), silently freezing the REST of this
-// component's reactive bindings — including, several change-detection cycles
+// component's reactive bindings Ã¢â‚¬â€ including, several change-detection cycles
 // later, the New Project intake modal's disabled-state and its audience/stack
 // chip lists, which is what this file actually tests. Mock it everywhere so
 // these tests exercise intake behavior, not that unrelated defect.
@@ -125,7 +117,7 @@ test.beforeEach(async ({ ui }) => {
   await ui.mockRpc({ 'harness:load-presets': { presets: [] } });
 });
 
-test.describe('New Project flow — intake (TASK_2026_263)', () => {
+test.describe('New Project flow Ã¢â‚¬â€ intake (TASK_2026_263)', () => {
   test('intake form submits harness:start-new-project with the exact intake payload', async ({
     ui,
   }) => {
@@ -138,7 +130,7 @@ test.describe('New Project flow — intake (TASK_2026_263)', () => {
     ).toBeVisible();
 
     const startButton = ui.page.locator('[data-testid="intake-start"]');
-    // "What are you building?" is the one required field — nothing else
+    // "What are you building?" is the one required field Ã¢â‚¬â€ nothing else
     // filled in yet.
     await expect(startButton).toBeDisabled();
 
@@ -180,11 +172,11 @@ test.describe('New Project flow — intake (TASK_2026_263)', () => {
     await ui.page
       .locator('[data-testid="intake-what"]')
       .fill('An inventory tracker.');
-    // Default stack is 'recommend' — no free text required, so this alone enables it.
+    // Default stack is 'recommend' Ã¢â‚¬â€ no free text required, so this alone enables it.
     await expect(startButton).toBeEnabled();
 
     // The chip and its conditional text input share the same testid
-    // (setup-hub.component.ts:1007/1020) — disambiguate by tag.
+    // (setup-hub.component.ts:1007/1020) Ã¢â‚¬â€ disambiguate by tag.
     await ui.page.locator('button[data-testid="intake-stack-other"]').click();
     await expect(startButton).toBeDisabled();
 
@@ -195,8 +187,8 @@ test.describe('New Project flow — intake (TASK_2026_263)', () => {
   });
 });
 
-test.describe('New Project flow — workflow + surface (TASK_2026_263)', () => {
-  test('opening the workflow renders the intake summary as the first bubble (not the raw seed prompt) and starts chat in surface mode', async ({
+test.describe('New Project flow Ã¢â‚¬â€ workflow + surface (TASK_2026_263)', () => {
+  test('opening the workflow renders the intake summary and starts a routed chat tab', async ({
     ui,
   }) => {
     const intake: Intake = {
@@ -216,8 +208,8 @@ test.describe('New Project flow — workflow + surface (TASK_2026_263)', () => {
     for (const line of expectedIntakeSummaryLines(intake)) {
       expect(transcriptText).toContain(line);
     }
-    // The agent's instruction block must never leak into the transcript —
-    // this was the "hardcoded" symptom context.md §B described.
+    // The agent's instruction block must never leak into the transcript Ã¢â‚¬â€
+    // this was the "hardcoded" symptom context.md Ã‚Â§B described.
     expect(transcriptText).not.toContain(SEED_PROMPT_MARKER);
   });
 
@@ -233,14 +225,14 @@ test.describe('New Project flow — workflow + surface (TASK_2026_263)', () => {
     const { tabId } = await openNewProjectWorkflow(ui, intake, seedPrompt);
 
     // Bind the surface to a real session id the way the SDK's first stream
-    // event would — StreamRouter.routeQuestionPrompt resolves the question
+    // event would Ã¢â‚¬â€ StreamRouter.routeQuestionPrompt resolves the question
     // below to this surface via that binding (StreamRouter.interactiveSurfacesForSession).
     await ui.pushEvent({
       type: 'chat:chunk',
       payload: {
         tabId,
         sessionId: SESSION_ID,
-        surfaceMode: true,
+        surfaceMode: false,
         event: {
           id: 'evt-1',
           eventType: 'message_start',
@@ -273,7 +265,7 @@ test.describe('New Project flow — workflow + surface (TASK_2026_263)', () => {
         timeoutAt: 0,
         sessionId: SESSION_ID,
         tabId,
-        surfaceMode: true,
+        surfaceMode: false,
       },
     });
 
@@ -297,8 +289,8 @@ test.describe('New Project flow — workflow + surface (TASK_2026_263)', () => {
   });
 });
 
-test.describe('New Project flow — persistence (TASK_2026_263)', () => {
-  test('the workflow survives navigating away and back, and the Setup Hub offers Resume instead of starting a second run', async ({
+test.describe('New Project flow - persistence', () => {
+  test('Hub Resume returns to the same routed tab after navigating away', async ({
     ui,
   }) => {
     const intake: Intake = {
@@ -307,33 +299,25 @@ test.describe('New Project flow — persistence (TASK_2026_263)', () => {
       stack: 'react-nestjs',
     };
     const seedPrompt = `${SEED_PROMPT_MARKER} discovery for: ${intake.what}`;
-    await openNewProjectWorkflow(ui, intake, seedPrompt);
+    const { tabId } = await openNewProjectWorkflow(ui, intake, seedPrompt);
 
     await ui.goto('dashboard');
     await expect(ui.page.locator('ptah-dashboard-grid')).toBeVisible();
-
-    await ui.goto('harness-builder');
-    await expect(ui.page.locator('ptah-harness-builder-view')).toBeVisible();
-    const transcriptText = await ui.page
-      .locator('ptah-harness-builder-view [role="log"]')
-      .innerText();
-    expect(transcriptText).toContain(intake.what);
-
-    // The view was destroyed and recreated by the navigation round trip;
-    // only a duplicate `chat:start` would prove the transcript is a replay of
-    // a second agent session rather than the same one kept alive.
-    expect(await ui.getObservedCalls('chat:start')).toHaveLength(1);
-
     await ui.goto('setup-hub');
-    await expect(
-      ui.page.locator('[data-testid="new-project-resume"]'),
-    ).toBeVisible();
+    const resume = ui.page.locator('[data-testid="new-project-resume"]');
+    await expect(resume).toBeVisible();
     await expect(
       ui.page.locator('[data-testid="new-project-start"]'),
     ).toHaveCount(0);
+    await resume.click();
+    await expect(ui.page).toHaveURL(
+      new RegExp(`/harness-builder/new-project/${tabId}`),
+    );
+    await expect(ui.page.locator('ptah-session-embed')).toBeVisible();
+    expect(await ui.getObservedCalls('chat:start')).toHaveLength(1);
   });
 
-  test('a page reload rehydrates the transcript and resumed-note from localStorage plus chat:resume history', async ({
+  test('reload restores the route and the same normal chat session', async ({
     ui,
   }) => {
     const intake: Intake = {
@@ -343,16 +327,12 @@ test.describe('New Project flow — persistence (TASK_2026_263)', () => {
     };
     const seedPrompt = `${SEED_PROMPT_MARKER} discovery for: ${intake.what}`;
     const { tabId } = await openNewProjectWorkflow(ui, intake, seedPrompt);
-
-    // Bind a real session id so the persisted record carries one, and
-    // `rehydrate()` on reload takes the `chat:resume` replay path
-    // (`HarnessWorkflowService.replaySessionHistory`) rather than skipping it.
     await ui.pushEvent({
       type: 'chat:chunk',
       payload: {
         tabId,
         sessionId: SESSION_ID,
-        surfaceMode: true,
+        surfaceMode: false,
         event: {
           id: 'evt-1',
           eventType: 'message_start',
@@ -363,23 +343,6 @@ test.describe('New Project flow — persistence (TASK_2026_263)', () => {
         },
       },
     });
-
-    // The persistence effect (`HarnessWorkflowService` constructor) writes
-    // to localStorage asynchronously off the pushEvent call — wait for the
-    // session id to land before reloading, or the record could still show
-    // `sessionId: null`.
-    await ui.page.waitForFunction((key) => {
-      const raw = localStorage.getItem(key);
-      if (!raw) return false;
-      try {
-        return (
-          (JSON.parse(raw) as { sessionId: string | null }).sessionId !== null
-        );
-      } catch {
-        return false;
-      }
-    }, HARNESS_WORKFLOW_STORAGE_KEY);
-
     await ui.mockRpc({
       'chat:resume': {
         success: true,
@@ -396,18 +359,15 @@ test.describe('New Project flow — persistence (TASK_2026_263)', () => {
       },
     });
 
-    // Reload the renderer only — same Electron process/main-process mocks,
-    // fresh Angular injector (mirrors what a real F5 does; ui.prepare() is
-    // the same reload path the `ui` fixture uses for the initial boot).
     await ui.prepare();
-    await ui.goto('harness-builder');
-
-    await expect(
-      ui.page.locator('[data-testid="workflow-resumed-note"]'),
-    ).toBeVisible();
+    await expect(ui.page).toHaveURL(
+      new RegExp(`/harness-builder/new-project/${tabId}`),
+    );
+    await expect(ui.page.locator('ptah-session-embed')).toBeVisible();
     const transcriptText = await ui.page
       .locator('ptah-harness-builder-view [role="log"]')
       .innerText();
     expect(transcriptText).toContain(intake.what);
+    expect(await ui.getObservedCalls('chat:start')).toHaveLength(1);
   });
 });

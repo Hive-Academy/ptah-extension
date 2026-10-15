@@ -111,3 +111,72 @@ goes under `## Proposed Removals` for user approval.
   decisions (a) abort warning, (b) Hub confirm copy, (c) relay error on the Hub.
 - Gate 2 APPROVED by the user (D12): Hub keeps its look; a1, b1, c1. Next: team-leader
   decomposition on a codex lane (no Claude subagents until 2026-10-16).
+- Plan and reviews committed `857899eaa`. Team-leader (codex) wrote `batches.md`: 11 batches
+  B1a-B4c, file-disjoint, dependency edges stated.
+- Check policy: lanes edit only; they run no nx/jest/tsc. The orchestrator runs each batch's
+  verify commands one at a time, then commits the batch.
+- Wave 1 (18:51 UTC, codex): B1a 57628e99-cce1-4f32-835f-e49580610d7e, B1d
+  1e84c080-6d79-4977-8f5b-44f15dcdc588, B2 8ac3302b-e942-446c-912c-83a7cec070ef.
+- B2 committed `0019f598a` (chat typecheck/lint pass, embed spec 6/6). Token file
+  byte-identical; the barrel line is prettier-wrapped to 4 lines by the hook (677 informed).
+- B1a: typecheck/lint pass; `rpc-harness.types.spec.ts` fails ts-jest (2 test-only type
+  errors at :53 and :78), sent back to the lane as a queued fix turn.
+- B1d delivered. rpc-handlers typecheck fails only on `HarnessProposalStore` vs the B1a
+  interface (B1b implements it), so B1a and B1b commit together after B1b, then B1d. B1d
+  schema/composer specs pass (39 tests); handler spec waits for B1b. Unowned shared type
+  `HarnessWorkflowPromptParams` (rpc-harness.types.ts, intent required) assigned to the B1a
+  lane as a queued turn.
+- B1a fix round passed (shared spec 43/43). The B1a lane had ended, so the shared type task
+  runs as a resumed B1a lane (ed8aae69-eba7-462b-8d00-c28d95699101). B1b started
+  (4645b647-c793-46ec-869d-c013a98c2694). 19:05 UTC: grok weekly 80% (other sessions use
+  it too); re-check before the code-logic review.
+- 677 confirmed D8: token file byte-identical; 677 changed its barrel to the same 4-line form
+  (lands in its next fix-round commit on feat/clean-session-view). In 677 the lines follow the
+  `injectSessionStatsSource` export, so a merge may show a trivial end-of-file conflict in
+  `libs/frontend/chat/src/index.ts`: keep one copy of the 4 lines.
+- B1b delivered; rpc-handlers typecheck/lint pass; tests 155/156 suites, one ts-jest cast in
+  the new attribution spec fixed by the orchestrator (test-only, recorded in
+  batch-B1b-report.md). Harness specs 7/7 suites, 148 tests. Commits `83ac95435` (B1a+B1b) and
+  `bfc674573` (B1d). B1c started 19:18 UTC (ce4f1976-f1a0-487b-820b-8002e246baae). Grok weekly
+  83%.
+- B1c: vscode-lm-tools typecheck/lint/test pass; committed `f6fcf92ef`. B1c reported that the
+  store saves under the active provider root, not the caller's workspace -> new batch B1e (D13).
+- 19:27 UTC wave: B1e d376eb45-b9cb-4d33-96ad-d9f98b5c57f5 (fresh lane, handoff brief), B3a
+  385030dc-2ecf-4691-88e2-7c3325b8e70b, B3b 7bc7b06b-f4a4-4b5f-90cb-8354f6e873af. Grok 86%.
+- B1e: 3 backend projects typecheck/lint pass; tests pass after an orchestrator test-only fix
+  (store spec mock type). B1e commit BLOCKED by the pre-commit `nx affected -t lint`: the
+  degradation-audit scans untracked B3 files (harness-builder 8 vs baseline 3). Hook reverted
+  cleanly (staged files kept, lane files intact, stash@{0} untouched). B1e stays staged.
+- B3a and B3b: harness-builder typecheck, lint and tests pass. 5 new catch sentinels
+  (records:234, hydration:138/181, helper:94/170) -> fix round on a fresh codex lane
+  994249e3-61bf-4204-89df-1e0bb95dc942 (resume refused: context over 60k).
+- 19:42 UTC: grok weekly 90% (near limit). Code-logic review options: grok if room remains;
+  a Claude code-logic-reviewer subagent from 2026-10-16 (different family than codex);
+  antigravity after 2026-10-18 12:48 UTC; opencode monthly 92%.
+- Sentinel fix round: audit harness-builder 3/3 ok; harness-builder typecheck, lint, tests
+  pass. Commits `91e9999b0` (B1e) and `7777ba773` (B3a+B3b). B3c started 19:47 UTC
+  (ee75abcc-8886-4d56-87a6-a767da850923); lane briefs now carry the degradation-audit rule.
+- B3c: one lane fix round (leave-dialog type errors, sidebar unused vars). The preview spec
+  then failed: the prettier hook had put whitespace around `{{ documentContent() }}` in a
+  `whitespace-pre-wrap` viewer (visible defect from 7777ba773). Orchestrator fix: `[textContent]`
+  binding there and on the new sidebar helper viewer. Later item: the main-branch prompt
+  preview has the same pattern. Checks pass; committed `65de5277b`.
+- 20:04 UTC: B4a d9d9fc7c-3599-40f6-aec1-27e0cd1e5e84, B4b 70f703d1-3529-4e17-b818-ab17bb7a1757.
+- B4a: 3 projects typecheck/lint pass, harness-builder tests pass, audit harness-builder 2/3,
+  chat 10/11. Hub diff checked against D10/D12: two alerts in the existing `alert alert-error
+  mb-6` pattern, confirm copy only. Committed `d64da92d0`.
+- B4b: route spec failed 2/4 (test panel id had an invalid format, so persistence skipped);
+  fix lane corrected the fixture, production unchanged; spec 4/4, webview lint pass.
+  Committed `00d6d1159`.
+- 20:21 UTC: B4c (final integration) ddae5e6a-c629-4867-bbb6-f25e3608a3b1, ceiling 90 calls.
+- B4c delivered (old builder transport deleted, view on embed + sidebar). Checks: view.ts:210
+  TS2345 (null root), view spec 4 unused imports, 8 lines > 200 chars; audit clean. Gaps:
+  first-send retry (in scope, given to B4c fix round); canvas tile-cap notice (out of scope,
+  design §11). Prettier had grown the committed sidebar to 1243 lines (limit 700): split lane
+  B3d 7ba37e07-4576-407b-bd8d-760bb36bd552 in parallel (disjoint files). Grok weekly 92%.
+- B4c fix round 1 + B3d split delivered. One missing import in
+  sidebar/builder-ai-helpers-section.component.ts (helperResultText) fixed by the orchestrator
+  (aliased import). typecheck/lint pass for harness-builder, ptah-electron-e2e, webview; audit
+  clean. Tests 2 failed / 70 passed (182 before B4c): prompt-isolation mock lacks tabs(); retry
+  test expectation. B4c fix round 2 on a fresh lane 6fcab055-6dfe-404c-bf38-ebeba72fee21, also
+  asked to map deleted tests to new coverage.

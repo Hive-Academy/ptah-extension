@@ -6,6 +6,8 @@ import type { HarnessConfig } from '@ptah-extension/shared';
 import { SessionStatsSummaryComponent } from '@ptah-extension/chat-ui';
 import { HarnessBuilderSidebarComponent } from './harness-builder-sidebar.component';
 import { HarnessConfigPreviewComponent } from './harness-config-preview.component';
+import { BuilderPreviewSectionComponent } from './sidebar/builder-preview-section.component';
+import { BuilderSessionSectionComponent } from './sidebar/builder-session-section.component';
 import { HarnessBuilderRecordsService } from '../services/harness-builder-records.service';
 import { HarnessProposalHydrationService } from '../services/harness-proposal-hydration.service';
 import { HarnessHelperService } from '../services/harness-helper.service';
@@ -53,12 +55,10 @@ describe('HarnessBuilderSidebarComponent', () => {
   };
   const rpc = {
     loadPresets: jest.fn().mockResolvedValue({ presets: [] }),
-    apply: jest
-      .fn()
-      .mockResolvedValue({
-        appliedPaths: ['C:/repo/.claude/agents/a.md', 'C:/repo/b.md'],
-        warnings: ['Review one file'],
-      }),
+    apply: jest.fn().mockResolvedValue({
+      appliedPaths: ['C:/repo/.claude/agents/a.md', 'C:/repo/b.md'],
+      warnings: ['Review one file'],
+    }),
     savePreset: jest.fn(),
   };
   const helper = {
@@ -81,11 +81,13 @@ describe('HarnessBuilderSidebarComponent', () => {
     });
     hydration.isConfigComplete.set(false);
     jest.clearAllMocks();
-    TestBed.overrideComponent(HarnessBuilderSidebarComponent, {
-      remove: {
-        imports: [HarnessConfigPreviewComponent, SessionStatsSummaryComponent],
-      },
-      add: { imports: [PreviewStub, StatsStub] },
+    TestBed.overrideComponent(BuilderPreviewSectionComponent, {
+      remove: { imports: [HarnessConfigPreviewComponent] },
+      add: { imports: [PreviewStub] },
+    });
+    TestBed.overrideComponent(BuilderSessionSectionComponent, {
+      remove: { imports: [SessionStatsSummaryComponent] },
+      add: { imports: [StatsStub] },
     });
     await TestBed.configureTestingModule({
       imports: [HarnessBuilderSidebarComponent],
