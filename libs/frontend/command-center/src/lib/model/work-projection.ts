@@ -58,9 +58,9 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
   ];
   const owned = new Set([input.rootSessionId, input.rootTabId]);
   const aliases = new Map(
-    input.children
-      .filter((child) => child.sessionId)
-      .map((child) => [child.tabId, child.sessionId as string]),
+    input.children.flatMap((child) =>
+      child.sessionId ? [[child.tabId, child.sessionId] as const] : [],
+    ),
   );
   const canonical = (id: string): string => aliases.get(id) ?? id;
   const childBySession = new Map(
@@ -79,7 +79,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       .map((child) => ({
         id: child.sessionId,
         parent: child.parentSessionId,
-        state: 'completed' as const,
+        state: 'unknown' as const,
       })),
   ];
   let changed = true;
@@ -120,6 +120,28 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       providerId: null,
       state: run.state,
     });
+    for (const lane of run.phase.laneBindings.lanes) {
+      const status = run.phase.laneBindings.bound.get(lane.laneId)?.status;
+      const state: CommandWorkState =
+        status === 'running'
+          ? 'running'
+          : status === 'completed'
+            ? 'completed'
+            : status === 'failed' || status === 'timeout'
+              ? 'failed'
+              : status === 'stopped'
+                ? 'cancelled'
+                : 'queued';
+      nodes.push({
+        id: `lane:${run.runId}:${lane.laneId}`,
+        parentId: runId,
+        label: lane.role
+          ? `${lane.displayName} (${lane.role})`
+          : lane.displayName,
+        providerId: lane.cli,
+        state,
+      });
+    }
     const phase = derivePhase(run.phase);
     if (phase.kind === 'relay') {
       for (const step of phase.phases)
@@ -143,20 +165,35 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
         providerId: null,
         state: phase.termination === 'in-progress' ? 'running' : 'completed',
       });
+    } else {
+      nodes.push({
+        id: `phase:${run.runId}:stage`,
+        parentId: runId,
+        label:
+          phase.kind === 'none' ? 'No phase tracking' : 'Phase unavailable',
+        providerId: null,
+        state: run.state,
+      });
     }
   }
   for (const agent of input.agents) {
     if (!owned.has(canonical(agent.parentSessionId))) continue;
     const run = agent.runId ? runs.get(agent.runId) : undefined;
+    const lane = run?.phase.laneBindings.lanes.find(
+      (candidate) => candidate.agentId === agent.agentId,
+    );
     const id =
       agent.kind === 'cli'
         ? `cli:${agent.agentId}`
         : `sdk:${agent.parentSessionId}:${agent.agentId}`;
     nodes.push({
       id,
-      parentId: run
-        ? `tribunal:${run.runId}`
-        : nodeForSession(agent.parentSessionId),
+      parentId:
+        run && lane
+          ? `lane:${run.runId}:${lane.laneId}`
+          : run
+            ? `tribunal:${run.runId}`
+            : nodeForSession(agent.parentSessionId),
       label: agent.kind === 'cli' ? 'CLI agent' : 'SDK agent',
       providerId: agent.providerId ?? null,
       state: agent.state,
@@ -165,8 +202,8 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
   const unique = [...new Map(nodes.map((node) => [node.id, node])).values()];
   return {
     nodes: unique,
-    edges: unique
-      .filter((node) => node.parentId !== null)
-      .map((node) => ({ fromId: node.parentId as string, toId: node.id })),
+    edges: unique.flatMap((node) =>
+      node.parentId === null ? [] : [{ fromId: node.parentId, toId: node.id }],
+    ),
   };
 }

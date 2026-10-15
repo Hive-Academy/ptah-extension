@@ -13,6 +13,7 @@ export type CommandVoiceState =
   | 'error';
 
 export type CommandWorkState =
+  | 'unknown'
   | 'queued'
   | 'starting'
   | 'running'

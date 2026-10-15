@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 15/27
+Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 16/27
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -141,7 +141,7 @@ Edge cases:
 | ----- | ------- | ------------ |
 | 0 - Baseline | B0 | none (measurement) |
 | A - Chat runtime contracts | B1-B4, fix B4F | CLOSED: code-logic (B1-B4: NEEDS_REVISION); B4F re-review APPROVED (L1 closed) |
-| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24); then one logic re-review (grok) on `5d52cfa5b..HEAD` plus style re-review (phase widening) |
+| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24), all committed; NEEDS REVIEW: one logic re-review (grok) on `5d52cfa5b..HEAD` plus style re-review (phase widening) |
 | C - Voice | B9-B10 | code-logic |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
 | E - Acceptance | B17-B18 | none (tests and measurement); B18 visual evidence is still required for Mode 3 |
@@ -1391,7 +1391,7 @@ Lane rules for this batch:
   @ptah-extension/command-center`, header 2 projects, all 6 tasks green. Commit `a5adac5cd`: hook and commitlint
   passed on the first attempt (Wave 1: `dd8e42cd9`, `545d3b53a`, `a5adac5cd`, no hook failure).
 
-## Batch 8FC: Tribunal confirm state machine, real roster rule, saved preferences (S1, S2, S5, TL-2 coordinator half, style S2/S3, Moderate 4) - COMPLETE (commit: subject `fix(command-center): batch 8FC - retryable confirm and real roster rule`; SHA added at the 8FE commit)
+## Batch 8FC: Tribunal confirm state machine, real roster rule, saved preferences (S1, S2, S5, TL-2 coordinator half, style S2/S3, Moderate 4) - COMPLETE (commit ae74169bc)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design; paid-spawn safety)
 - Execution mode: sequential
@@ -1530,7 +1530,12 @@ Lane rules for this batch:
 - Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/command-center`,
   header 1 project, all 3 targets green.
 
-## Batch 8FE: Tribunal lanes and stage in the projection; persisted state unknown (logic S7, M6; style Moderate 3) - IN_PROGRESS
+## Batch 8FE: Tribunal lanes and stage in the projection; persisted state unknown (logic S7, M6; style Moderate 3) - COMPLETE (commit: subject `fix(command-center): batch 8FE - tribunal lanes and stage in work tree`; SHA added when the Phase B re-review verdict is recorded)
+
+- Families (8F fix round): implementer codex for every 8F lane (8FA `codex`, 8FB `codex`, 8FC `daeb9089`, 8FD
+  `codex`, 8FE `9dc9ee2b`); 8F0 was an in-process Prettier run (format-only, outside the review range). Review:
+  code-logic re-review by a grok CLI lane on `5d52cfa5b..HEAD`; style re-review by the in-process
+  `code-style-reviewer` (Anthropic). Both differ from the codex implementer; no same-family exception.
 
 - Recommended executor: CLI lane (implementation; pure TypeScript reducer, test design)
 - Execution mode: sequential (after 8FC, because both edit `command-center`)
@@ -1549,7 +1554,7 @@ Lane rules for this batch:
   (add `'unknown'` to `CommandWorkState` (`:19-26`) only)
 - Suggested commit: `fix(command-center): batch 8FE - tribunal lanes and stage in work tree`
 
-### Task 8FE.1: Lanes and stage for every Tribunal run; persisted-only children are unknown - IN_PROGRESS
+### Task 8FE.1: Lanes and stage for every Tribunal run; persisted-only children are unknown - COMPLETE
 
 - Findings:
   - S7: the review's data-flow and requirement tables call this "S7" (AC15 PARTIAL), though its summary counts six
@@ -1581,6 +1586,22 @@ Lane rules for this batch:
 - Every listed artifact exists; the scoped command passes, 1 project.
 - Phase B fix round closes with NEEDS REVIEW: logic re-review (grok) on `5d52cfa5b..HEAD`, plus a style
   re-review (in-process) of the `phase` widening and the 8F files' formatting.
+- Result (team-leader, Mode 2): executor codex lane `9dc9ee2b`; report `TASK/reports/batch-8FE-report.md`. Exactly
+  the 3 listed files changed; `command-center.store.ts` adds only `| 'unknown'` to `CommandWorkState`. On disk,
+  `work-projection.ts`: every run emits one `lane:<runId>:<laneId>` node per `laneBindings.lanes` entry under
+  `tribunal:<runId>` (label adds the role only when present, `providerId` is the lane `cli`, bound status maps to
+  running/completed/failed/cancelled, unbound is `queued`); `derivePhase` kind `none`/`unavailable` emits one
+  `phase:<runId>:stage` node with the run state; Relay and Crucible branches are unchanged; an owned agent whose
+  `runId` and `agentId` match a lane parents under that lane; persisted-only children are `'unknown'` and a live
+  child with the same session id wins; both `as string` casts are replaced by `flatMap` narrowing; nodes are
+  de-duplicated by id. No catch site. The only other reader of node state, `status-context.ts:16`, prints it as
+  text, so `'unknown'` needs no change there. Specs cover the 5 required cases plus a Crucible unavailable stage.
+- Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/command-center`,
+  header 1 project, all 3 targets green.
+- Phase B fix round B8F: all batches committed (8F0 `5d52cfa5b`, 8FA `dd8e42cd9`, 8FB `545d3b53a`, 8FD
+  `a5adac5cd`, 8FC `ae74169bc`, 8FE this commit). Phase B status: NEEDS REVIEW (logic re-review, grok, output
+  `TASK/code-logic-review-phase-b-rereview.md`; style re-review, in-process, appends a `## Re-review (fix round 8F)`
+  section with its own verdict to `TASK/code-style-review.md`).
 
 ## Batch 9: Voice primitives (adapted from property-hub) - PENDING
 
