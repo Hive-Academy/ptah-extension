@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 47 | Batches: 38 | Complete: 33/38 | Phases accepted: P1, P2 (decision #85) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91); P3 phase review on a codex lane pending
+Total tasks: 47 | Batches: 39 (Batch 37 P3 fix round added, decision #93) | Complete: 34/39 | Phases accepted: P1, P2 (decision #85) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91); P3 phase review on a codex lane pending
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -287,6 +287,9 @@ be Anthropic.
 | LT-P2-16 | Ops owned by an in-flight `drain` (spliced from `this.queue`, journal write not finished) are invisible to the `submit` `pending` scan (p2-fix logic M-2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Moderate, a report can be refused as `not found` in that window; no host caller yet | Later task **P2c**, before Batch 30 wires the host (decision #83, TL-44)                                                                                                       |
 | LT-P2-17 | Storage-less queue mode: an `undefined` queue head makes `drain` break with no progress and reschedule on `setImmediate` forever (p2-fix2 logic M-1). Needs a typing violation and no state storage                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Moderate, same failure shape as the 36b S-1 but not reachable through typed callers | Later task **P2c** (decision #85)                                                                                                                                              |
 | LT-P2-18 | An entry dropped on journal load keeps no run id and gets no rejected-ledger row; the next journal write overwrites it (p2-fix2 logic M-2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Moderate, a corrupt entry is lost without a trace                                   | Later task **P2c** (decision #85)                                                                                                                                              |
+| LT-P3-1 | `gather.ts:76-83` has no overall deadline: a candidate source, limits, roles or matrix port that never settles keeps the gate pending (p3 logic M-2) | Moderate, no lane config or data loss; a hung host port is needed | Later task **P3c** (decision #93) |
+| LT-P3-2 | `phase-plan.ts:110-118` and `assemble-gate.ts:52-60` take seven positional values incl. a bare boolean; use a readonly named input with `deferReviewerFamily` (p3 style Moderate 1) | Moderate, maintenance only | Later task **P3c** (decision #93) |
+| LT-P3-3 | `model-refine.ts:101-107` exports `openSystemOne`, unused; the service uses `openSystemOneFrom` (p3 style Minor) | Minor, recorded | Later task **P3c** (decision #93) |
 | P2-m     | Logic Minors: KV eviction drops receipts (dismissed); `holdReport` uses `Date.now()`; SQLite and KV `telemetryJoin` parity; queue mode reports `applied`; stale `heldRuns` ack; `structuredClone` cost in `snapshot()`; `reportId` retry not idempotent for `revise`; `taskId` unbounded in the row schema; `workspaceRoot: ''` drops a subagent record; `start.ts` skips `dispose` if an unsubscribe throws; `isRegistered` order for the classifier and seam; runtime `executorKind: 'subagent'` on a lane op. Style Minors 1-7: `start` registers silently; value import of `SqliteConnectionService`; `findLatestByAgent`/`hasReceipt`/`specVerdictSource` have no caller; error-name helper repeated 4 times; hand-written `checks` type; duplicated telemetry fallback; Prettier miss in `eslint.config.mjs` | Minor                                                                               | Recorded, not fixed. Batch 36 removes the literal-`5000` Minor as part of P2-F2. The `eslint.config.mjs` Prettier miss is formatted by lint-staged if that file is ever staged |
 
 ---
@@ -1431,7 +1434,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
     (`:986-1001`)
 - TL-61: the team-leader's whitespace fix in the two guard specs
 
-## Batch 25 (B7): `agent:outcomeSignals` handler — PENDING
+## Batch 25 (B7): `agent:outcomeSignals` handler — COMPLETE (orchestrator Mode 2 2026-10-15, decision #90 precedent; actual executor: CLI lane grok, xAI (decision #92); report `reports/batch-25-report.md`; verified: handler spec + rpc-allowlist.spec 2 suites / 16 tests; `nx typecheck @ptah-extension/rpc-handlers` pass; `nx lint` 0 errors (50 pre-existing warnings); rule 8, one at a time: rpc-surface VS Code 2/2, Electron 2/2, cli-engine 12/12 (the `agent:outcomeSignals` red is closed); surface-composition VS Code 6/6, Electron 4/4, cli-engine 6/6; container.smoke VS Code 41/41, Electron 25/25, CLI 15/15; degradation TOTAL 296 no FAIL; di-lint OK (1846 sites). Manifest `requires: []`, no expected-absent list changed. For the P5 review: `logger.error` gets a context object, not an Error (`agent-outcome-rpc.handlers.ts:93`); the reader type is a local interface, not lane-outcomes' own type (`:36`))
 
 - Recommended executor: CLI lane Glm (Zhipu)
 - Execution mode: sequential
@@ -2002,3 +2005,66 @@ store.applyReportWithReceipt(reviseReport, now, resolve)])` leaves the row with
   TOTAL 296 no FAIL; di-lint OK; output tailed; one heavy check at a time
 - Stage only the 36b files under `libs/backend/lane-outcomes/src/lib/write/` and this task's
   docs. Batch 21 files under `libs/backend/lane-routing/**` stay unstaged
+
+## Batch 37 (P3f): P3 fix round — PENDING (decision #93)
+
+- Recommended executor: CLI lane grok (xAI). Report: `T\reports\batch-37-report.md`
+- Execution mode: sequential (one lane, one lib)
+- Fallback order: opencode (light only) -> subagent backend-developer from 2026-10-16. Never codex:
+  the re-review is OpenAI
+- Subagent reason: N/A
+- Review family: different from implementer. Re-review by the same two codex lanes (resumed),
+  scoped to the Batch 37 commit. Codex sessions: logic `01a140e6-5e82-70a1-9bd0-684f3e06a828`,
+  style `01a140e6-9ff4-77b0-a559-69dc5a92940e`. Fix lane: grok `0e4fb39c`
+- Rationale: lean rule 4, one fix round for Blocking + Serious, plus the Moderates that can lose
+  data or break boot (logic M-1, M-3)
+- Tasks: 3 | Depends on: Batch 27 (3f932ea7d)
+- Phase: P3 Routing engine (fix round) | Phase review: re-review, code-logic + code-style
+- File-disjointness: writes only under `W\libs\backend\lane-routing\`. Batch 25 (grok, same time)
+  writes only under `libs/backend/rpc-handlers`
+
+### Task 37.1: FE-12a split, then logic S-1, S-3, M-3 in the decision-model files — PENDING
+
+- Files: CREATE `LR\decision-model\decision-model.probe.ts`; MODIFY
+  `LR\decision-model\decision-model.config.ts`, `LR\decision-model\system-one.client.ts` (+ specs)
+- Review refs: `reviews/p3-code-logic-review.md` S-1, S-3, M-3; TL-24 (FE-12a)
+- Details: (1) FE-12a first, no behaviour change: move the probe and discriminator helpers
+  (`decision-model.config.ts:606-803`) to `decision-model.probe.ts`. (2) S-1: no provider body text
+  in logs, in the persisted unsupported mark, or in its log line; detail is fixed text from cause and
+  HTTP status (+ `notFound`). (3) S-3: bind each probe / live-404 recheck result to the selection and
+  base-URL key it was started for; discard it when the current key changed; `markUnsupported` takes
+  that key, not the current selection. (4) M-3: `loadMark` catches a `storage.get` throw, logs safe
+  facts, starts with a null mark
+- Specs: an error body that echoes `SECRET-PROMPT` never reaches the logger or the mark; selection
+  A -> B while A's probe is pending leaves no mark for B; `storage.get` throws -> constructs, mark
+  null, one warn
+
+### Task 37.2: Logic S-2 and M-1 — PENDING
+
+- Files: MODIFY `LR\pipeline\model-call.ts`, `LR\failure-class\decision-model-failure-classifier.ts`,
+  `LR\ranking\rotation.store.ts`, `LR\route-decide.service.ts` only if the save call changes (+ specs)
+- Review refs: logic S-2, M-1
+- Details: S-2: race the structured completer promise against a deadline of
+  `DECISION_REQUEST_TIMEOUT_MS + DECISION_RETURN_MARGIN_MS`; when the deadline wins return the
+  `timeout` outcome (classifier: null); observe a late rejection; clear the timer. M-1: the rotation
+  save re-reads the stored document and replaces only the touched keys, under a per-store in-process
+  lock, so no concurrent update is lost
+- Specs: a never-settling completer resolves `timeout` (fake timers) and the classifier resolves null;
+  two concurrent saves for different keys both persist; same key keeps the later pick without loss of
+  the other fields
+
+### Task 37.3: Style Serious 1 — smaller public barrel — PENDING
+
+- Files: MODIFY `W\libs\backend\lane-routing\src\index.ts` (and lane-routing specs that import the
+  barrel, if any)
+- Review refs: `reviews/p3-code-style-review.md` Serious 1
+- Details: keep host-facing tokens, `registerLaneRoutingServices`, ports, `RouteDecideService`,
+  args/result schemas and types, decision-model settings DTOs/types, and every name imported from
+  `@ptah-extension/lane-routing` anywhere outside `libs/backend/lane-routing`. Remove the rest
+  (ranking, rotation helpers, matrix diagnostics, test seams, classifier payload builders)
+
+### Batch 37 verification
+
+- `npx nx test @ptah-extension/lane-routing --parallel=1`, then lint, then typecheck; then typecheck
+  each lib that imports lane-routing (rpc-handlers, vscode-lm-tools, agent-sdk), one at a time;
+  degradation TOTAL 296 no FAIL; di-lint OK

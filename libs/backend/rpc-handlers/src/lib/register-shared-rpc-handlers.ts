@@ -13,6 +13,7 @@
 import type { DependencyContainer } from 'tsyringe';
 
 import {
+  AgentOutcomeRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,
@@ -78,6 +79,9 @@ export function registerSharedRpcHandlers(
   // `provider:getPlanLimits` (whose last scope it remembers) and the push.
   container.registerSingleton(PlanLimitsSnapshotService);
   container.registerSingleton(PlanLimitsBroadcaster);
+  // Outcome signals (TASK_2026_646 B7). The reader token is not injected:
+  // hosts register it in a later batch, and this class resolves it per call.
+  container.registerSingleton(AgentOutcomeRpcHandlers);
 }
 
 /**
