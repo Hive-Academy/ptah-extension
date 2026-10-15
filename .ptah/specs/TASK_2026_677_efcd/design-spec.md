@@ -287,7 +287,7 @@ disclosure preference. It never hides a capability and never swaps the transcrip
 | Agent chips, action row, live line | as 3.5-3.7 | identical |
 | Inspector (section 4) | INITIAL default: open and docked at >= 960 px shell width (the dock is closable) | INITIAL default: closed at every width (the `N needs you` header chip and the toggle dot stay). EXCEPTION in both modes: a tab with `TabState.workflow` set (D42) starts OPEN at docked widths |
 | Vertical rhythm | user to assistant 20, assistant to user 28, answer paragraph gap 12 | 12 / 20 / 8; disclosure row 28 px tall |
-| User turns, attachments, branch / rewind, compaction disclosure (3.10), banners C-1..C-17, stats strip, compaction markers, composer, render window, older-history loading | as specified | identical |
+| User turns, attachments, branch / rewind, compaction disclosure (3.10), banners C-1..C-17, compaction markers (the stats strip left the chat column in Delta 3: inspector SESSION, D3.3), composer, render window, older-history loading | as specified | identical |
 
 Inspector open state (decision D23, round 2): the rows above (`full`: open and docked at >= 960 px; `compact`: closed) are INITIAL defaults only. A manual `Show` / `Hide` of the
 inspector is kept per tab, in memory (not persisted), across switches between tabs, so returning to a tab restores whatever the user last chose there. Changing that tab's view
@@ -374,25 +374,25 @@ unknown. Base-content on surface-1: 14.01 dark / 14.41 light; muted on surface-1
 ## 4. Inspector "This session"
 
 `<aside id="inspector" aria-label="This session">` 336 px, column: header 48 px (`px-4 pr-3`, title 13/600 `<h2>`, close `x` button) then a scrolling body
-with five built-in `section`s in this order: Orchestrator card, AGENTS, TASK (new, 4.6, Delta 1 item 1), TODOS, GIT. TASK sits directly above TODOS. Between the Orchestrator card and AGENTS the inspector has ONE
-extension slot, `[inspectorSection]` (4.8, decisions.md row 35), which renders nothing when no section is projected; the full order is therefore Orchestrator card, extension slot (workflow sessions only), AGENTS, TASK, TODOS, GIT.
+with eight built-in `section`s in this order: Orchestrator card, SESSION (Delta 3, D3.3), AGENTS, PLAN LIMITS (Delta 3, D3.4), LANES (Delta 3, D3.5), TASK (new, 4.6, Delta 1 item 1), TODOS, GIT. TASK sits directly above TODOS. Between the Orchestrator card and AGENTS the inspector has ONE
+extension slot, `[inspectorSection]` (4.8, decisions.md row 35), which renders nothing when no section is projected; the full order is therefore Orchestrator card, extension slot (workflow sessions only), SESSION, AGENTS, PLAN LIMITS, LANES, TASK, TODOS, GIT (Delta 3, D45).
 Sections are separated by `border-b border-surface-border` (each `p-4`; AGENTS `pt-3.5 pb-1.5` with row-level horizontal padding).
 
 ### 4.1 Orchestrator card
 
 - Row 1: 8 px status dot (`bg-state-run` + 3 px `ring` at 22% = the "orchestrator working" state; idle `bg-state-idle`, waiting `bg-state-need`
   with ring), "Orchestrator" 14/600 (gap 9 px).
-- Row 2 (indent 17 px, `text-xs text-base-content-muted`, margin 2/12): `{model} · {state}` e.g. `Opus 5.5 · waiting on 4 agents`. States: `working`,
-  `waiting on N agents`, `needs you`, `idle`.
-- Context: label row `text-[11px] text-base-content-muted` (`Context` left, `41% of 200k` right), then
+- Row 2 (indent 17 px, `text-xs text-base-content-muted`, margin 2/12): `{state}` e.g. `waiting on 4 agents`. States: `working`,
+  `waiting on N agents`, `needs you`, `idle`. DELTA 3 (D47): the model name is gone from this line (it was a second, read-only copy); the model shows only in the inspector SESSION Models row (D3.3).
+- SUPERSEDED BY DELTA 3 (D46; kept for the record of the colour rule, now applied to the SESSION context ring, D3.3): the card no longer carries the context bar, the stats or the `Usage and limits` disclosure.
+  Former text: Context: label row `text-[11px] text-base-content-muted` (`Context` left, `41% of 200k` right), then
   `<progress class="progress h-1 w-full text-secondary" max=100 value=41 aria-labelledby aria-valuetext="41% of the 200k token window">`.
   Fill colour: `text-secondary` (gold) < 80%, `text-state-need` 80-94%, `text-state-err` >= 95%. Track `--surface-border-strong`. Unknown context:
   `-` and empty bar with `aria-valuetext="Context usage unavailable"`. Bar width transition 400 ms `--ptah-ease-soft`.
 - Stats: `grid grid-cols-3 gap-2 mt-3.5`; each is `<dt>` label 11 px muted under `<dd>` value 14/600 tabular (DOM order dt, dd; visual reverse via
   `flex-col-reverse`): `82.4k tokens`, `$1.84 cost`, `6 turns`.
-- Usage and limits (parity C-2..C-5): the chat-view stats strip stays unchanged in the main view; the Orchestrator card also carries a `Usage and limits` disclosure button (`aria-expanded`,
-  `chevron-right` 12, text `text-xs text-base-content-muted`) that reveals compactions, plan limits and the session budget from the same sources (`resolvedCompactionCount()`,
-  `resolvedStatsLimits()`, `resolvedSessionBudget()`). Prototype `parity=1`: `[data-act="usage"]`.
+- Usage and limits (parity C-2..C-5), SUPERSEDED BY DELTA 3 (D44, D46): the chat-view stats strip is removed from the chat column and the `Usage and limits` disclosure is deleted; compactions, session budget,
+  plan limits and lanes are the always-visible SESSION, PLAN LIMITS and LANES sections (D3.3-D3.5), fed by the same sources (`resolvedCompactionCount()`, `resolvedStatsLimits()`, `resolvedSessionBudget()`).
 
 ### 4.2 AGENTS
 
@@ -428,6 +428,7 @@ permission (only status waiting), under line 2:  [shield-alert 12] **Needs permi
   `Show {N} more requests from {name}`, `aria-expanded`) expands the remaining requests as further lines of the same anatomy, each with its own button. Never
   more than one request panel is open per row.
 - Status word and duration right-aligned; duration ticks every second only for running rows.
+- Delta 3 (D53, D3.6): the background-agent tray moved here. Under the header a summary line in the tray grammar (`1 background · 1 foreground · 2 running · 1 done`) and, on rows with an action, a 28 px `ellipsis` actions menu (`View transcript`, `Steer`, `Send to background`, `Stop`). Focus = the row button. Prototype `stats=full`.
 - Empty state: 32 px `bg-surface-2` rounded-lg tile with `bot`, "No agents yet" 13/600, "Sub-agents, CLI lanes and background commands appear here while the
   orchestrator delegates." 12 px muted centred, `py-[18px] px-4`. Header meta reads `none yet`.
 - Loading: 3 skeleton rows (two bars each, `sk` shimmer 1.4 s; reduced motion: static). `aria-busy="true"` on the section.
@@ -704,6 +705,7 @@ sections into it (intake recap, config preview, Apply). Nothing else in the insp
    Shown only when N > 0 (N = unique pending requests of this session as defined once in 9.1; the same request seen in the session permission list and a lane queue counts once); `title="Open This session to answer"`. Copy: `1 needs you`, `2 need you`.
 6. Inspector toggle (`panel-right`, aria-pressed, aria-controls `inspector`, aria-label `Show session details` / `Hide session details`). When the inspector is closed and
    N > 0 the toggle carries a 7 px `bg-state-need` dot at top-right (2 px ring in `base-100`). On a workflow tab at an overlay width the closed toggle carries the same 7 px dot in `--sel` (D43).
+   Delta 3 (D51, D3.7): while closed the toggle also draws a 28 px context ring (decorative); its dot precedence is pending request (need ink) > plan window or lane at limit (err ink) > near limit (need ink) > workflow `--sel` (D43); a visually hidden description (`aria-describedby`) says what is behind it (`Context 15%. Weekly plan limit is near. 2 need you.`). The accessible name does not change. New chip 5b between item 5 and the toggle: the conditional `Limit near` / `At limit` status chip of D3.7 (text, never colour alone). No stats strip is added.
 
 Header extension slots (decisions.md row 35, D41): the header has two projected slots and no second header. Both render nothing when empty.
 
@@ -786,7 +788,7 @@ Content appears instantly. Verified in the prototype: with the reduce toggle the
 | Tab order | Control | Accessible name |
 | --- | --- | --- |
 | 1 | Sidebar toggle | `Toggle sidebar` |
-| 2 | Inspector toggle | `Show session details` / `Hide session details` (aria-pressed, aria-controls) |
+| 2 | Inspector toggle | `Show session details` / `Hide session details` (aria-pressed, aria-controls) | description (Delta 3): context %, limit state, needs-you count |
 | 3.. | Per turn, document order: disclosure button (aria-expanded), each chip, `Copy message`, `Show activity` | chip: `{name}, {kind}, {status}. Open lane` |
 | next | Composer: `Attach files or add context`, `Approval mode: ...`, `Model and effort: ...`, `Dictate`, `Send message` (textarea is first, before the buttons) | as listed |
 | last | Inspector (when open): `Close session details`, then, per row, the row button, `Review ...` / `Answer ...`, `+N more`, and (when a request panel is open) `Allow`, `Deny`, `Open lane`; then the TASK controls (each document button, `Show N more documents`, `Show N related tasks`, `Retry loading task`, `Retry` for a failed open; only when the section is rendered); then `Show N more todos`, `Review changes`, `Retry reading git status` | row: `{name}, {kind}, {status} {duration}. {activity}` |
@@ -1096,9 +1098,23 @@ header chip, toggle dot, orchestrator state and AGENTS order agree in the protot
 | D41 | Extension slots: the inspector has ONE projected slot `[inspectorSection]` between the Orchestrator card and AGENTS (4.8); the header has `[sessionHeaderChip]` (before the branch chip, one 22 px workflow kind chip) and `[sessionHeaderAction]` (immediately before the inspector toggle, at most two 28 px icon buttons with aria-labels). Empty slots render nothing; no second header; no workflow panel toggle (4.8, 5) | a second workflow panel and toggle; a registry of new inspector sections; per-section slots | decisions.md row 35 (request from the TASK_2026_648 / 649 session, accepted by the orchestrator): workflow sessions need an add-on surface without a new shell; one slot keeps the inspector order stable; projected sections reuse the existing recipes and the 8.2 pairs | yes |
 | D42 | Tabs with `TabState.workflow` set (`harness-configure`, `harness-new-project`, `setup-*`) have the inspector initial default OPEN in every mode, `compact` included, at docked widths; the per-tab manual toggle overrides it afterwards; a mode change resets to the workflow default (open); exposed to the architect as a per-tab initial-open input (3.8, Delta 2 architect check 7). Extends D23 | follow the mode default (closed in compact); persist the choice | decisions.md row 36: the projected config preview and Apply are the primary work surface of these tabs | yes |
 | D43 | At overlay widths (< 960 px, modal sheet, 8.3) the workflow default does NOT auto-open the sheet: it stays closed, the toggle shows a 7 px `--sel` dot and the header kind chip names the workflow. Auto-open never moves or traps focus | auto-open the modal sheet and move focus to `Close session details`; auto-open as a non-modal sheet beside the thread | accessibility: 8.3 makes the sheet modal (`inert` main region, focus trap), so an unrequested auto-open would pull focus from the composer and break the existing "inspector never opens itself" rule; a non-modal sheet would cover the thread at 400 px. Closed + dot + chip keeps it discoverable; the user opens it by the toggle and 8.3 applies unchanged. The dot uses the `--sel` selected-indicator pair already measured in 8.2 (UI only, 3:1) | yes |
+| D44 | Delta 3: the session stats strip, its expanded panel and the background-agent tray leave the chat column (chat-view mounts only); every value moves to the inspector. A MOVE, not a removal (parity C-2..C-6) | (a) keep a thin strip; (b) move to the inspector; (c) drop rarely used values | decisions.md row 50: user asked for the move and for "all details of the second screenshot" to be in the sidebar; removal is user-reserved | yes, re-mount the components (they stay in the codebase) |
+| D45 | Inspector order: Orchestrator card, slot, SESSION, AGENTS, PLAN LIMITS, LANES, TASK, TODOS, GIT | stats after AGENTS; all usage sections together right after the card; stats first | SESSION takes the place of the card's old context + stats (continuity); AGENTS rows carry actionable `Review` / `Answer`; PLAN LIMITS and LANES are account-level reference and cross-reference each other | yes |
+| D46 | The Orchestrator card shrinks to identity, state and request line; its context bar, 3 stats and `Usage and limits` disclosure are deleted | keep a short stat row in the card | the same numbers would be shown twice; SESSION is the one place | yes |
+| D47 | Model name appears only in the inspector SESSION Models row; removed from the strip chip, strip MODELS pill and the Orchestrator card line (PM-18: "chat area" = the chat-view main column + the Orchestrator card; the agent monitor panel, lane headers and the Rail focus header keep their model labels); the composer model / effort selector stays as the control | keep it in the card; keep the strip chip | USER answer (AskUserQuestion, row 50): composer selector stays; every read-only label goes | yes |
+| D48 | Context is a ring chart (44 px); budgets and plan windows are 4-6 px linear bars; no other charts | rings for every window | a window tile carries a long reset string and a variable label; a bar spans the full width and lets the text wrap beneath; the ring suits the one headline value | yes |
+| D49 | Plan window colour and chip follow the engine window `tone` / `state`; the UI does not recompute near / at limit from a percentage. Only the context ring uses 80 / 95 % | recompute at 80 / 95 | `PlanWindowState` and `LaneLimitState` already encode thresholds (`stats-limit-view-model`); duplicating them would drift | yes |
+| D50 | Lane tiles keep the dashed border, the `lane · not in totals` caption and the Subtotal tile, with cost shown as `cost unknown`, never `$0` | solid border; fold lanes into the totals | the strip's dashed LANES pill and the engine's unknown-is-not-zero rule; the user wanted all details kept | no (accounting semantics) |
+| D51 | Closed inspector (overlay widths and `compact`): a conditional header limit chip with text (`Limit near` / `At limit`), the toggle's context ring, and an extended dot with precedence pending request > at limit > near limit > workflow, plus an `aria-describedby` description; no strip, no permanent header chip | a permanent header context chip; a slim strip at overlay widths; dot only (colour alone fails PM-20); nothing | the 400 px header has no room for a chip; the strip is what the user asked to remove; the toggle already carries the needs-you dot (D6, D43), and nothing opens itself (8.3) | yes |
+| D52 | The limits alert (near / at limit) sits at the top of SESSION with a `Plan limits` link; the refresh-failed notice is the first line of PLAN LIMITS | alert inside PLAN LIMITS only | P4 variant A: alert "above the strip, never clipped"; PLAN LIMITS may be below the fold on a short window | yes |
+| D53 | The tray moves into AGENTS: summary line plus a per-row `Actions for agent` menu (transcript, steer, background, stop); Focus is the row button; scope is this session only, no group for other sessions | a separate BACKGROUND section; an "other sessions" group; keep the tray at the bottom of the thread | the population is already in AGENTS (C-6); a second list would duplicate rows; the menu keeps every action; user answer (row 54): "we already show cli tools and subagents" | yes |
+| D54 | Per-model breakdown renders as stacked rows (name + cost, then In / Out / Cache read / Cache creation) with a Total row, not a 6-column table, in the 304 px column | table with horizontal scroll | six columns do not fit 304 px; the data and `title`s are unchanged | yes |
+| D55 | Provider coverage shows only the windows and lane states the frontend has: the session owner's windows in PLAN LIMITS; lane providers as state chip (+ windows when the model carries them); no window is invented | a fixed tile per provider with placeholders | task rule: frontend only, do not invent data; gaps stay visible as `No usage source` / `Unavailable` status tiles | yes |
+| D56 | The sub-agent model label in the inline agent bubble footer (parity C-49, `inline-agent-bubble.component.ts:515-521`) MOVES out of the chat column to the inspector: the agent's model shows as a `Model {name}` line in the dock hover / focus card and in the AGENTS row's `title` and accessible description (raw id in the title); the SESSION Models list already counts every model used | keep the footer label (a sub-agent's model, not the session model); move it | the user's rule is every read-only model label in the chat-view column goes and model information lives in the inspector; a sub-agent's model is real information, so it moves, it is not dropped; keeping it would leave the one model label the user asked to remove still in the thread. Reversible: restoring the footer is one line | yes |
 
 ## 11. Lane-introduced constraints
 
+Delta 3 adds no `[lane-proposed]` token or colour pair: SESSION / PLAN LIMITS / LANES reuse `--surface-1`, `--surface-border(-strong)`, `--ptah-gold`, `--state-ink-*` and the measured pairs (D3.8); the user-approved moves are rows 50 (project rule). Lane-proposed layout choices (revisable, D45, D48, D51, D53): the inspector order, rings for Context only, the toggle ring + extended dot, the AGENTS actions menu.
 Delta 2 adds no `[lane-proposed]` token, colour pair or rule: the avatar, dock and hover card are user-approved (decisions.md rows 30-31) and use measured tokens only (D40). Delta 1 adds no `[lane-proposed]` token or rule: the TASK section reuses measured tokens and rules R1 / R2 (4.6, D29); the user-approved scope add is recorded in decisions.md rows 21-23. Only items marked `[lane-proposed]` need Gate 1.7 acceptance: `--ptah-link` token (1.6), optional `surface-border-strong` Tailwind colour (1.6), rules R1 (status words never on surface-3)
 and R2 (no tinted status fills) in 8.2, the stagger caps (D14). Added in revision round 2, all `[lane-proposed]`: the generated per-theme tokens `--state-ink-*` for the 32 stock themes, `--ptah-accent-ink` and `--ptah-check-edge` (8.2, D24), and the per-tab in-memory inspector open state (3.8, D23). Added in revision round 1, all `[lane-proposed]`: the density meaning of `compact` view mode (3.8, D16), the inline request panel
 and its routing (4.5, D18), the symmetric scrollbar gutter and composer geometry (2.2, D21), the overlay focus contract (8.3), the ring-utility rule for programmatic focus targets (8.4). No existing
@@ -1157,11 +1173,11 @@ the retained surfaces.
 | B-23 | Render window and streaming boundary | keep | clean turns inside the same transcript | 3 |
 | B-24 | Load older history | keep | same control at the top of the thread | 3 |
 | C-1 | Agent-started session banner, open parent | keep | strip under the header, restyled (prototype `.cs-origin`) | 2 |
-| C-2 | Session stats strip | keep | unchanged in the chat view; core values also in the Orchestrator card | 4.1 |
-| C-3 | Strip compaction count | keep | unchanged; also in `Usage and limits` | 4.1 |
-| C-4 | Strip plan limits | keep | unchanged; also in `Usage and limits` | 4.1 |
-| C-5 | Strip session budget | keep | unchanged; also in `Usage and limits` | 4.1 |
-| C-6 | Background-agent tray (focus, steer, stop, background) | keep | unchanged; background commands also listed in AGENTS | 4.2 |
+| C-2 | Session stats strip (model, context, tokens, cost, time, agents, models) | MOVE (Delta 3, D44) | removed from the chat column; inspector SESSION tiles; model name only in the Models row (D47) | D3.3 |
+| C-3 | Strip compaction count | MOVE | Context tile, `N compactions` | D3.3 |
+| C-4 | Strip plan limits (Claude account windows, provider API badge, reset times, per-window expand, limits alert, refresh notice) and lane tiles + subtotal | MOVE | inspector PLAN LIMITS and LANES sections; alert at the top of SESSION | D3.4, D3.5 |
+| C-5 | Strip session budget | MOVE | Tokens / Cost tile budget caption and bar | D3.3 |
+| C-6 | Background-agent tray (focus, steer, stop, background, transcript) | MOVE (Delta 3, D53) | out of the chat column into AGENTS: summary line and per-row actions menu | D3.6 |
 | C-7 | Compaction-in-progress notification | keep | unchanged | not touched |
 | C-8 | Compaction marker | keep | unchanged, drawn as the divider before a continuation | 3.10 |
 | C-9 | Fresh-chat empty state | keep | unchanged | not touched |
@@ -1209,6 +1225,8 @@ plus the round-1 parameters `ask=lane|lane-open|question|multi`, `host=electron|
 `ask=multi`, `requests-more-open`, `request-error-retry`, `request-closed-elsewhere`, `request-electron-fallback`, `narrow-400-overlay-focus`, `parity=1`, `body=partial` (4.5). See
 `prototype/README.md` and `prototype/ROUND-1-NOTES.md`. Delta 2 options page: `prototype/options-delta-2.html` (assets `delta2.css`, `delta2.js`, `delta2-sprite.js`; screenshots
 `prototype/screenshots/delta2-*.png`; checks `node prototype/assets/capture-delta2.mjs shots|checks`); option B is the chosen one.
+Delta 3 (session stats in the inspector): same `prototype/index.html`; extra parameter `stats=full|at|none|single|ctx` (partial, empty and loading follow `body=`) (SESSION / PLAN LIMITS / LANES data variants), screenshots `prototype/screenshots/delta3-*.png`,
+notes `prototype/DELTA-3-NOTES.md`, contrast `node prototype/assets/contrast-delta3.mjs`, checks `node prototype/assets/capture.mjs checks` (extended with the Delta 3 checks).
 
 ## Revision round 1
 
@@ -1347,3 +1365,205 @@ and overflow (now by priority, below).
 | 12 | Workflow tab inspector initial-open (row 36) | `TabState.workflow` tabs start with the inspector OPEN in every mode (docked widths); per-tab toggle overrides; a mode change resets to open; at overlay widths the modal sheet stays closed with a `--sel` toggle dot and the header kind chip (no focus move or trap); per-tab initial-open input for the architect (check 7) | 3.8, 4, 5, 8.3, D42, D43, Delta 2 (architect check 7) |
 
 Parity effects: no capability is removed. The switch between orchestrator, sub-agents and CLI lanes keeps working through the dock; tool-call rows are unchanged. Proposed removals (user decision): none.
+
+## Delta 3 - session stats in the inspector
+
+Source: decisions.md row 50 (user, 2026-10-15). Companion: `prototype/DELTA-3-NOTES.md` (item-by-item move list), `prototype/assets/contrast-delta3.mjs` (measured pairs), new decisions D44-D55 in section 10.
+Prototype parameters: `stats=full|at|none|single|ctx` (default `full`; partial, empty and loading follow `body=`; the strip has no switch because it is gone). Screenshots: `prototype/screenshots/delta3-*.png`.
+
+User intent, verbatim (lightly edited): "the session stats is not needed anymore [in the main chat area]; we could enhance our sidebar stats and show all important information. Model name is repeated
+in 2 places; only put it in the right sidebar stats. Show the usage limit for our providers as tiles with small progress bars or circular charts. Make sure all details in the second screenshot are
+moved to the right sidebar; it will look much better there and saves a lot of room in the main chat session area." User answer on the model (AskUserQuestion): the composer keeps its model / effort
+selector as the control; every other read-only model label leaves the chat area; model information shows only in the inspector stats.
+
+### D3.1 What moves (a MOVE, not a removal: parity C-2..C-6 keep)
+
+| Today (main chat column, `chat-view.component.html`) | After Delta 3 |
+| --- | --- |
+| `ptah-session-stats-summary` collapsed strip (line 42): CONTEXT, TOKENS, COST, LANES, TIME, AGENTS, MODELS, compactions, limits alert | gone from the chat column. Values live in the inspector SESSION section (D3.3) and PLAN LIMITS / LANES sections (D3.4, D3.5) |
+| the same component expanded: SESSION row, PLAN LIMITS (Claude account, windows), LANES tiles, Subtotal, per-model table, context progress strip | SESSION / PLAN LIMITS / LANES sections, always visible, no expand step for the headline values; per-window and per-lane detail keep their own disclosure |
+| `ptah-background-agent-tray` (line 60): `1 foreground · 1 running`, Focus / Steer / Stop / Send to background / View transcript | AGENTS section: summary line and a per-row actions menu (D3.6) |
+| read-only model labels: strip MODEL chip, strip MODELS, inspector Orchestrator card line `Opus 5.5 · idle` | inspector SESSION Models row only (D3.3). The composer model / effort selector (section 6) is the control and stays |
+
+The components stay in the codebase for other hosts (harness-builder, canvas-lane-view); only their `chat-view` mount moves. The main column loses one strip row of about 34 px collapsed or about 330 px
+expanded and the tray row of about 36 px, so the thread starts directly under the header at every width.
+
+New inspector order (D45): Orchestrator card, `[inspectorSection]` slot, **SESSION**, AGENTS, **PLAN LIMITS**, **LANES**, TASK, TODOS, GIT. Rationale: the headline stats are glance data and sit where the
+card's context bar and three stats sat; AGENTS keeps its place right after them (its rows carry the `Review` / `Answer` actions, so they stay near the top); plan limits and lanes are account-level and
+follow, with lanes after plan limits because a lane tile cross-references a plan tile.
+
+### D3.2 Orchestrator card after the move (4.1 amended in place)
+
+Dot, `Orchestrator` 14/600 and the state line only. The state line drops the model: `{state}` (`waiting on 4 agents`, `working`, `needs you`, `idle · ready for the next turn`). The context bar,
+the `tokens / cost / turns` stats and the `Usage and limits` disclosure leave the card (they are SESSION). The request line (`Review` / `Answer`, 4.5) stays under the state line. The card height drops
+to about 56 px.
+
+### D3.3 SESSION section (new, `section aria-labelledby="sessH"`, `p-4`)
+
+Header: `SESSION` label (10.5/600 uppercase, section-label recipe of section 1.2) left; right meta `~ = estimate` (`text-[11px]` muted) only while any value is an in-turn estimate
+(`isEstimate()`); otherwise empty. Below the header, in this order:
+
+1. Limits alert (only when `limits.indicator` exists: P4 variant A, the retained `ptah-limits-alert`): one line, `AlertTriangle` 14 + the indicator text (`Weekly plan limit is near`), ink `--state-ink-need`
+   (near) or `--state-ink-err` (at limit), plus a text button `Plan limits` (`h-6 min-w-6`, 24 px) that moves focus to the PLAN LIMITS heading. `role` none (static text; the toggle dot carries urgency when
+   the inspector is closed). The refresh notice (`limits.refreshNotice`, `role="status"`, `border-l-2 border-info pl-2 text-[11px]`) is the first line of PLAN LIMITS.
+2. Tile grid: `grid grid-cols-2 gap-2 mt-0` at the 304 px content width (148 px per column; at the 368 px sheet width 180 px). Tile recipe: `rounded-md border border-surface-border bg-surface-1 p-2.5`
+   (radius 6 px, D4; surface-1 as for the chips, D3). Label `text-[11px] text-base-content-muted` above the value (DOM order label, value; no visual reversal needed).
+
+```
++----------------------------------------------------------+
+| (ring 44)  Context                          2 compactions |   Context tile, col-span-2
+|  15.3%     15.3%  152.9k tokens                           |   ring arc = % used
++----------------------------+-----------------------------+
+| Tokens                     | Cost                        |
+| ~19.1M                     | ~$8.87                      |
+| of 50.0M budget            | of $20.00 budget            |
+| [=====-------------]       | [=====------------]         |
++----------------------------+-----------------------------+
+| Time                       | Agents                      |
+| 15m 59s                    | 4                           |
+| 6 turns                    |                             |
++----------------------------+-----------------------------+
+| Models   Opus 5.5, Sonnet 5                     2  v      |   disclosure (>= 2 models) or static (1 model)
++----------------------------------------------------------+
+```
+
+- Context tile (col-span-2, `flex items-center gap-3`): ring chart SVG 44 x 44, `r=18`, stroke 4, `stroke-linecap: round`, rotated -90 deg, track `--surface-border-strong`, arc `currentColor`.
+  Arc ink: `--ptah-gold` (dark `#d4af37`, light `--ptah-gold`) below 80 %, `--state-ink-need` 80-94 %, `--state-ink-err` >= 95 % (requirement 7.4 / PM-21: 80 % and 95 %; this REPLACES the old strip's 70 % / 90 % `showContextWarning()` / `contextPercent >= 90` split, which is not carried over). Right of the ring: label `Context`, value `15.3%` 18/600 tabular (the `contextPercentLabel()` text), caption `152.9k tokens` 11 muted (the `(152.9k)` of today's panel). At the far end, when
+  `compactionCount() > 0`: `2 compactions` (`text-[11px]` muted, `title="Number of context compactions during this session"`, singular `1 compaction`; this is parity C-3). The ring is
+  `role="progressbar" aria-valuemin=0 aria-valuemax=100 aria-valuenow=15 aria-labelledby=ctxL aria-valuetext="15.3% of the context window, 152.9k tokens used"`. Tooltip = `contextTooltip()`.
+  Window unknown (third-party providers, `hasKnownContextWindow()` false): no ring (a 0 % ring would read as stuck zero, as today's bar rule says); the tile shows `152.9k tokens` and caption `Window unknown`.
+  No `liveModelStats`: the tile reads `Context  -` with `aria-valuetext` absent (no progressbar role).
+- Tokens tile: value `~19.1M` 15/600 tabular. The `~` is `aria-hidden="true"` and followed by `<span class="sr-only">estimated </span>` (existing pattern, `stats-tokens-estimate`). With a session token budget
+  (`tokensBudgetSuffix()`): caption `of 50.0M budget` and a 4 px bar (`h-1 rounded-full`, track `--surface-border-strong`, fill gold, need ink at the budget's warn state, err ink over budget; semantics
+  from `session-budget-format.ts`, no new threshold). Bar `role="progressbar"` with `aria-valuetext="38% of the 50.0M token budget"`. No budget: no caption, no bar. Tooltip = `tokenTooltip()`.
+- Cost tile: value `~$8.87` (`ptah-cost-badge` keeps the number format and its tooltip; `~` rule as above). With a cost budget (`costBudgetText()` / `costBudgetSuffix()`): caption `of $20.00 budget` + 4 px bar as above.
+  Without: caption `known subtotal $0.00` when `knownSubtotal()` exists (today's chip text and `knownSubtotalTooltip`), else none. Tooltip = `costTooltip()`.
+- Time tile: label `Time`, value `15m 59s`, caption `6 turns` (the turn count that 4.1 carried). `title="Session duration"`. Hidden when `durationMs()` is 0 or absent (as today).
+- Agents tile: label `Agents`, value `4`, `title` = `agentsTooltip`. Hidden when `agentCount()` is 0 (as today); the Time tile then spans two columns.
+- Models row (col-span-2, `min-h-[40px]`): see D47. With more than one model it is a `button` (`aria-expanded`, `aria-controls="modelsPanel"`, `chevron-right` 12 rotating 90 deg), label `Models`, value =
+  the first two display names joined by comma, truncating, then the count `2`; `title="Show per-model breakdown"` / `"Hide per-model breakdown"` (today's strings). With one model it is a static row `Model` +
+  the display name (`formatModelName`, full id in `title`), no chevron. With no model known the row is omitted.
+- Per-model panel (`id="modelsPanel"`, replaces `ptah-session-model-breakdown` table at this width; the component keeps its table for other hosts): `role="list"` of rows, one per `modelUsageList` entry,
+  `rounded-md border border-surface-border`, `p-2.5`, gap 6. Row line 1: name 13/600 (truncate) + cost right (`formatCost`, tabular). Line 2: a 4-column mini grid `In 12.4k`, `Out 3.1k`,
+  `Cache read 9.8M`, `Cache creation 410k` (`text-[11px]`, label muted, value tabular; the headers of today's table: In = uncached input, Out = output, Cache Read, Cache Creation, with the same `title`s).
+  Footer row `Total` with `formatCost(stats.totalCost)` (today's totals row). At the 368 px sheet width the mini grid is one line; at 304 px it wraps to 2 x 2.
+- Partial states: `body=partial` shows `-` for unknown values and omits ring / bars (never `0`); `body=loading` shows 4 skeleton tiles (`sk`); `body=empty` shows `0` tokens and `$0.00` with no ring (`Context  -`).
+
+### D3.4 PLAN LIMITS section (new, `section aria-labelledby="planH"`, `p-4`)
+
+Data: `StatsLimitViewModel.planTiles` (`PlanLimitTileModel`: `kind` window | local-usage | evidence | cooldown | status; `label`, `value`, `resetLine`, `chip`, `tone`, `sourceChips`, `window`) and the
+provenance caption (`planProvenance()`). The section is omitted when `planTiles` is empty and there is no refresh notice (as today's panel). The frontend only has the windows the session owner reports
+(for the example: the Claude account's Weekly and 5-hour windows). Lane providers show their own limit state in LANES (D3.5). A provider with no reported window shows the status tile the model already
+produces (`No usage source`, `Stale`, `Unavailable`); the UI never fabricates a window or a percentage.
+
+- Header: `PLAN LIMITS` label; below it the provenance line (`flex items-center gap-1.5 text-[11px] text-base-content-muted mb-2`): `ptah-provider-mark` 14 (the owner's provider; neutral `Gauge` lucide icon when
+  no authoritative provider id, D37), caption (lead truncates, the tail such as `721c` always stays: `captionLead` / `captionTail`), and the shared source chips (`Provider API`: 10 px, `rounded border
+  border-surface-border bg-surface-3 px-1.5 py-0.5`, text muted; off surface-3 text rules of D3 do not apply to muted text, measured below).
+- Window tile (`ptah-plan-limit-tile`, the whole tile is a disclosure `button`, `min-h-[56px]`, `w-full`, `text-left`, same tile recipe; `aria-expanded`, `aria-controls` panel id):
+  line 1: label `Weekly` 12/600 + the state chip right-aligned (glyph decorative + word: `Near limit`, `At limit`, `Stale`; the word is the meaning, ink `--state-ink-need` / `--state-ink-err`), then `chevron-down` 12 (rotates);
+  line 2: bar `h-1.5 rounded-full` (`role="progressbar"`, `aria-valuenow=85`, `aria-valuetext="Weekly: 85% used, resets Fri 16 Oct 16:00 GMT+3, in 23h 32m"`, `aria-label="Weekly plan usage"`) + `85% used` 12/600 tabular;
+  line 3: reset line 11 muted wrapping: `resets Fri 16 Oct 16:00 GMT+3 · in 23h 32m` (`resets today 20:10 · in 3h 42m`): absolute and relative, exactly the strings of `resetLine`.
+  Bar fill follows the engine's window `tone`, not a recomputed percentage: neutral = gold, warning = `--state-ink-need`, error = `--state-ink-err`. Border tint (redundant to the chip): warning/error 55 % ink.
+  Bars are the right chart for windows (long reset text, 2-4 windows, label width varies); the ring is kept for the one headline value, Context (D48).
+- Expansion (`hidden` while closed; same open-state store `StatsTileExpansionState`, keyed by session and tile id, so a snapshot push never closes it): the `PlanWindowDetailComponent` content restyled as a
+  `dl`: `Used` (`usedText`), `Resets` (each `resetFacts` entry, passed and next kept apart), `Note` (aged / not-confirmed explanation), `Source` chips (`sourceChips`). Rows 11-12 px, `gap-y-1`.
+- Non-window kinds (`local-usage`, `evidence`, `cooldown`, `status`): one-line tile `label · value · resetLine` (11-12 px), disclosure only when `detailLines` exist. No bar.
+- Order: as `planTiles` (the view model's order: windows first). Tile gap 8.
+
+### D3.5 LANES section (new, `section aria-labelledby="lanesH"`, `p-4`)
+
+Data: `laneTiles` (`LaneUsageTileModel`), `subtotal` (`LaneSubtotalTileModel`), `lanesCount` (runs). Omitted when there is no lane tile and no subtotal.
+
+- Header: `LANES` label; right meta `1 lane · 2 runs` (`lanesCount` is runs; the lane count is `laneTiles.length`; the strip's `LANES 2` pill keeps its `lanesAriaLabel()` text as the meta's `aria-label`).
+  Below: the caption `lane · not in totals` (`LANE_CAPTION`, `text-[11px]` muted) with `Info` 12; this is the "not in totals" note.
+- Lane tile (`ptah-lane-usage-tile`, disclosure button, tile recipe but `border-dashed border-surface-border-strong`: dashed = outside the session totals, the same cue as the strip's dashed LANES pill; the
+  caption word carries the meaning):
+  line 1: `ptah-provider-mark` 20 (lucide `terminal` fallback, D5) + `label` (`Codex CLI · software-architect`, 12/600, truncates with `title`) + `runChip` (`Completed` / `Running` / `Failed` word in state ink) + `chevron-down`;
+  line 2: `tokensText` (`2.7M tokens`, 13/600 tabular) `tokensUnknownText` (`+1 unknown`, muted) · `costLine` (`cost unknown`, muted, never `$0`) · `2 runs` (muted);
+  line 3: `limitChips` (`✓ Room` in done ink, `Near limit` need ink, `At limit` err ink; each followed by its source chip `Provider API`).
+  Tile `tone` tints the dashed border for warning / error (redundant to the chip).
+- Expansion: the lane subgroups (`LaneSubgroupModel`): heading, `ownerLabel` (`Same account` / `Different owner` / `Unknown owner`) + `ownerText`, `stateChip`, run rows (`label`, `model`, status, tokens, cost),
+  `planTileChips` (a text button `Weekly` that opens and focuses that plan tile), `windows` rendered as the same bar row as D3.4 (only when the lane's owner differs or the window is not on a plan tile),
+  evidence lines, cooldown line, notes (`info` tone = `border-l-2 border-info`, `neutral` = muted). A lane provider that reports state but no windows shows the state chip only: that is the gap, shown honestly.
+- Subtotal tile (`ptah-lane-subtotal-tile`, not a button, no border; `border-t border-surface-border pt-2`): caption `Subtotal` muted, `tokensText` (`2.7M tokens known`) 13/600, `summary` 11 muted
+  (`$0.00 known cost · 1 lane · 2 runs · 2 cost unknown`).
+
+### D3.6 AGENTS absorbs the background-agent tray (4.2 amended in place)
+
+The tray's population is already in AGENTS (parity C-6). What the tray had beyond the rows moves too, so nothing is lost:
+
+- Summary line under the AGENTS header (`text-[11px]` muted, `px-4 mb-1.5`): the tray strip's own population grammar `{n} background · {n} foreground · {n} running · {n} done · {n} failed · {n} stopped`, a part omitted at 0
+  (for example `1 foreground · 1 running`), from the same tray entries (parity C-40). The header meta stays `4 active · 1 finished`. The line is omitted when the tray would have been empty. The tray's up-to-5 status dots and its expand toggle have no
+  counterpart: the AGENTS rows are always listed and each avatar carries its own status ring (4.7), so the same information is shown without a toggle (parity C-19, C-40).
+- Row status line: the tray row's line `elapsed time and tokens` (C-41) maps onto AGENTS line 1 (status word + duration) and line 2 (activity); when the entry carries a token count it is appended to line 2 as `· 12.4k tokens` (muted, tabular, hidden when unknown). The row accessible name keeps the AGENTS form `{name}, {kind}, {status} {duration}. {activity}`.
+- Per-row actions menu: rows whose entry has any action get a 28 x 28 `ellipsis` button (sibling of the row button, D15; `aria-haspopup="menu"`, `aria-expanded`, `aria-label="Actions for agent {name}"`) at the
+  right end of line 1. The menu (`role="menu"`, `menuitem`s, Up / Down / Home / End, Esc closes and returns focus to the button) lists: `View transcript` (`canViewTranscript`), `Steer` (opens the retained
+  `ptah-agent-steer-input` inline under the row, with the placeholder `Steer {name}...` and the pending state `pendingSteerId`), `Send to background` (`canBackground`), `Stop` (`stoppable`, err ink). Each item has a
+  lucide icon (`eye`, `message-square-text`, `arrow-down-to-line`, `square`). `Focus` is the row button itself (it activates the agent lane view, 4.5), the same call the tray's `Focus` used (`tabManager.switchTab`).
+- Sub-agent model (D56, parity C-49): the inline bubble footer label leaves the thread. The agent's model (`node().agentModel` / `model`, `resolveModelDisplayName`, raw id in the title) appears as a `Model {name}` line in the dock hover / focus card (Delta 2, D35) and in the AGENTS row `title` plus its accessible description; hidden when unknown. Agent monitor panel, lane headers and the Rail focus header keep their labels (PM-18).
+- Scope (decisions.md row 54, USER answer, C-48b): the inspector AGENTS section and the agent dock already list THIS session's sub-agents, CLI lanes and background commands; the tray merges into AGENTS (the canvas-tile scope, `traySessionId`, with the tray's dedupe by `toolCallId`, background record wins). There is NO group for other sessions' agents. Every tray capability for this session has a place: population counts (summary line), status (row avatar ring + word), `Focus` (row button), `View transcript`, `Steer`, `Send to background`, `Stop` (row menu).
+
+### D3.7 Reaching the stats when the inspector is closed (overlay widths and `compact` mode; D51)
+
+Today the strip is always visible, and its limits alert shows at rest while a window is near or at its limit (C-33). The closed inspector must not hide the two things a user watches: the context level and a limit warning (PM-20, requirement 21.18). No strip returns. Three cues, each with text, never colour alone:
+
+- Limit chip in the header (new, between the `N needs you` chip and the inspector toggle): non-interactive status hint, `role="status"`, the 22 px recipe of the `N needs you` chip (`h-[22px] px-2 rounded-md border text-[11px] font-medium`, transparent fill, 55 % ink border), `TriangleAlert` 12 + the word. Copy: `Limit near` (ink `--state-ink-need`) or `At limit` (ink `--state-ink-err`); `title` = the full alert (`Weekly plan limit is near`). Shown only while the inspector is CLOSED and the indicator exists (open: the SESSION alert, D3.3, says the same). At 400 px it sits next to the `N needs you` chip and the title truncates first (the title is `min-w-0 truncate`); below 440 px the chip drops its glyph but keeps the word. Pairs: need and err ink on surface-0 (4.5:1 text, measured below).
+- Dot on the toggle (extends D6 / D43): 7 px, `--state-ink-need` or `--state-ink-err`, 2 px `base-100` ring, decorative; the chips and the description say what it means. PRECEDENCE when several apply (one dot, highest wins): (1) a pending request (`N needs you`, need ink; the existing rule), (2) a plan window or lane `at limit` (err ink), (3) `near limit` (need ink), (4) the workflow dot (`--sel`, D43). So the pending-request dot still beats the workflow dot, and the limit warning sits between them.
+- Context ring on the toggle: a 28 px ring (`r=12`, stroke 2, same colour rule as the SESSION ring: gold < 80 %, need 80-94 %, err >= 95 %; requirement 7.4 / PM-21) around the `panel-right` icon while the inspector is closed and the context window is known. Decorative (`aria-hidden`); its value is in the description. Unknown window: no ring. Open: no ring.
+- Description: the accessible name stays `Show session details`; a visually hidden description (`aria-describedby`) adds what is behind it: `Context 15%. Weekly plan limit is near. 2 need you.` Touch has no hover, so the visible chips and the description are the cues; the user opens the sheet for details (one tap, 8.3 unchanged).
+
+Against 2 (shell), 3.8 and 8.3: no new surface, no layout shift beyond one 22 px chip that exists only in a warning state, the default stays closed, nothing opens itself, focus rules untouched. A header chip was rejected as a permanent context chip (no room at 400 px) but accepted as a conditional warning chip.
+
+### D3.8 Accessibility, targets, motion, contrast
+
+- Headings: each new section has an `h3.sec-label` named by `aria-labelledby`. Tab order inside the inspector (8.1 amended): `Close session details`, [slot], SESSION (`Plan limits` link when the alert shows, `Models`),
+  AGENTS (row button, `Actions for agent`, request buttons), PLAN LIMITS tiles, LANES tiles and their expansion controls, TASK, TODOS, GIT. Every bar is `role="progressbar"` with `aria-valuenow` and a text `aria-valuetext`;
+  every state has a word (`Near limit`, `At limit`, `Room`, `Completed`); `~` has an sr-only `estimated`.
+- Targets: tiles that are buttons are >= 52 px high (full width), `Models` 40 px, `Actions for agent` 28 x 28, `Plan limits` link and see-plan-tile chips `h-6 min-w-6` (24 px), menu items 32 px. The 2 px focus ring of 8.4
+  applies to every new control. No overlapping targets.
+- Motion: bar and ring arc width / dasharray transition 400 ms `--ptah-ease-soft` (as 4.1); expansion height uses the existing 160 ms disclosure transition; the staggered entry of 7.1 counts SESSION, PLAN LIMITS and LANES as
+  rows (cap of 6 rows unchanged); `prefers-reduced-motion`: instant. Tiles do not re-animate on a snapshot push (values update in place).
+- Contrast, measured with `prototype/assets/contrast-delta3.mjs` (WCAG 2.x, text >= 4.5:1, graphics >= 3:1; the project states no other standard; anubis / anubis-light; tile surface-1, section surface-0):
+
+| Pair | anubis | anubis-light | Criterion |
+| --- | --- | --- | --- |
+| value text on tile surface-1 | 14.01 | 14.41 | text |
+| muted label / caption / reset line on surface-1 | 5.71 | 5.46 | text |
+| muted section meta on surface-0 | 6.06 | 6.03 | text |
+| state word Near limit (need ink) on surface-1 | 6.23 | 5.28 | text |
+| state word At limit / failed (err ink) on surface-1 | 4.64 | 5.55 | text |
+| state word Room / Completed (done ink) on surface-1 | 5.30 | 5.17 | text |
+| state word Running (run ink) on surface-1 | 4.75 | 5.49 | text |
+| alert text and header limit chip word (need ink) on surface-0 | 6.61 | 5.83 | text |
+| header limit chip word `At limit` (err ink) on surface-0 | 4.92 | 6.12 | text |
+| bar / ring fill gold, need, err vs surface-1 | 8.31 / 6.23 / 4.64 | 3.71 / 5.28 / 5.55 | graphic 3:1 |
+| toggle ring arc gold, need, err vs surface-0 | 8.81 / 6.61 / 4.92 | 4.10 / 5.83 / 6.12 | graphic 3:1 |
+| toggle dot err ink vs surface-0 | 4.92 | 6.12 | graphic 3:1 |
+
+  The track (`--surface-border-strong`, 1.6-1.8:1) and the dashed lane border are decorative: the percentage, state word and `aria-valuetext` carry the value (same ruling as the 4.1 context bar). No pair is new
+  in kind: gold, `--state-ink-*` and muted ink were already measured in 8.2; only the surface-1 tile background is new for the graphics and it is included above. The 32-theme fallback (D24) supplies
+  `--state-ink-*` for the other themes; the gold fill falls back to `--ptah-accent-ink`.
+
+### D3.9 Data sources and architect checks (delta 3)
+
+No new backend call and no new persisted field. Every value is already resolved in `ChatViewComponent`: `resolvedSessionStats()`, `resolvedLiveModelStats()`, `resolvedCompactionCount()`, `resolvedStatsLimits()`,
+`resolvedSessionId()`, `resolvedSessionBudget()` (the six inputs the removed mount passed to `ptah-session-stats-summary`) and the tray entries of `BackgroundAgentTrayComponent`.
+
+1. Build the SESSION / PLAN LIMITS / LANES sections from those six inputs. Prefer reusing the existing child components (`ptah-plan-limit-tile`, `ptah-lane-usage-tile`, `ptah-lane-subtotal-tile`, `ptah-limits-alert`,
+   `ptah-cost-badge`, `ptah-token-badge`, `ptah-agent-steer-input`) with a re-skin through their host classes; the layout of the SESSION tiles and the context ring are new template code. Where a child's template
+   cannot be restyled to D3.4 / D3.5 (it renders its own bar and chip classes), extract a presentational variant, do not fork the view model.
+2. The component `ptah-session-stats-summary` and its `session-stats-summary` helper functions (`session-stats-format`, `session-budget-format`) stay; only `chat-view.component.html` loses the mount (lines 35-51
+   region and the tray block 53-64). `showBackgroundStrip()` and `traySessionId()` stay for the canvas tile host if it still mounts the tray.
+3. Window thresholds: use the engine's window `tone` / `state` (`PlanWindowState`); do not recompute near / at limit from a percentage in the template. The 80 / 95 split applies to the context ring only.
+4. Model display name: `formatModelName()` of the strip, fed by `primaryModelName()` / `modelRows()`; the single-model case no longer prints a chip in the chat column.
+5. The inspector toggle (ring, dot, description) reads the same session-scoped aggregate (9.1) plus `resolvedLiveModelStats()` and `resolvedStatsLimits().indicator`; the header is a shell concern, the aggregate must expose
+   `contextPercent | null`, `limitState: none | near | at` and a one-line description string so the toggle never derives them separately.
+6. Cross-host: `harness-builder` and `canvas-lane-view` keep the strip unchanged; verify nothing in `chat-view` still imports the strip or the tray after the move (barrel exports unchanged).
+7. Embed (`ptah-session-embed`, row 42): the stats sections render inside the inspector, so the embed gets them for free; the `[sessionAddon]` slot is not used.
+8. Tray scope (D3.6, row 54): confirm `BackgroundAgentStore.agentsForSession()` plus `AgentMonitorStore` give the inspector the same entries the tray shows for one session (the `traySessionId` scope, with the `toolCallId` dedupe), including `origin`, `stoppable`, `canBackground`,
+   `canViewTranscript` and `taskId`; the AGENTS aggregate (9.1) must carry these action flags.
+9. `Usage and limits` disclosure in the old Orchestrator card (4.1, parity=1) is deleted, not hidden: its three rows (compactions, budget, 5-hour / weekly) are now SESSION and PLAN LIMITS.
+
+### Delta 3 changes (in-place updates elsewhere in this file)
+
+Section 3.8 table (`stats strip` row), 4 intro (order), 4.1 (model line, context, stats, `Usage and limits`), 4.2 (tray), 5 items 5b and 6 (limit chip, toggle ring and dot), the dock hover card of Delta 2 (adds a `Model {name}` line for sub-agents, D56), 8.1 (tab order), 10 (D44-D55), 12.1 (C-2..C-6 rows), 13 (index).

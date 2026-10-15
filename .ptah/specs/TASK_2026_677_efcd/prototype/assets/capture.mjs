@@ -67,6 +67,31 @@ async function delta2Merged() {
   }
 }
 
+async function delta3() {
+  const out = path.join(root, 'screenshots');
+  fs.mkdirSync(out, { recursive: true });
+  for (const th of ['dark', 'light']) {
+    const q = (extra = '') => 'bare=1&replay=0&theme=' + th + extra;
+    const jobs = [
+      ['full-inspector', '1440', q('&insp=open'), { width: 1440, height: 1500 }, async () => {}],
+      ['expanded-inspector', '1440', q('&insp=open'), { width: 1440, height: 1900 }, async (pg) => { await pg.click('[data-d3="models"]'); await pg.click('[data-d3="tile"][data-k="plan:weekly"]'); await pg.click('[data-d3="tile"][data-k="lane:codex:software-architect"]'); await pg.click('[data-d3="menu"][data-id="fe"]'); await pg.waitForTimeout(250); }],
+      ['at-limit-inspector', '1440', q('&insp=open&stats=at'), { width: 1440, height: 1500 }, async () => {}],
+      ['closed', '760', q('&insp=closed&stats=full'), { width: 760, height: 700 }, async () => {}],
+      ['sheet', '760', q('&insp=open'), { width: 760, height: 1500 }, async () => {}],
+      ['closed', '400', q('&insp=closed&stats=at'), { width: 400, height: 700 }, async () => {}],
+      ['sheet', '400', q('&insp=open'), { width: 400, height: 1900 }, async () => {}],
+      ['partial-inspector', '1440', q('&insp=open&body=partial'), { width: 1440, height: 1200 }, async () => {}]
+    ];
+    for (const [name, w, query, vp, prep] of jobs) {
+      const { page, ctx, errors } = await open(query, vp);
+      await prep(page);
+      await page.screenshot({ path: path.join(out, 'delta3-' + name + '-' + w + '-' + th + '.png') });
+      console.log('shot delta3-' + name + '-' + w + '-' + th, errors.length ? 'ERRORS ' + errors.join(' | ') : 'ok');
+      await ctx.close();
+    }
+  }
+}
+
 try {
   if (mode === 'shots') {
     const W = { width: 1594, height: 839 }, N = { width: 400, height: 900 };
@@ -581,8 +606,52 @@ try {
         await ctx.close();
       }
     }
+
+    // K. Delta 3: session stats in the inspector (design-spec Delta 3)
+    for (const th of ['dark', 'light']) {
+      const { page, ctx, errors } = await open('bare=1&replay=0&insp=open&theme=' + th, { width: 1440, height: 1500 });
+      const r = await page.evaluate(() => {
+        const q = (x) => document.querySelector(x), all = (x) => Array.from(document.querySelectorAll(x));
+        const order = all('#inspBody > section').map((e) => (e.querySelector('.sec-label') || {}).textContent || e.getAttribute('aria-label'));
+        const bars = all('#inspBody [role="progressbar"]').map((b) => ({ n: b.getAttribute('aria-valuenow'), t: b.getAttribute('aria-valuetext') || '' }));
+        const small = all('#inspBody button, #inspBody input, #inspBody [role="menuitem"]').filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect()).filter((b) => b.width < 24 || b.height < 24).length;
+        return { order, bars, small, strip: !!q('ptah-session-stats-summary, .stats-grid'), orchLine: (q('.orch-sub') || {}).textContent,
+          tray: (q('[data-testid="tray-summary"]') || {}).textContent, compact: !!q('[data-testid="stats-compactions"]'),
+          notin: /not in totals/.test(q('#inspBody').textContent), sub: !!q('[data-testid="lane-subtotal"]'), tilde: !!q('[data-testid="stats-tokens"] .sr-only'), alert: !!q('[data-testid="limits-alert"]') };
+      });
+      ok(r.order.join('|') === 'Orchestrator|Session|Agents|Plan limits|Lanes|Task|Todos|Git', th + ': inspector order Orchestrator, Session, Agents, Plan limits, Lanes, Task, Todos, Git (' + r.order.join(', ') + ')');
+      ok(!r.strip && !/Opus/.test(r.orchLine || ''), th + ': no stats strip in the chat column, no model on the Orchestrator card line (' + r.orchLine + ')');
+      ok(r.bars.length >= 5 && r.bars.every((b) => b.n !== null && b.t.length > 6), th + ': every ring and bar is a progressbar with a value and a text value (' + r.bars.length + ')');
+      ok(r.small === 0, th + ': all inspector controls >= 24 x 24 px');
+      ok(r.compact && r.notin && r.sub && r.tilde && r.alert && /background/.test(r.tray || ''), th + ': compactions, not in totals, Subtotal, ~ estimate sr text, limits alert and tray summary present (' + r.tray + ')');
+      await page.focus('[data-d3="models"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(100);
+      ok((await page.evaluate(() => document.getElementById('modelsPanel').hidden)) === false && (await page.evaluate(() => document.activeElement.getAttribute('data-d3'))) === 'models', th + ': Models opens the per-model panel by keyboard and keeps focus');
+      await page.focus('[data-d3="tile"][data-k="plan:weekly"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(100);
+      ok(await page.evaluate(() => !document.getElementById('pn-plan-weekly').hidden && /Resets/.test(document.getElementById('pn-plan-weekly').textContent)), th + ': Weekly tile expands with the reset facts');
+      await page.focus('[data-d3="menu"][data-id="fe"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(100);
+      ok((await page.evaluate(() => document.activeElement.getAttribute('role'))) === 'menuitem', th + ': actions menu opens with focus on the first item');
+      await page.keyboard.press('ArrowDown'); await page.keyboard.press('End');
+      ok((await page.evaluate(() => document.activeElement.textContent.trim())) === 'Stop', th + ': arrow keys and End move through the menu (Stop is last)');
+      await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+      ok((await page.evaluate(() => document.activeElement.getAttribute('aria-label'))) === 'Actions for agent frontend-developer', th + ': Escape closes the menu and returns focus to its button');
+      ok(errors.length === 0, th + ': delta 3, no script errors (' + errors.length + ')');
+      await ctx.close();
+    }
+    for (const [w, h] of [[760, 900], [400, 900]]) {
+      for (const stats of ['full', 'at']) {
+        const { page, ctx } = await open('bare=1&replay=0&insp=closed&stats=' + stats, { width: w, height: h });
+        const r = await page.evaluate(() => ({ chip: (document.getElementById('limChip').hidden ? '' : document.getElementById('limChip').textContent), ring: document.getElementById('togRing').style.display !== 'none',
+          dot: !document.getElementById('needDot').hidden, desc: document.getElementById('togDesc').textContent, name: document.getElementById('inspToggle').getAttribute('aria-label') }));
+        ok(r.chip === (stats === 'at' ? 'At limit' : 'Limit near') && r.ring && r.dot && /Context 15%/.test(r.desc) && /limit/.test(r.desc) && r.name === 'Show session details', w + ' px closed, stats=' + stats + ': limit chip with text, context ring, dot and description (' + r.chip + ' | ' + r.desc + ')');
+        await page.focus('#inspToggle'); await page.keyboard.press('Enter'); await page.waitForTimeout(250);
+        const o = await page.evaluate(() => ({ sess: !!document.getElementById('sessH'), plan: !!document.getElementById('planH'), chip: document.getElementById('limChip').hidden }));
+        ok(o.sess && o.plan && o.chip, w + ' px sheet, stats=' + stats + ': one action reaches SESSION and PLAN LIMITS; the chip hides while the sheet is open');
+        await ctx.close();
+      }
+    }
     console.log(report.join('\n'));
   }
+  if (mode === 'delta3') await delta3();
   if (mode === 'delta2-merged') await delta2Merged();
 } finally {
   await browser.close();

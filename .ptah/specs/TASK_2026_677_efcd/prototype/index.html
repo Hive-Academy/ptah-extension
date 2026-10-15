@@ -15,6 +15,7 @@
   </script>
   <link rel="stylesheet" href="assets/tokens.css" />
   <link rel="stylesheet" href="assets/app.css" />
+  <link rel="stylesheet" href="assets/delta3.css" />
   <script src="assets/sprite.js"></script>
   <script src="assets/sprite-extra.js"></script>
   <script src="assets/delta2-sprite.js"></script>
@@ -114,8 +115,11 @@
           <svg class="ico ico--12" aria-hidden="true"><use href="#i-git-branch"/></svg><span>feat/desktop-shell</span>
         </span>
         <span class="hchip hchip--need" role="status" id="needChip" title="Open This session to answer">1 needs you</span>
-        <button type="button" class="icon-btn" id="inspToggle" aria-label="Hide session details" aria-pressed="true" aria-controls="inspector">
+        <span class="hchip hchip--lim" role="status" id="limChip" hidden></span>
+        <button type="button" class="icon-btn" id="inspToggle" aria-label="Hide session details" aria-pressed="true" aria-controls="inspector" aria-describedby="togDesc">
           <svg class="ico ico--16" aria-hidden="true"><use href="#i-panel-right"/></svg>
+          <svg class="tog-ring ring--ok" id="togRing" viewBox="0 0 28 28" aria-hidden="true" style="display:none"><circle class="ring__t" cx="14" cy="14" r="12"/><circle class="ring__a" cx="14" cy="14" r="12" transform="rotate(-90 14 14)"/></svg>
+          <span class="sr-only" id="togDesc"></span>
           <span class="badge-dot" id="needDot" hidden></span>
         </button>
       </header>
@@ -341,6 +345,7 @@ apps/ptah-electron/src/renderer/app.component.ts:7</pre></div>
     </aside>
   </div>
 
+  <script src="assets/delta3.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>

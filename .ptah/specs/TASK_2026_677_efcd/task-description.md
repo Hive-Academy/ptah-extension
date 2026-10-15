@@ -41,7 +41,9 @@ chat view has no place to answer a CLI-lane permission request at all (T1-07). T
   that needs a parity inventory, and 35 in-scope carry-over items, under a bundle budget with 0.01 MB headroom.
   Delta 2 adds the agent dock (a rebuilt thread switcher with a hover/focus card and an overflow menu) and one agent
   avatar shared by chips, AGENTS rows and the dock; it stays inside the same four libraries and does not change the
-  size class.
+  size class. Delta 3 moves the session stats strip, its expanded panel and the background-agent tray from the chat
+  column into the inspector (requirement 21); it reuses existing view models and stays inside the same libraries, so
+  the size class stays XL.
 - Priority: not defined here (the repository and the user define no priority scale for this task).
 
 ## Decisions
@@ -64,6 +66,11 @@ chat view has no place to answer a CLI-lane permission request at all (T1-07). T
 | PM-14 | Delta 2: when the data the frontend already receives does not identify the session's provider, the Orchestrator avatar shows a neutral orchestrator glyph, never a guessed vendor mark and never the sub-agent `Bot`. | always show the Claude mark; show `Bot` | decisions.md row 31 (avatar = the session's actual provider; frontend only); a guessed mark would misreport a non-Claude session | yes |
 | PM-15 | Delta 2: the lane strip's horizontal scroll with edge fade is replaced by the priority overflow and the `N agents ›` menu. The capability "reach every lane" is kept (parity E-9, E-10), so this is a changed mechanism, not a removal. | keep horizontal scroll in the dock | `design-delta-2-options.md` §3 shared behaviour and D5; decisions.md row 31 | yes |
 | PM-16 | Delta 2: the work log wraps today's tool-call rows; their components and styles are not changed (requirement 20; parity B-5a). | restyle tool rows to the reference | user decision, decisions.md row 32 | yes |
+| PM-17 | Delta 3: the stats strip, its expanded panel and the background-agent tray leave the chat-view main column, and all of their information moves into the inspector (requirement 21). This is a `move` (parity C-2..C-6, C-19..C-50), not a removal. `ptah-session-stats-summary`, `ptah-background-agent-tray` and `ptah-background-agent-strip` stay in the codebase for their other hosts, unchanged there. | delete the components; keep a slim strip in the main column | decisions.md row 50; other hosts `harness-builder-view.component.ts:400`, `canvas-lane-view.component.ts:124` | yes |
+| PM-18 | Delta 3, model labels: "chat area" means the chat-view main column (transcript including the work log, banners, composer) plus the inspector Orchestrator card. There, the composer model / effort selector (requirement 12.4) is the only model text and the only model control. Read-only model text appears only in the inspector session stats. Other surfaces keep their model labels: the agent monitor panel (`chat-view.component.html:340`, `agent-card-header.component.ts:93-98`, `cli-agent-output.component.ts:45-47`), lane headers (requirement 14.1), the Rail focus header (`canvas-focus-area.component.ts:39`) and harness builder. | also strip the agent monitor panel and lane headers | decisions.md row 50 (USER: "every read-only model label in the chat area / orchestrator card goes"); design-spec D3.1 | yes |
+| PM-19 | Delta 3: the inspector lists the agents of the session it shows, which is the canvas-tile tray scope today (`traySessionId`, `chat-view.component.ts:548-564`). On the main panel the tray also lists other sessions' agents. That cross-session listing is parity C-48b `remove-proposed`, waiting for the user. Those agents stay reachable, with all their actions, through their own session's tab. | keep a cross-session list inside "This session"; keep a tray row in the main column | design-spec D3.6 ("Tray scope", flagged as architect check 8); `background-agent-tray.component.ts:192-199` | yes |
+| PM-20 | Delta 3: when the inspector is closed, the limit state (`at limit` / `near limit`) and the context level stay perceivable without opening it. Today the collapsed strip shows the limits alert at rest (`session-stats-summary.component.html:14-17`). The design picks the cue: design-spec D3.7 uses a ring and dot on the inspector toggle plus an accessible description. The cue is never colour alone. | show limit state only inside the inspector | `limits-alert.component.ts:9-16` (alert shown at rest while at or near limit); NFR Accessibility (status never by colour alone) | yes |
+| PM-21 | Delta 3: the inspector context indicator uses the thresholds of requirement 7.4 (80 % warning, 95 % error). The strip's 70 % warning and 90 % critical (`session-stats-summary.component.ts:232-237`, `.html:504-507`) are not kept as a second rule. This changes a moved capability's visual (parity C-25, "User-visible changes"); the capability itself is kept. | keep 70 / 90 in the inspector; show two rules | requirement 7.4; design-spec D3.3 (one colour rule for the SESSION ring) | yes |
 
 ## Scope
 
@@ -95,8 +102,15 @@ In scope:
   mode, model and effort) (design-spec §5, §6).
 - Staggered session-switch entrance with reduced-motion handling (design-spec §7).
 - Carry-over items T1-01..T1-09, T1-11, T1-12, T1-14, T1-15, T1-19..T1-40 (requirements 12-14 and the traceability table).
-- Keeping every chat-view surface the new view does not replace (stats strip with limits and budget, background tray,
-  compaction notice and markers, banners, permission badge, question cards, queued-content indicator).
+- Session stats in the inspector (Delta 3; decisions.md row 50; requirement 21): the stats strip
+  (`ptah-session-stats-summary`, `chat-view.component.html:35-51`), its expanded panel (SESSION totals, PLAN LIMITS
+  windows with resets, source badges and per-window detail, LANES tiles "not in totals" with Subtotal, per-model
+  breakdown) and the background-agent tray (`chat-view.component.html:53-64`) leave the chat-view main column. All
+  of their information and actions become reachable in the inspector. Provider plan limits show as tiles with a
+  small progress bar or ring. Read-only model text appears only in the inspector stats (PM-18).
+- Keeping every chat-view surface the new view does not replace (compaction notice and markers, banners including
+  the session budget banner C-12, permission badge, question cards, queued-content indicator). Delta 3: the stats
+  strip and the background tray are no longer on this list; they move (requirement 21).
 - `parity-inventory.md` rows marked `keep` or `move`.
 
 User-visible visibility changes (not removals; each capability stays; decided by the user in decisions.md row 23):
@@ -132,8 +146,8 @@ Out of scope:
   (decisions.md row 32, requirement 20).
 - New spec files or new test coverage, including T1-10, T1-13, T1-16, T1-17, T1-18 and all of T2 — postponed by the
   user (decisions.md row 3).
-- Removing any capability — `parity-inventory.md` "Proposed removals" lists none; a later removal needs the user's
-  approval first.
+- Removing any capability. A removal needs the user's approval first. `parity-inventory.md` "Proposed removals"
+  lists one pending row (Delta 3): C-48b, the main panel's cross-session agent list (PM-19).
 - PR #730 style findings other than T1-27: `distinctRetainedCount` consumer, ignored output payloads,
   `chat-transcript.component.ts` size, glyph controls, retention coupling, canvas token names (T3-09..T3-14) —
   refactoring task T3 (PM-9).
@@ -150,6 +164,13 @@ Out of scope:
   links open the file (requirement 17.5); the board stays in tasks-ui (NFR Performance).
 - Any change to the `tasks:changed` push, the `.ptah/specs` watcher or the task RPC contract — frontend only
   (decisions.md row 21, NFR Backend).
+- Delta 3: new stats, new plan-limit data, a new provider source or any backend, RPC or shared-type change for the
+  inspector stats. The inspector shows only data the frontend already receives (decisions.md row 50, PM-6).
+- Delta 3: deleting or changing `ptah-session-stats-summary`, `ptah-background-agent-tray` or
+  `ptah-background-agent-strip` in their other hosts: harness builder (`harness-builder-view.component.ts:400`) and
+  the canvas lane view (`canvas-lane-view.component.ts:124`). Only the chat-view mount moves (PM-17).
+- Delta 3: model labels outside the chat area as PM-18 defines it (agent monitor panel, lane headers, Rail focus
+  header, harness builder). A later task can remove them if the user wants.
 
 ## Requirements
 
@@ -404,9 +425,12 @@ Acceptance criteria:
 
 Acceptance criteria:
 
-1. When the inspector is shown, the system shall display the model, the orchestrator state (`working`,
-   `waiting on N agents`, `needs you`, `idle`), context usage, tokens, cost and turns of the active session, from the
-   same sources the Rail details aside uses today (`canvas-session-details.component.ts:111-123`).
+1. When the inspector is shown, the system shall display the orchestrator state (`working`,
+   `waiting on N agents`, `needs you`, `idle`) on the Orchestrator card, and context usage, tokens, cost and turns of
+   the active session in the inspector, from the same sources the Rail details aside uses today
+   (`canvas-session-details.component.ts:111-123`). Delta 3 (decisions.md row 50, PM-18): the Orchestrator card shows
+   no model. Model information and the session totals appear in the inspector session stats (requirement 21), and
+   criteria 2-5 below apply to them there.
 2. When context usage is unknown, the system shall show `—`, an empty bar and the accessible value
    `Context usage unavailable`.
 3. When the context window size has no source, the system shall show the percentage only (no `of 200k`).
@@ -513,13 +537,16 @@ Acceptance criteria:
 Acceptance criteria:
 
 1. When a `cli:`, `bg:` or `sub:` lane is open, its header shall show model, context, tokens, cost and elapsed time in
-   the main stats-strip layout; a value without a source shows `—` (T1-03).
+   the stats-strip layout (`ptah-session-stats-summary`); a value without a source shows `—` (T1-03). Delta 3: the
+   lane header is a different host from the chat-view main column, so it keeps the strip and its model label
+   (PM-17, PM-18).
 2. When the details copy about agents appearing as lanes is shown, it shall be true for the host it is shown in (T1-11).
 3. When `CanvasDetailService.open` fails from a Rail card or the needs-you queue, the user shall see a notice instead of
    a silent no-op (T1-12).
 4. When a restored-history session has no lane record, the copy shall not say "not available yet" (T1-14).
 5. When a lane open is rejected repeatedly in a dev build, the console shall show no NG0956 warning (T1-15).
-6. When the lane notice is shown, the context chip and stats strip shall stay visible and usable (T1-19).
+6. When the lane notice is shown, the context chip and the lane header's stats strip shall stay visible and usable
+   (T1-19).
 7. When a tile or chip points at a lane key that no longer resolves, the system shall show a notice (T1-20).
 8. When a lane shows a streaming agent, it shall show the streaming state and render `ptah-ui` blocks as the main
    transcript does (T1-21).
@@ -567,7 +594,9 @@ Acceptance criteria:
    stated new location.
 2. When the implementation is reviewed, no capability listed in `parity-inventory.md` shall be absent from the
    product; the inventory has no `remove-proposed` row (PM-5), and the visibility changes listed under Scope are the
-   only changes in how often a capability is seen.
+   only changes in how often a capability is seen. Delta 3 exceptions: row C-48b (cross-session agent list on the
+   main panel, PM-19) is `remove-proposed` and needs the user's decision before it can be removed. B-25 is the
+   user-approved removal of decisions.md row 45.
 3. When the per-tab view-mode toggle is used (tab item or Rail focus header), the session shall switch between the
    `full` and `compact` presentations defined in requirement 16, and the choice shall survive a reload (PM-1).
 4. When a Rail board card renders, it shall look and behave as before this task (compact rail card unchanged).
@@ -597,8 +626,9 @@ Acceptance criteria:
 5. When a tab is in `compact`, the vertical gaps shall be 12 px (user to assistant), 20 px (assistant to user) and
    8 px (answer paragraphs) with a 28 px disclosure row, against 20 / 28 / 12 px in `full`.
 6. When a tab is in either mode, user turns (attachments, time and sender, branch, rewind, compaction disclosure),
-   banners C-1..C-17, the stats strip, compaction markers, the composer, the render window and older-history loading
-   shall be present and behave identically.
+   banners C-1 and C-7..C-17, the inspector session stats (requirement 21; Delta 3, replacing "the stats strip"),
+   compaction markers, the composer, the render window and older-history loading shall be present and behave
+   identically.
 7. When the user switches mode from the tab item or the Rail focus header, the system shall switch in place without
    remounting the transcript or replaying the session-switch stagger, keep the topmost visible turn at the same
    position, and set `aria-pressed` on the control to match the mode.
@@ -793,6 +823,150 @@ Acceptance criteria:
    arguments chip, with the same expand behaviour, as the same tool call shows in the current build (side-by-side
    screenshot in dark and light).
 
+### 21. Session stats in the inspector (Delta 3; decisions.md row 50; parity C-2..C-6, C-19..C-50)
+
+Requirement: the "This session" inspector holds everything that three chat-view surfaces show today: the session
+stats strip, its expanded panel and the background-agent tray. The main chat column then holds only the
+conversation, banners and composer, and session totals, provider plan limits, lane usage and running agents stay
+one action away at every width. Today the strip is `ptah-session-stats-summary` (mounted at
+`C/templates/chat-view.component.html:35-51`; markup `CU/molecules/session/session-stats-summary.component.html`;
+tiles in `CU/molecules/session/plan-limits/`). The tray is `ptah-background-agent-tray` (mounted at
+`chat-view.component.html:53-64`; `C/organisms/background-agent-tray.component.ts`, which presents
+`CU/molecules/background-agent-strip.component.ts`). Only data the frontend already receives is shown (PM-6). The
+components stay for their other hosts (PM-17). Layout, order and section names follow design-spec Delta 3 (D3.1-D3.9).
+Before-build reference: `screenshots/before/` (decisions.md row 48).
+
+Acceptance criteria:
+
+Main column (21.1-21.2)
+
+1. When a session with messages is shown in chat-view, in either host and either view mode, the main column shall
+   render neither `ptah-session-stats-summary` nor `ptah-background-agent-tray`, and no replacement strip or tray
+   row between the header and the transcript. Banners C-1 and C-7..C-17 and the compaction markers stay where they
+   are today.
+2. When the harness builder (`harness-builder-view.component.ts:400`) or the canvas lane view
+   (`canvas-lane-view.component.ts:124`) renders, it shall show the stats summary or agent strip as in the
+   before-build, and the existing specs of those components shall keep passing (PM-17).
+
+Session totals (21.3-21.8)
+
+3. When the inspector is shown for a session with messages, it shall show every value of today's collapsed strip
+   and expanded SESSION card: the model (one model) or the model count (two or more models), context % with the
+   used tokens and the context bar or ring when the window is known, tokens, cost, lanes count, session time,
+   agents (lifetime unique sub-agent count) and compactions. Each value shall show the same number as the
+   before-build strip for the same session.
+4. When a value has a tooltip in today's strip, the same text shall be reachable in the inspector by hover and by
+   keyboard focus or as an accessible description. This covers the token breakdown (input, output, cache read,
+   cache creation, total, and "Some usage could not be counted." when coverage is partial), the context details,
+   the agents explanation and the budget lines (`session-stats-summary.component.ts:186-190, 316-360`).
+5. When a value is unknown or absent, the inspector shall follow today's rules. Unknown tokens or cost show `—`,
+   never `0` (requirement 7.5). An unknown context window shows the percent without a bar or ring. Lanes, time,
+   agents and compactions are omitted when absent or zero (`session-stats-summary.component.ts:140-145, 276-286`;
+   `.html:165`).
+6. When the snapshot is an in-turn estimate (`provisional`), tokens and cost shall carry today's `~` estimate mark
+   and the estimate line in their description (`session-stats-summary.component.html:61-73, 89-96`).
+7. When the total cost is unavailable and pricing coverage is partial, the inspector shall show
+   `known subtotal {cost}` with today's explanation ("Only part of this session has a known price…",
+   `session-stats-summary.component.ts:186-187, 265-274`).
+8. When a session budget is set, tokens and cost shall show today's budget suffixes, budget text and budget tooltip
+   lines (`session-budget-format.ts`). The session budget banner (C-12) stays in the main column unchanged.
+
+Models (21.9-21.11)
+
+9. When the session used two or more models, the inspector shall offer the per-model breakdown with today's columns:
+   Model, In, Out, Cache Read, Cache Creation, Cost, and the snapshot's own totals row
+   (`session-model-breakdown.component.ts`). It shall be either always shown or behind a control that exposes
+   `aria-expanded`. When the session used one model, the inspector shall show that model's display name, with the
+   raw model id available as its description.
+10. When the chat-view main column and the Orchestrator card are shown, the only model text there shall be the
+    composer's model / effort selector (requirement 12.4, unchanged as the control; PM-18). The strip's `Model` and
+    `Models` items leave with the strip. The Orchestrator card has no model line (requirement 7.1). The inline agent
+    bubble footer badge (`C/organisms/execution/inline-agent-bubble.component.ts:515-521`) is not shown in the
+    transcript.
+11. When a sub-agent's model is known (`agentModel` or `model` of its node, `inline-agent-bubble.component.ts:889-900`),
+    that model shall be reachable in the inspector from that agent's entry or from the session Models data (parity
+    C-49). The design decides where.
+
+Plan limits (21.12-21.18)
+
+12. When plan-limit data exists, the inspector shall show one tile for every tile today's view model produces
+    (`plan-limit-tiles.ts`): each plan window (for example `Weekly`, `5-hour`), and the status, evidence and cooldown
+    tiles. Each window tile shall show its label, the used value as a text percentage, a small progress bar or ring,
+    and its state as a word or glyph plus word. Colour alone shall never carry the state.
+13. When a window has a known reset time, its tile shall show the reset as both a relative time and a local
+    absolute time, as today's reset text does (`plainReset` / `withRelative`, `plan-limit-tiles.ts:431-450`). When
+    a reset has passed, the passed reset and the next reset shall stay apart. When the reset is unknown, the tile
+    shall read `reset unknown`. A cooldown tile shall read as a retry delay, not a plan reset
+    (`plan-limit-tiles.ts:303-320`).
+14. When a bar or ring shows a used value, it shall expose `role="progressbar"` or `role="meter"` with
+    `aria-valuemin="0"`, `aria-valuemax="100"`, `aria-valuenow` equal to the drawn value, `aria-valuetext` equal to
+    the visible used text, and an accessible name that names the window. When the used value is unknown, no filled
+    bar or ring shall be drawn and the text shall read unknown, never `0 %`
+    (`plan-window-detail.component.ts:13-23`).
+15. When a window tile is expandable today, activating it by pointer, Enter or Space shall show today's detail: the
+    passed and next reset, the aged or not-confirmed note, and the per-field source chips. The tile shall expose
+    `aria-expanded` and `aria-controls`. An open tile shall stay open across live updates
+    (`plan-limit-tile.component.ts:47-170`, `stats-tile-expansion.state.ts`).
+16. When plan tiles share a caption or provider source, the inspector shall show the shared caption and the source
+    badges once per section, as today (`planSectionProvenance`, `session-stats-summary.component.html:406-440`).
+17. When the applicable limit state is `At limit` or `Near limit`, the inspector shall show today's limits alert
+    text: state, window and reset (`limits-alert.component.ts`). When a refresh has failed while limit data is
+    held, it shall show today's neutral refresh notice with `role="status"`
+    (`session-stats-summary.component.html:2-11`).
+18. When the inspector is closed and a plan window or lane is at or near its limit, or the context window is known,
+    the session view shall show that state without opening the inspector. The cue shall not rely on colour alone and
+    shall have an accessible description that names the state (PM-20). The design picks the cue; design-spec D3.7
+    uses the toggle ring, the dot and `aria-describedby`.
+
+Lanes (21.19-21.21)
+
+19. When lane usage exists, the inspector shall show a LANES section whose header carries today's
+    `lane · not in totals` caption. It shall have one tile per lane group with the `{CLI} · {role}` label, tokens
+    (with `+N unknown` when some runs have no token count), cost (`cost unknown`, or a known sum with
+    `+N unknown`), the run count, the run-state chip and the limit chips, including `Limit unknown`
+    (`lane-usage-tile.component.ts:45-110`, `lane-tiles.ts:98-136, 171`).
+20. When a lane tile is activated, it shall expand with `aria-expanded` to show today's per-run detail: run rows with
+    their start time, owner text, state chip, plan-tile chips, cooldown line and notes
+    (`lane-usage-tile.component.ts:120-185`).
+21. When lanes exist, the inspector shall show today's `Subtotal` row (tokens and summary). The subtotal, the lane
+    tiles and their values shall never be added to the session tokens or cost of criteria 3-7
+    (`lane-subtotal-tile.component.ts:6-12`).
+
+Background agents (21.22-21.24)
+
+22. When the shown session has running foreground sub-agents or background agents, the inspector shall show today's
+    population summary text (`{n} background · {n} foreground · {n} running · {n} done · {n} failed · {n} stopped`,
+    zero parts omitted; `background-agent-strip.component.ts:491-514`). It shall show each agent with its name and
+    hint, its status word (`Running`, `In background`, `Completed`, `Failed`, `Stopped`) and its status line with
+    elapsed time and tokens. When there are no such agents, the summary shall be absent.
+23. When an agent entry offers an action today, the inspector shall offer the same action under the same condition,
+    targeting the agent's owning session (`background-agent-tray.component.ts:338-383`). The actions are: open or
+    focus the agent; `View transcript`; `Steer` with the inline input, disabled while its send is in flight;
+    `Send to background`, for running foreground agents; and `Stop`. The actions menu shall be keyboard operable and
+    close on Escape with focus back on its trigger.
+24. When the session view is the main panel (no canvas tile context), the inspector shall list the shown session's
+    agents (PM-19). Agents of other sessions shall stay reachable, with the actions of criterion 23, from their own
+    session's tab. Removing the main panel's cross-session list waits for the user's decision on parity C-48b.
+
+Reach and live behaviour (21.25-21.28)
+
+25. When the session container is at any width (400 px sidebar, below 640 px, below 960 px, 960 px and wider), in
+    either view mode, every item of criteria 3-24 shall be reachable within one action from the session view. When
+    the inspector is open and docked, no action is needed. The entry the design picks shall have an accessible name,
+    be keyboard operable and measure at least 24 x 24 px.
+26. When the stats are shown in the overlay sheet, requirements 6.3, 6.4 and 6.9 apply unchanged: focus moves in,
+    the content behind is inert, focus returns to the toggle, and the sheet never opens because a stat or limit
+    changed.
+27. When stats, limits, lanes or agent statuses update while the inspector is open, the system shall update the
+    values in place. It shall not move focus, collapse an expanded tile or close an open menu or steer input, and it
+    shall make no per-update screen-reader announcement. Only the limits alert and the refresh notice keep today's
+    `role="status"`.
+28. When the inspector stats render, their values shall come from the sources today's strip and tray read:
+    `resolvedSessionStats`, `resolvedLiveModelStats`, `resolvedCompactionCount`, `resolvedStatsLimits` and
+    `resolvedSessionBudget` (`chat-view.component.ts:1023-1105`), and `AgentMonitorStore` / `BackgroundAgentStore`.
+    No new RPC or backend field shall be added. Plan limits shall keep refreshing while a chat view is open, whether
+    or not the inspector is open (today's `PlanLimitsStore.registerScope`, `chat-view.component.ts:1046`).
+
 ## Non-functional requirements
 
 - Performance (bundle): the webview initial bundle is 3.49 MB against a 3.50 MB budget (handoff-1 §2, PR #730 CI). The
@@ -805,6 +979,9 @@ Acceptance criteria:
   Delta 2: the agent dock replaces the lane strip one to one (the old strip markup and scroll-edge code are deleted, not
   kept beside it), and the role icons are imported per component as single lucide icon objects; both count against the
   same CI budget check.
+  Delta 3: the inspector stats reuse today's formatters and limit view models (`session-stats-format.ts`,
+  `session-budget-format.ts`, `plan-limits/*`); they are not forked into a second copy. Code made unreachable in
+  chat-view by the move is deleted. Both are checked by code-style review and the same CI budget check.
 - Compatibility: VS Code webview (including the 400 px sidebar), Electron single chat view, and Canvas Rail panes shall
   each render the clean turn and the inspector; breakpoints are based on the session container width, not the window.
 - Conventions: Angular standalone components, `OnPush`, signals and `inject()`; lucide-angular icons imported per
@@ -817,7 +994,10 @@ Acceptance criteria:
   `prefers-reduced-motion` respected (requirement 13.3). The TASK section uses list semantics for its artifact links
   and linked-task list, 24 x 24 px targets and full keyboard operation (requirement 17.4, 17.10, 17.16). Exception
   by user decision (decisions.md row 23): the Branch/Rewind strip keeps today's hover-only reveal (requirement 3.4),
-  so this task does not change its focus visibility.
+  so this task does not change its focus visibility. Delta 3: each plan-limit and context bar or ring has
+  progressbar or meter semantics with a value text (requirement 21.14), every limit and run state carries a word or
+  glyph besides its colour (21.12, 21.18), and the bar, ring and track inks meet the 3:1 UI pair of design-spec §8.2
+  in `anubis` and `anubis-light`.
 - Backend: no backend, RPC or shared-type change unless a row is added to `decisions.md` first (decisions.md row 9).
   The TASK section is frontend only (decisions.md row 21): it uses the existing `tasks:get`, `tasks:getArtifact`,
   session organization data and the `tasks:changed` push as they are.
@@ -836,6 +1016,7 @@ Acceptance criteria:
 | Codex reviewer (lane-review) | A checkable spec and a parity table | Each criterion verifiable from outside; removals listed for the user |
 | Maintainers | No duplicate compact and clean code paths | Replaced code deleted; bundle under budget |
 | The user running task-driven orchestration (`ptah_task_*`, linked sessions) | See which task a session serves, its status and documents, as agents change them | TASK section matches the Tasks board after an agent's `ptah_task_*` call, without a reload; documents open in one click |
+| The user watching plan limits and cost (Delta 3) | More room for the conversation, with no stat, limit or agent action lost | Side-by-side with the two decisions.md row 50 screenshots: every strip, panel and tray item is in the inspector; a near or at-limit window is noticed with the inspector closed |
 
 ## Risks
 
@@ -858,6 +1039,10 @@ Acceptance criteria:
 | Delta 2: no frontend field identifies a session's provider, so the Orchestrator avatar shows a wrong vendor mark | MEDIUM | MEDIUM | Architect names the field or records its absence in `implementation-plan.md`; without one, 18.5's neutral glyph ships (PM-14); code-logic reviewer checks no default vendor is hard-coded |
 | Delta 2: Escape on the hover card or menu also reaches the Rail keyboard handler or closes the open thread | MEDIUM | MEDIUM | Visual reviewer exercises 19.6 and 19.9 in a Rail pane with a lane open; code-logic reviewer checks event propagation against `canvas-rail-keyboard.ts` and requirement 14.9 |
 | Delta 2: the rebuilt switcher drops a strip behaviour (sub/bg key migration, ownership filter, reveal on resize) | MEDIUM | HIGH | Code-logic reviewer checks every row of parity section E against the diff; the existing `canvas-lane-tabs.component.spec.ts` cases keep passing (markup-only spec updates allowed by PM-3) |
+| Delta 3: an item of the expanded panel or the tray (estimate mark, known subtotal, cooldown tile, per-run lane detail, steer input) is not carried into the inspector | MEDIUM | HIGH | Code-logic reviewer checks parity rows C-2..C-6 and C-19..C-50 against the diff; visual reviewer compares with `screenshots/before/` and the row 50 screenshots with the prototype `stats` parameter set to full, near, partial and single |
+| Delta 3: with the inspector closed at overlay widths, an at-limit window goes unnoticed and a turn fails on the limit | MEDIUM | MEDIUM | Requirement 21.18 cue (PM-20); visual reviewer checks it at 400 px and 760 px with near and at-limit data, dark and light |
+| Delta 3: removing the chat-view mount also drops the plan-limits request scope, so limits stop refreshing while the inspector is closed | MEDIUM | MEDIUM | Architect keeps one scope per open chat view (21.28, parity C-39); code-logic reviewer checks `registerScope` and its release on destroy |
+| Delta 3: the inspector stats and the Orchestrator card or AGENTS rows show the same value from two reads that disagree | LOW | MEDIUM | One source per value (12.1, 21.28); code-logic reviewer checks no value is recomputed beside `resolvedSessionStats` / `resolvedStatsLimits` |
 
 ## Open questions
 
@@ -872,6 +1057,16 @@ Acceptance criteria:
   the tasks-ui and git-ui code, recorded in `implementation-plan.md` before batching.
 - Request field names and identity (`requestKey`) for the `Review`/`Answer` routes are marked `[verify]` in
   design-spec §4.5. Answer: the architect, from the stores.
+- Delta 3: may the main panel lose its cross-session agent list (parity C-48b, PM-19)? The design scopes the
+  inspector to this session (D3.6). Recommended: approve, because those agents stay reachable from their own tab.
+  The alternative keeps a labelled "other sessions" group in the inspector. Answer: the user, through the
+  orchestrator. Requirement 21.24 holds for either answer.
+- Delta 3: which entry makes the stats reachable within one action when the inspector is closed (requirement
+  21.25), and which cue shows limit state at rest (21.18). Answer: the designer (design-spec D3.7, in progress in
+  parallel), checked at the codex Gate 1.7 delta 3 review.
+- Delta 3: where a sub-agent's model appears in the inspector once the inline agent bubble badge leaves the
+  transcript (requirement 21.11, parity C-49). design-spec D3.1 does not list that badge yet. Answer: the designer,
+  then the architect.
 
 ## Handoff
 
@@ -883,6 +1078,10 @@ Acceptance criteria:
 - Delta 2: the architect also starts after the design-spec Delta 2 section (agent avatar, agent dock) passes the codex
   delta review (`design-spec-review-delta2.md`, decisions.md row 31); the dock's card/menu focus model and the
   provider source (Open questions) are part of the shape.
+- Delta 3: software-architect writes plan part D after design-spec Delta 3 passes the codex Gate 1.7 delta 3
+  review (decisions.md row 50). It must land before waves W4 (B-4) and W5 (CV-1). The shape questions are: where
+  the moved stats read their inputs, the plan-limits scope, AGENTS absorbing the tray actions, and the closed-toggle
+  cue. One removal decision is pending: C-48b (PM-19).
 
 ## Revision round 1
 
@@ -950,3 +1149,22 @@ Requirement count after this delta: 20 numbered requirements (1-20).
 Proposed removals (user decision): none. Every capability of `canvas-lane-tabs.component.ts` is `keep` or `move` in
 parity section E; today's `>_` / `◇` / `≋` glyphs are replaced by marks and role icons (a changed visual of a kept
 capability, parity E-16), not removed.
+
+## Delta 3 (user decisions)
+
+This delta applies only decisions.md row 50; nothing else was re-opened. `design-spec.md` and `prototype/` are
+aligned by the designer in parallel and are not edited here.
+
+| Decision | Change | Where |
+| --- | --- | --- |
+| Row 50: session stats strip, expanded panel and background tray leave the main chat column; all of their information moves into the inspector | New requirement 21 (28 criteria): main column without strip or tray; every total, estimate mark, known subtotal, budget line, plan-limit tile (bar or ring, text %, relative and absolute reset, state word, accessible progressbar or meter, per-window detail, provenance, alert, refresh notice), lane tile, Subtotal and tray action reachable in the inspector; reach within one action at every width; same sources, no backend change (PM-17, PM-20, PM-21) | Classification, Scope, Decisions, req. 21, NFR, Stakeholders, Risks, Open questions, Handoff; parity C-2..C-6, C-19..C-50 |
+| Row 50, model (USER): composer selector stays the control; every other read-only model label in the chat area and the Orchestrator card line goes | Requirement 7.1 amended (no model on the card; totals in the inspector stats), 21.9-21.11; other hosts keep their labels (PM-18) | req. 7.1, 14.1, 21; parity C-23, C-24, C-49, C-50 |
+| Row 50: components stay for other hosts | 21.2; out-of-scope lines for the harness builder and the canvas lane view | Scope, req. 14.1, 14.6, 21.2 |
+| Existing text that kept the strip | Scope "Keeping every chat-view surface" list, 14.1, 14.6, 15.2, 16.6 amended; parity C-2..C-6 `keep` → `move` | Scope, req. 14-16 |
+
+Requirement count after this delta: 21 numbered requirements (1-21).
+
+Proposed removals (user decision): one, C-48b. The main panel's tray lists every session's agents, and the
+session-scoped inspector lists only the shown session's agents (design-spec D3.6, PM-19). Recommended: approve,
+because those agents and their actions stay reachable from their own session's tab. Every other Delta 3 row is
+`move` or `keep`.

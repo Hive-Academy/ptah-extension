@@ -139,21 +139,9 @@
     var done = isDone(), orchReq = active('orch').length > 0;
     var dot = done ? 'dot' : orchReq ? 'dot dot--need' : 'dot dot--run';
     var st = done ? 'idle · ready for the next turn' : orchReq ? 'needs you' : (active('antigravity').length || active('codex').length ? 'waiting on 4 agents' : 'working · 4 agents running');
-    var ctxLabel = partial ? '—' : '41% of 200k';
     var h = '<section class="insp-sec st-r" style="--i:1" aria-label="Orchestrator">' +
       '<div class="orch-top" tabindex="-1"><span class="' + dot + '" aria-hidden="true"></span><span class="orch-name">Orchestrator</span></div>' +
-      '<div class="orch-sub muted">Opus 5.5 · <span id="orchState">' + st + '</span></div>' + reqHTML('orch') +
-      '<div class="ctx-row"><span class="muted" id="ctxLabel">Context</span><span class="muted tnum">' + ctxLabel + '</span></div>' +
-      '<progress class="ctx-bar" id="ctxBar" value="' + (partial ? 0 : 41) + '" max="100" aria-labelledby="ctxLabel" aria-valuetext="' + (partial ? 'Context usage unavailable' : '41% of the 200k token window') + '"></progress>' +
-      '<dl class="stats"><div class="stat"><dt class="l">tokens</dt><dd class="v">82.4k</dd></div><div class="stat"><dt class="l">cost</dt><dd class="v">$1.84</dd></div><div class="stat"><dt class="l">turns</dt><dd class="v">6</dd></div></dl>';
-    if (state.parity === '1' && !partial) {
-      h += '<button type="button" class="disc-btn disc-btn--block" data-act="usage" aria-expanded="' + ui.usage + '" aria-controls="usage"><span>Usage and limits</span>' + icon('chevron-right', 'ico--12 chev12') + '</button>' +
-        '<div class="usage" id="usage"' + (ui.usage ? '' : ' hidden') + '>' +
-        '<div class="u-row"><span class="muted">Compactions</span><span class="tnum">2</span></div>' +
-        '<div class="u-row"><span class="muted" id="uB">Budget</span><span class="tnum">$1.84 of $5.00</span></div><progress class="ctx-bar" value="37" max="100" aria-labelledby="uB" aria-valuetext="37% of the session budget"></progress>' +
-        '<div class="u-row"><span class="muted" id="uL">5-hour limit</span><span class="tnum">62%</span></div><progress class="ctx-bar" value="62" max="100" aria-labelledby="uL" aria-valuetext="62% of the 5-hour limit"></progress>' +
-        '<div class="u-row"><span class="muted" id="uW">Weekly limit</span><span class="tnum">18%</span></div><progress class="ctx-bar" value="18" max="100" aria-labelledby="uW" aria-valuetext="18% of the weekly limit"></progress></div>';
-    }
+      '<div class="orch-sub muted"><span id="orchState">' + st + '</span></div>' + reqHTML('orch');
     return h + '</section>';
   }
   function agentsHTML(partial) {
@@ -163,18 +151,18 @@
     });
     var act = rows.filter(function (a) { return statusOf(a) !== 'done'; }).length, fin = rows.length - act;
     var h = '<section class="insp-sec insp-sec--agents st-r" style="--i:2" aria-labelledby="agentsH"' + (partial ? ' data-partial="true"' : '') + '>' +
-      '<div class="sec-head"><h3 class="sec-label" id="agentsH">Agents</h3><span class="sec-meta">' + act + ' active · ' + fin + ' finished' + (partial ? ' · <span title="Restored session: some durations and activity are not stored">partial</span>' : '') + '</span></div>' +
+      '<div class="sec-head"><h3 class="sec-label" id="agentsH">Agents</h3><span class="sec-meta">' + act + ' active · ' + fin + ' finished' + (partial ? ' · <span title="Restored session: some durations and activity are not stored">partial</span>' : '') + '</span></div>' + D3.trayLine(rows, statusOf) +
       '<ul class="agent-list" id="agentList">';
     rows.forEach(function (a, i) {
       var s = statusOf(a), dur = (partial && (a.kind === 'Sub-agent' || a.id === 'codex')) ? '' : a.dur;
       var actLine = (partial && a.id !== 'bg') ? '' : (s === 'waiting' && active(a.id).length ? '' : a.act);
       var label = a.name + ', ' + a.kind.toLowerCase().replace('cli lane', 'CLI lane') + ', ' + s + (dur ? ' ' + words(dur) : '') + '.' + (actLine ? ' ' + actLine : '');
       // delta 2 tile: avatar 32 (status ring + corner glyph) | line 1 name + status word + duration | line 2 kind badge + activity
-      h += '<li class="agent' + (s === 'done' ? ' agent--finished' : '') + ' st-r" style="--i:' + (i + 3) + '" data-agent="' + a.id + '"' + (ui.selected === a.id ? ' aria-current="true"' : '') + '>' +
+      h += '<li class="agent' + (s === 'done' ? ' agent--finished' : '') + (D3.hasMenu(a.id) ? ' agent--menu' : '') + ' st-r" style="--i:' + (i + 3) + '" data-agent="' + a.id + '"' + (ui.selected === a.id ? ' aria-current="true"' : '') + '>' +
         '<button type="button" class="agent__main" data-act="select" data-agent="' + a.id + '" aria-label="' + esc(label) + '">' + av(a, 32, s) +
         '<span class="agent__body"><span class="agent__l1"><span class="agent__name" title="' + esc(a.name) + '">' + esc(a.name) + '</span>' +
         '<span class="agent__stat"><span class="w ' + WORD[s] + '">' + s + '</span>' + (dur ? ' <span class="t">' + dur + '</span>' : '') + '</span></span>' +
-        '<span class="agent__l2"><span class="kind">' + a.kind + '</span>' + (actLine ? '<span class="agent__act">' + esc(actLine) + '</span>' : '') + '</span></span></button>' + reqHTML(a.id) + '</li>';
+        '<span class="agent__l2"><span class="kind">' + a.kind + '</span>' + (actLine ? '<span class="agent__act">' + esc(actLine) + '</span>' : '') + '</span></span></button>' + D3.menuBtn(a) + D3.steerRow(a) + reqHTML(a.id) + '</li>';
     });
     return h + '</ul></section>';
   }
@@ -261,7 +249,7 @@
     return '<section class="insp-sec st-r" style="--i:9" aria-labelledby="gitH" id="gitSec">' + head(true) + '<div class="git-row">' + icon('git-branch') + '<span class="br">feat/desktop-shell</span><span class="df"><span class="a">+400</span><span class="d">−3</span></span></div></section>';
   }
   var EMPTY = {
-    orch: '<div class="orch-top"><span class="dot" aria-hidden="true"></span><span class="orch-name">Orchestrator</span></div><div class="orch-sub muted">Opus 5.5 · idle</div><div class="ctx-row"><span class="muted" id="ctxLabel">Context</span><span class="muted">—</span></div><progress class="ctx-bar" value="0" max="100" aria-labelledby="ctxLabel" aria-valuetext="Context usage unavailable"></progress><dl class="stats"><div class="stat"><dt class="l">tokens</dt><dd class="v">0</dd></div><div class="stat"><dt class="l">cost</dt><dd class="v">$0.00</dd></div><div class="stat"><dt class="l">turns</dt><dd class="v">0</dd></div></dl>',
+    orch: '<div class="orch-top"><span class="dot" aria-hidden="true"></span><span class="orch-name">Orchestrator</span></div><div class="orch-sub muted">idle</div>',
     agents: '<div class="sec-head"><h3 class="sec-label">Agents</h3><span class="sec-meta">none yet</span></div><div class="empty"><div class="ring">' + icon('bot', 'ico--16') + '</div><b>No agents yet</b>Sub-agents, CLI lanes and background commands appear here while the orchestrator delegates.</div>',
     todos: '<div class="sec-head"><h3 class="sec-label">Todos</h3><span class="sec-meta">none</span></div><div class="empty" style="padding:6px 0 4px;text-align:left">No todos for this session. The orchestrator lists its plan here.</div>',
     git: '<div class="sec-head"><h3 class="sec-label">Git</h3></div><div class="git-row muted">' + icon('git-branch') + '<span>Not a git repository</span></div>'
@@ -270,11 +258,11 @@
     var body = $('#inspBody'), b = state.body, keep = body.scrollTop, html = '';
     if (b === 'full' || b === 'error' || b === 'partial') {
       var p = b === 'partial';
-      html = orchHTML(p) + agentsHTML(p) + taskHTML() + todosHTML(p) + gitHTML(b === 'error' ? 'error' : p ? 'partial' : 'full');
+      html = orchHTML(p) + D3.sessionHTML(b) + agentsHTML(p) + D3.planHTML(b) + D3.laneHTML(b) + taskHTML() + todosHTML(p) + gitHTML(b === 'error' ? 'error' : p ? 'partial' : 'full');
     } else if (b === 'empty') {
-      html = '<section class="insp-sec" aria-label="Orchestrator">' + EMPTY.orch + '</section><section class="insp-sec insp-sec--agents" aria-labelledby="agentsH">' + EMPTY.agents + '</section><section class="insp-sec">' + EMPTY.todos + '</section><section class="insp-sec">' + EMPTY.git + '</section>';
+      html = '<section class="insp-sec" aria-label="Orchestrator">' + EMPTY.orch + '</section>' + D3.sessionHTML('empty') + '<section class="insp-sec insp-sec--agents" aria-labelledby="agentsH">' + EMPTY.agents + '</section><section class="insp-sec">' + EMPTY.todos + '</section><section class="insp-sec">' + EMPTY.git + '</section>';
     } else {
-      html = '<section class="insp-sec" aria-busy="true" aria-label="Loading orchestrator"><div class="sk" style="height:14px;width:45%;margin-bottom:8px"></div><div class="sk" style="height:10px;width:70%;margin-bottom:16px"></div><div class="sk" style="height:4px;width:100%;margin-bottom:16px"></div><div style="display:flex;gap:24px"><div class="sk" style="height:28px;width:56px"></div><div class="sk" style="height:28px;width:56px"></div><div class="sk" style="height:28px;width:56px"></div></div></section><section class="insp-sec insp-sec--agents" aria-busy="true" aria-label="Loading agents"><div class="sec-head"><h3 class="sec-label">Agents</h3></div>' + sk() + sk() + sk() + '</section><section class="insp-sec" aria-busy="true" aria-label="Loading todos and git"><div class="sk" style="height:10px;width:35%;margin-bottom:10px"></div><div class="sk" style="height:12px;width:75%;margin-bottom:8px"></div><div class="sk" style="height:12px;width:60%"></div></section>';
+      html = D3.sessionHTML('loading') + '<section class="insp-sec" aria-busy="true" aria-label="Loading orchestrator"><div class="sk" style="height:14px;width:45%;margin-bottom:8px"></div><div class="sk" style="height:10px;width:70%;margin-bottom:16px"></div><div class="sk" style="height:4px;width:100%;margin-bottom:16px"></div><div style="display:flex;gap:24px"><div class="sk" style="height:28px;width:56px"></div><div class="sk" style="height:28px;width:56px"></div><div class="sk" style="height:28px;width:56px"></div></div></section><section class="insp-sec insp-sec--agents" aria-busy="true" aria-label="Loading agents"><div class="sec-head"><h3 class="sec-label">Agents</h3></div>' + sk() + sk() + sk() + '</section><section class="insp-sec" aria-busy="true" aria-label="Loading todos and git"><div class="sk" style="height:10px;width:35%;margin-bottom:10px"></div><div class="sk" style="height:12px;width:75%;margin-bottom:8px"></div><div class="sk" style="height:12px;width:60%"></div></section>';
     }
     body.innerHTML = html;
     body.scrollTop = keep;
@@ -286,7 +274,7 @@
     var n = needCount(), chip = $('#needChip');
     chip.hidden = n === 0;
     chip.textContent = n + (n === 1 ? ' needs you' : ' need you');
-    $('#needDot').hidden = !(state.insp === 'closed' && n > 0);
+    D3.syncToggle(n, state.insp === 'open', state.body);
     var q = reqs.filter(function (r) { return r.kind === 'question' && !r.closed; })[0];
     var card = $('#qCard');
     if (card) card.hidden = !q || !live() || isDone();
@@ -489,6 +477,7 @@
   })();
 
   function renderAll(focusSel) { renderInspector(focusSel); renderNeeds(); renderChips(); renderLane(); renderDock(); }
+  D3.rerender = function (sel) { renderAll(sel); };
 
   /* ---------------- theme, turns, motion ---------------- */
   function sync() {
