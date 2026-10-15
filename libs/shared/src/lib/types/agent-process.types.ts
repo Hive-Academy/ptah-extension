@@ -6,6 +6,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';
 import type { QuotaOwnerRef } from './plan-limit.types';
+import type {
+  OutcomeRoutingSource,
+  OutcomeTaskKind,
+} from './lane-outcome.types';
 
 /**
  * Branded AgentId type - prevents mixing with other string IDs
@@ -193,6 +197,19 @@ export interface AgentProcessInfo {
    * the lane ended on its own or the caller stopped it.
    */
   stopReason?: LaneStopReason;
+  /**
+   * Task kind this lane was routed for (TASK_2026_646, Req 5.2, SC-6).
+   * Copied from the spawn request; the outcome record keeps `null` when the
+   * spawn did not name one.
+   */
+  readonly taskKind?: OutcomeTaskKind;
+  /**
+   * What routed this lane (TASK_2026_646, SC-6): `model` (a model was
+   * pinned), `ranking` (the router chose it) or `pin` (the lane itself was
+   * pinned). Absent means the run was not routed, recorded as `not-routed`
+   * on the outcome record.
+   */
+  readonly routingSource?: Exclude<OutcomeRoutingSource, 'not-routed'>;
 }
 
 /**
@@ -286,6 +303,19 @@ export interface SpawnAgentRequest {
   readonly role?: string;
   /** Resolved definition of `role`. Injected by MCP server, NOT set by callers. */
   readonly roleDefinition?: AgentRoleDefinition;
+  /**
+   * Task kind this lane is spawned for (TASK_2026_646, Req 5.2, SC-6).
+   * Copied onto the tracked process info and from there onto the lane's
+   * outcome record. Absent when the spawn did not name one.
+   */
+  readonly taskKind?: OutcomeTaskKind;
+  /**
+   * What routed this lane: `model` (a model was pinned), `ranking` (the
+   * router chose it) or `pin` (the lane itself was pinned)
+   * (TASK_2026_646, SC-6). Never forwarded to the CLI; the outcome record
+   * keeps `not-routed` when absent.
+   */
+  readonly routingSource?: Exclude<OutcomeRoutingSource, 'not-routed'>;
 }
 
 export interface AgentOutput {
@@ -376,6 +406,13 @@ export interface CliDetectionResult {
   readonly providerName?: string;
   /** Provider ID (e.g., 'moonshot', 'z-ai') — only set when cli === 'ptah-cli' */
   readonly providerId?: string;
+  /**
+   * Lane family of this row (`laneFamilyOf` over cli / ptahCliId /
+   * providerId), the key the outcome pipeline groups and reports this lane
+   * under (TASK_2026_646, SC-5). Computed by the row builder, so rows it did
+   * not fill in carry no family.
+   */
+  readonly family?: string;
   /** User's preferred rank (1 = highest). 0 or absent means unranked. Set by ptah_agent_list. */
   readonly preferredRank?: number;
   /**

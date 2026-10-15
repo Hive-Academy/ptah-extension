@@ -51,6 +51,11 @@ export {
   type CodexTokenFreshnessInput,
 } from './codex-token-freshness';
 export { NO_WORKSPACE_KEY, normalizeWorkspaceRoot } from './workspace-root-key';
+export {
+  laneFamilyOf,
+  SUBAGENT_FAMILY,
+  type LaneFamilyInput,
+} from './lane-family';
 export { flattenSettingsTree } from './settings-tree.utils';
 export {
   normalizeMcpServerUrl,
