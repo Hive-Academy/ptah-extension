@@ -467,12 +467,36 @@ then the oldest beyond 2 000 rows. Evictions are logged at `debug` with a count.
   empties, the pipeline returns to direct mode. On `onDidOpen`, and at start when `isOpen` is already true,
   the drain starts from the head. A run that ends before the DB opens, or in a process that exits before the
   DB ever opens, is applied at the next start that opens the DB.
-- Report ops in backlog mode are journaled too (their `reportId` makes them idempotent), and `submit`
-  resolves `{ ok: true, state: 'queued', runId }` once the append resolves; the tool shows "queued until the
-  outcome store is available". The Req 5.6 unknown-id check then runs when the entry is applied: an unknown
-  id is logged at `warn` with the id, nothing is written, and the entry is acknowledged. With the store open
-  and the journal empty (the normal case) the check runs before `submit` resolves, and the tool returns the
-  Req 5.6 error naming the id.
+- Report ops in backlog mode (Gate 2 round 3 fix R3-1, decision #45; replaces "journal first, check the id
+  at apply time"). `submit` validates the target before anything is appended, so the Req 5.6 error reaches
+  the caller in the same tool call. Evidence the pipeline consults, in order:
+  1. Pending inserts: an in-memory index of the insert keys (lane completion `run_id`, subagent stop
+     `subagent:${agentId}`) of every unacknowledged op in the in-memory queue and the journal. It is rebuilt
+     from the journal at start, updated on enqueue and on acknowledgement, and bounded by the journal's
+     5 000 entries. A key whose op was dead-lettered leaves the index.
+  2. Pending holds: the run ids of unacknowledged `deliverables` reports for `subagent:` targets in the
+     queue or journal (same index, same lifetime).
+  3. The store, only when it is open (backlog because of a transient failure): `getRow(runId)` and the held
+     reports for `runId`. A read that throws counts as "store not readable".
+  Result of `submit` in backlog mode (direct mode and VS Code are unchanged: the store is read before
+  `submit` resolves):
+  | Target | Evidence | Result | Appended to the journal |
+  | --- | --- | --- | --- |
+  | any run id | a pending insert for it, or a readable row | `{ ok: true, state: 'queued', runId }`, text "queued until the outcome store is available" | yes |
+  | `subagent:` id, `deliverables` | no pending insert, no readable row (store readable or not) | `{ ok: true, state: 'held', runId }`, text "held until run <runId> stops" (decision #41 report hold; the stat facts are taken now) | yes; on apply it joins the row if one exists by then, else becomes a held report |
+  | `subagent:` id, `review` | no pending insert or readable row, but a pending hold or a readable held `deliverables` report for the run | `{ ok: true, state: 'held', runId }` | yes |
+  | `subagent:` id, `review` | none of the above | `{ ok: false, error }` naming the id | no |
+  | lane run id | no pending insert, and no readable row (absent, or store not open / not readable) | `{ ok: false, error }` naming the id | no |
+  The error text is `run <runId> not found` when the store was read, and `run <runId> not found: the outcome
+  store is not open yet, so the run could not be verified; retry after it opens` when it was not. Either way
+  nothing is written to the store, the journal or the hold table, and no `reportId` receipt exists, so a
+  retry with a new call is safe. Hold capacity (500) counts readable holds plus pending holds; a refusal is
+  `{ ok: false, error: 'too many held reports' }` with nothing appended.
+  Apply-time residue: a report accepted as `queued` whose insert was later dead-lettered (permanent
+  failure) finds no row when applied; a `subagent:` `deliverables` report then becomes a held report, any
+  other report moves to the dead-letter key with one `warn` (`{ runId, reportId, kind, reason:
+  'target-missing' }`) and is counted under Req 5.9. A hold refused at apply time for capacity is handled
+  the same way. No accepted report is acknowledged without a write, a hold or a dead-letter entry.
 - Journal capacity: 5 000 entries (an entry is ids, numbers and at most 20 path checks, about 300 bytes, so
   the whole value stays near 1.5 MB in the host's state file). An accepted entry is never discarded before
   it is applied or classed permanent. When the journal is full, the incoming op is not appended (the newest
@@ -507,8 +531,18 @@ Required tests (B4 unless noted):
   open), open it, and the same 3 rows appear. Variant: replay the same entries twice and there are still 3
   rows (idempotent keys).
 - Report before open (revision 2): a deliverables report submitted while `isOpen = false` resolves
-  `{ ok: true, state: 'queued' }`, is journaled behind the run's stop op, and is applied after it on open. A
-  review naming an unknown id while queued → one `warn` naming the id at apply time, nothing written.
+  `{ ok: true, state: 'queued' }`, is journaled behind the run's stop op, and is applied after it on open.
+- Backlog unknown id (R3-1, decision #45), `isOpen = false`, journal `[L1]`: (a) a review naming lane run id
+  `L9` (no pending insert) → `submit` resolves `{ ok: false }` whose error contains `L9`; the journal is still
+  exactly `[L1]` (deep-equal before/after, `nextSeq` unchanged), `IStateStorage.update` was not called for
+  it, and after `onDidOpen` the store has only L1's row, no receipt and no held report. (b) Same with the
+  store open but throwing `SQLITE_BUSY` on every write and returning no row for `L9` → same result, error
+  text `run L9 not found`. (c) A review for `subagent:x` with no pending insert or hold → the same error
+  naming `subagent:x`, nothing appended. (d) A `deliverables` report for `subagent:y` with no pending insert →
+  `state: 'held'`, one entry appended; on open with no stop for `y` it is a held report; with S(y) applied
+  first it joins the row. (e) A review naming L1 (pending insert) → `queued`, applied after L1 on open.
+- Dead-lettered target (R3-1): journal `[S1 (fails Zod), R(review of S1)]` → S1 dead-lettered, R moved to
+  the dead-letter key with `reason: 'target-missing'` and one `warn`; no row, no receipt.
 - Ordering: `declareSubagentDeliverables` submitted right after `recordSubagentStop` for the same run applies
   after the insert.
 - Replay insert failure (revision 2, finding 1): journal `[L1, S1, L2]`; the fake store throws `SQLITE_IOERR`
@@ -564,7 +598,7 @@ Required tests (B4 unless noted):
 
 | Req / AC | Batches |
 | --- | --- |
-| 1.1-1.8 decision-model setting | A6a (client, `routeMissing` on any live 404/405), A6b (1.3-1.5 settings; probe = version + `POST /v1/systemone` compared with a control path, an answer equal to the control's → `unsupported-endpoint`; specs: recent version + generic JSON 404 → unsupported, route-specific validation error → ready; live mark persisted across restart), A8 (live 404 → `markUnsupported`, row shows unsupported), A11 (config RPC), A12 (row UI, 1.4 disclosure), A13 (1.2 structured output, 1.8 confidence null) |
+| 1.1-1.8 decision-model setting | A6a (client, `notFound` on any live 404/405), A6b (1.3-1.5 settings; probe = version + `POST /v1/systemone` compared with a control path, an answer equal to the control's → `unsupported-endpoint`; specs: recent version + generic JSON 404 → unsupported, route-specific validation error → ready; a live 404/405 re-runs the discriminator: unsupported → persisted mark (survives restart), route proven → no mark, row `ready` with the live error as detail; live model-not-found fixture, R3-2), A8 (live 404 → `recheckAfterLiveNotFound`, never a direct `markUnsupported`), A11 (config RPC), A12 (row UI, 1.4 disclosure), A13 (1.2 structured output, 1.8 confidence null) |
 | 2.1 any host, HTTP and stdio | A9a, AB9, AB14 |
 | 2.2-2.3, 2.5 args/result contract, field-named errors | A3, A9a |
 | 2.4 stored preference | A5b, A8 |
@@ -577,7 +611,7 @@ Required tests (B4 unless noted):
 | 5.3 lane tokens/cost null | B5 |
 | 5.4 subagent one-to-one join | B2 (0055), B4, B6 (recorder dedup by exact `runId` for subagent events; two runs in one 2 s bucket end-to-end spec) |
 | 5.5 declared deliverables | B5 (helper export), B2 (`deliverables_declared_at`), B3 (Ptah run tag on the Agent result, IA-5), B4 + B10a (SC-7 run-tag and `agentId` targets, report hold with join and expiry; repeated/concurrent same-slug and report-before-stop specs on both paths), B2 (held-report and receipt tables), AB9, A15 (report by run tag, else `agentId`) |
-| 5.6 review attach | B4 (receipts: one `revise` per `reportId` across replays), B10a, AB9, A15 |
+| 5.6 review attach | B4 (receipts: one `revise` per `reportId` across replays; backlog `submit` validates the id before appending, unknown-id fixtures, R3-1), B10a (backlog unknown-id tool fixture), AB9, A15 |
 | 5.7 persists, routing reads | B2, B4 (SC-10: SQLite, VS Code `IStateStorage` store, journal with per-op acknowledgement, backlog mode and a 5 000-entry capacity that refuses only the newest op; restart, delayed-open, replay-failure, ack-crash, recovery, >1 000 pre-open and capacity fixtures), A4b, AB14 (alias, disposer awaited on shutdown) |
 | 5.8 no text | B4 (row schema), SC-4 input shape (A16, B4) |
 | 5.9 write failure non-blocking | B4 (SC-10 pipeline: async drain, bound, permanent/transient failure classes with backoff retry, logged and counted refusals), B5 (notifier signal-path specs with delayed and throwing stores) |
@@ -626,13 +660,13 @@ in-process.
 | B2 | Migrations 0054, 0055 | B §2; 0054 gains `deliverables_declared_at INTEGER` (SC-1, finding 4), and `lane_outcome_report_receipts` + `lane_outcome_held_reports` with their indexes (SC-10 keys, SC-7 report hold; rev 2 findings 1, 2) | `@ptah-extension/persistence-sqlite` | none | `npx nx test @ptah-extension/persistence-sqlite --parallel=1` | yes | CLI lane | Shipping |
 | B3 | Subagent budget-stop registry; Ptah run tag | B §5, plus SC-7 run tag: CREATE `subagent-run-tag.ts` (+ spec), MODIFY `post-tool-use-hook-handler.ts` (+ spec), resolves IA-5 (rev 2 finding 2) | `@ptah-extension/agent-sdk` | none | `J(libs/backend/agent-sdk, <budget-stop registry spec, monitor spec, run-tag spec, post-tool-use-hook-handler spec>)` + `npx nx typecheck @ptah-extension/agent-sdk` | yes | CLI lane | Shipping |
 | A3 | Route contracts and ports | A3 row minus `lane-outcome-reader.port.ts` (type comes from shared, SC-2); `ChosenEntry.taskKind` (SC-6); task kinds from `OUTCOME_TASK_KINDS` | `@ptah-extension/lane-routing` | AB1, A2 | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | CLI lane | Shipping |
-| B4 | lane-outcomes lib | B §3, plus SC-2 split (`LaneOutcomeQueries`), SC-4 recorder hook, SC-7 schema, SC-9 logger; MODIFY `tsconfig.base.json`; SC-10 write pipeline, `KeyValueLaneOutcomeStore`, `KeyValueOutcomeJournal` (restart, delayed-open, bound, ordering and shutdown specs); rev 2 finding 1: per-op acknowledgement, failure classes and backoff, backlog mode, 5 000-entry journal with durable refusal counter, receipts, dead-letter key, and the replay-failure, restart, recovery, ack-crash, >1 000 pre-open and capacity specs; SC-7 target resolution (`runId` from the run tag, `agentId`) and the report hold with join, expiry and restart specs (rev 2 finding 2) | `@ptah-extension/lane-outcomes` | AB1, B2, B3 | `npx nx test @ptah-extension/lane-outcomes --parallel=1` + `npx nx lint @ptah-extension/lane-outcomes` | yes (only wave-2 batch touching `tsconfig.base.json`) | CLI lane (largest; one lane) | Shipping |
+| B4 | lane-outcomes lib | B §3, plus SC-2 split (`LaneOutcomeQueries`), SC-4 recorder hook, SC-7 schema, SC-9 logger; MODIFY `tsconfig.base.json`; SC-10 write pipeline, `KeyValueLaneOutcomeStore`, `KeyValueOutcomeJournal` (restart, delayed-open, bound, ordering and shutdown specs); rev 2 finding 1: per-op acknowledgement, failure classes and backoff, backlog mode, 5 000-entry journal with durable refusal counter, receipts, dead-letter key, and the replay-failure, restart, recovery, ack-crash, >1 000 pre-open and capacity specs; SC-7 target resolution (`runId` from the run tag, `agentId`) and the report hold with join, expiry and restart specs (rev 2 finding 2); R3-1 (decision #45): backlog `submit` validates the target against pending inserts, pending holds and a readable store before appending, with the SC-10 `queued`/`held`/error table; acceptance: the backlog unknown-id fixtures (a)-(e) and the dead-lettered-target fixture (result `{ ok: false }` naming the id, journal deep-equal before/after, no store, receipt or hold write) | `@ptah-extension/lane-outcomes` | AB1, B2, B3 | `npx nx test @ptah-extension/lane-outcomes --parallel=1` + `npx nx lint @ptah-extension/lane-outcomes` | yes (only wave-2 batch touching `tsconfig.base.json`) | CLI lane (largest; one lane) | Shipping |
 | B8 | Library Agents-tab signals | B §9 | `@ptah-extension/skill-synthesis-ui` | AB1 | `npx nx test @ptah-extension/skill-synthesis-ui --parallel=1` | yes | CLI lane (frontend) | Shipping |
 | A1b | Row `family` + spawn routing fields | MODIFY `namespace-builders/agent-namespace.builder.ts`, `mcp-core/mcp-response-formatter.ts` (+ spec), `mcp-core/agent-spawn-args.schema.ts` (+ spec) (SC-6), and the spawn-args → `SpawnAgentRequest` mapping site (IA-1) | `@ptah-extension/vscode-lm-tools` | AB1 | `J(libs/backend/vscode-lm-tools, <formatter, agent-namespace, spawn-args specs>)` + `npx nx typecheck @ptah-extension/vscode-lm-tools` | yes, unless IA-1 puts the mapping in `protocol-dispatcher.ts`; in that case the mapping moves to AB9 | CLI lane | Shipping |
 | A4 | Matrix data | A4 row | `@ptah-extension/lane-routing` | A3 | `J(libs/backend/lane-routing, <A4 specs>)` | yes (LR/matrix types) | CLI lane | Shipping |
 | A5a | Hard constraints | A5a row | `@ptah-extension/lane-routing` | A3 | `J(..., <A5a specs>)` | yes (LR/ranking constraints) | CLI lane | Shipping |
-| A6a | System One wire + payload | A6a row; client marks any live 404/405 `routeMissing: true` with the body's `error` text (finding 6; rev 2 finding 3) | `@ptah-extension/lane-routing` | A3 | `J(..., <A6a specs>)` | yes (LR/decision-model wire) | CLI lane | Shipping |
-| A6b | Decision-model settings | A6b row; probe adds the `POST /v1/systemone` capability check and `markUnsupported(base)` (finding 6); rev 2 finding 3: control-path discriminator (ambiguous 404/405 → unsupported), live 404/405 → persisted `unsupported-endpoint` mark under `ptah.decisionModel.unsupported.v1` | `@ptah-extension/lane-routing` | A3 | `J(..., <A6b specs>)` | yes (LR/decision-model settings files) | CLI lane | Shipping |
+| A6a | System One wire + payload | A6a row; client marks any live 404/405 `notFound: true` with the body's `error` text (finding 6; rev 2 finding 3; renamed from `routeMissing` by R3-2 because the flag is not a route verdict) | `@ptah-extension/lane-routing` | A3 | `J(..., <A6a specs>)` | yes (LR/decision-model wire) | CLI lane | Shipping |
+| A6b | Decision-model settings | A6b row; probe adds the `POST /v1/systemone` capability check and `markUnsupported(base)` (finding 6); rev 2 finding 3: control-path discriminator (ambiguous 404/405 → unsupported); R3-2 (decision #46): `recheckAfterLiveNotFound` re-runs the discriminator after a live 404/405 (coalesced, at most one per 60 s); only an `unsupported-endpoint` re-check writes the persisted mark under `ptah.decisionModel.unsupported.v1`, a `ready` re-check writes no mark, clears an existing one and keeps the row `ready` with the live error as detail. Acceptance: Part A §5 live re-check specs (a) live model-not-found (route `400 {"error":"model is required"}` vs control `404 page not found` → no mark, nothing stored, row `ready`), (b) live route missing → mark persisted across restart, (c) two live 404s in 60 s → one re-check | `@ptah-extension/lane-routing` | A3 | `J(..., <A6b specs>)` | yes (LR/decision-model settings files) | CLI lane | Shipping |
 | A7 | Reasons and confidence | A7 row | `@ptah-extension/lane-routing` | A3 | `J(..., <A7 specs>)` | yes (LR/reasons) | CLI lane | Shipping |
 | A10 | Lane model listing adapter | A10 row, plus Ptah CLI provider discovery (part A §9 integration note, finding 2) | `@ptah-extension/rpc-handlers` | A3 | `J(libs/backend/rpc-handlers, <adapter spec>)` + `npx nx typecheck @ptah-extension/rpc-handlers` | yes (only wave-3 batch touching `register-shared-rpc-handlers.ts`) | CLI lane | Shipping |
 | B5 | Lane write point, failure class, spawn-field copy | B §4, plus SC-5 family, SC-6 APM copy and notifier mapping, SC-4 input fields; notifier call is an SC-10 enqueue; signal-path specs with a 5 s store write and a throwing store (findings 1, 5) | `@ptah-extension/cli-agent-runtime` | AB1, B4 | `J(libs/backend/cli-agent-runtime, <classifier, auth, notifier specs>)` + `npx nx typecheck @ptah-extension/cli-agent-runtime` | yes | CLI lane | Shipping |
@@ -642,8 +676,8 @@ in-process.
 | A11 | Decision-model config RPC | A11 row | `@ptah-extension/shared`, `@ptah-extension/rpc-handlers` | A6b, A10 | `J(libs/backend/rpc-handlers, <decision-model spec>)`, then `npx nx typecheck @ptah-extension/shared`, one at a time | yes (`agent-rpc.handlers.ts`, `rpc-agents.types.ts`) | CLI lane | Shipping |
 | A13 | Structured-output adapter | A13 row | `@ptah-extension/agent-sdk` | A6b, B3 (same DI files) | `J(libs/backend/agent-sdk, <adapter spec>)` | yes | CLI lane | Shipping |
 | B7 | `agent:outcomeSignals` handler | B §7 minus the app guard specs (moved to AB14); keeps `rpc-allowlist.spec.ts` | `@ptah-extension/rpc-handlers` | AB1, B4, A10 (same registration file) | `J(libs/backend/rpc-handlers, <outcome handler spec, rpc-allowlist.spec.ts>)` | yes (new handler + `register-shared-rpc-handlers.ts`; A11 touches neither) | CLI lane | Shipping |
-| B10a | Report tool module | CREATE `mcp-core/tools/outcome-report.tool.ts` (+ spec), importing SC-7 from lane-outcomes; no edits to registration files; SC-7 target rules and the repeated/concurrent same-slug sequence spec (finding 4); rev 2 finding 2: `reportId` per call, held deliverables store stat facts only, `held`/`queued` results, the sequence by run tag and by `agentId`, report-before-stop and held-review fixtures; slug cases removed | `@ptah-extension/vscode-lm-tools` | B4, B5 | `J(libs/backend/vscode-lm-tools, <outcome-report spec>)` | yes | CLI lane | Shipping |
-| A8 | Route decide pipeline | A8 row (LR service, pipeline, `register.ts`, index); forwards a live `routeMissing` failure to `markUnsupported` (finding 6) | `@ptah-extension/lane-routing` | A4b, A5b, A6a, A6b, A7 | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | in-process subagent (five modules, long fixture set) | Shipping |
+| B10a | Report tool module | CREATE `mcp-core/tools/outcome-report.tool.ts` (+ spec), importing SC-7 from lane-outcomes; no edits to registration files; SC-7 target rules and the repeated/concurrent same-slug sequence spec (finding 4); rev 2 finding 2: `reportId` per call, held deliverables store stat facts only, `held`/`queued` results, the sequence by run tag and by `agentId`, report-before-stop and held-review fixtures; slug cases removed; R3-1 (decision #45): backlog unknown-id tool fixture — with the real pipeline over a fake connection (`isOpen = false`) and journal `[L1]`, `ptah_outcome_report` review for `L9` returns an error result whose text names `L9`, and the journal storage is unchanged and the `InMemoryLaneOutcomeStore` has no row, receipt or hold after open; a `subagent:` deliverables report in the same state returns `held` | `@ptah-extension/vscode-lm-tools` | B4, B5 | `J(libs/backend/vscode-lm-tools, <outcome-report spec>)` | yes | CLI lane | Shipping |
+| A8 | Route decide pipeline | A8 row (LR service, pipeline, `register.ts`, index); forwards a live `notFound` failure to `recheckAfterLiveNotFound`, never to `markUnsupported` directly (finding 6; R3-2); acceptance: pipeline spec with the probe stubbed `ready` keeps the row `ready`, stubbed `unsupported-endpoint` shows it | `@ptah-extension/lane-routing` | A4b, A5b, A6a, A6b, A7 | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | in-process subagent (five modules, long fixture set) | Shipping |
 | A12 | Decision model settings row | A12 row; check TASK_2026_658 overlap first | `@ptah-extension/chat` | A11 | `J(libs/frontend/chat, <changed specs>)` | yes | CLI lane (frontend) | Shipping |
 | A9a | Route tool modules | CREATE `mcp-core/route-tools.ts`, `route-tool-handlers.ts`, `namespace-builders/route-namespace.builder.ts` and their specs (A §8); no edits to registration files | `@ptah-extension/vscode-lm-tools` | A8 | `J(libs/backend/vscode-lm-tools, <route specs, namespace spec>)` | yes | CLI lane | Shipping |
 | A16 | Decision-model failure classifier | CREATE `LR/failure-class/decision-model-failure-classifier.ts` (+ spec: unset → zero requests; fake client counts exactly 1; below threshold → null; outside five → null; payload field set pinned); MODIFY `LR/di/register.ts` (+ spec), `src/index.ts` (SC-4) | `@ptah-extension/lane-routing` | A8 (`answer-validation.ts`, register file) | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | CLI lane | Shipping |
@@ -766,3 +800,10 @@ decisions are rows 34-38 there, and Gate 2 revision 2 decisions are rows 40-42 (
 None. Every integration choice above is reversible and none is user-reserved. No capability is removed
 beyond the Agents-tab "Success" figure (user-approved, decision #13). The new RPC method passes the existing
 guard, so it needs no exception from another task.
+
+## Revision log (Gate 2 round 3 fixes)
+
+| Finding | What changed | Where |
+| --- | --- | --- |
+| R3-1 (Serious) Req 5.6: backlog `submit` returned `queued` before validating the run id | Backlog `submit` now validates the target before appending, against an in-memory index of pending inserts and pending holds (queue + journal, rebuilt at start) and, when the store is open, its row and held reports. A table fixes the outcome: a pending insert or readable row → `queued`; a `subagent:` `deliverables` report with neither → `held` (decision #41 hold kept); a `subagent:` `review` → `held` only behind a pending or readable held `deliverables`, else error; a lane id with no pending insert and no readable row (including store not open) → `{ ok: false }` naming the id, nothing appended or written. Apply-time residue (target dead-lettered) goes to the dead-letter key with `target-missing`, never a silent ack. Decision #45 | This file: SC-10 "Report ops in backlog mode" bullet; Required tests (backlog unknown-id fixtures (a)-(e), dead-lettered target); requirement coverage 5.6; B4 and B10a batch rows |
+| R3-2 (Moderate) Req 1.5: a live model-not-found 404 was persisted as `unsupported-endpoint` | The client flag is now `notFound` (evidence, not a verdict). On a live 404/405 the pipeline calls `DecisionModelStatus.recheckAfterLiveNotFound`, which re-runs the decision #42 discriminator (no request text sent; coalesced, at most one per 60 s). Only an `unsupported-endpoint` re-check writes the persisted mark; a `ready` re-check writes none, clears an old one, and keeps the row `ready` with `last call failed: <error>` as detail. DTO state set unchanged. Live model-not-found, live route-missing and coalescing fixtures added. Decision #46 | Part A §5 (live-call paragraph, client bullet, verification seam); this file: coverage 1.1-1.8; A6a, A6b, A8 batch rows |

@@ -284,22 +284,39 @@ Paths are relative to the worktree root
       request → `unreachable`.
     The version check still runs first, so an old Ollama reports its version in `detail` and neither POST
     is sent.
-    Live calls feed the same state, and the result is persisted. The System One client (below) marks a
-    live failure `routeMissing: true` when a call gets HTTP 404 or 405 (a live call names a model and an
-    input, so a 404/405 there means the route, or the named model on it, cannot serve the call); the
-    detail carries the body's `error` text cut to 200 characters, so a model-not-found answer is visible
-    in the row. The pipeline (§6, A8) then calls `DecisionModelStatus.markUnsupported(baseUrl, detail)`.
-    `DecisionModelStatus` persists that mark through `PLATFORM_TOKENS.STATE_STORAGE` under
+    Live calls feed the same state, through the same discriminator (Gate 2 round 3 fix R3-2, decision
+    #46; replaces "a live 404/405 marks the endpoint unsupported"). The System One client (below) marks a
+    live failure `notFound: true` when a call gets HTTP 404 or 405; the detail carries the body's `error`
+    text cut to 200 characters. A live call names a model and an input, so its 404/405 alone cannot tell
+    a missing route from a missing model (`{"error":"model \"x\" not found"}` on a route that exists).
+    The pipeline (§6, A8) therefore never marks the endpoint from the live answer; it calls
+    `DecisionModelStatus.recheckAfterLiveNotFound(baseUrl, detail)`, which runs this probe (version check,
+    then the System One `POST {}` and the control `POST {}` compared as above; no request text is sent).
+    Outcome mapping:
+    - Probe → `unsupported-endpoint` (the route answer equals the control's, or the control failed while
+      the route answered 404/405, or the version is too old) → `markUnsupported(baseUrl, detail)` with the
+      probe's detail plus the live `error` text.
+    - Probe → `ready` (the route answered differently from the control, so `/v1/systemone` exists) → the
+      live 404/405 is a model/provider failure: no unsupported mark is written, an existing mark is
+      cleared (the route was just proven), and the row stays `ready` with `detail` set to
+      `last call failed: <live error text>` (in memory only; cleared by the next successful call, a
+      selection or base URL change, or a restart). The DTO state set is unchanged.
+    - Probe → `unreachable`, `auth` or `provider-error` → no mark and no clear; the row shows that probe
+      state as for any probe.
+    Re-checks are coalesced: one in-flight re-check per `(selection, baseUrl)`, at most one per 60 s;
+    a live 404/405 inside that window reuses the last re-check result.
+    `DecisionModelStatus` persists an unsupported mark through `PLATFORM_TOKENS.STATE_STORAGE` under
     `ptah.decisionModel.unsupported.v1` as `{ selection, baseUrl, detail, at }` and reloads it at start,
     so the row shows `unsupported-endpoint` after a restart too. The mark is cleared when the selection or
     base URL changes, or when a later probe returns `ready` by the discriminator above. The Req 12.7 cause
-    of that call stays `provider-error`.
+    of the failed call is `provider-error` in every case.
   - `LR/decision-model/system-one.client.ts`: raw `fetch` POST to `{base}/v1/systemone` (Ollama base
     from `provider.ollama.baseUrl`, default `http://127.0.0.1:11434`; Jev base
     `https://api.typesafe.ai`), `Authorization: Bearer` for Jev only, `AbortSignal.timeout(3000)`,
     body size checked before send, response validated with Zod, HTTP 401/403 → `auth`, network error
-    → `unreachable`, other non-2xx → `provider-error` (with `routeMissing: true` for any 404/405, Gate 2
-    revision 2 finding 3), schema failure → `bad-output`. No retries.
+    → `unreachable`, other non-2xx → `provider-error` (with `notFound: true` for any 404/405, Gate 2
+    round 3 fix R3-2; the flag is evidence for a re-check, never a route verdict), schema failure →
+    `bad-output`. No retries.
   - `LR/decision-model/structured-decision.port.ts`: `StructuredDecisionCompleter` interface; the
     pipeline renders each question as an enum property of one JSON schema and maps the answer to
     the same `DecisionAnswer` shape with `confidence: null` (Req 1.8). Any model-supplied text field
@@ -324,11 +341,21 @@ Paths are relative to the worktree root
   error) with control `404 page not found` → `ready`; System One `404 {"error":"model \"\" not found"}`
   with control `404 {"error":"not found"}` → `ready`; both `200 {}` (catch-all proxy) →
   `unsupported-endpoint`; System One 404 with a control that times out → `unsupported-endpoint`.
-  Client spec: plain-text 404 and JSON 404 → `provider-error` with `routeMissing: true` and the `error`
+  Client spec: plain-text 404 and JSON 404 → `provider-error` with `notFound: true` and the `error`
   text in the detail. Status spec: `markUnsupported(base, detail)` after a passing probe →
   `unsupported-endpoint`; a new status instance over the same fake `IStateStorage` (restart) still shows
-  it; a base URL change or a later `ready` probe clears it. Pipeline spec (A8): a live call answering 404
-  → `markUnsupported` called once and the row shows `unsupported-endpoint`.
+  it; a base URL change or a later `ready` probe clears it. Live re-check specs (R3-2, A6b status spec
+  with stub `fetch`, version `0.40.0`): (a) live model-not-found — the live call answers
+  `404 {"error":"model \"qwen3:0.6b\" not found"}`, the re-check's System One `POST {}` answers
+  `400 {"error":"model is required"}` and the control answers `404 page not found` → no
+  `markUnsupported`, nothing written under `ptah.decisionModel.unsupported.v1`, state `ready` with
+  detail `last call failed: model "qwen3:0.6b" not found`, and a pre-existing mark is cleared; (b) live
+  route missing — live `404 page not found`, re-check System One and control both `404 page not found`
+  → `markUnsupported` once, the mark persisted and shown after a restart; (c) two live 404s within 60 s
+  → one re-check (fetch counts: one version, one System One, one control). Pipeline spec (A8): a live
+  call answering 404 → `recheckAfterLiveNotFound` called once and `markUnsupported` never called by the
+  pipeline itself; with the stub probe answering `unsupported-endpoint` the row shows
+  `unsupported-endpoint`, with it answering `ready` the row stays `ready`.
 - Files: CREATE `LR/decision-model/{decision-model.types.ts,decision-model.config.ts,system-one.client.ts,system-one.schema.ts,structured-decision.port.ts,decision-payload.ts}`
   plus specs.
 
