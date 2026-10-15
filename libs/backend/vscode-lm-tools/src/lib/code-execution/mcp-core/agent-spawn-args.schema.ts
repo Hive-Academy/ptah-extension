@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import { OUTCOME_TASK_KINDS, SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 
 export const MAX_TASK_LENGTH = 100 * 1024;
 
@@ -39,6 +39,15 @@ export const AgentSpawnArgsSchema = z
     // Free string, not an enum: each CLI accepts its own scale, and the lane
     // spawn policy ignores a value its CLI does not take (R2.3 step 1).
     effort: z.string().min(1).max(MAX_EFFORT_LENGTH).optional(),
+    // Task kind this lane is routed for (TASK_2026_646, SC-6). Copied onto the
+    // tracked process info and from there onto the lane's outcome record;
+    // absent when the spawn did not name one.
+    taskKind: z.enum(OUTCOME_TASK_KINDS).optional(),
+    // What routed this lane (SC-6): 'model' (a model was pinned), 'ranking'
+    // (the router chose it) or 'pin' (the lane itself was pinned). The
+    // 'not-routed' default is recorded at write time, so the spawn never
+    // takes it. Never forwarded to the CLI.
+    routingSource: z.enum(['model', 'ranking', 'pin']).optional(),
     // Overrides the pre-spawn limit gate; never forwarded to `agent.spawn`.
     force: z.boolean().optional(),
   })

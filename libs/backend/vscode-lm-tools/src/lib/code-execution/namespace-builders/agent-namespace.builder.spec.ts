@@ -957,9 +957,48 @@ describe('buildAgentNamespace — list', () => {
         cli: 'codex',
         installed: true,
         messagingMode: 'queue',
+        family: 'codex',
         preferredRank: 0,
       },
     ]);
+  });
+
+  // SC-5: the row builder is the one place family is computed. A Ptah CLI row
+  // groups under its provider id, then the `ptah-cli:<id>` fallback, then
+  // `ptah-cli`; a system CLI row groups under its cli value.
+  it('stamps every row with its lane family (TASK_2026_646, SC-5)', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.detection.detectAll.mockResolvedValue([
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
+    ] as CliDetectionResult[]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.listAgents.mockResolvedValue([
+      {
+        id: 'ptah-alice',
+        name: 'Alice',
+        providerName: 'Z-ai',
+        providerId: 'z-ai',
+        hasApiKey: true,
+        enabled: true,
+      },
+      {
+        id: 'ptah-bob',
+        name: 'Bob',
+        providerName: 'No provider',
+        hasApiKey: true,
+        enabled: true,
+      },
+    ]);
+
+    const list = await buildAgentNamespace(deps).list();
+
+    expect(list.find((r) => r.cli === 'codex')?.family).toBe('codex');
+    expect(list.find((r) => r.ptahCliId === 'ptah-alice')?.family).toBe(
+      'z-ai',
+    );
+    expect(list.find((r) => r.ptahCliId === 'ptah-bob')?.family).toBe(
+      'ptah-cli:ptah-bob',
+    );
   });
 
   // `spawn` REJECTS an explicit disabled `cli`, so omitting disabled CLIs here

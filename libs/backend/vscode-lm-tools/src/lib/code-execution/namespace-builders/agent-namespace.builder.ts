@@ -33,6 +33,7 @@ import {
   FRESHNESS_MS,
   NEAR_LIMIT_PERCENT,
   classifyLaneState,
+  laneFamilyOf,
 } from '@ptah-extension/shared';
 
 /**
@@ -475,25 +476,33 @@ export function buildAgentNamespace(
           merged = enabledCliResults;
         }
       }
+      // The row builder is the one place family is computed (TASK_2026_646,
+      // SC-5): every row the list returns groups under the key the outcome
+      // pipeline reports this lane under. Rows a host builds by hand carry
+      // no family until they pass through here.
+      const withFamily: CliDetectionResult[] = merged.map((r) => ({
+        ...r,
+        family: laneFamilyOf(r),
+      }));
       const preferredOrder = getPreferredAgentOrder?.() ?? [];
       if (preferredOrder.length > 0) {
         const rankMap = new Map<string, number>();
         preferredOrder.forEach((entry, idx) => rankMap.set(entry, idx + 1));
         const getIdentifier = (r: CliDetectionResult): string =>
           r.cli === 'ptah-cli' && r.ptahCliId ? r.ptahCliId : r.cli;
-        merged.sort((a, b) => {
+        withFamily.sort((a, b) => {
           const rankA =
             rankMap.get(getIdentifier(a)) ?? Number.MAX_SAFE_INTEGER;
           const rankB =
             rankMap.get(getIdentifier(b)) ?? Number.MAX_SAFE_INTEGER;
           return rankA - rankB;
         });
-        return merged.map((r) => ({
+        return withFamily.map((r) => ({
           ...r,
           preferredRank: rankMap.get(getIdentifier(r)) ?? 0,
         }));
       }
-      return merged.map((r) => ({ ...r, preferredRank: 0 }));
+      return withFamily.map((r) => ({ ...r, preferredRank: 0 }));
     },
 
     limits: async (rows) => {
