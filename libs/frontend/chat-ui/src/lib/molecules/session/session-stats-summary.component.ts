@@ -26,12 +26,9 @@ import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.t
 import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
 import { sourceChipClass } from './plan-limits/stats-tile.styles';
 import {
-  budgetTooltip,
   costBudgetSuffix,
   costBudgetText,
-  costTooltip,
   tokensBudgetSuffix,
-  tokensTooltip,
 } from './session-budget-format';
 import {
   formatCost,
@@ -39,17 +36,11 @@ import {
   formatTokens,
 } from './session-stats-format';
 import { SessionModelBreakdownComponent } from './session-model-breakdown.component';
-
-/** Tooltip line the TOKENS and COST chips add while showing an estimate. */
-const ESTIMATE_TOOLTIP_LINE =
-  'Live estimate while the turn runs; final figures replace it when it ends.';
-
-/** Puts the estimate line before an existing tooltip, or alone without one. */
-function withEstimateLine(tooltip: string | null): string {
-  return tooltip
-    ? `${ESTIMATE_TOOLTIP_LINE}\n\n${tooltip}`
-    : ESTIMATE_TOOLTIP_LINE;
-}
+import {
+  AGENTS_DETAILS, KNOWN_SUBTOTAL_DETAILS, agentCountOf, contextDetailsText,
+  costDetailsText, durationMsOf, knownSubtotalOf, lanesAriaLabelFor,
+  sessionContextCue, tokenDetailsText,
+} from './session-stats-view';
 
 /**
  * Live model stats from current session
@@ -165,7 +156,7 @@ export class SessionStatsSummaryComponent {
    */
   protected readonly lanesAriaLabel = computed(() => {
     const count = this.lanesCount() ?? 0;
-    return `${count} lane run${count === 1 ? '' : 's'}, not in session totals`;
+    return lanesAriaLabelFor(count);
   });
 
   /**
@@ -183,46 +174,19 @@ export class SessionStatsSummaryComponent {
   /** Whether the per-model breakdown table is expanded */
   readonly isExpanded = signal(false);
 
-  protected readonly knownSubtotalTooltip =
-    'Only part of this session has a known price. This is the sum of the priced part, not the session total.';
+  protected readonly knownSubtotalTooltip = KNOWN_SUBTOTAL_DETAILS;
 
-  protected readonly agentsTooltip =
-    'Unique subagents this session has run, over its whole lifetime.';
+  protected readonly agentsTooltip = AGENTS_DETAILS;
 
   /** Only a measured main request and matching capacity evidence permit fill. */
-  readonly hasKnownContextWindow = computed(() => {
-    const stats = this.liveModelStats();
-    const capacity = stats?.contextCapacity;
-    return (
-      !!stats &&
-      stats.contextKnown !== false &&
-      Number.isFinite(stats.contextUsed) &&
-      stats.contextUsed >= 0 &&
-      Number.isFinite(stats.contextPercent) &&
-      !!capacity &&
-      capacity.model === stats.model &&
-      (capacity.source === 'sdk-native' ||
-        (capacity.source === 'provider-catalog' &&
-          typeof capacity.providerId === 'string' &&
-          capacity.providerId.length > 0)) &&
-      typeof capacity.tokens === 'number' &&
-      Number.isFinite(capacity.tokens) &&
-      capacity.tokens > 0 &&
-      stats.contextWindow === capacity.tokens
-    );
-  });
+  readonly hasKnownContextWindow = computed(() => sessionContextCue(this.liveModelStats()).known);
 
   /**
    * Display label for the context percentage. Falls back to an em-dash when
    * the context window is unknown, so the badge visibly communicates
    * "no data" rather than a misleading "0%".
    */
-  readonly contextPercentLabel = computed(() => {
-    const stats = this.liveModelStats();
-    if (!stats) return '—';
-    if (!this.hasKnownContextWindow()) return '—';
-    return `${stats.contextPercent}%`;
-  });
+  readonly contextPercentLabel = computed(() => sessionContextCue(this.liveModelStats()).label);
 
   /**
    * Whether context usage exceeds the warning threshold (70%). Suppressed
@@ -262,27 +226,13 @@ export class SessionStatsSummaryComponent {
    * explicitly labeled subtotal next to the unavailable total. Wrapped so a
    * genuine `0` survives the template's truthiness check.
    */
-  readonly knownSubtotal = computed<{ value: number } | null>(() => {
-    const stats = this.snapshot();
-    if (!stats || stats.totalCost !== null) return null;
-    if (stats.pricingCoverage !== 'partial') return null;
-    const known = stats.knownCost;
-    return typeof known === 'number' && Number.isFinite(known)
-      ? { value: known }
-      : null;
-  });
+  readonly knownSubtotal = computed(() => knownSubtotalOf(this.snapshot()));
 
   /** Backend lifetime subagent count; hidden when absent or zero. */
-  readonly agentCount = computed(() => {
-    const count = this.snapshot()?.agentSessionCount;
-    return typeof count === 'number' && count > 0 ? count : null;
-  });
+  readonly agentCount = computed(() => agentCountOf(this.snapshot()));
 
   /** Backend-supplied session duration; never derived from messages. */
-  readonly durationMs = computed(() => {
-    const duration = this.snapshot()?.durationMs;
-    return typeof duration === 'number' && duration > 0 ? duration : null;
-  });
+  readonly durationMs = computed(() => durationMsOf(this.snapshot()));
 
   /** Tokens chip: the backend's all-four-class `tokenCount`, or "—". */
   readonly tokensLabel = computed(() => {
@@ -298,13 +248,6 @@ export class SessionStatsSummaryComponent {
 
   readonly costBudgetText = computed(() => costBudgetText(this.budget()));
 
-  private readonly budgetTooltip = computed(() =>
-    budgetTooltip(this.budget(), {
-      tokensLabel: this.tokensLabel(),
-      totalCost: this.totalCost(),
-    }),
-  );
-
   /**
    * Whether the snapshot carries an in-turn estimate (`session:stats-live`).
    * Only then do the TOKENS and COST chips show a leading `~` and the
@@ -314,55 +257,21 @@ export class SessionStatsSummaryComponent {
 
   /** COST chip tooltip: any budget line, led by the estimate line while estimating. */
   readonly costTooltip = computed(() => {
-    const tooltip = costTooltip(this.budget(), this.budgetTooltip());
-    return this.isEstimate() ? withEstimateLine(tooltip) : tooltip;
+    const details = costDetailsText(this.snapshot(), this.budget());
+    if (!this.knownSubtotal() || !details) return details;
+    return details === KNOWN_SUBTOTAL_DETAILS
+      ? null
+      : details.replace(`\n\n${KNOWN_SUBTOTAL_DETAILS}`, '');
   });
 
   /**
    * Tooltip with the backend's token breakdown, plus any budget line, led by
    * the estimate line while estimating.
    */
-  readonly tokenTooltip = computed(() => {
-    const tooltip = tokensTooltip(
-      this.budget(),
-      this.budgetTooltip(),
-      this.tokenBreakdown(),
-    );
-    return this.isEstimate() ? withEstimateLine(tooltip) : tooltip;
-  });
-
-  private readonly tokenBreakdown = computed(() => {
-    const stats = this.snapshot();
-    if (!stats) return 'Token usage unavailable.';
-    const t = stats.tokens;
-    const lines = [
-      `Input (uncached): ${t.input.toLocaleString()}`,
-      `Output: ${t.output.toLocaleString()}`,
-      `Cache Read: ${t.cacheRead.toLocaleString()}`,
-      `Cache Creation: ${t.cacheCreation.toLocaleString()}`,
-      typeof stats.tokenCount === 'number'
-        ? `Total: ${stats.tokenCount.toLocaleString()}`
-        : 'Total: unavailable',
-    ];
-    if (stats.coverage === 'partial') {
-      lines.push('Some usage could not be counted.');
-    }
-    return lines.join('\n');
-  });
+  readonly tokenTooltip = computed(() => tokenDetailsText(this.snapshot(), this.budget()));
 
   /** Tooltip with context window details */
-  readonly contextTooltip = computed(() => {
-    const stats = this.liveModelStats();
-    if (!stats) return '';
-    if (!this.hasKnownContextWindow()) {
-      return 'Context unknown: the latest main request or its verified capacity is unavailable.';
-    }
-    return [
-      `Context used (latest main request): ${stats.contextUsed.toLocaleString()} tokens`,
-      `Context Window: ${stats.contextWindow.toLocaleString()} tokens`,
-      `Usage: ${stats.contextPercent}%`,
-    ].join('\n');
-  });
+  readonly contextTooltip = computed(() => contextDetailsText(this.liveModelStats(), 0) ?? '');
 
   protected isTileOpen(tileId: string): boolean {
     return this.expansion.isOpen(this.sessionId() ?? '', tileId);

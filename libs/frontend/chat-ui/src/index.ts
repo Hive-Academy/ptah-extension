@@ -186,3 +186,9 @@ export {
 // activity panel. The cost text formatter is `formatUsdCost` in
 // `@ptah-extension/shared`, already shared by `ptah-cost-badge`.
 export { formatTokenCount } from './lib/atoms/token-badge.component';
+export { ContextRingComponent } from './lib/atoms/context-ring.component';
+export { InspectorSessionStatsComponent } from './lib/molecules/session/inspector-stats/inspector-session-stats.component';
+export { InspectorLimitsLanesComponent } from './lib/molecules/session/inspector-stats/inspector-limits-lanes.component';
+export { sessionContextCue, type SessionStatsInputs, type SessionContextCue } from './lib/molecules/session/session-stats-view';
+export { sessionLimitSummary, inspectorToggleDescription, limitAwareDot, type SessionLimitSummary } from './lib/molecules/session/plan-limits/session-limit-summary';
+export { backgroundAgentPopulation } from './lib/molecules/background-agent-population';

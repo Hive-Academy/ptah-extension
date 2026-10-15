@@ -171,6 +171,7 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
 })
 export class PlanLimitTileComponent {
   readonly tile = input.required<PlanLimitTileModel>();
+  readonly variant = input<'strip' | 'inspector'>('strip');
   readonly open = input<boolean>(false);
   /** The section header already shows this row's caption. */
   readonly captionShared = input<boolean>(false);
@@ -185,7 +186,9 @@ export class PlanLimitTileComponent {
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronUpIcon = ChevronUp;
 
-  protected readonly faceClass = computed(() => planRowClass(this.tile().tone));
+  protected readonly faceClass = computed(() => this.variant() === 'inspector'
+    ? `${planRowClass(this.tile().tone)} min-h-[56px] rounded-md border border-surface-border bg-surface-1 p-2.5`
+    : planRowClass(this.tile().tone));
   protected readonly expandable = computed(
     () => this.tile().kind !== 'status' && this.tile().kind !== 'local-usage',
   );
