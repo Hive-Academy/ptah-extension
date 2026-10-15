@@ -139,6 +139,7 @@ Edge cases:
 | D28 | The projection-dedup Moderate (a persisted provisional id hides the live row as `'unknown'`) is OUT of the bounded correction and carried to Task 14.2, which builds the projection inputs. | fix in 8FG | Fix-round rule: display-only, no lane-config break and no data loss. The re-review marked M6 CLOSED; this is a new edge case where a persisted id equals a live tab id. Task 14.2 owns `persistedChildren` and gets `work-projection.ts` and its spec added to its files. | yes |
 | D29 | Re-review Minors (`removeManifest` false ignored; Decline boolean ignored on duplicate receive and lanes-unavailable) and the 3 style re-review Minors are recorded only, not fixed. 8FG.1 does touch the rollback path, but only for the cancel case. | fix the Minors in 8FG | Fix-round rule: Minor recorded, not fixed. No path sends a launch: a false rollback leaves a run key that the retry rewrites, and an undelivered Decline still ends with the host's Decline-first timeout. The `childBySession` style Minor rides with D28 in Task 14.2. | yes |
 | D30 | 8FG is accepted and Phase B is CLOSED: the grok review of `ea106f685..433aab5ad` is APPROVED 9/10 with 0 new Blocking, Serious, Moderate or Minor. Per D23 the generated diffs `phase-b.diff`, `phase-b-8f.diff` and `phase-b-8fg.diff` are deleted, not committed. Carried items stay where D28 and D29 put them (Task 14.2; Minors recorded). Phase C (B9) waits for the B0 baseline (D2). | (a) another fix round; (b) close Phase B | `code-logic-review-phase-b-8fg.md` (reviewer grok, implementer codex): RR-S1 closed at `tribunal-run-coordinator.ts:119-123` with every `isCancelled` check before `writeManifest` (`:216`); RR-M2 closed at `command-center-records.ts:64-82`; D18 and A1 hold; its top risk is the D29 Minor. This was the last review the revise cap allowed, and it passed, so (a) has nothing to fix. | yes |
+| D31 | The user chose "Popover fix only" on 2026-10-15. The node popover flicker on dense scenes is fixed in Batch 14 only: Task 14.1 replaces the per-label instant tooltip with ONE shared node card keyed by stable node ID (hover intent with open/close delays, safe area, no close while the canvas hit test still reports the node, sphere anchor for hidden labels, click/Enter pin, `FloatingUIService` positioning at most once per frame, reduced motion), adds `command-overlay.component.spec.ts`, and Task 14.2 wires and specs it. Task 12.2 gains ONLY a `hoveredNodeId` output, because the canvas pointer hit test lives in `CommandSceneComponent` and the overlay cannot know the hovered node otherwise; nothing else in Batch 12 changes, and Batches 11 and 13 do not change. Zoom and pan are OUT of scope for this task: no scene camera, zoom, pan, fit-to-view or zoom-to-node in any batch. Candidate follow-up task: zoom and pan with a hand-written bounded camera (`{scale,tx,ty}`), d3-zoom as the fallback, no minimap (research recommendation). Batch 14 now carries 7 files in one project (one over the 6-file rule); kept as one batch because the card and its page wiring are one rollback unit. Rules are tagged in Task 14.1: delay values (150/200 ms, tunable at B18) and the bridge safe-area method are lane-proposed. | (a) popover fix only; (b) popover fix plus zoom and pan across B11-B14 (research amendment, one new camera helper) | User decision 2026-10-15. `research-canvas-zoom-pan.md` "Flicker root cause" and "Popover options"; `prototype/command-center.html:81` (label `mouseenter` -> `showTip`, `mouseleave` -> `display='none'`, no delay, safe area or pin) and `:95` (`positionLabels` moves, compacts or hides labels while drawing; dense at `nodes.length > 12`); `floating-ui.service.ts:125-163` (`offset`, `flip`, `shift`, fixed strategy, `autoUpdate`; no hover intent or safe area). | yes |
 
 ## Phases and reviews
 
@@ -1977,6 +1978,11 @@ Lane rules for this batch:
   releases rAF, observer, listeners and caches.
 - Validation notes: no timer or observer per node.
 - Implementation details: inputs: projection snapshot, selected ID, theme; output: selection.
+- Added by D31 (minimal; nothing else in Batch 12 changes): output `hoveredNodeId` (`string | null`) from the
+  canvas pointer hit test against the renderer's last projected spheres. Coalesce `pointermove` to at most one
+  hit test per animation frame, run outside Angular, and emit only when the ID changes; emit `null` on
+  `pointerleave` and teardown. Spec: two moves over the same sphere emit once; moving off emits `null`; no
+  emission per frame.
 
 ### Batch 12 verification
 
@@ -2056,7 +2062,8 @@ Lane rules for this batch:
 - Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
 - Subagent reason: N/A
 - Review family: different from implementer
-- Rationale: composes everything; exposes the lazy entry used by the route in B15.
+- Rationale: composes everything; exposes the lazy entry used by the route in B15. 7 files in one project after
+  D28 and D31 (one over the 6-file rule; see D31).
 - Tasks: 2 | Depends on: B12, B13
 - Phase: D | Phase review: after B16
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
@@ -2065,13 +2072,71 @@ Lane rules for this batch:
 
 ### Task 14.1: CommandOverlayComponent - PENDING
 
-- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-overlay.component.ts` (new)
-- Plan reference: implementation-plan.md:46; design-spec.md:52-56
-- Pattern to follow: DOM label/tooltip layer in prototype
-- Quality requirements: label plates and tooltip positioned by the renderer's direct transforms; repeating CSS motion
+- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-overlay.component.ts` (new),
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-overlay.component.spec.ts` (new, D31)
+- Plan reference: implementation-plan.md:46; design-spec.md:42-45, :52-56; D31;
+  `TASK/research-canvas-zoom-pan.md` "Flicker root cause" and "Popover options"
+- Pattern to follow: DOM label layer in prototype (NOT its tooltip: `prototype/command-center.html:81` opens and
+  closes the tooltip instantly on label `mouseenter`/`mouseleave`, which is the flicker D31 fixes);
+  `FloatingUIService` (`libs/frontend/ui/src/lib/native/shared/floating-ui.service.ts:125-163`, exported from
+  `@ptah-extension/ui`, `@Injectable()` without `providedIn`, so list it in the component's `providers`)
+- Quality requirements: label plates positioned by the renderer's direct transforms; repeating CSS motion
   uses only transform/opacity; theme-aware chips.
-- Validation notes: no per-frame Angular change detection.
-- Implementation details: exposes element refs to the scene.
+- Node card (D31; replaces the per-label instant tooltip). Each rule is tagged [user-requested] or [lane-proposed]:
+  - ONE shared node card for the whole overlay, keyed by stable node ID, never one card or one positioning
+    service per node [user-requested]. It shows the same content as the work list row (node, provider mark,
+    parent, state in text) [user-requested].
+  - Hover intent: open after an open delay and close after a close delay [user-requested]. Values: open 150 ms,
+    close 200 ms, inside the research ranges 120-180 ms and 180-250 ms [lane-proposed]. Keep both as named
+    exported constants in the overlay file so they can be tuned in Electron at the B18 gate [lane-proposed].
+    At most one open timer and one close timer exist at a time (design rule "no timer per node").
+  - Cancel a pending close when the pointer enters the card or returns to the trigger [user-requested].
+  - Safe area: the trigger-to-card path does not close the card [user-requested]. Method: an invisible
+    `pointer-events:auto` bridge element between the anchor rect and the card rect, rebuilt on each reposition,
+    plus the close delay as the grace period; no pointer-trajectory triangle math [lane-proposed].
+  - Do not close only because the label moved, compacted or hid while the canvas hit test still reports the
+    same node [user-requested]. Hover state is the union of three sources: label trigger hover, card hover and
+    the scene's `hoveredNodeId` input (Task 12.2 output). A close is scheduled only when all three have left
+    that node ID; a label `pointerleave` caused by a renderer move or hide does not close the card while
+    `hoveredNodeId` still equals the card's node ID.
+  - Anchor: the node's label plate while it is visible; when the label is hidden, anchor to the node's sphere
+    [user-requested]. `FloatingUIService.position()` takes an `HTMLElement` reference, so the overlay exposes
+    one zero-size `aria-hidden` card-anchor element with its other element refs, and the scene writes its
+    transform to the open card's sphere centre in the same rAF write as the labels [lane-proposed].
+    ASSUMPTION A-D31: Task 12.1's existing direct overlay-transform write can position this one extra element
+    without changing Task 12.1. The B14 executor checks the committed B12 code; if it cannot, the executor
+    reports it and the team-leader adds a bounded fix task. The executor does not edit B12 files.
+  - Pin: click or Enter on a label or node trigger pins the card until explicit close (card close button),
+    Escape, a selection change or scene teardown [user-requested]. Hover leave does not close a pinned card.
+    A second pin on another node replaces the pinned node ID (still one card).
+  - Focus [user-requested]: pinning does not move focus; the trigger keeps focus and the card's close button is
+    the next Tab stop. Escape or close returns focus to the trigger when focus was in the card; if that label is
+    hidden, focus goes to the matching work-list row (page wiring, Task 14.2). The passive hover card never
+    takes focus and is `role="tooltip"` linked by `aria-describedby`; the pinned card is a non-modal region
+    with an accessible name and the trigger carries `aria-expanded`.
+  - Position with `FloatingUIService` (`offset`, `flip`, `shift`); no backdrop for the passive hover card
+    [user-requested]. Reposition only the open card, at most once per animation frame, and only when its anchor
+    moved: coalesce through one rAF flag; call `cleanup()` on close and on destroy [user-requested].
+    The service's `autoUpdate` does not see transform-only label moves, so the rAF coalescer is required
+    [lane-proposed].
+  - `prefers-reduced-motion` (store `reducedMotion`): no card enter, exit or move animation [user-requested].
+- Validation notes: no per-frame Angular change detection; card state changes enter Angular only on semantic
+  events (open, close, pin, unpin), never per pointermove or per frame.
+- Spec cases (`command-overlay.component.spec.ts`, Jest fake timers, `FloatingUIService` stubbed or spied):
+  - dense-label hover stability: with `hoveredNodeId` unchanged, a label that moves (transform change) or hides
+    (`display:none` plus a synthetic `pointerleave`) under a still pointer does not toggle the card; no
+    close fires after the close delay elapses;
+  - open delay: no card before 150 ms, card at 150 ms; a leave before 150 ms cancels the open;
+  - close delay: card stays until 200 ms after leave; entering the card or re-entering the trigger within
+    200 ms cancels the close; crossing the bridge keeps it open;
+  - pin and unpin: click pins and survives hover leave; Enter pins; Escape unpins and restores focus to the
+    trigger; the close button unpins; a selection change input unpins; destroy calls `cleanup()`;
+  - edge flip: a trigger near the right or bottom edge is positioned through the service with `offset`, `flip`
+    and `shift` enabled (assert the options passed); two anchor moves in one frame cause one reposition call;
+  - one card: hovering a second node while the first card is open re-keys the same card element;
+  - reduced motion: no animation class or transition on the card.
+- Implementation details: exposes element refs to the scene (labels plus the one card anchor); inputs: projection
+  nodes, `hoveredNodeId`, `selectedId`, `reducedMotion`; outputs: pin and unpin with node ID.
 
 ### Task 14.2: CommandCenterPageComponent and lazy export - PENDING
 
@@ -2093,6 +2158,11 @@ Lane rules for this batch:
   block, lines 11-20) and use a 2-project scoped command
   (`-p @ptah-extension/command-center @ptah-extension/chat-state`, header must name 2 projects).
 - Implementation details: export `CommandCenterPageComponent` from `src/index.ts`.
+- Node card wiring (D31), owned here because the page composes scene and overlay: bind the scene's
+  `hoveredNodeId` output to the overlay input; pass `selectedId` so a selection change unpins the card; when an
+  unpin returns focus and the node's label is hidden, focus the matching work-list row. Page spec cases: a
+  scene `hoveredNodeId` emission reaches the overlay input; a work-list selection change unpins a pinned card;
+  leaving the page tears the card down (no card, no pending timer).
 - Carried from the Phase B reviews (Decision D20), owned here:
   - (style Moderate 1) Replace `export *` in `src/index.ts` with named exports: only `CommandCenterPageComponent`,
     plus a one-line comment that the model classes are page-internal.
