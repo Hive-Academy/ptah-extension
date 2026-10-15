@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 41 | Batches: 35 | Complete: 15/35 | Phases accepted: P1
+Total tasks: 41 | Batches: 35 | Complete: 23/35 | Phases accepted: P1 | P2 phase review: due (after Batch 20, dd021d709)
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -154,6 +154,11 @@ Edge cases:
 | TL-19 | Desktop/CLI journals every op (the pipeline moves the in-memory queue into the journal at the start of each turn, `:174-190`). This is accepted as a Minor deviation from plan:465-470, where direct mode uses the in-memory queue | (a) a separate direct mode | It is more durable (every op survives a crash) and FIFO holds trivially. The only cost is at most 2 `update`s per turn on a rare event path. The fixtures that count journal rewrites per turn (">1 000 pre-open") still apply | yes |
 | TL-20 | The held and direct `deliverables` verdict is computed at **apply** time from the stored stat checks and the row's `startedAt`, by a lane-outcomes pure function (`write/report-effect.ts`, Batch 35). It mirrors `sessionChildVerdictOf('completed', checks)` (`cli-agent-runtime/src/lib/cli-agents/lane-completion-notifier.service.ts:132-145`: no checks gives `unverified`; every check `exists && bytes > 0 && (mtimeMs == null \|\| startedAt == null \|\| mtimeMs >= startedAt)` gives `delivered`; otherwise `no-deliverable`). The check shape is `{ exists: boolean, bytes: number, mtimeMs: number \| null }`, at most 20. `bytes` is added to SC-7's `{ exists, mtimeMs }` because the rule needs `bytes > 0`. B10a (Batch 28) must send that shape | (a) the caller precomputes the verdict (current code); (b) inject the cli-agent-runtime function | (a) cannot know `startedAt` before the stop exists, and plan:338-340 says the join computes the verdict. (b) Rule 9 forbids lane-outcomes importing cli-agent-runtime, and B10a is the only caller that could inject it. The parity cases live in the Batch 35 spec. Only numbers and booleans are stored (Req 5.8) | yes |
 | TL-21 | Batches 34, 35 and Task 15.3 are verified in one Mode 2 and committed as three commits in order (34, 35, 15) after one green `test` + `lint` + `typecheck` of `@ptah-extension/lane-outcomes` | verify and commit 34 alone | Batch 34 deletes `recordReceipt`/`takeHeldReports`, and the uncommitted pipeline calls them (`:273`, `:318`), so a lane-outcomes typecheck cannot pass between 34 and 15.3. One project and one heavy check (CLAUDE.md). The P2 review is unchanged (after Batch 20) | yes |
+| TL-27 | Joint Mode 2 round 2 (2026-10-15) NOT ACCEPTED on one spec type error (`write/outcome-write-pipeline.backlog.spec.ts:320`, TS2339 `sort` on `readonly string[]`); fix round 3 = that one line by the same codex family; Batches 34/35 stay held | team-leader fixes the line and commits | refusal rule: the team-leader does not fix executor code; the fix is one line and the rest is green (63/63 tests, the blocked suite 19/19 with type diagnostics off), so the next joint Mode 2 is short | yes |
+| TL-28 | Joint Mode 2 round 3 (2026-10-15) ACCEPTED Batches 34, 35 and 15; committed 2493f2dd5 (34), ce300e918 (35), f4425ce5c (15) with the TL-27 `src/index.ts` split staged as exact intermediate blobs (`git hash-object -w` + `git update-index --cacheinfo`), each commit's tree checked against the plan | interactive `git add -p` | interactive flags are unsupported; blobs make each split exact and the post-commit working tree equals HEAD for lane-outcomes. Batch 35 used type `test` although it carries `report-effect.ts` (production); recorded, not amended | yes |
+| TL-29 | Batch 8 verified with no commit (orchestrator: the index holds Batch 16). The commit follows Batch 16, with the 13 listed files only. The new `max-lines` warning on `skill-synthesis-rpc.service.ts` (706) is accepted as Minor and goes to later task FE-8a | NOT ACCEPTED on a lint warning | `.lintstagedrc.mjs:10` `--max-warnings=-1`; fix-round rule: Minor recorded, not fixed | yes |
+| TL-30 | Batch 19 Mode 2 (2026-10-15) NOT ACCEPTED on `nx typecheck @ptah-extension/agent-sdk`: 4 x TS4111 in `libs/backend/lane-routing/src/lib/decision-model/system-one.client.ts:137,243,244,246` (dot access on index signatures). The file is committed (e5fee2a40, Batch 11) and unchanged in W, so this is not the in-progress Batch 21. Batch 19's new `@ptah-extension/lane-routing` import (`agent-sdk/src/lib/di/register.ts:18`, adapter `:22-25`) puts lane-routing source into agent-sdk's program, whose `tsconfig.json:12` sets `noPropertyAccessFromIndexSignature`; lane-routing's own tsconfig does not. The same errors stop the VS Code and Electron `container.smoke.spec.ts` from compiling. Fix = Task 19.2 (bracket access at the 4 sites; lane-routing file outside Batch 21's file set). Follow-up FE-19a: add `noPropertyAccessFromIndexSignature: true` to `libs/backend/lane-routing/tsconfig.json` after Batch 21 commits, so lane-routing's own typecheck enforces what its strict consumers (agent-sdk, rpc-handlers, vscode-lm-tools) compile it with. rpc-handlers already imports lane-routing (Batch 14) and is strict too, so its typecheck is probably red at HEAD (not run: not this batch) | (a) TL edits the 4 lines and commits; (b) make the adapter avoid the lane-routing import | (a) refusal rule: the TL does not fix code. (b) impossible: the adapter implements the lane-routing port and registers its token; a type-only import still loads the source. Everything else in Batch 19 is green: adapter spec 11/11, lint 0 errors (52 warnings, none in Batch 19 files), CLI smoke 12/12, prettier clean, di-lint OK (1841 sites / 807 tokens), degradation TOTAL 296 with no FAIL | yes |
+| TL-31 | Batch 20 Mode 2 round 1 (2026-10-15) NOT ACCEPTED. Required fixes F20-1..F20-4 (Batch 20 round 1 note); Minors M20-1..M20-3 recorded for the P2 phase review, not fixed | (a) accept with named later tasks; (b) fix in the team-leader | (a) a failing test cannot be committed (Refusals), and F20-3 writes `skillsLoaded: []` for every subagent, a known-false value (part-b:90, :648 "never `[]` for unknown"). (b) the team-leader does not fix code | yes |
 | TL-24 | Batch 12 accepted with `decision-model.config.ts` at 803 lines; no split in this batch. Named later task FE-12a: move the probe and discriminator helpers (`:606-803`) to `decision-model.probe.ts` before any batch adds code to the file (noted on Batch 21) | (a) NOT ACCEPTED with a split as the fix; (b) accept, named later task | The repo's file-size rule is `max-lines` 700 with `skipBlankLines` and `skipComments` (`eslint.config.mjs:556-559`). The file counts 656 such lines, and `eslint` on the 4 files gives 0 warnings, so the limit holds for this new file. A split now costs one more round with no rule breached. Headroom is about 44 lines, so the next growth must split first | yes |
 
 ## Waves and in-flight order (max 3 executors at once; phase reviews take a slot)
@@ -479,7 +484,7 @@ not in P1.
 - Result (team-leader, decision #53): Jest 3 suites / 272 tests passed; typecheck passed; eslint on the 6 files 0 errors (8 pre-existing warnings in `mcp-response-formatter.ts`, none on changed lines)
 - Minor (recorded, not fixed — fix-round rule): Prettier wrap drift introduced in `agent-spawn-args.schema.spec.ts:1-4` (named import fits one line) and `agent-namespace.builder.spec.ts:996-998` (`toBe('z-ai')` fits one line); lint-staged `nx format:write` did not reformat them. `agent-namespace.builder.spec.ts` already had Prettier drift before this batch (e.g. `:1198`, `:1237`, `:1266` at 5e5c9ffca). Fold into the P1 fix batch if one is raised; otherwise left for a formatting sweep
 
-## Batch 8 (B8): Library Agents-tab outcome signals — PENDING
+## Batch 8 (B8): Library Agents-tab outcome signals — COMPLETE (commit 4876fe923, orchestrator commit; Mode 2 2026-10-15 TL-29; report `reports/batch-8-report.md`)
 
 - Recommended executor: CLI lane antigravity (Google) — Angular frontend
 - Execution mode: sequential
@@ -490,7 +495,7 @@ not in P1.
 - Tasks: 1 | Depends on: Batch 2
 - Phase: P5 Outcome producers + Agents tab | Phase review: code-logic + code-style + visual
 
-### Task 8.1: Replace agent "Success" % with outcome signals — PENDING
+### Task 8.1: Replace agent "Success" % with outcome signals — COMPLETE
 
 - File: CREATE `W\libs\frontend\skill-synthesis-ui\src\lib\components\clones\agent-outcome-signals.ts` (+ spec); MODIFY `clone-card.component.ts` (+ spec), `clone-detail-drawer.component.ts` (+ spec), `skill-clones-view.component.ts`, `W\libs\frontend\skill-synthesis-ui\src\lib\services\skill-clones-state.service.ts` (+ spec), `W\libs\frontend\skill-synthesis-ui\src\lib\services\skill-synthesis-rpc.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:739; part-b:552-589 (§9); `T\parity-inventory.md`
@@ -502,6 +507,40 @@ not in P1.
 ### Batch 8 verification
 
 - `npx nx test @ptah-extension/skill-synthesis-ui --parallel=1`, then `npx nx lint @ptah-extension/skill-synthesis-ui`
+- Mode 2 (team-leader, 2026-10-15, verify only, no git index change): VERIFIED, commit pending.
+  - On disk: `agent-outcome-signals.ts` formats `AgentOutcomeSignals` (`lane-outcome.types.ts:130-148`,
+    Batch 2) with no fabricated rate: absent or `runCount === 0` gives `no data yet`; denominator 0
+    gives `no verified runs` / `not reviewed yet`; avg revise hidden when not reviewed or null.
+    `getAgentOutcomeSignals` goes through the existing `rpcService.call('agent:outcomeSignals',
+    { slugs }, LIST_MS)` (registered `rpc.types.ts:1387`). The state service makes one call per
+    refresh, for agent slugs only, next to `loadScorecards` (`Promise.all`). A failure or an absent
+    handler (Batch 25 not landed) stores `{}` / `null` and leaves `error` unset, so cards show "no
+    data yet". The card and drawer drop "Success" only for `kind === 'agent'`. Invocations, last
+    enhanced, history and the scorecard badge are unchanged (parity rows keep). Both components use
+    `input()` and the existing `computed` metrics, so signal reads are tracked. Standalone, OnPush,
+    no `@Input`/`@Output`, no `[innerHTML]`, no TODO. PB-4 recorded as pass in the report.
+  - Before screenshots (R-10): `visual/batch-8-before/before-agents-{list,drawer}-{dark,light}.png`
+    from base c57a9a1e7. The after shots and the P5 visual review run after Batch 25 (P1-L2).
+  - Checks: `prettier --check` flagged 8 of the 13 files. `prettier --write` was run on them, as
+    instructed. Then `nx test @ptah-extension/skill-synthesis-ui` passed: 37/37 suites, 672/672
+    tests (it also passed before the format). `nx lint` passed with 0 errors and 6 warnings, and
+    `nx typecheck` passed. Degradation pre-check: TOTAL 296, no FAIL, skill-synthesis-ui 5 (baseline 5).
+  - Minor (recorded, not fixed): lint `max-lines` warning is new on
+    `services/skill-synthesis-rpc.service.ts` (706 > 700; the base file had no warning).
+    `skill-clones-view.component.ts` was already over (794). The pre-commit lint uses
+    `--max-warnings=-1`, so it does not block. Named later task FE-8a: move the agent RPC methods
+    out of `SkillSynthesisRpcService`. Also for the P5 logic review: `loadAgentOutcomeSignals`
+    swallows the error with no log, which is plan-intended degradation. Overlapping
+    `refreshClones` calls can land out of order, the same as `loadScorecards`.
+  - Commit file list (13; stage only these, after Batch 16):
+    `libs/frontend/skill-synthesis-ui/src/lib/components/clones/{agent-outcome-signals.ts,
+    agent-outcome-signals.spec.ts, clone-card.component.ts, clone-card.component.spec.ts,
+    clone-detail-drawer.component.ts, clone-detail-drawer.component.spec.ts,
+    skill-clones-view.component.ts, skill-clones-view.component.spec.ts}`,
+    `.../components/skill-synthesis-tab.component.spec.ts`,
+    `.../services/{skill-clones-state.service.ts, skill-clones-state.service.spec.ts,
+    skill-synthesis-rpc.service.ts, skill-synthesis-rpc.service.spec.ts}`.
+    Suggested subject: `feat(skill-synthesis-ui): batch 8 - agents tab outcome signals`.
 
 ## Batch 9 (A4): Matrix data — COMPLETE (commit 55a58c96b; actual executor: subagent backend-developer, Anthropic — decision #56; report `reports/batch-9-report.md`; checks: seed-matrix.spec 36/36, typecheck lane-routing pass, eslint matrix/ clean; TL-9, TL-10, TL-11)
 
@@ -655,7 +694,7 @@ not in P1.
 
 - `J(libs/backend/rpc-handlers, <adapter spec>)`, then `npx nx typecheck @ptah-extension/rpc-handlers`, then rule-8 guard specs
 
-## Batch 15 (B4b): Journal, write pipeline, report holds — IN_PROGRESS (PARTIAL FAILURE 2026-10-15, TL-14; first pass: CLI lane codex, OpenAI, session 01a13f88-52bf-7aa2-8ba7-766bcdb4f584, report `reports/batch-15-report.md`; fix round = Batches 34, 35, then Task 15.3; depends on 6, 34, 35; joint Mode 2 2026-10-15 NOT ACCEPTED on Task 15.3 (TL-23), nothing committed for 34/35/15)
+## Batch 15 (B4b): Journal, write pipeline, report holds — COMPLETE (commit f4425ce5c, 2026-10-15, joint Mode 2 round 3 (TL-28); earlier: PARTIAL FAILURE 2026-10-15, TL-14; first pass: CLI lane codex, OpenAI, session 01a13f88-52bf-7aa2-8ba7-766bcdb4f584, report `reports/batch-15-report.md`; fix round = Batches 34, 35, then Task 15.3; depends on 6, 34, 35; joint Mode 2 2026-10-15 NOT ACCEPTED on Task 15.3 (TL-23), nothing committed for 34/35/15; joint Mode 2 round 2 2026-10-15 NOT ACCEPTED on Task 15.3 (TL-27: one spec type error), nothing committed)
 
 - Recommended executor: CLI lane codex (OpenAI)
 - Execution mode: sequential
@@ -666,7 +705,7 @@ not in P1.
 - Tasks: 3 (15.3 is the fix round) | Depends on: Batch 6; Task 15.3 also on Batches 34 and 35
 - Phase: P2 Outcome store core | Phase review: code-logic + code-style
 
-### Task 15.1: `KeyValueOutcomeJournal` — IMPLEMENTED (verified on disk 2026-10-15: `LO\write\key-value-outcome-journal.ts` (+ spec); not yet checked by Nx/Jest; no change in the fix round)
+### Task 15.1: `KeyValueOutcomeJournal` — COMPLETE (commit f4425ce5c; spec passes in the round-3 `nx test`; verified on disk 2026-10-15: `LO\write\key-value-outcome-journal.ts` (+ spec); not yet checked by Nx/Jest; no change in the fix round)
 
 - File: CREATE `LO\write\key-value-outcome-journal.ts` (+ spec)
 - Plan reference: implementation-plan.md:738; SC-10 :383-650 (journal value incl. `heldRuns` with `holdExpiries`)
@@ -675,7 +714,7 @@ not in P1.
 - Validation notes: restart, delayed-open, bound, ordering, shutdown specs
 - Implementation details: pure serialization + bounded append/remove
 
-### Task 15.2: `OutcomeWritePipeline` with holds and backlog validation — FAILED (TL-14: required fixtures missing, atomicity and ack defects; superseded by Task 15.3)
+### Task 15.2: `OutcomeWritePipeline` with holds and backlog validation — COMPLETE via Task 15.3 (commit f4425ce5c; first pass FAILED, TL-14: required fixtures missing, atomicity and ack defects; superseded by Task 15.3)
 
 - Depends on: Task 15.1
 - File: CREATE `LO\write\outcome-write-pipeline.ts` (+ spec)
@@ -690,7 +729,12 @@ not in P1.
   - replay-failure, restart, recovery, ack-crash, >1 000 pre-open and capacity specs
 - Implementation details: capacity = held reports (readable: unexpired table rows; else unexpired `holdExpiries`) + pending report holds; newest refused, never a held one
 
-### Task 15.3: Pipeline fix round on the Batch 34/35 store contract — IN_PROGRESS (NOT ACCEPTED 2026-10-15, joint Mode 2: `nx test lane-outcomes` 3 failed / 78 passed (9 suites, 3 failed); lint pass; typecheck pass; degradation TOTAL 296 no FAIL; report `reports/batch-15-3-report.md`; fix round 2 = issues TL-23 below, same codex lane family)
+### Task 15.3: Pipeline fix round on the Batch 34/35 store contract — COMPLETE (commit f4425ce5c; round 3 2026-10-15 (TL-28): report `reports/batch-15-3-fix2-report.md`, `backlog.spec.ts:320` sorts a copy on disk, 9 suites / 82 tests pass. Earlier: NOT ACCEPTED 2026-10-15, joint Mode 2: `nx test lane-outcomes` 3 failed / 78 passed (9 suites, 3 failed); lint pass; typecheck pass; degradation TOTAL 296 no FAIL; report `reports/batch-15-3-report.md`; fix round 2 = issues TL-23 below, same codex lane family. Fix round 2 NOT ACCEPTED 2026-10-15 (TL-27): report `reports/batch-15-3-fix-report.md`; all TL-23 items 1-6, the Moderate deadline/timer and the Minor `HeldEntryKind` export are on disk at the cited lines; `nx test lane-outcomes` 8 suites / 63 tests pass, 1 suite fails to compile; lint pass; typecheck pass (does not cover specs); degradation TOTAL 296, no FAIL; di-lint OK (1838 sites). Nothing committed)
+
+- TL-27 fix round 3 (Task 15.3 only, one file, one line; Batch 34/35 files stay frozen):
+  - `LO\write\outcome-write-pipeline.backlog.spec.ts:320` — `error TS2339: Property 'sort' does not exist on type 'readonly string[]'`. The local fake's `receiptIds()` returns `readonly string[]` (`:282`), so the whole suite fails to run under ts-jest. Fix: sort a copy, `expect([...store.receiptIds()].sort()).toEqual(['report-4', 'report-5'])`. No other change
+  - Evidence the fix is sufficient: the same spec run once with ts-jest `diagnostics: false` (temporary config outside the repo, deleted) gives 19 / 19 passed, so no runtime assertion fails behind the type error. Expected after the fix: 9 suites, 82 tests
+  - Process note: `nx typecheck` does not compile `*.spec.ts` here, so an executor that runs no Jest (decision #53) cannot see spec type errors. The fix lane may run `npx tsc --noEmit -p libs/backend/lane-outcomes/tsconfig.spec.json` once, with the orchestrator's go-ahead, before it reports
 
 - TL-23 fix round 2 (Task 15.3 owns all; Batch 34/35 files stay frozen):
   - 1 (Blocking, FIFO). `LO\write\outcome-write-pipeline.ts:157-168` `accept()` appends straight to the journal while ops from `enqueue()` wait in `this.queue` until the next turn moves them (`:196-209`). A report submitted right after its stop/lane-completion is journaled ahead of its insert, is applied first, gets `missing`, and is dead-lettered `target-missing` (data loss). Failing: `outcome-write-pipeline.backlog.spec.ts:121-132` (reviseRounds 0), `outcome-write-pipeline.durability.spec.ts:174-192` (dead letters reversed). Fix: move the pending queue into the journal ahead of the op in the same `update` (capacity rule kept). The F1 fixture `durability.spec.ts:365-393` must also assert FIFO apply order, not only presence
@@ -739,13 +783,29 @@ not in P1.
 ### Batch 15 verification
 
 - Joint Mode 2 with Batches 34 and 35 (TL-21): `npx nx test @ptah-extension/lane-outcomes --parallel=1`, then `npx nx lint @ptah-extension/lane-outcomes`, then `npx nx typecheck @ptah-extension/lane-outcomes`. Three commits in order (34, 35, 15) after all three pass
+- TL-27 commit split for `src/index.ts` (partial staging, each hunk in the first commit that needs it):
+  Batch 34 — the four store type exports `HeldEntryKind`, `LaneOutcomeRow`, `OutcomeEffectResolver`,
+  `OutcomeReportEffect`; Batch 35 — the `./lib/write/report-effect` export block; Batch 15 — the
+  journal and pipeline export blocks. Batch 34 = the five non-spec `LO\store\*.ts` files; Batch 35 =
+  `LO\write\report-effect{,.spec}.ts` + the three store specs; Batch 15 = the other seven `LO\write\*`
+  files. Intermediate commits 34 and 35 are not checked alone (TL-21); the gate is the green tree before commit 34
+- Mode 2 round 3 (2026-10-15, TL-28), all in W, `NX_NO_CLOUD=true`, `--skip-nx-cache`:
+  `nx test @ptah-extension/lane-outcomes` 9 suites / 82 tests pass; `nx lint` pass; `nx typecheck`
+  pass; degradation audit TOTAL 296, no FAIL (baseline unchanged); di-lint OK (1838 sites, 798
+  tokens). Pre-commit hook (lint-staged format + `nx affected --target=lint`) passed on all three
+  commits. Commits: 2493f2dd5 Batch 34 (6 files: five store `.ts` + index type exports),
+  ce300e918 Batch 35 (6 files: report-effect + spec, three store specs, index report-effect
+  block), f4425ce5c Batch 15 (8 files: seven `LO\write\*` + index journal/pipeline blocks).
+  After commit, `git status` shows no lane-outcomes changes; no other writer's file was staged.
+  The hook's `nx format:write` reformatted staged content in commits 35 (651 -> 663 insertions)
+  and 15 (2684 -> 2752); format-only, so the checks above stand for the committed code
 - TL note from Batch 6: the held-report cap is global (plan:342-345, :538-545), so use the store's
   global `countHeldReports(nowMs)`; `holdReport` purges expired rows with `Date.now()`, so specs that
   pin `now` must use a value at or below wall-clock time. The pipeline must not delete receipts.
   KV `evict()` drops receipts whose run has no kept row; if the pipeline records a receipt before its
   row exists, report that to the team-leader rather than editing Batch 6 files silently
 
-## Batch 34 (B4b-S1): Atomic store contract v2 — IN_PROGRESS (Batch 15 fix round, TL-14/TL-15/TL-16; joint Mode 2 2026-10-15: verified on disk, store specs pass, lint + typecheck pass; commit HELD by TL-21 until Task 15.3 is green; report `reports/batch-34-35-report.md`; actual executor: CLI lane codex, OpenAI)
+## Batch 34 (B4b-S1): Atomic store contract v2 — COMPLETE (commit 2493f2dd5, 2026-10-15, joint Mode 2 round 3 (TL-28); Batch 15 fix round, TL-14/TL-15/TL-16; joint Mode 2 2026-10-15: verified on disk, store specs pass, lint + typecheck pass; commit HELD by TL-21 until Task 15.3 is green; report `reports/batch-34-35-report.md`; actual executor: CLI lane codex, OpenAI. Round 2 2026-10-15: store specs pass again, lint + typecheck pass; still HELD by TL-21 (TL-27))
 
 - Recommended executor: CLI lane codex (OpenAI), the same lane family as Batches 6 and 15, with a full brief
 - Execution mode: sequential (one interface and its three implementations)
@@ -756,7 +816,7 @@ not in P1.
 - Tasks: 1 | Depends on: Batch 6 | Runs before Batch 35 and Task 15.3. The same lane may run Batch 35 right after this one
 - Phase: P2 Outcome store core | Phase review: code-logic + code-style (after Batch 20)
 
-### Task 34.1: Store port v2 and its three implementations — IMPLEMENTED
+### Task 34.1: Store port v2 and its three implementations — COMPLETE (commit 2493f2dd5)
 
 - Files (exactly these five): MODIFY `LO\store\lane-outcome.store.ts`, `LO\store\in-memory-lane-outcome.store.ts`, `LO\store\key-value-lane-outcome.store.ts`, `LO\store\sqlite-lane-outcome.store.ts`, `LO\store\store.test-support.ts`
 - Plan reference: SC-7 :323-366 (join in the same transaction; KV: the same `update`); SC-10 idempotency table :432-443; receipts :439-443; 0054 DDL (`libs/backend/persistence-sqlite/src/lib/migrations/0054_lane_outcome_records.ts:38-92`); TL-15, TL-16, TL-20
@@ -784,7 +844,7 @@ not in P1.
 
 - Joint Mode 2 with Batch 35 and Task 15.3 (TL-21). Executors run no Nx/Jest (decision #53)
 
-## Batch 35 (B4b-S2): Store contract specs and report effect — IN_PROGRESS (Batch 15 fix round; joint Mode 2 2026-10-15: verified on disk, `report-effect.spec` + three store specs pass, all Task 35.1 fixtures present; commit HELD by TL-21 until Task 15.3 is green; actual executor: CLI lane codex, OpenAI)
+## Batch 35 (B4b-S2): Store contract specs and report effect — COMPLETE (commit ce300e918, 2026-10-15, joint Mode 2 round 3 (TL-28); Batch 15 fix round; joint Mode 2 2026-10-15: verified on disk, `report-effect.spec` + three store specs pass, all Task 35.1 fixtures present; commit HELD by TL-21 until Task 15.3 is green; actual executor: CLI lane codex, OpenAI. Round 2 2026-10-15: `report-effect.spec` + three store specs pass again; still HELD by TL-21 (TL-27))
 
 - Recommended executor: CLI lane codex (OpenAI), the same spawn as Batch 34 when it fits, with a full brief
 - Execution mode: sequential
@@ -795,7 +855,7 @@ not in P1.
 - Tasks: 1 | Depends on: Batch 34
 - Phase: P2 Outcome store core | Phase review: code-logic + code-style (after Batch 20)
 
-### Task 35.1: Report-effect resolver and store v2 specs — IMPLEMENTED
+### Task 35.1: Report-effect resolver and store v2 specs — COMPLETE (commit ce300e918)
 
 - Files (exactly these five): CREATE `LO\write\report-effect.ts` (+ `report-effect.spec.ts`); MODIFY `LO\store\in-memory-lane-outcome.store.spec.ts`, `LO\store\key-value-lane-outcome.store.spec.ts`, `LO\store\sqlite-lane-outcome.store.spec.ts`
 - `report-effect.ts` exports:
@@ -824,7 +884,7 @@ not in P1.
 
 - Joint Mode 2 with Batch 34 and Task 15.3 (TL-21)
 
-## Batch 16 (A4b): Matrix store + local derivation — IN_PROGRESS (actual executor: CLI lane grok, xAI — decision #66; report `reports/batch-16-report.md`. NOT ACCEPTED 2026-10-15 (TL-26): `capability-matrix.store.spec.ts` 3 of 14 fail — `:412`, `:471` and `:515` (Req 6.7 cases at `:393`, `:440`, `:492`) build `harness()` without an outcome reader, so the store correctly adds `outcomes-unavailable` (SC-2, as `:679` asserts), and the exact `toEqual`/`toHaveLength(21)` asserts fail. local-derivation.spec passes; eslint and prettier --check on the 4 files are clean. On disk and accepted: PA-2 (no platform-core helper; constructor `ptahHomeDir` with blank guard `capability-matrix.store.ts:166-170`); TL-10 (user-file second pass `nonUserSourceReasons` `:587-600` rejects seed/local and names family/model/task; view `sourceRef ?? null` `:510`); `isStale` reused from `seed-matrix.ts` (store `:26,:459`, derivation `:12,:272`); no stubs or TODO markers. Write path for the Mode 3 trace: `{ptahHomeDir}/routing/capability-matrix.json` — user file, Capability matrix v1 JSON, read once per `load`, written only on a missing file (ENOENT/FileNotFound/EntryNotFound*) with `EMPTY_CAPABILITY_MATRIX_TEXT` `{ "version": 1, "profiles": [] }`, never rewritten when present or invalid; template race with no exclusive create, recorded. `{ptahHomeDir}/routing/capability-matrix.view.json` — output only, pretty JSON + newline `{ version, profiles }` sorted by family then model (`*` first), value cells carry source, sourceRef|null, asOf, recomputed stale, sampleCount|null, optional note; written in `load` only when the canonical text changes; a failed write is logged and retried. Runtime reader: the store itself; host wiring and `ptahHomeDir` come from AB14. Barrel: the 19 export lines from the report (`CapabilityMatrixStore` ... `NO_OUTCOME_HISTORY_REASON`, `deriveLocalMatrix`, `AUTOMATIC_MATRIX_MODEL`; all names checked to exist) are added to `src/index.ts` by the team-leader in the Batch 16 commit (#74, TL-25))
+## Batch 16 (A4b): Matrix store + local derivation — COMPLETE (commit 004195ee9, orchestrator commit after TL-27 verify; hook passed) — was IN_PROGRESS (actual executor: CLI lane grok, xAI — decision #66; report `reports/batch-16-report.md`. NOT ACCEPTED 2026-10-15 (TL-26): `capability-matrix.store.spec.ts` 3 of 14 fail — `:412`, `:471` and `:515` (Req 6.7 cases at `:393`, `:440`, `:492`) build `harness()` without an outcome reader, so the store correctly adds `outcomes-unavailable` (SC-2, as `:679` asserts), and the exact `toEqual`/`toHaveLength(21)` asserts fail. local-derivation.spec passes; eslint and prettier --check on the 4 files are clean. On disk and accepted: PA-2 (no platform-core helper; constructor `ptahHomeDir` with blank guard `capability-matrix.store.ts:166-170`); TL-10 (user-file second pass `nonUserSourceReasons` `:587-600` rejects seed/local and names family/model/task; view `sourceRef ?? null` `:510`); `isStale` reused from `seed-matrix.ts` (store `:26,:459`, derivation `:12,:272`); no stubs or TODO markers. Write path for the Mode 3 trace: `{ptahHomeDir}/routing/capability-matrix.json` — user file, Capability matrix v1 JSON, read once per `load`, written only on a missing file (ENOENT/FileNotFound/EntryNotFound*) with `EMPTY_CAPABILITY_MATRIX_TEXT` `{ "version": 1, "profiles": [] }`, never rewritten when present or invalid; template race with no exclusive create, recorded. `{ptahHomeDir}/routing/capability-matrix.view.json` — output only, pretty JSON + newline `{ version, profiles }` sorted by family then model (`*` first), value cells carry source, sourceRef|null, asOf, recomputed stale, sampleCount|null, optional note; written in `load` only when the canonical text changes; a failed write is logged and retried. Runtime reader: the store itself; host wiring and `ptahHomeDir` come from AB14. Barrel: the 19 export lines from the report (`CapabilityMatrixStore` ... `NO_OUTCOME_HISTORY_REASON`, `deriveLocalMatrix`, `AUTOMATIC_MATRIX_MODEL`; all names checked to exist) are added to `src/index.ts` by the team-leader in the Batch 16 commit (#74, TL-25). Mode 2 re-verify 2026-10-15 after the TL-26 fix (`reports/batch-16-fix-report.md`): VERIFIED, COMMIT BLOCKED BY ANOTHER WRITER (TL-27). On disk: the 3 Req 6.7 cases pass `reader: outcomeReader({ summaries: [] }).reader` (`capability-matrix.store.spec.ts:395,:444,:498`); production files untouched. J(lane-routing, both matrix specs): 2 suites, 28/28 pass. Barrel: 19 lines added to `libs/backend/lane-routing/src/index.ts` (17 from `capability-matrix.store`, 2 from `local-derivation`; Batch 9 matrix types already exported). `nx typecheck` and `nx lint @ptah-extension/lane-routing` pass (the untracked Batch 17 `ranking/*` files were in the project and also lint clean). Degradation pre-check: no FAIL, TOTAL 296; di-lint OK (1841 sites, 799 tokens). The 5 files are STAGED (4 matrix + index.ts). `git commit` failed in the pre-commit hook (`nx affected --target=lint`, 81 projects): (a) `@ptah-extension/agent-sdk:lint` — `libs/backend/agent-sdk/package.json:11:5` `@nx/dependency-checks` "@ptah-extension/lane-routing is not used by agent-sdk". This is Batch 19's in-progress edit (unstaged `M package.json`, `M src/lib/di/register.ts`, untracked `src/lib/lane-routing/`), even though `register.ts:18` and `structured-decision.adapter.ts:25` do import it, which suggests a stale Nx project graph that Batch 19's Mode 2 must clear; not a Batch 16 defect; (b) `degradation-audit:lint` failed in the hook but passed on a clean re-run (`--skip-nx-cache`, TOTAL 296), so it was transient, likely a Batch 19/20 file caught mid-write. No other writer's file was staged, edited or reverted. Commit hash: none yet; retry the same commit once the Batch 19 lane ends and `agent-sdk:lint` is green)
 
 - Recommended executor: CLI lane antigravity (Google)
 - Execution mode: sequential
@@ -835,7 +895,7 @@ not in P1.
 - Tasks: 1 | Depends on: Batch 9
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 16.1: Capability matrix store and local derivation — IN_PROGRESS
+### Task 16.1: Capability matrix store and local derivation — COMPLETE
 
 - File: CREATE `LR\matrix\capability-matrix.store.ts`, `LR\matrix\local-derivation.ts`, `LR\matrix\capability-matrix.store.spec.ts`, `LR\matrix\local-derivation.spec.ts`
 - Plan reference: implementation-plan.md:749; part-a:927 (Req 6.4-6.8); SC-2 :143-167
@@ -848,7 +908,7 @@ not in P1.
 
 - `J(libs/backend/lane-routing, LR/matrix/capability-matrix.store.spec.ts LR/matrix/local-derivation.spec.ts)`
 
-## Batch 17 (A5b): Score, spread, rotation — IN_PROGRESS
+## Batch 17 (A5b): Score, spread, rotation — COMPLETE (commit 5ed3d9092; verified by Mode 2, full lane-routing check #72 13 suites 326/326)
 
 - Recommended executor: CLI lane Glm (Zhipu)
 - Execution mode: sequential
@@ -859,7 +919,7 @@ not in P1.
 - Tasks: 1 | Depends on: Batch 9, Batch 10, Batch 33
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 17.1: Score, spread band, rotation store — PENDING
+### Task 17.1: Score, spread band, rotation store — COMPLETE
 
 - File: CREATE `LR\ranking\score.ts`, `LR\ranking\spread.ts`, `LR\ranking\rotation.store.ts`, `LR\ranking\score.spec.ts`, `LR\ranking\spread.spec.ts`, `LR\ranking\rotation.store.spec.ts`
 - Plan reference: implementation-plan.md:750; part-a:928, :231 (Req 7.1-7.6, B boundaries)
@@ -871,6 +931,57 @@ not in P1.
 ### Batch 17 verification
 
 - `J(libs/backend/lane-routing, LR/ranking/score.spec.ts LR/ranking/spread.spec.ts LR/ranking/rotation.store.spec.ts)`; wave-4 lane-routing check before committing the wave's last lane-routing batch
+
+### Batch 17 Mode 2 note (team-leader, 2026-10-15, verify only, no commit)
+
+Implementer: grok lane (`T\reports\batch-17-report.md`). Verified on disk, not from the report.
+
+- Code against the batch section: `score.ts`, `spread.ts` and `rotation.store.ts` contain real logic,
+  with no stubs or TODO markers. P1-C6 holds. The rotation key task kind is `OutcomeTaskKind`, checked
+  against `OUTCOME_TASK_KINDS` from `@ptah-extension/shared` (`rotation.store.ts:22-25`, `:95-106`,
+  `:228-233`). `ROTATION_TASK_KINDS` is not used and is absent from `routing-constants.ts`. The band
+  is `top - score <= CLOSENESS_BAND` over eligible candidates, with `at-limit` excluded
+  (`spread.ts:87`, `:151-156`). The B-1, exactly-B and B+1 boundary specs are at
+  `spread.spec.ts:146,161,172`, and score promotion boundaries are at `score.spec.ts:104,123,142`.
+  The code is deterministic: `spread` and `score` are pure, with no clock, no I/O and no randomness.
+  The determinism spec is `spread.spec.ts:190`.
+- Rotation write path (for the Mode 3 trace). Storage is the global `IStateStorage`
+  (`PLATFORM_TOKENS.STATE_STORAGE`), with no workspace id. AB14 must inject the host's global state.
+  The key is `laneRouting.rotation.v1` (`ROTATION_STORAGE_KEY`, `routing-constants.ts:85`). The read
+  is `storage.get` (`rotation.store.ts:156`). The write is `storage.update(ROTATION_STORAGE_KEY,
+  state)` (`rotation.store.ts:203`). The value is `{ version: 1, entries: [{ key, candidateId }] }`,
+  oldest first with unique keys. It holds at most 200 entries (`ROTATION_MAX_KEYS`), and a rewritten
+  key moves to the end. The entry key is `${phaseId}|${taskKind}`. A read that throws gives an empty
+  state, the reason `rotation store unavailable`, and no write from `record` (`:184-188`). A write
+  that throws logs a warning and returns `{ persisted: false }`. An invalid document logs a warning
+  and is replaced on the next `record`. This batch adds no DI registration: `RotationStore` is a
+  plain class and gets its `useFactory` in a later batch.
+- Checks, in the foreground, one at a time, with NX_NO_CLOUD=true:
+  - `J(lane-routing, ranking/{score,spread,rotation.store}.spec.ts)`: 3 suites, 57/57 tests.
+  - Full shared check (#72), run with the Batch 16 files staged and the Batch 17 files plus the
+    index exports in the working tree:
+    - `nx test @ptah-extension/lane-routing --parallel=1`: 13 suites, 326/326 tests.
+    - `nx typecheck`: success.
+    - `nx lint`: success.
+  - `prettier --check` on the 6 ranking files and `index.ts`: clean.
+  - Degradation audit: exit 0, `TOTAL 296`, no FAIL line and no ranking site.
+- Index exports: the 31 lines that `batch-17-report.md` lists (`score`, `spread` and the
+  rotation-store blocks) were added to `LR\..\index.ts` after the Batch 16 `local-derivation` block,
+  in the WORKING TREE only. They are unstaged. The staged Batch 16 index diff (+23) was not touched.
+  All 25 names exist in their modules, and none clashes with an existing export.
+- Commit file list for Batch 17. Commit it after the Batch 16 commit lands. Stage `index.ts` in
+  full at that point, since Batch 16's lines will already be committed:
+  - `W\libs\backend\lane-routing\src\lib\ranking\score.ts`
+  - `W\libs\backend\lane-routing\src\lib\ranking\spread.ts`
+  - `W\libs\backend\lane-routing\src\lib\ranking\rotation.store.ts`
+  - `W\libs\backend\lane-routing\src\lib\ranking\score.spec.ts`
+  - `W\libs\backend\lane-routing\src\lib\ranking\spread.spec.ts`
+  - `W\libs\backend\lane-routing\src\lib\ranking\rotation.store.spec.ts`
+  - `W\libs\backend\lane-routing\src\index.ts` (the 31 Batch 17 export lines)
+  - Suggested subject: `feat(lane-routing): batch 17 - score, spread band and rotation store`.
+- Review: P3 code-logic and code-style review, done by the OpenAI family (the implementer is grok,
+  so the reviewer is a different family). It is due on the combined P3 diff after the phase's last
+  batch commits.
 
 ## Batch 18 (A11): Decision-model config RPC — PENDING
 
@@ -896,7 +1007,7 @@ not in P1.
 
 - `J(libs/backend/rpc-handlers, libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.decision-model.spec.ts)`, then `npx nx typecheck @ptah-extension/shared`, then `npx nx typecheck @ptah-extension/rpc-handlers`, one at a time
 
-## Batch 19 (A13): Structured-output adapter — PENDING
+## Batch 19 (A13): Structured-output adapter — COMPLETE (commit 53dc2bb99, 2026-10-15; Mode 2 round 2 accepted after Task 19.2 fixed TL-30; actual executors: Task 19.1 CLI lane grok (xAI), Task 19.2 orchestrator (decision #81); report `reports/batch-19-report.md`)
 
 - Recommended executor: CLI lane Glm (Zhipu)
 - Execution mode: sequential
@@ -907,7 +1018,7 @@ not in P1.
 - Tasks: 1 | Depends on: Batch 3, Batch 12
 - Phase: P4 Decision-model settings | Phase review: code-logic + visual
 
-### Task 19.1: `StructuredDecisionCompleter` adapter in agent-sdk — PENDING
+### Task 19.1: `StructuredDecisionCompleter` adapter in agent-sdk — COMPLETE
 
 - File: CREATE `W\libs\backend\agent-sdk\src\lib\lane-routing\structured-decision.adapter.ts` (+ spec); MODIFY `W\libs\backend\agent-sdk\src\lib\di\register.ts`
 - Plan reference: implementation-plan.md:752; part-a:489-498 (§10), :937
@@ -920,7 +1031,31 @@ not in P1.
 
 - `J(libs/backend/agent-sdk, <adapter spec>)`, then `npx nx typecheck @ptah-extension/agent-sdk`, then `npx nx lint @ptah-extension/agent-sdk`, then rule-8 guard specs
 
-## Batch 20 (B4c): Recorder, reader, signals, join, DI — PENDING
+### Task 19.2: Fix round 1 - index-signature access in the System One client — COMPLETE
+
+- File: MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\system-one.client.ts` only (not in Batch 21's file set; do not touch any other lane-routing file or `tsconfig.json`)
+- Defect (TL-30): TS4111 under agent-sdk's `noPropertyAccessFromIndexSignature` at `:137` (`headers.authorization`), `:243`, `:244`, `:246` (`parsed.error`)
+- Fix: `headers['authorization'] = ...` at `:137`; read `parsed['error']` once into a local (e.g. `const detail = parsed['error'];`) and use it at `:243-246`. Behaviour unchanged; no cast, no `any`, no eslint/ts suppression
+- Verification (one at a time): `J(libs/backend/lane-routing, libs/backend/lane-routing/src/lib/decision-model/system-one.client.spec.ts)`; `NX_NO_CLOUD=true npx nx typecheck @ptah-extension/agent-sdk`; Jest on `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts` and `apps/ptah-electron/src/di/container.smoke.spec.ts` with each app's `jest.config.ts`
+- Follow-up (not this task): FE-19a, the lane-routing tsconfig flag after Batch 21 commits
+
+### Batch 19 Mode 2 round 1 (team-leader, 2026-10-15): NOT ACCEPTED (TL-30)
+
+- Review of Task 19.1 on disk (no executor report, decision #79): PASS. Failure mapping: resolver throw → `auth` (`structured-decision.adapter.ts:184-196`, missing resolver `:178-183`); thrown network class → `unreachable` (`:146-155`), stream network verdict → `unreachable` (`:220-229`); no structured output → `bad-output` (`:230-235`, other throws `:156-163`). `isReady` via the auth resolver (`:97-117`; `ProviderAuthError` → false, other throws propagate and `decision-model.config.ts:393-398` maps them to `unreachable`). Abort: pre-checks `:120`, `:122`, per message `:207`, after stream `:219`, signal forwarded to the query's `AbortController` `:124-126`, listener removed `:165`. Port fields match `structured-decision.port.ts:15-40` (`jsonSchema`). No stubs, TODO, `any` or `as unknown as`
+- #73 injected tokens: `TOKENS.LOGGER` (`apps/ptah-extension-vscode/src/di/phase-0-platform.ts:50`, `apps/ptah-electron/src/di/phase-0-platform.ts:59`, CLI via cli-engine; di-lint OK), `SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE` (`agent-sdk/src/lib/di/register.ts:744`), `SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER` optional (`auth-providers/src/lib/di/register.ts:195-199`). Registration `register.ts:751-755` under `LANE_ROUTING_TOKENS.STRUCTURED_DECISION`
+- R-8: lane-routing imports only `@ptah-extension/shared` (23) and `@ptah-extension/platform-core` (6); neither imports agent-sdk, vscode-core or lane-outcomes. `agent-sdk/package.json` unchanged vs HEAD (decision #79 removal holds)
+- Checks: adapter spec 11/11 PASS; `nx typecheck @ptah-extension/agent-sdk` FAIL (TL-30, 4 x TS4111 in `system-one.client.ts`); `nx lint` 0 errors / 52 warnings, none in Batch 19 files (base count not re-run); VS Code smoke FAIL to compile and Electron smoke FAIL to compile (same 4 errors); CLI smoke 12/12 PASS; prettier clean on the 9 files; degradation TOTAL 296, no FAIL; di-lint OK (1841 sites / 807 tokens)
+- No commit. Batch 19 files stay unstaged in W for round 2
+
+### Batch 19 Mode 2 round 2 (team-leader, 2026-10-15): ACCEPTED, commit 53dc2bb99
+
+- Task 19.2 on disk: `system-one.client.ts:137` `headers['authorization'] = ...`; `:241-244` read `parsed['error']` once into a local `error`, then the same `typeof === 'string'` and non-blank checks feed `cutDetail(error)`, with the same fallback to `cutDetail(trimmed)`. `git diff` shows only those two hunks. No cast, `any` or suppression. Behaviour unchanged
+- Checks (one at a time, in W): system-one.client.spec 17/17 PASS; `nx typecheck @ptah-extension/agent-sdk` PASS (TL-30 cleared); VS Code `container.smoke.spec.ts` 39/39 PASS; Electron `container.smoke.spec.ts` 22/22 PASS; `prettier --check system-one.client.ts` clean; `degradation-audit:lint` TOTAL 296 PASS; `di-lint:lint` PASS. The round-1 results stand without a re-run: adapter spec 11/11, CLI smoke 12/12, prettier on 9 files, agent-sdk lint 0 errors
+- Informational: `nx typecheck @ptah-extension/rpc-handlers` PASS, so FE-19b is not needed. FE-19a (the lane-routing tsconfig flag after Batch 21) still stands
+- Commit 53dc2bb99 `feat(agent-sdk,lane-routing): batch 19 - structured decision adapter` has 10 files: the adapter and its spec, `agent-sdk/src/lib/di/register.ts`, three `expected-resolvable.ts`, three `container.smoke.spec.ts`, and `system-one.client.ts`. The pre-commit hook passed (format:write, `nx affected --target=lint`) and so did commitlint. Unstaged and untouched: `lane-outcomes/**` and `shared/.../lane-outcome.types.ts` (Batch 20). The Batch 21 lane-routing work had no modified files at commit time
+- Phase P4: Batches 18 and 22 are still PENDING, so the P4 code-logic + visual review is not due yet
+
+## Batch 20 (B4c): Recorder, reader, signals, join, DI — COMPLETE (commit dd021d709, 2026-10-15, Mode 2 round 2 after fix round TL-31; actual executor: CLI lane codex, OpenAI; reports `reports/batch-20-report.md`, `reports/batch-20-fix-report.md`; last P2 batch, P2 code-logic + code-style review due)
 
 - Recommended executor: CLI lane codex (OpenAI)
 - Execution mode: sequential
@@ -931,7 +1066,7 @@ not in P1.
 - Tasks: 1 | Depends on: Batch 15
 - Phase: P2 Outcome store core | Phase review: code-logic + code-style
 
-### Task 20.1: Recorder (SC-4 hook), reader (`LaneOutcomeQueries`), signals, subagent join, DI — PENDING
+### Task 20.1: Recorder (SC-4 hook), reader (`LaneOutcomeQueries`), signals, subagent join, DI — COMPLETE
 
 - File: CREATE `LO\lane-outcome-recorder.service.ts`, `LO\lane-outcome-reader.service.ts`, `LO\skill-telemetry-seam.port.ts`, `LO\agent-signals.ts`, `LO\subagent-join.ts`, `LO\di\register.ts`, `LO\di\start.ts` (spec beside each logic file); MODIFY `W\libs\backend\lane-outcomes\src\index.ts`
 - Plan reference: implementation-plan.md:738; part-b:225-329 (§3, `computeAgentSignals` :286); SC-2 :143-167; SC-4 :181-215; SC-9 :375-382; SC-10 lifecycle ~:490
@@ -947,6 +1082,34 @@ not in P1.
 ### Batch 20 verification
 
 - `npx nx test @ptah-extension/lane-outcomes --parallel=1`, then `npx nx lint @ptah-extension/lane-outcomes`, then `npx nx typecheck @ptah-extension/lane-outcomes`
+
+### Batch 20 Mode 2 round 1 (team-leader, 2026-10-15): NOT ACCEPTED (TL-31)
+
+- Reviewed as one writer (#80): 20 files (11 new, 9 modified incl. `libs/shared/src/lib/types/lane-outcome.types.ts`). No duplicate helpers, no second copy of any logic, no dead code, no spec of removed code; every `src/index.ts` export resolves (typecheck PASS). One run-id builder `subagentRunId` (`subagent-join.ts:8-10`, used by recorder `:101`, `:142`); the `'subagent:'` prefix checks at `outcome-write-pipeline.ts:212,246,579` are committed Batch 15/35 code, not new inlines
+- SC-4 PASS on review: the pipeline keeps the `insertIfAbsent` boolean and calls the callback only when true, in a try/catch with a warn of `{ runId, code }` (`outcome-write-pipeline.ts:546-556`); the recorder keeps the classification input only for null class, verdict `failed`/`no-deliverable`, status not `stopped`, classifier bound (`lane-outcome-recorder.service.ts:59-77`), and on insert calls `classify` fire-and-forget, one `store.update(runId, { failureClass })` for a non-null answer, rejection = warn with `runId` + error name only (`:81-97`). `status`/`failureKind`/`exitCode` are destructured out of the row (`:44`) and never persisted. Callback wired once (`di/register.ts:62-65`, lazy resolve of RECORDER, no construction cycle)
+- PB-1 / #78 PASS: the producer derives `subagentSessionId` from the agent transcript (`agent-sdk/src/lib/helpers/subagent-hook-handler.ts:506-524`); the recorder stores it with `parentSessionId` and `workspaceRoot` (`:105-107`); the three columns exist in 0054 (`0054_lane_outcome_records.ts:63-65`), mapped in `sqlite-lane-outcome.store.ts:21-23` (undefined → null `:88`); schema `lane-outcome.schema.ts:39-41`. The reader joins skills and evidence only on stored `subagentSessionId` (`lane-outcome-reader.service.ts:114-131`, `:149-151`), no agentId fallback
+- TL-16 PASS: `markSubagentBudgetStop` enqueues only `{ kind: 'budget-stop', runId }` (`:139-144`); `applySubagentJoin` derives `timeout`/`crash` at read time (`subagent-join.ts:21-27`); never stored (reader spec `:96`). TL-20 PASS: `declareSubagentDeliverables` builds a `DeliverablesPayloadSchema` payload of `{ exists, bytes, mtimeMs }` checks, no verdict (`:146-178`). P1-L8 PASS: no join value is written back. `startLaneOutcomes` returns an awaited disposer (`di/start.ts:48-51`), v2 store port, no held-report reader. `computeAgentSignals` matches Req 9.1 (task-description.md:412-421)
+- Rule 9 PASS: lane-outcomes imports only shared (15), platform-core (8), persistence-sqlite (4), agent-sdk (2); no lane-routing, no vscode-core. #73 PASS: no `@inject`; tokens registered at `di/register.ts:27` (LOGGER), `:28` (STORE), `:41` (LANE_OUTCOME_PIPELINE), `:69` (RECORDER), `:84` (READER); optional FAILURE_CLASSIFIER / SKILL_TELEMETRY_SEAM / SQLITE_CONNECTION / SDK registries guarded by `isRegistered` (`register.ts:30,44,47,76,90`; `start.ts:17,26,35`); SDK registries registered at `agent-sdk/src/lib/di/register.ts:266,271`. Shared change is additive (three optional nullable fields; the `OutcomeTelemetryJoin` reflow is prettier output); shared typecheck PASS. Degradation: the reader's two catch paths log a `warn` and return a defined degraded value (`reader:51-57`, `:134-142`)
+- Checks (W, `NX_NO_CLOUD=true`, one at a time): `nx run-many -t test -p lane-outcomes shared --parallel=1` header "Running target test for 2 projects" → FAIL, lane-outcomes 1 failed / 92 passed (13 suites), shared not reached; `nx typecheck` lane-outcomes PASS, shared PASS; `nx lint` lane-outcomes PASS, shared 0 errors / 6 warnings (none in the changed file); `prettier --check` FAIL on 1 file; degradation TOTAL 296, no FAIL; di-lint OK (1841 sites, 807 tokens)
+- Required fixes (executor; team-leader does not fix):
+  - F20-1 (Blocking, failing test): `write/outcome-write-pipeline.spec.ts:207-241` "joins a held report after the SQLite file is reopened" fails (`:227` verdict `undefined`). Cause: `write/pipeline.test-support.ts:110-121` DDL lacks `subagent_session_id`, `parent_session_id`, `workspace_root`, so the new INSERT (`sqlite-lane-outcome.store.ts:44`) fails. Fix: add the three `TEXT` columns to that DDL (same as `store/sqlite-lane-outcome.store.spec.ts:24`). The undisposed pipeline of the failing test also caused the Jest "worker failed to exit gracefully" warning; confirm it is gone
+  - F20-2 (Blocking, format): `lane-outcome-recorder.service.spec.ts` fails `prettier --check` (`:7`, `:17-18`, `:21`). Fix: `npx prettier --write` on it
+  - F20-3 (Serious, wrong data): `lane-outcome-reader.service.ts:121` sends `fromMs: row.startedAt ?? row.endedAt`. Subagent rows always have `startedAt: null` (`lane-outcome-recorder.service.ts:116`), so every scope is `[endedAt, endedAt]` and the seam's `invoked_at BETWEEN ? AND ?` (part-b:436-440) finds no skill, giving `skillsLoaded: []` for every subagent where capture is proven (part-b:90, :648: never `[]` for unknown). Fix: `fromMs: row.startedAt ?? 0` (the session is the subagent's own, derived from its transcript, `subagent-hook-handler.ts:506-509`), and assert the scope `{ fromMs: 0, toMs: endedAt }` in `lane-outcome-reader.service.spec.ts`
+  - F20-4 (Serious, untested SC-4): `lane-outcome-recorder.service.spec.ts` has one budget-stop test; no spec pins the recorder's SC-4 behaviour (the batch's quality requirement). Fix: recorder specs with a fake classifier through a real pipeline + `InMemoryLaneOutcomeStore`: (a) new `failed` row → one `classify`, one `update` with the class; (b) duplicate runId → no second call; (c) non-null `failureClass`, verdict `delivered`/`unverified`, status `stopped`, no classifier → zero calls; (d) classifier returns null → no `update`; (e) classifier rejects → one `warn` whose context has only `runId` and `code`; (f) the stored row has no `status`/`failureKind`/`exitCode`
+- Minors (recorded for the P2 phase review, not fixed): M20-1 `classificationInputs` (`recorder:32-35`) keeps an entry when the insert is a duplicate or the op is dropped or dead-lettered; unbounded over a long session (bound it or clear on drop). M20-2 the producer sends `agentType: 'unknown'` when it has no record (`subagent-hook-handler.ts:525`), which the recorder stores as role `'unknown'` (`recorder:111`); map it to null. M20-3 reader results carry the store-only `budgetStopped` and the session/workspace fields on `LaneOutcomeSummary`/`LaneOutcomeRecord` objects (`reader:101`, `:146`); strip `budgetStopped` before returning
+- No commit. Batch 20 files stay unstaged in W for the fix round
+
+### Batch 20 Mode 2 round 2 (team-leader, 2026-10-15): ACCEPTED, commit dd021d709
+
+- Fix report `reports/batch-20-fix-report.md` (codex lane, ended). Only five files changed after round 1 (mtimes 18:07-18:10; every other Batch 20 file keeps its round-1 mtime ~17:15-17:22): `write/pipeline.test-support.ts`, `write/outcome-write-pipeline.spec.ts`, `lane-outcome-reader.service.ts`, `lane-outcome-reader.service.spec.ts`, `lane-outcome-recorder.service.spec.ts`. File set is 21 (11 new, 10 modified: round 1's 9 plus `pipeline.test-support.ts`)
+- F20-1 PASS: `pipeline.test-support.ts:113` adds `subagent_session_id`, `parent_session_id`, `workspace_root` TEXT (one-line `git diff`). `outcome-write-pipeline.spec.ts:64-77` builds every pipeline through `trackedPipeline` (the only `new OutcomeWritePipeline` is `:69`, 17 uses) and disposes all in `afterEach`. Recorder spec pipelines are tracked and disposed (`:18`, `:49`, `:60-64`); the committed backlog/durability specs dispose each pipeline (20/20, 27/27). No "worker failed to exit" in the test output
+- F20-2 PASS: `prettier --check` on all 21 files clean
+- F20-3 PASS: `lane-outcome-reader.service.ts:121` `fromMs: row.startedAt ?? 0`; spec `lane-outcome-reader.service.spec.ts:77-84` asserts `{ sessionId: 'session-a', fromMs: 0, toMs: row.endedAt }` on a `startedAt: null` row (`:26`)
+- F20-4 PASS: recorder spec, real pipeline + `InMemoryLaneOutcomeStore` harness (`:38-57`): (a) `:85-112` one `classify` with the full input, one `update('lane:once', { failureClass: 'crash' })`; (b) `:113-116` duplicate runId, no second call; (c) `:119-137` preset class, `delivered`, `unverified`, `stopped`, no classifier → zero calls; (d) `:139-148` null → no `update`; (e) `:150-164` rejection → one `warn('Outcome classification failed', { runId, code: 'Error' })`, error message not logged; (f) `:109-111` stored row has no `status`/`failureKind`/`exitCode`
+- M20-1..M20-3 unchanged, as instructed: recorder service untouched since round 1 (`classificationInputs` `:32-35`, role `payload.agentType || null` `:111`); reader `:101` and `:146` unchanged (the only reader change is `:121`, no line shift). They stay recorded for the P2 phase review
+- Checks (W, `NX_NO_CLOUD=true`, one at a time): `nx run-many -t test -p lane-outcomes shared --parallel=1 --skip-nx-cache` header "Running target test for 2 projects" → PASS, lane-outcomes 13 suites / 101 tests, shared 114 suites / 3604 tests; `nx typecheck` lane-outcomes PASS, shared PASS; `nx lint` lane-outcomes PASS, shared 0 errors / 6 warnings (same as round 1, none in the changed file); prettier clean (21 files); degradation TOTAL 296, no FAIL; di-lint OK (1841 sites, 807 tokens)
+- Commit dd021d709 `feat(lane-outcomes,shared): batch 20 - recorder, reader, signals and DI`, 21 files (1200+, 37-); body names the #78 schema fields and the pipeline on-insert callback. Pre-commit hook (format:write, `nx affected --target=lint`) and commitlint passed. Not pushed
+- Phase P2 (Batches 6, 34, 35, 15, 20) is now fully committed: the P2 code-logic + code-style review is due on the lane-outcomes and shared lane-outcome diff, `8fc9278e9^..dd021d709` scoped to `libs/backend/lane-outcomes/**` and `libs/shared/src/lib/types/lane-outcome.types.ts`. Carry-ins: the Batch 6 note (`:452`), the Batch 15 recorded Moderate/Minors (`:746`), TL-18, M20-1..M20-3
 
 ## Batch 21 (A8): Route decide pipeline — PENDING
 
