@@ -134,7 +134,7 @@ export class SystemOneClient {
       'content-type': 'application/json',
     };
     if (this.options.apiKey) {
-      headers.authorization = `Bearer ${this.options.apiKey}`;
+      headers['authorization'] = `Bearer ${this.options.apiKey}`;
     }
     this.logger?.debug('[lane-routing] system one request', {
       url,
@@ -238,12 +238,9 @@ export class SystemOneClient {
     } catch {
       return cutDetail(trimmed);
     }
-    if (
-      isRecord(parsed) &&
-      typeof parsed.error === 'string' &&
-      parsed.error.trim().length > 0
-    ) {
-      return cutDetail(parsed.error);
+    const error = isRecord(parsed) ? parsed['error'] : undefined;
+    if (typeof error === 'string' && error.trim().length > 0) {
+      return cutDetail(error);
     }
     return cutDetail(trimmed);
   }

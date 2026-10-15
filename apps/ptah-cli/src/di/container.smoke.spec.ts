@@ -67,6 +67,7 @@ import {
 import {
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
+  STRUCTURED_DECISION_TOKEN,
 } from './expected-resolvable';
 
 function buildMinimalContainer(): DependencyContainer {
@@ -230,6 +231,40 @@ describe('CLI DI — lane model listing', () => {
 
     expect(first).toBeDefined();
     expect(c.resolve(LANE_MODEL_LISTING_TOKEN)).toBe(first);
+  });
+});
+
+describe('CLI DI — structured decision', () => {
+  it('resolves STRUCTURED_DECISION as one singleton', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    // `registerSdkServices` eagerly builds ConfigWatcher, which subscribes.
+    c.register(TOKENS.CONFIG_MANAGER, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        set: jest.fn(async () => undefined),
+        watch: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+      useValue: {
+        get: jest.fn(async () => undefined),
+        store: jest.fn(async () => undefined),
+        delete: jest.fn(async () => undefined),
+        onDidChange: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    registerSdkServices(c, logger);
+    // The real service pulls SdkQueryRunner. The registration under test is
+    // the structured-decision token; the query collaborator stays a stub.
+    c.register(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE, {
+      useValue: { execute: () => Promise.reject(new Error('unused')) },
+    });
+
+    const first: unknown = c.resolve(STRUCTURED_DECISION_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(STRUCTURED_DECISION_TOKEN)).toBe(first);
   });
 });
 

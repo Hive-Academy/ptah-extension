@@ -31,3 +31,13 @@ export const EXPECTED_RESOLVABLE = [
 export const LANE_MODEL_LISTING_TOKEN = Symbol.for(
   'LaneRoutingLaneModelListing',
 );
+
+/**
+ * Optional port registered by `registerSdkServices` (Batch 19).
+ * Same symbol as `LANE_ROUTING_TOKENS.STRUCTURED_DECISION`. Kept out of
+ * `EXPECTED_RESOLVABLE` because that list is handler classes and the smoke
+ * title reads `.name`.
+ */
+export const STRUCTURED_DECISION_TOKEN = Symbol.for(
+  'LaneRoutingStructuredDecision',
+);

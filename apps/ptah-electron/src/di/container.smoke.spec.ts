@@ -66,6 +66,7 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import {
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
+  STRUCTURED_DECISION_TOKEN,
 } from './expected-resolvable';
 import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
@@ -269,6 +270,24 @@ describe('Electron DI — lane model listing', () => {
 
     expect(first).toBeDefined();
     expect(c.resolve(LANE_MODEL_LISTING_TOKEN)).toBe(first);
+  });
+});
+
+describe('Electron DI — structured decision', () => {
+  it('resolves STRUCTURED_DECISION as one singleton', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    registerSdkServices(c, logger);
+    // The real service pulls SdkQueryRunner. The registration under test is
+    // the structured-decision token; the query collaborator stays a stub.
+    c.register(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE, {
+      useValue: { execute: () => Promise.reject(new Error('unused')) },
+    });
+
+    const first: unknown = c.resolve(STRUCTURED_DECISION_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(STRUCTURED_DECISION_TOKEN)).toBe(first);
   });
 });
 

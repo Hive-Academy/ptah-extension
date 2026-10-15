@@ -15,6 +15,7 @@ import {
   instanceCachingFactory,
   Lifecycle,
 } from 'tsyringe';
+import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   BackgroundWorkGovernor,
@@ -92,6 +93,7 @@ import {
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import { StructuredDecisionAdapter } from '../lane-routing/structured-decision.adapter';
 import { CommitMessageGenerator } from '../commit-message/commit-message-generator.service';
 import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
@@ -741,6 +743,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Structured decision model (lane-routing port). One registration; every
+  // host that calls registerSdkServices binds the optional port.
+  container.register(
+    LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
+    { useClass: StructuredDecisionAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
 
