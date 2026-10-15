@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 48 | Batches: 19 (17 code batches + 2 user-run gates) | Complete: 3/19
+Total tasks: 48 | Batches: 19 (17 code batches + 2 user-run gates) | Complete: 4/19
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -304,7 +304,7 @@ last batch header.
   the records' `workspacePath` key must name the same value when B3 writes them; the records
   service does read-modify-write on one key per workspace (last writer wins across windows).
 
-## Batch 3: Send lock service and marked-tab lifecycle - COMPLETE
+## Batch 3: Send lock service and marked-tab lifecycle - COMPLETE (commit ad19f9679)
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
 - Execution mode: sequential
@@ -359,7 +359,7 @@ last batch header.
   the send lock, so a lock engaged on a closed root stays held until page reload; (c) the marker
   `workspaceId` and the records key both use `activeWorkspacePath` (B2 note resolved).
 
-## Batch 4: Chat send funnel guard, persona attach and tab-explicit answers - PENDING
+## Batch 4: Chat send funnel guard, persona attach and tab-explicit answers - COMPLETE
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript)
 - Execution mode: sequential
@@ -373,7 +373,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `feat(chat): batch 4 - command center send gate and persona attach`
 
-### Task 4.1: Hold competing sends in MessageDispatchService - PENDING
+### Task 4.1: Hold competing sends in MessageDispatchService - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/chat-store/message-dispatch.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/chat-store/message-dispatch.command-center-lock.spec.ts` (new)
@@ -385,7 +385,7 @@ last batch header.
 - Validation notes: lock engaged during a pending queued flush; other tabs unaffected.
 - Implementation details: optional `ownerToken` option on dispatch entry points; new focused spec.
 
-### Task 4.2: Guard MessageSenderService and attach persona on continue and activate - PENDING
+### Task 4.2: Guard MessageSenderService and attach persona on continue and activate - COMPLETE
 
 - Depends on: Task 4.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/message-sender.service.ts`,
@@ -401,7 +401,7 @@ last batch header.
 - Validation notes: R10; regular-chat send after restart includes persona.
 - Implementation details: resolve the tab through `TabManagerService`; specs assert RPC params.
 
-### Task 4.3: Tab-explicit deciding tab for question answers (review M1) - PENDING
+### Task 4.3: Tab-explicit deciding tab for question answers (review M1) - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/chat.store.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/chat.store.question-tab.spec.ts` (new)
@@ -418,6 +418,14 @@ last batch header.
 - The scoped command passes; output tailed; existing message-dispatch/sender/session-loader specs still pass.
 - Phase A's last batch: after commit return NEEDS REVIEW (code-logic, combined diff B1-B4).
 - Edge cases: queued content held not flushed; Stop/answers enabled; rekey mid-lock.
+- Result: files verified on disk; orchestrator's foreground scoped run passed for 1 project
+  (`TASK/reports/batch-4-report.md`; 213 suites, 3942 tests passed, 2 skipped). Executor: codex.
+  Notes for the Phase A review: (d) a held `sendQueuedMessage` returns early and nothing
+  re-flushes on lock release, so held queued content waits for the next turn-end or user send;
+  (e) the sender's `isHeld` falls back to `activeTabId()` when `options.tabId` is absent, so a
+  send for a non-active tab without `tabId` checks the wrong tab; (f) the four new specs are thin
+  (6 tests total) and the owner token is a local intersection type, not part of
+  `SendMessageOptions`.
 
 ## Batch 5: command-center lib skeleton, scope and store - PENDING
 

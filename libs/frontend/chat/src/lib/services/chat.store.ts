@@ -497,15 +497,15 @@ export class ChatStore {
   }
 
   /** User answer to AskUserQuestion. */
-  handleQuestionResponse(response: AskUserQuestionResponse): void {
-    const decidingTabIdRaw = this.tabManager.activeTabId() ?? null;
-    const decidingTabId = decidingTabIdRaw
+  handleQuestionResponse(response: AskUserQuestionResponse, decidingTabId?: string): void {
+    const decidingTabIdRaw = decidingTabId ?? this.tabManager.activeTabId() ?? null;
+    const parsedDecidingTabId = decidingTabIdRaw
       ? (TabId.safeParse(decidingTabIdRaw) ?? null)
       : null;
     this.permissionHandler.handleQuestionResponse(response);
     this.streamRouter.cancelPendingQuestionOnOtherTabs(
       response.id,
-      decidingTabId,
+      parsedDecidingTabId,
     );
   }
 
