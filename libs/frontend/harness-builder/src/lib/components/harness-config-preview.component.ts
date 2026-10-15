@@ -250,9 +250,8 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
                 role="region"
                 aria-label="Generated document"
                 class="max-h-40 overflow-auto font-mono text-[11px] whitespace-pre-wrap text-base-content-muted"
-              >
-                {{ documentContent() }}
-              </div>
+                [textContent]="documentContent()"
+              ></div>
               <button
                 type="button"
                 class="btn btn-outline btn-xs mt-2"
