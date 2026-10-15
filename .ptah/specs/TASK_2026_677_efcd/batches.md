@@ -1,11 +1,11 @@
 # Batches - TASK_2026_677_efcd
 
-Total tasks: 18 implementation batches + 1 measurement step (BUILD-1) | Batches: 19 | Complete: 6/19
+Total tasks: 18 implementation batches + 1 measurement step (BUILD-1) | Batches: 19 | Complete: 9/19
 Waves: 8 (W1-W7 implementation, W8 measurement) | Phase: one phase "clean-session-view" (all batches)
 Delta 3 update (team-leader MODE 1 update, 2026-10-15): plan part D (`plan-part-d-stats.md`, Gate 2 delta APPROVED
 9/10, `implementation-plan-review-delta3-r1.md`) adds batch D-1 to W3 and amends B-4, A1-3, CV-1, CV-2, B-5 in
-their waves. Waves 1-2 unchanged. W3 status: B-3, A2-1, D-1 = IN_PROGRESS, fix round 1 (MODE 2 session 6 NOT
-ACCEPTED, decisions.md row 68; see "Wave 3 MODE 2 result"); C-3 = HOLD
+their waves. Waves 1-2 unchanged. W3 status: B-3, A2-1, D-1 = COMPLETE after fix round 1 (MODE 2 session 7,
+decisions.md rows 75-76; see "Wave 3 MODE 2 result"); W4 (A2-2, A1-2, B-4) = IN_PROGRESS; C-3 = HOLD
 until PR #733 (TASK_2026_648) merges and this branch rebases (decisions.md rows 55, 58, 62).
 
 Root for every relative path: `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\`
@@ -446,8 +446,8 @@ executor prompt.
 
 ## Wave 3 - B-3, A2-1, D-1 (parallel; after W2) + C-3 (HOLD, PR #733)
 
-- Status: B-3, A2-1, D-1 = IN_PROGRESS, fix round 1 (MODE 2 session 6: NOT ACCEPTED, nothing committed; decisions.md
-  rows 68-74). C-3 = HOLD until PR #733 (TASK_2026_648) merges and this branch rebases (rows 55, 58, 62; #733 still
+- Status: B-3, A2-1, D-1 = COMPLETE (MODE 2 session 7, after fix round 1; commits `cd37b5a44`, `567a62a3f`,
+  `9e36b8753`; decisions.md rows 68-76). C-3 = HOLD until PR #733 (TASK_2026_648) merges and this branch rebases (rows 55, 58, 62; #733 still
   OPEN at this update); C-3 is not part of the W3 completion condition.
 - File-disjoint: B-3 (chat services, tokens, both chat barrels, webview `app.config.ts`), A2-1 (one new chat
   molecule), D-1 (chat-ui only, chat-ui barrel 3rd owner), C-3 (canvas only). No file is edited by two W3 batches.
@@ -488,7 +488,22 @@ executor prompt.
 - Minor (recorded, not fixed): lint warning `inspector-session-stats.component.ts:195` non-null assertion (new file);
   A2-1 `--sel` in the dot colour is never defined, so it always resolves to `--ptah-gold` (row 71).
 
-## Batch B-3: inspector services, add-on token, git branch (chat, webview app) - IN_PROGRESS (fix round 1)
+### Wave 3 MODE 2 result (session 7) - ACCEPTED after fix round 1
+
+- Fix round 1: one fresh Claude frontend-developer fixed all 4 defects (`reports/batch-W3-fix-1.md`; row 75).
+- On-disk check: `session-header.component.ts:80,160` ref `#titleRef` / `viewChild('titleRef')`;
+  `inspector-session-stats.component.ts:133-134` `row.inputTokens` / `row.outputTokens`, `:195` local `primary`
+  (row-68 minor also cleared, row 76); `lane-usage-tile.component.ts:154-162` one `[class]` binding on the new
+  button, the `@else` `<span>` is context-only in `git diff` (byte-identical to pre-D-1); `eslint.config.mjs:284-285`
+  `'@ptah-extension/tasks-ui/presentation'` with a one-line comment (row 72).
+- `w3-typecheck`, `w3-lint`, `w3-test` (`run-many`, header N = 3, `--parallel=1 --skip-nx-cache`, Jest
+  `--coverage=false --maxWorkers=2`): all exit 0; lint 0 warnings.
+- Commits (foreground, explicit paths, import-independent so each compiles alone): B-3 `cd37b5a44` (incl.
+  `eslint.config.mjs`), A2-1 `567a62a3f`, D-1 `9e36b8753`. Reports go with the docs commit.
+- Review family (row 75): B-3, A2-1 (Claude) -> codex in the phase review; D-1 (codex-built, fix lines Claude-written)
+  -> grok, else the D-1 review carries a weaker-evidence label. Still open (row 71): A2-1 `--sel` minor.
+
+## Batch B-3: inspector services, add-on token, git branch (chat, webview app) - COMPLETE (commit cd37b5a44)
 
 - Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A2-1, D-1; C-3 on HOLD)
@@ -502,7 +517,7 @@ executor prompt.
 - Tasks: 1 | Depends on: C-2 (and B-1 committed, since it shares the webview project)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task B-3.1: create session-inspector services, `SESSION_WORKFLOW_ADDONS`, git `branch` + `sessionBranch` - IN_PROGRESS
+### Task B-3.1: create session-inspector services, `SESSION_WORKFLOW_ADDONS`, git `branch` + `sessionBranch` - COMPLETE
 
 - Files:
   - CREATE `F/chat/src/lib/services/session-inspector/session-inspector.types.ts`
@@ -609,7 +624,7 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch A2-1: session header molecule (chat) - IN_PROGRESS (fix round 1)
+## Batch A2-1: session header molecule (chat) - COMPLETE (commit 567a62a3f)
 
 - Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with B-3, D-1; C-3 on HOLD)
@@ -623,7 +638,7 @@ executor prompt.
 - Tasks: 1 | Depends on: none (placed in W3 per plan §5)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A2-1.1: create `SessionHeaderComponent` - IN_PROGRESS
+### Task A2-1.1: create `SessionHeaderComponent` - COMPLETE
 
 - Files:
   - CREATE `F/chat/src/lib/components/molecules/session-header/session-header.component.ts`
@@ -656,7 +671,7 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch D-1: inspector stats presentation (chat-ui; Delta 3) - IN_PROGRESS (fix round 1)
+## Batch D-1: inspector stats presentation (chat-ui; Delta 3) - COMPLETE (commit 9e36b8753)
 
 - Wave: W3 (4th batch) | Recommended executor: CLI lane `codex`, role frontend-developer (USER row 60; plan §5 lane
   table; Gate 2 delta ruling `implementation-plan-review-delta3.md:21-29`)
@@ -671,7 +686,7 @@ executor prompt.
 - Phase: clean-session-view | Phase review: as phase + its own different-family code-logic review (new public API in
   `@ptah-extension/chat-ui`, so style focus on the exports too)
 
-### Task D-1.1: pure stats layer, limit summary, context ring, inspector stats sections, population helper - IN_PROGRESS
+### Task D-1.1: pure stats layer, limit summary, context ring, inspector stats sections, population helper - COMPLETE
 
 - Files (root `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\`, `CU` = `libs\frontend\chat-ui\src`):
   - CREATE `CU\lib\molecules\session\session-stats-view.ts`
@@ -817,7 +832,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   (`organisms/session-inspector/*`, `services/session-agents/session-agent-tray{,.service}.ts`,
   `background-agent-tray.component.ts`, `components/index.ts`, `chat/src/index.ts`). Disjoint.
 
-## Batch A2-2: composer chips + autopilot trigger re-skin (chat, chat-ui) - PENDING
+## Batch A2-2: composer chips + autopilot trigger re-skin (chat, chat-ui) - IN_PROGRESS
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A1-2, B-4)
@@ -828,7 +843,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: B-3, A1-1, D-1 (chat-ui barrel order C-1 -> A1-1 -> D-1 -> A2-2)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A2-2.1: composer top strip, bar order, send restyle; autopilot popover trigger re-skin - PENDING
+### Task A2-2.1: composer top strip, bar order, send restyle; autopilot popover trigger re-skin - IN_PROGRESS
 
 - Files:
   - MODIFY `F/chat/src/lib/components/molecules/chat-input/chat-input.component.ts` (+ `chat-input.component.spec.ts`)
@@ -861,7 +876,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch A1-2: turn molecules (chat) - PENDING
+## Batch A1-2: turn molecules (chat) - IN_PROGRESS
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A2-2, B-4)
@@ -872,7 +887,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: A1-1, C-1, C-2 (chips take `SessionAgent`)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A1-2.1: create disclosure row, activity panel, live line, agent chips - PENDING
+### Task A1-2.1: create disclosure row, activity panel, live line, agent chips - IN_PROGRESS
 
 - Files:
   - CREATE `F/chat/src/lib/components/molecules/turn/turn-disclosure-row.component.ts`
@@ -907,7 +922,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch B-4: inspector component tree + task reader (chat) - PENDING
+## Batch B-4: inspector component tree + task reader (chat) - IN_PROGRESS
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A2-2, A1-2)
@@ -920,7 +935,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: B-2, B-3, C-1, C-2, D-1
 - Phase: clean-session-view | Phase review: as phase
 
-### Task B-4.1: create `ptah-session-inspector` and its sections, `SessionTaskReader` - PENDING
+### Task B-4.1: create `ptah-session-inspector` and its sections, `SessionTaskReader` - IN_PROGRESS
 
 - Files:
   - CREATE `F/chat/src/lib/components/organisms/session-inspector/session-inspector.component.ts`
