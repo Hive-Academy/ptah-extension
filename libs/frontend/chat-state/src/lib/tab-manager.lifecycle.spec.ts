@@ -87,6 +87,50 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
 
   afterEach(() => localStorage.clear());
 
+  it('keeps a workflow kind through attach, close, workspace switch and sidebar reopen', async () => {
+    Object.defineProperty(partition, 'activeWorkspacePath', {
+      value: '/one',
+      configurable: true,
+    });
+    const id = service.createTab('Workflow');
+    service.setWorkflow(id, 'harness-new-project');
+    service.attachSession(id, SESS_X);
+    expect(service.workflowForSession(SESS_X, '/one')).toBe(
+      'harness-new-project',
+    );
+
+    await service.closeTab(id);
+    expect(service.workflowForSession(SESS_X, '/one')).toBe(
+      'harness-new-project',
+    );
+
+    Object.defineProperty(partition, 'activeWorkspacePath', {
+      value: '/two',
+      configurable: true,
+    });
+    (partition.switchWorkspace as jest.Mock).mockReturnValue({
+      tabs: [],
+      activeTabId: null,
+    });
+    service.switchWorkspace('/two');
+    expect(service.workflowForSession(SESS_X, '/two')).toBeNull();
+    expect(service.workflowForSession(SESS_X, '/one')).toBe(
+      'harness-new-project',
+    );
+
+    Object.defineProperty(partition, 'activeWorkspacePath', {
+      value: '/one',
+      configurable: true,
+    });
+    service.switchWorkspace('/one');
+    const reopened = service.openSessionTab(SESS_X, 'History row');
+    expect(service.tabs().find((tab) => tab.id === reopened)?.workflow).toBe(
+      'harness-new-project',
+    );
+    service.forgetWorkflowSession(SESS_X, '/one');
+    expect(service.workflowForSession(SESS_X, '/one')).toBeNull();
+  });
+
   describe('createTab + computed signals', () => {
     it('createTab appends a fresh tab and activates it', () => {
       const id = service.createTab('First');
@@ -626,6 +670,20 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(service.streamingTabIds().has(id)).toBe(true);
       service.markTabIdle(id);
       expect(service.isTabStreaming(id)).toBe(false);
+    });
+  });
+
+  describe('visible tab owners', () => {
+    it('keeps a tab visible until its last owner leaves', () => {
+      service.registerVisibleTab('shared');
+      service.registerVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(true);
+      service.unregisterVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(true);
+      service.unregisterVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(false);
+      service.unregisterVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(false);
     });
   });
 

@@ -112,8 +112,10 @@ export function shouldOverlayDock(
   panelOpen: boolean,
 ): boolean {
   if (hostWidth === 0) return panelOpen;
-  return hostWidth < AGENT_PANEL_OVERLAY_BREAKPOINT ||
-    (minContentWidth !== null && hostWidth - dockWidth < minContentWidth);
+  return (
+    hostWidth < AGENT_PANEL_OVERLAY_BREAKPOINT ||
+    (minContentWidth !== null && hostWidth - dockWidth < minContentWidth)
+  );
 }
 
 /** Product names of the lane CLIs, for runs that carry no display name. */
@@ -270,7 +272,9 @@ export class ChatViewComponent implements OnDestroy {
   readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
-  private readonly railMinContentWidth = inject(RAIL_MIN_CONTENT_WIDTH, { optional: true });
+  private readonly railMinContentWidth = inject(RAIL_MIN_CONTENT_WIDTH, {
+    optional: true,
+  });
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly ngZone = inject(NgZone);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
@@ -475,7 +479,9 @@ export class ChatViewComponent implements OnDestroy {
       custom ?? DISPLAY_DOCK_DEFAULT_WIDTH,
       this.hostWidth(),
     );
-    return custom === null ? width : Math.min(width, this.dockMaxWidth() ?? Infinity);
+    return custom === null
+      ? width
+      : Math.min(width, this.dockMaxWidth() ?? Infinity);
   });
   protected readonly dockMaxWidth = computed(() => {
     const host = this.hostWidth();
@@ -864,9 +870,10 @@ export class ChatViewComponent implements OnDestroy {
     // Reading tabs keeps this list reactive when that happens.
     if (ctx && this._railRetention) {
       this._tabManager.tabs();
-      const existing = retained.filter((id) =>
-        this._tabManager.findTabByIdAcrossWorkspaces(id) &&
-        !this._retention.liveElsewhere(id),
+      const existing = retained.filter(
+        (id) =>
+          this._tabManager.findTabByIdAcrossWorkspaces(id) &&
+          !this._retention.liveElsewhere(id),
       );
       const active = this.resolvedTabId();
       return active &&
@@ -1672,6 +1679,13 @@ export class ChatViewComponent implements OnDestroy {
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
+    const originalTab = this._tabManager.findTabBySessionId(sessionId);
+    const originWorkspacePath = originalTab
+      ? (this._tabManager.findTabByIdAcrossWorkspaces(originalTab.id)
+          ?.workspacePath ??
+        this._tabManager.activeWorkspacePath ??
+        '')
+      : (this._tabManager.activeWorkspacePath ?? '');
     const anchorId = this.resolveAnchorId(messageId);
     const anchorHint = this.buildAnchorHint(messageId);
     const dryRun = await this._claudeRpc.rewindFiles(
@@ -1841,7 +1855,10 @@ export class ChatViewComponent implements OnDestroy {
 
     let deleteSuffix: string | null = null;
     if (deleteOriginal && !swapFailed) {
-      const result = await this.deleteOriginalSession(sessionId);
+      const result = await this.deleteOriginalSession(
+        sessionId,
+        originWorkspacePath,
+      );
       if (!result.allTabsClosed) {
         deleteSuffix =
           'original session left in place — close the streaming tab first';
@@ -1889,7 +1906,10 @@ export class ChatViewComponent implements OnDestroy {
     return msg.includes(ChatViewComponent.MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE);
   }
 
-  private async deleteOriginalSession(originalId: SessionId): Promise<{
+  private async deleteOriginalSession(
+    originalId: SessionId,
+    originWorkspacePath: string,
+  ): Promise<{
     allTabsClosed: boolean;
     deletedOk: boolean;
     deleteError?: string;
@@ -1919,6 +1939,7 @@ export class ChatViewComponent implements OnDestroy {
           deleteError: del.error ?? undefined,
         };
       }
+      this._tabManager.forgetWorkflowSession(originalId, originWorkspacePath);
       return { allTabsClosed: true, deletedOk: true };
     } catch (err: unknown) {
       return {
@@ -1945,4 +1966,3 @@ function clampDockWidth(width: number, hostWidth: number): number {
   const min = Math.min(DOCK_MIN_WIDTH, max);
   return Math.round(Math.min(Math.max(width, min), max));
 }
-
