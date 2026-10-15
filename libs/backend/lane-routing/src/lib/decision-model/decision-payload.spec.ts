@@ -48,16 +48,13 @@ describe('decision payload', () => {
       'pastOutcomes',
       'request',
     ]);
-    expect(Object.keys(payload.state.availableExecutors.codex).sort()).toEqual([
-      'family',
-      'limitState',
-      'model',
-      'score',
-    ]);
+    expect(
+      Object.keys(payload.state.availableExecutors['codex']).sort(),
+    ).toEqual(['family', 'limitState', 'model', 'score']);
     expect(
       Object.keys(payload.state.pastOutcomes['codex/implement']).sort(),
     ).toEqual(['delivered', 'failed']);
-    expect(Object.keys(payload.questions.implement).sort()).toEqual([
+    expect(Object.keys(payload.questions['implement']).sort()).toEqual([
       'criteria',
       'instructions',
       'type',
@@ -67,18 +64,18 @@ describe('decision payload', () => {
   it('labels lane options o1..oN in the given order and pins the label text', () => {
     const payload = buildDecisionPayload(input);
 
-    expect(Object.keys(payload.questions.implement.criteria)).toEqual([
+    expect(Object.keys(payload.questions['implement'].criteria)).toEqual([
       'o1',
       'o2',
     ]);
-    expect(payload.questions.implement.type).toBe('choice');
-    expect(payload.questions.implement.instructions).toBe(
+    expect(payload.questions['implement'].type).toBe('choice');
+    expect(payload.questions['implement'].instructions).toBe(
       'Which executor should implement? Choose only from these options.',
     );
-    expect(payload.questions.implement.criteria.o1).toBe(
+    expect(payload.questions['implement'].criteria['o1']).toBe(
       'lane codex, family openai, model gpt-5, limit state unknown, score 80',
     );
-    expect(payload.questions.implement.criteria.o2).toBe(
+    expect(payload.questions['implement'].criteria['o2']).toBe(
       formatDecisionOptionLabel(glm),
     );
   });
@@ -102,8 +99,8 @@ describe('decision payload', () => {
       ],
     });
 
-    expect(payload.state.availableExecutors.codex.score).toBe(80);
-    expect(payload.questions.docs.criteria.o1).toBe(
+    expect(payload.state.availableExecutors['codex'].score).toBe(80);
+    expect(payload.questions['docs'].criteria['o1']).toBe(
       'lane codex, family openai, model gpt-5, limit state unknown, score 65',
     );
   });
@@ -139,7 +136,7 @@ describe('decision payload', () => {
 
     expect(payload.state.availableExecutors).toEqual({});
     expect(payload.state.pastOutcomes).toEqual({});
-    expect(payload.questions.task_type.criteria).toEqual({
+    expect(payload.questions['task_type'].criteria).toEqual({
       BUGFIX: 'A test or feature is broken',
       FEATURE: 'A new capability',
     });

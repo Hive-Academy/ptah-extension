@@ -4,8 +4,8 @@
  * Hosts pass the logger they already own. `DecisionModelConfig` is a plain
  * class, so it is built here with `useFactory` (precedent
  * `auth-providers/src/lib/di/register.ts`). Optional ports are resolved
- * only when the host has registered them. `FAILURE_CLASSIFIER` stays
- * unregistered until its own batch.
+ * only when the host has registered them. `FAILURE_CLASSIFIER` is built
+ * here and reads `STRUCTURED_DECISION` only when that token is registered.
  */
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -23,6 +23,7 @@ import type { LaneOutcomeReader } from '@ptah-extension/shared';
 
 import { DecisionModelConfig } from '../decision-model/decision-model.config';
 import type { StructuredDecisionCompleter } from '../decision-model/structured-decision.port';
+import { DecisionModelFailureClassifier } from '../failure-class/decision-model-failure-classifier';
 import type { LaneModelListing } from '../lane-model-listing.port';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { CapabilityMatrixStore } from '../matrix/capability-matrix.store';
@@ -116,6 +117,22 @@ export function registerLaneRoutingServices(
         rotation: c.resolve<RotationStore>(LANE_ROUTING_TOKENS.ROTATION_STORE),
         logger: c.resolve<LaneRoutingLogger>(LANE_ROUTING_TOKENS.LOGGER),
         ...(listing !== undefined ? { listing } : {}),
+        ...(structured !== undefined ? { structured } : {}),
+      });
+    }),
+  });
+
+  container.register(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER, {
+    useFactory: instanceCachingFactory((c) => {
+      const structured = optional<StructuredDecisionCompleter>(
+        c,
+        LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
+      );
+      return new DecisionModelFailureClassifier({
+        config: c.resolve<DecisionModelConfig>(
+          LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+        ),
+        logger: c.resolve<LaneRoutingLogger>(LANE_ROUTING_TOKENS.LOGGER),
         ...(structured !== undefined ? { structured } : {}),
       });
     }),

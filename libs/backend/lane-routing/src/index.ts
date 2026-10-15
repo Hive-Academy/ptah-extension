@@ -175,3 +175,16 @@ export {
   type UnknownMatrixCell,
   type ValueMatrixCell,
 } from './lib/matrix/matrix.types';
+export {
+  DecisionModelFailureClassifier,
+  FAILURE_CLASS_QUESTION_KEY,
+  FAILURE_CLASSIFICATION_TIMEOUT_MS,
+  acceptedFailureClass,
+  buildFailureClassificationPayload,
+  failureClassificationSchema,
+  type DecisionModelFailureClassifierDependencies,
+  type FailureClassificationPayload,
+  type FailureClassificationQuestion,
+  type FailureClassificationState,
+  type FailureClassifierSeams,
+} from './lib/failure-class/decision-model-failure-classifier';

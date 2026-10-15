@@ -132,8 +132,8 @@ describe('SystemOneClient', () => {
     const result = requireSuccess(await client.decide(payload));
 
     expect(result.model).toBe('nimble');
-    expect(result.answers.implement.choice).toBe('o1');
-    expect(result.answers.implement.confidence).toBe(0.75);
+    expect(result.answers['implement'].choice).toBe('o1');
+    expect(result.answers['implement'].confidence).toBe(0.75);
     expect(result.usage?.input_tokens).toBe(1180);
     expect(calls.length).toBe(1);
     expect(calls[0].url).toBe('http://127.0.0.1:11434/v1/systemone');
@@ -327,7 +327,7 @@ describe('SystemOneClient', () => {
 
     const result = requireSuccess(await client.decide(payload));
 
-    expect(result.answers.implement.choice).toBe('o1');
+    expect(result.answers['implement'].choice).toBe('o1');
   });
 
   it('accepts a minimal choice answer without probabilities, confidence or usage', async () => {
@@ -342,7 +342,7 @@ describe('SystemOneClient', () => {
 
     const result = requireSuccess(await client.decide(payload));
 
-    expect(result.answers.implement.choice).toBe('o2');
+    expect(result.answers['implement'].choice).toBe('o2');
     expect(result.usage).toBeUndefined();
   });
 

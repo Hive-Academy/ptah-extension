@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 47 | Batches: 38 | Complete: 30/38 | Phases accepted: P1, P2 (decision #85) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 Mode 2 round 1 NOT ACCEPTED (TL-58 spec fix round; TL-59: commit waits for new Batch 30a host registration) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90)
+Total tasks: 47 | Batches: 38 | Complete: 33/38 | Phases accepted: P1, P2 (decision #85) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91); P3 phase review on a codex lane pending
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -1479,7 +1479,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 
 - `J(libs/backend/vscode-lm-tools, <route specs, namespace spec>)`
 
-## Batch 27 (A16): Decision-model failure classifier — PENDING
+## Batch 27 (A16): Decision-model failure classifier — COMPLETE (orchestrator Mode 2 2026-10-15, decision #91; actual executor: CLI lane grok, xAI; report `reports/batch-27-report.md`; verified: `nx test @ptah-extension/lane-routing` 17 suites / 377 tests (after the #91 spec fix to two Batch 11 suites), classifier + register specs 2 suites / 15 tests with all five required cases, lint pass, typecheck pass, degradation TOTAL 296 no FAIL, di-lint OK, VS Code container.smoke 41/41)
 
 - Recommended executor: CLI lane grok (xAI)
 - Execution mode: sequential

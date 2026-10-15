@@ -10,6 +10,7 @@ import {
 
 import { DecisionModelConfig } from '../decision-model/decision-model.config';
 import type { StructuredDecisionCompleter } from '../decision-model/structured-decision.port';
+import { DecisionModelFailureClassifier } from '../failure-class/decision-model-failure-classifier';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { RouteDecideService } from '../route-decide.service';
 import { registerLaneRoutingServices } from './register';
@@ -67,8 +68,10 @@ describe('registerLaneRoutingServices', () => {
     expect(
       child.isRegistered(LANE_ROUTING_TOKENS.CAPABILITY_MATRIX_STORE),
     ).toBe(true);
-    expect(child.isRegistered(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER)).toBe(
-      false,
+    const classifier = child.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER);
+    expect(classifier).toBeInstanceOf(DecisionModelFailureClassifier);
+    expect(classifier).toBe(
+      child.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
     );
   });
 
@@ -112,5 +115,45 @@ describe('registerLaneRoutingServices', () => {
     expect(isReady).toHaveBeenCalledTimes(1);
     expect(isReady).toHaveBeenCalledWith('anthropic');
     expect(status.state).toBe('ready');
+  });
+
+  it('gives the failure classifier the structured port only when it is registered', async () => {
+    const child = platformChild();
+    const complete = jest.fn(async () => ({
+      failureClass: 'crash',
+      confidence: 0.9,
+    }));
+    const completer: StructuredDecisionCompleter = {
+      isReady: async () => true,
+      complete,
+    };
+    child.registerInstance(LANE_ROUTING_TOKENS.STRUCTURED_DECISION, completer);
+    registerLaneRoutingServices(child, testLogger());
+    const config = child.resolve<DecisionModelConfig>(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    await config.setSelection({
+      kind: 'structured',
+      providerId: 'anthropic',
+      model: 'claude',
+    });
+    const classifier = child.resolve<DecisionModelFailureClassifier>(
+      LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+    );
+
+    await expect(
+      classifier.classify({
+        runId: 'lane-1:10',
+        executorKind: 'cli',
+        family: 'openai',
+        status: 'failed',
+        verdict: 'failed',
+        failureKind: null,
+        exitCode: 1,
+        durationMs: 10,
+      }),
+    ).resolves.toBe('crash');
+
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 });
