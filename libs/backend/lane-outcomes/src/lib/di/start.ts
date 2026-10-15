@@ -10,6 +10,7 @@ import { OutcomeWritePipeline } from '../write/outcome-write-pipeline';
 import { LANE_OUTCOME_PIPELINE, registerLaneOutcomeServices } from './register';
 import { LANE_OUTCOME_TOKENS } from './tokens';
 
+/** Registers missing services, attaches SDK callbacks, and returns an awaited disposer. */
 export function startLaneOutcomes(
   container: DependencyContainer,
   logger: LaneOutcomeLogger,

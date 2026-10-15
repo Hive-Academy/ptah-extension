@@ -432,7 +432,7 @@ describe('OutcomeWritePipeline durability', () => {
 
   it('retries a failed VS Code KV acknowledgement in FIFO order', async () => {
     const storage = new MemoryState();
-    const store = new KeyValueLaneOutcomeStore(storage);
+    const store = new KeyValueLaneOutcomeStore(storage, testLogger());
     const pipeline = new OutcomeWritePipeline(store, testLogger());
     storage.rejectNext = (key) => key === LANE_OUTCOME_RECORDS_KEY;
     pipeline.enqueue({ kind: 'lane-completion', row: outcomeRow('lane:1') });

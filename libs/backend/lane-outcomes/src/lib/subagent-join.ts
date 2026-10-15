@@ -9,6 +9,10 @@ export function subagentRunId(agentId: string): string {
   return `${SUBAGENT_LANE_ID}:${agentId}`;
 }
 
+export function isSubagentRunId(runId: string): boolean {
+  return runId.startsWith(`${SUBAGENT_LANE_ID}:`);
+}
+
 export function applySubagentJoin(
   row: LaneOutcomeRow,
   telemetry: SubagentRunTelemetry | null,

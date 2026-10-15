@@ -5,6 +5,7 @@ import type {
 } from '@ptah-extension/persistence-sqlite';
 import { z } from 'zod';
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
+import type { LaneOutcomeLogger } from '../lane-outcome-logger';
 import { applyOutcomeEffect } from './lane-outcome.store';
 import type {
   HeldOutcomeReport,
@@ -57,7 +58,10 @@ const HeldSchema = z.object({
 });
 
 export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
-  constructor(private readonly connection: SqliteConnectionService) {}
+  constructor(
+    private readonly connection: SqliteConnectionService,
+    private readonly logger: LaneOutcomeLogger,
+  ) {}
   private get db(): SqliteDatabase {
     return this.connection.db;
   }
@@ -77,9 +81,24 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
   }
 
   private decodeMany(raw: readonly unknown[]): LaneOutcomeRow[] {
-    return raw
-      .map((row) => this.decode(row))
-      .filter((row): row is LaneOutcomeRow => row !== null);
+    const result: LaneOutcomeRow[] = [];
+    let skipped = 0;
+    for (const row of raw) {
+      try {
+        const decoded = this.decode(row);
+        if (decoded) result.push(decoded);
+      } catch {
+        // degradation-audit: reported - invalid read rows are counted and warned once per query
+        skipped++;
+      }
+    }
+    if (skipped) {
+      this.logger.warn('Lane outcome rows skipped', {
+        count: skipped,
+        code: 'ZOD_VALIDATION',
+      });
+    }
+    return result;
   }
 
   private values(row: LaneOutcomeRecord): unknown[] {
@@ -251,14 +270,18 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
     runId: string,
     patch: Partial<LaneOutcomeRecord>,
   ): Promise<boolean> {
-    const current = await this.get(runId);
-    if (!current) return false;
-    const row = LaneOutcomeRowSchema.parse({ ...current, ...patch, runId });
-    return (
-      this.db
-        .prepare(UPDATE)
-        .run(...this.values(row).slice(1), Date.now(), runId).changes > 0
-    );
+    return this.db.transaction(() => {
+      const current = this.decode(
+        this.db.prepare(`${SELECT} WHERE run_id = ?`).get(runId),
+      );
+      if (!current) return false;
+      const row = LaneOutcomeRowSchema.parse({ ...current, ...patch, runId });
+      return (
+        this.db
+          .prepare(UPDATE)
+          .run(...this.values(row).slice(1), Date.now(), runId).changes > 0
+      );
+    })();
   }
 
   async get(runId: string): Promise<LaneOutcomeRow | null> {
@@ -293,19 +316,19 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
     sinceMs: number,
   ): Promise<readonly LaneOutcomeRow[]> {
     if (slugs.length === 0) return [];
-    const result: LaneOutcomeRow[] = [];
+    const raw: unknown[] = [];
     for (const slug of slugs) {
-      result.push(
-        ...this.decodeMany(
-          this.db
-            .prepare(
-              `${SELECT} WHERE role = ? AND ended_at >= ? ORDER BY ended_at DESC LIMIT 2000`,
-            )
-            .all(slug, sinceMs),
-        ),
+      raw.push(
+        ...this.db
+          .prepare(
+            `${SELECT} WHERE role = ? AND ended_at >= ? ORDER BY ended_at DESC LIMIT 2000`,
+          )
+          .all(slug, sinceMs),
       );
     }
-    return result.sort((a, b) => b.endedAt - a.endedAt).slice(0, 2000);
+    return this.decodeMany(raw)
+      .sort((a, b) => b.endedAt - a.endedAt)
+      .slice(0, 2000);
   }
 
   async hasReceipt(reportId: string): Promise<boolean> {

@@ -5,10 +5,14 @@ import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import { reportEffectOf } from '../write/report-effect';
 import { SqliteLaneOutcomeStore } from './sqlite-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
+import { testLogger } from '../write/pipeline.test-support';
 
 type Database = {
   exec(sql: string): void;
-  prepare(sql: string): { get(...params: unknown[]): unknown };
+  prepare(sql: string): {
+    get(...params: unknown[]): unknown;
+    run(...params: unknown[]): unknown;
+  };
   close(): void;
 };
 const DatabaseConstructor = require('better-sqlite3') as new (
@@ -46,10 +50,90 @@ function fixture(file = ':memory:') {
   ) as SqliteConnectionService;
   Object.defineProperty(connection, 'db', { value: db });
   Object.defineProperty(connection, 'isOpen', { value: true });
-  return { db, store: new SqliteLaneOutcomeStore(connection) };
+  const logger = testLogger();
+  return { db, store: new SqliteLaneOutcomeStore(connection, logger), logger };
 }
 
 describe('SqliteLaneOutcomeStore', () => {
+  it('skips invalid rows in lane and role reads with one warning per read', async () => {
+    const { db, store, logger } = fixture();
+    try {
+      const row = {
+        ...outcomeRow('subagent:valid'),
+        role: 'backend-developer',
+      };
+      await store.insertIfAbsent(row);
+      db.prepare(
+        'UPDATE lane_outcome_records SET verdict = ? WHERE run_id = ?',
+      ).run('unknown-verdict', row.runId);
+      await store.insertIfAbsent({
+        ...outcomeRow('subagent:good'),
+        role: 'backend-developer',
+      });
+      expect(
+        (await store.listByLane('subagent', 0)).map((item) => item.runId),
+      ).toEqual(['subagent:good']);
+      expect(
+        (await store.listByRoles(['backend-developer'], 0)).map(
+          (item) => item.runId,
+        ),
+      ).toEqual(['subagent:good']);
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledWith('Lane outcome rows skipped', {
+        count: 1,
+        code: 'ZOD_VALIDATION',
+      });
+    } finally {
+      db.close();
+    }
+  });
+  it('keeps a concurrent patch and revise receipt', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent(outcomeRow('subagent:atomic'));
+      const report = {
+        ...heldReport(301, Date.now()),
+        runId: 'subagent:atomic',
+        kind: 'review' as const,
+        payload: '{"verdict":"revise"}',
+      };
+      await Promise.all([
+        store.update('subagent:atomic', { failureClass: 'crash' }),
+        store.applyReportWithReceipt(report, Date.now(), reportEffectOf),
+      ]);
+      expect(await store.get('subagent:atomic')).toMatchObject({
+        failureClass: 'crash',
+        reviseRounds: 1,
+      });
+      expect(await store.hasReceipt(report.reportId)).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('preserves failed lane verdict when deliverables arrive', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent({
+        ...outcomeRow('lane:failed'),
+        executorKind: 'cli',
+        laneId: 'lane',
+        verdict: 'failed',
+        failureClass: 'crash',
+      });
+      const report = { ...heldReport(302, Date.now()), runId: 'lane:failed' };
+      expect(
+        await store.applyReportWithReceipt(report, Date.now(), reportEffectOf),
+      ).toBe('applied');
+      expect(await store.get('lane:failed')).toMatchObject({
+        verdict: 'failed',
+        failureClass: 'crash',
+      });
+      expect(await store.hasReceipt(report.reportId)).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
   it('round-trips subagent session identifiers', async () => {
     const { db, store } = fixture();
     try {

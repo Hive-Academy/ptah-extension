@@ -1,6 +1,17 @@
+/**
+ * An operation leaves the journal only after the store applies it. The journal
+ * retains operations while the database is closed or a write fails.
+ * `enqueue` returns immediately; `submit` awaits admission and resolves to
+ * applied, held, queued, or an error result. It never rejects for admission.
+ * Missing subagent reports are held for up to 24 hours, at most 500 at once;
+ * lane reports are never held. Validation and constraint failures enter the
+ * rejected ledger. Other failures retry after 250 ms to 60 s. The journal
+ * admits at most OUTCOME_JOURNAL_LIMIT operations and counts refusals.
+ */
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { LaneOutcomeRecord } from '@ptah-extension/shared';
-import { ZodError } from 'zod';
+import { z, ZodError } from 'zod';
+import { isSubagentRunId } from '../subagent-join';
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
 import type { LaneOutcomeLogger } from '../lane-outcome-logger';
 import type {
@@ -14,7 +25,7 @@ import {
 } from './report-effect';
 import {
   KeyValueOutcomeJournal,
-  OUTCOME_JOURNAL_LIMIT,
+  appendEntries,
   OUTCOME_REJECTED_KEY,
   type HeldRunIndex,
   type JournalValue,
@@ -55,10 +66,32 @@ interface RejectedValue {
   readonly entries: readonly RejectedEntry[];
   readonly overflow: number;
 }
+const RejectedValueSchema = z.object({
+  entries: z.array(
+    z.object({
+      kind: z.enum([
+        'lane-completion',
+        'subagent-stop',
+        'budget-stop',
+        'deliverables',
+        'review',
+      ]),
+      runId: z.string(),
+      reportId: z.string().optional(),
+      reason: z.string(),
+    }),
+  ),
+  overflow: z.number().int().nonnegative(),
+});
 
-const DELAYS = [250, 1000, 5000, 30000, 60000];
+const DELAYS = [250, 1000, 5_000, 30000, 60000];
 const HOLD_LIMIT = 500;
 const HOLD_SWEEP_MS = 60000;
+const QUEUE_LIMIT = 1000;
+const DRAIN_BATCH = 25;
+const JOURNAL_RETRY_MS = 250;
+const REJECTED_LIMIT = 200;
+const DISPOSE_DEADLINE_MS = 2000;
 
 function validPayload(
   op: Extract<OutcomeWriteOp, { kind: 'deliverables' | 'review' }>,
@@ -138,9 +171,14 @@ export class OutcomeWritePipeline {
       this.needsRebuild = true;
       this.schedule();
     });
+    if (this.journal?.droppedOnRead) {
+      this.logger.warn('Outcome journal unreadable', {
+        dropped: this.journal.droppedOnRead,
+        code: 'ZOD_VALIDATION',
+      });
+    }
     const dropped = this.journal?.snapshot().droppedAtCapacity ?? 0;
-    const rejected =
-      storage?.get<RejectedValue>(OUTCOME_REJECTED_KEY)?.entries.length ?? 0;
+    const rejected = this.readRejected()?.entries.length ?? 0;
     if (dropped || rejected)
       this.logger.warn('Outcome journal has prior refusals', {
         droppedAtCapacity: dropped,
@@ -149,9 +187,24 @@ export class OutcomeWritePipeline {
     this.schedule();
   }
 
+  private readRejected(): RejectedValue | undefined {
+    if (!this.storage) return undefined;
+    const raw = this.storage.get<unknown>(OUTCOME_REJECTED_KEY);
+    if (raw === undefined) return undefined;
+    try {
+      return RejectedValueSchema.parse(raw);
+    } catch {
+      // degradation-audit: reported - unreadable rejected history resets with one warning
+      this.logger.warn('Outcome rejected ledger unreadable', {
+        code: 'ZOD_VALIDATION',
+      });
+      return undefined;
+    }
+  }
+
   enqueue(op: OutcomeWriteOp): void {
     if (this.closing || this.disposed) return;
-    if (this.queue.length >= 1000 && !this.journal) {
+    if (this.queue.length >= QUEUE_LIMIT && !this.journal) {
       this.logger.warn('Outcome queue full', {
         runId: runIdOf(op),
         reason: 'queue-full',
@@ -197,8 +250,15 @@ export class OutcomeWritePipeline {
       }
     }
     if (pendingInsert || row) {
-      if (!(await this.accept(op)))
-        return { ok: false, error: 'outcome journal at capacity' };
+      const admission = await this.accept(op);
+      if (admission !== 'accepted')
+        return {
+          ok: false,
+          error:
+            admission === 'capacity'
+              ? 'outcome journal at capacity'
+              : 'outcome journal write failed',
+        };
       if (readable) await this.flush();
       return {
         ok: true,
@@ -209,7 +269,7 @@ export class OutcomeWritePipeline {
         runId,
       };
     }
-    const subagent = runId.startsWith('subagent:');
+    const subagent = isSubagentRunId(runId);
     const pendingHold = pending.some(
       (item) =>
         isReport(item) &&
@@ -243,56 +303,59 @@ export class OutcomeWritePipeline {
     const pendingHolds = pending.filter(
       (item) =>
         isReport(item) &&
-        item.report.runId.startsWith('subagent:') &&
+        isSubagentRunId(item.report.runId) &&
         !pending.some(
           (other) => 'row' in other && other.row.runId === item.report.runId,
         ),
     ).length;
     if (heldCount + pendingHolds >= HOLD_LIMIT)
       return { ok: false, error: 'too many held reports' };
-    if (!(await this.accept(op)))
-      return { ok: false, error: 'outcome journal at capacity' };
+    const admission = await this.accept(op);
+    if (admission !== 'accepted')
+      return {
+        ok: false,
+        error:
+          admission === 'capacity'
+            ? 'outcome journal at capacity'
+            : 'outcome journal write failed',
+      };
     if (readable) await this.flush();
     return { ok: true, state: 'held', runId };
   }
 
-  private async accept(op: OutcomeWriteOp): Promise<boolean> {
+  private async accept(
+    op: OutcomeWriteOp,
+  ): Promise<'accepted' | 'capacity' | 'write-failed'> {
     if (this.journal) {
       const waiting = this.queue.splice(0);
       let accepted = false;
       this.accepting++;
       try {
         await this.journal.update((value) => {
-          let next = value;
-          for (const item of [...waiting, op]) {
-            if (next.entries.length >= OUTCOME_JOURNAL_LIMIT) {
-              next = { ...next, droppedAtCapacity: next.droppedAtCapacity + 1 };
-            } else {
-              if (item === op) accepted = true;
-              next = {
-                ...next,
-                nextSeq: next.nextSeq + 1,
-                entries: [...next.entries, { seq: next.nextSeq, op: item }],
-              };
-            }
-          }
-          return next;
+          const result = appendEntries(value, [...waiting, op]);
+          accepted = result.accepted[result.accepted.length - 1];
+          return result.value;
         });
       } catch (error: unknown) {
+        // degradation-audit: reported - admission returns a fixed error after preserving waiting ops
         this.queue.unshift(...waiting);
-        throw error;
+        this.logger.warn('Outcome journal write failed', {
+          runId: runIdOf(op),
+          code: failureCode(error),
+        });
+        return 'write-failed';
       } finally {
         this.accepting--;
         this.schedule();
       }
       if (!accepted) this.warnCapacity();
       else this.schedule();
-      return accepted;
+      return accepted ? 'accepted' : 'capacity';
     }
-    if (this.queue.length >= 1000) return false;
+    if (this.queue.length >= QUEUE_LIMIT) return 'capacity';
     this.queue.push(op);
     this.schedule();
-    return true;
+    return 'accepted';
   }
 
   private warnCapacity(): void {
@@ -328,23 +391,15 @@ export class OutcomeWritePipeline {
     this.draining = true;
     try {
       if (this.journal && this.queue.length) {
-        const moved = [...this.queue];
-        await this.journal.update((value) => {
-          let next = value;
-          for (const op of moved) {
-            if (next.entries.length >= 5000) {
-              next = { ...next, droppedAtCapacity: next.droppedAtCapacity + 1 };
-            } else {
-              next = {
-                ...next,
-                nextSeq: next.nextSeq + 1,
-                entries: [...next.entries, { seq: next.nextSeq, op }],
-              };
-            }
-          }
-          return next;
-        });
-        this.queue.splice(0, moved.length);
+        const moved = this.queue.splice(0);
+        try {
+          await this.journal.update(
+            (value) => appendEntries(value, moved).value,
+          );
+        } catch (error: unknown) {
+          this.queue.unshift(...moved);
+          throw error;
+        }
         const count = this.journal.snapshot().droppedAtCapacity;
         if (count > 0) this.warnCapacity();
       }
@@ -358,7 +413,7 @@ export class OutcomeWritePipeline {
       let processed = 0;
       const start = this.journal?.snapshot() ?? null;
       let next: JournalValue<OutcomeWriteOp> | null = start;
-      while (processed < 25) {
+      while (processed < DRAIN_BATCH) {
         const op =
           next?.entries[processed]?.op ??
           (next ? undefined : this.queue[processed]);
@@ -409,7 +464,7 @@ export class OutcomeWritePipeline {
       this.logger.warn('Outcome journal update failed', {
         code: failureCode(error),
       });
-      this.defer(250);
+      this.defer(JOURNAL_RETRY_MS);
     } finally {
       this.draining = false;
       if (
@@ -576,7 +631,7 @@ export class OutcomeWritePipeline {
     }
     if (result === 'missing') {
       if (
-        !report.runId.startsWith('subagent:') ||
+        !isSubagentRunId(report.runId) ||
         (op.kind === 'review' &&
           !(await this.store.hasHeldDeliverables(report.runId, Date.now())))
       ) {
@@ -601,7 +656,7 @@ export class OutcomeWritePipeline {
       });
       return;
     }
-    const saved = this.storage.get<RejectedValue>(OUTCOME_REJECTED_KEY) ?? {
+    const saved = this.readRejected() ?? {
       entries: [],
       overflow: 0,
     };
@@ -621,8 +676,8 @@ export class OutcomeWritePipeline {
       { kind: op.kind, runId: runIdOf(op), reportId, reason },
     ];
     await this.storage.update(OUTCOME_REJECTED_KEY, {
-      entries: entries.slice(-200),
-      overflow: saved.overflow + Math.max(0, entries.length - 200),
+      entries: entries.slice(-REJECTED_LIMIT),
+      overflow: saved.overflow + Math.max(0, entries.length - REJECTED_LIMIT),
     });
     this.logger.warn('Outcome write rejected', {
       runId: runIdOf(op),
@@ -642,25 +697,15 @@ export class OutcomeWritePipeline {
         deadline = setTimeout(() => {
           this.disposed = true;
           resolve();
-        }, 2000);
+        }, DISPOSE_DEADLINE_MS);
       }),
     ]);
     if (deadline) clearTimeout(deadline);
     if (this.journal && this.queue.length) {
       const remaining = this.queue.splice(0);
-      await this.journal.update((value) => {
-        let next = value;
-        for (const op of remaining)
-          next =
-            next.entries.length >= 5000
-              ? { ...next, droppedAtCapacity: next.droppedAtCapacity + 1 }
-              : {
-                  ...next,
-                  nextSeq: next.nextSeq + 1,
-                  entries: [...next.entries, { seq: next.nextSeq, op }],
-                };
-        return next;
-      });
+      await this.journal.update(
+        (value) => appendEntries(value, remaining).value,
+      );
     }
     if (!this.journal && this.queue.length)
       this.logger.warn('Outcome queue has unacknowledged ops', {

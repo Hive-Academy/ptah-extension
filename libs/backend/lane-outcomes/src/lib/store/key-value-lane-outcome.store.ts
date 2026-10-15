@@ -2,6 +2,7 @@ import type { LaneOutcomeRecord } from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { z } from 'zod';
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
+import type { LaneOutcomeLogger } from '../lane-outcome-logger';
 import type {
   HeldOutcomeReport,
   OutcomeEffectResolver,
@@ -24,32 +25,70 @@ const HeldSchema = z.object({
   heldAt: z.number().finite(),
   expiresAt: z.number().finite(),
 });
-const SnapshotSchema = z.object({
-  rows: z.array(LaneOutcomeRowSchema),
-  receipts: z.array(ReceiptSchema),
-  held: z.array(HeldSchema),
-  budgetStopped: z.array(z.string()).default([]),
+const SnapshotEnvelopeSchema = z.object({
+  rows: z.array(z.unknown()),
+  receipts: z.array(z.unknown()),
+  held: z.array(z.unknown()),
+  budgetStopped: z.array(z.unknown()),
 });
+
+function validItems<T>(items: readonly unknown[], schema: z.ZodType<T>): T[] {
+  return items.flatMap((item) => {
+    try {
+      return [schema.parse(item)];
+    } catch {
+      // degradation-audit: reported - invalid snapshot items are counted and warned after validation
+      return [];
+    }
+  });
+}
 
 /** One host storage key holds rows, receipts and holds in a single atomic update. */
 export class KeyValueLaneOutcomeStore extends InMemoryLaneOutcomeStore {
   private pending: Promise<void> = Promise.resolve();
 
-  constructor(private readonly storage: IStateStorage) {
+  constructor(
+    private readonly storage: IStateStorage,
+    private readonly logger: LaneOutcomeLogger,
+  ) {
     super();
-    const snapshot = SnapshotSchema.parse(
-      storage.get<unknown>(LANE_OUTCOME_RECORDS_KEY) ?? {
-        rows: [],
-        receipts: [],
-        held: [],
-        budgetStopped: [],
-      },
-    );
-    for (const row of snapshot.rows) this.rows.set(row.runId, row);
-    for (const receipt of snapshot.receipts)
+    const raw = storage.get<unknown>(LANE_OUTCOME_RECORDS_KEY);
+    if (raw === undefined) return;
+    let envelope: z.infer<typeof SnapshotEnvelopeSchema>;
+    try {
+      envelope = SnapshotEnvelopeSchema.parse(raw);
+    } catch {
+      // degradation-audit: reported - unreadable snapshots start empty with one warning
+      this.logger.warn('Lane outcome snapshot unreadable', {
+        code: 'ZOD_VALIDATION',
+        rows: 0,
+        receipts: 0,
+        held: 0,
+        budgetStopped: 0,
+      });
+      return;
+    }
+    const rows = validItems(envelope.rows, LaneOutcomeRowSchema);
+    const receipts = validItems(envelope.receipts, ReceiptSchema);
+    const held = validItems(envelope.held, HeldSchema);
+    const budgetStopped = validItems(envelope.budgetStopped, z.string());
+    const counts = {
+      rows: envelope.rows.length - rows.length,
+      receipts: envelope.receipts.length - receipts.length,
+      held: envelope.held.length - held.length,
+      budgetStopped: envelope.budgetStopped.length - budgetStopped.length,
+    };
+    if (Object.values(counts).some((count) => count > 0)) {
+      this.logger.warn('Lane outcome snapshot entries skipped', {
+        ...counts,
+        code: 'ZOD_VALIDATION',
+      });
+    }
+    for (const row of rows) this.rows.set(row.runId, row);
+    for (const receipt of receipts)
       this.receipts.set(receipt.reportId, receipt);
-    for (const report of snapshot.held) this.held.set(report.reportId, report);
-    for (const id of snapshot.budgetStopped) this.budgetStops.add(id);
+    for (const report of held) this.held.set(report.reportId, report);
+    for (const id of budgetStopped) this.budgetStops.add(id);
   }
 
   private write<T>(operation: () => Promise<T>): Promise<T> {

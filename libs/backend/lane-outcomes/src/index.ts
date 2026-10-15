@@ -1,3 +1,4 @@
+// Contracts and result schemas.
 export { LANE_OUTCOME_TOKENS } from './lib/di/tokens';
 export type { LaneOutcomeLogger } from './lib/lane-outcome-logger';
 export {
@@ -20,6 +21,7 @@ export {
   reportEffectOf,
   deliverablesVerdictOf,
 } from './lib/write/report-effect';
+// Stores and their persistence keys.
 export { SqliteLaneOutcomeStore } from './lib/store/sqlite-lane-outcome.store';
 export { InMemoryLaneOutcomeStore } from './lib/store/in-memory-lane-outcome.store';
 export {
@@ -37,6 +39,7 @@ export type {
   JournalEntry,
   JournalValue,
 } from './lib/write/key-value-outcome-journal';
+// Wiring and services used by hosts.
 export { OutcomeWritePipeline } from './lib/write/outcome-write-pipeline';
 export type {
   OutcomeWriteOp,

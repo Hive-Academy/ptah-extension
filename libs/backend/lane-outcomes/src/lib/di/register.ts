@@ -18,8 +18,10 @@ import { SqliteLaneOutcomeStore } from '../store/sqlite-lane-outcome.store';
 import { OutcomeWritePipeline } from '../write/outcome-write-pipeline';
 import { LANE_OUTCOME_TOKENS } from './tokens';
 
+/** Pipeline token provided by this library's registration. */
 export const LANE_OUTCOME_PIPELINE = Symbol.for('PtahLaneOutcomePipeline');
 
+/** Registers the store, pipeline, recorder, reader, and logger for a host container. */
 export function registerLaneOutcomeServices(
   container: DependencyContainer,
   logger: LaneOutcomeLogger,
@@ -32,9 +34,11 @@ export function registerLaneOutcomeServices(
             c.resolve<SqliteConnectionService>(
               PERSISTENCE_TOKENS.SQLITE_CONNECTION,
             ),
+            logger,
           )
         : new KeyValueLaneOutcomeStore(
             c.resolve<IStateStorage>(PLATFORM_TOKENS.STATE_STORAGE),
+            logger,
           ),
     ),
   });

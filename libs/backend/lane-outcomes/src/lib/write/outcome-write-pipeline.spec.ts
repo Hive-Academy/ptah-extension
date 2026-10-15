@@ -7,12 +7,20 @@ import { KeyValueLaneOutcomeStore } from '../store/key-value-lane-outcome.store'
 import { heldReport, outcomeRow } from '../store/store.test-support';
 import type { HeldOutcomeReport } from '../store/lane-outcome.store';
 import type { LaneOutcomeLogger } from '../lane-outcome-logger';
-import { KeyValueOutcomeJournal } from './key-value-outcome-journal';
+import {
+  KeyValueOutcomeJournal,
+  OUTCOME_REJECTED_KEY,
+} from './key-value-outcome-journal';
 import {
   OutcomeWritePipeline,
   type OutcomeWriteOp,
 } from './outcome-write-pipeline';
-import { Availability, reportOp, sqliteFixture } from './pipeline.test-support';
+import {
+  Availability,
+  GatedMemoryState,
+  reportOp,
+  sqliteFixture,
+} from './pipeline.test-support';
 
 class MemoryState implements IStateStorage {
   readonly values = new Map<string, unknown>();
@@ -72,6 +80,114 @@ function trackedPipeline(
 }
 
 describe('OutcomeWritePipeline', () => {
+  it('recovers a corrupt rejected ledger and records a permanent rejection', async () => {
+    const storage = new MemoryState();
+    await storage.update(OUTCOME_REJECTED_KEY, 'garbage');
+    const localLogger: LaneOutcomeLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const pipeline = new OutcomeWritePipeline(
+      new InMemoryLaneOutcomeStore(),
+      localLogger,
+      storage,
+    );
+    pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: {
+        ...outcomeRow('subagent:invalid'),
+        verdict: 'invalid' as 'failed',
+      },
+    });
+    await pipeline.flush();
+    expect(
+      storage.get<{ entries: unknown[] }>(OUTCOME_REJECTED_KEY)?.entries,
+    ).toHaveLength(1);
+    expect(localLogger.warn).toHaveBeenCalledWith(
+      'Outcome rejected ledger unreadable',
+      { code: 'ZOD_VALIDATION' },
+    );
+    await pipeline.dispose();
+  });
+  it('journals concurrent drain and submit handoffs exactly once', async () => {
+    const storage = new GatedMemoryState();
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent(outcomeRow('subagent:existing'));
+    const pipeline = new OutcomeWritePipeline(store, logger, storage);
+    pipeline.enqueue({ kind: 'subagent-stop', row: outcomeRow('subagent:a') });
+    await storage.entered;
+    const submitted = pipeline.submit(report('subagent:existing', 901));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    pipeline.enqueue({ kind: 'subagent-stop', row: outcomeRow('subagent:c') });
+    storage.release();
+    expect((await submitted).ok).toBe(true);
+    await pipeline.flush();
+    const appended = new Map<number, OutcomeWriteOp>();
+    for (const snapshot of storage.journalSnapshots) {
+      const value = snapshot as {
+        entries: { seq: number; op: OutcomeWriteOp }[];
+      };
+      for (const entry of value.entries) appended.set(entry.seq, entry.op);
+    }
+    expect([...appended.values()].map((op) => op.kind)).toEqual([
+      'subagent-stop',
+      'deliverables',
+      'subagent-stop',
+    ]);
+    expect(await store.get('subagent:a')).not.toBeNull();
+    expect(await store.get('subagent:c')).not.toBeNull();
+    expect(await store.hasReceipt('report-901')).toBe(true);
+    expect(
+      new KeyValueOutcomeJournal<OutcomeWriteOp>(storage).snapshot().entries,
+    ).toEqual([]);
+    await pipeline.dispose();
+  });
+  it('resolves a journal admission failure and retries waiting ops', async () => {
+    const storage = new MemoryState();
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent(outcomeRow('subagent:existing'));
+    const localLogger: LaneOutcomeLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const pipeline = new OutcomeWritePipeline(store, localLogger, storage);
+    pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: outcomeRow('subagent:waiting'),
+    });
+    let failed = false;
+    const original = storage.update.bind(storage);
+    storage.update = async (key, value) => {
+      if (!failed && key === 'ptah.laneOutcomes.journal.v1') {
+        failed = true;
+        throw Object.assign(new Error('private storage path'), { code: 'EIO' });
+      }
+      return original(key, value);
+    };
+    expect(await pipeline.submit(report('subagent:existing', 902))).toEqual({
+      ok: false,
+      error: 'outcome journal write failed',
+    });
+    expect(localLogger.warn).toHaveBeenCalledWith(
+      'Outcome journal write failed',
+      { runId: 'subagent:existing', code: 'EIO' },
+    );
+    expect(
+      (localLogger.warn as jest.Mock).mock.calls.filter(
+        ([message]) => message === 'Outcome journal write failed',
+      ),
+    ).toHaveLength(1);
+    await pipeline.flush();
+    expect(await store.get('subagent:waiting')).not.toBeNull();
+    expect(
+      new KeyValueOutcomeJournal<OutcomeWriteOp>(storage).snapshot().entries,
+    ).toEqual([]);
+    await pipeline.dispose();
+  });
   afterEach(async () => {
     await Promise.all(
       pipelines.splice(0).map((pipeline) => pipeline.dispose()),
@@ -191,7 +307,7 @@ describe('OutcomeWritePipeline', () => {
     const storage = new MemoryState();
     const availability = new Availability();
     const first = trackedPipeline(
-      new KeyValueLaneOutcomeStore(storage),
+      new KeyValueLaneOutcomeStore(storage, logger),
       logger,
       storage,
       availability,
@@ -203,7 +319,7 @@ describe('OutcomeWritePipeline', () => {
     });
     availability.open = false;
     await first.dispose();
-    const reopened = new KeyValueLaneOutcomeStore(storage);
+    const reopened = new KeyValueLaneOutcomeStore(storage, logger);
     const second = trackedPipeline(reopened, logger, storage, availability);
     availability.reopen();
     second.enqueue({ kind: 'subagent-stop', row: outcomeRow('subagent:kv') });

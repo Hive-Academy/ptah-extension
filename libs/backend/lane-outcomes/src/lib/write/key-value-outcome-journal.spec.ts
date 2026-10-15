@@ -1,7 +1,9 @@
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
+  appendEntries,
   KeyValueOutcomeJournal,
   OUTCOME_JOURNAL_KEY,
+  OUTCOME_JOURNAL_LIMIT,
 } from './key-value-outcome-journal';
 
 class MemoryState implements IStateStorage {
@@ -23,6 +25,48 @@ class MemoryState implements IStateStorage {
 }
 
 describe('KeyValueOutcomeJournal', () => {
+  it('numbers accepted entries and counts every capacity refusal', () => {
+    const value = {
+      nextSeq: 8,
+      entries: Array.from({ length: OUTCOME_JOURNAL_LIMIT - 1 }, (_, i) => ({
+        seq: i + 1,
+        op: i,
+      })),
+      droppedAtCapacity: 2,
+      heldRuns: [],
+    };
+    const result = appendEntries(value, [10, 11, 12]);
+    expect(result.accepted).toEqual([true, false, false]);
+    expect(result.value.entries.at(-1)).toEqual({ seq: 8, op: 10 });
+    expect(result.value.nextSeq).toBe(9);
+    expect(result.value.droppedAtCapacity).toBe(4);
+    expect(
+      appendEntries(
+        { nextSeq: 1, entries: [], droppedAtCapacity: 0, heldRuns: [] },
+        [1, 2],
+      ).value.entries.map((entry) => entry.seq),
+    ).toEqual([1, 2]);
+  });
+
+  it('recovers valid entries from a damaged journal', async () => {
+    const storage = new MemoryState();
+    await storage.update(OUTCOME_JOURNAL_KEY, {
+      nextSeq: 3,
+      entries: [
+        { seq: 2, op: 'kept' },
+        { seq: 'bad', op: 'lost' },
+      ],
+      droppedAtCapacity: 0,
+      heldRuns: [],
+    });
+    const journal = new KeyValueOutcomeJournal<string>(storage);
+    expect(journal.droppedOnRead).toBe(1);
+    expect(journal.snapshot().entries).toEqual([{ seq: 2, op: 'kept' }]);
+    await storage.update(OUTCOME_JOURNAL_KEY, 'garbage');
+    const empty = new KeyValueOutcomeJournal<string>(storage);
+    expect(empty.droppedOnRead).toBe(1);
+    expect(empty.snapshot().entries).toEqual([]);
+  });
   it('survives restart with FIFO order and a durable refusal count', async () => {
     const storage = new MemoryState();
     await storage.update(OUTCOME_JOURNAL_KEY, {

@@ -49,7 +49,11 @@ export function applyOutcomeEffect(
   if (effect.kind === 'deliverables')
     return {
       ...row,
-      verdict: effect.verdict,
+      verdict:
+        row.executorKind !== 'subagent' &&
+        (row.verdict === 'failed' || row.failureClass !== null)
+          ? row.verdict
+          : effect.verdict,
       deliverablesDeclaredAt: row.deliverablesDeclaredAt ?? effect.declaredAt,
       taskKind: effect.taskKind ?? row.taskKind,
       taskId: effect.taskId ?? row.taskId,
@@ -61,7 +65,9 @@ export function applyOutcomeEffect(
 }
 
 export interface LaneOutcomeStore {
+  /** True inserts a new run; false leaves its existing row intact. */
   insertIfAbsent(row: LaneOutcomeRecord): Promise<boolean>;
+  /** Returns whether the stop inserted, which held reports joined or were invalid, and whether a budget stop joined. */
   insertStopWithHeldReports(
     row: LaneOutcomeRecord,
     nowMs: number,
@@ -72,31 +78,45 @@ export interface LaneOutcomeStore {
     invalid: readonly HeldOutcomeReport[];
     budgetStopped: boolean;
   }>;
+  /** Applied writes a receipt; duplicate is already receipted; missing lets the pipeline hold a subagent report; invalid is rejected. */
   applyReportWithReceipt(
     report: HeldOutcomeReport,
     nowMs: number,
     resolve: OutcomeEffectResolver,
   ): Promise<'applied' | 'duplicate' | 'missing' | 'invalid'>;
+  /** Applied updates a run, held waits for its stop, and duplicate has already been recorded. */
   markBudgetStopped(
     runId: string,
     nowMs: number,
   ): Promise<'applied' | 'held' | 'duplicate'>;
+  /** True updates an existing row; false tells the caller the run is missing. */
   update(runId: string, patch: Partial<LaneOutcomeRecord>): Promise<boolean>;
+  /** Returns the run or null when the caller must treat it as missing. */
   get(runId: string): Promise<LaneOutcomeRow | null>;
+  /** Returns the latest agent run or null when no run matches. */
   findLatestByAgent(agentId: string): Promise<LaneOutcomeRow | null>;
+  /** Returns matching lane rows for readers; an empty list means no matches. */
   listByLane(
     laneId: string,
     sinceMs: number,
   ): Promise<readonly LaneOutcomeRow[]>;
+  /** Returns matching role rows for readers; an empty list means no matches. */
   listByRoles(
     slugs: readonly string[],
     sinceMs: number,
   ): Promise<readonly LaneOutcomeRow[]>;
+  /** True means the report was already applied and must not be replayed. */
   hasReceipt(reportId: string): Promise<boolean>;
+  /** True holds a new report; false means a report with that ID is already held. */
   holdReport(report: HeldOutcomeReport): Promise<boolean>;
+  /** Returns unexpired holds for the pipeline to join or rebuild its index. */
   listHeldReports(nowMs: number): Promise<readonly HeldOutcomeReport[]>;
+  /** Returns expired holds removed from the store for rejection or cleanup. */
   expireHeldReports(nowMs: number): Promise<readonly HeldOutcomeReport[]>;
+  /** Returns the active hold count used to enforce admission capacity. */
   countHeldReports(nowMs: number): Promise<number>;
+  /** True allows a review to wait for its earlier deliverables report. */
   hasHeldDeliverables(runId: string, nowMs: number): Promise<boolean>;
+  /** True identifies durable storage for reader behavior. */
   isPersistent(): boolean;
 }

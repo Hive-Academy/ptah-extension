@@ -5,6 +5,7 @@ import {
   LANE_OUTCOME_RECORDS_KEY,
 } from './key-value-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
+import { testLogger } from '../write/pipeline.test-support';
 
 function storage() {
   const values = new Map<string, unknown>();
@@ -36,9 +37,40 @@ function storage() {
 }
 
 describe('KeyValueLaneOutcomeStore', () => {
+  it('keeps valid snapshot rows and warns once for malformed rows', async () => {
+    const memory = storage();
+    await memory.state.update(LANE_OUTCOME_RECORDS_KEY, {
+      rows: [outcomeRow('subagent:valid'), { runId: 'bad' }],
+      receipts: [],
+      held: [],
+      budgetStopped: [],
+    });
+    const logger = testLogger();
+    const store = new KeyValueLaneOutcomeStore(memory.state, logger);
+    expect(await store.get('subagent:valid')).not.toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Lane outcome snapshot entries skipped',
+      {
+        rows: 1,
+        receipts: 0,
+        held: 0,
+        budgetStopped: 0,
+        code: 'ZOD_VALIDATION',
+      },
+    );
+  });
+
+  it('starts empty on an unreadable snapshot', async () => {
+    const memory = storage();
+    await memory.state.update(LANE_OUTCOME_RECORDS_KEY, 'garbage');
+    const logger = testLogger();
+    const store = new KeyValueLaneOutcomeStore(memory.state, logger);
+    expect(await store.get('subagent:valid')).toBeNull();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
   it('round-trips subagent session identifiers through persisted state', async () => {
     const memory = storage();
-    const store = new KeyValueLaneOutcomeStore(memory.state);
+    const store = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     const row = {
       ...outcomeRow('subagent:session'),
       subagentSessionId: 'session',
@@ -46,7 +78,7 @@ describe('KeyValueLaneOutcomeStore', () => {
       workspaceRoot: '/workspace',
     };
     await store.insertIfAbsent(row);
-    const reopened = new KeyValueLaneOutcomeStore(memory.state);
+    const reopened = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     expect(await reopened.get(row.runId)).toMatchObject({
       subagentSessionId: 'session',
       parentSessionId: 'parent',
@@ -55,7 +87,7 @@ describe('KeyValueLaneOutcomeStore', () => {
   });
   it('joins in held order in one update and replays without a write', async () => {
     const memory = storage();
-    const store = new KeyValueLaneOutcomeStore(memory.state);
+    const store = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     const now = Date.now();
     const deliverables = heldReport(1, now);
     const review = {
@@ -104,7 +136,7 @@ describe('KeyValueLaneOutcomeStore', () => {
 
   it('restores row, holds and receipts when the join update rejects', async () => {
     const memory = storage();
-    const store = new KeyValueLaneOutcomeStore(memory.state);
+    const store = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     const now = Date.now();
     await store.holdReport(heldReport(1, now));
     memory.reject();
@@ -118,13 +150,13 @@ describe('KeyValueLaneOutcomeStore', () => {
     expect(await store.get('subagent:a')).toBeNull();
     expect(await store.listHeldReports(now)).toHaveLength(1);
     expect(await store.hasReceipt('report-1')).toBe(false);
-    const reopened = new KeyValueLaneOutcomeStore(memory.state);
+    const reopened = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     expect(await reopened.listHeldReports(now)).toHaveLength(1);
   });
 
   it('returns duplicate, missing and invalid without an update; revises once', async () => {
     const memory = storage();
-    const store = new KeyValueLaneOutcomeStore(memory.state);
+    const store = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     const now = Date.now();
     const review = {
       ...heldReport(3, now),
@@ -159,7 +191,7 @@ describe('KeyValueLaneOutcomeStore', () => {
 
   it('persists markers, flags, rows, receipts and holds across restart', async () => {
     const memory = storage();
-    const store = new KeyValueLaneOutcomeStore(memory.state);
+    const store = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     const now = Date.now();
     await store.markBudgetStopped('subagent:a', now);
     expect(await store.countHeldReports(now)).toBe(0);
@@ -168,7 +200,7 @@ describe('KeyValueLaneOutcomeStore', () => {
     await store.holdReport(heldReport(1, now));
     expect(await store.listHeldReports(now)).toHaveLength(1);
     expect(await store.listHeldReports(now)).toHaveLength(1);
-    const reopened = new KeyValueLaneOutcomeStore(memory.state);
+    const reopened = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     expect(await reopened.listHeldReports(now)).toHaveLength(1);
     expect(
       (
@@ -183,13 +215,13 @@ describe('KeyValueLaneOutcomeStore', () => {
     expect(await reopened.hasReceipt('report-1')).toBe(true);
     await reopened.insertIfAbsent(outcomeRow('b'));
     expect(await reopened.markBudgetStopped('b', now)).toBe('applied');
-    const final = new KeyValueLaneOutcomeStore(memory.state);
+    const final = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     expect((await final.get('b'))?.budgetStopped).toBe(true);
     expect(memory.state.keys()).toContain(LANE_OUTCOME_RECORDS_KEY);
   });
 
   it('expires holds including markers and keeps the 497 plus one capacity case', async () => {
-    const store = new KeyValueLaneOutcomeStore(storage().state);
+    const store = new KeyValueLaneOutcomeStore(storage().state, testLogger());
     const now = Date.now();
     for (let i = 0; i < 500; i++)
       await store.holdReport(heldReport(i, now, i < 3));
@@ -207,7 +239,7 @@ describe('KeyValueLaneOutcomeStore', () => {
 
   it('evicts the oldest row with its receipt and flag above 2000 rows', async () => {
     const memory = storage();
-    const store = new KeyValueLaneOutcomeStore(memory.state);
+    const store = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     const now = Date.now();
     await store.insertIfAbsent({ ...outcomeRow('old'), endedAt: now - 2001 });
     await store.markBudgetStopped('old', now);
@@ -221,7 +253,7 @@ describe('KeyValueLaneOutcomeStore', () => {
         ...outcomeRow(`new-${i}`),
         endedAt: now - 2000 + i,
       });
-    const reopened = new KeyValueLaneOutcomeStore(memory.state);
+    const reopened = new KeyValueLaneOutcomeStore(memory.state, testLogger());
     expect(await reopened.get('old')).toBeNull();
     expect(await reopened.hasReceipt('report-5')).toBe(false);
     const snapshot = memory.state.get<{ budgetStopped: string[] }>(

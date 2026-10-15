@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 41 | Batches: 35 | Complete: 23/35 | Phases accepted: P1 | P2 phase review: due (after Batch 20, dd021d709)
+Total tasks: 45 | Batches: 36 | Complete: 24/36 | Phases accepted: P1 | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE, Anthropic re-review pending (TL-40)
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -160,6 +160,16 @@ Edge cases:
 | TL-30 | Batch 19 Mode 2 (2026-10-15) NOT ACCEPTED on `nx typecheck @ptah-extension/agent-sdk`: 4 x TS4111 in `libs/backend/lane-routing/src/lib/decision-model/system-one.client.ts:137,243,244,246` (dot access on index signatures). The file is committed (e5fee2a40, Batch 11) and unchanged in W, so this is not the in-progress Batch 21. Batch 19's new `@ptah-extension/lane-routing` import (`agent-sdk/src/lib/di/register.ts:18`, adapter `:22-25`) puts lane-routing source into agent-sdk's program, whose `tsconfig.json:12` sets `noPropertyAccessFromIndexSignature`; lane-routing's own tsconfig does not. The same errors stop the VS Code and Electron `container.smoke.spec.ts` from compiling. Fix = Task 19.2 (bracket access at the 4 sites; lane-routing file outside Batch 21's file set). Follow-up FE-19a: add `noPropertyAccessFromIndexSignature: true` to `libs/backend/lane-routing/tsconfig.json` after Batch 21 commits, so lane-routing's own typecheck enforces what its strict consumers (agent-sdk, rpc-handlers, vscode-lm-tools) compile it with. rpc-handlers already imports lane-routing (Batch 14) and is strict too, so its typecheck is probably red at HEAD (not run: not this batch) | (a) TL edits the 4 lines and commits; (b) make the adapter avoid the lane-routing import | (a) refusal rule: the TL does not fix code. (b) impossible: the adapter implements the lane-routing port and registers its token; a type-only import still loads the source. Everything else in Batch 19 is green: adapter spec 11/11, lint 0 errors (52 warnings, none in Batch 19 files), CLI smoke 12/12, prettier clean, di-lint OK (1841 sites / 807 tokens), degradation TOTAL 296 with no FAIL | yes |
 | TL-31 | Batch 20 Mode 2 round 1 (2026-10-15) NOT ACCEPTED. Required fixes F20-1..F20-4 (Batch 20 round 1 note); Minors M20-1..M20-3 recorded for the P2 phase review, not fixed | (a) accept with named later tasks; (b) fix in the team-leader | (a) a failing test cannot be committed (Refusals), and F20-3 writes `skillsLoaded: []` for every subagent, a known-false value (part-b:90, :648 "never `[]` for unknown"). (b) the team-leader does not fix code | yes |
 | TL-24 | Batch 12 accepted with `decision-model.config.ts` at 803 lines; no split in this batch. Named later task FE-12a: move the probe and discriminator helpers (`:606-803`) to `decision-model.probe.ts` before any batch adds code to the file (noted on Batch 21) | (a) NOT ACCEPTED with a split as the fix; (b) accept, named later task | The repo's file-size rule is `max-lines` 700 with `skipBlankLines` and `skipComments` (`eslint.config.mjs:556-559`). The file counts 656 such lines, and `eslint` on the 4 files gives 0 warnings, so the limit holds for this new file. A split now costs one more round with no rule breached. Headroom is about 44 lines, so the next growth must split first | yes |
+| TL-32 | P2 phase reviews both REVISE (logic 6/10: 0 Blocking, 1 Serious, 11 Moderate; style 6/10: 0 Blocking, 2 Serious, 11 Moderate, 7 Minor). One fix batch, Batch 36 (P2f), then one re-review scoped to its commit (lean rule 4). Triage in `## P2 review triage` | (a) accept with later tasks; (b) two fix batches | Serious findings must be fixed before a phase is reported finished; the fix round is limited to one round | yes |
+| TL-33 | S-1 is confirmed on disk and fixed by making `drain` own the ops it moves: `this.queue.splice(0)` before the `journal.update` await, `unshift` on failure, and no count-based splice afterwards | (a) chosen; (b) `accept` falls back to `enqueue` + `flush` while `draining` | `outcome-write-pipeline.ts:331` copies the queue (`[...this.queue]`), `:347` splices `moved.length` items after the await, `:261` (`accept`) splices the same queue during that await, and `:327` checks `accepting` only on entry. (a) matches `accept`'s existing ownership pattern (`:261`, `:282`), so both paths behave the same way. (b) keeps two hand-off styles | yes |
+| TL-34 | Triage of the handoff candidates. M-5 CONFIRMED: data loss. M-8 SPLIT: (b) `submit` rejects is CONFIRMED, (a) uncapped queue with a journal is REJECTED for this round and becomes LT-P2-7. M-9 CONFIRMED: data loss, and style Moderate 11 is folded in because it is the same failure class. M-11 CONFIRMED: data loss | fix all four in full; fix none | M-5: `sqlite-lane-outcome.store.ts:254` awaits `get` before the all-columns `UPDATE` at `:257-261`, while `applyReportWithReceipt` runs its transaction synchronously. A `revise` increment or a `finalReview` is overwritten after its receipt is written, so it cannot be recovered. M-8b: `accept` rethrows (`outcome-write-pipeline.ts:281-283`) and `submit` awaits it without a catch (`:200`, `:253`). The lane's report call (Batch 28) then gets a raw rejection that can carry a storage path, which breaks Req 5.9 and the rule that the pipeline never throws to the lane. M-8a: a cap would drop ops, which causes loss instead of preventing it, and memory grows only while storage is failing. M-9: the KV constructor (`key-value-lane-outcome.store.ts:40-47`) throws, so the DI store factory (`di/register.ts:28-40`) throws and every later outcome write is lost. `decodeMany` (`sqlite…:79-83`) turns one bad row into an empty read for the whole lane. Style M11: `key-value-outcome-journal.ts:33` and `outcome-write-pipeline.ts:143` trust persisted JSON, so a TypeError in the pipeline constructor kills the pipeline factory. M-11: `applyOutcomeEffect` (`store/lane-outcome.store.ts:49-57`, shared by all three stores) overwrites a stored `failed`, so the failure fact is lost for good | yes |
+| TL-35 | Every other Moderate (logic M-1, M-2, M-3, M-4, M-6, M-7, M-8a, M-10; style M1-M10) is a named later task LT-P2-1..LT-P2-14 in the carry-over P2c. P2c becomes Batch 37 once Batch 36's re-review accepts, and it runs before Batch 25 and Batch 30. Every Minor is recorded and not fixed | fix more Moderates now | The lean rule fixes a Moderate only if it can break a lane config or lose data. These findings cover a leak, observability, privacy shape, design and test hygiene. No pending batch (23, 24, 25, 27, 28, 30) touches `libs/backend/lane-outcomes`, so a carry-over batch owns them | yes |
+| TL-36 | M-11 rule: on a row whose `executorKind !== 'subagent'`, a `deliverables` effect keeps the stored `verdict` when it is `failed` or when `failureClass !== null`. It still sets `deliverablesDeclaredAt` (the first value is kept), `taskKind`, `taskId` and `routingSource`. Subagent rows and `review` effects are unchanged | (a) chosen; (b) reject the report with `target-not-reportable` | Req 5.5 says an error row is `failed`. The classifier runs only for `failed`/`no-deliverable` rows (`lane-outcome-recorder.service.ts:59-77`), so a non-null class marks a failed run. The subagent case is already handled at read time (`subagent-join.ts:17-27`). (b) would discard the report metadata (`taskKind`, `taskId`), which routing uses | yes |
+| TL-37 | Both stores take the lib logger as a required constructor argument for the M-9 warnings. `register.ts` passes its `logger`, and every spec call site is updated | optional logger, silent when absent; a counter with no log | A silent drop is the defect class under fix. Call sites: `di/register.ts:31,36`, `write/pipeline.test-support.ts:138`, `store/sqlite-lane-outcome.store.spec.ts:49`, `store/key-value-lane-outcome.store.spec.ts` (12 sites), `write/outcome-write-pipeline.spec.ts:194,206`, `write/outcome-write-pipeline.durability.spec.ts:435` | yes |
+| TL-38 | M-9 recovery policy. KV snapshot, journal and rejected ledger: invalid entries are dropped, the store or ledger starts from the valid remainder (empty if the envelope is unreadable), and one warn with counts and a code is logged. Dropped entries are not kept, and the next write replaces the key. Single-row decode on the write path stays strict, so a ZodError is still a permanent reject | quarantine key for the raw value; throw (status quo) | An entry this version cannot parse cannot be read anyway, and a dead pipeline loses every later write. A quarantine key needs an async write inside a synchronous constructor. That can be added later without a migration | yes — add a quarantine key later |
+| TL-39 | Batch 36 goes over the 6-file cap: 10 production files, 4 of them comment-only (`di/start.ts`, `di/tokens.ts`, `src/index.ts`, and the port JSDoc), plus 9 spec and support files. It runs as one sequential lane | split into 2-3 fix batches | Lean rule 4 allows one fix round per phase. All files are in one project (`@ptah-extension/lane-outcomes`) with one verification set, and `outcome-write-pipeline.ts` and `key-value-outcome-journal.ts` are shared by Tasks 36.1 and 36.2. If the lane times out, split at Tasks 36.1-36.3 / 36.4 | yes |
+| TL-40 | Fix executor is CLI lane codex (OpenAI), with fallback grok (xAI) then Glm (Zhipu), never an Anthropic subagent. The re-review uses the Anthropic family: code-logic-reviewer and code-style-reviewer subagents, scoped to the Batch 36 commit, writing `T\reviews\p2-fix-code-logic-review.md` and `T\reviews\p2-fix-code-style-review.md` | same-family re-review; a re-review of the full P2 diff | Orchestrator instruction. The implementer and reviewer families differ, and the lean rule limits the re-review to the fixes | yes |
+| TL-41 | Batch 36 runs alongside Batch 21 (A8). The two are file-disjoint: Batch 36 touches only `libs/backend/lane-outcomes/**`, and Batch 21 touches only `libs/backend/lane-routing/**` (Task 21.1 File list). Neither touches `libs/shared`. Following decision #53, the executor runs no Nx, Jest or project `tsc`; the team-leader runs the Batch 36 checks in Mode 2, never at the same time as a Batch 21 check (rule 5) | run Batch 36 after Batch 21 | Task 21.1 file list (this file); `.ptah/specs/TASK_2026_646_136a/decisions.md` #53 | yes |
 
 ## Waves and in-flight order (max 3 executors at once; phase reviews take a slot)
 
@@ -169,7 +179,7 @@ Edge cases:
 | 2 | 6 B4a, 5 A3, 7 A1b, then 8 B8 | none |
 | 3 | 15 B4b, 9 A4, 11 A6a, then 10 A5a, 12 A6b, 13 A7, 14 A10; Batch 15 fix round (TL-14): 34 B4b-S1, then 35 B4b-S2, then Task 15.3, one codex lane, one joint Mode 2 (TL-21) | `npx nx test @ptah-extension/lane-routing --parallel=1` + `npx nx lint @ptah-extension/lane-routing` before committing the wave's last lane-routing batch |
 | 4 | 33 P1c (after 10 and 13 commit; before 17), 20 B4c, 16 A4b, 17 A5b, then 18 A11, 19 A13, 32 P1c (any free slot; before 24) | lane-routing as in wave 3; `npx nx typecheck @ptah-extension/rpc-handlers` after Batch 18 |
-| 5 | 21 A8, 23 B5, 24 B6, then 25 B7, 22 A12 | `npx nx typecheck @ptah-extension/rpc-handlers` after Batch 25 |
+| 5 | 21 A8 and 36 P2f (P2 fix round, file-disjoint from 21, TL-41), 23 B5, 24 B6, then P2c (Batch 37 once decomposed, before 25), 25 B7, 22 A12 | `npx nx typecheck @ptah-extension/rpc-handlers` after Batch 25 |
 | 6 | 28 B10a, 26 A9a, 27 A16 | none |
 | 7 | 29 AB9 | full `npx nx test @ptah-extension/vscode-lm-tools --parallel=1` |
 | 8 | 30 AB14, 31 A15 | AB14's four host checks, one at a time |
@@ -179,7 +189,7 @@ Edge cases:
 | Phase | Batches | Implementer families | Phase review | Reviewer (family) |
 | --- | --- | --- | --- | --- |
 | P1 Foundations — ACCEPTED 2026-10-15 | 1, 2, 3, 4, 5, 7 | xAI, Zhipu, OpenAI (actual; Google planned, not used) | code-logic + code-style (new shared contracts, new lib public API) | Claude code-logic-reviewer + code-style-reviewer (Anthropic): `T\reviews\p1-code-logic-review.md` APPROVED 7/10, `T\reviews\p1-code-style-review.md` APPROVED 7/10. Weaker evidence: orchestrator commit `566fa772c` is same-family (Anthropic) as its reviewers |
-| P2 Outcome store core | 6, 15, 34, 35, 20 | OpenAI | code-logic + code-style (new lib public API) | Claude subagents (Anthropic) |
+| P2 Outcome store core — REVISE 2026-10-15, fix round open | 6, 15, 34, 35, 20; fix batch 36 | OpenAI (fix: OpenAI codex, fallback xAI/Zhipu) | code-logic + code-style (new lib public API); one re-review scoped to the Batch 36 commit (TL-40) | Claude subagents (Anthropic): `T\reviews\p2-code-logic-review.md` REVISE 6/10, `T\reviews\p2-code-style-review.md` REVISE 6/10; re-review `T\reviews\p2-fix-code-logic-review.md` + `T\reviews\p2-fix-code-style-review.md` |
 | P3 Routing engine | 9, 10, 11, 12, 13, 16, 17, 21, 27, 33 | Google, Zhipu, xAI, Anthropic | code-logic + code-style (lane-routing public API) | codex lane (OpenAI) |
 | P4 Decision-model settings | 14, 18, 19, 22 | Zhipu, xAI, Google | code-logic + visual (A12 renders) | codex lane (OpenAI); visual-reviewer subagent |
 | P5 Outcome producers + Agents tab | 8, 23, 24, 25, 28, 32 | Google, OpenAI, xAI, Zhipu | code-logic + code-style (new RPC method, new MCP tool module) + visual (B8) | Claude subagents (Anthropic); visual-reviewer subagent |
@@ -215,6 +225,45 @@ not in P1.
 | P1-L8 | `LaneOutcomeRecord` declares 3 fields that 0054 does not persist (style M9) | Moderate, legibility | Named later task, unscheduled (doc or `LaneOutcomeRow` split). Batch 20 must not treat those 3 fields as stored |
 | P1-L9 | `CliDetectionResult.family?` stores a derivable value (style M10) | Moderate, design | Named later task, unscheduled. Reversible |
 | P1-m | Logic m1 (`formatAgentList` "byte for byte" docstring is wrong and the `Family` column is undisclosed), m5 (leading newline when `take()` is empty), m6 (barrel exports owned by Batch 21). Style Minor 1-9 (load-time invariant throw, 36 public constants, `PROVIDER_OPTION_LIMIT` citations, `PHASE_KINDS`/`DEPTHS` names, `isStale` placement, shared type-import cycle, rule-9 ESLint restriction, unused `LaneRoutingDIToken`, `566fa772c` reflow) | Minor | Recorded, not fixed. m6 is already Batch 21's task (it must export the ports and schemas). Logic m1 is noted for Batch 31's skill text |
+
+## P2 review triage (team-leader, 2026-10-15)
+
+Both P2 reviews are REVISE: `T\reviews\p2-code-logic-review.md` (6/10) and
+`T\reviews\p2-code-style-review.md` (6/10). Reviewer family: Anthropic. Implementer family:
+OpenAI codex. Phase diff: commits 8fc9278e9 (6), 2493f2dd5 (34), ce300e918 (35), f4425ce5c (15)
+and dd021d709 (20). Rule applied (lean rule 4): every Blocking and Serious finding is fixed. A
+Moderate is fixed only if it can break a lane config or lose data; any other Moderate becomes a
+named later task. Minors are recorded and not fixed. Each fixed finding was re-checked on disk at
+HEAD 81d66436d, where the docs-only commit leaves `dd021d709` line numbers valid. The fix round is
+**Batch 36 (P2f)**. Later tasks go to carry-over **P2c**, which becomes Batch 37 after the Batch 36
+re-review accepts. P2c runs before Batch 25 (the first reader of agent signals over RPC) and
+Batch 30 (host wiring), and is reviewed in P5 (Anthropic reviewers), so its implementer must not
+be Anthropic.
+
+| Id | Finding (review ref) | Class | Disposition |
+| --- | --- | --- | --- |
+| P2-F1 | `drain`/`accept` race loses one op and journals others twice (logic S-1, `write/outcome-write-pipeline.ts:326-347` vs `:259-290`) | Serious, loses data | FIX, **Task 36.1** (TL-33) |
+| P2-F2 | Journal-append rule copied 3 times, two copies with a literal `5000`. Bare numbers. `'subagent:'` literal used 3 times (style Serious 1, `:265-280`, `:332-347`, `:651-664`; `:154,292,361,412,624-625,645`; `:212,246,579`) | Serious, drift | FIX, **Task 36.1** |
+| P2-F3 | `submit` rejects with the raw journal error (logic M-8 part b, FM-10; `:281-283`) | Moderate, breaks the lane's report call (Req 5.9) | FIX, **Task 36.1** (TL-34) |
+| P2-F4 | `SqliteLaneOutcomeStore.update()` is a non-atomic read-modify-write (logic M-5, FM-5; `sqlite-lane-outcome.store.ts:250-262`) | Moderate, loses data | FIX, **Task 36.2** (TL-34) |
+| P2-F5 | Corrupt or evolved persisted data kills the store or empties a lane read (logic M-9, FM-6; `key-value-lane-outcome.store.ts:38-53`, `sqlite…:79-83`). Journal and rejected-ledger JSON is not validated (style Moderate 11; `key-value-outcome-journal.ts:33`, `outcome-write-pipeline.ts:141-148,596-632`) | Moderate, loses data (dead DI factory) | FIX, **Task 36.2** (TL-34, TL-37, TL-38) |
+| P2-F6 | A lane `deliverables` report overwrites a `failed` verdict (logic M-11, FM-7; `store/lane-outcome.store.ts:49-57`) | Moderate, loses data | FIX, **Task 36.3** (TL-36) |
+| P2-F7 | Public API and state machine have no documentation (style Serious 2; `src/index.ts:1-60`, `di/register.ts:21-98`, `di/start.ts:13-52`, `di/tokens.ts:1-8`, `store/lane-outcome.store.ts:63-102`, pipeline header) | Serious, maintainability | FIX, **Task 36.4** (comments only) |
+| LT-P2-1 | Retry timer is re-armed after `dispose` and is never `unref`'d (logic M-1, FM-2; `:466-472`, `:383`, `:412`, `:634-637`) | Moderate, CLI exit delay up to 60 s | Later task **P2c**. Must land before Batch 30 wires the CLI host |
+| LT-P2-2 | `classificationInputs` is unbounded and not replay-safe (logic M-2 = M20-1, FM-4, FM-9; `lane-outcome-recorder.service.ts:30-33,75-90`) | Moderate, leak and a lost classification (no row data lost) | Later task **P2c**: carry the classification in the op, or use a capped map and delete on reject |
+| LT-P2-3 | `agentType: 'unknown'` is stored as a role (logic M-3 = M20-2; recorder `:111`) | Moderate, skews signals | Later task **P2c**, before Batch 25 |
+| LT-P2-4 | Reader returns full rows typed as summaries (logic M-4 = M20-3, FM-8; style Moderate 6; reader `:59-60,89`, `subagent-join.ts:13-34`) | Moderate, privacy shape | Later task **P2c**, before Batch 25: add a `toSummary()` projection and strip `budgetStopped` |
+| LT-P2-5 | Read cap is never logged (logic M-6; reader `:49-52,76-77`) | Moderate, observability | Later task **P2c** |
+| LT-P2-6 | A failing pre-loop step stalls the pipeline with no backoff, and there is no attempt cap for poison ops (logic M-7, FM-3; `:352-357,408-412`, `:102-110`) | Moderate, stall (ops stay in the journal, nothing is lost until the 5000 cap) | Later task **P2c** |
+| LT-P2-7 | The queue is uncapped when a journal exists (logic M-8 part a; `:154-160`, `:330-347`) | Moderate, memory under persistent storage failure | Later task **P2c**. A cap would drop ops (TL-34) |
+| LT-P2-8 | Subagent deliverable freshness cannot be enforced, because `startedAt` is null (logic M-10; recorder `:116`, `report-effect.ts:42-49`) | Moderate, false `delivered` | Later task **P2c**: either derive `startedAt` from the registry record, or have Batch 28's tool pass `writtenAfterSpawn`. Otherwise record it as an accepted limit |
+| LT-P2-9 | Repeated literals for the read cap, the one-day hold and the window (style M1) | Moderate, drift | Later task **P2c**: add `lane-outcome.constants.ts` (the pipeline's constants are named in Task 36.1) |
+| LT-P2-10 | Pipeline constructor callback and late `c.resolve` lookup (style M2); `LANE_OUTCOME_PIPELINE` outside `LANE_OUTCOME_TOKENS`, and the `LOGGER` token is never resolved (style M9) | Moderate, design | Later task **P2c**: add an `onLaneInserted` listener wired in `startLaneOutcomes`, and add `TOKENS.PIPELINE` |
+| LT-P2-11 | `LaneOutcomeRowSchema` restates the shared enums without `satisfies` (style M3); misleading names `LaneOutcomeRowSchema`, `LaneOutcomeReader`/`LaneOutcomeQueries`, `columns`/`names` (style M10) | Moderate, drift | Later task **P2c**. It touches `libs/shared` enum exports |
+| LT-P2-12 | Three stores, three hand-written specs, no contract runner (style M4); spec DDL is hand-copied instead of built from `MIGRATIONS` (style M7) | Moderate, test hygiene | Later task **P2c** |
+| LT-P2-13 | `KeyValueLaneOutcomeStore extends InMemoryLaneOutcomeStore` (style M5) | Moderate, design | Later task **P2c**: delegate instead of inheriting |
+| LT-P2-14 | `workspaceRoot` contradicts the shared file's privacy header, and the fields are optional while the recorder always sets them (style M8) | Moderate, contract legibility | Later task **P2c**. It touches `libs/shared` `lane-outcome.types.ts` |
+| P2-m | Logic Minors: KV eviction drops receipts (dismissed); `holdReport` uses `Date.now()`; SQLite and KV `telemetryJoin` parity; queue mode reports `applied`; stale `heldRuns` ack; `structuredClone` cost in `snapshot()`; `reportId` retry not idempotent for `revise`; `taskId` unbounded in the row schema; `workspaceRoot: ''` drops a subagent record; `start.ts` skips `dispose` if an unsubscribe throws; `isRegistered` order for the classifier and seam; runtime `executorKind: 'subagent'` on a lane op. Style Minors 1-7: `start` registers silently; value import of `SqliteConnectionService`; `findLatestByAgent`/`hasReceipt`/`specVerdictSource` have no caller; error-name helper repeated 4 times; hand-written `checks` type; duplicated telemetry fallback; Prettier miss in `eslint.config.mjs` | Minor | Recorded, not fixed. Batch 36 removes the literal-`5000` Minor as part of P2-F2. The `eslint.config.mjs` Prettier miss is formatted by lint-staged if that file is ever staged |
 
 ---
 
@@ -1454,3 +1503,225 @@ Implementer: grok lane (`T\reports\batch-17-report.md`). Verified on disk, not f
 
 - `npx nx test @ptah-extension/lane-routing --parallel=1` (this also runs the Batch 10 and 13 specs), then `npx nx typecheck @ptah-extension/lane-routing`, then `npx nx lint @ptah-extension/lane-routing`; output tailed
 - `routing-constants.ts`, `index.ts` and `contracts.spec.ts` are Prettier-dirty (P1-L1); lint-staged formats them at commit
+
+## Batch 36 (P2f): P2 fix round — COMPLETE (commit pending, 2026-10-15; Mode 2: 18 lane-outcomes files verified on disk; nx test 13 suites / 116 tests, typecheck, lint (no max-lines) pass; prettier, eslint, degradation-audit TOTAL 296 no FAIL, di-lint OK; pipeline grep clean; tokens/start/index diffs comment-only; actual executor: CLI lane codex, OpenAI; re-review pending, Anthropic, TL-40)
+
+- Recommended executor: CLI lane codex (OpenAI), implementation, TypeScript, concurrency-sensitive
+  code. Report: `T\reports\batch-36-report.md` (declare it as the lane's `deliverables`)
+- Execution mode: sequential (one lane). Tasks 36.1 and 36.2 both edit `outcome-write-pipeline.ts`
+  and `key-value-outcome-journal.ts`
+- Fallback order: grok (xAI) -> Glm (Zhipu). Never an Anthropic subagent, because the re-review is
+  Anthropic (TL-40)
+- Subagent reason: N/A
+- Review family: different from implementer. One re-review by Anthropic subagents, scoped to the
+  Batch 36 commit (TL-40)
+- Rationale: one lib, one verification set, shared files across tasks (TL-39). Runs alongside
+  Batch 21 because the files are disjoint (TL-41)
+- Tasks: 4 | Depends on: Batch 20 (dd021d709)
+- Phase: P2 Outcome store core (fix round) | Phase review: re-review, code-logic + code-style,
+  scoped to the fixes (see "Re-review scope" below)
+- File-disjointness from Batch 21: Batch 36 writes only under `W\libs\backend\lane-outcomes\`.
+  It writes nothing in `libs/backend/lane-routing`, `libs/shared` or any app
+
+### Task 36.1: Journal hand-off ownership, `submit` never rejects, one append rule — COMPLETE
+
+- Files: MODIFY `LO\write\outcome-write-pipeline.ts`, `LO\write\key-value-outcome-journal.ts`,
+  `LO\subagent-join.ts`; specs `LO\write\outcome-write-pipeline.spec.ts`,
+  `LO\write\key-value-outcome-journal.spec.ts`, `LO\subagent-join.spec.ts`,
+  `LO\write\pipeline.test-support.ts` (a gated `IStateStorage` whose `update` waits on a test-held
+  promise)
+- Review refs: logic S-1 and FM-1, logic M-8 (part b) and FM-10, style Serious 1 (P2-F1, P2-F2, P2-F3)
+- Implementation details:
+  1. S-1 (TL-33). In `drain` (`:330-347`), replace `const moved = [...this.queue]` with
+     `const moved = this.queue.splice(0)` before the `journal.update` await. If the update fails,
+     `this.queue.unshift(...moved)` (older ops go back in front of anything enqueued meanwhile) and
+     then let the existing outer catch log and `defer`. Delete the count-based
+     `this.queue.splice(0, moved.length)` at `:347`. Keep `accept`'s ownership pattern
+     (`:261` splice, `:282` unshift).
+  2. M-8b. `accept` (`:259-296`) no longer rethrows (`:281-283`). On a journal write failure it puts
+     `waiting` back, logs `warn('Outcome journal write failed', { runId, code: failureCode(error) })`
+     (ids and codes only, never `error.message`), and returns a result that is distinct from
+     capacity, for example `'accepted' | 'capacity' | 'write-failed'`. `submit` (`:200`, `:253`) maps
+     `write-failed` to `{ ok: false, error: 'outcome journal write failed' }` and capacity to the
+     existing `'outcome journal at capacity'`. `submit` never rejects.
+  3. Style Serious 1. Add one exported pure helper in `key-value-outcome-journal.ts`, for example
+     `appendEntries<T>(value: JournalValue<T>, ops: readonly T[]): { value: JournalValue<T>; accepted: readonly boolean[] }`.
+     It applies the rule "full at `OUTCOME_JOURNAL_LIMIT` means `droppedAtCapacity + 1`, otherwise
+     assign `seq = nextSeq` and push" exactly once. `append` (`:67-81`) and the three pipeline sites
+     (`accept` `:265-280`, `drain` `:332-346`, `dispose` `:651-664`) call it inside their own
+     `update` callback, so each batch stays one atomic `update`. No literal `5000` remains in the
+     pipeline.
+  4. Name the bare numbers at the top of the pipeline, next to `DELAYS`, `HOLD_LIMIT` and
+     `HOLD_SWEEP_MS` (`:59-61`), with values unchanged: `QUEUE_LIMIT = 1000` (`:154`, `:292`),
+     `DRAIN_BATCH = 25` (`:361`), `JOURNAL_RETRY_MS = 250` (`:412`), `REJECTED_LIMIT = 200`
+     (`:624-625`), `DISPOSE_DEADLINE_MS = 2000` (`:645`).
+  5. Export `isSubagentRunId(runId: string): boolean` from `LO\subagent-join.ts`. Build it from
+     `SUBAGENT_LANE_ID` the same way `subagentRunId` does (`:8-10`), and use it in place of
+     `startsWith('subagent:')` at `:212`, `:246`, `:579`. Do not add it to `src/index.ts`, because
+     barrel growth is LT-P2-10/P2c.
+- Acceptance:
+  - New race spec in `outcome-write-pipeline.spec.ts` using the gated storage. Steps:
+    `enqueue(a)`; let `drain` block inside `journal.update`; while it is blocked, call
+    `submit(report)` and `enqueue(c)`; release the gate; `flush()`. Then assert that every op (a,
+    the report, c) was journaled exactly once (count journal appends per op, or `seq` per op
+    identity), every op was applied to the store, and the journal ends empty. The report explains,
+    step by step, why the pre-fix code fails this spec (c is removed by `:347`; a is journaled twice).
+  - Spec: a storage `update` throws during `accept`. `submit` resolves
+    `{ ok: false, error: 'outcome journal write failed' }` and does not reject. Exactly one warn
+    whose context has `code` and no message text. The ops that were waiting stay queued and are
+    journaled and applied once storage recovers.
+  - `key-value-outcome-journal.spec.ts`: `appendEntries` at the limit adds one to
+    `droppedAtCapacity` for each refused op and gives consecutive `seq` values otherwise. The
+    existing `append` cases (`:35`, `:47`) still pass unchanged.
+  - `subagent-join.spec.ts`: `isSubagentRunId(subagentRunId('x'))` is true; `'lane:x'` and
+    `'subagentx'` are false.
+  - `grep -n "5000\|startsWith('subagent:')" LO\write\outcome-write-pipeline.ts` finds nothing.
+- Validation notes: `drain` must not lose the `heldRuns` atomicity of the ack write (`:387-398`).
+  The ack is still by `seq`, so ops appended during the apply loop survive.
+
+### Task 36.2: Atomic SQLite `update`; tolerate corrupt persisted data — COMPLETE
+
+- Depends on: Task 36.1 (same journal and pipeline files)
+- Files: MODIFY `LO\store\sqlite-lane-outcome.store.ts`, `LO\store\key-value-lane-outcome.store.ts`,
+  `LO\write\key-value-outcome-journal.ts`, `LO\write\outcome-write-pipeline.ts`, `LO\di\register.ts`
+  (`:31-38`, pass `logger` to both stores); specs `LO\store\sqlite-lane-outcome.store.spec.ts`,
+  `LO\store\key-value-lane-outcome.store.spec.ts`, `LO\write\key-value-outcome-journal.spec.ts`,
+  `LO\write\outcome-write-pipeline.spec.ts`. Constructor call-site updates (TL-37) in
+  `LO\write\pipeline.test-support.ts:138` and `LO\write\outcome-write-pipeline.durability.spec.ts:435`
+- Review refs: logic M-5 and FM-5, logic M-9 and FM-6, style Moderate 11 (P2-F4, P2-F5)
+- Implementation details:
+  1. M-5. `SqliteLaneOutcomeStore.update` (`:250-262`) reads, parses and writes inside one
+     synchronous `this.db.transaction(() => { ... })()`, with no `await` between the read and the
+     `UPDATE`. Keep the return value (`changes > 0`, `false` when the row is missing).
+  2. M-9 SQLite. `decodeMany` (`:79-83`) decodes each row without throwing, skips invalid rows, and
+     logs one `logger.warn('Lane outcome rows skipped', { count, code: 'ZOD_VALIDATION' })` per call
+     that skipped any. Row content is never logged. Single-row `decode` (`:65-77`), used by `get`,
+     `update`, `applyInTransaction` and `insertStopWithHeldReports`, stays strict, so a write-path
+     ZodError is still the pipeline's permanent reject (TL-38).
+  3. M-9 KV. The constructor (`:38-53`) never throws on persisted data. It parses the envelope
+     leniently, `safeParse`s each row, receipt, hold and budget-stop id, and keeps the valid ones. An
+     unreadable envelope (not an object, or arrays missing) starts empty. When anything is dropped,
+     it logs one warn with per-collection counts and a code.
+  4. Style M11, journal. The `KeyValueOutcomeJournal` constructor (`:29-40`) validates the stored
+     value with a Zod schema (`nextSeq`, `entries: [{ seq, op: unknown }]`, `droppedAtCapacity`,
+     `heldRuns`). Malformed entries are dropped, and an unreadable value becomes the empty value.
+     A read-only flag, or a count of dropped entries, lets the pipeline constructor (`:141-148`) log
+     it once: `warn('Outcome journal unreadable', { dropped, code: 'ZOD_VALIDATION' })`.
+  5. Style M11, rejected ledger. Add a `RejectedValueSchema` next to `RejectedValue` (`:54-57`) and
+     use it at both reads: the constructor (`:143`) and `reject()` (`:596-632`). An invalid value
+     becomes `{ entries: [], overflow: 0 }` with one warn.
+  6. TL-37. Both stores take the lib `LaneOutcomeLogger` as a required constructor argument.
+     Update every call site listed in TL-37 and in this task's Files line.
+  7. Put a `// degradation-audit: reported - <reason>` marker next to each new fallback's warn,
+     following the pattern at `outcome-write-pipeline.ts:73` and
+     `lane-outcome-reader.service.ts:52`. The audit must stay at TOTAL 296 with no FAIL.
+- Acceptance:
+  - SQLite spec: `await Promise.all([store.update(runId, { failureClass: 'crash' }),
+    store.applyReportWithReceipt(reviseReport, now, resolve)])` leaves the row with
+    `failureClass: 'crash'` AND `reviseRounds: 1`. The report explains why the pre-fix code leaves
+    `reviseRounds: 0` (the `await` at `:254`).
+  - SQLite spec: a row that the spec DDL accepts but `LaneOutcomeRowSchema` rejects (for example an
+    unknown `verdict` text inserted with raw SQL) next to valid rows. `listByLane` and `listByRoles`
+    return the valid rows, and one warn has `count: 1`.
+  - KV spec: a persisted snapshot with one invalid and one valid row does not throw, the valid row is
+    readable, and the warn has counts. A non-object envelope (for example a string) gives an empty
+    store, no throw, and one warn.
+  - Journal spec: a stored garbage value gives the empty value with the flag or count set. Malformed
+    entries are dropped and valid ones kept.
+  - Pipeline spec: the rejected-ledger key holds garbage. The constructor does not throw, and
+    `reject()` of a permanent op still records its entry.
+
+### Task 36.3: A lane `deliverables` report keeps a `failed` verdict — COMPLETE
+
+- File: MODIFY `LO\store\lane-outcome.store.ts:45-61` (`applyOutcomeEffect`, which all three stores
+  use: `in-memory…:64,93`, `sqlite…:137`); spec `LO\store\in-memory-lane-outcome.store.spec.ts`
+  (plus one case in `LO\store\sqlite-lane-outcome.store.spec.ts`)
+- Review refs: logic M-11 and FM-7 (P2-F6)
+- Implementation details (TL-36): for `row.executorKind !== 'subagent'`, a `deliverables` effect
+  keeps `row.verdict` when `row.verdict === 'failed'` or `row.failureClass !== null`. It still sets
+  `deliverablesDeclaredAt` (first value kept), `taskKind`, `taskId` and `routingSource`. Subagent
+  rows and `review` effects keep today's behaviour.
+- Acceptance (specs):
+  - A lane row with `failed` and a deliverables `delivered` report keeps verdict `failed`, keeps
+    `failureClass`, sets `deliverablesDeclaredAt`, and writes the receipt.
+  - A lane row with `no-deliverable` and `failureClass: 'crash'` keeps its verdict.
+  - A lane row with `unverified` and a null class becomes `delivered`.
+  - A subagent row becomes `delivered` (unchanged).
+  - The SQLite store gives the same result for the first case.
+
+### Task 36.4: Public API and state-machine documentation — COMPLETE
+
+- Depends on: Tasks 36.1-36.3 (document the final behaviour)
+- Files: MODIFY `LO\write\outcome-write-pipeline.ts` (file header), `LO\store\lane-outcome.store.ts`
+  (`:63-102`, port JSDoc), `LO\di\register.ts`, `LO\di\start.ts`, `LO\di\tokens.ts`,
+  `W\libs\backend\lane-outcomes\src\index.ts`. These are comments only, apart from the Task 36.1
+  and 36.2 edits
+- Review refs: style Serious 2 (P2-F7)
+- Implementation details:
+  - (a) Pipeline file header, stating the invariants in plain words:
+    - an op leaves the journal only after the store applied it;
+    - the journal keeps ops while the database is closed or a write fails;
+    - `enqueue` is fire-and-forget, while `submit` awaits admission, returns
+      `applied`/`held`/`queued` or `{ ok: false }`, and never rejects;
+    - a report for a `subagent:` run that does not exist yet is held for up to 24 h, with at most
+      500 holds, and a lane run is never held;
+    - validation and constraint failures go to the rejected ledger, and other failures retry with
+      a 250 ms to 60 s backoff;
+    - the journal is capped at `OUTCOME_JOURNAL_LIMIT` and counts refusals.
+  - (b) One-line JSDoc on each `LaneOutcomeStore` method that names each return state and who acts
+    on it (for example, `missing` means the pipeline holds a subagent report).
+  - (c) JSDoc on `registerLaneOutcomeServices`, on `startLaneOutcomes` (it returns an awaited
+    disposer and registers the services itself when they are absent), on `LANE_OUTCOME_PIPELINE`,
+    and on each `LANE_OUTCOME_TOKENS` member. Say which are provided by the lib and which are
+    optional from the host (`FAILURE_CLASSIFIER` and `SKILL_TELEMETRY_SEAM` are optional; `LOGGER`
+    is registered with the host logger).
+  - (d) Group the barrel exports under three short comments: contracts, stores, wiring.
+  - No export is added, removed or renamed (barrel narrowing is P2c). No plan ids, decision
+    numbers, batch ids or task ids appear in comments (P1 style rule); describe the behaviour.
+- Acceptance: `git diff` of `di/tokens.ts`, `di/start.ts` and `src/index.ts` shows comment lines
+  only. The set of export names in `src/index.ts` is unchanged. Every stated invariant matches the
+  code after Tasks 36.1-36.3.
+
+### Batch 36 verification
+
+- Executor, light checks only (decision #53, rule 5; no Nx, Jest or project `tsc`):
+  - `npx prettier --check <every changed file>`
+  - `npx eslint <every changed file>`
+  - `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts --max-warnings=-1`
+    (TOTAL 296, no FAIL)
+  - `npx ts-node --transpile-only tools/di-lint/check-injects.ts` (OK)
+- Team-leader Mode 2, in `W`, one at a time, never during a Batch 21 check, output tailed:
+  1. `NX_NO_CLOUD=true npx nx test @ptah-extension/lane-outcomes --parallel=1 --skip-nx-cache 2>&1 | tail -40`
+  2. `NX_NO_CLOUD=true npx nx typecheck @ptah-extension/lane-outcomes 2>&1 | tail -20`
+  3. `NX_NO_CLOUD=true npx nx lint @ptah-extension/lane-outcomes 2>&1 | tail -20` (0 errors, and no
+     `max-lines` warning on the pipeline)
+  4. the four executor checks above, re-run
+  5. `grep -n "5000\|startsWith('subagent:')" libs/backend/lane-outcomes/src/lib/write/outcome-write-pipeline.ts`
+     prints nothing
+- Rule 8 does not apply: there is no new DI registration, and no host calls
+  `registerLaneOutcomeServices` until Batch 30.
+- `git status --short` shows changes only under `libs/backend/lane-outcomes/`. Stage only those
+  paths.
+- Commit: `fix(lane-outcomes): batch 36 - p2 fix round` (foreground; push in the background).
+
+### Re-review scope (TL-40; requested by Mode 2 step 5 after the Batch 36 commit)
+
+- Reviewers: the code-logic-reviewer and code-style-reviewer subagents (Anthropic). Implementer:
+  OpenAI, or xAI/Zhipu on fallback. Read-only; no Nx, Jest or build.
+- Diff: `git diff <batch36-sha>^..<batch36-sha> -- libs/backend/lane-outcomes`.
+- Logic scope:
+  - P2-F1: each op is journaled exactly once under the race; order is kept on failure.
+  - P2-F3: `submit` never rejects; the error text is fixed; waiting ops are kept.
+  - P2-F4: there is no `await` between the read and the write.
+  - P2-F5: no throw on corrupt persisted data; the strict single-row write path is kept; warns
+    carry ids and codes only.
+  - P2-F6: the TL-36 rule.
+  - Regressions inside the functions these fixes touch.
+- Style scope:
+  - P2-F2: one append rule, named constants, `isSubagentRunId`.
+  - P2-F7: the docs are present and accurate against the code, with no plan ids.
+  - The style of the new code.
+- Out of scope: LT-P2-1..LT-P2-14 and every P2-m Minor (already triaged). Do not re-open them.
+- Output: `T\reviews\p2-fix-code-logic-review.md` and `T\reviews\p2-fix-code-style-review.md`, each
+  with a verdict of APPROVED or REVISE. With both APPROVED, P2 is accepted. A REVISE at this point
+  goes back to the orchestrator; there is no second fix round.

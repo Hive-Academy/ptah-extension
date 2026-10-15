@@ -30,6 +30,34 @@ export class MemoryState implements IStateStorage {
   }
 }
 
+export class GatedMemoryState extends MemoryState {
+  private gated = false;
+  private releaseGate: (() => void) | undefined;
+  private enteredGate: (() => void) | undefined;
+  readonly entered = new Promise<void>((resolve) => {
+    this.enteredGate = resolve;
+  });
+  readonly gate = new Promise<void>((resolve) => {
+    this.releaseGate = resolve;
+  });
+  readonly journalSnapshots: unknown[] = [];
+
+  override async update(key: string, value: unknown): Promise<void> {
+    if (key === 'ptah.laneOutcomes.journal.v1' && !this.gated) {
+      this.gated = true;
+      this.enteredGate?.();
+      await this.gate;
+    }
+    if (key === 'ptah.laneOutcomes.journal.v1')
+      this.journalSnapshots.push(structuredClone(value));
+    await super.update(key, value);
+  }
+
+  release(): void {
+    this.releaseGate?.();
+  }
+}
+
 export class Availability implements OutcomeStoreAvailability {
   open = false;
   private readonly listeners = new Set<() => void>();
@@ -135,5 +163,5 @@ export function sqliteFixture(file: string): {
   ) as SqliteConnectionService;
   Object.defineProperty(connection, 'db', { value: db });
   Object.defineProperty(connection, 'isOpen', { value: true });
-  return { db, store: new SqliteLaneOutcomeStore(connection) };
+  return { db, store: new SqliteLaneOutcomeStore(connection, testLogger()) };
 }

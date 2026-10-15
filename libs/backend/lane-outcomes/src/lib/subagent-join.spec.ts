@@ -1,5 +1,9 @@
 import type { LaneOutcomeRow } from './store/lane-outcome.store';
-import { applySubagentJoin, subagentRunId } from './subagent-join';
+import {
+  applySubagentJoin,
+  isSubagentRunId,
+  subagentRunId,
+} from './subagent-join';
 
 const row: LaneOutcomeRow = {
   runId: subagentRunId('a'),
@@ -31,6 +35,11 @@ const row: LaneOutcomeRow = {
 };
 
 describe('applySubagentJoin', () => {
+  it('recognizes only subagent run ids', () => {
+    expect(isSubagentRunId(subagentRunId('x'))).toBe(true);
+    expect(isSubagentRunId('lane:x')).toBe(false);
+    expect(isSubagentRunId('subagentx')).toBe(false);
+  });
   it('derives timeout from budget stop without changing stored row', () => {
     expect(applySubagentJoin(row, null)).toMatchObject({
       failureClass: 'timeout',

@@ -3,6 +3,55 @@ import { InMemoryLaneOutcomeStore } from './in-memory-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
 
 describe('InMemoryLaneOutcomeStore', () => {
+  it.each([
+    ['failed', 'crash', 'failed'],
+    ['no-deliverable', 'crash', 'no-deliverable'],
+    ['unverified', null, 'delivered'],
+  ] as const)(
+    'applies deliverables to a lane with %s verdict and %s class',
+    async (verdict, failureClass, expected) => {
+      const store = new InMemoryLaneOutcomeStore();
+      await store.insertIfAbsent({
+        ...outcomeRow('lane:case'),
+        executorKind: 'cli',
+        laneId: 'lane',
+        verdict,
+        failureClass,
+      });
+      const report = {
+        ...heldReport(401, Date.now()),
+        runId: 'lane:case',
+        payload: JSON.stringify({
+          checks: [{ exists: true, bytes: 1, mtimeMs: null }],
+          taskKind: 'implement',
+          taskId: 'task-401',
+        }),
+      };
+      expect(
+        await store.applyReportWithReceipt(report, Date.now(), reportEffectOf),
+      ).toBe('applied');
+      expect(await store.get('lane:case')).toMatchObject({
+        verdict: expected,
+        failureClass,
+        deliverablesDeclaredAt: expect.any(Number),
+        taskId: 'task-401',
+      });
+      expect(await store.hasReceipt(report.reportId)).toBe(true);
+    },
+  );
+
+  it('updates the subagent verdict on deliverables', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    await store.insertIfAbsent({
+      ...outcomeRow('subagent:case'),
+      verdict: 'failed',
+    });
+    const report = { ...heldReport(402, Date.now()), runId: 'subagent:case' };
+    expect(
+      await store.applyReportWithReceipt(report, Date.now(), reportEffectOf),
+    ).toBe('applied');
+    expect((await store.get('subagent:case'))?.verdict).toBe('delivered');
+  });
   it('round-trips subagent session identifiers', async () => {
     const store = new InMemoryLaneOutcomeStore();
     const row = {
