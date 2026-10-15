@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 17/28
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 17/28 | Phases A and B CLOSED; next: Phase C (B9) after the B0 baseline
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -138,6 +138,7 @@ Edge cases:
 | D27 | The records-migration Moderate is IN the bounded correction: a run-keyed entry beats a root-keyed entry for one `runId`, else the greater `startedAt` wins. | carry to a later task | Fix-round rule: a Moderate is fixed when it can lose data. This is a persisted read path, and key enumeration order decides which body survives and the next write drops the other. No production writer exists yet (B13/B14), so it is not reachable today, but the fix is a few lines in a file the batch can own. | yes |
 | D28 | The projection-dedup Moderate (a persisted provisional id hides the live row as `'unknown'`) is OUT of the bounded correction and carried to Task 14.2, which builds the projection inputs. | fix in 8FG | Fix-round rule: display-only, no lane-config break and no data loss. The re-review marked M6 CLOSED; this is a new edge case where a persisted id equals a live tab id. Task 14.2 owns `persistedChildren` and gets `work-projection.ts` and its spec added to its files. | yes |
 | D29 | Re-review Minors (`removeManifest` false ignored; Decline boolean ignored on duplicate receive and lanes-unavailable) and the 3 style re-review Minors are recorded only, not fixed. 8FG.1 does touch the rollback path, but only for the cancel case. | fix the Minors in 8FG | Fix-round rule: Minor recorded, not fixed. No path sends a launch: a false rollback leaves a run key that the retry rewrites, and an undelivered Decline still ends with the host's Decline-first timeout. The `childBySession` style Minor rides with D28 in Task 14.2. | yes |
+| D30 | 8FG is accepted and Phase B is CLOSED: the grok review of `ea106f685..433aab5ad` is APPROVED 9/10 with 0 new Blocking, Serious, Moderate or Minor. Per D23 the generated diffs `phase-b.diff`, `phase-b-8f.diff` and `phase-b-8fg.diff` are deleted, not committed. Carried items stay where D28 and D29 put them (Task 14.2; Minors recorded). Phase C (B9) waits for the B0 baseline (D2). | (a) another fix round; (b) close Phase B | `code-logic-review-phase-b-8fg.md` (reviewer grok, implementer codex): RR-S1 closed at `tribunal-run-coordinator.ts:119-123` with every `isCancelled` check before `writeManifest` (`:216`); RR-M2 closed at `command-center-records.ts:64-82`; D18 and A1 hold; its top risk is the D29 Minor. This was the last review the revise cap allowed, and it passed, so (a) has nothing to fix. | yes |
 
 ## Phases and reviews
 
@@ -145,7 +146,7 @@ Edge cases:
 | ----- | ------- | ------------ |
 | 0 - Baseline | B0 | none (measurement) |
 | A - Chat runtime contracts | B1-B4, fix B4F | CLOSED: code-logic (B1-B4: NEEDS_REVISION); B4F re-review APPROVED (L1 closed) |
-| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24), all committed; re-review on `5d52cfa5b..b5af1cc42`: logic NEEDS_REVISION 7/10 (grok; all 13 prior findings closed; 1 new S, 2 M), style APPROVED (Anthropic); bounded correction 8FG (D26-D29), then one grok review of the 8FG diff only; a defect there is reported and Phase B stops |
+| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24), all committed; re-review on `5d52cfa5b..b5af1cc42`: logic NEEDS_REVISION 7/10 (grok; all 13 prior findings closed; 1 new S, 2 M), style APPROVED (Anthropic); bounded correction 8FG (D26-D29) committed `433aab5ad`; 8FG review on `ea106f685..433aab5ad`: logic APPROVED 9/10 (grok; implementer codex; RR-S1, RR-M2 closed, 0 new issues). CLOSED (D30) |
 | C - Voice | B9-B10 | code-logic |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
 | E - Acceptance | B17-B18 | none (tests and measurement); B18 visual evidence is still required for Mode 3 |
@@ -1620,7 +1621,7 @@ Lane rules for this batch:
     independent review of the 8FG diff only. If that review finds defects, report them and stop; no further
     fix round in Phase B.
 
-## Batch 8FG: Phase B bounded correction - page exit cancels an in-flight confirm; deterministic manifest migration - COMPLETE (commit: subject `fix(command-center,chat-state): batch 8FG - cancel confirm on page exit`; SHA added with the review verdict) - NEEDS REVIEW
+## Batch 8FG: Phase B bounded correction - page exit cancels an in-flight confirm; deterministic manifest migration - COMPLETE (commit 433aab5ad) - Phase B review APPROVED 9/10 (`TASK/code-logic-review-phase-b-8fg.md`; implementer codex, reviewer grok) - PHASE B CLOSED
 
 - Recommended executor: CLI lane (implementation; Angular feature/data-access TypeScript, async state machine and
   test design)
@@ -1738,8 +1739,15 @@ Lane rules for this batch:
   `chat-state 2 ok (baseline 2)`, no orphaned or malformed marker.
 - Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/chat-state
   @ptah-extension/command-center`, header 2 projects, all 6 tasks green.
-- Status: NEEDS REVIEW. One grok review of the 8FG commit only (diff `ea106f685..<8FG SHA>` in
-  `TASK/reports/phase-b-8fg.diff`, not committed), output `TASK/code-logic-review-phase-b-8fg.md`.
+- Commit: `433aab5ad` `fix(command-center,chat-state): batch 8FG - cancel confirm on page exit` (hooks and the
+  degradation audit passed).
+- Review (D30): grok, range `ea106f685..433aab5ad`, `TASK/code-logic-review-phase-b-8fg.md`. Verdict APPROVED,
+  9/10; 0 new Blocking, Serious, Moderate or Minor. RR-S1 CLOSED (`tribunal-run-coordinator.ts:119-123`; every
+  `isCancelled` check runs before `writeManifest` at `:216`). RR-M2 CLOSED (`command-center-records.ts:64-82`,
+  `runKeyed` precedence in both orders; greater `startedAt` between root keys). D18 and Amendment A1: no
+  regression. Top risk is the D29 Minor (`removeManifest` false ignored), already recorded; not a new defect.
+- Status: COMPLETE. Phase B CLOSED. The generated diffs (`TASK/reports/phase-b.diff`, `phase-b-8f.diff`,
+  `phase-b-8fg.diff`) were deleted uncommitted (D23).
 
 ## Batch 9: Voice primitives (adapted from property-hub) - PENDING
 
