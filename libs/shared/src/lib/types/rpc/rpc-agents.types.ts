@@ -101,6 +101,57 @@ export type SubagentPromptCacheTtl = '5m' | '1h';
 export type SubagentPromptCacheTtlEnvOverride =
   SubagentPromptCacheTtl | 'invalid';
 
+/**
+ * Parsed decision-model selection on `agent:getConfig`. The validator is
+ * `DecisionModelSelectionSchema` in `@ptah-extension/lane-routing`; this is
+ * the plain mirror (the frontend cannot import that lib). Jev's `model` is
+ * always present here; the service applies `jev-1.13.0` when a write omits it.
+ */
+export type DecisionModelSelectionDto =
+  | { readonly kind: 'unset' }
+  | { readonly kind: 'ollama'; readonly model: string }
+  | { readonly kind: 'jev'; readonly model: string }
+  | {
+      readonly kind: 'structured';
+      readonly providerId: string;
+      readonly model: string;
+    };
+
+/**
+ * What `agent:setConfig` accepts. Same shapes as {@link DecisionModelSelectionDto}
+ * except Jev's `model` may be omitted.
+ */
+export type DecisionModelSelectionInputDto =
+  | { readonly kind: 'unset' }
+  | { readonly kind: 'ollama'; readonly model: string }
+  | { readonly kind: 'jev'; readonly model?: string }
+  | {
+      readonly kind: 'structured';
+      readonly providerId: string;
+      readonly model: string;
+    };
+
+/** Where a decision-model request sends the text. `null` on the status when unset. */
+export type DecisionModelLocalityDto = 'local' | 'remote';
+
+/**
+ * Row states for `agent:getConfig`. Fixed by decision #46: there is no
+ * `model-unavailable` state. `ready` may still carry a live-error `detail`.
+ */
+export type DecisionModelStateDto =
+  'unset' | 'ready' | 'no-credential' | 'unreachable' | 'unsupported-endpoint';
+
+/** Decision-model row on `agent:getConfig`. The API key is never included. */
+export interface DecisionModelStatusDto {
+  readonly selection: DecisionModelSelectionDto;
+  readonly locality: DecisionModelLocalityDto | null;
+  /** `false` for `structured` and for `unset`. */
+  readonly reportsConfidence: boolean;
+  readonly state: DecisionModelStateDto;
+  /** For example `Ollama 0.34.2 < 0.35.0` or `last call failed: <error>`. */
+  readonly detail: string | null;
+}
+
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
   /** Detected CLI agents (Codex, Copilot) */
@@ -169,6 +220,11 @@ export interface AgentOrchestrationConfig {
   browserAllowLocalhost: boolean;
   /** Kill switch for built-in SDK workflows (e.g. ultracode/workflow keywords). Default false = workflows ON. */
   workflowsDisabled: boolean;
+  /**
+   * Decision-model row. The Jev API key is not a field of this object;
+   * `decisionModelJevApiKey` is write-only on `agent:setConfig`.
+   */
+  decisionModel: DecisionModelStatusDto;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -283,6 +339,19 @@ export interface AgentSetConfigParams {
   browserAllowLocalhost?: boolean;
   /** Kill switch for built-in SDK workflows. true disables workflows; false (default) leaves them ON. */
   workflowsDisabled?: boolean;
+  /**
+   * Decision-model selection. Delegated to the lane-routing config service,
+   * which stores it globally at section `ptah`, key
+   * `agentOrchestration.decisionModel`. Omitted means leave the stored
+   * selection unchanged.
+   */
+  decisionModel?: DecisionModelSelectionInputDto;
+  /**
+   * TypeSafe Jev API key. Write-only: the service stores it in secret
+   * storage under `ptah.laneRouting.jevApiKey` and `agent:getConfig` never
+   * returns it. An empty string deletes the stored key.
+   */
+  decisionModelJevApiKey?: string;
 }
 
 /**

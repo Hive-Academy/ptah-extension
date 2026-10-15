@@ -1056,7 +1056,7 @@ state)` (`rotation.store.ts:203`). The value is `{ version: 1, entries: [{ key, 
   so the reviewer is a different family). It is due on the combined P3 diff after the phase's last
   batch commits.
 
-## Batch 18 (A11): Decision-model config RPC — IN_PROGRESS (Mode 2 round 1, 2026-10-15: NOT ACCEPTED, not committed; TL-58 spec suite fails to load, TL-59 no host registers lane-routing, so commit waits for Batch 30a; actual executor: CLI lane grok, xAI (decision #87); report `T\reports\batch-18-report.md`)
+## Batch 18 (A11): Decision-model config RPC — COMPLETE (Mode 2 round 2, 2026-10-15, orchestrator: TL-58 fixed (#89), TL-59 closed by Batch 30a 3ce35ddb9; agent-rpc.handlers specs 6 suites / 158 tests pass, `nx typecheck @ptah-extension/rpc-handlers` pass. Round 1: NOT ACCEPTED, TL-58 spec suite failed to load, TL-59 no host registered lane-routing; actual executor: CLI lane grok, xAI (decision #87); report `T\reports\batch-18-report.md`)
 
 - Recommended executor: CLI lane grok (xAI)
 - Execution mode: sequential

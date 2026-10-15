@@ -2,7 +2,8 @@
  * Agent Orchestration RPC Handlers.
  *
  * Owns the `agent:*` namespace on every host:
- * - agent:getConfig / agent:setConfig — orchestration config via IWorkspaceProvider
+ * - agent:getConfig / agent:setConfig — orchestration config via IWorkspaceProvider.
+ *   Decision-model fields delegate to DECISION_MODEL_CONFIG (lane-routing).
  * - agent:detectClis / agent:listCliModels — rival-CLI detection and models
  * - agent:permissionResponse — routes decisions to the SDK + Copilot bridges
  * - agent:stop / agent:continue / agent:resumeCliSession — process control
@@ -47,6 +48,10 @@ import {
   SessionMetadataStore,
   SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
+import {
+  LANE_ROUTING_TOKENS,
+  type DecisionModelConfig,
+} from '@ptah-extension/lane-routing';
 import { z } from 'zod';
 import type {
   AgentOrchestrationConfig,
@@ -315,6 +320,12 @@ export class AgentRpcHandlers {
     private readonly fileSystemProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    /** Registered by `registerLaneRoutingServices` (Batch 21). */
+    @inject(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)
+    private readonly decisionModelConfig: Pick<
+      DecisionModelConfig,
+      'getStatus' | 'setSelection' | 'setJevApiKey'
+    >,
   ) {}
 
   register(): void {
@@ -448,6 +459,7 @@ export class AgentRpcHandlers {
                 'workflows.disabled',
                 false,
               ) ?? false,
+            decisionModel: await this.decisionModelConfig.getStatus(),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -504,6 +516,15 @@ export class AgentRpcHandlers {
       ) {
         return { success: false, error: 'Unsupported cursorApiKey value' };
       }
+      if (
+        params.decisionModelJevApiKey !== undefined &&
+        typeof params.decisionModelJevApiKey !== 'string'
+      ) {
+        return {
+          success: false,
+          error: 'Unsupported decisionModelJevApiKey value',
+        };
+      }
       const invalidModel = invalidCliModel(params);
       if (invalidModel) {
         return { success: false, error: `Unsupported ${invalidModel} value` };
@@ -539,6 +560,17 @@ export class AgentRpcHandlers {
           success: false,
           error: 'Unsupported subagentPromptCacheTtl value',
         };
+      }
+      // Decision-model writes go through the service, which validates the
+      // selection before it stores anything. Run them before the other
+      // writes so an invalid selection leaves those fields unchanged.
+      if (params.decisionModel !== undefined) {
+        await this.decisionModelConfig.setSelection(params.decisionModel);
+      }
+      if (params.decisionModelJevApiKey !== undefined) {
+        await this.decisionModelConfig.setJevApiKey(
+          params.decisionModelJevApiKey,
+        );
       }
       if (params.preferredAgentOrder !== undefined) {
         await this.setAgentCfg(

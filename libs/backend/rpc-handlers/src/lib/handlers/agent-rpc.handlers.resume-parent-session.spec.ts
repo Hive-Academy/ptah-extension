@@ -177,6 +177,18 @@ function makeHarness(): Harness {
     } as unknown as IAuthSecretsService,
     fileSystem as never,
     PLATFORM_INFO as never,
+    {
+      getStatus: () =>
+        Promise.resolve({
+          selection: { kind: 'unset' as const },
+          locality: null,
+          reportsConfidence: false,
+          state: 'unset' as const,
+          detail: null,
+        }),
+      setSelection: () => Promise.resolve({ kind: 'unset' as const }),
+      setJevApiKey: () => Promise.resolve(),
+    },
   );
   handlers.register();
 
