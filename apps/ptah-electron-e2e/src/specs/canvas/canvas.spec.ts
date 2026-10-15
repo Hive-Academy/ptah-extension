@@ -163,7 +163,10 @@ test.describe('Canvas Rail split focus and reorder', () => {
     );
     const firstBefore = await (await visualPane(page, 0)).getAttribute('data-pane-side');
     const activeSide = await paneContainer(page).locator('[data-pane-side][aria-label$=", active"]').getAttribute('data-pane-side');
-    await headerAction(page, await visualPane(page, 0), 'Swap panes');
+    // Open the menu on the ACTIVE pane. Interacting with an inactive pane's header
+    // activates that pane (click and focusin on the wrapper), which would change the
+    // active side this case asserts is untouched by Swap.
+    await headerAction(page, paneContainer(page).locator(`[data-pane-side="${activeSide}"]`), 'Swap panes');
 
     const firstAfter = await (await visualPane(page, 0)).getAttribute('data-pane-side');
     expect(firstAfter).not.toBe(firstBefore);
@@ -197,7 +200,10 @@ test.describe('Canvas Rail split focus and reorder', () => {
 
     await headerAction(page, await visualPane(page, 0), 'Swap panes');
     const top = await visualPane(page, 0);
-    await railCards(page).last().locator('.rc-select').focus();
+    // The Rail footer's New session button is the last tabbable element of the Rail, so Tab
+    // from it is the Rail -> panes hand-off. (Tab from the last card only reaches this button.)
+    // Match the footer button, not its name: a collapsed Rail renders the label as "+".
+    await railBoard(page).locator('ptah-canvas-rail footer button').focus();
     await page.keyboard.press('Tab');
     await expect(top.locator(':focus')).toHaveCount(1);
   });

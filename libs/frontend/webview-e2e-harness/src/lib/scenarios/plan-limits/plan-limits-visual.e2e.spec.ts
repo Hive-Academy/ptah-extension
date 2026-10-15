@@ -110,10 +110,10 @@ test.describe('plan limits > session stats strip', () => {
         await installRpcAutoResponder(page, planLimitsFixtures(RPC_SNAPSHOT, rpc));
         await page.goto(fixtureServer.url);
 
-        // The session loads through session:load + chat:resume into the
-        // default grid layout's canvas tile (`app-state.service.ts:400`); the
-        // main panel's own chat view stays mounted but hidden.
-        const tile = page.locator('[data-testid="canvas-tile"]');
+        // The session loads through session:load + chat:resume into the Rail
+        // board's focused pane (`ptah-canvas-focus-area`, rendered only for a
+        // visible board); the main panel's own chat view stays mounted but hidden.
+        const tile = page.locator('ptah-canvas-focus-area');
         const strip = tile.locator('ptah-session-stats-summary');
         await expect(strip).toBeVisible({ timeout: 15_000 });
 

@@ -39,8 +39,10 @@ async function openSession(
   session: SessionFixture,
 ): Promise<Locator> {
   await sessionRowButton(ui.page, session.name).click();
+  // A session opened from the sidebar renders in the Rail's focused pane. Rail
+  // cards echo the marker in their preview line, so the scope must be the pane.
   const tile = ui.page
-    .locator('[data-testid="canvas-tile"]')
+    .locator('ptah-canvas-focus-area')
     .filter({ hasText: session.marker });
   await expect(tile).toBeVisible();
   return tile;

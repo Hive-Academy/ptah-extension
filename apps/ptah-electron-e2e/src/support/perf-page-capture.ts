@@ -227,7 +227,7 @@ export async function openTilesWithinPage(
       let windowStartMs = 0;
 
       const domCount = (): number =>
-        document.querySelectorAll('[data-testid="canvas-tile"] *').length;
+        document.querySelectorAll('ptah-canvas-focus-area *').length;
 
       const recordPerTileDomHarnessTask = (
         label: string,
@@ -247,7 +247,7 @@ export async function openTilesWithinPage(
 
       const samplePerTileDom = (): DomNodeSample[] => {
         const tiles = Array.from(
-          document.querySelectorAll('[data-testid="canvas-tile"]'),
+          document.querySelectorAll('ptah-canvas-focus-area'),
         );
         const samples = markers.map((marker) => {
           const tile = tiles.find((candidate) =>
@@ -348,7 +348,7 @@ export async function openTilesWithinPage(
       function beginSettleWindow(): void {
         observer.disconnect();
         for (const tile of Array.from(
-          document.querySelectorAll('[data-testid="canvas-tile"]'),
+          document.querySelectorAll('ptah-canvas-focus-area'),
         )) {
           observer.observe(tile, {
             childList: true,
@@ -488,7 +488,7 @@ export async function checkTileScrollSanity(
 ): Promise<ScrollSanityFailure[]> {
   return page.evaluate((expectedMarkers) => {
     const tiles = Array.from(
-      document.querySelectorAll('[data-testid="canvas-tile"]'),
+      document.querySelectorAll('ptah-canvas-focus-area'),
     );
     const failures: ScrollSanityFailure[] = [];
     for (const marker of expectedMarkers) {

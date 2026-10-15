@@ -25,11 +25,12 @@ import { test, expect } from '../support/fixtures';
  *
  * ## Method
  *
- * Two canvas tiles, each bound to its own session through the documented
+ * Two Rail panes (the first session opened beside the second via "Open
+ * beside"; each pane is a former "tile"), each bound to its own session through the documented
  * "hijack" branch of `StreamingHandlerService.processStreamEvent`
  * (`streaming-handler.service.ts` ~line 142): an event carrying no `tabId`
  * binds the ACTIVE tab when that tab is unbound and fresh/draft/streaming. So
- * each tile is clicked to make it active immediately before its session's
+ * each pane is clicked to make it active immediately before its session's
  * first event is pushed. The binding is then VERIFIED (each tile shows its own
  * marker and not the other's) rather than assumed.
  *
@@ -49,7 +50,6 @@ import { test, expect } from '../support/fixtures';
 const CHAT_CHUNK = 'chat:chunk';
 const A_MARKER = 'PTAH_E2E_A_MARKER';
 const B_MARKER = 'PTAH_E2E_B_MARKER';
-const TILE = '[data-testid="canvas-tile"]';
 const BUBBLE = '[data-testid="chat-tool-output"]';
 
 function chunk(sessionId: string, event: Record<string, unknown>) {
@@ -122,15 +122,22 @@ test.describe('Concurrent session isolation on the canvas (TASK_2026_370)', () =
 
     await ui.goto('chat');
 
-    // Second tile: the FAB, then the create dialog's Create button.
+    // Second session: the New session anchor, then the create dialog's Create
+    // button. The Rail shows one focused pane, and the new session takes it.
     await page.locator('[title="Add new session tile"]').first().click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
 
-    const tiles = page.locator(TILE);
-    await expect(tiles).toHaveCount(2);
+    const cards = page.locator('ptah-canvas-rail [data-rail-card]');
+    await expect(cards).toHaveCount(2);
+    await expect(ui.canvasPanes()).toHaveCount(1);
 
-    const tileA = tiles.nth(0);
-    const tileB = tiles.nth(1);
+    // Show both sessions at once: open the first card beside the new one. Its
+    // session (A) takes the opposite pane and becomes the active one; the new
+    // session (B) keeps its pane. The two panes are the former "tiles".
+    const { opened: tileA, kept: tileB } = await ui.openRailCardBeside(
+      cards.first(),
+    );
+    await expect(ui.canvasPanes()).toHaveCount(2);
 
     const sessionA = randomUUID();
     const sessionB = randomUUID();
@@ -138,23 +145,18 @@ test.describe('Concurrent session isolation on the canvas (TASK_2026_370)', () =
     const messageB = randomUUID();
     const t0 = Date.now();
 
-    // Bind tile A. Clicking the tile shell focuses it (canvasStore.focusTile ->
-    // tabManager.switchTab), which is what makes it the hijack target.
-    await tileA.locator('.canvas-tile').click();
-    await expect(tileA.locator('.canvas-tile')).toHaveAttribute(
-      'data-focused',
-      'true',
-    );
+    // Bind pane A. Clicking inside a pane makes it the active one (the board's
+    // activatePane -> canvasStore.focusTile -> tabManager.switchTab), which is
+    // what makes it the hijack target. The pane label ends ", active" while it is.
+    await tileA.locator('ptah-canvas-focus-header strong').click();
+    await expect(tileA).toHaveAttribute('aria-label', /, active$/);
     await ui.pushEvent(messageStart(sessionA, messageA, t0));
     await ui.pushEvent(textDelta(sessionA, messageA, t0 + 1, `${A_MARKER}-1 `));
     await expect(tileA.locator(BUBBLE)).toContainText(A_MARKER);
 
-    // Bind tile B the same way.
-    await tileB.locator('.canvas-tile').click();
-    await expect(tileB.locator('.canvas-tile')).toHaveAttribute(
-      'data-focused',
-      'true',
-    );
+    // Bind pane B the same way.
+    await tileB.locator('ptah-canvas-focus-header strong').click();
+    await expect(tileB).toHaveAttribute('aria-label', /, active$/);
     await ui.pushEvent(messageStart(sessionB, messageB, t0 + 2));
     await ui.pushEvent(textDelta(sessionB, messageB, t0 + 3, `${B_MARKER}-1 `));
     await expect(tileB.locator(BUBBLE)).toContainText(B_MARKER);

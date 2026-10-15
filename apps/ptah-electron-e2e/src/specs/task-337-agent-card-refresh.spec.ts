@@ -54,7 +54,9 @@ import { test, expect } from '../support/fixtures';
 
 const CHAT_CHUNK = 'chat:chunk';
 const AGENT_SUMMARY_CHUNK = 'agent:summary-chunk';
-const FOCUSED_SESSION = 'ptah-canvas-focus-area section[aria-label="Focused session"]';
+// The pane's accessible name carries the session title (`Focused session: <title>`),
+// so match the focus area itself, not an exact label.
+const FOCUSED_SESSION = 'ptah-canvas-focus-area';
 const AGENT_CARD = 'ptah-inline-agent-bubble';
 
 const SUMMARY_ONE = 'PTAH_E2E_SUMMARY_FIRST';
