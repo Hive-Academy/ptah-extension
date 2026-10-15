@@ -33,6 +33,8 @@ Worktree: D:/projects/ptah-extension/.claude-worktrees/command-center (branch fe
   (limit reader failed); opencode installed (monthly 91%, near limit); grok installed (unknown);
   Glm ptah-cli Ollama Cloud available (pc-355b645d-35af-4974-84cf-9cf961ea0164); copilot disabled;
   cursor, pi not installed.
+- 2026-10-15 12:48 UTC: Glm ptah-cli (pc-355b645d-35af-4974-84cf-9cf961ea0164, family Ollama Cloud)
+  shown AT LIMIT, reset unknown (error-derived). Skip it for the rest of this run.
 
 ## Conversation Summary
 - Research phase first, because the user asked which requirements already exist in this repository.

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 48 | Batches: 19 (17 code batches + 2 user-run gates) | Complete: 4/19
+Total tasks: 52 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 4/21
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -115,14 +115,17 @@ Edge cases:
 | D5 | Every batch is sequential; no two batches run concurrently. | run Tribunal (B7) and voice primitives (B9) in parallel | `CLAUDE.md` allows one heavy check at a time across all lanes; the time saved is small next to the risk of overlapping Jest runs. | yes |
 | D6 | Each secondary-entry alias goes into `tsconfig.base.json` in the batch that creates its target (Tribunal `phase` in B7, `ui/provider-brand-art` in B11, the lib alias in B5) instead of all in plan Unit 4. | all aliases in Unit 4 | Avoids aliases pointing at missing files between commits. Batches run sequentially, so the shared file is never edited concurrently. | yes |
 | D7 | The last-session record and Tribunal run manifest go in a new `chat-state` file `command-center-records.ts`, not inside `tab-persistence.ts`. | extend `tab-persistence.ts` | `tab-persistence.ts` serializes the tab envelope only (`PersistedTabState`, lines 104-108); the records must survive tab close (plan line 16). | yes |
+| D8 | Phase A fix round fixes Serious L1 now in Batch 4F (one backend project, 2 files). | fix now; defer | Fix-round rule: Blocking and Serious are fixed. Orchestrator confirmed L1 at `chat-slash-command-router.service.ts:141-150` and `chat-session.service.ts:983-984`. | yes |
+| D9 | Moderate L2 (first `chat:start` on a marked tab carries no persona) is deferred to Task 6.2 in Batch 6, not fixed in Batch 4F. | fix now in the sender (cheapest, same file as B4); defer to B6 | Fix-round rule: a Moderate is fixed now only if it can break a lane config or lose data. L2 does neither: it yields a persona-less session and no product caller of `createCommandCenterTab` exists until B6 (review L2). The race only opens when B6 adds the coordinator start, so B6 is where it closes; the review recommends the same. | yes |
+| D10 | Moderates L3 (close leaves the send lock engaged) and L4 (records write failure ignored, `tab-manager.service.ts:991,1930-1933`) are deferred to Batch 6A. | fix now; defer | L3: no production caller of `engage` until B6/B14, and a stale lock on a dead root holds no live send (sends pass tab ids). L4: the failure comes from storage; ignoring the `false` hides it but does not cause it, and the SDK session itself stays listed by `session:list`, so no user data is lost. Neither breaks a lane config. | yes |
 
 ## Phases and reviews
 
 | Phase | Batches | Phase review |
 | ----- | ------- | ------------ |
 | 0 - Baseline | B0 | none (measurement) |
-| A - Chat runtime contracts | B1-B4 | code-logic |
-| B - Command Center model and Tribunal source | B5-B8 | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`) |
+| A - Chat runtime contracts | B1-B4, fix B4F | code-logic (B1-B4: NEEDS_REVISION); re-review scoped to B4F |
+| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8 | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`) |
 | C - Voice | B9-B10 | code-logic |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
 | E - Acceptance | B17-B18 | none (tests and measurement); B18 visual evidence is still required for Mode 3 |
@@ -359,7 +362,7 @@ last batch header.
   the send lock, so a lock engaged on a closed root stays held until page reload; (c) the marker
   `workspaceId` and the records key both use `activeWorkspacePath` (B2 note resolved).
 
-## Batch 4: Chat send funnel guard, persona attach and tab-explicit answers - COMPLETE
+## Batch 4: Chat send funnel guard, persona attach and tab-explicit answers - COMPLETE (commit 97929ae01)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript)
 - Execution mode: sequential
@@ -426,6 +429,62 @@ last batch header.
   send for a non-active tab without `tabId` checks the wrong tab; (f) the four new specs are thin
   (6 tests total) and the owner token is a local intersection type, not part of
   `SendMessageOptions`.
+- Phase A review: REQUESTED - code-logic on `054ac18ca..97929ae01` (B1-B4, 30 code/spec files).
+  Implementer family: codex (B1-B4). Reviewer family: grok CLI lane (different family). Output:
+  `TASK/code-logic-review.md`. Verdict: NEEDS_REVISION (6/10; 0 Blocking, 1 Serious L1,
+  3 Moderate L2, L3, L4). Fix round: L1 in Batch 4F (Decision D8). L2 deferred to Task 6.2 (D9).
+  L3 and L4 deferred to Batch 6A (D10). One re-review, scoped to the Batch 4F commit, follows it.
+
+## Batch 4F: Phase A fix round - persona on slash relaunch (review L1) - IN_PROGRESS
+
+- Recommended executor: CLI lane (implementation; NestJS-style backend TypeScript), codex family
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (implementer codex; re-reviewer grok or another non-codex family)
+- Rationale: one fix in one router plus one new spec, all in one backend project.
+- Tasks: 1 | Depends on: B1, B4
+- Phase: A - Chat runtime contracts (fix round) | Phase review: code-logic re-review scoped to the
+  Batch 4F commit only (L1 closure); no new public API, so no style review
+- Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -60`
+  (header must name 1 project). Verification rules above apply.
+- Suggested commit: `fix(rpc-handlers): batch 4F - keep persona on slash relaunch`
+
+### Task 4F.1: Carry systemPrompt into the slash new-query sessionConfig (L1) - IN_PROGRESS
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-persona.spec.ts` (new)
+- Plan reference: implementation-plan.md:14, :27; `TASK/code-logic-review.md` finding L1; risk R10
+- Defect: the `new-query` branch (`chat-slash-command-router.service.ts:114-157`) builds `sessionConfig`
+  at lines 141-150 with `model`, `projectPath`, `mcpToolProfile`, `ptahUiFence` and no `systemPrompt`.
+  `continueSession` sends every slash command through `endDeadRecordBeforeSlashCommand` and skips
+  `autoResumeIfInactive` (`chat-session.service.ts:981-991`), so the persona spread at
+  `chat-session.service.ts:1599` never runs for a slash relaunch.
+- Pattern to follow: `...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {})` at
+  `chat-session.service.ts:1599`; spec setup in `chat-continue-slash-before-resume.spec.ts` and
+  `chat-session-persona-resume.spec.ts` (same folder).
+- Quality requirements: the `new-query` `sessionConfig` carries `systemPrompt` when
+  `params.systemPrompt` is a non-empty string and carries no `systemPrompt` key otherwise. Native
+  commands (`/clear` and the other native branch) are unchanged. No other field of the call changes.
+- Validation notes: assumption to verify by reading and to record in the report:
+  `SdkAgentAdapter.executeSlashCommand` (`libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:1602-1630`)
+  keeps `systemPrompt` when it merges `providerProfile` into `sessionConfig` (`...config.sessionConfig`),
+  and `SessionLifecycleManager.executeSlashCommandQuery` (`helpers/session-lifecycle-manager.ts:730-759`)
+  passes `sessionConfig` to `executeQuery`, whose options builder reads `sessionConfig.systemPrompt`.
+  If that chain drops the field, stop and report it; do not edit agent-sdk.
+- Implementation details: one spread line in the router. The new spec asserts the
+  `executeSlashCommand` call's `sessionConfig` for: (a) slash continue with a persona on a session with
+  no live record (inactive); (b) the same on a session with a live record (already active); (c) no
+  `systemPrompt` param gives no key; (d) an empty-string `systemPrompt` gives no key; (e) `/clear`
+  makes no `executeSlashCommand` call.
+
+### Batch 4F verification
+
+- Both listed files exist; the router has the spread and the spec has cases (a)-(e).
+- The scoped command passes (1 project in the header); output tailed; existing
+  `chat-continue-slash-before-resume.spec.ts` and `chat-session-provider-profile.spec.ts` still pass.
+- After commit, return NEEDS REVIEW for the one scoped re-review (code-logic, Batch 4F commit only).
+- Edge cases: inactive and active slash continue; unmarked tab sends no key; empty string; native commands.
 
 ## Batch 5: command-center lib skeleton, scope and store - PENDING
 
@@ -506,11 +565,78 @@ last batch header.
   bounded backoff; safe errors without raw exception text.
 - Implementation details: depends on `@ptah-extension/chat-state` and `@ptah-extension/chat`; specs mock `ClaudeRpcService`.
 
+### Task 6.2: Persona on the first chat:start of a marked tab (deferred Phase A review L2) - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/message-sender.service.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/message-sender.command-center.spec.ts`
+- Plan reference: implementation-plan.md:14, :27; `TASK/code-logic-review.md` finding L2; Decision D9
+- Defect: `startNewConversation` (`message-sender.service.ts:457-472`) sends `chat:start` with no
+  `options.systemPrompt`; only continue (`:711-719`) and activating resume
+  (`session-loader.service.ts:995-1000`) attach `commandCenterPersonaFor`. A regular-chat send on a marked tab
+  with no SDK id yet pins a persona-less query that later continues cannot repair.
+- Pattern to follow: the continue-path persona spread at `message-sender.service.ts:711-719`.
+- Quality requirements: `chat:start` for a marked tab carries `options.systemPrompt: commandCenterPersonaFor(tab)`;
+  unmarked tabs send no `systemPrompt` key; the coordinator's own start (Task 6.1) and a racing regular-chat
+  send produce the same persona.
+- Validation notes: the backend reads `options.systemPrompt` on `chat:start` today; confirm by reading the
+  `chat:start` schema and handler and record it in the report.
+- Implementation details: extend the existing B4 spec with a marked and an unmarked start case.
+
 ### Batch 6 verification
 
 - Every listed artifact exists and contains the required work.
-- The scoped command passes; output tailed.
+- The scoped command passes; output tailed. With Task 6.2 the batch changes 2 projects: use
+  `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center @ptah-extension/chat --parallel=1 2>&1 | tail -60`
+  (header must name 2 projects) in place of the one-project command above.
 - No per-batch review.
+
+## Batch 6A: Lock release on close and record-write surfacing (deferred Phase A review L3, L4) - PENDING
+
+- Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer
+- Rationale: two surgical fixes in one data-access lib, both on the marked-tab close and bind paths.
+- Tasks: 2 | Depends on: B3; runs after B6 (Decision D5 sequencing)
+- Phase: B | Phase review: covered by the Phase B review after B8
+- Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/chat-state --parallel=1 2>&1 | tail -60`
+  (header must name 1 project). Verification rules above apply.
+- Suggested commit: `fix(chat-state): batch 6A - release lock on close, surface record failures`
+
+### Task 6A.1: Drop the send lock when its root tab closes (L3) - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.spec.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.service.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.command-center.spec.ts`
+- Plan reference: implementation-plan.md:17, :29; `TASK/code-logic-review.md` finding L3; Decision D10
+- Defect: confirmed close of a marked tab (`tab-manager.service.ts:1349-1352`) clears the active-tab record and
+  does not release the lock; `release` is token-gated, so close cannot call it.
+- Quality requirements: a lock-service method that clears the lock only when its `rootTabId` is the given tab id;
+  `closeTab` calls it after the confirm, for a removed tab only (a workspace-switch park keeps the lock). Owner
+  `release` after the clear is a no-op; another root's lock is untouched.
+- Validation notes: do not treat the next `engage` overwrite as the release path.
+
+### Task 6A.2: Surface a failed records write on bind, create and close (L4) - PENDING
+
+- Depends on: Task 6A.1 (same file)
+- Files: same as Task 6A.1 (tab-manager service and its command-center spec)
+- Plan reference: implementation-plan.md:16; `TASK/code-logic-review.md` "Record write failure looks like success"; Decision D10
+- Defect: `CommandCenterRecordsService` writes return `false` on quota or validation failure; `attachSession`
+  (`tab-manager.service.ts:1930-1933`, `writeLastSession`) and `createCommandCenterTab` (`:991`, `setActiveTabId`)
+  ignore it, as does the close-path `setActiveTabId(..., null)`.
+- Quality requirements: on `false`, log a warning with the workspace and record kind (no raw exception text) and set
+  a readonly signal that the page (Task 14) can read to show a safe notice; the tab lifecycle still proceeds.
+- Validation notes: a later successful write clears the signal; unmarked tabs never touch it.
+
+### Batch 6A verification
+
+- Every listed artifact exists and contains the required work.
+- The scoped command passes (1 project); output tailed; all existing `tab-manager.*.spec.ts` still pass.
+- No per-batch review; the Phase B review covers it.
+- Edge cases: close of a marked tab with lock engaged; close of a non-root tab; park on workspace switch;
+  setItem throws on bind and on close.
 
 ## Batch 7: Tribunal pure framing, phase derivation and narrow phase entry - PENDING
 
@@ -980,7 +1106,8 @@ last batch header.
 - Quality requirements: owns lifecycle (coordinator open/resume, voice loop start/stop, teardown on navigation keeps
   the session); renders scene, overlay, HUD, pending card, work list, controls and compact text replies; list-only
   mode when Canvas 2D is unavailable; mic denied/provider missing keep text and graph usable.
-- Validation notes: navigation away releases mic/playback and keeps identity (AC16).
+- Validation notes: navigation away releases mic/playback and keeps identity (AC16). Read the Task 6A.2
+  records-write-failure signal and show a safe notice that the session pointer was not saved.
 - Implementation details: export `CommandCenterPageComponent` from `src/index.ts`.
 
 ### Batch 14 verification
