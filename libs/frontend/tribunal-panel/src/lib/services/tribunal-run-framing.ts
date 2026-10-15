@@ -100,8 +100,10 @@ const UNALLOCATED_SPEC_FOLDER = '<spec folder>';
  */
 const ROUND_JUDGE_NAME_PATTERN = roundJudgeFile(1).replace('1', 'N');
 
-/** Crucible's default revise-round cap, and its maximum at launch (AC-3.2). */
+/** Crucible's default revise-round cap (AC-3.2). */
 export const DEFAULT_CRUCIBLE_ROUND_CAP = 2;
+/** Crucible's maximum revise-round cap at launch (AC-3.2). */
+export const MAX_CRUCIBLE_ROUND_CAP = 2;
 
 export type TribunalFramingContext = {
   readonly specTaskId: string | null;
@@ -115,7 +117,7 @@ export function roundCapFor(spec: {
 }): number | null {
   if (spec.move !== 'crucible') return null;
   const requested = spec.roundCap ?? DEFAULT_CRUCIBLE_ROUND_CAP;
-  return Math.min(Math.max(1, Math.trunc(requested)), 2);
+  return Math.min(Math.max(1, Math.trunc(requested)), MAX_CRUCIBLE_ROUND_CAP);
 }
 
 export function laneTag(laneId: string, role?: LaneRole): string {

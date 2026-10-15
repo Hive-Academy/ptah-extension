@@ -1,6 +1,7 @@
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { BATCHES_FILE, LEGACY_BATCHES_FILE } from '@ptah-extension/shared';
 import { RELAY_DELIVERABLE } from './spec-documents';
+import { DEFAULT_CRUCIBLE_ROUND_CAP } from './tribunal-run-framing';
 import {
   NO_PROGRESS,
   RELAY_ROLES,
@@ -87,7 +88,7 @@ export function derivePhase(input: PhaseDerivationInput): TribunalProgress {
     };
   if (input.move === 'relay') return deriveRelay(input, input.artifacts.names);
   const rounds = input.artifacts.rounds ?? [];
-  const roundCap = input.artifacts.roundCap ?? 2;
+  const roundCap = input.artifacts.roundCap ?? DEFAULT_CRUCIBLE_ROUND_CAP;
   const inFlight = Array.from(input.laneBindings.bound.values()).some(
     (agent) => agent?.status === 'running',
   );
