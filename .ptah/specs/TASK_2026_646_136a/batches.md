@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 47 | Batches: 40 (Batches 37 and 37b P3 fix round added, decisions #93, #94) | Complete: 37/40 | Phases accepted: P1, P2 (decision #85), P3 (decision #96) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91) | P3 ACCEPTED (user, decision #96) after fix round Batch 37 and correction 37b
+Total tasks: 47 | Batches: 40 (Batches 37 and 37b P3 fix round added, decisions #93, #94) | Complete: 38/40 | Phases accepted: P1, P2 (decision #85), P3 (decision #96) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91) | P3 ACCEPTED (user, decision #96) after fix round Batch 37 and correction 37b
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -1618,7 +1618,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 
 - One at a time: `J(apps/ptah-extension-vscode, apps/ptah-extension-vscode/src/di/container.smoke.spec.ts)`, `J(apps/ptah-electron, apps/ptah-electron/src/di/container.smoke.spec.ts)`, `J(apps/ptah-cli, apps/ptah-cli/src/di/container.smoke.spec.ts)`, then the cli-engine `rpc-surface.spec.ts`. The three `rpc-surface` specs stay red only by `agent:outcomeSignals` until Batch 25
 
-## Batch 31 (A15): Orchestration skill integration — PENDING
+## Batch 31 (A15): Orchestration skill integration — COMPLETE (orchestrator check 2026-10-15; actual executor: CLI lane codex, OpenAI, decision #97; report `reports/batch-31-report.md`; PA-5 holds; 3 skill files, +49/-13 ignoring whitespace, the rest is Prettier table padding; field names and enums checked against `OUTCOME_TASK_KINDS`, `OUTCOME_ROUTING_SOURCES`, `route-decide-args.schema.ts` and the review verdict enum; `ptah_agent_list` `Family` column named; no vendor-to-task table; prettier --check clean)
 
 - Recommended executor: CLI lane opencode (light docs work; near monthly limit)
 - Execution mode: sequential
