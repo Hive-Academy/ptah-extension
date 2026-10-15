@@ -116,13 +116,21 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
 
   /** The summary the panel shows: the selected turn's, else the latest turn's. */
   summaryFor(tabId: string): DisplayDockSummary | null {
+    const key = this.summaryKeyFor(tabId);
+    return key === null ? null : (this.tab(tabId).summaries.get(key) ?? null);
+  }
+
+  /** The turn key of the summary the panel shows (see {@link summaryFor}). */
+  summaryKeyFor(tabId: string): string | null {
     const state = this.tab(tabId);
-    if (state.summaryTurnKey !== null) {
-      const selected = state.summaries.get(state.summaryTurnKey);
-      if (selected !== undefined) return selected;
+    if (
+      state.summaryTurnKey !== null &&
+      state.summaries.has(state.summaryTurnKey)
+    ) {
+      return state.summaryTurnKey;
     }
-    let latest: DisplayDockSummary | null = null;
-    for (const summary of state.summaries.values()) latest = summary;
+    let latest: string | null = null;
+    for (const key of state.summaries.keys()) latest = key;
     return latest;
   }
 

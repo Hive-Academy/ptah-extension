@@ -120,7 +120,9 @@ export function summarizeTodos(
         break;
       }
     }
-    const input = toolInputOf(streaming, marker.toolCallId, startToolInput);
+    const input =
+      toolInputOf(streaming, marker.toolCallId, startToolInput) ??
+      marker.input;
     return summarizeList(input);
   }
   for (let i = messages.length - 1; i >= 0; i--) {

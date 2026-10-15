@@ -1,6 +1,7 @@
 import {
   createEmptyStreamingState,
   setStreamingEventCapped,
+  STREAMING_EVENT_CAP,
 } from '@ptah-extension/chat-types';
 import type {
   ExecutionChatMessage,
@@ -109,6 +110,63 @@ describe('compact todo metrics', () => {
     const afterCompaction = createEmptyStreamingState();
     afterCompaction.latestTodoWrite = { toolCallId: 'live', timestamp: 10 };
     expect(summarizeTodos(older, afterCompaction)).toEqual({ kind: 'unknown' });
+  });
+
+  it('keeps the latest streamed list after its start is evicted or compacted', () => {
+    const state = createEmptyStreamingState();
+    setStreamingEventCapped(state, start('todo'));
+    state.toolCallMap.set('todo', ['todo']);
+    state.toolInputAccumulators.set('todo-input', JSON.stringify({ todos }));
+    setStreamingEventCapped(state, {
+      id: 'todo-result',
+      eventType: 'tool_result',
+      toolCallId: 'todo',
+      messageId: 'message',
+      timestamp: 2,
+      output: 'ok',
+      isError: false,
+    });
+    for (let i = 0; i < STREAMING_EVENT_CAP; i++) {
+      setStreamingEventCapped(state, {
+        id: `filler-${i}`,
+        eventType: 'message_delta',
+        messageId: 'other',
+        timestamp: 3,
+        tokenUsage: { input: 0, output: 0 },
+      });
+    }
+    expect(state.events.has('todo')).toBe(false);
+    expect(state.toolInputAccumulators.has('todo-input')).toBe(false);
+    const known = {
+      kind: 'known',
+      done: 1,
+      total: 2,
+      active: 'Working on first',
+    };
+    expect(summarizeTodos([], state)).toEqual(known);
+    const afterCompaction = createEmptyStreamingState();
+    afterCompaction.latestTodoWrite = state.latestTodoWrite;
+    expect(summarizeTodos([], afterCompaction)).toEqual(known);
+  });
+
+  it('retains the streamed input when the start is evicted before its result', () => {
+    const state = createEmptyStreamingState();
+    setStreamingEventCapped(state, start('todo'));
+    state.toolCallMap.set('todo', ['todo']);
+    state.toolInputAccumulators.set('todo-input', JSON.stringify({ todos }));
+    for (let i = 0; i < STREAMING_EVENT_CAP; i++) {
+      setStreamingEventCapped(state, {
+        id: `filler-${i}`,
+        eventType: 'message_delta',
+        messageId: 'other',
+        timestamp: 3,
+        tokenUsage: { input: 0, output: 0 },
+      });
+    }
+    expect(summarizeTodos([], state)).toMatchObject({
+      kind: 'known',
+      total: 2,
+    });
   });
 
   it('does not read a finalized todo older than the compaction boundary', () => {

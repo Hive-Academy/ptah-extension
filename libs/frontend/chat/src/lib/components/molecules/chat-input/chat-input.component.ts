@@ -41,6 +41,7 @@ import {
 } from '../../../tokens/session-context.token';
 import {
   ComposerDraftStore,
+  type ComposerDraft,
   type ComposerDraftImage,
 } from '../../../services/composer-draft.store';
 import {
@@ -691,6 +692,11 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _pastedImages = signal<PastedImage[]>([]);
   private draftTabId: string | null = null;
+  /** Drafts whose send is still pending, with the tab they were sent from. */
+  private readonly sendsInFlight = new Set<{
+    tabId: string | null;
+    draft: ComposerDraft;
+  }>();
   private lastDraft: {
     text: string;
     files: ChatFile[];
@@ -1477,9 +1483,30 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     const blockReason = this.sessionStartGuard?.();
     if (blockReason) return this.showComposerError(blockReason);
     const normalizedContent = content;
+    // Captured before the await: the user may switch tabs while it runs, and
+    // the draft effect then shows (and stores) another tab's draft.
+    const sendingTabId =
+      this._sessionContext?.() ?? this.tabManager.activeTabId();
+    const submitted = {
+      text: this._currentMessage(),
+      files: this._selectedFiles(),
+      images,
+    };
+    // A double click, or Enter then a click, re-submits the unchanged draft
+    // while its send is pending. An edited or other-tab draft still sends.
+    for (const pending of this.sendsInFlight) {
+      if (
+        pending.tabId === sendingTabId &&
+        this.isSubmittedDraft(submitted, pending.draft)
+      ) {
+        return;
+      }
+    }
+    const inFlight = { tabId: sendingTabId, draft: submitted };
+    this.sendsInFlight.add(inFlight);
 
     try {
-      const filePaths = this._selectedFiles().map((f) => f.path);
+      const filePaths = submitted.files.map((f) => f.path);
       const inlineImages: InlineImageAttachment[] = images.map((img) => ({
         data: img.data,
         mediaType: img.mediaType,
@@ -1492,15 +1519,37 @@ export class ChatInputComponent implements OnInit, OnDestroy {
           tabId: this._sessionContext?.() ?? undefined,
         },
       );
-      this._currentMessage.set('');
-      this._selectedFiles.set([]);
-      this._pastedImages.set([]);
-      const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
-      if (tabId) this.draftStore.clear(tabId);
+      // A failed send also clears: the sender keeps the prompt as the user's
+      // bubble, so a kept draft would duplicate it on retry.
+      // Clear only what still holds the submitted draft: the sending tab's
+      // stored draft, and the composer while it shows that tab unchanged.
+      if (
+        sendingTabId &&
+        this.isSubmittedDraft(this.draftStore.get(sendingTabId), submitted)
+      ) {
+        this.draftStore.clear(sendingTabId);
+      }
+      if (
+        this.draftTabId === sendingTabId &&
+        this.isSubmittedDraft(
+          {
+            text: this._currentMessage(),
+            files: this._selectedFiles(),
+            images: this._pastedImages(),
+          },
+          submitted,
+        )
+      ) {
+        this._currentMessage.set('');
+        this._selectedFiles.set([]);
+        this._pastedImages.set([]);
+      }
       // The emptied `[value]` binding plus `field-sizing: content` shrink the
       // textarea back to its resting height — no manual height reset.
     } catch (error) {
       console.error('[ChatInputComponent] Failed to send message:', error);
+    } finally {
+      this.sendsInFlight.delete(inFlight);
     }
   }
 
@@ -1609,6 +1658,19 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       files: this._selectedFiles(),
       images: this._pastedImages(),
     };
+  }
+
+  /** The same text and the same file and image lists (by reference). */
+  private isSubmittedDraft(
+    draft: ComposerDraft | undefined,
+    submitted: ComposerDraft,
+  ): boolean {
+    return (
+      draft !== undefined &&
+      draft.text === submitted.text &&
+      draft.files === submitted.files &&
+      draft.images === submitted.images
+    );
   }
 
   private clearLocalDraft(): void {

@@ -139,8 +139,13 @@ describe('TurnSummaryComponent', () => {
   const pills = (kind: string): string[] =>
     queryAll('turn-summary-pill', card(kind) as HTMLElement).map(text);
 
-  function render(summary: TurnSummaryModel, actionError: string | null = null): void {
+  function render(
+    summary: TurnSummaryModel,
+    actionError: string | null = null,
+    turnKey = 'turn-1',
+  ): void {
     fixture.componentRef.setInput('summary', summary);
+    fixture.componentRef.setInput('turnKey', turnKey);
     fixture.componentRef.setInput('actionError', actionError);
     fixture.detectChanges();
   }
@@ -360,25 +365,33 @@ describe('TurnSummaryComponent', () => {
       conflicted: new Set([path]),
       reconciled: new Set(),
     });
-    const turnA = (options: Options = {}): TurnSummaryModel =>
-      model({ diff: changeSetOf(defaultFiles, { turnStartedAt: 1_000 }), ...options });
-    const turnB = (options: Options = {}): TurnSummaryModel =>
-      model({ diff: changeSetOf(defaultFiles, { turnStartedAt: 2_000 }), ...options });
+    const turnA = (options: Options = {}): void =>
+      render(
+        model({ diff: changeSetOf(defaultFiles, { turnStartedAt: 1_000 }), ...options }),
+        null,
+        'turn-a',
+      );
+    const turnB = (options: Options = {}): void =>
+      render(
+        model({ diff: changeSetOf(defaultFiles, { turnStartedAt: 2_000 }), ...options }),
+        null,
+        'turn-b',
+      );
 
     it('a new conflicted turn forces Files open after Files was closed on the previous turn', () => {
-      render(turnA({ marks: conflictOn('src/app/alpha.ts') }));
+      turnA({ marks: conflictOn('src/app/alpha.ts') });
       expect(toggleOf('files').getAttribute('aria-expanded')).toBe('true');
       open('files');
       expect(toggleOf('files').getAttribute('aria-expanded')).toBe('false');
 
-      render(turnB({ marks: conflictOn('src/app/beta.ts') }));
+      turnB({ marks: conflictOn('src/app/beta.ts') });
       expect(toggleOf('files').getAttribute('aria-expanded')).toBe('true');
       expect(regionOf('files').hasAttribute('inert')).toBe(false);
       expect(queryAll('turn-summary-file-row').length).toBeGreaterThan(0);
     });
 
     it('a new turn returns cards and the section to their defaults', () => {
-      render(turnA({ runs: mixedRuns }));
+      turnA({ runs: mixedRuns });
       open('tokens');
       open('tests');
       const section = query('turn-summary-toggle') as HTMLButtonElement;
@@ -387,7 +400,7 @@ describe('TurnSummaryComponent', () => {
       expect(toggleOf('tokens').getAttribute('aria-expanded')).toBe('true');
       expect(section.getAttribute('aria-expanded')).toBe('false');
 
-      render(turnB({ runs: mixedRuns }));
+      turnB({ runs: mixedRuns });
       for (const kind of ['files', 'lines', 'tokens', 'cost', 'duration', 'tests']) {
         expect(toggleOf(kind).getAttribute('aria-expanded')).toBe('false');
       }
@@ -395,27 +408,38 @@ describe('TurnSummaryComponent', () => {
     });
 
     it('a re-render of the same turn keeps the user choice, even when marks change', () => {
-      render(turnA({ marks: conflictOn('src/app/alpha.ts'), runs: mixedRuns }));
+      turnA({ marks: conflictOn('src/app/alpha.ts'), runs: mixedRuns });
       open('files');
       open('tokens');
       expect(toggleOf('files').getAttribute('aria-expanded')).toBe('false');
 
-      render(turnA({ marks: conflictOn('src/app/beta.ts'), runs: mixedRuns }));
+      turnA({ marks: conflictOn('src/app/beta.ts'), runs: mixedRuns });
       expect(toggleOf('files').getAttribute('aria-expanded')).toBe('false');
       expect(toggleOf('tokens').getAttribute('aria-expanded')).toBe('true');
     });
 
-    it('a file-less turn keys on its test runs: a new outcome keeps, new commands reset', () => {
+    it('a file-less turn keys on the source turn id: an added run keeps, a look-alike turn resets', () => {
       const running: readonly TurnTestRun[] = [
         { command: 'npx nx test chat-ui', project: 'chat-ui', outcome: 'running' },
       ];
-      render(model({ diff: null, runs: running }));
+      render(model({ diff: null, runs: running }), null, 'turn-a');
       open('tests');
-      render(model({ diff: null, runs: [{ ...running[0], outcome: 'passed' }] }));
+      const section = query('turn-summary-toggle') as HTMLButtonElement;
+      section.click();
+      fixture.detectChanges();
+      // The same turn gains a run and resolves an outcome: choices stay.
+      render(
+        model({ diff: null, runs: [{ ...running[0], outcome: 'passed' }, ...mixedRuns] }),
+        null,
+        'turn-a',
+      );
       expect(toggleOf('tests').getAttribute('aria-expanded')).toBe('true');
+      expect(section.getAttribute('aria-expanded')).toBe('false');
 
-      render(model({ diff: null, runs: mixedRuns }));
+      // Another file-less turn that ran the very same commands: defaults again.
+      render(model({ diff: null, runs: running }), null, 'turn-b');
       expect(toggleOf('tests').getAttribute('aria-expanded')).toBe('false');
+      expect(section.getAttribute('aria-expanded')).toBe('true');
     });
   });
 

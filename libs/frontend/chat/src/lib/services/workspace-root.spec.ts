@@ -6,4 +6,11 @@ describe('workspace root identity', () => {
     expect(sameWorkspaceRoot('C:\\Work\\Repo', 'c:/work/repo/')).toBe(true);
     expect(sameWorkspaceRoot('/Work/Repo', '/work/repo')).toBe(false);
   });
+
+  it('folds the drive letter of a drive-root workspace', () => {
+    expect(normalizeWorkspaceRoot('C:\\')).toBe('c:');
+    expect(sameWorkspaceRoot('C:\\', 'c:\\')).toBe(true);
+    expect(sameWorkspaceRoot('C:/', 'c:')).toBe(true);
+    expect(sameWorkspaceRoot('C:\\', 'D:\\')).toBe(false);
+  });
 });

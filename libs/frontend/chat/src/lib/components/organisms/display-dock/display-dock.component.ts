@@ -94,6 +94,7 @@ const ACTION_FAILED_TEXT = 'The review action failed.';
           class="min-h-0 flex-1"
           [surfaces]="state().surfaces"
           [summary]="summary()?.model ?? null"
+          [summaryTurnKey]="summaryTurnKey() ?? ''"
           [selectedKey]="selectedKey()"
           [pinned]="state().pinned"
           [viewStates]="state().viewStates"
@@ -134,6 +135,9 @@ export class DisplayDockComponent {
   protected readonly state = computed(() => this.dock.tab(this.tabId()));
   protected readonly summary = computed(() =>
     this.dock.summaryFor(this.tabId()),
+  );
+  protected readonly summaryTurnKey = computed(() =>
+    this.dock.summaryKeyFor(this.tabId()),
   );
 
   /** The store selection as the panel's single strip key (decision #102). */

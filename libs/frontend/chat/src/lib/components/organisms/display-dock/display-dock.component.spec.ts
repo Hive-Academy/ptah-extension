@@ -29,6 +29,7 @@ import { DisplayDockComponent } from './display-dock.component';
 class StubDisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly summary = input<TurnSummaryModel | null>(null);
+  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly pinned = input(false);
   readonly viewStates = input<ReadonlyMap<string, SurfaceViewState>>(new Map());
@@ -185,6 +186,8 @@ describe('DisplayDockComponent', () => {
       fixture.detectChanges();
       expect(panel().surfaces()).toBe(surfaces);
       expect(panel().summary()).toBe(MODEL);
+      // The panel keys its disclosure state on the source's turn id.
+      expect(panel().summaryTurnKey()).toBe('turn-1');
       expect(panel().viewStates()).toBe(dock.tab(TAB).viewStates);
     });
 

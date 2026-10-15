@@ -103,25 +103,6 @@ const SUMMARY_STYLES = `
 
 let nextTurnSummaryInstance = 0;
 
-/**
- * Which turn a summary model describes. The model carries no turn id, so the
- * key is the change set's `sessionId` and `turnStartedAt` (the prompt
- * submission that started the turn), which marks and late test outcomes never
- * change. A turn with no files falls back to its test runs' projects and
- * commands: stable while outcomes resolve, but two file-less turns that ran
- * the very same commands read as one turn.
- */
-function turnKeyOf(summary: TurnSummaryModel): string {
-  if (summary.files !== null) {
-    const { sessionId, turnStartedAt } = summary.files.changeSet;
-    return `turn\u0000${sessionId}\u0000${turnStartedAt}`;
-  }
-  const runs = (summary.tests?.runs ?? []).map(
-    (run) => `${run.project ?? ''}\u0000${run.command}`,
-  );
-  return `tests\u0000${runs.join('\u0001')}`;
-}
-
 /** A value the source could not produce reads as its status word, never 0. */
 function shown(value: number | string, format: (n: number) => string): string {
   return typeof value === 'number' ? format(value) : value;
@@ -142,7 +123,7 @@ function shown(value: number | string, format: (n: number) => string): string {
  *   Files open until the user toggles it (parity section 2). The card grid
  *   never reflows on a toggle: open details stack under it in card order.
  * - Open/closed choices (cards and section) last one turn: the dock reuses
- *   this component across turns, so a different turn (`turnKeyOf`) restores
+ *   this component across turns, so a different turn (`turnKey`) restores
  *   the defaults, while a re-render of the same turn keeps them.
  * - Files detail (`ptah-turn-summary-files`): the change-set card's
  *   capabilities, parity section 2.
@@ -394,6 +375,13 @@ function shown(value: number | string, format: (n: number) => string): string {
 export class TurnSummaryComponent {
   /** The turn's summary model; the dock mounts the section only when it exists. */
   readonly summary = input.required<TurnSummaryModel>();
+  /**
+   * The summary source's id of the turn `summary` describes (the user message
+   * that opened it). A re-render of the same turn (new marks, a resolved test
+   * outcome, an added run) keeps every open/closed choice; a different turn
+   * resets them, even when its cards look alike.
+   */
+  readonly turnKey = input.required<string>();
   /** The last Open file / Review failure text, shown under the cards (R6.8). */
   readonly actionError = input<string | null>(null);
   /** Open (or resolve) one file of the change set; emits its path. */
@@ -425,11 +413,6 @@ export class TurnSummaryComponent {
   protected readonly PinIcon = Pin;
   protected readonly TriangleAlertIcon = TriangleAlert;
 
-  /**
-   * The turn the model describes. A string, so a re-render of the same turn
-   * (new marks, a resolved test outcome) keeps the key and every choice below.
-   */
-  private readonly turnKey = computed(() => turnKeyOf(this.summary()));
   /**
    * The section is open by default (design section 3, `section`). The user's
    * choice lasts for one turn: a different turn reopens it.

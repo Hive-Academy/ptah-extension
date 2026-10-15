@@ -149,10 +149,16 @@ const EMPTY_LANES: CompactLaneSummary = {
         position: absolute;
         inset: -3px 0;
       }
-      .rc-action:focus-visible,
-      .rc-select:focus-visible {
+      .rc-action:focus-visible {
         outline: 2px solid var(--rail-state-ink);
         outline-offset: 1px;
+      }
+      /* .rc-select is opacity 0, which hides its own outline, so the host
+         draws the keyboard ring. Inset 4 px: inside the 2 px focused frame and
+         clear of the parent's overflow clip. */
+      :host(:has(.rc-select:focus-visible)) {
+        outline: 2px solid var(--rail-state-ink);
+        outline-offset: -4px;
       }
       /* Hover changes paint only (no padding, border width or size), so the
          176/96 px card and the 70 px lane block never shift. The state inks
@@ -374,7 +380,9 @@ const EMPTY_LANES: CompactLaneSummary = {
         <span>{{ todoCount() }}</span
         ><span
           >ctx
-          {{ contextPercent() === null ? '—' : contextPercent() + '%' }}</span
+          {{
+            contextPercent() === null ? '—' : roundedContextPercent() + '%'
+          }}</span
         >
         <span class="rc-ellipsis">{{ shownMetrics() }}</span
         ><span class="ml-auto shrink-0">{{ gitCount() }}</span>
@@ -450,6 +458,9 @@ export class CompactRailCardComponent implements DoCheck {
     const t = this.todos();
     return t.kind === 'known' ? `${t.done}/${t.total}` : '—';
   });
+  readonly roundedContextPercent = computed(() =>
+    Math.round(this.contextPercent() ?? 0),
+  );
   readonly gitCount = computed(() => {
     const g = this.gitStats();
     return g.kind === 'known' ? `+${g.additions} −${g.deletions}` : '—';

@@ -235,6 +235,34 @@ describe(CompactRailCardComponent.name, () => {
     expect(host.classList.contains('rc-focused')).toBe(false);
   });
 
+  it('draws the keyboard ring of the invisible select button on the host', () => {
+    const rules = cssRules();
+    // opacity 0 on .rc-select hides any outline drawn on the button itself.
+    expect(
+      rules.some(
+        (rule) =>
+          /\.rc-select:focus-visible/.test(rule.selector) &&
+          !rule.selector.startsWith(':host(:has('),
+      ),
+    ).toBe(false);
+    const ring = rules.find(
+      (rule) => rule.selector === ':host(:has(.rc-select:focus-visible))',
+    );
+    expect(ring?.declarations).toEqual([
+      ['outline', '2px solid var(--rail-state-ink)'],
+      ['outline-offset', '-4px'],
+    ]);
+  });
+
+  it('rounds the context percentage it shows', () => {
+    const f = render();
+    f.componentRef.setInput('contextPercent', 37.41666);
+    f.detectChanges();
+    const text = (f.nativeElement.textContent as string).replace(/\s+/g, ' ');
+    expect(text).toContain('ctx 37%');
+    expect(text).not.toContain('37.41666');
+  });
+
   it('F-B: the 10px state pill lifts its state ink toward base-content for 4.5:1 text', () => {
     const f = render();
     const pill = f.nativeElement.querySelector('.rc-pill') as HTMLElement;

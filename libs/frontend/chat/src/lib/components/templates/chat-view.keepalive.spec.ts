@@ -278,6 +278,7 @@ describe('ChatViewComponent keep-alive — workspace-switch transcript survival'
 class StubDisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly summary = input<unknown>(null);
+  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);

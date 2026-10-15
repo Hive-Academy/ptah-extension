@@ -422,16 +422,20 @@ describe('DisplayDockState', () => {
         ]),
       );
       expect(store.summaryFor(TAB_A)).toBe(second);
+      expect(store.summaryKeyFor(TAB_A)).toBe('u2');
 
       store.openSummary(TAB_A, 'u1');
       expect(store.summaryFor(TAB_A)).toBe(first);
+      expect(store.summaryKeyFor(TAB_A)).toBe('u1');
 
       store.setSummaries(TAB_A, new Map([['u2', second]]));
       expect(store.tab(TAB_A).summaryTurnKey).toBeNull();
       expect(store.summaryFor(TAB_A)).toBe(second);
+      expect(store.summaryKeyFor(TAB_A)).toBe('u2');
 
       store.setSummaries(TAB_A, new Map());
       expect(store.summaryFor(TAB_A)).toBeNull();
+      expect(store.summaryKeyFor(TAB_A)).toBeNull();
       expect(store.tab(TAB_A).selection).toBeNull();
       expect(store.summaryFor(TAB_B)).toBeNull();
     });
