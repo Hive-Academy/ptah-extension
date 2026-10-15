@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 36 | Batches: 31 | Complete: 0/31
+Total tasks: 36 | Batches: 31 | Complete: 3/31
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -109,7 +109,7 @@ Assumptions:
 | R-2 The split puts the part B chain B4a→B4b→B4c→B5→B10a→AB9 on a second 8-wave critical path | MEDIUM | Those batches take the first slot of each wave (in-flight order per wave below) |
 | R-3 Commitlint `scope-enum` has no `lane-routing` / `lane-outcomes`; commits under those scopes fail | MEDIUM | Task 1.1 adds `lane-routing`, Task 6.1 adds `lane-outcomes` to `W\.commitlintrc.json` |
 | R-4 R6-1 (decision #52): readable-store hold capacity counts expired rows until the 60 s sweep | MEDIUM | Task 6.1 (store query `expires_at > now`, delete-expired-before-insert API) + Task 15.2 acceptance fixture |
-| R-5 Adding `agent:outcomeSignals` to `RPC_METHOD_NAMES` (AB1) changes the host RPC-surface partitions before any handler exists (B7) | MEDIUM | Task 2.2 runs the five RPC guard specs; if one fails only for the missing handler, the method/capability entry moves to Batch 25 (rule 8) |
+| R-5 Adding `agent:outcomeSignals` to `RPC_METHOD_NAMES` (AB1) changes the host RPC-surface partitions before any handler exists (B7) | MEDIUM | Task 2.2 runs the five RPC guard specs; if one fails only for the missing handler, the method/capability entry moves to Batch 25 (rule 8). **Resolved at Batch 2 verify (2026-10-15):** the entry STAYS in Batch 2 (Batch 8 depends only on Batch 2 and calls `'agent:outcomeSignals'` through the typed registry; plan part B :106 puts the registry entry in AB1). The R-5 guard-spec check moves to Batch 25. Known red until Batch 25 commits, each by exactly the one method `'agent:outcomeSignals'` (422 expected / 421 derived): vscode `rpc-surface.spec.ts` partition test, electron `rpc-surface.spec.ts` "serves every method", cli-engine `rpc-surface.spec.ts` partition test, `rpc-handlers` `rpc-allowlist.spec.ts` "claims every registry method exactly once", and the dev-mode `assertManifestInvariants` call at host RPC registration (`register-rpc-surface.ts:141-143`) — so no host is dev-booted before Batch 25. Batches 14 and 18 treat this one-method gap as known, not theirs |
 | R-6 Guard specs go red between a registering batch and AB14 (DI deps registered only in AB14) | MEDIUM | Rule 8 in every registering batch (3, 14, 19, 24, 25, 29, 30): run guard specs; stop-and-report, team-leader moves the line |
 | R-7 Pre-push `validate-deps`/di-lint flags a new lib before AB14 wires it | LOW | Fix commit on top; allowlist change owned by Batch 30 (AB14) |
 | R-8 New lib cycle (`agent-sdk -> lane-routing`, `lane-outcomes -> agent-sdk`) | MEDIUM | Rule 9; `nx lint` per lib; Batch 19 confirms no reverse edge |
@@ -172,7 +172,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 ---
 
-## Batch 1 (A2): lane-routing scaffold — IN_PROGRESS
+## Batch 1 (A2): lane-routing scaffold — COMPLETE (commit 5a6c3faa2)
 
 - Recommended executor: CLI lane grok (xAI) — backend TypeScript, Nx lib scaffold
 - Execution mode: sequential
@@ -183,7 +183,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: none
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 1.1: Scaffold `@ptah-extension/lane-routing` — IN_PROGRESS
+### Task 1.1: Scaffold `@ptah-extension/lane-routing` — COMPLETE
 
 - File: `W\libs\backend\lane-routing\` (`project.json`, `tsconfig.json`, `tsconfig.lib.json`, `tsconfig.spec.json`, `jest.config.ts`, `eslint.config.mjs`, `README.md`, `src\index.ts`), `LR\di\tokens.ts`, `LR\routing-constants.ts`; MODIFY `W\tsconfig.base.json`, `W\.commitlintrc.json`
 - Plan reference: implementation-plan.md:734 (A2 row); implementation-plan-part-a.md:132-180 (§2), :921; SC-3 implementation-plan.md:168-180; SC-9 :375-382
@@ -196,8 +196,9 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `npx nx test @ptah-extension/lane-routing --parallel=1`, then `npx nx lint @ptah-extension/lane-routing`, then `npx nx typecheck @ptah-extension/lane-routing`
 - Only wave-1 batch touching `tsconfig.base.json`; no phase review per batch
+- Result (team-leader, 2026-10-15): test passed (no specs yet, `passWithNoTests` until A3); lint "All files pass linting"; typecheck passed. Nx project name `@ptah-extension/lane-routing`. Rule 9: the only module import is `import type { LaneLimitState } from '@ptah-extension/shared'` (no vscode-core, agent-sdk, lane-outcomes, platform-core). `tsconfig.base.json` and `.commitlintrc.json` held only Batch 1 hunks (alias + `lane-routing` scope; R-3 for lane-routing resolved). `register.ts` deferred to Task 21.1 as planned. Implementer xAI (grok); P1 review family Anthropic
 
-## Batch 2 (AB1): Shared contracts — IN_PROGRESS
+## Batch 2 (AB1): Shared contracts — COMPLETE (commit c51b98335)
 
 - Recommended executor: CLI lane Glm (Zhipu, ptah-cli `pc-355b645d-35af-4974-84cf-9cf961ea0164`) — TypeScript types
 - Execution mode: sequential
@@ -208,7 +209,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 2 | Depends on: none
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 2.1: Lane family and outcome contracts — IN_PROGRESS
+### Task 2.1: Lane family and outcome contracts — COMPLETE
 
 - File: CREATE `W\libs\shared\src\lib\utils\lane-family.ts` (+ `lane-family.spec.ts`), `W\libs\shared\src\lib\types\lane-outcome.types.ts`; MODIFY `W\libs\shared\src\lib\types\agent-process.types.ts`, the shared barrel
 - Plan reference: implementation-plan.md:733; SC-1 :71-142, SC-2 :143-167, SC-4 :181-215, SC-5 :216-232, SC-6 :233-253
@@ -217,7 +218,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Validation notes: decision I2 (part B field set canonical, `family` non-null); no runtime deps beyond shared
 - Implementation details: pure types plus one pure function with a table-driven spec
 
-### Task 2.2: Outcome-signals RPC types — IN_PROGRESS
+### Task 2.2: Outcome-signals RPC types — COMPLETE
 
 - Depends on: Task 2.1
 - File: CREATE `W\libs\shared\src\lib\types\rpc\rpc-lane-outcome.types.ts`; MODIFY `W\libs\shared\src\lib\types\rpc.types.ts` (method + capability map), shared barrel
@@ -230,8 +231,10 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 ### Batch 2 verification
 
 - `npx nx test @ptah-extension/shared --parallel=1` (includes `host-source-registry.contract.spec.ts`), then `npx nx typecheck @ptah-extension/shared`, then the R-5 guard specs one at a time
+- Result (team-leader, 2026-10-15): shared test 114 suites / 3604 tests passed; shared typecheck passed; shared lint 0 errors (only pre-existing `max-lines` warning on `rpc.types.ts`). R-5 guard specs: vscode 7/8, electron 5/6, cli-engine 17/18; the single failure in each is the `'agent:outcomeSignals'` handler gap (no `RPC_HANDLER_MANIFEST` entry until Batch 25). `surface-composition.spec.ts` passed in all three. Rule 8 applied: R-5 guard-spec check DEFERRED to Batch 25; entry kept here (see R-5 row)
+- Environment: the worktree had no `node_modules`, so `jest.preset.js`'s `marked` mapper could not resolve; a git-ignored junction `W\node_modules -> D:\projects\ptah-extension\node_modules` was added (same as other worktrees)
 
-## Batch 3 (B3): Subagent budget-stop registry; Ptah run tag — IN_PROGRESS
+## Batch 3 (B3): Subagent budget-stop registry; Ptah run tag — COMPLETE (commit e6b75a30a)
 
 - Recommended executor: CLI lane codex (OpenAI) — backend TypeScript, hook semantics
 - Execution mode: sequential
@@ -242,7 +245,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 2 | Depends on: none
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 3.1: Budget-stop callback registry — IN_PROGRESS
+### Task 3.1: Budget-stop callback registry — COMPLETE
 
 - File: CREATE `W\libs\backend\agent-sdk\src\lib\helpers\subagent-budget-stop-callback-registry.ts` (+ spec); MODIFY `W\libs\backend\agent-sdk\src\lib\helpers\compaction\subagent-budget-monitor.ts` (+ spec), `W\libs\backend\agent-sdk\src\lib\di\register.ts`, the agent-sdk tokens file, `W\libs\backend\agent-sdk\src\index.ts`
 - Plan reference: implementation-plan.md:736; implementation-plan-part-b.md:377-407 (§5)
@@ -251,7 +254,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Validation notes: PB-2, PB-6 first; rule 8 — run `J(apps/ptah-extension-vscode, apps/ptah-extension-vscode/src/di)` after the lib check if a new token is registered in `register.ts`
 - Implementation details: registry singleton registered with agent-sdk services; monitor notifies on stop
 
-### Task 3.2: Ptah run tag on main-thread Agent/Task results — IN_PROGRESS
+### Task 3.2: Ptah run tag on main-thread Agent/Task results — COMPLETE
 
 - Depends on: Task 3.1
 - File: CREATE `W\libs\backend\agent-sdk\src\lib\helpers\subagent-run-tag.ts` (+ spec); MODIFY `W\libs\backend\agent-sdk\src\lib\helpers\post-tool-use-hook-handler.ts` (+ spec)
@@ -264,10 +267,13 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 ### Batch 3 verification
 
 - `J(libs/backend/agent-sdk, <budget-stop registry spec, monitor spec, run-tag spec, post-tool-use-hook-handler spec>)`, then `npx nx typecheck @ptah-extension/agent-sdk`, then rule-8 guard specs if a token was registered
+- Result (team-leader, 2026-10-15): the 4 agent-sdk specs passed, 114 tests (ts-jest diagnostics on, so spec types are checked). agent-sdk typecheck passed. ESLint on the 13 changed files: 0 errors; 3 warnings were already there (`max-lines` on the monitor, unused `SetupRpcHandlers` in both smoke specs). Rule 8: electron `container.smoke.spec.ts` 20/20, cli `container.smoke.spec.ts` (`jest.config.cjs`) 10/10. VS Code `container.smoke.spec.ts` and every `expected-resolvable.ts` list no SDK registry tokens (the sibling `SDK_SUBAGENT_STOP_CALLBACK_REGISTRY` is absent too), so they need no change. `TOKENS.SUBAGENT_REGISTRY_SERVICE`, which the hook handler now injects, is registered for every host in `vscode-core/src/di/register-platform-agnostic.ts:77`
+- IA-5: the report records the fallback (`tool_response.agentId` on a registry miss) and the open live capture. Batch 31 (A15) owns that capture. No Batch 3 path needs IA-5 proven: the sync, async and miss shapes are covered by specs
 
-## Batch 4 (B2): Migrations 0054, 0055 — PENDING
+## Batch 4 (B2): Migrations 0054, 0055 — IN_PROGRESS
 
 - Recommended executor: CLI lane antigravity (Google) — SQL migrations
+- Actual executor: CLI lane Glm (Zhipu) — antigravity hit its quota (decisions.md #54)
 - Execution mode: sequential
 - Fallback order: Glm -> grok -> subagent backend-developer
 - Subagent reason: N/A
@@ -276,7 +282,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: none
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 4.1: Lane outcome tables and skill invocation run id — PENDING
+### Task 4.1: Lane outcome tables and skill invocation run id — IN_PROGRESS
 
 - File: CREATE `W\libs\backend\persistence-sqlite\src\lib\migrations\0054_lane_outcome_records.ts` (+ spec), `0055_skill_invocation_run_id.ts` (+ spec); MODIFY `W\libs\backend\persistence-sqlite\src\lib\migrations\index.ts`
 - Plan reference: implementation-plan.md:735; part-b:191-224 (§2); SC-10 keys :383-650
@@ -289,7 +295,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `npx nx test @ptah-extension/persistence-sqlite --parallel=1`
 
-## Batch 5 (A3): Route contracts and ports — PENDING
+## Batch 5 (A3): Route contracts and ports — IN_PROGRESS (actual executor: CLI lane codex, OpenAI — decision #55)
 
 - Recommended executor: CLI lane grok (xAI) — TypeScript + Zod schemas
 - Execution mode: sequential
@@ -300,7 +306,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 1, Batch 2
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 5.1: Route-decide args/result schemas and ports — PENDING
+### Task 5.1: Route-decide args/result schemas and ports — IN_PROGRESS
 
 - File: CREATE `LR\contracts\route-decide-args.schema.ts`, `LR\contracts\route-decide-result.schema.ts`, `LR\contracts\contracts.spec.ts`, `LR\route-candidate-source.port.ts`, `LR\lane-model-listing.port.ts`
 - Plan reference: implementation-plan.md:737; part-a:922
@@ -798,11 +804,11 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 ### Task 25.1: Outcome-signals RPC handler — PENDING
 
-- File: CREATE `W\libs\backend\rpc-handlers\src\lib\handlers\agent-outcome-rpc.handlers.ts` (+ spec), `W\libs\backend\rpc-handlers\src\lib\handlers\agent-outcome.schema.ts`; MODIFY `W\libs\backend\rpc-handlers\src\lib\register-shared-rpc-handlers.ts`, `W\libs\backend\rpc-handlers\src\lib\rpc-allowlist.spec.ts`
+- File: CREATE `W\libs\backend\rpc-handlers\src\lib\handlers\agent-outcome-rpc.handlers.ts` (+ spec), `W\libs\backend\rpc-handlers\src\lib\handlers\agent-outcome.schema.ts`; MODIFY `W\libs\backend\rpc-handlers\src\lib\register-shared-rpc-handlers.ts`, `W\libs\backend\rpc-handlers\src\lib\rpc-allowlist.spec.ts`, `W\libs\backend\rpc-handlers\src\lib\host-profile\manifest.ts` (the `'agent:outcomeSignals'` `RPC_HANDLER_MANIFEST` entry; added at Batch 2 verify — without it the manifest totality invariant and the three host `rpc-surface.spec.ts` partitions stay one method short)
 - Plan reference: implementation-plan.md:753; part-b:469-493 (§7); SC-8 :368-374
 - Pattern to follow: existing `agent:*` handler classes
 - Quality requirements: Zod `.strict()`, at most 500 slugs of at most 200 chars; result `{ signals, windowDays: 30, persistent }`
-- Validation notes: rule 8 — run the RPC guard specs (vscode, electron, cli-engine `rpc-surface.spec.ts` + `surface-composition.spec.ts`) and the vscode/electron/cli `container.smoke.spec.ts`, one at a time; if a spec is red only because `LANE_OUTCOME_TOKENS` are registered in AB14, stop and report (R-6); if Task 2.2 deferred the method entry here (R-5), add it to `rpc.types.ts`
+- Validation notes: rule 8 — run the RPC guard specs (vscode, electron, cli-engine `rpc-surface.spec.ts` + `surface-composition.spec.ts`) and the vscode/electron/cli `container.smoke.spec.ts`, one at a time; if a spec is red only because `LANE_OUTCOME_TOKENS` are registered in AB14, stop and report (R-6). R-5 (DEFERRED here from Batch 2): the `rpc.types.ts` entry already exists (Batch 2 kept it); this batch owns the R-5 guard-spec check — vscode/electron/cli-engine `rpc-surface.spec.ts` + `surface-composition.spec.ts` and `rpc-allowlist.spec.ts` "claims every registry method exactly once" must all go green, and if the handler's `requires` capability switches it off on a host, the served-vs-absent list edit (e.g. `VSCODE_EXPECTED_ABSENT_METHODS`) is made here
 - Implementation details: reader via the lane-outcomes token
 
 ### Batch 25 verification
