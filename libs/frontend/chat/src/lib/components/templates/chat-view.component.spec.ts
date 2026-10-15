@@ -65,8 +65,15 @@ import { TestBed } from '@angular/core/testing';
 import {
   ChatViewComponent,
   AGENT_PANEL_OVERLAY_BREAKPOINT,
-  toStatsLimitLaneRun,
 } from './chat-view.component';
+import {
+  toStatsLimitLaneRun,
+  type SessionStatsSource,
+} from '../../services/session-stats/session-stats-source';
+import {
+  InspectorOpenStateService,
+  SessionInspectorStore,
+} from '../../services/session-inspector';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -84,6 +91,7 @@ import type {
   PlanLimitsSnapshot,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
+import { formatLocalAbsolute } from '@ptah-extension/shared';
 import {
   TabManagerService,
   ConversationRegistry,
@@ -208,6 +216,7 @@ function makeHarness(
 
   // Writable signals for reactive control from tests
   const sessionIdSig = signal<string | null>(sessionId);
+  const messagesSig = signal<unknown[]>([]);
   const sessionIsActiveSig = signal<boolean>(sessionIsActive);
   const showErrorMock = jest.fn();
   const loadOlderMock = jest.fn().mockResolvedValue('prepended');
@@ -234,7 +243,11 @@ function makeHarness(
     sessionIsActive: sessionIsActiveSig.asReadonly(),
     // Other signals required by computed() inside the component
     activeTab: signal(null),
-    messages: signal([]),
+    messages: messagesSig,
+    // Read by the stats source (the inspector's SESSION section).
+    sessionStats: signal(null),
+    liveModelStats: signal(null),
+    compactionCount: signal(0),
     isStreaming: signal(false),
     currentModel: signal('claude-sonnet-4-20250514'),
     sessionStatus: signal(null),
@@ -494,6 +507,19 @@ function makeHarness(
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
+      // The inspector stays closed here: no deferred inspector chunk renders.
+      {
+        provide: SessionInspectorStore,
+        useValue: {
+          modelFor: jest.fn(),
+          reportAnswerMiss: jest.fn(),
+          clearAnswerMiss: jest.fn(),
+        },
+      },
+      {
+        provide: InspectorOpenStateService,
+        useValue: { dockedOpen: () => false, setDocked: jest.fn() },
+      },
       ...(startGuard
         ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
         : []),
@@ -569,6 +595,7 @@ function makeHarness(
     realActionBanner,
     sessionIsActiveSig,
     sessionIdSig,
+    messagesSig,
     activeTabIdSig,
     sessionVisibleSig,
     forcedCardSig,
@@ -1477,15 +1504,6 @@ describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', ()
 });
 
 // ---------------------------------------------------------------------------
-// showBackgroundStrip() / traySessionId() — tray-on-tiles gating.
-//
-// The main panel (no SESSION_CONTEXT) always renders the background-agent
-// tray, scoped to every session (traySessionId === null). A canvas tile only
-// renders it once its own session has resolved (resolvedSessionId() !== null)
-// — otherwise an unscoped tray would flash before the tile is bound to a real
-// session — and scopes the tray to exactly that session once resolved.
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // TASK_2026_295 — the "N interrupted agents — Resume" banner in tile mode.
 //
 // The filter was a strict `s.parentSessionId === sid`. An interrupted subagent
@@ -1538,38 +1556,6 @@ describe('ChatViewComponent — resolvedResumableSubagents() scoping', () => {
     ]);
 
     expect(h.component.resolvedResumableSubagents()).toHaveLength(2);
-  });
-});
-
-describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => {
-  afterEach(() => {
-    TestBed.resetTestingModule();
-    jest.clearAllMocks();
-  });
-
-  it('main panel (no SESSION_CONTEXT): always shows the strip, unscoped (null) session', () => {
-    const h = makeHarness();
-    expect(h.component.showBackgroundStrip()).toBe(true);
-    expect(h.component.traySessionId()).toBeNull();
-  });
-
-  it('tile mode: hides the strip while the tile session is unresolved', () => {
-    // 'tile-unresolved' has no matching entry in the stubbed tabs() array
-    // (which only contains 'tab-abc'), so resolvedSessionId() returns null —
-    // mirroring a canvas tile whose tab has not yet been bound to a session.
-    const h = makeHarness({ sessionContextTabId: 'tile-unresolved' });
-    expect(h.component.resolvedSessionId()).toBeNull();
-    expect(h.component.showBackgroundStrip()).toBe(false);
-    expect(h.component.traySessionId()).toBeNull();
-  });
-
-  it('tile mode: shows the strip scoped to the resolved session once resolvedSessionId() is non-null', () => {
-    // 'tab-abc' matches the default tabs() stub entry, whose claudeSessionId
-    // is the harness sessionId — simulates a tile already bound to a live session.
-    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
-    expect(h.component.resolvedSessionId()).toBe(h.sessionId);
-    expect(h.component.showBackgroundStrip()).toBe(true);
-    expect(h.component.traySessionId()).toBe(h.sessionId);
   });
 });
 
@@ -1635,10 +1621,18 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
     };
   }
 
+  /** The inspector's limits, from the view's one stats source (Delta 3). */
+  type StatsView = { stats: SessionStatsSource };
+  function statsLimits(h: ReturnType<typeof makeHarness>) {
+    return (h.component as unknown as StatsView).stats.inputs()?.limits;
+  }
+
   function harness() {
     // Children are swapped out (NO_ERRORS_SCHEMA) so `TestBed.tick()` can run
     // the effects without wiring every child component's DI graph.
     const h = makeHarness({ renderCompactTemplate: true });
+    // The stats show from the first message on (the old strip mount rule).
+    h.messagesSig.set([{ id: 'm1', role: 'user', timestamp: 0 }]);
     // The monitor's TOLERANT rule (unresolved parent visible everywhere). The
     // quota and lane tiles must not read it; they use the exact accessor.
     h.agentsForSessionMock.mockImplementation((sessionId: string) =>
@@ -1687,7 +1681,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       sessionIds: [],
       ownerKeys: [],
     });
-    expect(h.component.resolvedStatsLimits()).toBeNull();
+    expect(statsLimits(h)).toBeNull();
   });
 
   it('reloads when the recorded owner set changes, not on a usage-only update', () => {
@@ -1723,7 +1717,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       run('a2', h.sessionId),
       run('b1', 'session-other', { quotaOwner: OWNER_A }),
     ]);
-    expect(h.component.resolvedStatsLimits()).toBeNull();
+    expect(statsLimits(h)).toBeNull();
 
     h.planLimitsSnapshotSig.set({
       generatedAt: STARTED,
@@ -1733,7 +1727,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       },
     });
 
-    const limits = h.component.resolvedStatsLimits();
+    const limits = statsLimits(h);
     expect(limits?.lanesCount).toBe(2);
     const statuses = limits?.laneTiles
       .flatMap((tile) => tile.subgroups)
@@ -1761,15 +1755,15 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
         [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
       },
     });
-    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+    expect(statsLimits(h)?.refreshNotice).toBeUndefined();
 
     h.planLimitsLoadErrorSig.set(true);
-    expect(h.component.resolvedStatsLimits()?.refreshNotice).toMatch(
+    expect(statsLimits(h)?.refreshNotice).toMatch(
       /^Refresh failed — showing last observed data/,
     );
 
     h.planLimitsLoadErrorSig.set(false);
-    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+    expect(statsLimits(h)?.refreshNotice).toBeUndefined();
   });
 
   it('shows a lane in no session`s tiles until its parent resolves, then only in that session`s', () => {
@@ -1785,7 +1779,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
         [OTHER]: { ownerKey: OWNER_A.key, modelScope: null },
       },
     });
-    const lanes = () => h.component.resolvedStatsLimits()?.lanesCount;
+    const lanes = () => statsLimits(h)?.lanesCount;
 
     // Unresolved parent: the lane is in neither session's tiles, even though
     // the monitor's tolerant accessor would list it in both.
@@ -1811,13 +1805,32 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
         return { ...real.call(this), timeZone: 'Europe/Berlin' };
       });
     const h = harness();
-
-    expect(
-      (h.component as unknown as { _limitTime: unknown })._limitTime,
-    ).toEqual({
-      timeZone: 'Europe/Berlin',
-      zoneNameLocale: TestBed.inject(LOCALE_ID),
+    // The time options live inside the stats source and reach the view only
+    // through the formatted reset line, so give the window a reset instant.
+    const owner = ownerSnapshot(OWNER_A);
+    const now = Date.UTC(2026, 9, 5, 12, 0, 0); // the harness's `now()`
+    const resetsAt = now + 3 * 60 * 60 * 1000;
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [{ ...owner, windows: [{ ...owner.windows[0], resetsAt }] }],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
+      },
     });
+
+    const resetLine = statsLimits(h)?.planTiles.find(
+      (tile) => tile.kind === 'window',
+    )?.resetLine;
+    const zoneNameLocale = TestBed.inject(LOCALE_ID);
+    expect(resetLine).toContain(
+      formatLocalAbsolute(resetsAt, now, {
+        timeZone: 'Europe/Berlin',
+        zoneNameLocale,
+      }),
+    );
+    expect(resetLine).not.toContain(
+      formatLocalAbsolute(resetsAt, now, { timeZone: 'UTC', zoneNameLocale }),
+    );
   });
 
   describe('toStatsLimitLaneRun', () => {

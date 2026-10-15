@@ -22,7 +22,10 @@ import {
   TriangleAlert,
 } from 'lucide-angular';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
-import type { InspectorRequest } from '../../../services/session-inspector';
+import {
+  SessionInspectorStore,
+  type InspectorRequest,
+} from '../../../services/session-inspector';
 
 type Decision = 'allow' | 'deny';
 
@@ -286,6 +289,22 @@ export class InspectorRequestPanelComponent {
               {{ req.kind === 'permission' ? 'Review' : 'Answer' }}
             </button>
           </li>
+          @if (req.kind === 'question' && answerMissed(req.requestId)) {
+            <li>
+              <div role="alert" class="flex items-center gap-1.5 pl-[18px] text-xs text-state-err">
+                <lucide-angular [img]="TriangleAlertIcon" class="size-3.5 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 flex-1">Could not find this question in the chat</span>
+                <button
+                  type="button"
+                  class="inline-flex h-6 min-w-[42px] items-center justify-center px-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  [attr.aria-label]="'Retry answering question from ' + req.ownerName"
+                  (click)="retryAnswer(req)"
+                >
+                  Retry
+                </button>
+              </div>
+            </li>
+          }
         }
       </ul>
       @if (list.length > 1) {
@@ -318,6 +337,7 @@ export class InspectorRequestPanelComponent {
 export class InspectorRequestLinesComponent {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private readonly store = inject(SessionInspectorStore);
 
   /** The owner's open requests, FIFO. */
   readonly requests = input.required<readonly InspectorRequest[]>();
@@ -333,6 +353,7 @@ export class InspectorRequestLinesComponent {
   readonly focusReleased = output<void>();
 
   protected readonly ShieldIcon = ShieldAlert;
+  protected readonly TriangleAlertIcon = TriangleAlert;
   protected readonly expanded = signal(false);
   protected readonly openRequest = signal<InspectorRequest | null>(null);
 
@@ -351,8 +372,20 @@ export class InspectorRequestLinesComponent {
       : `Answer question from ${req.ownerName}: ${req.questionPreview ?? req.command}`;
   }
 
+  /** The host reported that it found no question card for `requestId`. */
+  protected answerMissed(requestId: string): boolean {
+    return this.store.answerMissed(requestId);
+  }
+
+  /** Clear the miss and route the answer to the host again. */
+  protected retryAnswer(req: InspectorRequest): void {
+    this.store.clearAnswerMiss(req.requestId);
+    this.answerRequested.emit(req.requestId);
+  }
+
   protected activate(req: InspectorRequest): void {
     if (req.kind === 'question') {
+      this.store.clearAnswerMiss(req.requestId);
       this.answerRequested.emit(req.requestId);
       return;
     }

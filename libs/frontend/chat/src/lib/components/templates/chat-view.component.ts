@@ -10,8 +10,8 @@ import {
   afterRenderEffect,
   untracked,
   ElementRef,
-  LOCALE_ID,
   NgZone,
+  afterNextRender,
   OnDestroy,
   InjectionToken,
   Signal,
@@ -31,21 +31,16 @@ import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.com
 // eager chunk (decisions #84, #89, #107).
 import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
-import { BackgroundAgentTrayComponent } from '../organisms/background-agent-tray.component';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
 import {
   PermissionBadgeComponent,
   QuestionCardComponent,
-  SessionStatsSummaryComponent,
   CompactionNotificationComponent,
   CompactionMarkerComponent,
   SidebarTabComponent,
   StatsTileExpansionState,
   PTAH_UI_DISPLAY_DOCK,
   PTAH_UI_DISPLAY_DOCK_SYNC,
-  buildStatsLimitViewModel,
-  type StatsLimitLaneRun,
-  type StatsLimitViewModel,
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
@@ -53,6 +48,14 @@ import { SessionBudgetBannerComponent } from '../molecules/notifications/session
 import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
+// Referenced only in `imports` and inside `@defer (on immediate)`.
+import { SessionInspectorComponent } from '../organisms/session-inspector/session-inspector.component';
+import {
+  InspectorShellController,
+  SessionInspectorStore,
+} from '../../services/session-inspector';
+import { injectSessionStatsSource } from '../../services/session-stats/session-stats-source';
+import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
@@ -63,7 +66,6 @@ import { HistoryPagingService } from '../../services/chat-store/history-paging.s
 import {
   AgentMonitorStore,
   agentVisibleInSession,
-  type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
@@ -81,6 +83,7 @@ import {
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
   SESSION_START_GUARD,
+  SESSION_CARD_ACTIONS,
 } from '../../tokens/session-context.token';
 import {
   ClaudeRpcService,
@@ -94,8 +97,6 @@ import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
-  CliType,
-  LocalTimeOptions,
   SubagentRecord,
   MessageAnchorHint,
 } from '@ptah-extension/shared';
@@ -118,60 +119,6 @@ export function shouldOverlayDock(
   );
 }
 
-/** Product names of the lane CLIs, for runs that carry no display name. */
-const CLI_LABELS: Readonly<Record<CliType, string>> = {
-  codex: 'Codex',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-  antigravity: 'Antigravity',
-  opencode: 'OpenCode',
-  pi: 'Pi',
-  grok: 'Grok',
-  'ptah-cli': 'Ptah CLI',
-};
-
-/**
- * Map one lane run to the stats limit view-model input (TASK_2026_596,
- * Component 15). Every field comes from the run record; nothing is guessed.
- * - `restored` is the flag `loadCliSessions` sets, never inferred from status.
- * - `cliLabel` is the agent card's own display name; a run without one (a
- *   restored run) gets the CLI's product name, never the raw id.
- * - `modelScope` is the backend-resolved value; the UI never derives one from
- *   a model id string.
- * - `quotaOwner` and `usageTotals` pass through; absent or `null` reads
- *   unknown, never the current owner and never 0.
- */
-export function toStatsLimitLaneRun(agent: MonitoredAgent): StatsLimitLaneRun {
-  return {
-    runId: agent.agentId,
-    cli: agent.cli,
-    cliLabel: agent.displayName || CLI_LABELS[agent.cli],
-    role: agent.role ?? null,
-    model: agent.usageTotals?.model ?? agent.model ?? null,
-    modelScope: agent.modelScope ?? null,
-    status: agent.status,
-    restored: agent.restored === true,
-    startedAt: agent.startedAt,
-    failureKind: agent.failureKind,
-    quotaOwner: agent.quotaOwner,
-    usageTotals: agent.usageTotals,
-  };
-}
-
-/** Sorted, de-duplicated recorded owner keys; a run with no owner adds none. */
-function recordedOwnerKeys(agents: readonly MonitoredAgent[]): string[] {
-  const keys = new Set<string>();
-  for (const agent of agents) {
-    const key = agent.quotaOwner?.key;
-    if (key) keys.add(key);
-  }
-  return [...keys].sort((a, b) => a.localeCompare(b));
-}
-
-function sameStrings(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((value, i) => value === b[i]);
-}
-
 /**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
  *
@@ -183,7 +130,7 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
  * - Egyptian themed empty state (ChatEmptyStateComponent)
  * - Permission request handling
  * - Queued content indicator
- * - Session stats summary (cost, tokens, duration, agents)
+ * - "This session" inspector host (main panel; stats, agents, requests)
  *
  * Auto-scroll behavior:
  * - Scrolls to bottom when new messages arrive
@@ -207,6 +154,13 @@ export const DISPLAY_DOCK_DEFAULT_WIDTH = 400;
 /** `PanelResizeService` bounds: 300 px, at most 75% of the host. */
 const DOCK_MIN_WIDTH = 300;
 const DOCK_MAX_WIDTH_RATIO = 0.75;
+/** How long an inspector `Answer` waits for its question card (plan-part-b §5). */
+const QUESTION_CARD_WAIT_MS = 1000;
+
+/** The first option of a question card, focused when an answer is routed to it. */
+const QUESTION_CARD_FOCUSABLE =
+  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /** One separator arrow-key step (design-spec section 8, assertion 11). */
 const DOCK_KEY_STEP = 16;
 
@@ -230,11 +184,9 @@ const VIEW_PANEL_KEY = '';
     ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
     DisplayDockComponent,
-    BackgroundAgentTrayComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
-    SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     SessionBudgetBannerComponent,
@@ -244,12 +196,17 @@ const VIEW_PANEL_KEY = '';
     SidebarTabComponent,
     CompactSessionCardComponent,
     AgentOriginBannerComponent,
+    // Referenced only here and inside `@defer`, so the inspector sections stay
+    // a lazy chunk (plan-part-b §5).
+    SessionInspectorComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [
     TranscriptRetentionService,
+    // Open state, width band and sheet focus of this view's inspector.
+    InspectorShellController,
     PanelResizeService,
     // One tile-expansion map per session view, released with the view (A3).
     StatsTileExpansionState,
@@ -552,24 +509,6 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Whether to render the background-agent tray on this surface. The main panel
-   * (no session context) always shows it, scoped to ALL sessions. A canvas tile
-   * shows it only once its own session has resolved, scoped to that session via
-   * {@link traySessionId} so each tile manages exactly its own subagents.
-   */
-  protected readonly showBackgroundStrip = computed<boolean>(() =>
-    this._sessionContext ? this.resolvedSessionId() !== null : true,
-  );
-
-  /**
-   * Owning-session filter passed to the tray: the tile's resolved session in
-   * tile mode, or null on the main panel (which shows every session's agents).
-   */
-  protected readonly traySessionId = computed<string | null>(() =>
-    this._sessionContext ? this.resolvedSessionId() : null,
-  );
-
-  /**
    * Session-scoped agents for the embedded panel. Empty when the host hides
    * the Agents list, so the badge and the agent auto-open stay inert.
    */
@@ -738,6 +677,7 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.clearAnswerWait();
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
     this.resizeObserver?.disconnect();
@@ -1026,84 +966,94 @@ export class ChatViewComponent implements OnDestroy {
     this._tabManager.switchTab(parentTabId);
   }
 
-  /** The backend session snapshot every stats-panel figure comes from. */
-  readonly resolvedSessionStats = computed(() => {
-    const tab = this.resolvedTab();
-    return tab !== null
-      ? (tab.sessionStats ?? null)
-      : this.chatStore.sessionStats();
-  });
+  /**
+   * Feed the controller this view's tab, close the sheet on a session switch
+   * (a tab switch closes it inside the controller), and attach the shell once
+   * rendered. The opener and title are looked up lazily: the header renders
+   * them after this view.
+   */
+  private wireInspectorShell(): void {
+    this.shell.bindTab(() =>
+      this.hostsInspector() ? this.resolvedTabId() : null,
+    );
+    let previousSessionId: string | null | undefined;
+    effect(() => {
+      const sessionId = this.resolvedSessionId();
+      if (previousSessionId !== undefined && sessionId !== previousSessionId) {
+        untracked(() => this.shell.onTabChanged());
+      }
+      previousSessionId = sessionId;
+    });
+    afterNextRender(() => {
+      const shell = this.inspectorShell()?.nativeElement;
+      if (!shell) return;
+      const host = this.hostEl.nativeElement;
+      this.shell.attach(
+        shell,
+        () => host.querySelector<HTMLElement>('[aria-controls="inspector"]'),
+        () => host.querySelector<HTMLElement>('h1[tabindex="-1"]'),
+      );
+    });
+  }
 
-  readonly resolvedLiveModelStats = computed(() => {
-    const tab = this.resolvedTab();
-    return tab !== null
-      ? (tab.liveModelStats ?? null)
-      : this.chatStore.liveModelStats();
-  });
+  /** Path 4: open the lane, then close the sheet; a docked inspector stays. */
+  protected openLaneFromInspector(laneKey: string): void {
+    if (!this._cardActions) return;
+    this._cardActions.openLane(laneKey);
+    if (this.shell.isModal()) this.shell.closeInsp();
+  }
 
-  readonly resolvedCompactionCount = computed(() => {
-    const tab = this.resolvedTab();
-    return tab !== null
-      ? (tab.compactionCount ?? 0)
-      : this.chatStore.compactionCount();
-  });
+  /**
+   * Route an inspector `Answer` to the question card of `requestId` (path-7
+   * exception: the sheet closes onto the card's first option). The card is
+   * awaited for 1 s; without it the inspector row shows the miss error.
+   */
+  protected focusQuestionCard(requestId: string): void {
+    this.clearAnswerWait();
+    const card = this.findQuestionCard(requestId);
+    if (card) {
+      this.revealQuestionCard(requestId, card);
+      return;
+    }
+    this._answerWait = setTimeout(() => {
+      this._answerWait = null;
+      const late = this.findQuestionCard(requestId);
+      if (late) this.revealQuestionCard(requestId, late);
+      else this._inspectorStore.reportAnswerMiss(requestId);
+    }, QUESTION_CARD_WAIT_MS);
+  }
+
+  private findQuestionCard(requestId: string): HTMLElement | null {
+    const cards = this.hostEl.nativeElement.querySelectorAll<HTMLElement>(
+      'ptah-question-card[data-request-id]',
+    );
+    for (const card of Array.from(cards)) {
+      if (card.getAttribute('data-request-id') === requestId) return card;
+    }
+    return null;
+  }
+
+  private revealQuestionCard(requestId: string, card: HTMLElement): void {
+    this._inspectorStore.clearAnswerMiss(requestId);
+    const first = card.querySelector<HTMLElement>(QUESTION_CARD_FOCUSABLE);
+    if (this.shell.isModal()) {
+      this.shell.closeInsp(first ?? undefined);
+      return;
+    }
+    first?.focus();
+  }
+
+  private clearAnswerWait(): void {
+    if (this._answerWait === null) return;
+    clearTimeout(this._answerWait);
+    this._answerWait = null;
+  }
 
   private readonly _planLimits = inject(PlanLimitsStore);
   /** This surface's share of the plan-limits request; released on destroy. */
   private readonly _planLimitsScope = this._planLimits.registerScope(
     inject(DestroyRef),
   );
-
-  /** Explicit zone and zone-name locale for reset times; never a fixed UTC. */
-  private readonly _limitTime: LocalTimeOptions = {
-    timeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
-    zoneNameLocale: inject(LOCALE_ID),
-  };
-
-  /**
-   * Lane runs belong only to this surface's own session (F58). The main panel
-   * with no session gets none; a lane whose parent session is not resolved yet
-   * is in no session's quota or lane tiles (exact parent match only).
-   */
-  private readonly sessionLaneRuns = computed<readonly MonitoredAgent[]>(() => {
-    const sessionId = this.resolvedSessionId();
-    return sessionId
-      ? this.agentMonitorStore.agentsOwnedBySession(sessionId)
-      : [];
-  });
-
-  /**
-   * Owner keys recorded at this session's runs, so the host also returns the
-   * snapshots of past owners. Structural equality keeps streaming deltas from
-   * re-triggering a load; only a changed key set does.
-   */
-  private readonly sessionRunOwnerKeys = computed(
-    () => recordedOwnerKeys(this.sessionLaneRuns()),
-    { equal: sameStrings },
-  );
-
-  /**
-   * Plan-limit tiles and lane tiles of the stats strip; `null` without a
-   * session or before the first snapshot (the strip then renders as before).
-   * The clock is the store's shared tick; this view starts no timer.
-   */
-  readonly resolvedStatsLimits = computed<StatsLimitViewModel | null>(() => {
-    const sessionId = this.resolvedSessionId();
-    const snapshot = this._planLimits.snapshot();
-    if (!sessionId || !snapshot) return null;
-    const sessionOwner = this._planLimits.sessionOwner(sessionId);
-    return buildStatsLimitViewModel({
-      sessionId,
-      sessionOwnerKey: sessionOwner?.ownerKey ?? null,
-      // Backend-resolved scope only; the UI never parses the model id.
-      sessionModelScope: sessionOwner?.modelScope ?? null,
-      owners: snapshot.owners,
-      laneRuns: this.sessionLaneRuns().map(toStatsLimitLaneRun),
-      now: this._planLimits.now(),
-      time: this._limitTime,
-      refreshFailed: this._planLimits.loadError(),
-    });
-  });
 
   /** Budget banner state, scoped to this view's tab and session. */
   private readonly _budgetActions = inject(SessionBudgetActionsService);
@@ -1114,6 +1064,50 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly budgetDisplayStage = this._budgetActions.displayStage;
   protected readonly budgetDismissedStage = this._budgetActions.dismissedStage;
   protected readonly budgetWrapUpSent = this._budgetActions.wrapUpSent;
+
+  /**
+   * The one stats source of this view (Delta 3): the inspector's SESSION,
+   * PLAN LIMITS and LANES. The main panel has no tab, so it reads the
+   * ChatStore, the active session id and this view's budget, the values the
+   * removed strip showed; `null` until the view has messages.
+   */
+  protected readonly stats = injectSessionStatsSource({
+    tab: () => this.resolvedTab(),
+    sessionId: () => this.resolvedSessionId(),
+    budget: () => this.resolvedSessionBudget(),
+    available: () => this.resolvedMessages().length > 0,
+  });
+
+  /** Open state, width band and sheet focus of this view's inspector. */
+  protected readonly shell = inject(InspectorShellController);
+  private readonly _inspectorStore = inject(SessionInspectorStore);
+  private readonly _cardActions = inject(SESSION_CARD_ACTIONS, {
+    optional: true,
+  });
+
+  /**
+   * A host page that brings its own session chrome (TASK_2026_649) provides
+   * `'bare'`: no inspector, no default-open and no shell attach. Read once;
+   * the session header reads it too.
+   */
+  protected readonly bareChrome =
+    inject(SESSION_EMBED_CHROME, { optional: true }) === 'bare';
+
+  /** Only the main panel hosts the inspector; tiles and forced cards do not. */
+  protected readonly hostsInspector = computed(
+    () =>
+      !this.bareChrome &&
+      !this._sessionContext &&
+      !(this._forcedCard?.() ?? false),
+  );
+
+  /** Agent rows open lanes only where the host has a lane surface. */
+  protected readonly hasLaneSurface = this._cardActions !== null;
+
+  private readonly inspectorShell =
+    viewChild<ElementRef<HTMLElement>>('inspectorShell');
+  /** The pending 1 s wait of `focusQuestionCard`; cleared on destroy. */
+  private _answerWait: ReturnType<typeof setTimeout> | null = null;
   /**
    * The budget banner shows on the active tab of the main panel, idle or
    * streaming: the wrap-up message queues like any typed one while a turn runs.
@@ -1272,6 +1266,8 @@ export class ChatViewComponent implements OnDestroy {
       sessionId: this.resolvedSessionId,
     });
     this.observeHostWidth();
+    // Tiles never host the inspector, so they start no shell observer.
+    if (!this.bareChrome && !this._sessionContext) this.wireInspectorShell();
 
     // A closed chat tab's dock state is released, whichever path closed it
     // (tab bar, shortcut, canvas, tribunal); the view's own key is never a tab.
@@ -1335,7 +1331,7 @@ export class ChatViewComponent implements OnDestroy {
     // `[]`) never erases another pane's sessions.
     effect(() => {
       const sessionId = this.resolvedSessionId();
-      const ownerKeys = this.sessionRunOwnerKeys();
+      const ownerKeys = this.stats.runOwnerKeys();
       untracked(() => {
         void this._planLimitsScope.update({
           sessionIds: sessionId ? [sessionId] : [],

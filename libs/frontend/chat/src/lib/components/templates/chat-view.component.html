@@ -1,6 +1,10 @@
-<div class="flex h-full w-full relative">
-  <!-- Main chat content -->
-  <div class="flex-1 flex flex-col min-w-0 relative">
+<!-- Shell: its container width sets the inspector band (docked / sheet). -->
+<div #inspectorShell class="cs-shell flex h-full w-full relative">
+  <!-- Main chat content; inert behind the open inspector sheet. -->
+  <div
+    class="flex-1 flex flex-col min-w-0 relative"
+    [attr.inert]="shell.isModal() ? '' : null"
+  >
     @if (showCompactCard() && resolvedActiveTab()) {
       <!-- ============================================================ -->
       <!-- COMPACT VIEW: Condensed session card with activity feed      -->
@@ -30,37 +34,6 @@
             (openParent)="onOpenAgentParent($event)"
           />
         </div>
-      }
-
-      <!-- Session Stats Summary (only when there are messages) -->
-      @if (resolvedMessages().length > 0) {
-        <div
-          class="p-1"
-          animate.enter="banner-enter"
-          animate.leave="banner-leave"
-        >
-          <ptah-session-stats-summary
-            [snapshot]="resolvedSessionStats()"
-            [liveModelStats]="resolvedLiveModelStats()"
-            [compactionCount]="resolvedCompactionCount()"
-            [limits]="resolvedStatsLimits()"
-            [sessionId]="resolvedSessionId()"
-            [budget]="resolvedSessionBudget()"
-          />
-        </div>
-      }
-
-      <!-- Persistent background-agents tray. On the main panel it renders once
-           and shows every session's agents; inside a canvas tile it renders
-           scoped to that tile's own session (traySessionId). Lives under the
-           stats summary so it never competes with the streamed output at the
-           bottom. Focus/steer/stop/background are handled inside the tray
-           against each agent's owning session. -->
-      @if (showBackgroundStrip()) {
-        <ptah-background-agent-tray
-          class="flex-shrink-0"
-          [sessionId]="traySessionId()"
-        />
       }
 
       <!-- Compaction Notification Banner -->
@@ -176,6 +149,7 @@
           animate.leave="banner-leave"
         >
           <ptah-question-card
+            [attr.data-request-id]="questionReq.id"
             [request]="questionReq"
             (answered)="chatStore.handleQuestionResponse($event)"
           />
@@ -247,6 +221,42 @@
       </div>
     }
   </div>
+
+  <!-- "This session" inspector: main panel only (no SESSION_CONTEXT, no forced
+       card, no 'bare' embed). Docked >= 960 px, else a modal sheet over a
+       scrim. The sections load as a lazy chunk. -->
+  @if (hostsInspector() && shell.isOpen() && shell.tab(); as inspectorTab) {
+    @if (shell.isModal()) {
+      <div
+        class="cs-scrim"
+        aria-hidden="true"
+        data-testid="inspector-scrim"
+        (click)="shell.closeInsp('opener')"
+      ></div>
+    }
+    @defer (on immediate) {
+      <ptah-session-inspector
+        id="inspector"
+        class="cs-inspector"
+        [class.cs-inspector--sheet]="shell.isModal()"
+        [class.cs-inspector--full]="shell.isModal() && shell.band() === 'full-sheet'"
+        [tabId]="inspectorTab.tabId"
+        [presentation]="shell.isModal() ? 'sheet' : 'docked'"
+        [hasLaneSurface]="hasLaneSurface"
+        [stats]="stats.inputs()"
+        (keydown)="shell.onSheetKeydown($event)"
+        (closeRequested)="shell.closeInsp('opener')"
+        (laneRequested)="openLaneFromInspector($event)"
+        (answerRequested)="focusQuestionCard($event)"
+      />
+    } @placeholder {
+      <div
+        class="cs-inspector"
+        [class.cs-inspector--sheet]="shell.isModal()"
+        aria-hidden="true"
+      ></div>
+    }
+  }
 
   @if (dockEnabled && !(_forcedCard?.() ?? false)) {
     <!-- Electron display dock. The toggle hides while the dock is an overlay. -->

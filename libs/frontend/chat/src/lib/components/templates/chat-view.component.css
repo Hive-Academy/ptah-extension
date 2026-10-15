@@ -4,6 +4,60 @@
   position: relative;
 }
 
+/* ==========================================================================
+   Shell + "This session" inspector (design-spec 2, 2.1, 4).
+   The shell is the size container; InspectorShellController observes the
+   same element and picks the band: docked >= 960 px, sheet 640-959 px,
+   full-width sheet below 640 px.
+   ========================================================================== */
+.cs-shell {
+  container-type: inline-size;
+}
+
+.cs-inspector {
+  display: block;
+  width: 336px;
+  height: 100%;
+  min-height: 0;
+  flex-shrink: 0;
+  border-left: 1px solid var(--surface-border);
+  background: oklch(var(--b1));
+  animation: csInspectorIn 220ms var(--ptah-ease-soft) both;
+}
+
+.cs-inspector--sheet {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  z-index: 30;
+  width: min(336px, 100%);
+  box-shadow: var(--elev-shadow-raised);
+}
+
+.cs-inspector--full {
+  width: 100%;
+  border-left: 0;
+}
+
+/* Pointer-only; covers the whole shell (header included) under the sheet. */
+.cs-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgb(0 0 0 / 0.3);
+}
+
+@keyframes csInspectorIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* Custom scrollbar for message container
    Uses VS Code variables when available (extension webview),
    falls back to Anubis theme (Electron desktop) via global styles.css */
@@ -140,7 +194,8 @@
   .banner-enter,
   .banner-leave,
   .fade-enter,
-  .fade-leave {
+  .fade-leave,
+  .cs-inspector {
     animation: none !important;
     transition: none !important;
   }

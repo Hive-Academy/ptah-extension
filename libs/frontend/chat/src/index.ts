@@ -52,3 +52,9 @@ export {
   type SessionAddonSlot,
   type SessionWorkflowAddon,
 } from './lib/tokens/session-workflow-addons.token';
+export {
+  injectSessionStatsSource,
+  type SessionStatsHost,
+  type SessionStatsSource,
+} from './lib/services/session-stats/session-stats-source';
+export { SESSION_EMBED_CHROME, type SessionEmbedChrome } from './lib/tokens/session-embed-chrome.token';

@@ -3,6 +3,7 @@ import {
   Injectable,
   computed,
   inject,
+  signal,
   type Signal,
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -140,6 +141,11 @@ export class SessionInspectorStore {
   private readonly roster = inject(SessionAgentRosterService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly models = new Map<string, Signal<SessionInspectorModel>>();
+  /**
+   * Request ids whose question card the host could not find (B §5 answer
+   * routing). Transient: cleared on Retry or when a later attempt succeeds.
+   */
+  private readonly answerMisses = signal<ReadonlySet<string>>(new Set());
 
   constructor() {
     const unsubscribe = this.tabManager.onTabClosed(({ tabId }) =>
@@ -164,6 +170,27 @@ export class SessionInspectorStore {
   /** Release the cached model of a closed tab. */
   forget(tabId: string): void {
     this.models.delete(tabId);
+  }
+
+  /** The host found no question card for `requestId`: its row shows the error. */
+  reportAnswerMiss(requestId: string): void {
+    const misses = this.answerMisses();
+    if (misses.has(requestId)) return;
+    this.answerMisses.set(new Set(misses).add(requestId));
+  }
+
+  /** Clear the miss of `requestId` (Retry, or the card was found). */
+  clearAnswerMiss(requestId: string): void {
+    const misses = this.answerMisses();
+    if (!misses.has(requestId)) return;
+    const next = new Set(misses);
+    next.delete(requestId);
+    this.answerMisses.set(next);
+  }
+
+  /** Whether the last answer attempt for `requestId` found no card (reactive). */
+  answerMissed(requestId: string): boolean {
+    return this.answerMisses().has(requestId);
   }
 
   private createModel(tabId: string): Signal<SessionInspectorModel> {
