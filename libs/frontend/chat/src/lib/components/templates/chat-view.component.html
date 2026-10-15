@@ -7,7 +7,7 @@
   >
     @if (showCompactCard() && resolvedActiveTab()) {
       <!-- ============================================================ -->
-      <!-- COMPACT VIEW: Condensed session card with activity feed      -->
+      <!-- FORCED CARD: a host (Rail card) forces the condensed card    -->
       <!-- ============================================================ -->
       <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
         <ptah-compact-session-card
@@ -18,8 +18,50 @@
       </div>
     } @else {
       <!-- ============================================================ -->
-      <!-- FULL VIEW: Standard chat view with messages and input        -->
+      <!-- SESSION VIEW: header, transcript (full or compact), composer -->
       <!-- ============================================================ -->
+
+      <!-- Session header: only where the inspector is hosted (main panel,
+           not a tile, a forced card or a 'bare' embed). -->
+      @if (hostsInspector() && resolvedActiveTab(); as headerTab) {
+        <ptah-session-header
+          class="st-f flex-shrink-0"
+          inspectorId="inspector"
+          [title]="headerTab.title || 'New Chat'"
+          [branch]="headerBranch()"
+          [needsYouCount]="needsYouCount()"
+          [inspectorOpen]="shell.isOpen()"
+          [inspectorDot]="inspectorDot()"
+          [toggleLabel]="shell.toggleLabel()"
+          [limitCue]="limitCue()"
+          [contextRingPercent]="contextRingPercent()"
+          [toggleDescription]="toggleDescription()"
+          (inspectorToggled)="shell.toggle()"
+        >
+          <!-- Workflow add-on outlets (SESSION_WORKFLOW_ADDONS); empty lists
+               render nothing. -->
+          <ng-container ngProjectAs="[sessionHeaderChip]">
+            @for (addon of headerChipAddons(); track $index) {
+              <ng-container
+                *ngComponentOutlet="
+                  addon.component;
+                  inputs: { tabId: headerTab.id }
+                "
+              />
+            }
+          </ng-container>
+          <ng-container ngProjectAs="[sessionHeaderAction]">
+            @for (addon of headerActionAddons(); track $index) {
+              <ng-container
+                *ngComponentOutlet="
+                  addon.component;
+                  inputs: { tabId: headerTab.id }
+                "
+              />
+            }
+          </ng-container>
+        </ptah-session-header>
+      }
 
       <!-- Agent-started session hint. It lives at the top of the full view,
            directly below the tab bar, while the composer remains enabled. -->
@@ -215,8 +257,9 @@
         </div>
       }
 
-      <!-- Input Area (sticky at bottom, never shrinks) -->
-      <div class="flex-shrink-0">
+      <!-- Input Area (sticky at bottom, never shrinks); fades in 120 ms
+           after a session switch. -->
+      <div class="flex-shrink-0 st-f" style="--d: 120ms">
         <ptah-chat-input />
       </div>
     }

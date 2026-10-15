@@ -190,6 +190,60 @@
   animation: ptahFadeOut 160ms var(--ptah-ease-gentle-in) both;
 }
 
+/* ==========================================================================
+   Session-switch stagger (design-spec 7.1-7.3). The host carries
+   `is-entering` for 1 s after a tab switch. Header (`--d` 0) and composer
+   (`--d` 120 ms) fade; turn items (`.st-t`, indexed by the host's one pass,
+   `data-st-i`) rise in DOM order, capped at the eighth (360 ms); inspector
+   rows (`.st-r`, own `--i`) slide in. Worst case 8 * 45 + 260 = 620 ms.
+   ========================================================================== */
+@keyframes ptahStaggerUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ptahStaggerLeft {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+:host(.is-entering) .st-f {
+  animation: ptahFadeIn 200ms var(--ptah-ease-soft) backwards;
+  animation-delay: var(--d, 0ms);
+}
+
+:host(.is-entering) ::ng-deep .st-t[data-st-i] {
+  animation: ptahStaggerUp 260ms var(--ptah-ease-soft) backwards;
+  animation-delay: calc(min(var(--i, 8), 8) * 45ms);
+}
+
+:host(.is-entering) ::ng-deep .st-r {
+  animation: ptahStaggerLeft 260ms var(--ptah-ease-soft) backwards;
+  animation-delay: calc(80ms + min(var(--i, 6), 6) * 36ms);
+}
+
+/* Global styles zero durations under reduced motion but not delays. */
+@media (prefers-reduced-motion: reduce) {
+  :host(.is-entering) .st-f,
+  :host(.is-entering) ::ng-deep .st-t,
+  :host(.is-entering) ::ng-deep .st-r {
+    animation: none !important;
+    animation-delay: 0ms !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .banner-enter,
   .banner-leave,

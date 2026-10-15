@@ -359,7 +359,8 @@ function mount(
       {
         provide: SessionInspectorStore,
         useValue: {
-          modelFor: jest.fn(),
+          // The session header and the toggle dot read the needs-you count.
+          modelFor: jest.fn(() => signal({ needsYouCount: 0 })),
           reportAnswerMiss: jest.fn(),
           clearAnswerMiss: jest.fn(),
         },

@@ -511,7 +511,8 @@ function makeHarness(
       {
         provide: SessionInspectorStore,
         useValue: {
-          modelFor: jest.fn(),
+          // The session header and the toggle dot read the needs-you count.
+          modelFor: jest.fn(() => signal({ needsYouCount: 0 })),
           reportAnswerMiss: jest.fn(),
           clearAnswerMiss: jest.fn(),
         },
@@ -2362,24 +2363,30 @@ describe('agent panel narrow overlay mode', () => {
   });
 });
 
-describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
+describe('ChatViewComponent — compact card gate (forced only)', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     jest.clearAllMocks();
   });
 
-  it('renders the compact card for "compact"', () => {
+  it('renders the transcript under the session header for "compact"', () => {
     const { fixture } = makeHarness({
       activeTabViewMode: 'compact',
       renderCompactTemplate: true,
     });
     fixture.detectChanges();
 
+    // A user-chosen compact view keeps the session view; only a host forces
+    // the card.
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-session-header'),
     ).not.toBeNull();
-    // Falling through to the full view would render the input area instead.
-    expect(fixture.nativeElement.querySelector('ptah-chat-input')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
     expect(
       fixture.nativeElement.querySelector('ptah-sidebar-tab'),
     ).not.toBeNull();
@@ -2411,14 +2418,13 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
   });
 
   it('forces a compact card in full mode and restores the full view when cleared', () => {
-    const { component, fixture, forcedCardSig } = makeHarness({
+    const { fixture, forcedCardSig } = makeHarness({
       activeTabViewMode: 'full',
       forcedCard: true,
       renderCompactTemplate: true,
     });
     fixture.detectChanges();
 
-    expect(component.resolvedViewMode()).toBe('full');
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).not.toBeNull();
@@ -2426,10 +2432,13 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
       fixture.nativeElement.querySelector('ptah-chat-transcript'),
     ).toBeNull();
     expect(fixture.nativeElement.querySelector('ptah-sidebar-tab')).toBeNull();
+    // A forced card hosts no inspector, so it has no session header.
+    expect(
+      fixture.nativeElement.querySelector('ptah-session-header'),
+    ).toBeNull();
 
     forcedCardSig!.set(false);
     fixture.detectChanges();
-    expect(component.resolvedViewMode()).toBe('full');
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).toBeNull();

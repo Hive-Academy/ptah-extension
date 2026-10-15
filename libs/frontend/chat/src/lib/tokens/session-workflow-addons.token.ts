@@ -1,5 +1,5 @@
 import { InjectionToken, type Type } from '@angular/core';
-import type { TabState } from '@ptah-extension/chat-types';
+import type { TabState, WorkflowKind } from '@ptah-extension/chat-types';
 
 /**
  * Where a workflow add-on renders: a section of the session inspector, or a
@@ -17,7 +17,7 @@ export type SessionAddonSlot =
  */
 export interface SessionWorkflowAddon {
   /** The workflow kind the add-on belongs to. */
-  readonly workflowKind: string;
+  readonly workflowKind: WorkflowKind;
   readonly slot: SessionAddonSlot;
   /** Must declare `tabId = input.required<string>()`. */
   readonly component: Type<unknown>;
@@ -37,20 +37,20 @@ export const SESSION_WORKFLOW_ADDONS = new InjectionToken<
 >('SESSION_WORKFLOW_ADDONS');
 
 /**
- * The workflow kind of a tab, or `null` when it runs no workflow. `TabState`
- * carries no workflow field on this branch, so every tab resolves to `null`:
- * no initial-open default from a workflow and no add-on lookup match.
+ * The workflow kind of a tab (`TabState.workflow`, validated on restore), or
+ * `null` when it runs no workflow. A workflow tab opens its inspector by
+ * default and looks up its add-ons by this kind.
  */
 export function sessionWorkflowKind(
-  _tab: TabState | null | undefined,
-): string | null {
-  return null;
+  tab: TabState | null | undefined,
+): WorkflowKind | null {
+  return tab?.workflow ?? null;
 }
 
 /** The add-ons registered for `kind` in `slot`; empty for a `null` kind. */
 export function workflowAddonsFor(
   addons: readonly SessionWorkflowAddon[] | null,
-  kind: string | null,
+  kind: WorkflowKind | null,
   slot: SessionAddonSlot,
 ): readonly SessionWorkflowAddon[] {
   if (!addons || kind === null) return [];

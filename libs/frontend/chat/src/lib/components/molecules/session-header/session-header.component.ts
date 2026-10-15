@@ -7,7 +7,19 @@ import {
   output,
   viewChild,
 } from '@angular/core';
-import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
+import {
+  GitBranch,
+  LucideAngularModule,
+  PanelRight,
+  TriangleAlert,
+} from 'lucide-angular';
+import {
+  ContextRingComponent,
+  type SessionLimitSummary,
+} from '@ptah-extension/chat-ui';
+
+/** Per-instance id source for the toggle's `aria-describedby` target. */
+let nextHeaderId = 0;
 
 /**
  * SessionHeaderComponent — the one header row above a full session view
@@ -15,13 +27,18 @@ import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
  *
  * Presentational only: the host (chat-view) passes every value and handles
  * `inspectorToggled`; nothing is injected. DOM order is tab order: title,
- * projected kind chip, branch chip, needs-you chip, projected actions,
- * inspector toggle. There is no sidebar toggle here (decision D-A2-1).
+ * projected kind chip, branch chip, needs-you chip, limit chip, projected
+ * actions, inspector toggle. There is no sidebar toggle here (decision
+ * D-A2-1).
  *
  * The toggle dot is drawn from `data-dot` on the toggle, so a new dot kind is
  * one more `[data-dot='…']` rule and one more member of the input's union.
- * The host binds the inspector controller's `showDot()` directly; that signal
- * is already `null` while the inspector is open.
+ * The host composes the dot (`limitAwareDot`), which is `null` while the
+ * inspector is open.
+ *
+ * Closed-state cues (Delta 3, design D3.7): the limit chip, the 28 px context
+ * ring around the toggle icon and the toggle's `aria-describedby` text show
+ * only while the inspector is closed; open, the inspector says the same.
  *
  * `titleEl` and `toggleEl` are exposed for the inspector controller's
  * `attach(shell, opener, title)`. Both live inside the host's `@if`, so the
@@ -30,7 +47,7 @@ import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
 @Component({
   selector: 'ptah-session-header',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, ContextRingComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -43,11 +60,25 @@ import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
           display: none;
         }
       }
+      /* The limit chip drops its glyph below 440 px and keeps the word. */
+      @container (max-width: 439px) {
+        .session-header-limit-glyph {
+          display: none;
+        }
+      }
       /* Need ink at 55% for the border, transparent fill (design-spec 5 item 5). */
-      .session-header-needs {
+      .session-header-needs,
+      .session-header-limit[data-state='near'] {
         border-color: color-mix(
           in oklch,
           var(--state-ink-need, oklch(var(--wa))) 55%,
+          transparent
+        );
+      }
+      .session-header-limit[data-state='at'] {
+        border-color: color-mix(
+          in oklch,
+          var(--state-ink-err, oklch(var(--er))) 55%,
           transparent
         );
       }
@@ -64,6 +95,9 @@ import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
       }
       [data-dot='need'] > .session-header-dot {
         background-color: var(--state-ink-need, oklch(var(--wa)));
+      }
+      [data-dot='err'] > .session-header-dot {
+        background-color: var(--state-ink-err, oklch(var(--er)));
       }
       /* The selected-indicator ink (design-spec --sel): brand gold, theme-aware. */
       [data-dot='sel'] > .session-header-dot {
@@ -110,7 +144,30 @@ import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
           {{ needsYouText() }}
         </span>
       }
+      @if (shownLimit(); as limit) {
+        <span
+          role="status"
+          class="session-header-limit inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md border px-2 text-[11px] font-medium"
+          [class.text-state-need]="limit.state === 'near'"
+          [class.text-state-err]="limit.state === 'at'"
+          data-test="session-header-limit"
+          [attr.data-state]="limit.state"
+          [attr.title]="limit.fullText"
+        >
+          <lucide-angular
+            [img]="TriangleAlertIcon"
+            class="session-header-limit-glyph h-3 w-3 shrink-0"
+            aria-hidden="true"
+          />
+          {{ limit.state === 'at' ? 'At limit' : 'Limit near' }}
+          @if (limit.fullText) {
+            <span class="sr-only">: {{ limit.fullText }}</span>
+          }
+        </span>
+      }
       <ng-content select="[sessionHeaderAction]" />
+      @let ringPercent = shownRingPercent();
+      @let description = shownDescription();
       <button
         #toggle
         type="button"
@@ -119,10 +176,19 @@ import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
         [attr.aria-pressed]="inspectorOpen()"
         [attr.aria-controls]="inspectorId()"
         [attr.aria-label]="toggleLabel()"
+        [attr.aria-describedby]="description ? descriptionId : null"
         [attr.title]="toggleLabel()"
         [attr.data-dot]="inspectorDot()"
         (click)="inspectorToggled.emit()"
       >
+        @if (ringPercent !== null) {
+          <ptah-context-ring
+            class="pointer-events-none absolute inset-0"
+            data-test="session-header-context-ring"
+            [percent]="ringPercent"
+            [size]="28"
+          />
+        }
         <lucide-angular
           [img]="PanelRightIcon"
           class="h-4 w-4"
@@ -132,12 +198,18 @@ import { GitBranch, LucideAngularModule, PanelRight } from 'lucide-angular';
           <span class="session-header-dot" aria-hidden="true"></span>
         }
       </button>
+      @if (description) {
+        <span class="sr-only" [id]="descriptionId">{{ description }}</span>
+      }
     </header>
   `,
 })
 export class SessionHeaderComponent {
   protected readonly GitBranchIcon = GitBranch;
   protected readonly PanelRightIcon = PanelRight;
+  protected readonly TriangleAlertIcon = TriangleAlert;
+  /** `aria-describedby` target of this header's toggle. */
+  protected readonly descriptionId = `ptah-session-header-desc-${nextHeaderId++}`;
 
   /** Session name; truncates, never wraps. */
   readonly title = input('');
@@ -147,12 +219,18 @@ export class SessionHeaderComponent {
   readonly needsYouCount = input(0);
   /** Drives `aria-pressed` on the toggle. */
   readonly inspectorOpen = input(false);
-  /** Toggle dot kind; `null` draws no dot. */
-  readonly inspectorDot = input<'need' | 'sel' | null>(null);
+  /** Toggle dot kind (`limitAwareDot` precedence); `null` draws no dot. */
+  readonly inspectorDot = input<'need' | 'err' | 'sel' | null>(null);
   /** Accessible name of the toggle; does not change with the dot. */
   readonly toggleLabel = input.required<string>();
   /** `aria-controls` target: the inspector `<aside>` id. */
   readonly inspectorId = input('inspector');
+  /** Session limit summary; the chip shows while closed and not `none`. */
+  readonly limitCue = input<SessionLimitSummary | null>(null);
+  /** Context window percent; the toggle ring shows while closed and known. */
+  readonly contextRingPercent = input<number | null>(null);
+  /** What is behind the closed toggle; never changes the accessible name. */
+  readonly toggleDescription = input<string>('');
 
   readonly inspectorToggled = output<void>();
 
@@ -165,4 +243,19 @@ export class SessionHeaderComponent {
     const count = this.needsYouCount();
     return count === 1 ? '1 needs you' : `${count} need you`;
   });
+
+  protected readonly shownLimit = computed(() => {
+    const cue = this.limitCue();
+    return !this.inspectorOpen() && cue !== null && cue.state !== 'none'
+      ? cue
+      : null;
+  });
+
+  protected readonly shownRingPercent = computed(() =>
+    this.inspectorOpen() ? null : this.contextRingPercent(),
+  );
+
+  protected readonly shownDescription = computed(() =>
+    this.inspectorOpen() ? '' : this.toggleDescription(),
+  );
 }

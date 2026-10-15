@@ -14,8 +14,10 @@ import {
   afterNextRender,
   OnDestroy,
   InjectionToken,
+  Injector,
   Signal,
 } from '@angular/core';
+import { NgComponentOutlet } from '@angular/common';
 import {
   LucideAngularModule,
   Bell,
@@ -41,6 +43,8 @@ import {
   StatsTileExpansionState,
   PTAH_UI_DISPLAY_DOCK,
   PTAH_UI_DISPLAY_DOCK_SYNC,
+  limitAwareDot,
+  inspectorToggleDescription,
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
@@ -48,6 +52,7 @@ import { SessionBudgetBannerComponent } from '../molecules/notifications/session
 import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
+import { SessionHeaderComponent } from '../molecules/session-header/session-header.component';
 // Referenced only in `imports` and inside `@defer (on immediate)`.
 import { SessionInspectorComponent } from '../organisms/session-inspector/session-inspector.component';
 import {
@@ -56,6 +61,16 @@ import {
 } from '../../services/session-inspector';
 import { injectSessionStatsSource } from '../../services/session-stats/session-stats-source';
 import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
+import {
+  SESSION_WORKFLOW_ADDONS,
+  sessionWorkflowKind,
+  workflowAddonsFor,
+} from '../../tokens/session-workflow-addons.token';
+import {
+  SessionGitStatsStore,
+  sessionBranch,
+  sessionWorkingRoot,
+} from '../../services/session-git-stats/session-git-stats.store';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
@@ -93,7 +108,6 @@ import {
   RpcResult,
   VSCodeService,
 } from '@ptah-extension/core';
-import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
@@ -157,6 +171,9 @@ const DOCK_MAX_WIDTH_RATIO = 0.75;
 /** How long an inspector `Answer` waits for its question card (plan-part-b §5). */
 const QUESTION_CARD_WAIT_MS = 1000;
 
+/** `is-entering` lifetime; the longest stagger item ends at 620 ms (req 13.1). */
+const ENTER_CLASS_MS = 1000;
+
 /** The first option of a question card, focused when an answer is routed to it. */
 const QUESTION_CARD_FOCUSABLE =
   'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -196,6 +213,8 @@ const VIEW_PANEL_KEY = '';
     SidebarTabComponent,
     CompactSessionCardComponent,
     AgentOriginBannerComponent,
+    SessionHeaderComponent,
+    NgComponentOutlet,
     // Referenced only here and inside `@defer`, so the inspector sections stay
     // a lazy chunk (plan-part-b §5).
     SessionInspectorComponent,
@@ -678,6 +697,7 @@ export class ChatViewComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.clearAnswerWait();
+    this.clearEnterTimer();
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
     this.resizeObserver?.disconnect();
@@ -837,10 +857,9 @@ export class ChatViewComponent implements OnDestroy {
    * transcript freezes; when the token is absent (tribunal conductor, tests) the
    * tile is treated as always showing.
    *
-   * NOTE: `showCompactCard()`
-   * destroys the keep-alive region via the template `@if/@else`; a main-panel
-   * compact toggle is rare and simply rebuilds on return. Accepted, not fixed
-   * (plan risk 6).
+   * NOTE: a forced card (`showCompactCard()`) destroys the keep-alive region
+   * via the template `@if/@else`; only Rail hosts force it, and they rebuild
+   * on return. Accepted, not fixed (plan risk 6).
    */
   readonly mainPanelShowing = computed(() =>
     this._sessionContext
@@ -901,27 +920,12 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   /**
-   * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
-   * In compact mode the chat view renders a CompactSessionCard instead of the
-   * full message list via `showCompactCard()`. The selected view mode is
-   * tab state, shared by surfaces for the same tab.
+   * The compact card shows only where a host forces it (Rail card, A-5). A
+   * user-chosen compact view renders the transcript, which reads the tab's
+   * `viewMode` itself (compact density), under the session header.
    */
-  readonly resolvedViewMode = computed(() => {
-    const ctx = this._sessionContext;
-    if (ctx) {
-      const tabId = ctx();
-      if (!tabId) return 'full' as const;
-      return (
-        this._tabManager.tabs().find((t) => t.id === tabId)?.viewMode ?? 'full'
-      );
-    }
-    return this._tabManager.activeTabViewMode();
-  });
-
   protected readonly showCompactCard = computed(
-    () =>
-      (this._forcedCard?.() ?? false) ||
-      isCompactViewMode(this.resolvedViewMode()),
+    () => this._forcedCard?.() ?? false,
   );
 
   /**
@@ -1104,6 +1108,143 @@ export class ChatViewComponent implements OnDestroy {
   /** Agent rows open lanes only where the host has a lane surface. */
   protected readonly hasLaneSurface = this._cardActions !== null;
 
+  // Session header (plan part A2 binding contract; Delta 3 closed-state cues).
+  // It renders only where the inspector is hosted, so a 'bare' embed, a tile
+  // and a forced card get no header, chips or dot.
+
+  private readonly _gitStats = inject(SessionGitStatsStore);
+  private readonly _vscode = inject(VSCodeService);
+  private readonly _workflowAddons = inject(SESSION_WORKFLOW_ADDONS, {
+    optional: true,
+  });
+
+  /** Unique pending requests of the shown tab (the inspector's one count). */
+  protected readonly needsYouCount = computed(() => {
+    const tabId = this.resolvedTabId();
+    return tabId ? this._inspectorStore.modelFor(tabId)().needsYouCount : 0;
+  });
+
+  /**
+   * Branch hint: the agent-origin branch, else the last known branch of the
+   * session's working root (the composer's rule). Reads git state only; the
+   * inspector's GIT section starts the tracking.
+   */
+  protected readonly headerBranch = computed(() => {
+    const tab = this.resolvedActiveTab();
+    if (!tab) return null;
+    const root = sessionWorkingRoot(
+      tab,
+      this._tabManager.findTabByIdAcrossWorkspaces(tab.id)?.workspacePath ??
+        null,
+      this._vscode.config().workspaceRoot || undefined,
+    );
+    return sessionBranch(tab, this._gitStats.stateFor(root));
+  });
+
+  /** One dot: pending request > at limit > near limit > workflow; none open. */
+  protected readonly inspectorDot = computed(() =>
+    limitAwareDot(
+      this.shell.showDot(),
+      this.shell.isOpen(),
+      this.stats.inputs()?.limitSummary ?? null,
+    ),
+  );
+
+  protected readonly limitCue = computed(
+    () => this.stats.inputs()?.limitSummary ?? null,
+  );
+
+  protected readonly contextRingPercent = computed(
+    () => this.stats.inputs()?.context.percent ?? null,
+  );
+
+  /** What is behind the closed toggle; empty without stats. */
+  protected readonly toggleDescription = computed(() => {
+    const stats = this.stats.inputs();
+    return stats
+      ? inspectorToggleDescription(
+          stats.context,
+          stats.limitSummary,
+          this.needsYouCount(),
+        )
+      : '';
+  });
+
+  /** Workflow add-ons of the shown tab for the header's chip slot. */
+  protected readonly headerChipAddons = computed(() =>
+    workflowAddonsFor(
+      this._workflowAddons,
+      sessionWorkflowKind(this.resolvedActiveTab()),
+      'sessionHeaderChip',
+    ),
+  );
+
+  /** Workflow add-ons of the shown tab for the header's action slot. */
+  protected readonly headerActionAddons = computed(() =>
+    workflowAddonsFor(
+      this._workflowAddons,
+      sessionWorkflowKind(this.resolvedActiveTab()),
+      'sessionHeaderAction',
+    ),
+  );
+
+  private readonly _injector = inject(Injector);
+  /** Removes `is-entering` after the session-switch stagger; cleared on destroy. */
+  private _enterTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Session-switch stagger (design-spec 7.1-7.3), keyed on the tab id: a
+   * view-mode switch or a first session id keeps the tab, so it never
+   * replays. Plays once the new tab's items are rendered.
+   */
+  private wireSessionSwitchStagger(): void {
+    let lastTabId: string | null = null;
+    effect(() => {
+      const tabId = this.resolvedTabId();
+      if (tabId === null || tabId === lastTabId) return;
+      lastTabId = tabId;
+      untracked(() =>
+        afterNextRender(() => this.playEnter(tabId), {
+          injector: this._injector,
+        }),
+      );
+    });
+  }
+
+  /**
+   * One index pass over the shown transcript's mounted `.st-t` items in DOM
+   * order (`--i` = min(k + 1, 8)), then restart `is-entering` on the host.
+   * Only indexed items (`data-st-i`) animate, so an item that mounts later
+   * appears without motion. One query and one timer per switch.
+   */
+  private playEnter(tabId: string): void {
+    const host = this.hostEl.nativeElement;
+    const transcript = Array.from(
+      host.querySelectorAll<HTMLElement>('ptah-chat-transcript[data-tab-id]'),
+    ).find((el) => el.getAttribute('data-tab-id') === tabId);
+    transcript?.querySelectorAll<HTMLElement>('.st-t').forEach((el, k) => {
+      el.style.setProperty('--i', String(Math.min(k + 1, 8)));
+      el.setAttribute('data-st-i', '');
+    });
+    host.classList.remove('is-entering');
+    // Reflow between remove and add restarts every running animation.
+    void host.offsetWidth;
+    host.classList.add('is-entering');
+    this.clearEnterTimer();
+    this.ngZone.runOutsideAngular(() => {
+      this._enterTimer = setTimeout(() => {
+        this._enterTimer = null;
+        host.classList.remove('is-entering');
+      }, ENTER_CLASS_MS);
+    });
+  }
+
+  private clearEnterTimer(): void {
+    if (this._enterTimer === null) return;
+    clearTimeout(this._enterTimer);
+    this._enterTimer = null;
+  }
+
   private readonly inspectorShell =
     viewChild<ElementRef<HTMLElement>>('inspectorShell');
   /** The pending 1 s wait of `focusQuestionCard`; cleared on destroy. */
@@ -1268,6 +1409,8 @@ export class ChatViewComponent implements OnDestroy {
     this.observeHostWidth();
     // Tiles never host the inspector, so they start no shell observer.
     if (!this.bareChrome && !this._sessionContext) this.wireInspectorShell();
+    // Every host (main panel, Rail, embeds) plays the session-switch stagger.
+    this.wireSessionSwitchStagger();
 
     // A closed chat tab's dock state is released, whichever path closed it
     // (tab bar, shortcut, canvas, tribunal); the view's own key is never a tab.
