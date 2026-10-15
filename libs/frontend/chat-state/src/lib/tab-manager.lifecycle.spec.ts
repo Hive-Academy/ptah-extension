@@ -87,6 +87,50 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
 
   afterEach(() => localStorage.clear());
 
+  it('keeps a workflow kind through attach, close, workspace switch and sidebar reopen', async () => {
+    Object.defineProperty(partition, 'activeWorkspacePath', {
+      value: '/one',
+      configurable: true,
+    });
+    const id = service.createTab('Workflow');
+    service.setWorkflow(id, 'harness-new-project');
+    service.attachSession(id, SESS_X);
+    expect(service.workflowForSession(SESS_X, '/one')).toBe(
+      'harness-new-project',
+    );
+
+    await service.closeTab(id);
+    expect(service.workflowForSession(SESS_X, '/one')).toBe(
+      'harness-new-project',
+    );
+
+    Object.defineProperty(partition, 'activeWorkspacePath', {
+      value: '/two',
+      configurable: true,
+    });
+    (partition.switchWorkspace as jest.Mock).mockReturnValue({
+      tabs: [],
+      activeTabId: null,
+    });
+    service.switchWorkspace('/two');
+    expect(service.workflowForSession(SESS_X, '/two')).toBeNull();
+    expect(service.workflowForSession(SESS_X, '/one')).toBe(
+      'harness-new-project',
+    );
+
+    Object.defineProperty(partition, 'activeWorkspacePath', {
+      value: '/one',
+      configurable: true,
+    });
+    service.switchWorkspace('/one');
+    const reopened = service.openSessionTab(SESS_X, 'History row');
+    expect(service.tabs().find((tab) => tab.id === reopened)?.workflow).toBe(
+      'harness-new-project',
+    );
+    service.forgetWorkflowSession(SESS_X, '/one');
+    expect(service.workflowForSession(SESS_X, '/one')).toBeNull();
+  });
+
   describe('createTab + computed signals', () => {
     it('createTab appends a fresh tab and activates it', () => {
       const id = service.createTab('First');
