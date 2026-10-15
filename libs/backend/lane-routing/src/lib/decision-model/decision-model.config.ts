@@ -99,6 +99,8 @@ export class DecisionModelConfig {
     string,
     Promise<DecisionModelProbeResult>
   >();
+  /** Serialises mark writes so a stale persist cannot land last. */
+  private markChain: Promise<void> = Promise.resolve();
 
   constructor(
     /** `PLATFORM_TOKENS.WORKSPACE_PROVIDER` */
@@ -244,6 +246,17 @@ export class DecisionModelConfig {
 
   /** Row status. Probes the endpoint for Ollama; makes no paid call for any kind. */
   async getStatus(): Promise<DecisionModelStatusDto> {
+    return this.statusForCurrent(true);
+  }
+
+  /**
+   * `allowRetry` is true only for the caller-facing read. A probe that
+   * finishes for a selection that is no longer current may probe the new
+   * selection once; a further change returns that row with no extra probe.
+   */
+  private async statusForCurrent(
+    allowRetry: boolean,
+  ): Promise<DecisionModelStatusDto> {
     const selection = this.getSelection();
     switch (selection.kind) {
       case 'unset':
@@ -256,7 +269,14 @@ export class DecisionModelConfig {
         const baseUrl = this.ollamaBaseUrl();
         const startedKey = keyOf(selection, baseUrl);
         const probe = await this.probe(baseUrl, selection.model);
-        return this.applyProbe(selection, baseUrl, probe, null, startedKey);
+        return this.applyProbe(
+          selection,
+          baseUrl,
+          probe,
+          null,
+          startedKey,
+          allowRetry,
+        );
       }
     }
   }
@@ -277,9 +297,11 @@ export class DecisionModelConfig {
 
   /**
    * Persists the unsupported mark for the selection this probe started with.
-   * A key that no longer matches the current selection is discarded: no
-   * in-memory mark and no storage write. A persistence failure is logged at
-   * warn; the in-memory mark still holds for this session.
+   * The storage write shares one chain with `clearMark`. Inside that chain
+   * the key is checked again; a mark that is no longer current writes a
+   * clear instead, so a delayed write cannot be the last persisted value.
+   * A persistence failure is logged at warn; the in-memory mark still holds
+   * for this session when the key was current at the write.
    */
   async markUnsupported(
     baseUrl: string,
@@ -287,31 +309,31 @@ export class DecisionModelConfig {
     selection: DecisionModelSelection,
   ): Promise<void> {
     const normalised = normaliseBaseUrl(baseUrl);
-    if (this.currentProbeKey() !== keyOf(selection, normalised)) {
+    const markKey = keyOf(selection, normalised);
+    if (this.currentProbeKey() !== markKey) {
       return;
     }
-    const mark: DecisionModelUnsupportedMark = {
-      selection,
-      baseUrl: normalised,
-      detail,
-      at: this.now(),
-    };
-    this.mark = mark;
-    this.logger.info(
-      '[lane-routing] decision model endpoint marked unsupported',
-      {
-        baseUrl: mark.baseUrl,
+    await this.enqueueMark(async () => {
+      if (this.currentProbeKey() !== markKey) {
+        await this.persistMark(undefined);
+        return;
+      }
+      const mark: DecisionModelUnsupportedMark = {
+        selection,
+        baseUrl: normalised,
         detail,
-      },
-    );
-    try {
-      await this.storage.update(DECISION_MODEL_UNSUPPORTED_STORAGE_KEY, mark);
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[lane-routing] decision model unsupported mark was not persisted',
-        { error: errorMessage(error) },
+        at: this.now(),
+      };
+      this.mark = mark;
+      this.logger.info(
+        '[lane-routing] decision model endpoint marked unsupported',
+        {
+          baseUrl: mark.baseUrl,
+          detail,
+        },
       );
-    }
+      await this.persistMark(mark);
+    });
   }
 
   /**
@@ -348,7 +370,14 @@ export class DecisionModelConfig {
       base,
       selection.model,
     );
-    return this.applyProbe(selection, base, probe, liveDetail, startedKey);
+    return this.applyProbe(
+      selection,
+      base,
+      probe,
+      liveDetail,
+      startedKey,
+      false,
+    );
   }
 
   // ---------------------------------------------------------- internals
@@ -418,9 +447,12 @@ export class DecisionModelConfig {
     probe: DecisionModelProbeResult,
     liveDetail: string | null,
     startedKey: string,
+    allowRetry: boolean,
   ): Promise<DecisionModelStatusDto> {
     if (this.currentProbeKey() !== startedKey) {
-      return this.getStatus();
+      return allowRetry
+        ? this.statusForCurrent(false)
+        : this.currentRowWithoutProbe();
     }
     const key = startedKey;
     if (probe.outcome === 'unsupported-endpoint') {
@@ -429,6 +461,9 @@ export class DecisionModelConfig {
         liveDetail === null ? base : `${base}; last call: ${liveDetail}`;
       if (!this.markMatches(key)) {
         await this.markUnsupported(baseUrl, detail, selection);
+      }
+      if (this.currentProbeKey() !== startedKey) {
+        return this.currentRowWithoutProbe();
       }
       return this.dto(
         selection,
@@ -439,6 +474,9 @@ export class DecisionModelConfig {
     if (probe.outcome === 'ready') {
       if (this.mark) {
         await this.clearMark('probe proved the route');
+      }
+      if (this.currentProbeKey() !== startedKey) {
+        return this.currentRowWithoutProbe();
       }
       if (liveDetail !== null) {
         this.lastCallFailure = { key, detail: liveDetail };
@@ -581,22 +619,62 @@ export class DecisionModelConfig {
     );
   }
 
+  private enqueueMark(work: () => Promise<void>): Promise<void> {
+    const run = this.markChain.then(work, work);
+    this.markChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async persistMark(
+    value: DecisionModelUnsupportedMark | undefined,
+  ): Promise<void> {
+    try {
+      await this.storage.update(DECISION_MODEL_UNSUPPORTED_STORAGE_KEY, value);
+    } catch (error: unknown) {
+      this.logger.warn(
+        value === undefined
+          ? '[lane-routing] decision model unsupported mark was not cleared in storage'
+          : '[lane-routing] decision model unsupported mark was not persisted',
+        { error: errorMessage(error) },
+      );
+    }
+  }
+
+  /**
+   * Row for the selection now, without an Ollama probe. Unmarked Ollama uses
+   * `unreachable`: decision #46 fixes the state set and has no pending state.
+   */
+  private currentRowWithoutProbe(): Promise<DecisionModelStatusDto> {
+    const selection = this.getSelection();
+    switch (selection.kind) {
+      case 'unset':
+        return Promise.resolve(this.dto(selection, 'unset', null));
+      case 'jev':
+        return this.jevStatus(selection);
+      case 'structured':
+        return this.structuredStatus(selection);
+      case 'ollama': {
+        const key = keyOf(selection, this.ollamaBaseUrl());
+        const mark = this.mark;
+        if (mark !== null && keyOf(mark.selection, mark.baseUrl) === key) {
+          return Promise.resolve(
+            this.dto(selection, 'unsupported-endpoint', mark.detail),
+          );
+        }
+        return Promise.resolve(this.dto(selection, 'unreachable', null));
+      }
+    }
+  }
+
   private async clearMark(reason: string): Promise<void> {
     this.mark = null;
     this.logger.info('[lane-routing] decision model unsupported mark cleared', {
       reason,
     });
-    try {
-      await this.storage.update(
-        DECISION_MODEL_UNSUPPORTED_STORAGE_KEY,
-        undefined,
-      );
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[lane-routing] decision model unsupported mark was not cleared in storage',
-        { error: errorMessage(error) },
-      );
-    }
+    await this.enqueueMark(() => this.persistMark(undefined));
   }
 
   private lastFailureDetail(key: string): string | null {

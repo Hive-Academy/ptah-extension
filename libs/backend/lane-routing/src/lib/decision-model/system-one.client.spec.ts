@@ -298,7 +298,7 @@ describe('SystemOneClient', () => {
     expect(failure).toEqual({
       ok: false,
       cause: 'unreachable',
-      detail: 'fetch failed',
+      detail: 'transport error (TypeError)',
       notFound: false,
     });
   });
@@ -448,5 +448,55 @@ describe('SystemOneClient', () => {
 
     expect(entries.length).toBeGreaterThan(0);
     expect(JSON.stringify(entries)).not.toContain('secret-key-1');
+  });
+
+  it('never copies a transport message or a provider model into a log or detail', async () => {
+    const entries: Array<{ message: string; meta: Record<string, unknown> }> =
+      [];
+    const record = (message: string, meta?: Record<string, unknown>): void => {
+      entries.push({ message, meta: meta ?? {} });
+    };
+    const logger: LaneRoutingLogger = {
+      debug: record,
+      info: record,
+      warn: record,
+      error: record,
+    };
+    const secret = 'SECRET-PROMPT';
+    const transport = new SystemOneClient(
+      { baseUrl: 'http://127.0.0.1:11434', model: 'nimble' },
+      {
+        fetch: () => Promise.reject(new TypeError(`connect ${secret}`)),
+        logger,
+      },
+    );
+
+    const failure = requireFailure(await transport.decide(payload));
+
+    expect(failure.detail).toBe('transport error (TypeError)');
+    expect(failure.cause).toBe('unreachable');
+    expect(JSON.stringify(entries)).not.toContain(secret);
+
+    entries.length = 0;
+    const { fetch } = recordingFetch(200, {
+      model: `echo-${secret}`,
+      answers: {
+        implement: {
+          type: 'choice',
+          choice: 'o1',
+          probabilities: { o1: 0.81, o2: 0.19 },
+        },
+      },
+    });
+    const success = new SystemOneClient(
+      { baseUrl: 'http://127.0.0.1:11434', model: 'nimble' },
+      { fetch, logger },
+    );
+
+    const result = requireSuccess(await success.decide(payload));
+
+    expect(result.model).toBe(`echo-${secret}`);
+    expect(JSON.stringify(entries)).not.toContain(secret);
+    expect(JSON.stringify(entries)).toContain('nimble');
   });
 });

@@ -791,4 +791,109 @@ describe('DecisionModelConfig probe binding and mark read', () => {
       'SECRET-PROMPT',
     );
   });
+
+  async function flushUntil(ready: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (ready()) {
+        return;
+      }
+      await Promise.resolve();
+    }
+    throw new Error('timed out waiting for the decision-model mark race');
+  }
+
+  it('does not leave A persisted when its storage write was held across a selection change', async () => {
+    const h = harness({ selection: { kind: 'ollama', model: 'alpha' } });
+    let releaseUpdate = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    let entered = 0;
+    const written: unknown[] = [];
+    h.storage.update.mockImplementation(async (key: string, value: unknown) => {
+      entered += 1;
+      written.push(value);
+      if (entered === 1) {
+        await held;
+      }
+      if (value === undefined) {
+        h.storage.__state.entries.delete(key);
+      } else {
+        h.storage.__state.entries.set(key, value);
+      }
+    });
+
+    const marking = h.config.markUnsupported(
+      BASE,
+      'endpoint does not serve /v1/systemone',
+      { kind: 'ollama', model: 'alpha' },
+    );
+    await flushUntil(() => entered === 1);
+    const switching = h.config.setSelection({
+      kind: 'ollama',
+      model: 'beta',
+    });
+    await flushUntil(() =>
+      JSON.stringify(h.logger.info.mock.calls).includes(
+        'decision model unsupported mark cleared',
+      ),
+    );
+    releaseUpdate();
+    await marking;
+    await switching;
+
+    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(h.storage.__state.entries.has(KEY)).toBe(false);
+    expect(written[written.length - 1]).toBeUndefined();
+  });
+
+  it('probes the replacement selection once when the selection changes twice', async () => {
+    let versionCount = 0;
+    const versionReleases: Array<() => void> = [];
+    const fetchImpl: SystemOneFetch = async (url) => {
+      const path = new URL(url).pathname;
+      if (path === VERSION_PATH) {
+        versionCount += 1;
+        await new Promise<void>((resolve) => {
+          versionReleases.push(resolve);
+        });
+        return { ok: true, status: 200, text: async () => VERSION_OK.body };
+      }
+      if (path === SYSTEM_ONE_PATH) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () => MODEL_REQUIRED.body,
+        };
+      }
+      return { ok: false, status: 404, text: async () => GO_NOT_FOUND.body };
+    };
+    const h = harness({
+      selection: { kind: 'ollama', model: 'alpha' },
+      fetch: fetchImpl,
+    });
+
+    const pending = h.config.getStatus();
+    await flushUntil(() => versionCount === 1);
+    await h.config.setSelection({ kind: 'ollama', model: 'beta' });
+    const releaseFirst = versionReleases[0];
+    if (releaseFirst === undefined) {
+      throw new Error('the first probe never waited on /api/version');
+    }
+    releaseFirst();
+    await flushUntil(() => versionCount === 2);
+    await h.config.setSelection({ kind: 'ollama', model: 'gamma' });
+    const releaseSecond = versionReleases[1];
+    if (releaseSecond === undefined) {
+      throw new Error('the retry probe never waited on /api/version');
+    }
+    releaseSecond();
+
+    const status = await pending;
+
+    expect(versionCount).toBe(2);
+    expect(status.selection).toEqual({ kind: 'ollama', model: 'gamma' });
+    expect(status.state).toBe('unreachable');
+    expect(status.detail).toBeNull();
+  });
 });

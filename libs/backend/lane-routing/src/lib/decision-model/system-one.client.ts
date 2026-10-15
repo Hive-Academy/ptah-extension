@@ -191,7 +191,7 @@ export class SystemOneClient {
     }
 
     this.logger?.debug('[lane-routing] system one call succeeded', {
-      model: validated.data.model,
+      model: this.options.model,
       answers: Object.keys(validated.data.answers).length,
     });
     return { ok: true, result: validated.data };
@@ -202,6 +202,8 @@ export class SystemOneClient {
    * from OAuth discovery): the signal's only source is the request timeout,
    * so an aborted signal is a timeout and every other rejection is a
    * network failure (connection refused, DNS, TLS — Req 12.7 `unreachable`).
+   * The rejection message is untrusted and is not copied into the detail or
+   * the log; only the error name is.
    */
   private classifyTransportFailure(
     signal: AbortSignal,
@@ -213,11 +215,11 @@ export class SystemOneClient {
         this.failure('timeout', `request timed out after ${timeoutMs} ms`),
       );
     }
-    const message =
-      error instanceof Error && error.message.length > 0
-        ? error.message
-        : 'network error';
-    return this.logged(this.failure('unreachable', message));
+    const name =
+      error instanceof Error && error.name.length > 0 ? error.name : 'Error';
+    return this.logged(
+      this.failure('unreachable', `transport error (${name})`),
+    );
   }
 
   private failure(

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 47 | Batches: 39 (Batch 37 P3 fix round added, decision #93) | Complete: 35/39 | Phases accepted: P1, P2 (decision #85) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91); P3 phase review on a codex lane pending
+Total tasks: 47 | Batches: 40 (Batches 37 and 37b P3 fix round added, decisions #93, #94) | Complete: 36/40 | Phases accepted: P1, P2 (decision #85) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91); P3 phase review on a codex lane pending
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -290,6 +290,7 @@ be Anthropic.
 | LT-P3-1 | `gather.ts:76-83` has no overall deadline: a candidate source, limits, roles or matrix port that never settles keeps the gate pending (p3 logic M-2) | Moderate, no lane config or data loss; a hung host port is needed | Later task **P3c** (decision #93) |
 | LT-P3-2 | `phase-plan.ts:110-118` and `assemble-gate.ts:52-60` take seven positional values incl. a bare boolean; use a readonly named input with `deferReviewerFamily` (p3 style Moderate 1) | Moderate, maintenance only | Later task **P3c** (decision #93) |
 | LT-P3-3 | `model-refine.ts:101-107` exports `openSystemOne`, unused; the service uses `openSystemOneFrom` (p3 style Minor) | Minor, recorded | Later task **P3c** (decision #93) |
+| LT-P3-4 | Same-key concurrent route calls can load the same rotation cursor and pick the same next lane; the Batch 37 lock covers persistence only (`route-decide.service.ts:173-200,365-381`, p3-fix logic M-1 PARTIAL) | Moderate, no data lost; repeat pick under concurrency only | Later task **P3c** (decision #94) |
 | P2-m     | Logic Minors: KV eviction drops receipts (dismissed); `holdReport` uses `Date.now()`; SQLite and KV `telemetryJoin` parity; queue mode reports `applied`; stale `heldRuns` ack; `structuredClone` cost in `snapshot()`; `reportId` retry not idempotent for `revise`; `taskId` unbounded in the row schema; `workspaceRoot: ''` drops a subagent record; `start.ts` skips `dispose` if an unsubscribe throws; `isRegistered` order for the classifier and seam; runtime `executorKind: 'subagent'` on a lane op. Style Minors 1-7: `start` registers silently; value import of `SqliteConnectionService`; `findLatestByAgent`/`hasReceipt`/`specVerdictSource` have no caller; error-name helper repeated 4 times; hand-written `checks` type; duplicated telemetry fallback; Prettier miss in `eslint.config.mjs` | Minor                                                                               | Recorded, not fixed. Batch 36 removes the literal-`5000` Minor as part of P2-F2. The `eslint.config.mjs` Prettier miss is formatted by lint-staged if that file is ever staged |
 
 ---
@@ -2068,3 +2069,16 @@ store.applyReportWithReceipt(reviseReport, now, resolve)])` leaves the row with
 - `npx nx test @ptah-extension/lane-routing --parallel=1`, then lint, then typecheck; then typecheck
   each lib that imports lane-routing (rpc-handlers, vscode-lm-tools, agent-sdk), one at a time;
   degradation TOTAL 296 no FAIL; di-lint OK
+
+## Batch 37b (P3f2): P3 bounded correction — COMPLETE (decision #94; re-review pending)
+
+- Executor: CLI lane grok (xAI), resumed Batch 37 session 01a140ec-b3be-71e1-a92f-af14e6dd6bef;
+  report `reports/batch-37b-report.md`
+- Scope: S-1 rest (success `model` and transport `error.message` out of logs/detail), S-3 rest
+  (one mark-write chain, in-chain key check, `applyProbe` re-check), unbounded stale-probe retry
+  (one retry, then the current row without a probe), barrel trim (13 internal exports removed)
+- Verified (orchestrator): `nx test @ptah-extension/lane-routing` 18 suites / 388 tests, lint,
+  typecheck; typecheck agent-sdk and rpc-handlers; vscode-lm-tools typecheck after Batch 29
+- Last correction for P3 (agent-lanes §6). One short codex re-review follows; if it still finds
+  defects, report them to the user and stop. Codex sessions: logic 01a14105-24d0-7732-b30c-11bcada27ac6,
+  style 01a14105-4526-76f0-bd65-1dc323897ddd
