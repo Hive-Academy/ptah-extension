@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Clean session view - prototype (TASK_2026_677_efcd)</title>
+  <title>Clean session view - prototype (TASK_2026_677_efcd, round 1)</title>
   <script>
     // Apply theme from the query string before first paint (?theme=light|dark).
     (function () {
@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="assets/tokens.css" />
   <link rel="stylesheet" href="assets/app.css" />
   <script src="assets/sprite.js"></script>
+  <script src="assets/sprite-extra.js"></script>
 </head>
 <body data-bare="false" data-reduce="false">
 
@@ -26,7 +27,7 @@
       <button type="button" data-set="theme=dark">Dark (anubis)</button>
       <button type="button" data-set="theme=light">Light (anubis-light)</button>
     </span>
-    <span class="grp" data-group="turn">Turn 1
+    <span class="grp" data-group="t1">Turn 1
       <button type="button" data-set="t1=collapsed">Collapsed</button>
       <button type="button" data-set="t1=expanded">Expanded</button>
     </span>
@@ -42,22 +43,45 @@
     </span>
     <span class="grp" data-group="body">Content
       <button type="button" data-set="body=full">Populated</button>
+      <button type="button" data-set="body=partial">Partial</button>
       <button type="button" data-set="body=empty">Empty</button>
       <button type="button" data-set="body=loading">Loading</button>
-      <button type="button" data-set="body=error">Error</button>
+      <button type="button" data-set="body=error">Git error</button>
+    </span>
+    <span class="grp" data-group="ask">Requests
+      <button type="button" data-set="ask=lane">1 lane permission</button>
+      <button type="button" data-set="ask=lane-open">Review open</button>
+      <button type="button" data-set="ask=multi">Several (5)</button>
+      <button type="button" data-set="ask=question">1 question</button>
+      <button type="button" data-set="ask=none">None</button>
+    </span>
+    <span class="grp" data-group="host">Host
+      <button type="button" data-set="host=electron">Electron single chat</button>
+      <button type="button" data-set="host=rail">Rail / VS Code (lane surface)</button>
     </span>
     <span class="grp" data-group="width">Width
       <button type="button" data-set="width=wide">Wide</button>
       <button type="button" data-set="width=sidebar">Sidebar 400</button>
     </span>
+    <span class="grp" data-group="parity">Parity
+      <button type="button" data-set="parity=0">Reference view</button>
+      <button type="button" data-set="parity=1">Show retained surfaces</button>
+    </span>
+    <span class="grp"><button type="button" id="failToggle" aria-pressed="false">Simulate send failure</button></span>
+    <span class="grp"><button type="button" id="laneEnds">Lane finishes (close requests)</button></span>
+    <span class="grp"><button type="button" id="checkFocus">Check focus paths</button></span>
     <span class="grp"><button type="button" id="replay">Replay session switch</button></span>
     <span class="grp"><button type="button" id="reduce" aria-pressed="false">Reduced motion</button></span>
   </div>
+  <pre class="proto-out" id="checkOut" hidden></pre>
+
+  <!-- Live region for request outcomes (success, error, closed) -->
+  <div class="sr-only" id="announce" role="status" aria-live="polite"></div>
 
   <!-- ============ PRODUCT SHELL ============ -->
   <div class="cs-shell is-entering" id="shell" data-inspector="open" data-width="wide">
 
-    <section class="cs-main" aria-label="Session: Desktop shell redesign">
+    <section class="cs-main" id="mainRegion" aria-label="Session: Desktop shell redesign">
       <!-- Header -->
       <header class="cs-header st-f">
         <button type="button" class="icon-btn" aria-label="Toggle sidebar">
@@ -75,13 +99,33 @@
         </button>
       </header>
 
+      <!-- Agent-origin strip (retained ptah-agent-origin-banner, restyled). Shown with parity=1 -->
+      <div class="cs-origin only-parity" hidden>
+        <svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg>
+        <span class="muted">Started by an agent in <b>Release planning</b></span>
+        <button type="button" class="link-btn">Open parent</button>
+      </div>
+
       <!-- Thread -->
       <div class="cs-scroll" id="scroll">
         <div class="cs-thread">
 
           <!-- User 1 -->
           <article class="cs-turn cs-turn--user st" style="--i:1" aria-label="You">
-            <div class="cs-user">Build the new desktop shell behind a flag. Reuse ChatView and the agent stores. Plan first, then hand the batches to the team.</div>
+            <div class="cs-user-wrap">
+              <div class="cs-user-actions" role="group" aria-label="Message actions">
+                <button type="button" class="icon-btn" aria-label="Branch conversation from this message" title="Branch conversation from here"><svg class="ico" aria-hidden="true"><use href="#i-git-branch"/></svg></button>
+                <button type="button" class="icon-btn" aria-label="Rewind to this message" title="Rewind to this message"><svg class="ico" aria-hidden="true"><use href="#i-undo-2"/></svg></button>
+              </div>
+              <div class="cs-user">
+                <div class="cs-attach only-parity" hidden>
+                  <span class="att"><svg class="ico ico--12" aria-hidden="true"><use href="#i-file-text"/></svg>app-shell.component.ts</span>
+                  <span class="att"><svg class="ico ico--12" aria-hidden="true"><use href="#i-file-text"/></svg>app.html</span>
+                  <span class="att"><svg class="ico ico--12" aria-hidden="true"><use href="#i-image"/></svg>2 images</span>
+                </div>
+                Build the new desktop shell behind a flag. Reuse ChatView and the agent stores. Plan first, then hand the batches to the team.
+              </div>
+            </div>
           </article>
 
           <!-- Assistant 1: complete turn, collapsed by default -->
@@ -89,13 +133,26 @@
             <button type="button" class="cs-worked st" style="--i:2" aria-expanded="false" aria-controls="log1" id="worked1">
               <span>Worked for 4m 12s</span>
               <svg class="ico ico--16 chev" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+              <span class="meta tnum">6 tools · 3 files</span>
             </button>
             <div class="cs-log-wrap" id="log1">
               <div class="cs-log-inner">
                 <ol class="cs-log" aria-label="Work log">
+                  <li class="log-item">
+                    <button type="button" class="log-tool log-think" aria-expanded="false" aria-controls="d1t"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg><span class="name">Thinking</span><span class="arg" style="font-family:inherit">Map the shell and the stores first</span><svg class="ico ico--12 chev12" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>
+                    <div class="tool-detail" id="d1t" hidden><p>The current shell hosts ChatView in a router outlet. Before adding a second shell I need to know which stores are session-scoped and which are global.</p></div>
+                  </li>
                   <li class="log-text">I will map the current shell and the stores first, then ask the architect for a plan.</li>
-                  <li class="log-tool"><svg class="ico" aria-hidden="true"><use href="#i-file-text"/></svg><span class="name">Read</span><code class="arg">libs/frontend/chat/src/lib/components/templates/app-shell.component.ts</code><span class="meta s-done"><svg class="ico ico--12" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">done</span></span></li>
-                  <li class="log-tool"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span class="name">Grep</span><code class="arg">ptah-electron-shell  apps/</code><span class="meta s-done"><svg class="ico ico--12" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">done</span></span></li>
+                  <li class="log-item">
+                    <button type="button" class="log-tool" aria-expanded="false" aria-controls="d1a"><svg class="ico" aria-hidden="true"><use href="#i-file-text"/></svg><span class="name">Read</span><code class="arg">libs/frontend/chat/src/lib/components/templates/app-shell.component.ts</code><span class="meta s-done"><svg class="ico ico--12" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">done</span></span></button>
+                    <div class="tool-detail" id="d1a" hidden><pre>1  import { Component } from '@angular/core';
+2  // ... 184 lines</pre></div>
+                  </li>
+                  <li class="log-item">
+                    <button type="button" class="log-tool" aria-expanded="false" aria-controls="d1b"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span class="name">Grep</span><code class="arg">ptah-electron-shell  apps/</code><span class="meta s-done"><svg class="ico ico--12" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">done</span></span></button>
+                    <div class="tool-detail" id="d1b" hidden><pre>apps/ptah-electron/src/renderer/app.html:12
+apps/ptah-electron/src/renderer/app.component.ts:7</pre></div>
+                  </li>
                   <li class="log-tool"><svg class="ico" aria-hidden="true"><use href="#i-file-text"/></svg><span class="name">Read</span><code class="arg">apps/ptah-electron/src/renderer/app.html</code><span class="meta s-done"><svg class="ico ico--12" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">done</span></span></li>
                   <li class="log-tool log-tool--agent"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="name">software-architect</span><span class="arg" style="font-family:inherit">wrote implementation-plan.md</span><span class="meta"><span class="s-done">done</span> · 2m 41s</span></li>
                   <li class="log-text">The plan fits in three batches. Reporting back.</li>
@@ -108,20 +165,45 @@
               <p>The architect wrote the plan. I split it into three batches:</p>
             </div>
             <div class="cs-agents st" style="--i:4" role="group" aria-label="Agents in this turn">
-              <button type="button" class="chip" aria-label="software-architect, sub-agent, done. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="nm">software-architect</span><span class="st s-done">done</span></button>
-              <button type="button" class="chip" aria-label="frontend-developer, sub-agent, running. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="nm">frontend-developer</span><span class="st s-run">running</span></button>
-              <button type="button" class="chip" aria-label="Codex, CLI lane, running. Open lane"><svg class="mark" aria-hidden="true"><use href="#m-codex"/></svg><span class="nm">Codex</span><span class="st s-run">running</span></button>
-              <button type="button" class="chip" aria-label="Gemini, CLI lane, waiting for permission. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg><span class="nm">Gemini</span><span class="st s-need">waiting</span></button>
+              <button type="button" class="chip" data-agent="arch" aria-label="software-architect, sub-agent, done. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="nm">software-architect</span><span class="st s-done">done</span></button>
+              <button type="button" class="chip" data-agent="fe" aria-label="frontend-developer, sub-agent, running. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="nm">frontend-developer</span><span class="st s-run">running</span></button>
+              <button type="button" class="chip" data-agent="codex" aria-label="Codex, CLI lane, running. Open lane"><svg class="mark" data-departure="codex-brand-mark" aria-hidden="true"><use href="#m-codex"/></svg><span class="nm">Codex</span><span class="st s-run">running</span></button>
+              <button type="button" class="chip" data-agent="gemini" aria-label="Gemini, CLI lane, waiting for permission. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg><span class="nm">Gemini</span><span class="st s-need">waiting</span></button>
             </div>
             <div class="cs-actions st" style="--i:5" role="group" aria-label="Message actions">
               <button type="button" class="icon-btn" aria-label="Copy message"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg></button>
-              <button type="button" class="icon-btn" aria-label="Show activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg></button>
+              <button type="button" class="icon-btn act-toggle" aria-label="Show activity" aria-expanded="false" aria-controls="act1"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg></button>
             </div>
+            <dl class="cs-activity" id="act1" hidden>
+              <div><dt>Duration</dt><dd class="tnum">4m 12s</dd></div>
+              <div><dt>Tokens</dt><dd class="tnum">18.2k in · 3.1k out</dd></div>
+              <div><dt>Cost</dt><dd class="tnum">$0.42</dd></div>
+              <div><dt>Tool calls</dt><dd class="tnum">6</dd></div>
+              <div><dt>Files changed</dt><dd class="tnum">3</dd></div>
+            </dl>
+          </article>
+
+          <!-- Compaction marker + continuation (retained ptah-compaction-marker, message-bubble continuation). Shown with parity=1 -->
+          <div class="cs-divider only-parity" role="separator" aria-label="Conversation compacted" hidden>
+            <span class="rule" aria-hidden="true"></span>
+            <button type="button" class="disc-btn" aria-expanded="false" aria-controls="compSum"><span>Conversation compacted · 3.2 s</span><svg class="ico ico--12 chev12" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>
+            <span class="rule" aria-hidden="true"></span>
+          </div>
+          <div class="cs-comp-summary only-parity" id="compSum" hidden>Context went from 92% to 14% of the window. Summary: the shell plan, the three batches and the open Gemini permission were kept.</div>
+          <article class="cs-turn cs-turn--cont only-parity" aria-label="Continuation" hidden>
+            <button type="button" class="cs-worked" aria-expanded="false" aria-controls="contBody"><span>Continued from a compacted conversation</span><svg class="ico ico--16 chev" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>
+            <div class="cs-comp-summary" id="contBody" hidden>This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier part of the conversation.</div>
           </article>
 
           <!-- User 2 -->
           <article class="cs-turn cs-turn--user st" style="--i:6" aria-label="You">
-            <div class="cs-user">Go. Keep the old shell untouched.</div>
+            <div class="cs-user-wrap">
+              <div class="cs-user-actions" role="group" aria-label="Message actions">
+                <button type="button" class="icon-btn" aria-label="Branch conversation from this message" title="Branch conversation from here"><svg class="ico" aria-hidden="true"><use href="#i-git-branch"/></svg></button>
+                <button type="button" class="icon-btn" aria-label="Rewind to this message" title="Rewind to this message"><svg class="ico" aria-hidden="true"><use href="#i-undo-2"/></svg></button>
+              </div>
+              <div class="cs-user">Go. Keep the old shell untouched.</div>
+            </div>
           </article>
 
           <!-- Assistant 2: the live turn (state machine: streaming -> running -> done) -->
@@ -130,6 +212,7 @@
               <span class="live-dot only-live" aria-hidden="true"></span>
               <span id="worked2label">Working · 2m 07s</span>
               <svg class="ico ico--16 chev" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+              <span class="meta tnum" id="worked2meta">4 tools</span>
             </button>
             <div class="cs-log-wrap" id="log2">
               <div class="cs-log-inner">
@@ -138,7 +221,7 @@
                   <li class="log-tool"><svg class="ico" aria-hidden="true"><use href="#i-file-text"/></svg><span class="name">Read</span><code class="arg">libs/frontend/chat/src/lib/components/templates/app-shell.component.ts</code><span class="meta s-done"><svg class="ico ico--12" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">done</span></span></li>
                   <li class="log-tool"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span class="name">Grep</span><code class="arg">router-outlet  apps/ptah-electron</code><span class="meta s-done"><svg class="ico ico--12" aria-hidden="true"><use href="#i-check"/></svg><span class="sr-only">done</span></span></li>
                   <li class="log-tool log-tool--agent"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="name">frontend-developer</span><span class="arg" style="font-family:inherit">Read session-context.token.ts</span><span class="meta s-run"><svg class="ico ico--12 spin" aria-hidden="true"><use href="#i-loader-circle"/></svg><span class="sr-only">running</span></span></li>
-                  <li class="log-tool log-tool--agent"><svg class="mark" aria-hidden="true"><use href="#m-codex"/></svg><span class="name">Codex</span><span class="arg" style="font-family:inherit">Fixing a failing assertion</span><span class="meta s-run"><svg class="ico ico--12 spin" aria-hidden="true"><use href="#i-loader-circle"/></svg><span class="sr-only">running</span></span></li>
+                  <li class="log-tool log-tool--agent"><svg class="mark" data-departure="codex-brand-mark" aria-hidden="true"><use href="#m-codex"/></svg><span class="name">Codex</span><span class="arg" style="font-family:inherit">Fixing a failing assertion</span><span class="meta s-run"><svg class="ico ico--12 spin" aria-hidden="true"><use href="#i-loader-circle"/></svg><span class="sr-only">running</span></span></li>
                   <li class="log-tool"><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg><span class="name">Bash</span><code class="arg">npx nx test chat --parallel=1</code><span class="meta s-run"><svg class="ico ico--12 spin" aria-hidden="true"><use href="#i-loader-circle"/></svg><span class="sr-only">running</span></span></li>
                   <li class="log-text" id="streamText">Gemini wants to run a lint pass. I am holding the first merge until that is answered<span class="caret" aria-hidden="true"></span></li>
                 </ol>
@@ -149,15 +232,22 @@
               <p>Started the workers. I will merge each batch when its tests pass.</p>
             </div>
             <div class="cs-agents" role="group" aria-label="Agents in this turn">
-              <button type="button" class="chip" aria-label="frontend-developer, sub-agent, running. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="nm">frontend-developer</span><span class="st s-run">running</span></button>
-              <button type="button" class="chip" aria-label="Codex, CLI lane, running. Open lane"><svg class="mark" aria-hidden="true"><use href="#m-codex"/></svg><span class="nm">Codex</span><span class="st s-run">running</span></button>
-              <button type="button" class="chip" aria-label="Gemini, CLI lane, waiting for permission. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg><span class="nm">Gemini</span><span class="st s-need">waiting</span></button>
-              <button type="button" class="chip" aria-label="nx test chat, background command, running. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg><span class="nm">nx test chat</span><span class="st s-run">running</span></button>
+              <button type="button" class="chip" data-agent="fe" aria-label="frontend-developer, sub-agent, running. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="nm">frontend-developer</span><span class="st s-run">running</span></button>
+              <button type="button" class="chip" data-agent="codex" aria-label="Codex, CLI lane, running. Open lane"><svg class="mark" data-departure="codex-brand-mark" aria-hidden="true"><use href="#m-codex"/></svg><span class="nm">Codex</span><span class="st s-run">running</span></button>
+              <button type="button" class="chip" data-agent="gemini" aria-label="Gemini, CLI lane, waiting for permission. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg><span class="nm">Gemini</span><span class="st s-need">waiting</span></button>
+              <button type="button" class="chip" data-agent="bg" aria-label="nx test chat, background command, running. Open lane"><svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg><span class="nm">nx test chat</span><span class="st s-run">running</span></button>
             </div>
             <div class="cs-actions only-done-actions" role="group" aria-label="Message actions">
               <button type="button" class="icon-btn" aria-label="Copy message"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg></button>
-              <button type="button" class="icon-btn" aria-label="Show activity"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg></button>
+              <button type="button" class="icon-btn act-toggle" aria-label="Show activity" aria-expanded="false" aria-controls="act2"><svg class="ico" aria-hidden="true"><use href="#i-activity"/></svg></button>
             </div>
+            <dl class="cs-activity" id="act2" hidden>
+              <div><dt>Duration</dt><dd class="tnum">6m 48s</dd></div>
+              <div><dt>Tokens</dt><dd class="tnum">31.0k in · 5.4k out</dd></div>
+              <div><dt>Cost</dt><dd class="tnum">$0.71</dd></div>
+              <div><dt>Tool calls</dt><dd class="tnum">9</dd></div>
+              <div><dt>Files changed</dt><dd class="tnum">11</dd></div>
+            </dl>
             <div class="cs-live" role="status" aria-live="polite">
               <span class="dot-live" aria-hidden="true"></span>
               <span id="liveLabel">Orchestrating</span>
@@ -168,6 +258,17 @@
 
         </div>
       </div>
+
+      <!-- Question card (retained ptah-question-card, unchanged component; restyled here only to show the Answer route) -->
+      <section class="q-card" id="qCard" tabindex="-1" role="group" aria-labelledby="qTitle" hidden>
+        <div class="q-head"><svg class="ico" aria-hidden="true"><use href="#i-message-circle-question-mark"/></svg><b id="qTitle">Codex asks</b></div>
+        <p class="q-text" id="qText">Base the batches on main or on feat/desktop-shell?</p>
+        <div class="q-opts" role="radiogroup" aria-labelledby="qTitle">
+          <label class="q-opt"><input type="radio" name="q1" value="main" /> main</label>
+          <label class="q-opt"><input type="radio" name="q1" value="feat" /> feat/desktop-shell</label>
+        </div>
+        <div class="q-actions"><button type="button" class="btn-sm btn-sm--solid" id="qSend">Send answer</button></div>
+      </section>
 
       <!-- Composer -->
       <div class="cs-composer-wrap st-f">
@@ -193,91 +294,13 @@
 
     <div class="cs-scrim" id="scrim" aria-hidden="true"></div>
 
-    <!-- ============ Inspector: "This session" ============ -->
+    <!-- ============ Inspector: "This session" (body is rendered by app.js from mock data) ============ -->
     <aside class="cs-inspector" id="inspector" aria-label="This session">
       <div class="cs-insp-head st-r" style="--i:0">
-        <h2>This session</h2>
+        <h2 id="inspTitle">This session</h2>
         <button type="button" class="icon-btn" id="inspClose" aria-label="Close session details"><svg class="ico ico--16" aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
-      <div class="cs-insp-body" id="inspBody">
-
-        <!-- Orchestrator -->
-        <section class="insp-sec st-r" style="--i:1" aria-label="Orchestrator">
-          <div class="orch-top"><span class="dot dot--run" aria-hidden="true"></span><span class="orch-name">Orchestrator</span></div>
-          <div class="orch-sub muted">Opus 5.5 · <span id="orchState">waiting on 4 agents</span></div>
-          <div class="ctx-row"><span class="muted" id="ctxLabel">Context</span><span class="muted tnum">41% of 200k</span></div>
-          <progress class="ctx-bar" id="ctxBar" value="41" max="100" aria-labelledby="ctxLabel" aria-valuetext="41% of the 200k token window"></progress>
-          <dl class="stats" style="margin-bottom:0">
-            <div class="stat"><dt class="l">tokens</dt><dd class="v">82.4k</dd></div>
-            <div class="stat"><dt class="l">cost</dt><dd class="v">$1.84</dd></div>
-            <div class="stat"><dt class="l">turns</dt><dd class="v">6</dd></div>
-          </dl>
-        </section>
-
-        <!-- Agents -->
-        <section class="insp-sec insp-sec--agents st-r" style="--i:2" aria-labelledby="agentsH">
-          <div class="sec-head"><h3 class="sec-label" id="agentsH">Agents</h3><span class="sec-meta" id="agentsMeta">4 active · 1 finished</span></div>
-          <ul class="agent-list" id="agentList">
-
-            <li class="agent st-r" style="--i:3">
-              <button type="button" class="agent__main" aria-label="frontend-developer, sub-agent, running 2 minutes 13 seconds. Read session-context.token.ts">
-                <span class="agent__l1"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="agent__name">frontend-developer</span><span class="kind">Sub-agent</span><span class="agent__stat"><span class="w s-run">running</span> <span class="t">· 2m 13s</span></span></span>
-                <span class="agent__act">Read session-context.token.ts</span>
-              </button>
-            </li>
-
-            <li class="agent st-r" style="--i:4">
-              <button type="button" class="agent__main" aria-label="Codex, CLI lane, running 1 minute 50 seconds. Fixing a failing assertion">
-                <span class="agent__l1"><svg class="mark" aria-hidden="true"><use href="#m-codex"/></svg><span class="agent__name">Codex</span><span class="kind">CLI lane</span><span class="agent__stat"><span class="w s-run">running</span> <span class="t">· 1m 50s</span></span></span>
-                <span class="agent__act">Fixing a failing assertion</span>
-              </button>
-            </li>
-
-            <li class="agent st-r" style="--i:5" id="agentGemini">
-              <button type="button" class="agent__main" aria-label="Gemini, CLI lane, waiting 33 seconds. Needs permission: npx nx lint chat">
-                <span class="agent__l1"><svg class="ico" aria-hidden="true"><use href="#i-terminal"/></svg><span class="agent__name">Gemini</span><span class="kind">CLI lane</span><span class="agent__stat"><span class="w s-need">waiting</span> <span class="t">· 33s</span></span></span>
-              </button>
-              <div class="agent__perm"><svg class="ico ico--12" aria-hidden="true"><use href="#i-shield-alert"/></svg><span class="txt"><b>Needs permission:</b> <code>npx nx lint chat</code></span><button type="button" class="btn-xs" aria-label="Review permission request from Gemini: npx nx lint chat">Review</button></div>
-            </li>
-
-            <li class="agent st-r" style="--i:6">
-              <button type="button" class="agent__main" aria-label="nx test chat, background command, running 1 minute 51 seconds. jest, 212 of 340 specs">
-                <span class="agent__l1"><svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg><span class="agent__name">nx test chat</span><span class="kind">Background</span><span class="agent__stat"><span class="w s-run">running</span> <span class="t">· 1m 51s</span></span></span>
-                <span class="agent__act">jest · 212 of 340 specs</span>
-              </button>
-            </li>
-
-            <li class="agent agent--finished st-r" style="--i:7" id="agentArchitect">
-              <button type="button" class="agent__main" aria-label="software-architect, sub-agent, done in 2 minutes 41 seconds. Wrote implementation-plan.md">
-                <span class="agent__l1"><svg class="ico" aria-hidden="true"><use href="#i-bot"/></svg><span class="agent__name">software-architect</span><span class="kind">Sub-agent</span><span class="agent__stat"><span class="w s-done">done</span> <span class="t">· 2m 41s</span></span></span>
-                <span class="agent__act">Wrote implementation-plan.md</span>
-              </button>
-            </li>
-          </ul>
-        </section>
-
-        <!-- Todos -->
-        <section class="insp-sec st-r" style="--i:8" aria-labelledby="todosH" id="todosSec">
-          <div class="sec-head"><h3 class="sec-label" id="todosH">Todos</h3><span class="sec-meta tnum">2 of 5</span></div>
-          <ul class="todo-list">
-            <li class="todo todo--done"><span class="cb cb--done" aria-hidden="true"><svg class="ico ico--12" style="width:10px;height:10px;stroke-width:3.5" aria-hidden="true"><use href="#i-check"/></svg></span><span class="sr-only">Done: </span><span class="tx">Map current shell and stores</span></li>
-            <li class="todo todo--done"><span class="cb cb--done" aria-hidden="true"><svg class="ico ico--12" style="width:10px;height:10px;stroke-width:3.5" aria-hidden="true"><use href="#i-check"/></svg></span><span class="sr-only">Done: </span><span class="tx">Write implementation plan</span></li>
-            <li class="todo todo--run"><span class="cb cb--run" aria-hidden="true"></span><span class="sr-only">In progress: </span><span class="tx">Build desktop shell behind a flag</span></li>
-            <li class="todo todo--run"><span class="cb cb--run" aria-hidden="true"></span><span class="sr-only">In progress: </span><span class="tx">Session Inspector panel</span></li>
-            <li class="todo"><span class="cb" aria-hidden="true"></span><span class="sr-only">Pending: </span><span class="tx">Settings toggle and e2e smoke test</span></li>
-          </ul>
-        </section>
-
-        <!-- Git -->
-        <section class="insp-sec st-r" style="--i:9" aria-labelledby="gitH" id="gitSec">
-          <div class="sec-head"><h3 class="sec-label" id="gitH">Git</h3><a href="#" class="link-gold" id="reviewLink">Review changes</a></div>
-          <div class="git-row">
-            <svg class="ico" aria-hidden="true"><use href="#i-git-branch"/></svg><span class="br">feat/desktop-shell</span>
-            <span class="ab" title="2 commits ahead, 0 behind"><svg class="ico ico--12" style="width:10px;height:10px" aria-hidden="true"><use href="#i-arrow-up"/></svg>2 <svg class="ico ico--12" style="width:10px;height:10px;margin-left:4px" aria-hidden="true"><use href="#i-arrow-down"/></svg>0</span>
-            <span class="df"><span class="a">+400</span><span class="d">−3</span></span>
-          </div>
-        </section>
-      </div>
+      <div class="cs-insp-body" id="inspBody"></div>
     </aside>
   </div>
 

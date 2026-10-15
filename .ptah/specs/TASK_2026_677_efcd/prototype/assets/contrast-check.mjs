@@ -55,14 +55,14 @@ const themes = {
     b1: hex('#131317'), b2: hex('#1a1a20'), b3: hex('#242430'), bc: hex('#e8e6e1'),
     bcm: oklch([0.66509856, 0.007403, 31.090978]),
     run: hex('#3b82f6'), need: hex('#f97316'), err: hex('#ef4444'), done: hex('#16a34a'), idle: hex('#9ca3af'),
-    gold: hex('#d4af37'), primary: hex('#2563eb'), pc: hex('#f8f7f4'), warnC: hex('#131317'),
+    gold: hex('#d4af37'), ring: hex('#d4af37'), link: hex('#d4af37'), primary: hex('#2563eb'), pc: hex('#f8f7f4'), warnC: hex('#131317'),
     add: hex('#4ade80'), del: hex('#f87171'),
   },
   'anubis-light': {
     b1: oklch([0.97788, 0.004, 56.375]), b2: oklch([0.93982, 0.007, 61.449]), b3: oklch([0.91586, 0.006, 53.44]),
     bc: oklch([0.23574, 0.066, 313.189]), bcm: oklch([0.48955188, 0.044796, 348.478612]),
     run: hex('#2a56c6'), need: hex('#8f5200'), err: hex('#b4232a'), done: hex('#13713a'), idle: hex('#6b6570'),
-    gold: oklch([0.58, 0.132, 75]), primary: oklch([0.85, 0.138, 181.071]), pc: oklch([0.36, 0.078, 188.216]),
+    gold: oklch([0.58, 0.132, 75]), ring: oklch([0.48, 0.12, 70]), link: oklch([0.48, 0.12, 70]), primary: oklch([0.85, 0.138, 181.071]), pc: oklch([0.36, 0.078, 188.216]),
     warnC: oklch([0.28, 0.066, 53.813]), add: hex('#13713a'), del: hex('#b4232a'),
   },
 };
@@ -86,7 +86,10 @@ if (process.argv[1] && process.argv[1].endsWith('contrast-check.mjs')) {
     rows.push(['checkbox outline (55% bc) on surface-0', ratio(over(t.bc, 0.55, s0), s0)]);
     rows.push(['checkbox outline (45% bc) on surface-0', ratio(over(t.bc, 0.45, s0), s0)]);
     rows.push(['context bar track (22% bc) on surface-0', ratio(over(t.bc, 0.22, s0), s0)]);
-    rows.push(['focus ring ptah-gold on surface-0', ratio(t.gold, s0)]);
+    // Actual focus-ring token per theme (styles.css: --s in dark, --ptah-gold-strong in anubis-light), on every surface it can sit on
+    for (const [sn, sv] of Object.entries(surf)) rows.push([`focus ring (${name === 'anubis' ? '--s gold' : 'gold-strong'}) on ${sn}  [UI >= 3:1]`, ratio(t.ring, sv)]);
+    for (const [sn, sv] of Object.entries(surf)) rows.push([`--ptah-link text on ${sn}  [text >= 4.5:1]`, ratio(t.link, sv)]);
+    rows.push(['plain light gold as ring on surface-1 (NOT used; shows why gold-strong is required)', ratio(t.gold, s1)]);
     rows.push(['send button: base-100 glyph on base-content', ratio(t.b1, t.bc)]);
     rows.push(['diff add on surface-0', ratio(t.add, s0)]);
     rows.push(['diff del on surface-0', ratio(t.del, s0)]);
