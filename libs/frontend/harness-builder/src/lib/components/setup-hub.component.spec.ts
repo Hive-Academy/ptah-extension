@@ -20,6 +20,7 @@ import { STACK_PROFILES, getStackProfile } from '@ptah-extension/shared';
 import type { NewProjectIntake } from '@ptah-extension/shared';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessWorkflowService } from '../services/harness-workflow.service';
+import { HarnessWorkflowRequestService } from '../services/harness-workflow-request.service';
 import { SetupHubComponent } from './setup-hub.component';
 
 interface WorkflowStub {
@@ -32,6 +33,7 @@ interface WorkflowStub {
 describe('SetupHubComponent — New Project intake', () => {
   let fixture: ComponentFixture<SetupHubComponent>;
   let harnessRpc: { startNewProject: jest.Mock };
+  let workflowRequest: { requestAndNavigate: jest.Mock };
   let workflow: WorkflowStub;
   /**
    * The REAL state manager over the testing Router (TASK_2026_524): the hub
@@ -79,8 +81,20 @@ describe('SetupHubComponent — New Project intake', () => {
 
   beforeEach(async () => {
     harnessRpc = {
-      startNewProject: jest.fn().mockResolvedValue({ success: true }),
+      startNewProject: jest
+        .fn()
+        .mockImplementation(async (intake: NewProjectIntake) => ({
+          success: true,
+          seedPrompt: 'Plan the project',
+          intake,
+          plugins: {
+            enabledBundled: [],
+            missingExternal: [],
+            availableSkillIds: [],
+          },
+        })),
     };
+    workflowRequest = { requestAndNavigate: jest.fn().mockResolvedValue(true) };
     workflow = {
       isActive: signal(false),
       isProcessing: signal(false),
@@ -106,6 +120,7 @@ describe('SetupHubComponent — New Project intake', () => {
           },
         },
         { provide: HarnessRpcService, useValue: harnessRpc },
+        { provide: HarnessWorkflowRequestService, useValue: workflowRequest },
         { provide: HarnessWorkflowService, useValue: workflow },
       ],
     });
@@ -292,8 +307,44 @@ describe('SetupHubComponent — New Project intake', () => {
     };
     expect(harnessRpc.startNewProject).toHaveBeenCalledTimes(1);
     expect(harnessRpc.startNewProject).toHaveBeenCalledWith(expected);
-    // The backend broadcast drives navigation; the modal must not linger.
+    expect(workflowRequest.requestAndNavigate).toHaveBeenCalledWith({
+      mode: 'new-project',
+      seedPrompt: 'Plan the project',
+      intake: expected,
+    });
     expect(el('new-project-intake')).toBeNull();
+  });
+
+  it('keeps the modal open until the request and navigation finish', async () => {
+    let finishNavigation: (landed: boolean) => void = () => {
+      throw new Error('Navigation was not started');
+    };
+    workflowRequest.requestAndNavigate.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        finishNavigation = resolve;
+      }),
+    );
+    click('new-project-start');
+    typeWhat('A scheduling tool');
+    click('intake-start');
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(el('new-project-intake')).not.toBeNull();
+    finishNavigation(true);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(el('new-project-intake')).toBeNull();
+  });
+
+  it('keeps the modal open and reports navigation failure', async () => {
+    workflowRequest.requestAndNavigate.mockResolvedValueOnce(false);
+    click('new-project-start');
+    typeWhat('A scheduling tool');
+    click('intake-start');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(el('new-project-intake')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('could not be opened');
   });
 
   it('keeps the modal open and shows the reason when the start fails', async () => {
@@ -394,7 +445,20 @@ describe('SetupHubComponent — New Project intake', () => {
     });
     harnessRpc.startNewProject.mockImplementation(async () => {
       order.push('startNewProject');
-      return { success: true };
+      return {
+        success: true,
+        seedPrompt: 'Plan the project',
+        intake: {
+          what: 'A scheduling tool',
+          audience: 'unsure',
+          stack: 'recommend',
+        },
+        plugins: {
+          enabledBundled: [],
+          missingExternal: [],
+          availableSkillIds: [],
+        },
+      };
     });
 
     click('new-project-start');

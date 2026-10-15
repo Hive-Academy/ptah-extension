@@ -54,6 +54,7 @@ import type {
   HarnessAnalyzeIntentParams,
   HarnessAnalyzeIntentResponse,
   HarnessStartNewProjectResult,
+  HarnessGetProposalResult,
   NewProjectIntake,
   HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
@@ -282,8 +283,8 @@ export class HarnessRpcService {
   /**
    * Hand the New Project flow off to the harness workflow surface.
    * The backend enables the ptah-nx-saas plugin, refreshes skill junctions,
-   * focuses the chat/main view, broadcasts HARNESS_OPEN_WORKFLOW with the
-   * seed prompt, and disposes the wizard panel.
+   * focuses the chat/main view, returns the seed prompt, and disposes the
+   * wizard panel. The caller requests and navigates to the workflow.
    */
   public async startNewProject(
     intake: NewProjectIntake,
@@ -295,6 +296,18 @@ export class HarnessRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to start new project');
+  }
+
+  public async getProposal(
+    sessionId: string,
+  ): Promise<HarnessGetProposalResult> {
+    const result = await this.rpcService.call('harness:get-proposal', {
+      sessionId,
+    });
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to get harness proposal');
   }
 
   /**
