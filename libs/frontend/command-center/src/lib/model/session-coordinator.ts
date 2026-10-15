@@ -9,6 +9,7 @@ import {
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import { CommandCenterStore } from './command-center.store';
+import { buildStatusContext } from './status-context';
 
 /** Owns only the marked tab for one Command Center page lifetime. */
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- page-scoped, provided by the Command Center page component.
@@ -24,7 +25,7 @@ export class CommandCenterSessionCoordinator {
   private readonly destroyRef = inject(DestroyRef);
   private readonly ownerToken = crypto.randomUUID();
   private opening: Promise<string | null> | null = null;
-  private statusContextProvider: (() => string | null) | null = null;
+  private statusContextProvider: (() => string | null) | null = () => buildStatusContext(this.store.nodes());
 
   public constructor() {
     this.destroyRef.onDestroy(() => this.releaseVoice());
@@ -38,6 +39,7 @@ export class CommandCenterSessionCoordinator {
     if (this.opening) return this.opening;
     const opening = this.openOrResumeInternal();
     this.opening = opening;
+    // degradation-audit: reported — the caller receives the original promise and handles its rejection
     void opening.finally(() => {
       if (this.opening === opening) this.opening = null;
     }).catch(() => undefined);
@@ -78,6 +80,7 @@ export class CommandCenterSessionCoordinator {
         this.store.setSessionStatus('running');
         return tabId;
       } catch {
+        // degradation-audit: reported — restore failure is shown through the safe fail message
         this.fail('Could not restore the Command Center session.');
         return null;
       }
@@ -165,6 +168,7 @@ export class CommandCenterSessionCoordinator {
       this.store.setSessionStatus('running');
       return true;
     } catch {
+      // degradation-audit: reported — send failure is shown through the safe fail message
       this.fail('Could not send the Command Center message.');
       return false;
     }
