@@ -241,4 +241,160 @@ describe('CommandVoiceLoop', () => {
       });
     }
   });
+
+  it('serializes send across mute and restart and ignores the old turn boundary', async () => {
+    let resolveOld: (value: boolean) => void = () => undefined;
+    const oldSend = new Promise<boolean>((resolve) => {
+      resolveOld = resolve;
+    });
+    const send = jest.fn().mockReturnValueOnce(oldSend).mockResolvedValue(true);
+    const setVoiceState = jest.fn();
+    const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      voiceState: () => 'listening',
+      setVoiceState,
+      resetLevels: jest.fn(),
+      pendingInput: () => null,
+    });
+    const coordinator = Object.assign(
+      Object.create(null) as CommandCenterSessionCoordinator,
+      {
+        send,
+        mute: jest.fn(),
+        stop: jest.fn().mockResolvedValue(undefined),
+      },
+    );
+    const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
+      call: jest.fn().mockResolvedValue({
+        success: true,
+        data: { ok: true, transcript: 'command' },
+      }),
+    });
+    const loop = new CommandVoiceLoop(store, coordinator, rpc);
+    const clip = { audioBase64: 'AA==', mimeType: 'audio/wav' } as const;
+    loop['active'] = true;
+    const first = loop['onClip'](clip);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await loop.mute();
+    loop['active'] = true;
+    loop['muted'] = false;
+    const second = loop['onClip'](clip);
+    await Promise.resolve();
+    loop.onTurnBoundary('Old reply.');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(loop['busy']).toBe(true);
+    resolveOld(true);
+    await first;
+    await second;
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(loop['busy']).toBe(true);
+    loop.onTurnBoundary('New reply.');
+    expect(loop['busy']).toBe(false);
+    expect(setVoiceState).not.toHaveBeenCalledWith('idle');
+  });
+
+  it('does not restore listening when send fails after stop', async () => {
+    let resolveSend: (value: boolean) => void = () => undefined;
+    const send = jest.fn().mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveSend = resolve;
+      }),
+    );
+    const setVoiceState = jest.fn();
+    const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      voiceState: () => 'stopped',
+      setVoiceState,
+      resetLevels: jest.fn(),
+      pendingInput: () => null,
+    });
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.assign(Object.create(null) as CommandCenterSessionCoordinator, {
+        send,
+        stop: jest.fn().mockResolvedValue(undefined),
+      }),
+      Object.assign(Object.create(null) as ClaudeRpcService, {
+        call: jest.fn().mockResolvedValue({
+          success: true,
+          data: { ok: true, transcript: 'command' },
+        }),
+      }),
+    );
+    loop['active'] = true;
+    const turn = loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
+    await Promise.resolve();
+    await loop.stop();
+    resolveSend(false);
+    await turn;
+    expect(setVoiceState).not.toHaveBeenCalledWith('listening');
+    expect(loop['active']).toBe(false);
+  });
+
+  it('keeps the latency origin when the first of two identical chunks fails', async () => {
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => 'blob:voice',
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: jest.fn(),
+    });
+    let synthCalls = 0;
+    const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
+      call: jest.fn().mockImplementation(() =>
+        Promise.resolve(
+          ++synthCalls === 1
+            ? { success: false }
+            : {
+                success: true,
+                data: {
+                  ok: true,
+                  audioBase64: 'AA==',
+                  mimeType: 'audio/wav',
+                },
+              },
+        ),
+      ),
+    });
+    const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      setVoiceState: jest.fn(),
+      setToast: jest.fn(),
+      voiceState: () => 'thinking',
+    });
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.create(null) as CommandCenterSessionCoordinator,
+      rpc,
+      {
+        now: () => 250,
+        audioFactory: () => ({
+          play: async () => undefined,
+          stop: jest.fn(),
+          onEnded: jest.fn(),
+        }),
+      },
+    );
+    try {
+      loop['active'] = true;
+      loop['speak']('A full sentence. A full sentence.', 'reply', {
+        endedAt: 100,
+        barged: false,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(loop.getLatencyMarks()).toEqual([
+        { kind: 'cold-worker', ms: 150 },
+      ]);
+      expect(loop['playbackMarks']).toHaveLength(0);
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreate,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevoke,
+      });
+    }
+  });
 });

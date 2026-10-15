@@ -33,8 +33,10 @@ interface ReplyOrigin {
 }
 
 interface PlaybackMark {
+  readonly id: number;
+  readonly replyId: number;
   readonly text: string;
-  readonly origin: ReplyOrigin | null;
+  origin: ReplyOrigin | null;
 }
 
 /** Voice transport for a single Command Center page lifetime. */
@@ -51,6 +53,12 @@ export class CommandVoiceLoop {
   private currentUtteranceOrigin: ReplyOrigin | null = null;
   private currentReplyOrigin: ReplyOrigin | null = null;
   private readonly playbackMarks: PlaybackMark[] = [];
+  private readonly synthesisIds: number[] = [];
+  private nextPlaybackId = 0;
+  private nextReplyId = 0;
+  private turnGeneration: number | null = null;
+  private awaitingBoundary = false;
+  private sendTail: Promise<void> = Promise.resolve();
   private firstReplyAfterStart = true;
   private bargeInOnset = false;
   private bargeInCandidateAt: number | null = null;
@@ -71,6 +79,7 @@ export class CommandVoiceLoop {
   ) {
     this.playback = new TtsPlaybackQueue(
       async (text) => {
+        const id = this.synthesisIds.shift();
         try {
           const result = await this.rpc.call(
             'voice:synthesize',
@@ -84,20 +93,23 @@ export class CommandVoiceLoop {
           const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
           return new Blob([bytes], { type: mimeType });
         } catch (error: unknown) {
-          const index = this.playbackMarks.findIndex(
-            (mark) => mark.text === text,
-          );
-          if (index >= 0) this.playbackMarks.splice(index, 1);
+          if (id !== undefined) this.removePlaybackMark(id);
           throw error;
         }
       },
       (url) => {
         const handle = (options.audioFactory ?? browserAudioFactory)(url);
-        const origin = this.playbackMarks.shift()?.origin ?? null;
+        const mark = this.playbackMarks.shift();
+        const origin = mark?.origin ?? null;
         const epoch = this.playbackEpoch;
         return {
           play: async () => {
-            await handle.play();
+            try {
+              await handle.play();
+            } catch (error: unknown) {
+              if (origin && mark) this.transferOrigin(mark.replyId, origin);
+              throw error;
+            }
             if (origin && epoch === this.playbackEpoch) {
               this.latencyMarks.push({
                 kind: origin.barged
@@ -125,6 +137,30 @@ export class CommandVoiceLoop {
 
   private now(): number {
     return this.options.now?.() ?? performance.now();
+  }
+
+  private removePlaybackMark(id: number): void {
+    const index = this.playbackMarks.findIndex((mark) => mark.id === id);
+    if (index < 0) return;
+    const [mark] = this.playbackMarks.splice(index, 1);
+    if (mark.origin) this.transferOrigin(mark.replyId, mark.origin);
+  }
+
+  private transferOrigin(replyId: number, origin: ReplyOrigin): void {
+    const next = this.playbackMarks.find((mark) => mark.replyId === replyId);
+    if (next) next.origin = origin;
+  }
+
+  private enqueue(
+    text: string,
+    replyId: number,
+    origin: ReplyOrigin | null,
+  ): number {
+    const id = ++this.nextPlaybackId;
+    this.playbackMarks.push({ id, replyId, text, origin });
+    this.synthesisIds.push(id);
+    this.playback.enqueue(text);
+    return id;
   }
 
   public getLatencyMarks(): readonly {
@@ -285,12 +321,14 @@ export class CommandVoiceLoop {
     }
     this.busy = true;
     this.currentReplyOrigin = origin;
-    const generation = this.generation;
+    const turnGeneration = this.generation;
+    this.turnGeneration = turnGeneration;
+    this.awaitingBoundary = false;
     try {
       const result = await this.rpc.call('voice:transcribe', clip, {
         timeout: 30_000,
       });
-      if (generation !== this.generation) return;
+      if (turnGeneration !== this.generation) return;
       if (!result.success || !result.data?.ok) {
         this.store.setToast({
           message: 'Transcription failed. Please try again or use text.',
@@ -332,10 +370,27 @@ export class CommandVoiceLoop {
         this.finishTurn();
         return;
       }
-      if (!(await this.coordinator.send(transcript))) this.finishTurn();
+      const priorSend = this.sendTail;
+      let releaseSend: () => void = () => undefined;
+      this.sendTail = new Promise<void>((resolve) => {
+        releaseSend = resolve;
+      });
+      await priorSend;
+      if (turnGeneration !== this.generation) {
+        releaseSend();
+        return;
+      }
+      try {
+        const sent = await this.coordinator.send(transcript);
+        if (turnGeneration !== this.generation) return;
+        if (sent) this.awaitingBoundary = true;
+        else this.finishTurn();
+      } finally {
+        releaseSend();
+      }
     } catch {
       // degradation-audit: reported — transcription failure is shown as a safe text error and creates no turn
-      if (generation === this.generation) {
+      if (turnGeneration === this.generation) {
         this.store.setToast({
           message: 'Voice request failed. Please try again or use text.',
           tone: 'error',
@@ -347,7 +402,13 @@ export class CommandVoiceLoop {
 
   /** Called by the page after the assistant stream and its tool calls settle. */
   public onTurnBoundary(assistantText: string): void {
-    if (!this.active) return;
+    if (
+      !this.active ||
+      this.turnGeneration !== this.generation ||
+      !this.awaitingBoundary
+    )
+      return;
+    this.awaitingBoundary = false;
     this.lastReply = assistantText;
     this.speak(assistantText, 'reply', this.currentReplyOrigin);
     this.currentReplyOrigin = null;
@@ -384,24 +445,31 @@ export class CommandVoiceLoop {
     const spoken = toSpokenText(text, kind);
     if (!spoken || this.muted || !this.active) return;
     const chunker = new SentenceChunker();
+    const replyId = ++this.nextReplyId;
     let first = true;
     for (const chunk of [...chunker.push(spoken), ...chunker.flush()]) {
-      this.playbackMarks.push({ text: chunk, origin: first ? origin : null });
-      this.playback.enqueue(chunk);
+      this.enqueue(chunk, replyId, first ? origin : null);
       first = false;
     }
     this.store.setVoiceState('speaking');
   }
 
   private finishTurn(): void {
+    if (!this.active) return;
     this.busy = false;
+    this.turnGeneration = null;
+    this.awaitingBoundary = false;
     this.currentReplyOrigin = null;
     if (this.queuedClip && this.active && !this.muted) {
       const { clip, origin } = this.queuedClip;
       this.queuedClip = null;
       this.currentUtteranceOrigin = origin;
       void this.onClip(clip);
-    } else if (!this.playback.isPlaying) {
+    } else if (
+      !this.playback.isPlaying &&
+      this.store.voiceState?.() !== 'idle' &&
+      this.store.voiceState?.() !== 'stopped'
+    ) {
       this.store.setVoiceState(this.muted ? 'muted' : 'listening');
       this.store.resetLevels();
     }
@@ -414,6 +482,9 @@ export class CommandVoiceLoop {
     this.busy = false;
     this.queuedClip = null;
     this.playbackMarks.length = 0;
+    this.synthesisIds.length = 0;
+    this.turnGeneration = null;
+    this.awaitingBoundary = false;
     this.currentReplyOrigin = null;
     this.currentUtteranceOrigin = null;
     this.bargeInCandidateAt = null;
@@ -441,6 +512,9 @@ export class CommandVoiceLoop {
     this.busy = false;
     this.queuedClip = null;
     this.playbackMarks.length = 0;
+    this.synthesisIds.length = 0;
+    this.turnGeneration = null;
+    this.awaitingBoundary = false;
     this.currentReplyOrigin = null;
     this.currentUtteranceOrigin = null;
     this.pendingRoster = false;

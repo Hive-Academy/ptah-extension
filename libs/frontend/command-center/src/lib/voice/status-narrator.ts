@@ -50,16 +50,16 @@ export class StatusNarrator {
             ) &&
             ['starting', 'running', 'completed', 'failed'].includes(node.state);
       if (!meaningful) continue;
-      const key = `${root}\u0000${node.id}\u0000${node.state}`;
+      const action =
+        node.state === 'starting' || node.state === 'running'
+          ? 'started'
+          : node.state;
+      const key = `${root}\u0000${node.id}\u0000${action}`;
       if (
         this.delivered.has(key) ||
         this.pending.some((item) => item.key === key)
       )
         continue;
-      const action =
-        node.state === 'starting' || node.state === 'running'
-          ? 'started'
-          : node.state;
       this.pending.push({
         key,
         workId: node.id,

@@ -21,15 +21,15 @@ export interface CaptureFactories {
 const WORKLET = `class PcmRing extends AudioWorkletProcessor {
   constructor() {
     super(); this.ring = new Float32Array(Math.ceil(sampleRate * 0.35));
-    this.index = 0; this.filled = 0; this.recording = false;
+    this.index = 0; this.filled = 0; this.recording = false; this.utteranceId = 0;
     this.port.onmessage = ({data}) => {
-      if (data === 'start') {
-        this.recording = true;
+      if (data.kind === 'start') {
+        this.recording = true; this.utteranceId = data.id;
         const prior = new Float32Array(this.filled);
         for (let i = 0; i < this.filled; i++) prior[i] = this.ring[(this.index - this.filled + i + this.ring.length) % this.ring.length];
-        this.port.postMessage({kind:'samples', samples:prior}, [prior.buffer]);
-      } else if (data === 'end') {
-        this.recording = false; this.port.postMessage({kind:'end'});
+        this.port.postMessage({kind:'samples', id:data.id, samples:prior}, [prior.buffer]);
+      } else if (data.kind === 'end' && data.id === this.utteranceId) {
+        this.recording = false; this.port.postMessage({kind:'end', id:data.id});
       }
     };
   }
@@ -41,7 +41,7 @@ const WORKLET = `class PcmRing extends AudioWorkletProcessor {
     this.port.postMessage({kind:'frame', samples:frame}, [frame.buffer]);
     if (this.recording) {
       const copy = new Float32Array(samples);
-      this.port.postMessage({kind:'samples', samples:copy}, [copy.buffer]);
+      this.port.postMessage({kind:'samples', id:this.utteranceId, samples:copy}, [copy.buffer]);
     }
     return true;
   }
@@ -59,6 +59,8 @@ export class PcmCapture {
   private moduleUrl: string | null = null;
   private chunks: Float32Array[] = [];
   private sampleCount = 0;
+  private utteranceId = 0;
+  private readonly discardedIds = new Set<number>();
 
   public constructor(
     private readonly onFrame: (samples: Float32Array, timeMs: number) => void,
@@ -96,12 +98,21 @@ export class PcmCapture {
       this.source = this.context.createMediaStreamSource(this.stream);
       this.node = new AudioWorkletNode(this.context, 'ptah-pcm-ring');
       this.node.port.onmessage = (
-        event: MessageEvent<{ kind: string; samples?: Float32Array }>,
+        event: MessageEvent<{
+          kind: string;
+          id?: number;
+          samples?: Float32Array;
+        }>,
       ) => {
-        const { kind, samples } = event.data;
+        const { kind, id, samples } = event.data;
         if (kind === 'frame' && samples)
           this.onFrame(samples, performance.now());
-        else if (kind === 'samples' && samples) {
+        else if (
+          kind === 'samples' &&
+          samples &&
+          id === this.utteranceId &&
+          !this.discardedIds.has(id)
+        ) {
           this.sampleCount += samples.length;
           if (this.sampleCount * 2 + 44 <= MAX_WAV_BYTES)
             this.chunks.push(samples);
@@ -109,7 +120,10 @@ export class PcmCapture {
             this.chunks = [];
             this.sampleCount = MAX_WAV_BYTES;
           }
-        } else if (kind === 'end') this.finishClip();
+        } else if (kind === 'end' && id !== undefined) {
+          if (this.discardedIds.delete(id)) this.onClip(null);
+          else if (id === this.utteranceId) this.finishClip();
+        }
       };
       this.source.connect(this.node);
       this.node.connect(this.context.destination);
@@ -120,19 +134,23 @@ export class PcmCapture {
   }
 
   public beginUtterance(): void {
+    this.utteranceId++;
     this.chunks = [];
     this.sampleCount = 0;
-    this.node?.port.postMessage('start');
+    this.node?.port.postMessage({ kind: 'start', id: this.utteranceId });
   }
 
   public endUtterance(): void {
-    this.node?.port.postMessage('end');
+    this.node?.port.postMessage({ kind: 'end', id: this.utteranceId });
   }
 
   public discardUtterance(): void {
+    const discardedId = this.utteranceId;
+    this.discardedIds.add(discardedId);
+    this.utteranceId++;
     this.chunks = [];
     this.sampleCount = 0;
-    this.node?.port.postMessage('end');
+    this.node?.port.postMessage({ kind: 'end', id: discardedId });
   }
 
   private finishClip(): void {
@@ -196,5 +214,6 @@ export class PcmCapture {
     this.moduleUrl = null;
     this.chunks = [];
     this.sampleCount = 0;
+    this.discardedIds.clear();
   }
 }

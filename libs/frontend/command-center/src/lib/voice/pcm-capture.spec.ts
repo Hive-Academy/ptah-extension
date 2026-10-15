@@ -82,4 +82,91 @@ describe('PcmCapture', () => {
       });
     }
   });
+
+  it('ignores tail samples from a discarded utterance and emits a null clip', async () => {
+    const originalNode = globalThis.AudioWorkletNode;
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    const port: {
+      onmessage:
+        | ((
+            event: MessageEvent<{
+              kind: string;
+              id: number;
+              samples?: Float32Array;
+            }>,
+          ) => void)
+        | null;
+      postMessage: jest.Mock;
+      close: jest.Mock;
+    } = {
+      onmessage: null,
+      postMessage: jest.fn(),
+      close: jest.fn(),
+    };
+    Object.defineProperty(globalThis, 'AudioWorkletNode', {
+      configurable: true,
+      value: jest.fn(() => ({
+        port,
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      })),
+    });
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => 'blob:test',
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: jest.fn(),
+    });
+    const onClip = jest.fn();
+    const capture = new PcmCapture(jest.fn(), onClip, {
+      getUserMedia: async () =>
+        Object.assign(Object.create(null) as MediaStream, {
+          getTracks: () => [],
+        }),
+      audioContext: () =>
+        Object.assign(Object.create(null) as AudioContext, {
+          audioWorklet: { addModule: async () => undefined },
+          createMediaStreamSource: () => ({
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+          }),
+          destination: {},
+          sampleRate: 48000,
+          close: async () => undefined,
+        }),
+    });
+    try {
+      await capture.start();
+      capture.beginUtterance();
+      const id = port.postMessage.mock.calls[0][0].id as number;
+      capture.discardUtterance();
+      port.onmessage?.({
+        data: { kind: 'samples', id, samples: new Float32Array(128) },
+      } as MessageEvent<{ kind: string; id: number; samples?: Float32Array }>);
+      port.onmessage?.({ data: { kind: 'end', id } } as MessageEvent<{
+        kind: string;
+        id: number;
+        samples?: Float32Array;
+      }>);
+      expect(onClip).toHaveBeenCalledTimes(1);
+      expect(onClip).toHaveBeenCalledWith(null);
+      await capture.stop();
+    } finally {
+      Object.defineProperty(globalThis, 'AudioWorkletNode', {
+        configurable: true,
+        value: originalNode,
+      });
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreate,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevoke,
+      });
+    }
+  });
 });

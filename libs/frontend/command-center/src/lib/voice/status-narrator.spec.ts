@@ -39,4 +39,23 @@ describe('StatusNarrator', () => {
     ]);
     expect(narrator.drain()).toEqual(['Worker failed.']);
   });
+
+  it('speaks started once across starting and running boundaries, then completes', () => {
+    const narrator = new StatusNarrator();
+    narrator.observe('root:a', [
+      node('root:a', null, 'running'),
+      node('child:c', 'root:a', 'starting'),
+    ]);
+    expect(narrator.drain()).toEqual(['Worker started.']);
+    narrator.observe('root:a', [
+      node('root:a', null, 'running'),
+      node('child:c', 'root:a', 'running'),
+    ]);
+    expect(narrator.drain()).toEqual([]);
+    narrator.observe('root:a', [
+      node('root:a', null, 'running'),
+      node('child:c', 'root:a', 'completed'),
+    ]);
+    expect(narrator.drain()).toEqual(['Worker completed.']);
+  });
 });
