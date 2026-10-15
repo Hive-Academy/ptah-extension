@@ -147,6 +147,7 @@ export class ChatSlashCommandRouterService {
               ...(params.ptahUiFence !== undefined
                 ? { ptahUiFence: params.ptahUiFence }
                 : {}),
+              ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
             } as AISessionConfig,
             mcpServerRunning,
             enhancedPromptsContent,

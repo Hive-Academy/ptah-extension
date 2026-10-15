@@ -450,7 +450,7 @@ last batch header.
   (header must name 1 project). Verification rules above apply.
 - Suggested commit: `fix(rpc-handlers): batch 4F - keep persona on slash relaunch`
 
-### Task 4F.1: Carry systemPrompt into the slash new-query sessionConfig (L1) - IN_PROGRESS
+### Task 4F.1: Carry systemPrompt into the slash new-query sessionConfig (L1) - IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-persona.spec.ts` (new)
@@ -485,6 +485,15 @@ last batch header.
   `chat-continue-slash-before-resume.spec.ts` and `chat-session-provider-profile.spec.ts` still pass.
 - After commit, return NEEDS REVIEW for the one scoped re-review (code-logic, Batch 4F commit only).
 - Edge cases: inactive and active slash continue; unmarked tab sends no key; empty string; native commands.
+- Verified by team-leader on disk (`TASK/reports/batch-4F-report.md`; executor codex). Router line 150
+  carries `...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {})` in the
+  `new-query` `sessionConfig`; no other call field changed. Spec has cases (a)-(e) through the real
+  router (`it.each` inactive/active, `it.each` absent/empty, `/clear`). Agent-sdk chain read and
+  confirmed: `sdk-agent-adapter.ts:1617-1626` spreads `config.sessionConfig` first (only model and
+  effort override), `:1650-1654` passes it on, `session-lifecycle-manager.ts:743-746` hands it to
+  `executeQuery`, `sdk-query-options-builder.ts:1769` reads `sessionConfig?.systemPrompt`. Scoped
+  check (run once by the orchestrator): `run-many -t test typecheck lint -p
+  @ptah-extension/rpc-handlers --parallel=1`, header names 1 project, all 3 targets succeeded.
 
 ## Batch 5: command-center lib skeleton, scope and store - PENDING
 
