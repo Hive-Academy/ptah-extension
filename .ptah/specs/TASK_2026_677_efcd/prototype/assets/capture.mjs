@@ -1,6 +1,7 @@
 // Prototype capture + verification tool (not product code). Needs Playwright from the main checkout:
 //   node capture.mjs shots   -> refreshes ../screenshots/*.png (dark + light)
 //   node capture.mjs checks  -> real-keyboard focus-path checks (docked + 400 px sheet) and target-size audit, prints a report
+//   node capture.mjs delta2-merged -> delta2-merged-*.png (dock, hover card, N agents menu, 400 px; dark + light)
 //   node capture.mjs measure -> prints layout offsets used for the one-to-one fidelity comparison
 // Serves the prototype folder on 127.0.0.1 (random port) and stops the server when done. No network access is required
 // except Google Fonts (falls back to system fonts offline, widths then differ by a few px).
@@ -37,6 +38,35 @@ async function open(query, viewport) {
   return { page, ctx, errors };
 }
 
+
+async function delta2Merged() {
+  const out = path.join(root, 'screenshots');
+  fs.mkdirSync(out, { recursive: true });
+  const W = { width: 1594, height: 839 }, N = { width: 400, height: 900 };
+  for (const th of ['dark', 'light']) {
+    const q = (extra = '') => 'bare=1&replay=0&theme=' + th + extra;
+    const jobs = [
+      ['full-dock-inspector', q('&ask=lane'), W, async () => {}],
+      ['lane-selected', q('&ask=lane&lane=antigravity'), W, async () => {}],
+      ['dock-400', q('&ask=lane&insp=closed'), N, async () => {}],
+      ['dock-400-overflow-pip', q('&ask=multi&lane=arch&insp=closed'), { width: 340, height: 700 }, async () => {}],
+      ['hover-card', q('&ask=lane'), W, async (pg) => { await pg.locator('#dock .dk-chip[data-dk="fe"]').hover(); await pg.waitForTimeout(600); }],
+      ['hover-card-focus-visible', q('&ask=lane&insp=closed'), N, async (pg) => { await pg.focus('#dock [aria-selected="true"]'); await pg.keyboard.press('ArrowRight'); await pg.waitForTimeout(600); }],
+      ['agents-menu-open', q('&ask=lane'), W, async (pg) => { await pg.click('#dock .dk-all'); await pg.waitForTimeout(250); }],
+      ['agents-menu-open-400', q('&ask=lane&insp=closed'), N, async (pg) => { await pg.click('#dock .dk-all'); await pg.waitForTimeout(250); }],
+      ['dock-unknown-provider', q('&ask=lane&insp=closed&prov=unknown'), N, async () => {}],
+      ['tool-rows', q('&t1=expanded&ask=none'), W, async () => {}]
+    ];
+    for (const [name, query, vp, prep] of jobs) {
+      const { page, ctx, errors } = await open(query, vp);
+      await prep(page);
+      await page.screenshot({ path: path.join(out, 'delta2-merged-' + name + '-' + th + '.png') });
+      console.log('shot delta2-merged-' + name + '-' + th, errors.length ? 'ERRORS ' + errors.join(' | ') : 'ok');
+      await ctx.close();
+    }
+  }
+}
+
 try {
   if (mode === 'shots') {
     const W = { width: 1594, height: 839 }, N = { width: 400, height: 900 };
@@ -68,7 +98,7 @@ try {
     for (const th of ['dark', 'light']) for (const ts of ['linked', 'multi', 'loading', 'error', 'partial', 'notfound', 'none']) jobs.push(wide(`theme=${th}&task=${ts}`, `${th}-task-${ts}`));
     const out = path.join(root, 'screenshots');
     fs.mkdirSync(out, { recursive: true });
-    for (const f of fs.readdirSync(out)) if (f.endsWith('.png')) fs.unlinkSync(path.join(out, f));
+    for (const f of fs.readdirSync(out)) if (f.endsWith('.png') && !f.startsWith('delta2-')) fs.unlinkSync(path.join(out, f));
     for (const j of jobs) {
       const { page, ctx, errors } = await open(j.q, j.vp);
       await page.screenshot({ path: path.join(out, j.name + '.png') });
@@ -78,16 +108,16 @@ try {
     // Interaction states (Round 1): reached by real clicks / keys, then captured
     const W2 = { width: 1594, height: 839 }, N2 = { width: 400, height: 900 };
     const states = [
-      ['requests-more-open', 'ask=multi', W2, async (pg) => { await pg.click('[data-act="more"][data-owner="gemini"]'); }],
+      ['requests-more-open', 'ask=multi', W2, async (pg) => { await pg.click('[data-act="more"][data-owner="antigravity"]'); }],
       ['request-error-retry', 'ask=lane-open&fail=1', W2, async (pg) => { await pg.click('[data-act="decide"][data-d="allow"]'); await pg.waitForTimeout(900); }],
       ['request-closed-elsewhere', 'ask=lane-open', W2, async (pg) => { await pg.evaluate(() => document.getElementById('laneEnds').click()); await pg.waitForTimeout(150); }],
       ['request-electron-fallback', 'ask=multi&host=electron', W2, async (pg) => { await pg.click('[data-act="review"][data-key="perm:p1"]'); }],
       ['narrow-400-overlay-focus', 'insp=closed&ask=multi', N2, async (pg) => { await pg.focus('#inspToggle'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(450); }],
-      ['narrow-400-multi-more-open', 'insp=open&ask=multi', N2, async (pg) => { await pg.click('[data-act="more"][data-owner="gemini"]'); }],
+      ['narrow-400-multi-more-open', 'insp=open&ask=multi', N2, async (pg) => { await pg.click('[data-act="more"][data-owner="antigravity"]'); }],
       // Round 2: lane opened from the 400 px sheet by keyboard (sheet closed, focus on the lane title)
       ['lane-opened', 'insp=closed&ask=multi', N2, async (pg) => {
         await pg.focus('#inspToggle'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(200);
-        await pg.focus('.agent[data-agent="gemini"] .agent__main'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(300);
+        await pg.focus('.agent[data-agent="antigravity"] .agent__main'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(300);
       }],
       // Round 2: question card never mounted (ask=question&fail=card) -> row-level error with Retry, focus on that row's Answer button
       ['question-card-missing', 'ask=question&fail=card&host=rail&insp=open', W2, async (pg) => {
@@ -162,11 +192,11 @@ try {
       await page.keyboard.press('Shift+Tab');
       ok(!(await page.evaluate(() => !document.querySelector('#inspector').contains(document.activeElement))), 'Shift+Tab stays inside the sheet');
       // Review panel then Esc: innermost first
-      await page.click('[data-act="review"][data-key="lane:gemini:r1"]'); await page.waitForTimeout(100);
+      await page.click('[data-act="review"][data-key="lane:antigravity:r1"]'); await page.waitForTimeout(100);
       ok((await page.evaluate(() => document.activeElement.getAttribute('role'))) === 'group', 'Review moves focus to the decision panel');
       await page.keyboard.press('Escape'); await page.waitForTimeout(100);
       ok((await page.evaluate(() => document.querySelector('#inspector') && getComputedStyle(document.querySelector('#inspector')).display !== 'none')), 'first Escape closes the panel, the sheet stays open');
-      ok((await act(page)).startsWith('Review permission request from Gemini'), 'focus returns to the Review button (' + (await act(page)) + ')');
+      ok((await act(page)).startsWith('Review permission request from Antigravity'), 'focus returns to the Review button (' + (await act(page)) + ')');
       await page.keyboard.press('Escape'); await page.waitForTimeout(100);
       ok((await act(page)) === 'inspToggle', 'second Escape closes the sheet; focus returns to the toggle (' + (await act(page)) + ')');
       // Close button, scrim
@@ -189,8 +219,8 @@ try {
     // D. Target-size audit: every interactive control of the inspector and thread
     for (const [label, q, vp] of [['wide, 5 requests, panel open, error row', 'bare=1&replay=0&ask=multi&parity=1&body=full', { width: 1594, height: 839 }], ['400 px sheet', 'bare=1&replay=0&ask=multi', { width: 400, height: 900 }]]) {
       const { page, ctx } = await open(q, vp);
-      await page.click('[data-act="review"][data-key="lane:gemini:r1"]'); await page.waitForTimeout(100);
-      await page.click('[data-act="more"][data-owner="gemini"]'); await page.waitForTimeout(100);
+      await page.click('[data-act="review"][data-key="lane:antigravity:r1"]'); await page.waitForTimeout(100);
+      await page.click('[data-act="more"][data-owner="antigravity"]'); await page.waitForTimeout(100);
       const small = await page.evaluate(() => Array.from(document.querySelectorAll('button,a[href],input')).filter((e) => e.getClientRects().length && !e.closest('[hidden]') && !e.closest('.proto-bar') && !e.closest('[inert]') || (e.closest('#inspector') && e.getClientRects().length)).map((e) => { const t = (e.tagName === 'INPUT' && e.closest('label')) || e; const b = t.getBoundingClientRect(); return { n: (e.getAttribute('aria-label') || e.textContent.trim()).slice(0, 36), w: Math.round(b.width), h: Math.round(b.height) }; }).filter((x) => x.w < 24 || x.h < 24));
       ok(small.length === 0, `target size >= 24x24, ${label}: ${small.length ? JSON.stringify(small) : 'all controls pass'}`);
       await ctx.close();
@@ -198,7 +228,7 @@ try {
     // E. Retry / Answer / Close / Open lane targets in the states that render them
     for (const vp of [{ width: 1594, height: 839 }, { width: 400, height: 900 }]) {
       const { page, ctx } = await open('bare=1&replay=0&ask=multi&fail=1', vp);
-      await page.click('[data-act="review"][data-key="lane:gemini:r1"]'); await page.click('[data-act="decide"][data-d="allow"]'); await page.waitForTimeout(900);
+      await page.click('[data-act="review"][data-key="lane:antigravity:r1"]'); await page.click('[data-act="decide"][data-d="allow"]'); await page.waitForTimeout(900);
       const sizes = await page.evaluate(() => Array.from(document.querySelectorAll('#inspector [data-act]')).filter((e) => e.getClientRects().length).map((e) => { const b = e.getBoundingClientRect(); return e.dataset.act + ':' + Math.round(b.width) + 'x' + Math.round(b.height); }));
       const hasRetry = sizes.some((x) => x.startsWith('retry:'));
       ok(hasRetry && sizes.every((x) => { const [w, h] = x.split(':')[1].split('x').map(Number); return w >= 24 && h >= 24; }), `Retry / Answer / Review / More / Open lane targets at ${vp.width}px: ${sizes.join(' ')}`);
@@ -218,11 +248,11 @@ try {
         if (route === 'agent row') {
           await page.focus('.agent[data-agent="fe"] .agent__main'); await page.keyboard.press('Enter');
         } else {
-          await page.focus('[data-act="review"][data-key="lane:gemini:r1"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(100);
+          await page.focus('[data-act="review"][data-key="lane:antigravity:r1"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(100);
           await page.focus('[data-act="open-lane"]'); await page.keyboard.press('Enter');
         }
         await page.waitForTimeout(350);
-        const st = await state(page), want = route === 'agent row' ? 'frontend-developer' : 'Gemini';
+        const st = await state(page), want = route === 'agent row' ? 'frontend-developer' : 'Antigravity';
         ok(st.insp === 'closed' && !st.inert, `lane via ${route}, 400 px: sheet closed and background live again`);
         ok(st.laneShown && !st.thread && st.title === want, `lane via ${route}: main region shows the ${want} lane view instead of the thread`);
         ok(st.active === 'laneTitle', `lane via ${route}: focus is on the lane title (now: ${st.active})`);
@@ -237,7 +267,7 @@ try {
       // Electron single chat: no lane surface, so no Open lane and no lane view; the inline panel stays the way to answer
       {
         const { page, ctx } = await open('bare=1&replay=0&insp=open&ask=multi&host=electron', { width: 400, height: 900 });
-        await page.focus('[data-act="review"][data-key="lane:gemini:r1"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(100);
+        await page.focus('[data-act="review"][data-key="lane:antigravity:r1"]'); await page.keyboard.press('Enter'); await page.waitForTimeout(100);
         const hasOpen = await page.evaluate(() => !!document.querySelector('[data-act="open-lane"]'));
         const chipsMention = await page.evaluate(() => Array.from(document.querySelectorAll('.chip[data-agent]')).some((c) => /Open lane/.test(c.getAttribute('aria-label'))));
         await page.focus('.agent[data-agent="fe"] .agent__main'); await page.keyboard.press('Enter'); await page.waitForTimeout(250);
@@ -404,8 +434,156 @@ try {
       ok(rest === '0' && foc === '0' && hov === '1', 'B-14/B-15: Branch/Rewind opacity at rest ' + rest + ', on keyboard focus ' + foc + ' (no focus reveal, as decided), on hover ' + hov);
       await ctx.close();
     }
+    // L. Delta 2 (decisions rows 30-32): agent dock (option B), new AGENTS tile, no Gemini, tool rows as today
+    {
+      const tgt = (page) => page.evaluate(() => Array.from(document.querySelectorAll('#dock button')).filter((e) => e.getClientRects().length && !e.closest('[hidden]')).map((e) => { const r = e.getBoundingClientRect(); return { n: (e.getAttribute('aria-label') || e.textContent).slice(0, 28), w: Math.round(r.width), h: Math.round(r.height) }; }));
+      const dockState = (page) => page.evaluate(() => {
+        const tabs = [...document.querySelectorAll('#dock [role="tab"]')].filter((t) => !t.closest('[hidden]'));
+        const lane = document.getElementById('laneView');
+        return { n: tabs.length, sel: tabs.filter((t) => t.getAttribute('aria-selected') === 'true').map((t) => t.dataset.dk), zero: tabs.filter((t) => t.tabIndex === 0).length,
+          active: document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.dk || document.activeElement.dataset.pick || (document.activeElement.hasAttribute('data-dk-toggle') ? 'toggle' : document.activeElement.id) : '',
+          activeRole: document.activeElement.getAttribute('role'), laneShown: !lane.hidden, lane: document.getElementById('laneTitle').textContent, hiddenCount: document.querySelectorAll('#dock .dk-item[hidden]').length };
+      });
+      const tipVisible = (page, k) => page.evaluate((id) => getComputedStyle(document.getElementById('dk-tip-' + id)).visibility === 'visible' && getComputedStyle(document.getElementById('dk-tip-' + id)).opacity === '1', k);
+      for (const [label, vp] of [['wide 1594 px', { width: 1594, height: 839 }], ['400 px', { width: 400, height: 900 }]]) {
+        const { page, ctx, errors } = await open('bare=1&replay=0&insp=closed&ask=lane', vp);
+        report.push('--- L. delta 2 agent dock, ' + label + ' ---');
+        const st0 = await dockState(page), t0 = await tgt(page);
+        ok((await page.evaluate(() => document.querySelector('#dock [role="tablist"]').getAttribute('aria-label'))) === 'Agent threads' && st0.sel.join() === 'orch' && st0.zero === 1, `dock ${label}: tablist "Agent threads", Orchestrator selected, one tab stop (roving tabindex) (${st0.n} tabs shown, ${st0.hiddenCount} behind "N agents")`);
+        ok(t0.length >= 3 && t0.every((x) => x.w >= 24 && x.h >= 24), `dock ${label}: no target < 24 x 24 px (${t0.length} targets, min ${Math.min(...t0.map((x) => x.w))} x ${Math.min(...t0.map((x) => x.h))})`);
+        if (vp.width > 1000) ok(st0.n === 6 && st0.hiddenCount === 0, `dock ${label}: all 6 agents fit, no overflow (${st0.n} shown)`); else ok(st0.n >= 3 && st0.n < 6, `dock ${label}: overflow keeps the priority agents and moves the rest behind "N agents" (${st0.n} shown, ${st0.hiddenCount} hidden)`);
+        // roving keys: arrows (wrap), Home, End, automatic activation, focus stays on the tab
+        await page.focus('#dock [aria-selected="true"]');
+        await page.keyboard.press('ArrowRight'); await page.waitForTimeout(120);
+        let s1 = await dockState(page);
+        ok(s1.sel.length === 1 && s1.sel[0] !== 'orch' && s1.laneShown && s1.activeRole === 'tab' && s1.active === s1.sel[0] && s1.zero === 1, `dock ${label}: ArrowRight selects the next tab (${s1.sel[0]}), opens its lane view (${s1.lane}), focus stays on the tab`);
+        await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(120);
+        let s2 = await dockState(page);
+        ok(s2.sel[0] === 'orch' && !s2.laneShown && s2.active === 'orch', `dock ${label}: ArrowLeft returns to the Orchestrator thread (lane view hidden)`);
+        await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(120);
+        let s3 = await dockState(page);
+        await page.keyboard.press('Home'); await page.waitForTimeout(120);
+        let s4 = await dockState(page);
+        await page.keyboard.press('End'); await page.waitForTimeout(120);
+        let s5 = await dockState(page);
+        ok(s3.sel[0] !== 'orch' && s3.laneShown && s4.sel[0] === 'orch' && s5.sel[0] === s3.sel[0] && s5.activeRole === 'tab', `dock ${label}: ArrowLeft wraps to the last tab, Home goes to the first, End to the last (${s3.sel[0]}, ${s4.sel[0]}, ${s5.sel[0]})`);
+        await page.keyboard.press('Home'); await page.waitForTimeout(120);
+        // hover card: opens on :focus-visible after the delay, Esc dismisses, stays dismissed while focus stays
+        await page.keyboard.press('ArrowRight'); await page.waitForTimeout(500);
+        const cur = (await dockState(page)).sel[0];
+        ok(await tipVisible(page, cur), `dock ${label}: hover/focus card opens on keyboard focus (${cur})`);
+        await page.keyboard.press('Escape'); await page.waitForTimeout(250);
+        ok(!(await tipVisible(page, cur)), `dock ${label}: Esc dismisses the card; the tab keeps focus (${(await dockState(page)).activeRole})`);
+        await page.keyboard.press('ArrowRight'); await page.waitForTimeout(500);
+        const cur2 = (await dockState(page)).sel[0];
+        ok(await tipVisible(page, cur2), `dock ${label}: moving to the next tab opens its card again (${cur2})`);
+        // pointer: 220 ms delay, then stays while the pointer is over the card
+        if (vp.width > 1000) {
+          await page.mouse.move(5, 400); await page.waitForTimeout(200);
+          const chip = page.locator('#dock .dk-chip[data-dk="fe"]'); await chip.hover(); await page.waitForTimeout(90);
+          const early = await tipVisible(page, 'fe'); await page.waitForTimeout(450);
+          const late = await tipVisible(page, 'fe');
+          const box = await page.locator('#dk-tip-fe .dk-tip__card').boundingBox();
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 }); await page.waitForTimeout(350);
+          const over = await tipVisible(page, 'fe');
+          await page.mouse.move(5, 400); await page.waitForTimeout(400);
+          const gone = await tipVisible(page, 'fe');
+          ok(!early && late && over && !gone, `dock ${label}: pointer card waits ~220 ms (early ${early}), opens (${late}), stays while the pointer is on the card (${over}), closes after it leaves (${!gone})`);
+          await page.mouse.move(5, 400);
+        }
+        ok(errors.length === 0, `dock ${label}: no script errors (${errors.length})`);
+        await ctx.close();
+      }
+      // "N agents" menu: open by click, focus into the list, arrows, Esc returns to the button, Enter selects
+      {
+        const { page, ctx } = await open('bare=1&replay=0&insp=closed&ask=lane', { width: 400, height: 900 });
+        report.push('--- L. delta 2 "N agents" menu, 400 px ---');
+        await page.click('#dock .dk-all'); await page.waitForTimeout(150);
+        const o = await page.evaluate(() => ({ exp: document.querySelector('#dock .dk-all').getAttribute('aria-expanded'), open: !document.getElementById('dk-pop').hidden, rows: document.querySelectorAll('#dk-pop [role="menuitemradio"]').length, groups: document.querySelectorAll('#dk-pop [role="group"]').length, checked: document.activeElement.getAttribute('aria-checked'), role: document.activeElement.getAttribute('role'), small: [...document.querySelectorAll('#dk-pop button')].filter((b) => { const r = b.getBoundingClientRect(); return r.width < 24 || r.height < 24; }).length, inview: (() => { const r = document.getElementById('dk-pop').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 0.5; })() }));
+        ok(o.exp === 'true' && o.open && o.rows === 6 && o.groups === 4 && o.role === 'menuitemradio' && o.checked === 'true' && o.small === 0 && o.inview, `menu: opens grouped (4 groups, ${o.rows} agents), focus on the checked row, rows >= 24 px, inside the viewport`);
+        await page.keyboard.press('ArrowDown'); await page.waitForTimeout(60);
+        const mv = await act(page);
+        await page.keyboard.press('Escape'); await page.waitForTimeout(150);
+        const c = await page.evaluate(() => ({ open: !document.getElementById('dk-pop').hidden, f: document.activeElement.hasAttribute('data-dk-toggle') }));
+        ok(!c.open && c.f && mv !== '', `menu: ArrowDown moves (${mv.slice(0, 30)}), Esc closes it and focus returns to the "N agents" button`);
+        await page.keyboard.press('Enter'); await page.waitForTimeout(150);
+        await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter'); await page.waitForTimeout(250);
+        const sel = await dockState(page);
+        ok(sel.sel.length === 1 && sel.sel[0] !== 'orch' && sel.laneShown, `menu: Enter on a row selects that agent and shows its lane (${sel.sel[0]}, ${sel.lane})`);
+        await ctx.close();
+      }
+      // overflow pip: a hidden agent that needs you puts a pip on "N agents"
+      {
+        let found = null;
+        for (const w of [400, 360, 320]) {
+          const { page, ctx } = await open('bare=1&replay=0&insp=closed&ask=multi&lane=arch', { width: w, height: 800 });
+          const r = await page.evaluate(() => ({ hid: [...document.querySelectorAll('#dock .dk-item[hidden]')].map((i) => i.dataset.ik), pip: !!document.querySelector('#dock .dk-all .dk-pip'), label: document.querySelector('#dock .dk-all').getAttribute('aria-label'), waiting: [...document.querySelectorAll('#dock .dk-item')].filter((i) => /waiting/.test(i.querySelector('.dk-chip').getAttribute('aria-label'))).map((i) => i.dataset.ik) }));
+          const hidWaiting = r.hid.filter((k) => r.waiting.includes(k));
+          if (hidWaiting.length) { found = { w, ...r, hidWaiting }; await ctx.close(); break; }
+          await ctx.close();
+        }
+        ok(found && found.pip && /needs you/.test(found.label), found ? `overflow pip: ${found.w} px, hidden agent(s) needing you (${found.hidWaiting.join(', ')}) put a pip on "N agents" ("${found.label}")` : 'overflow pip: no width produced a hidden needs-you agent');
+        const { page, ctx } = await open('bare=1&replay=0&insp=closed&ask=none&lane=arch', { width: 400, height: 800 });
+        const none = await page.evaluate(() => ({ hid: document.querySelectorAll('#dock .dk-item[hidden]').length, pip: !!document.querySelector('#dock .dk-all .dk-pip') }));
+        ok(none.hid > 0 && !none.pip, `overflow pip: no pip while nothing hidden needs you or failed (${none.hid} hidden)`);
+        await ctx.close();
+      }
+      // AGENTS tile + no Gemini + orchestrator mark + tool rows
+      for (const th of ['dark', 'light']) {
+        const { page, ctx, errors } = await open(`bare=1&replay=0&t1=expanded&theme=${th}&ask=lane`, { width: 1594, height: 839 });
+        report.push('--- L. delta 2 AGENTS tile, orchestrator mark, tool rows, ' + th + ' ---');
+        const r = await page.evaluate(() => {
+          const q = (s) => document.querySelector(s);
+          const use = (root, s) => { const e = q(root + ' ' + s); return e ? e.getAttribute('href') : null; };
+          const rows = [...document.querySelectorAll('#agentList .agent')];
+          const tc = q('.log-tool--call'); const tn = tc.querySelector('.tn'), tv = tc.querySelector('.tv'), tp = tc.querySelector('.tp'), ch = tc.querySelector('.tc');
+          const cs = (e) => getComputedStyle(e);
+          return {
+            gemini: /gemini/i.test(document.body.innerHTML), rows: rows.length,
+            tiles: rows.every((a) => a.querySelector('.av--32 .av__ring') && a.querySelector('.av__badge') && a.querySelector('.agent__l2 .kind')),
+            codex: use('.agent[data-agent="codex"]', 'use[href^="#m-"]'), agy: use('.agent[data-agent="antigravity"]', 'use[href^="#m-"]'),
+            fe: use('.agent[data-agent="fe"]', '.av__tile use'), arch: use('.agent[data-agent="arch"]', '.av__tile use'), bg: use('.agent[data-agent="bg"]', '.av__tile use'),
+            orchMark: use('#dock [data-dk="orch"]', '.av__tile use'), orchMain: !!q('#dock [data-dk="orch"] .av--main'), orchBorder: cs(q('#dock [data-dk="orch"] .av__tile')).borderTopColor,
+            workflow: !!q('use[href="#d-workflow"]'), bot: !!q('.agent use[href="#d-bot"]'),
+            verbMuted: cs(tv).color !== cs(tn).color, nameBold: Number(cs(tn).fontWeight) >= 600, pathMuted: cs(tp).color === cs(tv).color, chip: ch ? ch.textContent : '', bar: cs(tc).borderLeftWidth, rowsCall: document.querySelectorAll('.log-tool--call').length,
+            verbs: [...document.querySelectorAll('.log-tool--call .tv')].map((e) => e.textContent).join(',')
+          };
+        });
+        ok(!r.gemini, `${th}: no "Gemini" anywhere in index.html output`);
+        ok(r.rows === 5 && r.tiles, `${th}: ${r.rows} AGENTS tiles, each avatar 32 with status ring, corner glyph badge and kind badge on line 2`);
+        ok(r.codex === '#m-codex' && r.agy === '#m-antigravity' && r.fe === '#d-layout-template' && r.arch === '#d-drafting-compass' && r.bg === '#d-square-terminal' && !r.bot, `${th}: provider marks for CLI lanes (${r.codex}, ${r.agy}), lucide role icons for sub-agents (${r.fe}, ${r.arch}), no generic Bot`);
+        ok(r.orchMark === '#m-claude' && r.orchMain && !r.workflow, `${th}: mock DECLARES a Claude session (sessionProvider claude-cli): Orchestrator avatar = Claude mark (${r.orchMark}) with the gold hairline border (${r.orchBorder}), no neutral glyph`);
+        ok(r.rowsCall >= 3 && r.verbMuted && r.nameBold && r.pathMuted && /^(lines 14-25|content|allow_large)$/.test(r.chip) && r.bar === '2px', `${th}: tool rows as today: ${r.rowsCall} rows (${r.verbs}), verb muted, name bold, path muted, chip "${r.chip}", ${r.bar} left accent bar`);
+        ok(errors.length === 0, `${th}: no script errors (${errors.length})`);
+        await ctx.close();
+      }
+      // delta 2 revise round 1: unknown session provider = neutral orchestrator glyph (PM-14, req 18.5); status words are today's vocabulary
+      for (const th of ['dark', 'light']) {
+        const { page, ctx, errors } = await open(`bare=1&replay=0&theme=${th}&ask=multi&prov=unknown`, { width: 1594, height: 839 });
+        report.push('--- M. delta 2 unknown session provider + status vocabulary, ' + th + ' ---');
+        const r = await page.evaluate(() => {
+          const tab = document.querySelector('#dock [data-dk="orch"]');
+          const hrefs = [...tab.querySelectorAll('.av__tile use')].map((u) => u.getAttribute('href'));
+          const words = [...document.querySelectorAll('#dock .w, #agentList .w')].map((e) => e.textContent.trim());
+          const bad = words.filter((w) => !['running', 'waiting', 'done', 'failed', 'stopped', 'queued'].includes(w));
+          return { hrefs, main: !!tab.querySelector('.av--main'), label: tab.getAttribute('aria-label') || '', vendor: !!tab.querySelector('use[href^="#m-"]'), bot: hrefs.includes('#d-bot'), mono: !!tab.querySelector('.mono, .monogram'), words: [...new Set(words)].join(','), bad: bad.join(','), all: document.querySelector('#dock .dk-all').getAttribute('aria-label') };
+        });
+        ok(r.hrefs.join() === '#d-workflow' && r.main && !r.vendor && !r.bot && !r.mono && /^Orchestrator,/.test(r.label), `${th}: unknown session provider: Orchestrator avatar = neutral Workflow glyph (${r.hrefs.join()}), gold hairline kept, no vendor mark, no Bot, no monogram; accessible name "${r.label}"`);
+        ok(r.bad === '' && /waiting/.test(r.words) && !/Needs you|Error/.test(r.words), `${th}: displayed agent status words in dock, hover card, menu and AGENTS are from {running, waiting, done, failed, stopped} (seen: ${r.words}); "Needs you" is not a status word`);
+        ok(!/an error|has an error/.test(r.all), `${th}: "N agents" button name uses failed / waiting, not "error" ("${r.all}")`);
+        ok(errors.length === 0, `${th}: no script errors (${errors.length})`);
+        await ctx.close();
+      }
+      // dock is absent where there is no lane surface (host=electron) and where there are no agents yet
+      for (const q of ['host=electron', 'body=empty&ask=none']) {
+        const { page, ctx } = await open('bare=1&replay=0&' + q, { width: 1594, height: 839 });
+        ok(await page.evaluate(() => document.getElementById('dock').hidden), `dock hidden for ${q} (no lane surface / no agents)`);
+        await ctx.close();
+      }
+    }
     console.log(report.join('\n'));
   }
+  if (mode === 'delta2-merged') await delta2Merged();
 } finally {
   await browser.close();
   server.close();

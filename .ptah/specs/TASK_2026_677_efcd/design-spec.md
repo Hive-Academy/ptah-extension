@@ -94,11 +94,11 @@ Timers and counts use `tabular-nums` so the live clock does not jitter.
 | Disclosure | `chevron-right` (`ChevronRight`), rotated 90 deg when open | 16 | muted |
 | Copy / activity actions | `copy` (`Copy`), `activity` (`Activity`) | 14 | muted |
 | Sub-agent (chip, row, log) | `bot` (`Bot`) | 14 | base-content |
-| CLI lane with vendored mark (intentional departure, see 2.2: the reference draws `>_` for every lane) | `ptah-provider-mark` (claude, codex, antigravity, opencode, grok, copilot, cursor) | 14 glyph in 16 box | base-content (mono paint) |
-| CLI lane without mark (Gemini today) | `terminal` (`Terminal`), same as the provider-mark fallback | 14 | base-content |
+| CLI lane with vendored mark (intentional departure, see 2.2: the reference draws `>_` for every lane). Delta 2: shown inside the agent avatar, 4.7 | `ptah-provider-mark` through the single `cliId -> providerId` table of 4.7 (codex, copilot, cursor, antigravity, opencode, grok; `pi` and `ptah-cli` through their hand-authored `PROVIDER_MARKS` glyphs) | `sm` (14 px mark) in 24 / 28 px avatars, `md` in 32 px | base-content (mono paint) |
+| CLI lane without mark (any unknown CLI id; Delta 2, 4.7) | monogram tile: first letter of the CLI name, theme-tinted, glyph in `text-base-content` (the `ptah-monogram-tile` idea); never the `Bot` default and no per-vendor special case | letter in the avatar | base-content |
 | Background command | `layers` (`Layers`) | 14 | base-content |
-| Tool: Read / Grep / Bash | `file-text` / `search` / `terminal` | 14 | muted |
-| Tool done / running | `check` (12) / `loader-circle` (12, `animate-spin`) | 12 | `text-state-done` / `text-state-run` |
+| Tool: Read / Grep / Bash (work-log tool-call rows reuse today's components unchanged, D39; these glyphs are documentation of today, not a restyle) | `file-text` / `search` / `terminal` | 14 | muted |
+| Tool done / running (same: today's components, D39) | `check` (12) / `loader-circle` (12, `animate-spin`) | 12 | `text-state-done` / `text-state-run` |
 | Permission request | `shield-alert` (`ShieldAlert`) | 12 | `text-state-need` |
 | Git ahead / behind (NOT SHIPPED: hidden until a per-session source exists, see 4.4 and 9.1) | `arrow-up`, `arrow-down` | 10 | muted |
 | User turn: branch / rewind (B-14, B-15; same icons as today) | `git-branch` (`GitBranch`), `undo-2` (`Undo2`) | 14 | muted -> base-content on hover |
@@ -111,8 +111,8 @@ Timers and counts use `tabular-nums` so the live clock does not jitter.
 
 Lucide export verification (finding 8, DONE by the orchestrator 2026-10-15 against `D:\projects\ptah-extension\node_modules\lucide-angular` 1.0.0,
 `icons/lucide-icons.d.ts`): `PanelLeft`, `PanelRight`, `GitBranch`, `ShieldAlert`, `LoaderCircle`, `TriangleAlert` are canonical exports. The designer
-re-checked `Undo2`, `Paperclip`, `Image`, `Check` the same way (all present). Gemini has no `ptah-provider-mark` slug (`brand-slugs.ts:74-94`), so it
-renders the `Terminal` fallback.
+re-checked `Undo2`, `Paperclip`, `Image`, `Check` the same way (all present). A CLI id without a `ptah-provider-mark` slug renders the monogram tile of 4.7
+(Delta 2; the earlier `Terminal` fallback is replaced).
 
 `square-terminal` is not used (Decision D5). The prototype sprite (`assets/sprite.js`) is generated from lucide-angular 1.0.0 icon data
 and `PROVIDER_BRAND_ART`; the real artwork is therefore what ships.
@@ -176,7 +176,7 @@ Intentional departures (each is a product requirement, not drift):
 
 | # | Departure | Reference shows | This spec | Reason |
 | --- | --- | --- | --- | --- |
-| P1 | Codex (and every other vendored CLI) uses its provider mark | generic `>_` for every CLI lane | `ptah-provider-mark` with `Terminal` fallback (Decision D5) | user rule "ptah-provider-mark CLI icons"; Gemini keeps `>_` exactly as in the reference |
+| P1 | Codex (and every other vendored CLI) uses its provider mark | generic `>_` for every CLI lane | `ptah-provider-mark` with a monogram-tile fallback (D5, amended by D36; avatar in 4.7) | user rule "ptah-provider-mark CLI icons"; Delta 2 (decisions rows 30-31) |
 | P2 | `Review` / `Answer` button on a waiting row | text-only `Needs permission: npx nx lint chat` line | outline button, 28 px high (4.2, 4.5) | the line must be actionable; routing in 4.5 |
 | P3 | User-turn branch / rewind strip below the bubble (today's hover reveal, unchanged; the time and `You` stay visible at rest above the bubble, as today) | none | 3.10 | parity B-14, B-15, B-16 (Delta 1, items 2-3) |
 | P4 | `6 tools · 3 files` meta at the right end of the disclosure row, and the activity panel behind `Show activity` | bare `Worked for 4m 12s ›`; the activity button shows nothing | 3.2, 3.11 | parity B-4, B-8, B-11, B-12 |
@@ -225,7 +225,7 @@ collapsed content is not focusable or read.
 | Row | Anatomy | Classes |
 | --- | --- | --- |
 | Streamed text | paragraph, muted | `text-[13px] leading-[1.6] text-base-content-muted py-1 max-w-[600px]` |
-| Tool call | icon 14 muted, **Name** 500 base-content, args mono 11.5 muted truncated, trailing status (check / spinner) | `min-h-[26px] flex items-center gap-2 text-xs`; args `font-mono text-[11.5px] truncate min-w-0` |
+| Tool call | Tool-call rows reuse today's existing tool-call components and styles unchanged (user decision, decisions.md row 32; D39); the work log only wraps them. Today's rendering, for reference only: `Read` + bold file name + muted full path + small `lines 14-25` chip; `Grep` + pattern + path + `content` mode chip. No restyle, no new row recipe, no new classes | the existing components' own classes; the `ol > li` wrapper adds no height or typography |
 | Agent activity | `bot` icon or provider mark, agent name 500, activity text muted, trailing `done · 2m 41s` or spinner | same row, indent 0 |
 | Streaming caret | 7 x 14 px `bg-base-content`, `animation: blink 1s steps(1) infinite`; removed on completion | |
 
@@ -285,7 +285,7 @@ disclosure preference. It never hides a capability and never swaps the transcrip
 | Completed turn | log collapsed, `Worked for` row (3.2/3.9), answer, chips, action row | identical |
 | Final answer | full text | identical (never truncated or summarised) |
 | Agent chips, action row, live line | as 3.5-3.7 | identical |
-| Inspector (section 4) | INITIAL default: open and docked at >= 960 px shell width (the dock is closable) | INITIAL default: closed at every width (the `N needs you` header chip and the toggle dot stay) |
+| Inspector (section 4) | INITIAL default: open and docked at >= 960 px shell width (the dock is closable) | INITIAL default: closed at every width (the `N needs you` header chip and the toggle dot stay). EXCEPTION in both modes: a tab with `TabState.workflow` set (D42) starts OPEN at docked widths |
 | Vertical rhythm | user to assistant 20, assistant to user 28, answer paragraph gap 12 | 12 / 20 / 8; disclosure row 28 px tall |
 | User turns, attachments, branch / rewind, compaction disclosure (3.10), banners C-1..C-17, stats strip, compaction markers, composer, render window, older-history loading | as specified | identical |
 
@@ -293,6 +293,12 @@ Inspector open state (decision D23, round 2): the rows above (`full`: open and d
 inspector is kept per tab, in memory (not persisted), across switches between tabs, so returning to a tab restores whatever the user last chose there. Changing that tab's view
 mode resets the choice to the new mode's default. In `full` mode the dock is closable (the `Close session details` control exists docked as well as in the overlay). A reload or
 a new tab starts again from the mode default.
+
+Workflow tabs (decisions.md row 36, D42, D43): a tab whose `TabState.workflow` is set (`harness-configure`, `harness-new-project`, `setup-*`) has the initial default OPEN in every mode, `compact` included, because its projected
+`[inspectorSection]` (config preview, Apply; 4.8) is the primary work surface. The per-tab manual toggle still overrides it afterwards; a mode change resets that tab to the workflow default (open). Docked widths (>= 960 px) open
+the inspector as the plain non-modal aside. At overlay widths (< 960 px, where the inspector is a modal sheet, 8.3) the workflow default does NOT auto-open the sheet: it stays closed, the toggle carries a 7 px dot (`--sel`
+selected-indicator pair of 8.2, 2 px ring in `base-100`, decorative) and the `[sessionHeaderChip]` names the workflow, so the surface is discoverable without moving or trapping focus; the user opens it by the toggle and then 8.3 applies unchanged.
+The architect exposes the rule as a per-tab initial-open input on the inspector (Delta 2 architect check 7).
 
 The toggle: the existing controls in the tab item (A-3) and the Rail focus header (A-4) are unchanged (`aria-pressed` reflects the mode). Switching is
 instant in place: same DOM and scroll anchor (the topmost visible turn stays put), no stagger replay, no remount. The choice survives a reload (A-2).
@@ -368,7 +374,9 @@ unknown. Base-content on surface-1: 14.01 dark / 14.41 light; muted on surface-1
 ## 4. Inspector "This session"
 
 `<aside id="inspector" aria-label="This session">` 336 px, column: header 48 px (`px-4 pr-3`, title 13/600 `<h2>`, close `x` button) then a scrolling body
-with five `section`s in this order: Orchestrator card, AGENTS, TASK (new, 4.6, Delta 1 item 1), TODOS, GIT. TASK sits directly above TODOS. Sections are separated by `border-b border-surface-border` (each `p-4`; AGENTS `pt-3.5 pb-1.5` with row-level horizontal padding).
+with five built-in `section`s in this order: Orchestrator card, AGENTS, TASK (new, 4.6, Delta 1 item 1), TODOS, GIT. TASK sits directly above TODOS. Between the Orchestrator card and AGENTS the inspector has ONE
+extension slot, `[inspectorSection]` (4.8, decisions.md row 35), which renders nothing when no section is projected; the full order is therefore Orchestrator card, extension slot (workflow sessions only), AGENTS, TASK, TODOS, GIT.
+Sections are separated by `border-b border-surface-border` (each `p-4`; AGENTS `pt-3.5 pb-1.5` with row-level horizontal padding).
 
 ### 4.1 Orchestrator card
 
@@ -395,16 +403,17 @@ permission first, then running (newest first), then finished (most recent first)
 Row `li.agent` (hover `bg-base-content/5`, selected `aria-current="true"` = `bg-surface-2` + 2 px `bg-secondary` bar at left, `inset-y-2`, transition 120 ms):
 
 ```
-line 1: [icon 14] [name 13/600 truncate, flex 0 1 auto] [kind badge] ........ [status word 12/500][ · 2m 13s muted tabular]
-line 2: activity text 12px muted, ml-6 (24 px), single line, truncate     (e.g. "Read session-context.token.ts")
+(Delta 2, supersedes the earlier `[icon 14]` / `>_` / `◇` line anatomy; full tile in 4.7)
+line 1: [avatar 32 + status ring + corner badge] [name 13/600 truncate] ........ [status word 12/500][ · 2m 13s muted tabular]
+line 2: [kind badge] [activity text 12px muted, single line, truncate]     (e.g. "Edit canvas-lane-tabs.component.ts")
 permission (only status waiting), under line 2:  [shield-alert 12] **Needs permission:** `command`   [Review]
 ```
 
-- Row padding `py-[9px] px-4` (pad bottom 10), gap 8 px in line 1. The row's primary target is a full-width `<button class="agent__main">`
+- Row padding `py-[9px] px-4` (pad bottom 10), gap 8 px in line 1; Delta 2 (4.7) sets row padding 11 / 14 / 11 / 17 px and avatar-to-text gap 13 px. The permission line indent becomes `ml-[62px]` (17 px padding + 32 px avatar + 13 px gap; was `ml-[38px]`). The row's primary target is a full-width `<button class="agent__main">`
   (aria-label: `{name}, {kind}, {status} {duration}. {activity}`); it selects the agent and opens its lane in the main area.
 - Kind badge: `badge badge-ghost` restyled `text-[10px] font-medium leading-none px-[5px] py-[3px] rounded border border-surface-border bg-surface-3
-  text-base-content-muted h-auto` with copy `Sub-agent`, `CLI lane`, `Background` (never truncated; the name truncates first).
-- Permission line: `flex items-start gap-1.5 ml-[38px] mr-4 mb-2.5 -mt-[5px] text-xs text-state-need`, "Needs permission:" 600, command in
+  text-base-content-muted h-auto` with copy `Sub-agent`, `CLI lane`, `Background` (never truncated; the name truncates first). Delta 2: the badge moves to line 2 in front of the activity text so long names such as `frontend-developer` keep their full width (4.7).
+- Permission line (Delta 2: indent `ml-[62px]`, was `ml-[38px]`, 4.7): `flex items-start gap-1.5 ml-[62px] mr-4 mb-2.5 -mt-[5px] text-xs text-state-need`, "Needs permission:" 600, command in
   `font-mono text-[11px]`, wraps (`break-anywhere`, never ellipsized so the user sees the whole command), and a `Review` button
   `h-7 min-w-[56px] px-2.5 self-start rounded-md border text-[11px] font-medium text-state-need` (28 px high, at least 56 x 28, so it meets the 24 x 24 minimum
   with room to spare; was `h-[22px]`) with 55% need-ink border (`border-state-need/55` via
@@ -596,6 +605,92 @@ Documents                                                                line 4:
 - Prototype vocabulary (for the prototype designer; query string on `prototype/index.html`): `task=none` (section absent), `task=loading`, `task=ready`, `task=multi` (primary plus `+2 related
   tasks`, expanded variant), `task=partial`, `task=missing`, `task=error` (with Retry), `task=open-fail` (document open error), `task=live` (status changes from In Progress to In Review in place, no announcement).
 
+### 4.7 Agent tile and icon system (Delta 2; user decisions rows 30-31; D34-D40)
+
+One avatar component and one row recipe serve the AGENTS list here and the main-view agent dock (Delta 2 section, below). This sub-section replaces the `>_` / `◇` line anatomy of 4.2.
+Source of the proposal: `design-delta-2-options.md` section 2; prototype `prototype/options-delta-2.html` (`assets/delta2.css`, `delta2.js`).
+
+**Avatar anatomy** (circle, three sizes: 24, 28, 32 px; D40)
+
+- Circle tile `bg-surface-2`, 1 px `--surface-border-strong` border, glyph `text-base-content`. A background command tile has a dashed border.
+- Orchestrator tile: the same circle with a gold hairline border (`--sel`), which marks it as the orchestrator. Inside: the SESSION'S PROVIDER MARK when an authoritative session provider id exists, otherwise the neutral lucide `Workflow` glyph (see below, D37).
+- Status ring, 4 px outside the tile, in the measured `--state-ink-*` tokens: running = faint 28% track plus a 30% arc rotating 1.1 s linear; `waiting` = solid 2 px ring plus a 1.8 s halo;
+  `failed` = solid 2 px ring; done and stopped = no ring.
+- Corner glyph badge (diameter 46% of the tile, at least 10 px): `surface-0` fill, 1.5 px ink border, lucide glyph in ink. Running `LoaderCircle`, done `Check`, `failed` `CircleAlert`,
+  `waiting` `Hand`, stopped `CirclePause`. State is never colour alone: ring + glyph + status word (WCAG 1.4.1).
+- Status words (revise round 1): the displayed agent status word is today's vocabulary of 3.5 everywhere (AGENTS tile, dock chip, hover card, `N agents ›` menu, tab `aria-label`): `running`, `waiting`, `done`, `failed`, `stopped`, `queued`.
+  `error` is only the data-state synonym of the displayed `failed`. `needs you` is NOT an agent status word; it stays the request-urgency phrase only (the permission summary, the `N needs you` count, the overflow priority meaning, the pip and the
+  button's accessible name). An agent whose status word is `waiting` has the `needs you` urgency.
+- Reduced motion (`prefers-reduced-motion: reduce`): the arc stays as a static 30% arc, no halo, no rotation, transitions 0 ms.
+
+**Orchestrator avatar (D37; PM-14, requirement 18.5).** A vendor mark is shown ONLY when an authoritative session provider id exists: the Claude mark for a session whose provider id is `claude-cli`
+(`PROVIDER_BRAND_SLUGS['claude-cli']`), or the mark of another CLI provider when the session runs on one. When the frontend has no authoritative session provider id (today it has none, see architect check 1), the
+EXPLICIT fallback is the neutral orchestrator glyph, lucide `Workflow` (same 58% glyph size as the other role icons, `text-base-content`, `aria-hidden`; the task description names no glyph, so `Workflow` is chosen here, see D37). It is never a guessed
+vendor mark, never a Claude default, never a monogram and never the sub-agent `Bot`. The accessible name stays `Orchestrator`; the gold hairline border stays in both cases. The data need is the session's provider id; the field is NOT invented
+here and is not inferred from the model-stat `ContextCapacity.providerId` (architect check 1). The prototype mock explicitly declares a Claude session (`sessionProvider: 'claude-cli'` in `prototype/assets/app.js`) and so shows the Claude mark; the unknown-provider state is
+`prototype/index.html?prov=unknown` (neutral `Workflow` glyph).
+
+**CLI lane marks (`ptah-provider-mark`; D36, D38).** One table `cliId -> providerId`, no per-id branches in the template. CLI lanes use today's types only; no new lane type is added.
+
+| CLI id | Mark | Source |
+| --- | --- | --- |
+| `codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `grok` | real vendor mark | `PROVIDER_BRAND_SLUGS` (vendored art subset) |
+| `pi`, `ptah-cli` | hand-authored stroke glyph | `PROVIDER_MARKS` |
+| Orchestrator, only when an authoritative session provider id is `claude-cli` | Claude mark | `PROVIDER_BRAND_SLUGS['claude-cli']` (the key `claude` is not in the table) |
+| Orchestrator with no authoritative session provider id | neutral `Workflow` glyph (not a monogram, not a vendor mark) | PM-14, requirement 18.5; D37 |
+| any other id | monogram tile: first letter, theme-tinted, glyph in `text-base-content` (the `ptah-monogram-tile` idea) | fallback rule; never the default `Bot` (it would read as a sub-agent) |
+
+Examples in this spec use `antigravity` where a lane needs a name; the monogram appears only as the generic fallback for an unknown id. Sizing: `sm` (14 px mark) inside the 24 and 28 px avatars, `md`
+(24 px mark in a 32 px box) inside the 32 px avatar; the mark is `aria-hidden` and the row or tab label carries the name; no new component input (D40).
+
+**Sub-agent role icons** (lucide-angular; all names verified in `lucide-icons.d.ts` by the Delta 2 options doc). Lookup table keyed by agent type, default `Bot`:
+
+| Agent type | Icon | Agent type | Icon |
+| --- | --- | --- | --- |
+| frontend-developer | `LayoutTemplate` | code-logic-reviewer | `SearchCheck` |
+| backend-developer | `ServerCog` | code-style-reviewer | `ScanEye` |
+| software-architect | `DraftingCompass` | researcher-expert | `Telescope` |
+| team-leader | `Users` | devops-engineer | `Container` |
+| project-manager | `ClipboardList` | technical-content-writer | `ScrollText` |
+| ui-ux-designer | `Palette` | modernization-detector | `Sparkles` |
+| senior-tester | `FlaskConical` | visual-reviewer | `Eye` |
+| any other type | `Bot` | background command | `SquareTerminal` |
+
+Also used: `ChevronDown`, `ChevronRight`, `MousePointerClick` (hover card hint), `Users` (roster icon on `N agents ›`). `Workflow` is used only as the neutral orchestrator glyph when the session provider is unknown (D37); it is not a fixed orchestrator icon.
+
+**New AGENTS tile** (replaces the `>_` / `◇` row of 4.2)
+
+```
++----------------------------------------------------+
+| (A)  Antigravity                  waiting    0m 51s |   avatar 32, ring + hand badge
+|      [CLI lane] Needs permission: rm -rf dist       |   line 2: kind badge + activity
+|      (!) Needs permission: rm -rf dist    [Review]  |   permission line (unchanged text and button)
+|----------------------------------------------------|
+| (fe) frontend-developer          Running  2m 14s    |   spinning arc, 32 px
+|      [Sub-agent] Edit canvas-lane-tabs.component.ts |
++----------------------------------------------------+
+```
+
+- The kind badge moves to line 2 so long names keep their full width. Row button label unchanged (`{name}, {kind}, {status} {duration}. {activity}`). Selected row keeps the 2 px gold bar.
+- Row padding 11 / 14 / 11 / 17 px, gap 13 px. Permission line indent `ml-[62px]`; the `Review` / `Answer` button recipe (28 px high) and the sibling-not-nested rule (D15) are unchanged.
+- Hide absent fields, never invent them (9): sub-agents have no start time today, so the duration is omitted for them.
+- Contrast (D40): no new colour pair. Every pair is already measured in 8.2: state ink words and ring / badge ink on surface-0 / 1 / 2 (dark 4.60 to 6.61, light 4.73 to 6.12); muted text on
+  surface-0 / 1 / 2 (5.39 to 6.06); kind badge text on surface-3 (5.11 / 5.06); selected indicator `--s` / `--ptah-gold` on surface-0 (dark 8.81, light 4.10, UI only); focus ring (`--s` dark,
+  `--ptah-gold-strong` light) 5.26 to 8.81. Status words are never placed on surface-3 (R1). The 28% ring track is decorative; arc, glyph and word carry the state.
+
+### 4.8 Extension slot (workflow sections; decisions.md row 35, D41)
+
+The inspector has ONE content-projection slot, `[inspectorSection]`, rendered AFTER the Orchestrator card (4.1) and BEFORE AGENTS (4.2). Workflow sessions (`TabState.workflow` set, for example `harness-configure`) project add-on
+sections into it (intake recap, config preview, Apply). Nothing else in the inspector is extensible.
+
+- Empty slot: renders nothing, no wrapper box, no empty border, no spacing; a session without projected sections looks exactly as specified in 4.1 to 4.7.
+- Anatomy of a projected section (the host of the add-on follows these rules; the inspector does not style the add-on's content beyond them): one `<section>` per add-on, `p-4 border-b border-surface-border`,
+  labelled by its own heading with the section-label recipe of section 1 ("Section label"; `aria-labelledby`). Content width = 336 - 2 x 16 = 304 px; no horizontal scroll (long values wrap or truncate with a `title`).
+- Targets and focus: every interactive element at least 24 x 24 px, 2 px focus ring in the existing focus token with 2 px offset (8.4). Tab order follows DOM order, so projected controls sit between the Orchestrator card and the first AGENTS row.
+- Colour: only the existing token pairs measured in 8.2 (state inks on surface-0 / 1 / 2, muted text, kind badge, selected indicator, focus ring). No new pair, so no row is added to the 8.2 tables.
+- Buttons: at most ONE primary button per projected section (for example `Apply`); secondary actions use the quiet button recipe. The header keeps "no primary buttons" (section 5).
+- While the inspector is an overlay sheet, projected sections inherit the modal focus rules of 8.3 unchanged (the keyboard-order check lists the projected controls after `Close session details` and before the first AGENTS row).
+
 ## 5. Header
 
 `<header>` `h-12 flex items-center gap-2.5 px-4 border-b border-surface-border bg-base-100`, order and tab order:
@@ -608,7 +703,15 @@ Documents                                                                line 4:
 5. `N needs you` chip (non-interactive status, `role="status"`): `h-[22px] px-2 rounded-md border text-[11px] font-medium text-state-need` with 55% need border, transparent fill.
    Shown only when N > 0 (N = unique pending requests of this session as defined once in 9.1; the same request seen in the session permission list and a lane queue counts once); `title="Open This session to answer"`. Copy: `1 needs you`, `2 need you`.
 6. Inspector toggle (`panel-right`, aria-pressed, aria-controls `inspector`, aria-label `Show session details` / `Hide session details`). When the inspector is closed and
-   N > 0 the toggle carries a 7 px `bg-state-need` dot at top-right (2 px ring in `base-100`).
+   N > 0 the toggle carries a 7 px `bg-state-need` dot at top-right (2 px ring in `base-100`). On a workflow tab at an overlay width the closed toggle carries the same 7 px dot in `--sel` (D43).
+
+Header extension slots (decisions.md row 35, D41): the header has two projected slots and no second header. Both render nothing when empty.
+
+- `[sessionHeaderChip]`: after the spacer (3) and BEFORE the branch chip (4). It carries one workflow kind chip: the 22 px chip recipe of the branch chip (`h-[22px] px-2 rounded-md border border-surface-border text-[11px] text-base-content-muted`,
+  non-interactive), lucide icon 12 + the kind label (for example `Configure`), `title` = the full workflow name. Chip colours are the branch chip's existing pairs (8.2).
+- `[sessionHeaderAction]`: immediately BEFORE the inspector toggle (6), after the `N needs you` chip. At most TWO 28 px icon buttons, each with an `aria-label` that states the action (for example `Start over`) and the 2 px focus ring of 8.4;
+  they are secondary controls, never primary buttons. Tab order follows DOM order: ... `N needs you` chip (not a stop), projected actions, inspector toggle.
+- A workflow "panel toggle" is not needed: the inspector toggle (6) shows the workflow section (4.8).
 
 No "Prototype" chip in the product. The header does not contain primary buttons.
 
@@ -847,7 +950,7 @@ Docked mode (>= 960 px) is a plain `<aside aria-label="This session">` with no t
 
 | Moment | Rule |
 | --- | --- |
-| Default | closed on load and on every session switch; the inspector never opens itself and never takes focus |
+| Default | closed on load and on every session switch; the inspector never opens itself and never takes focus. This holds for workflow tabs too: their open-by-default (D42) applies only at docked widths; at overlay widths the sheet stays closed and the toggle shows the workflow dot (D43), so no auto-open can move or trap focus |
 | Open (toggle by keyboard or pointer) | (1) remember the opener (`document.activeElement`, normally the header toggle); (2) set `inert` on the whole main region (header, thread, composer, in one wrapper) so nothing behind the sheet is focusable, clickable or read; (3) the sheet gets `role="dialog" aria-modal="true" aria-label="This session"` instead of the landmark role and the toggle gets `aria-pressed="true"`; (4) focus moves to `Close session details` immediately (it does not wait for the 220 ms slide); (5) the scrim is `aria-hidden` and pointer-only |
 | While open | Tab and Shift+Tab cycle inside the sheet (a keydown handler wraps last to first and first to last; `inert` alone would still let focus reach browser UI); `Esc` closes the innermost layer first (an open request panel, then the sheet); a pointer click on the scrim closes |
 | Resize across 960 px while open | to docked: remove `inert`, `role="dialog"` and `aria-modal`, keep focus where it is; to overlay (docked inspector open, shell becomes narrower than 960 px): the sheet is closed by `closeInsp()` (path 6) and does not reopen on its own; the width-band transition is detected, not every resize event |
@@ -905,7 +1008,7 @@ control. Prototype state `narrow-400-overlay-focus` demonstrates entry, inert, w
 | Ahead / behind counts | NOT available: `SessionGitStatsStore` has additions, deletions, partial only; `GitStatusService` is workspace-wide (decisions.md row 9) | NOT shipped: hidden until a per-session source exists. A backend / git-service addition (`git rev-list --left-right --count @{u}...HEAD`) needs its own recorded decision |
 | Todo items with status | `parseTodoList` (`compact-session-metrics.ts:105`) returns items; `summarizeTodos` (`:67`) returns counts and the active title | frontend-only: the inspector uses `parseTodoList` and derives the counts from the same list; count-only fallback when parsing fails (4.3). No backend work |
 | Agent rows (kind, status, start, activity) | `buildLaneSummary` (`compact-lane-rows.ts:52`) over `sessionSubagentsForSession()`, `agentsOwnedBySession()`, `BackgroundAgentStore.agentsForSession()` | sub-agents: `lastToolName` only and no start time, so no live duration (row shows status only); CLI lanes: derive the activity line from the last `segments` entry; background: live shells are not exposed (only `pendingBackgroundTasks` after a turn), so no numeric progress (`212 of 340`) is drawn; hide absent fields, never invent them |
-| CLI lane id to mark | `ptah-provider-mark` (`PROVIDER_BRAND_SLUGS`) | Gemini has no vendored artwork (falls back to `terminal`); optional follow-up through `scripts/brand-icons.manifest.json` |
+| CLI lane id to mark | `ptah-provider-mark` (`PROVIDER_BRAND_SLUGS`) | one `cliId -> providerId` table (4.7, D36); an id with no vendored artwork shows the monogram tile; optional follow-up for new vendors through `scripts/brand-icons.manifest.json`. Delta 2 architect checks: 4.7 |
 | Permission and question requests | session list (C-15), `MonitoredAgent.permissionQueue`, `resolvedQuestionRequests()` (C-16) | answered in place by the inspector's request panel using today's handlers (4.5); the Electron single chat view needs no new surface for this. A native lane-permission surface (T1-07) is optional afterwards |
 | `Worked for` duration | message `timestamp` and `duration` | derived client-side by 3.9; `[verify]` that completed assistant messages carry a finite `duration` live and after restore, else the label is `Worked` |
 | `N needs you` | the unique-request count of 9.1 | derived in one place |
@@ -954,7 +1057,7 @@ header chip, toggle dot, orchestrator state and AGENTS order agree in the protot
 | D2 | Status is a word in state ink, never a tinted or filled badge | tinted chip fills | Measured: run on 12% tint 4.12:1 (dark), need 4.43:1 (light), both below 4.5 | yes, but needs new tuned tokens |
 | D3 | Status words and kind badges stay off `surface-3`; chips use `surface-1`, hover `surface-2` | any surface | dark run 4.25, err 4.15 on surface-3 | no (contrast) |
 | D4 | Explicit radii (6 / 12 / 4 px), not `--rounded-btn` | theme radii | `anubis-light` sets `--rounded-btn: 2rem` (pill); the reference radius is 6 px in both themes | yes |
-| D5 | CLI lane icon = `ptah-provider-mark`, falling back to lucide `terminal` (not `square-terminal`) | `square-terminal`, `terminal`, always generic | Reference shows `>_` for every lane; the repo's `ProviderMarkComponent` fallback glyph for CLI routes is `Terminal`; same fallback means no new mapping table | yes |
+| D5 | CLI lane icon = `ptah-provider-mark`, falling back to lucide `terminal` (not `square-terminal`). AMENDED by Delta 2 (D36): the fallback is the monogram tile and the mark sits inside the agent avatar (4.7) | `square-terminal`, `terminal`, always generic | Reference shows `>_` for every lane; the repo's `ProviderMarkComponent` fallback glyph for CLI routes is `Terminal`; same fallback means no new mapping table | yes |
 | D6 | `N needs you` is a status chip, not a button; the action lives on the inspector row (`Review`) and the toggle shows a dot when closed | clickable chip | Skill rule: status is a hint, not a button; avoids two paths to one action | yes |
 | D7 | Gold as text uses new `--ptah-link` | raw `text-secondary` | gold text = 4.10:1 on anubis-light | yes |
 | D8 | Composer workspace and branch chips are hints, not controls, in this release | pickers | The reference shows no affordance (no chevron); workspace and branch are fixed per session | yes, add chevron + menu later |
@@ -983,10 +1086,20 @@ header chip, toggle dot, orchestrator state and AGENTS order agree in the protot
 | D31 | Stage is shown as `Stage`, derived from the documents present (no phase field exists); omitted when nothing can be derived (4.6) | label it `Phase`; show nothing; add a stored phase field | "current phase if derivable"; the task carrier has no phase field and no backend work is allowed (row 21); the label `Stage` and the `title` text state that it is derived, so it does not pose as workflow state | yes |
 | D32 | Delta 1 item 6: `Answer` never opens a lane first; on `host=rail` a lane-owned question focuses the question card of the session directly (4.5) | open the lane, then focus the card | orchestrator decision: opening the lane replaces the thread and hides the card being answered | yes |
 | D33 | Delta 1 items 2, 3, 5: B-16 stays visible at rest above the bubble as today; B-14 / B-15 keep today's hover reveal with no focus reveal and no `(hover: none)` rule; lane title is `h2#laneTitle` (3.10, 4.5, 8.3, 12) | hover-only time; added focus reveal; a lane `h1` | user decision (decisions row 23) for B-16 and B-14 / B-15; the header already holds the session `h1`, so a second `h1` would break the heading outline | yes |
+| D34 | Delta 2: the main-view thread switcher is option B, the agent dock; it replaces the VISUALS of `canvas-lane-tabs.component.ts` and keeps its capabilities (tablist keyboard model, ownership filter, overflow) | A avatar tab strip; B agent dock; C split switcher | user decision (decisions.md row 30). B shows the active agent as one expanded pill, fits 8 agents at 760 px without overflow, gives the strongest clickability cue except C, and shares the tile vocabulary of 4.7 | yes |
+| D35 | Hover / focus card on dock avatars: YES. Opens after 220 ms hover and on `:focus-visible`, stays open while the pointer is over it, Esc dismisses it (WCAG 1.4.13). Touch path = the `N agents ›` menu button | no card (title only); card on hover only | user decision (decisions.md row 31); the card carries kind, status, duration, current activity and "Click to view this thread" that a flat strip cannot | yes |
+| D36 | Every example CLI lane is Antigravity (CLI id `antigravity`, real mark via `PROVIDER_BRAND_SLUGS`); the vendor-less "G" monogram example is removed; the generic monogram fallback for unknown CLI ids stays; one `cliId -> providerId` table. Amends D5 | keep a mock-only vendor example; keep the `Terminal` fallback | user decision (decisions.md row 31, item 3); `brand-slugs.ts` has a vendored `antigravity` mark | yes |
+| D37 | The Orchestrator avatar shows the session's actual provider mark ONLY when an authoritative session provider id exists (Claude through provider id `claude-cli`; another CLI provider's mark when the session runs on one). When the frontend has no authoritative session provider id (the case today), the explicit fallback is the NEUTRAL orchestrator glyph, lucide `Workflow` (chosen here: the task description names no glyph, only "neutral orchestrator glyph"). No Claude fallback, no monogram, no `Bot`. The gold hairline border stays as the orchestrator marker in both cases. Needs the session provider id (architect check 1; field not invented, not inferred from `ContextCapacity.providerId`). Revise round 1 corrected the earlier Claude / monogram fallback | fixed `Workflow` glyph for all sessions; Claude mark as default; monogram for unknown | user decision (decisions.md row 31, item 4: the actual provider); PM-14 and requirement 18.5 (`task-description.md:64`, `:703-704`) select the neutral glyph when the provider is unknown; the inspected session types carry no provider (`design-spec-review-delta2.md` finding 1); a guessed Claude mark would misreport a non-Claude session | yes, once an authoritative provider field exists |
+| D38 | No new CLI lane types: lanes use today's types (`codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi`, `grok`, `ptah-cli`) through one `cliId -> providerId` table | add further lane types (the options mock listed two that the product does not have) | user decision (decisions.md row 31, item 5); `SYSTEM_CLI_TYPES` | yes |
+| D39 | Work-log tool-call / action rows reuse today's existing tool-call components and styles unchanged; the work log only wraps them (3.3). The `Worked for` disclosure and everything else stay as designed | restyle tool rows (icon 14 muted, name 500, args mono 11.5, min-h 26) | user decision (decisions.md row 32), from a screenshot of today: `Read` + bold file name + muted full path + `lines 14-25` chip; `Grep` + pattern + path + `content` chip | yes |
+| D40 | Avatar system from the options doc is adopted as drawn: circle avatars at 24 / 28 / 32 px (D1), state = ring + corner glyph + word (D2), `sm` / `md` provider-mark sizes with no new input (D4), strict overflow priority with a pip (D5), no overlapping targets (D6), automatic activation for the tablist (D7), `SquareTerminal` for background commands (D8; its `Workflow` half is narrowed by D37 to the neutral unknown-provider glyph); contrast uses only pairs already measured in 8.2 | new colour pairs; an `avatar` size input; manual activation | `design-delta-2-options.md` section 4 (D1-D8); WCAG 1.4.1, 2.5.8; the current `canvas-lane-tabs` keydown model | yes |
+| D41 | Extension slots: the inspector has ONE projected slot `[inspectorSection]` between the Orchestrator card and AGENTS (4.8); the header has `[sessionHeaderChip]` (before the branch chip, one 22 px workflow kind chip) and `[sessionHeaderAction]` (immediately before the inspector toggle, at most two 28 px icon buttons with aria-labels). Empty slots render nothing; no second header; no workflow panel toggle (4.8, 5) | a second workflow panel and toggle; a registry of new inspector sections; per-section slots | decisions.md row 35 (request from the TASK_2026_648 / 649 session, accepted by the orchestrator): workflow sessions need an add-on surface without a new shell; one slot keeps the inspector order stable; projected sections reuse the existing recipes and the 8.2 pairs | yes |
+| D42 | Tabs with `TabState.workflow` set (`harness-configure`, `harness-new-project`, `setup-*`) have the inspector initial default OPEN in every mode, `compact` included, at docked widths; the per-tab manual toggle overrides it afterwards; a mode change resets to the workflow default (open); exposed to the architect as a per-tab initial-open input (3.8, Delta 2 architect check 7). Extends D23 | follow the mode default (closed in compact); persist the choice | decisions.md row 36: the projected config preview and Apply are the primary work surface of these tabs | yes |
+| D43 | At overlay widths (< 960 px, modal sheet, 8.3) the workflow default does NOT auto-open the sheet: it stays closed, the toggle shows a 7 px `--sel` dot and the header kind chip names the workflow. Auto-open never moves or traps focus | auto-open the modal sheet and move focus to `Close session details`; auto-open as a non-modal sheet beside the thread | accessibility: 8.3 makes the sheet modal (`inert` main region, focus trap), so an unrequested auto-open would pull focus from the composer and break the existing "inspector never opens itself" rule; a non-modal sheet would cover the thread at 400 px. Closed + dot + chip keeps it discoverable; the user opens it by the toggle and 8.3 applies unchanged. The dot uses the `--sel` selected-indicator pair already measured in 8.2 (UI only, 3:1) | yes |
 
 ## 11. Lane-introduced constraints
 
-Delta 1 adds no `[lane-proposed]` token or rule: the TASK section reuses measured tokens and rules R1 / R2 (4.6, D29); the user-approved scope add is recorded in decisions.md rows 21-23. Only items marked `[lane-proposed]` need Gate 1.7 acceptance: `--ptah-link` token (1.6), optional `surface-border-strong` Tailwind colour (1.6), rules R1 (status words never on surface-3)
+Delta 2 adds no `[lane-proposed]` token, colour pair or rule: the avatar, dock and hover card are user-approved (decisions.md rows 30-31) and use measured tokens only (D40). Delta 1 adds no `[lane-proposed]` token or rule: the TASK section reuses measured tokens and rules R1 / R2 (4.6, D29); the user-approved scope add is recorded in decisions.md rows 21-23. Only items marked `[lane-proposed]` need Gate 1.7 acceptance: `--ptah-link` token (1.6), optional `surface-border-strong` Tailwind colour (1.6), rules R1 (status words never on surface-3)
 and R2 (no tinted status fills) in 8.2, the stagger caps (D14). Added in revision round 2, all `[lane-proposed]`: the generated per-theme tokens `--state-ink-*` for the 32 stock themes, `--ptah-accent-ink` and `--ptah-check-edge` (8.2, D24), and the per-tab in-memory inspector open state (3.8, D23). Added in revision round 1, all `[lane-proposed]`: the density meaning of `compact` view mode (3.8, D16), the inline request panel
 and its routing (4.5, D18), the symmetric scrollbar gutter and composer geometry (2.2, D21), the overlay focus contract (8.3), the ring-utility rule for programmatic focus targets (8.4). No existing
 project component is banned; every kept capability of section 12 keeps its component (`ptah-token-badge`, `ptah-cost-badge`, `ptah-copy-button`, tray, banners).
@@ -1094,7 +1207,8 @@ B-4 count meta, B-14 branch and B-15 rewind stay in the product until the user s
 `prototype/index.html?theme=dark|light&t1=collapsed|expanded&t2=ref|streaming|answered|done&insp=open|closed&body=full|empty|loading|error|partial&width=wide|sidebar&bare=1&sel=1&reduce=1&replay=0|1`
 plus the round-1 parameters `ask=lane|lane-open|question|multi`, `host=electron|rail`, `fail=1`, `parity=1`. States named in this spec: `ask=lane`, `ask=lane-open`, `ask=question`,
 `ask=multi`, `requests-more-open`, `request-error-retry`, `request-closed-elsewhere`, `request-electron-fallback`, `narrow-400-overlay-focus`, `parity=1`, `body=partial` (4.5). See
-`prototype/README.md` and `prototype/ROUND-1-NOTES.md`.
+`prototype/README.md` and `prototype/ROUND-1-NOTES.md`. Delta 2 options page: `prototype/options-delta-2.html` (assets `delta2.css`, `delta2.js`, `delta2-sprite.js`; screenshots
+`prototype/screenshots/delta2-*.png`; checks `node prototype/assets/capture-delta2.mjs shots|checks`); option B is the chosen one.
 
 ## Revision round 1
 
@@ -1109,7 +1223,7 @@ Gate 1.7 revise round 1 of 2, text of this spec. `design-spec-review.md` (codex)
 | 5 Moderate: 24 px targets | Review and Answer 28 px high (>= 56 x 28), Allow / Deny >= 56 x 28, Retry >= 42 x 24, `+N more`, `Show N more todos`, `Review changes`, `Open lane` >= 24 x 24; full target list; non-interactive 22 px chips named | 4.2, 4.3, 4.4, 4.5, 8.1 |
 | 6 Moderate: one-to-one fidelity | Reference geometry table, cause and rule for the 6 px offset (`scrollbar-gutter: stable both-edges`), composer field 60 px, bar `pb-2`, wrapper `pb-[18px]`; prototype now measures 273.5 / 415.5 / 48 / 249.5 x 758; departures P1 (Codex mark), P2 (Review button), P3-P5 labelled (`data-departure="codex-brand-mark"`, `"review-button"`) | 2, 2.2, 6 |
 | 7 Moderate: contrast audit partly unverified, rule too broad | Focus ring audited with the real token on four surfaces (dark 7.43-8.81, light gold-strong 5.26-6.28; plain light gold 3.71 not used); `styles.css:684-709` read: ring and light override apply to five native elements only, so every control is native and programmatic targets carry the full utility set; Allow / Deny pairs measured; theme scope stated (anubis and anubis-light only; others T4; colour never the only signal) | 8.2, 8.4 |
-| 8 Minor: icon availability | Lucide verification recorded: `PanelLeft`, `PanelRight`, `GitBranch`, `ShieldAlert`, `LoaderCircle`, `TriangleAlert` canonical in lucide-angular 1.0.0 (orchestrator); `Undo2`, `Paperclip`, `Image`, `Check` re-checked by the designer; Gemini fallback restated | 1.5 |
+| 8 Minor: icon availability | Lucide verification recorded: `PanelLeft`, `PanelRight`, `GitBranch`, `ShieldAlert`, `LoaderCircle`, `TriangleAlert` canonical in lucide-angular 1.0.0 (orchestrator); `Undo2`, `Paperclip`, `Image`, `Check` re-checked by the designer; provider-mark fallback restated (replaced by the monogram tile in Delta 2) | 1.5 |
 | Gate 1 finding 1 (`task-description-review.md`): view-mode toggle has no defined result | `full` vs `compact` table: live log, `Worked for`, answer, chips, inspector default, rhythm, all other features identical; toggle behaviour, persistence, migration; D16 | 3.8, D16 |
 | Gate 1 finding 2: duration persistence vs missing source | Start, end, settle, live, reload, zero-activity, running-agents, interrupted and restored-history rules from `message.timestamp` and `message.duration`; fallback label `Worked`; durable-only so the label is identical after reload; `[verify]` items; D17 | 3.9, 9, D17 |
 
@@ -1148,3 +1262,88 @@ Source: decisions.md rows 21-23 (user, 2026-10-15) and one orchestrator decision
 Parity effects: B-14, B-15 and B-16 decisions in 12.1 now read unchanged-behaviour; row T-1 is added as a new capability (user scope), nothing is removed. Proposed removals (user decision): none.
 
 Open for the architect (`[verify]`, none blocks the design): the session organization read path for `taskIds` and whether link changes push; the exact editor-open RPC and its availability per host (Electron single view, Rail, VS Code); an inspector-side consumer of `tasks:changed` that does not need the board open; where the Stage ladder lives; the opacity-reduced contrast of the user-turn time if today's `opacity-60` is kept; the tasks-ui entry point that exposes presentation helpers without the board.
+
+## Delta 2: agent tiles and thread switcher (option B)
+
+Source: decisions.md rows 30-32 (user, 2026-10-15), `design-delta-2-options.md`, prototype `prototype/options-delta-2.html` (`assets/delta2.css`, `delta2.js`). The user picked option B, the agent
+dock. The tile, avatar, marks and role icons are specified once in 4.7 and used here unchanged. New decisions are D34-D40 in section 10.
+
+### Switcher: the agent dock
+
+It replaces the visuals of `libs/frontend/canvas/src/lib/canvas-detail/canvas-lane-tabs.component.ts`, the only main-view switch between the orchestrator, sub-agents and CLI lanes. The component keeps
+its capabilities: the keyboard tablist model (roving tabindex, Left / Right with wrap, Home / End, automatic activation, D40), the ownership filter (only agents the session owns appear, architect check 4)
+and overflow (now by priority, below).
+
+```
++------------------------------------------------------------------+
+| (O)(fe)(sa) | [(X) Codex        ] (!) (v) (A!) | (>_)   [ 8 agents > ] |
+|             |   Running 1m 11s    gold pill                         |
+|  hover or focus on (fe):                                           |
+|    +-----------------------------+                                 |
+|    | (fe) frontend-developer     |                                 |
+|    | Running 2m 16s - Edit ...   |  [ Click to view this thread ]  |
++------------------------------------------------------------------+
+ (O) = orchestrator avatar: session provider mark when the provider is known, neutral Workflow glyph otherwise (D37); (A!) = antigravity lane, status word waiting
+```
+
+- Order: Orchestrator and sub-agents, then CLI lanes, then background commands, separated by 1 px rules (`--surface-border-strong`); then the `N agents ›` button at the end.
+- Active agent: one expanded gold-bordered pill, 38 px high, avatar + name + status word + duration. Every other agent is an avatar button (28 px avatar in a 38 px chip). The Orchestrator avatar shows the
+  provider mark of D37 (or the neutral `Workflow` glyph when the provider is unknown) with the gold hairline border.
+- `N agents ›` is a `menu` button (`aria-haspopup="menu"`, `aria-expanded`). Menu: `menuitemradio` rows grouped by kind with counts (avatar, name, status word, duration; selected row = gold bar),
+  Up / Down / Home / End, Enter selects, Esc closes and returns focus to the button, Tab closes. With many agents (14) the list scrolls, 340 px max height. At 400 px the label becomes a count badge.
+- The decorative "stack" of hidden-agent avatars lives INSIDE the `N agents ›` button (or a `Users` icon when nothing is hidden). No avatar overlaps any interactive target (D40).
+- ARIA: `tablist` of avatar `tab`s; each tab has `aria-label` `{name}, {kind}, {status} {duration}` and `aria-describedby` pointing at the `role="tooltip"` card. The label is the accessible name, so the
+  state is available to avatar-only chips.
+
+### Hover and focus card (D35)
+
+- Content: avatar (32), name, kind, status word, duration, current activity line, hint `Click to view this thread` with `MousePointerClick`.
+- Opens after 220 ms of hover and on `:focus-visible`. It stays open while the pointer is over the avatar or the card (WCAG 1.4.13 hoverable and persistent). Esc dismisses it without moving focus.
+- The card is informational (no controls inside), so there is no focus trap and no extra tab stop. Placement: below the avatar, clamped inside the shell container (derived from the options doc frame).
+- Touch has no hover: the touch path is the `N agents ›` menu, which lists the same name, status and duration. The card is an enhancement, never the only way to read a state.
+
+### Overflow, targets, focus, motion
+
+- Overflow priority, strict order (D5 of the options doc, D40): Orchestrator, the selected agent, every `waiting` agent (the `needs you` priority), every `failed` agent, running agents, then the rest. The dock never shows a
+  finished agent while hiding a running one. Hidden agents go to the `N agents ›` menu; a pip (decorative, ink `--state-ink-need` or `--state-ink-err`) sits on the button when a hidden agent is `waiting` or
+  `failed`, and the button's accessible name adds that fact: `needs you` is the urgency phrase for a `waiting` agent, `failed` is the status word (for example `8 agents, 1 waiting, needs you` or `8 agents, 1 failed`).
+  The menu rows, hover card, dock chip and AGENTS tile print the status word `waiting` or `failed`, never `Needs you` or `Error`.
+- At 400 px the dock shows the pinned four (Orchestrator, selected, first `waiting`, first `failed`) and moves the rest behind the button; at 760 px all 8 mock agents fit with no overflow.
+- No overlapping targets. Every interactive element is at least 24 x 24 px (chips are 38 px high, avatars 28 px); the audit is `capture-delta2.mjs checks`.
+- Focus ring: 2 px focus-visible ring in the existing focus token (`--s` dark, `--ptah-gold-strong` light) with 2 px offset, as in 8.4.
+- Reduced motion (`prefers-reduced-motion: reduce`): the running arc stays as a static 30% arc, no halo, no rotation, hover-card and menu transitions 0 ms; the 220 ms hover delay stays (a delay, not motion).
+- Contrast: no new colour pair. Only pairs already measured in 8.2 are used (listed in 4.7); no row is added to the 8.2 tables.
+
+### Architect checks (delta 2)
+
+1. Session engine provider id for the orchestrator mark (D37): which AUTHORITATIVE field on the session or tab carries the provider id (for example `claude-cli`) and whether it is available in Electron, Rail and VS Code.
+   The design needs a provider id; it does not name or add the field, and `ContextCapacity.providerId` (model-stat path) is not equated with the CLI engine without evidence. If no such field exists, document its absence and ship
+   the NEUTRAL orchestrator glyph (lucide `Workflow`) as the explicit fallback (PM-14, requirement 18.5): never a Claude fallback, never a monogram, never `Bot`. A vendor mark appears only with an authoritative id.
+2. `MonitoredAgent` fields for status, duration and activity: which fields feed the displayed status word (`running` / `waiting` / `done` / `failed` / `stopped` / `queued`, today's vocabulary of 3.5; `error` is the data-state synonym of `failed`; `needs you` is the request-urgency phrase for `waiting`, not a status word), the duration (9 already records that sub-agents have no start time,
+   so the duration is omitted for them) and the activity line (`lastToolName` for sub-agents, last `segments` entry for CLI lanes). Hide absent fields.
+3. Agent-type field for the role-icon map (4.7): which property carries the type string (`frontend-developer`, ...) for sub-agents; the map defaults to `Bot` for any other value.
+4. How `canvas-lane-tabs` gets its agents today and the ownership filter: from its imports it reads `AgentMonitorStore` and `BackgroundAgentStore` (`@ptah-extension/chat-streaming`), filters with `ownedBySession`
+   (`./lane-owner`) and keys tabs with `laneKey` (`@ptah-extension/chat`). Keep that source and filter, and feed the same list to the dock and to the AGENTS section of 4.2 so both agree.
+   Also confirm that replacing the current scroll-edge and reveal-selected logic with priority overflow loses no behaviour.
+5. The `cliId -> providerId` table (4.7, D36, D38): where it lives, and that `pi` and `ptah-cli` resolve through `PROVIDER_MARKS` while the others resolve through `PROVIDER_BRAND_SLUGS`.
+6. Projection path for the extension slots (D41): session-embed -> `ChatViewComponent` -> inspector. The inspector is `@defer`-loaded; verify that `ng-content` re-projection into the deferred inspector works (content projected through two components into a deferred block). If it does not, use a registry token keyed by workflow kind that the inspector reads instead. The slot contract (position, empty-renders-nothing, anatomy of 4.8) is the same either way.
+7. Per-tab initial-open input (D42, D43): expose the workflow default as an input of the inspector or its host (for example `initialOpen`) that the per-tab open-state map reads when a tab is first shown and after a view-mode change; at overlay widths the input is ignored (the sheet stays closed, the toggle dot shows).
+
+### Delta 2 changes
+
+| # | Item | Change | Section |
+| --- | --- | --- | --- |
+| 1 | Switcher = option B, the agent dock (decisions row 30) | New dock replaces the visuals of `canvas-lane-tabs.component.ts`; keeps the tablist keyboard model, ownership filter and overflow; overflow by strict priority with a pip on `N agents ›` | Delta 2 (this section), D34, D40 |
+| 2 | Hover / focus card = yes (row 31) | 220 ms hover, opens on `:focus-visible`, persistent while hovered, Esc dismisses (WCAG 1.4.13); touch path = `N agents ›` menu | Delta 2 (this section), D35 |
+| 3 | No Gemini anywhere (row 31) | Every Gemini example is now Antigravity (`antigravity`, real mark through `PROVIDER_BRAND_SLUGS`); the "G" monogram example is removed; the generic monogram fallback for unknown CLI ids stays; icon table rows, P1 departure, data row and D5 reworded | 1.5, 2.2 (P1), 4.7, 9, 10 (D5, D36) |
+| 4 | Orchestrator avatar shows the session's actual provider mark (row 31) | A vendor mark ONLY with an authoritative session provider id (Claude for `claude-cli`, another CLI provider's mark when the session runs on one); neutral `Workflow` glyph as the explicit fallback when the id is unknown (no Claude default, no monogram, no `Bot`; PM-14, req 18.5); gold hairline border kept; session provider id named as architect check 1, field not invented | 4.7, Delta 2 (architect check 1), D37 |
+| 5 | No new CLI lane types (row 31) | Lanes use today's types (`codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi`, `grok`, `ptah-cli`) through one `cliId -> providerId` table | 4.7, Delta 2 (architect check 5), D38 |
+| 6 | AGENTS tile | The `>_` / `◇` row of 4.2 is replaced by the 32 px avatar tile (ring + corner glyph + status word), kind badge on line 2, row padding 11 / 14 / 11 / 17 px, gap 13 px, permission line indent `ml-[62px]` (was `ml-[38px]`); role-icon map for sub-agents | 4.2, 4.7 |
+| 7 | Work-log tool-call rows keep today's rendering (row 32) | The restyle row (icon 14, Name 500, args mono 11.5, `min-h-[26px]`) is replaced by: tool-call rows reuse today's existing tool-call components and styles unchanged; the work log only wraps them. `Worked for` disclosure and everything else as designed. The tool glyph rows of 1.5 are marked as documentation of today | 3.3, 1.5, D39 |
+| 8 | Contrast and accessibility | No new pair; only pairs measured in 8.2; 24 px minimum targets, no overlapping targets, 2 px focus ring, reduced-motion behaviour stated | 4.7, Delta 2 (this section), D40 |
+| 9 | Delta 2 revise round 1, finding 1 (Serious): unknown session provider | Neutral lucide `Workflow` glyph is the explicit orchestrator fallback when no authoritative session provider id exists (no Claude fallback, no monogram, no `Bot`); a vendor mark only with an authoritative id; edited 4.7 (avatar, icon table), D37, architect check 1 and change-table row 4. The prototype declares a Claude session in the mock (`sessionProvider: 'claude-cli'`) and adds the unknown-provider state `?prov=unknown`; `capture.mjs checks` section M | 4.7, D37, Delta 2 (architect check 1, row 4) |
+| 10 | Delta 2 revise round 1, finding 2 (Moderate): status words | Displayed agent status words are `running`, `waiting`, `done`, `failed`, `stopped`, `queued` (3.5) in the dock, hover card, `N agents ›` menu and AGENTS tile; `error` is only the data-state synonym of `failed`; `needs you` stays the request-urgency phrase (permission summary, `N needs you` count, overflow priority meaning, pip, button name), with `waiting` mapped to that priority. Prototype `N agents` button name now `one waiting, needs you` / `one failed`; check M asserts the vocabulary | 4.7, Delta 2 (overflow, architect check 2) |
+| 11 | Extension slots (row 35) | Inspector gets ONE projected slot `[inspectorSection]` after the Orchestrator card and before AGENTS (renders nothing when empty); header gets `[sessionHeaderChip]` (before the branch chip) and `[sessionHeaderAction]` (before the inspector toggle, max two 28 px icon buttons); anatomy, targets, focus and colour rules in 4.8; architect check 6 (projection through the deferred inspector, else a registry token) | 4, 4.8, 5, D41, Delta 2 (architect check 6) |
+| 12 | Workflow tab inspector initial-open (row 36) | `TabState.workflow` tabs start with the inspector OPEN in every mode (docked widths); per-tab toggle overrides; a mode change resets to open; at overlay widths the modal sheet stays closed with a `--sel` toggle dot and the header kind chip (no focus move or trap); per-tab initial-open input for the architect (check 7) | 3.8, 4, 5, 8.3, D42, D43, Delta 2 (architect check 7) |
+
+Parity effects: no capability is removed. The switch between orchestrator, sub-agents and CLI lanes keeps working through the dock; tool-call rows are unchanged. Proposed removals (user decision): none.

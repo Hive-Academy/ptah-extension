@@ -22,21 +22,29 @@
   var ui = { taskMore: false, taskDocs: false, taskOpenErr: null, taskLive: false, taskBusy: false, open: null, more: {}, usage: true, panel: {}, last: {}, selected: P.get('sel') === '1' ? 'arch' : null, fail: P.get('fail') === '1', qerr: {}, opener: null };
 
   /* ---------------- mock data ---------------- */
+  /* Delta 2: sub-agents carry a lucide role icon (role), CLI lanes a provider mark (mark = sprite id m-<id>, today's lane types only),
+     the orchestrator carries the SESSION provider mark with the gold hairline, but ONLY when an authoritative session provider id exists.
+     The frontend has no such field today (design-spec architect check 1), so the neutral lucide `Workflow` glyph is the explicit fallback
+     (PM-14, requirement 18.5): never a guessed vendor mark, never `Bot`, never a monogram. This mock DECLARES a Claude session
+     (sessionProvider 'claude-cli', default) so the Claude mark may show; `?prov=unknown` shows the unknown-provider neutral glyph state. */
+  var SESSION_PROVIDER = P.get('prov') === 'unknown' ? null : 'claude-cli'; // mock declaration: authoritative provider id, or null = unknown
+  var PROVIDER_MARK = { 'claude-cli': 'claude' }; // provider id -> sprite mark id (m-<id>); an id without artwork is treated as unknown
   var AG = [
-    { id: 'fe', name: 'frontend-developer', kind: 'Sub-agent', icon: 'bot', status: 'running', dur: '2m 13s', act: 'Read session-context.token.ts' },
-    { id: 'codex', name: 'Codex', kind: 'CLI lane', mark: 'codex', status: 'running', dur: '1m 50s', act: 'Fixing a failing assertion' },
-    { id: 'gemini', name: 'Gemini', kind: 'CLI lane', icon: 'terminal', status: 'running', dur: '33s', act: 'Running npx nx lint chat' },
-    { id: 'bg', name: 'nx test chat', kind: 'Background', icon: 'layers', status: 'running', dur: '1m 51s', act: 'npx nx test chat --parallel=1' },
-    { id: 'arch', name: 'software-architect', kind: 'Sub-agent', icon: 'bot', status: 'done', dur: '2m 41s', act: 'Wrote implementation-plan.md' }
+    { id: 'fe', name: 'frontend-developer', kind: 'Sub-agent', group: 'sub', role: 'layout-template', status: 'running', dur: '2m 13s', act: 'Read session-context.token.ts' },
+    { id: 'codex', name: 'Codex', kind: 'CLI lane', group: 'cli', mark: 'codex', status: 'running', dur: '1m 50s', act: 'Fixing a failing assertion' },
+    { id: 'antigravity', name: 'Antigravity', kind: 'CLI lane', group: 'cli', mark: 'antigravity', status: 'running', dur: '33s', act: 'Running npx nx lint chat' },
+    { id: 'bg', name: 'nx test chat', kind: 'Background', group: 'bg', role: 'square-terminal', status: 'running', dur: '1m 51s', act: 'npx nx test chat --parallel=1' },
+    { id: 'arch', name: 'software-architect', kind: 'Sub-agent', group: 'sub', role: 'drafting-compass', status: 'done', dur: '2m 41s', act: 'Wrote implementation-plan.md' }
   ];
+  var ORCH = { id: 'orch', name: 'Orchestrator', kind: 'Orchestrator', group: 'main', sessionProvider: SESSION_PROVIDER, mark: (SESSION_PROVIDER && PROVIDER_MARK[SESSION_PROVIDER]) || null, status: 'running', dur: '6m 05s', act: 'Delegating to 4 agents' };
   var TODOS = [
     ['done', 'Map current shell and stores'], ['done', 'Write implementation plan'], ['run', 'Build desktop shell behind a flag'],
     ['run', 'Session Inspector panel'], ['pending', 'Settings toggle and e2e smoke test']
   ];
   function mkReqs(kind) {
-    var g1 = { key: 'lane:gemini:r1', kind: 'permission', owner: 'gemini', tool: 'Bash', cmd: 'npx nx lint chat' };
-    var g2 = { key: 'lane:gemini:r2', kind: 'permission', owner: 'gemini', tool: 'Bash', cmd: 'git diff --stat origin/main...HEAD' };
-    var g3 = { key: 'lane:gemini:r3', kind: 'permission', owner: 'gemini', tool: 'Write', cmd: 'apps/ptah-electron/src/renderer/app.html' };
+    var g1 = { key: 'lane:antigravity:r1', kind: 'permission', owner: 'antigravity', tool: 'Bash', cmd: 'npx nx lint chat' };
+    var g2 = { key: 'lane:antigravity:r2', kind: 'permission', owner: 'antigravity', tool: 'Bash', cmd: 'git diff --stat origin/main...HEAD' };
+    var g3 = { key: 'lane:antigravity:r3', kind: 'permission', owner: 'antigravity', tool: 'Write', cmd: 'apps/ptah-electron/src/renderer/app.html' };
     var op = { key: 'perm:p1', kind: 'permission', owner: 'orch', tool: 'Edit', cmd: 'libs/frontend/chat/src/lib/components/templates/chat-view.component.ts' };
     var q1 = { key: 'q:q1', kind: 'question', owner: 'codex', text: 'Base the batches on main or on feat/desktop-shell?' };
     if (kind === 'lane' || kind === 'lane-open') return [g1];
@@ -130,7 +138,7 @@
   function orchHTML(partial) {
     var done = isDone(), orchReq = active('orch').length > 0;
     var dot = done ? 'dot' : orchReq ? 'dot dot--need' : 'dot dot--run';
-    var st = done ? 'idle · ready for the next turn' : orchReq ? 'needs you' : (active('gemini').length || active('codex').length ? 'waiting on 4 agents' : 'working · 4 agents running');
+    var st = done ? 'idle · ready for the next turn' : orchReq ? 'needs you' : (active('antigravity').length || active('codex').length ? 'waiting on 4 agents' : 'working · 4 agents running');
     var ctxLabel = partial ? '—' : '41% of 200k';
     var h = '<section class="insp-sec st-r" style="--i:1" aria-label="Orchestrator">' +
       '<div class="orch-top" tabindex="-1"><span class="' + dot + '" aria-hidden="true"></span><span class="orch-name">Orchestrator</span></div>' +
@@ -161,11 +169,12 @@
       var s = statusOf(a), dur = (partial && (a.kind === 'Sub-agent' || a.id === 'codex')) ? '' : a.dur;
       var actLine = (partial && a.id !== 'bg') ? '' : (s === 'waiting' && active(a.id).length ? '' : a.act);
       var label = a.name + ', ' + a.kind.toLowerCase().replace('cli lane', 'CLI lane') + ', ' + s + (dur ? ' ' + words(dur) : '') + '.' + (actLine ? ' ' + actLine : '');
+      // delta 2 tile: avatar 32 (status ring + corner glyph) | line 1 name + status word + duration | line 2 kind badge + activity
       h += '<li class="agent' + (s === 'done' ? ' agent--finished' : '') + ' st-r" style="--i:' + (i + 3) + '" data-agent="' + a.id + '"' + (ui.selected === a.id ? ' aria-current="true"' : '') + '>' +
-        '<button type="button" class="agent__main" data-act="select" data-agent="' + a.id + '" aria-label="' + esc(label) + '">' +
-        '<span class="agent__l1">' + (a.mark ? mark(a.mark) : icon(a.icon)) + '<span class="agent__name" title="' + esc(a.name) + '">' + esc(a.name) + '</span><span class="kind">' + a.kind + '</span>' +
-        '<span class="agent__stat"><span class="w ' + WORD[s] + '">' + s + '</span>' + (dur ? ' <span class="t">· ' + dur + '</span>' : '') + '</span></span>' +
-        (actLine ? '<span class="agent__act">' + esc(actLine) + '</span>' : '') + '</button>' + reqHTML(a.id) + '</li>';
+        '<button type="button" class="agent__main" data-act="select" data-agent="' + a.id + '" aria-label="' + esc(label) + '">' + av(a, 32, s) +
+        '<span class="agent__body"><span class="agent__l1"><span class="agent__name" title="' + esc(a.name) + '">' + esc(a.name) + '</span>' +
+        '<span class="agent__stat"><span class="w ' + WORD[s] + '">' + s + '</span>' + (dur ? ' <span class="t">' + dur + '</span>' : '') + '</span></span>' +
+        '<span class="agent__l2"><span class="kind">' + a.kind + '</span>' + (actLine ? '<span class="agent__act">' + esc(actLine) + '</span>' : '') + '</span></span></button>' + reqHTML(a.id) + '</li>';
     });
     return h + '</ul></section>';
   }
@@ -296,7 +305,7 @@
   var LANE_LOG = {
     fe: [['Read', 'session-context.token.ts'], ['Edit', 'session-context.token.ts'], ['Read', 'chat-view.component.ts']],
     codex: [['Bash', 'npx nx test chat --parallel=1'], ['Edit', 'chat-view.component.spec.ts']],
-    gemini: [['Bash', 'npx nx lint chat'], ['Read', 'libs/frontend/chat/eslint.config.mjs']],
+    antigravity: [['Bash', 'npx nx lint chat'], ['Read', 'libs/frontend/chat/eslint.config.mjs']],
     bg: [['Bash', 'npx nx test chat --parallel=1']],
     arch: [['Read', 'design-spec.md'], ['Write', 'implementation-plan.md']]
   };
@@ -315,7 +324,171 @@
     if (pend) h += '<div class="lane-wait" role="status">' + icon('shield-alert', 'ico--12') + '<span><b>Needs permission:</b> <code>' + esc(pend.cmd || pend.text) + '</code>. Answer it in This session.</span></div>';
     $('#laneBody').innerHTML = h;
   }
-  function renderAll(focusSel) { renderInspector(focusSel); renderNeeds(); renderChips(); renderLane(); }
+  /* ---------------- avatar (delta 2): circle tile + status ring + corner glyph ---------------- */
+  var RING = { running: 'run', waiting: 'need', done: 'done', failed: 'err', stopped: 'idle' };
+  var GLYPH = { run: 'loader-circle', need: 'hand', done: 'check', err: 'circle-alert', idle: 'circle-pause' };
+  function lu(name, cls) { return '<svg class="' + cls + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#d-' + name + '"/></svg>'; }
+  function avInner(a) {
+    if (a.mark) return '<svg class="mk"' + (a.mark === 'codex' ? ' data-departure="codex-brand-mark"' : '') + ' viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#m-' + a.mark + '"/></svg>';
+    if (a.id === 'orch') return lu('workflow', 'ic'); // unknown session provider: neutral orchestrator glyph (lucide Workflow), never a vendor mark or Bot
+    return lu(a.role || 'bot', 'ic'); // sub-agent role icon; Bot is the default for any other type
+  }
+  function av(a, size, s) {
+    var st = RING[s || statusOf(a)], W = size + 8, c = W / 2, r = W / 2 - 1.5;
+    var ring = '<svg class="av__ring" viewBox="0 0 ' + W + ' ' + W + '" aria-hidden="true" focusable="false">' +
+      ['trk', 'halo', 'arc'].map(function (k) { return '<circle class="' + k + '" cx="' + c + '" cy="' + c + '" r="' + r + '" pathLength="100"/>'; }).join('') + '</svg>';
+    var badge = '<span class="av__badge" aria-hidden="true">' + lu(GLYPH[st], 'i') + '</span>';
+    return '<span class="av av--' + size + ' ast-' + st + (a.group === 'main' ? ' av--main' : '') + (a.group === 'bg' ? ' av--bgcmd' : '') + '"><span class="av__tile">' + avInner(a) + '</span>' + ring + badge + '</span>';
+  }
+
+  /* ---------------- agent dock (delta 2, option B): the main-view switch ---------------- */
+  var DK = { open: false, focusKey: null, focusPop: false };
+  var DK_GROUPS = [{ id: 'main', label: 'Orchestrator' }, { id: 'sub', label: 'Sub-agents' }, { id: 'cli', label: 'CLI lanes' }, { id: 'bg', label: 'Background' }];
+  function dockAgents() {
+    return [ORCH].concat(DK_GROUPS.slice(1).reduce(function (o, g) { return o.concat(AG.filter(function (a) { return a.group === g.id; })); }, []));
+  }
+  function dockSel() { return state.lane || 'orch'; }
+  function dockLabel(a, s) {
+    return a.name + ', ' + (a.kind === 'Background' ? 'background command' : a.kind.toLowerCase().replace('cli lane', 'CLI lane')) + ', ' + s + (a.dur ? ' ' + words(a.dur) : '') + (s === 'waiting' ? '. Click to view and answer' : '. Click to view');
+  }
+  function dockActivity(a, s) { var p = active(a.id)[0]; return s === 'waiting' && p ? 'Needs permission: ' + (p.cmd || p.text) : a.act; }
+  function dockPrio(a, sel) { var s = statusOf(a); return a.id === 'orch' ? 0 : a.id === sel ? 1 : s === 'waiting' ? 2 : s === 'failed' ? 3 : s === 'running' ? 4 : 5; }
+  function dockWorst(list) {
+    return list.filter(function (a) { return statusOf(a) === 'waiting'; })[0] || list.filter(function (a) { return statusOf(a) === 'failed'; })[0] || null;
+  }
+  function dockPop(list, sel) {
+    var h = '';
+    DK_GROUPS.forEach(function (g) {
+      var items = list.filter(function (a) { return a.group === g.id; }); if (!items.length) return;
+      h += '<div role="group" aria-labelledby="dkg-' + g.id + '"><div class="dk-pop__g"><span class="dk-glbl" id="dkg-' + g.id + '">' + g.label + '</span><span class="dk-cnt">' + items.length + '</span></div>';
+      items.forEach(function (a) {
+        var s = statusOf(a);
+        h += '<button type="button" role="menuitemradio" class="dk-pop__row" data-pick="' + a.id + '" aria-checked="' + (a.id === sel) + '" tabindex="-1">' + av(a, 24, s) +
+          '<span class="dk-pop__name">' + esc(a.name) + '</span><span class="dk-pop__meta"><span class="w ' + WORD[s] + '">' + s + '</span><span class="dk-d tnum">' + a.dur + '</span></span></button>';
+      });
+      h += '</div>';
+    });
+    return h;
+  }
+  function dockHTML(list, sel) {
+    var h = '<div class="dk-row"><div class="dk-dock" role="tablist" aria-label="Agent threads">';
+    var prev = null;
+    list.forEach(function (a) {
+      var s = statusOf(a), on = a.id === sel, tid = 'dk-tip-' + a.id;
+      if (prev && prev !== a.group) h += '<span class="dk-div" aria-hidden="true" data-g="' + a.group + '"></span>';
+      prev = a.group;
+      h += '<span class="dk-item" data-ik="' + a.id + '"><button type="button" role="tab" class="dk-chip" data-dk="' + a.id + '" aria-selected="' + on + '" tabindex="' + (on ? 0 : -1) + '" aria-label="' + esc(dockLabel(a, s)) + '" aria-describedby="' + tid + '">' +
+        av(a, 28, s) + (on ? '<span class="dk-chip__txt"><b>' + esc(a.name) + '</b><small><span class="w ' + WORD[s] + '">' + s + '</span> <span class="dk-d tnum">' + a.dur + '</span></small></span>' : '') + '</button>' +
+        '<span class="dk-tip" id="' + tid + '" role="tooltip"><span class="dk-tip__card"><span class="dk-tip__top">' + av(a, 32, s) + '<span class="dk-tip__id"><b>' + esc(a.name) + '</b><span class="kind">' + a.kind + '</span></span></span>' +
+        '<span class="dk-tip__st"><span class="w ' + WORD[s] + '">' + s + '</span><span class="dk-d tnum">' + a.dur + '</span></span><span class="dk-tip__act">' + esc(dockActivity(a, s)) + '</span>' +
+        '<span class="dk-tip__cta">' + (on ? 'Viewing this thread' : lu('mouse-pointer-click', 'i') + ' Click to view this thread') + '</span></span></span></span>';
+    });
+    h += '</div><button type="button" class="dk-all" data-dk-toggle aria-haspopup="menu" aria-expanded="' + DK.open + '" aria-controls="dk-pop"><span class="dk-pile"></span><span class="dk-all__t">' + list.length + ' agents</span><span class="dk-cnt dk-all__n">' + list.length + '</span>' + lu('chevron-right', 'i') + '</button></div>';
+    h += '<div class="dk-pop" id="dk-pop" role="menu" aria-label="All agents"' + (DK.open ? '' : ' hidden') + '>' + dockPop(list, sel) + '<div class="dk-pop__foot">Arrow keys move, Enter views, Esc closes</div></div>';
+    return h;
+  }
+  /* Overflow (strict priority): orchestrator, selected, waiting (the "needs you" priority), failed, running, rest. The rest go behind "N agents". */
+  function dockFit(bar, list, sel) {
+    var dock = $('.dk-dock', bar), btn = $('.dk-all', bar);
+    var items = $$('.dk-item', dock), divs = $$('.dk-div', dock);
+    items.concat(divs).forEach(function (e) { e.hidden = false; });
+    var avail = dock.clientWidth - 6, w = {}, total = 0, shown = {}, used = 0, gu = {}, stop = false;
+    items.forEach(function (i) { w[i.dataset.ik] = i.getBoundingClientRect().width + 4; total += w[i.dataset.ik]; });
+    total += divs.length * 15;
+    var order = list.slice().sort(function (a, b) { return dockPrio(a, sel) - dockPrio(b, sel) || list.indexOf(a) - list.indexOf(b); });
+    if (total <= avail) list.forEach(function (a) { shown[a.id] = true; });
+    else order.forEach(function (a) {
+      var dd = (!gu[a.group] && a.group !== 'main') ? 15 : 0;
+      if ((!stop && used + w[a.id] + dd <= avail) || a.id === 'orch' || a.id === sel) { shown[a.id] = true; used += w[a.id] + dd; gu[a.group] = true; } else stop = true;
+    });
+    function apply() {
+      items.forEach(function (i) { i.hidden = !shown[i.dataset.ik]; });
+      gu = {}; list.forEach(function (a) { if (shown[a.id]) gu[a.group] = true; });
+      divs.forEach(function (d) { d.hidden = !gu[d.dataset.g]; });
+    }
+    apply();
+    for (var guard = 20; guard-- > 0;) { // verify against the real layout (fonts, gaps): drop the lowest priority until nothing is clipped
+      var vis = [].slice.call(dock.children).filter(function (c) { return !c.hidden; }), last = vis[vis.length - 1];
+      if (!last || last.getBoundingClientRect().right <= dock.getBoundingClientRect().right + 0.5) break;
+      var drop = order.slice().reverse().filter(function (a) { return shown[a.id] && a.id !== 'orch' && a.id !== sel; })[0];
+      if (!drop) break; shown[drop.id] = false; apply();
+    }
+    var hid = list.filter(function (a) { return !shown[a.id]; }), wst = dockWorst(hid);
+    $('.dk-pile', btn).innerHTML = hid.length ? hid.slice(0, 3).map(function (a) { return av(a, 20); }).join('') : lu('users', 'i');
+    var dr = dock.getBoundingClientRect();
+    items.forEach(function (i) { if (!i.hidden) { var r = i.getBoundingClientRect(); i.classList.toggle('tip-r', r.left + r.width / 2 - dr.left > (dr.width + btn.getBoundingClientRect().width) * 0.5); } });
+    btn.setAttribute('aria-label', list.length + ' agents' + (hid.length ? ', ' + hid.length + ' not shown' : '') + (wst ? (statusOf(wst) === 'waiting' ? ', one waiting, needs you' : ', one failed') : '') + '. Open list');
+    if (wst) { var pip = document.createElement('span'); pip.className = 'dk-pip ast-' + RING[statusOf(wst)]; pip.setAttribute('aria-hidden', 'true'); btn.appendChild(pip); }
+    var pop = $('.dk-pop', bar), br = bar.getBoundingClientRect(), ar = btn.getBoundingClientRect(), pw = Math.min(380, br.width - 16);
+    pop.style.width = pw + 'px'; pop.style.left = Math.max(8, Math.min(ar.right - br.left - pw, br.width - pw - 8)) + 'px';
+  }
+  function renderDock() {
+    var bar = $('#dock'), on = state.host !== 'electron' && live();
+    bar.hidden = !on; if (!on) { DK.open = false; return; }
+    var fe = bar.contains(document.activeElement) ? document.activeElement : null;
+    var keep = fe && (fe.dataset.dk ? 'k:' + fe.dataset.dk : fe.hasAttribute('data-dk-toggle') ? 't' : fe.dataset.pick ? 'p:' + fe.dataset.pick : null);
+    var list = dockAgents(), sel = dockSel();
+    bar.innerHTML = dockHTML(list, sel);
+    dockFit(bar, list, sel);
+    var f = null;
+    if (DK.focusKey) f = $('[data-dk="' + DK.focusKey + '"]:not([hidden])', bar) || $('.dk-all', bar);
+    else if (DK.focusPop) f = $('.dk-pop [aria-checked="true"]', bar) || $('.dk-pop [role="menuitemradio"]', bar);
+    else if (keep) f = keep === 't' ? $('.dk-all', bar) : keep.indexOf('k:') === 0 ? ($('[data-dk="' + keep.slice(2) + '"]', bar) || $('.dk-all', bar)) : $('[data-pick="' + keep.slice(2) + '"]', bar);
+    DK.focusKey = null; DK.focusPop = false;
+    if (f && !f.closest('[hidden]')) f.focus({ preventScroll: true });
+  }
+  function dockSelect(id) { // automatic activation: switching a thread is cheap
+    DK.focusKey = id; DK.open = false;
+    if (id === 'orch') { if (state.lane) { state.lane = ''; renderAll(); sync(); } else renderDock(); }
+    else openLane(id, { dock: true });
+  }
+  function dockToggle(open, refocus) {
+    DK.open = open; DK.focusPop = open && refocus !== false;
+    renderDock();
+    if (!open && refocus) { var t = $('.dk-all', $('#dock')); if (t) t.focus({ preventScroll: true }); }
+  }
+  (function dockEvents() {
+    var bar = $('#dock');
+    bar.addEventListener('click', function (e) {
+      var pick = e.target.closest('[data-pick]');
+      if (pick) { dockSelect(pick.dataset.pick); return; }
+      if (e.target.closest('[data-dk-toggle]')) { dockToggle(!DK.open, true); return; }
+      var chip = e.target.closest('[data-dk]'); if (chip) dockSelect(chip.dataset.dk);
+    });
+    bar.addEventListener('keydown', function (e) {
+      var tab = e.target.closest('[role="tab"]');
+      if (tab) {
+        var tabs = $$('[role="tab"]', bar).filter(function (t) { return !t.closest('[hidden]'); }), i = tabs.indexOf(tab), n = null;
+        if (e.key === 'ArrowRight') n = tabs[(i + 1) % tabs.length]; else if (e.key === 'ArrowLeft') n = tabs[(i - 1 + tabs.length) % tabs.length];
+        else if (e.key === 'Home') n = tabs[0]; else if (e.key === 'End') n = tabs[tabs.length - 1];
+        else if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); dockToggle(true, true); return; }
+        if (n) { e.preventDefault(); dockSelect(n.dataset.dk); }
+        return;
+      }
+      var row = e.target.closest('[role="menuitemradio"]');
+      if (row) {
+        var rows = $$('[role="menuitemradio"]', bar), ri = rows.indexOf(row), nx = null;
+        if (e.key === 'ArrowDown') nx = rows[(ri + 1) % rows.length]; else if (e.key === 'ArrowUp') nx = rows[(ri - 1 + rows.length) % rows.length];
+        else if (e.key === 'Home') nx = rows[0]; else if (e.key === 'End') nx = rows[rows.length - 1];
+        if (nx) { e.preventDefault(); nx.focus(); return; }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dockToggle(false, true); return; }
+        if (e.key === 'Tab') { DK.open = false; $('.dk-pop', bar).hidden = true; $('.dk-all', bar).setAttribute('aria-expanded', 'false'); }
+      }
+    });
+    bar.addEventListener('focusout', function (e) { var it = e.target.closest('.dk-item'); if (it) it.classList.remove('is-dismissed'); });
+    bar.addEventListener('pointerout', function (e) { var it = e.target.closest('.dk-item'); if (it && !it.contains(e.relatedTarget) && !it.matches(':focus-within')) it.classList.remove('is-dismissed'); });
+    // Hover card: Esc dismisses it (WCAG 1.4.13) while it is visible, before any other Esc handler sees the key.
+    window.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || DK.open) return;
+      var shownTip = $$('.dk-item', bar).filter(function (it) { return getComputedStyle($('.dk-tip', it)).visibility === 'visible'; })[0];
+      if (shownTip) { shownTip.classList.add('is-dismissed'); e.stopPropagation(); }
+    }, true);
+    document.addEventListener('click', function (e) { if (DK.open && e.composedPath().indexOf(bar) < 0) { DK.open = false; renderDock(); } }); // composedPath: the clicked node may already be re-rendered
+    if (window.ResizeObserver) new ResizeObserver(function () { if (bar.__w !== bar.clientWidth) { bar.__w = bar.clientWidth; renderDock(); } }).observe(bar);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { renderDock(); });
+  })();
+
+  function renderAll(focusSel) { renderInspector(focusSel); renderNeeds(); renderChips(); renderLane(); renderDock(); }
 
   /* ---------------- theme, turns, motion ---------------- */
   function sync() {
@@ -424,8 +597,9 @@
     ui.open = null; ui.more = {}; ui.panel = {}; ui.qerr = {}; ui.selected = null; state.lane = '';
     autoClose('switch'); renderAll(); replay(); sync();
   }
-  function openLane(id) {
+  function openLane(id, o) {
     var a = agentById(id); if (!a || state.host === 'electron') return;
+    if (o && o.dock) { state.lane = id; ui.selected = id; ui.open = null; renderAll(); sync(); return; } // from the dock: focus stays on the tab
     state.lane = id; ui.selected = id; ui.open = null; renderLane();
     var title = $('#laneTitle');
     if (overlayNow()) closeInsp(title); // common close routine; focus lands on the lane title
@@ -503,7 +677,7 @@
       if (kv[0] === 'qcard') applyQCard();
       if (kv[0] === 'parity') { setParity(); renderAll(); }
       if (kv[0] === 'ask') {
-        reqs = mkReqs(state.ask); ui.panel = {}; ui.more = {}; ui.open = state.ask === 'lane-open' ? 'lane:gemini:r1' : null;
+        reqs = mkReqs(state.ask); ui.panel = {}; ui.more = {}; ui.open = state.ask === 'lane-open' ? 'lane:antigravity:r1' : null;
         renderAll();
       }
       sync(); return;
@@ -630,7 +804,7 @@
   document.body.dataset.bare = P.get('bare') === '1' ? 'true' : 'false';
   if (P.get('reduce') === '1') { document.body.dataset.reduce = 'true'; $('#reduce').setAttribute('aria-pressed', 'true'); }
   if (ui.fail) $('#failToggle').setAttribute('aria-pressed', 'true');
-  if (state.ask === 'lane-open') ui.open = 'lane:gemini:r1';
+  if (state.ask === 'lane-open') ui.open = 'lane:antigravity:r1';
   if (state.qcard === 'missing') qCardEl.remove();
   setTheme(); setT1(); setT2(); setParity(); shell.dataset.width = state.width; renderAll(); setInsp(); sync();
   taskFlip();

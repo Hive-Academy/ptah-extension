@@ -39,6 +39,9 @@ chat view has no place to answer a CLI-lane permission request at all (T1-07). T
 - Estimate: XL — six feature areas (Delta 1 adds the inspector TASK section, which reads tasks-ui presentation helpers)
   across four frontend libraries (chat, chat-ui, chat-state, canvas), a replacement
   that needs a parity inventory, and 35 in-scope carry-over items, under a bundle budget with 0.01 MB headroom.
+  Delta 2 adds the agent dock (a rebuilt thread switcher with a hover/focus card and an overflow menu) and one agent
+  avatar shared by chips, AGENTS rows and the dock; it stays inside the same four libraries and does not change the
+  size class.
 - Priority: not defined here (the repository and the user define no priority scale for this task).
 
 ## Decisions
@@ -57,6 +60,10 @@ chat view has no place to answer a CLI-lane permission request at all (T1-07). T
 | PM-10 | Per-message tokens, cost and duration stay reachable: the activity panel shows the turn totals as a summary and, when a turn has more than one assistant message, one row per message (requirement 5.6). Parity rows B-8, B-11, B-12 are therefore a true `move`. | totals only, with the lost granularity as a proposed removal | task-description-review-r1 finding 1; `message-bubble.component.html:166-182`; parity-inventory B-8, B-11, B-12 | yes |
 | PM-12 | The inspector TASK section (requirement 17) is read-only: it shows the linked primary task and opens its documents, and never links, unlinks or edits tasks. When no link is `primary`, the most recently linked task is shown first. The phase is shown only when derivable from data the frontend already receives, else omitted. | add link/unlink or status controls; show `—` for phase | decisions.md row 21 ("shown", "links to its artifacts", frontend only); `SessionTaskLinkSummary` has `role`, `createdAt`, `missing` (`session-organization.types.ts:92-100`); `TaskSpecDetail` has no phase field (`task-spec.types.ts:194-198`) | yes |
 | PM-11 | Inspector open state (orchestrator decision): open in `full` and closed in `compact` at 960 px and wider are initial defaults; the toggle closes the `full` dock too; the manual choice is kept per tab in memory across tab switches and reset by a view-mode change (requirements 6.1, 6.6-6.9, 16.4). | non-closable `full` dock; one global choice; persist the choice across reloads | task-description-review-r1 finding 4; design-spec §3.8 inspector row ("the dock is closable") | yes |
+| PM-13 | Delta 2: one agent avatar (icon + status) is used for the same agent in the chip row (req. 4), the AGENTS row (req. 8), the dock, its hover card and its menu (req. 19); requirements 4.1 and 8.1 refer to requirement 18 instead of naming their own icons. | keep the chip's `Bot` / `terminal` / `Layers` icons beside a new avatar in the dock | user request "agent tiles with real icons" (decisions.md row 27); `design-delta-2-options.md` §1 reason 3 (one tile vocabulary) | yes |
+| PM-14 | Delta 2: when the data the frontend already receives does not identify the session's provider, the Orchestrator avatar shows a neutral orchestrator glyph, never a guessed vendor mark and never the sub-agent `Bot`. | always show the Claude mark; show `Bot` | decisions.md row 31 (avatar = the session's actual provider; frontend only); a guessed mark would misreport a non-Claude session | yes |
+| PM-15 | Delta 2: the lane strip's horizontal scroll with edge fade is replaced by the priority overflow and the `N agents ›` menu. The capability "reach every lane" is kept (parity E-9, E-10), so this is a changed mechanism, not a removal. | keep horizontal scroll in the dock | `design-delta-2-options.md` §3 shared behaviour and D5; decisions.md row 31 | yes |
+| PM-16 | Delta 2: the work log wraps today's tool-call rows; their components and styles are not changed (requirement 20; parity B-5a). | restyle tool rows to the reference | user decision, decisions.md row 32 | yes |
 
 ## Scope
 
@@ -73,6 +80,15 @@ In scope:
 - Inspector TASK section above TODOS: the session's linked primary task with ID, title, status, phase when derivable,
   links that open its existing artifacts, and live refresh on the `tasks:changed` push (requirement 17; decisions.md
   row 21; Delta 1).
+- Agent avatar with real icons, shared by the agent chip row, the inspector AGENTS rows and the thread switcher: CLI
+  lanes show their provider mark, sub-agents and background agents a role icon (`Bot` default), the Orchestrator the
+  session's provider mark; status as ring + glyph + word (requirement 18; decisions.md rows 27, 30, 31; Delta 2).
+- Thread switcher redesign as option B "agent dock" (`design-delta-2-options.md` §3), replacing the visuals of
+  `libs/frontend/canvas/src/lib/canvas-detail/canvas-lane-tabs.component.ts`, with the hover/focus card, the
+  `N agents ›` menu and the priority overflow; every current capability of the lane strip stays (requirement 19,
+  parity section E; decisions.md row 31; Delta 2).
+- Work-log tool-call rows keep today's components and styles; only the surrounding work-log disclosure is new
+  (requirement 20; decisions.md row 32; Delta 2).
 - Permission and question routing from inspector rows and chips to a surface where the user can respond, including the
   Electron single chat view (T1-02, T1-07).
 - Header chips (branch hint, `N needs you`, inspector toggle with dot) and composer chips (workspace, branch, approval
@@ -102,8 +118,18 @@ Out of scope:
 - Backend or RPC changes: ahead/behind per session, numeric lane progress ("212 of 340"), live background shell list,
   per-lane activity events, live turn start time, Gemini `CliType` — hidden or derived per PM-6 (decisions.md row 9); a
   later task if the user wants them.
-- Vendoring a Gemini provider mark (`scripts/brand-icons.manifest.json`) — Gemini uses the `terminal` fallback
-  (design-spec D5); optional follow-up.
+- Vendoring a Gemini provider mark (`scripts/brand-icons.manifest.json`) — Delta 2: the product has no Gemini lane
+  (decisions.md rows 30-31; `SYSTEM_CLI_TYPES`, `libs/shared/src/lib/types/agent-process.types.ts:70-78`), so no Gemini
+  mark, label or mock appears anywhere; Antigravity is the real lane type. A CLI id without vendored art shows the
+  monogram tile (requirement 18.2).
+- New lane types, new CLI types, or any backend, RPC or shared-type change to report a session's provider or an
+  agent's role — Delta 2 is frontend only (decisions.md row 31); the switcher lists today's lane kinds only.
+- A touch trigger for the dock hover card — the `N agents ›` menu is the touch path to the same information
+  (`design-delta-2-options.md` §1); a later task if the user wants one.
+- The thread pane below the switcher (`canvas-lane-view.component.ts`) and the Rail board card lane rows
+  (`compact-rail-card`) — Delta 2 changes the switcher and the agent avatar only; the Rail card stays out as above.
+- Restyling work-log tool-call rows (verb, bold file name, path, args chip) — kept as today by user decision
+  (decisions.md row 32, requirement 20).
 - New spec files or new test coverage, including T1-10, T1-13, T1-16, T1-17, T1-18 and all of T2 — postponed by the
   user (decisions.md row 3).
 - Removing any capability — `parity-inventory.md` "Proposed removals" lists none; a later removal needs the user's
@@ -233,8 +259,8 @@ icon, name and a status word — so the user sees who worked and how it ended.
 
 Acceptance criteria:
 
-1. When a turn delegated work, the system shall show one chip per agent with the kind icon (lucide `Bot` for a
-   sub-agent, `ptah-provider-mark` for a CLI lane with `terminal` fallback, lucide `Layers` for a background command),
+1. When a turn delegated work, the system shall show one chip per agent with the agent's avatar icon of requirement 18
+   (Delta 2, PM-13; it replaces the earlier `Bot` / `terminal` / `Layers` kind icons),
    the agent name and one status word from `running | waiting | done | failed | stopped | queued` in its state ink.
 2. When an agent's status changes, the system shall update the chip's status word without re-rendering other chips.
 3. When the user activates a chip, the system shall open that agent's lane, and the matching inspector row shall carry
@@ -393,7 +419,8 @@ Acceptance criteria:
 Acceptance criteria:
 
 1. When the session owns sub-agents, CLI lanes or background agents, the system shall list each exactly once (T1-09),
-   with icon, name, kind badge (`Sub-agent`, `CLI lane`, `Background`), status word, duration and an activity line.
+   with the agent avatar of requirement 18 (Delta 2, PM-13; no `>_` / `◇` glyph), name, kind badge (`Sub-agent`,
+   `CLI lane`, `Background`), status word, duration and an activity line.
 2. When agents exist, the system shall order rows: needing the user first, then running (newest first), then finished
    (most recent first), and the header shall read `{n} active · {m} finished`.
 3. When a CLI lane has no activity string, the system shall derive it from the lane's last `segments` entry; when none
@@ -642,6 +669,129 @@ Acceptance criteria:
     a truncated title shall be available in full as a tooltip and in the accessible name.
 17. When the inspector is closed, the system shall not render the TASK section and shall not request task data for it.
 
+### 18. Agent avatar with real icons (Delta 2; decisions.md rows 27, 30, 31)
+
+Requirement: every place that shows an agent of the session — the agent chip row (requirement 4), the inspector AGENTS
+rows (requirement 8), the agent dock, its hover card and its menu (requirement 19) — shows one avatar for that agent:
+the vendor mark of a CLI lane, a role icon for a sub-agent or background agent, and the session's provider mark for the
+Orchestrator, with the agent's state as ring + corner glyph + word — so the user tells agents apart at a glance
+instead of reading generic `>_` / `◇` glyphs (today `compact-session-lanes.component.ts:16-20`), and never reads state
+from colour alone. Visual anatomy, sizes and the role-icon table: `design-delta-2-options.md` §2 and the design-spec
+Delta 2 section; this requirement fixes the outcomes only.
+
+Terms. CLI id = the lane's `cli` value (`CliType`, `libs/shared/src/lib/types/agent-process.types.ts:70-82`: `codex`,
+`copilot`, `cursor`, `antigravity`, `opencode`, `pi`, `grok`, `ptah-cli`). Provider mark = the
+`ptah-provider-mark` component (`libs/frontend/ui/src/lib/native/provider-mark/provider-mark.component.ts`). Monogram
+tile = `libs/frontend/ui/src/lib/native/brand-mark/monogram-tile.component.ts`. Role icon = the lucide icon the
+role-icon table assigns to an agent type.
+
+Acceptance criteria:
+
+1. When an agent is a CLI lane whose CLI id has artwork in the provider-mark set (every id of `CliType` today), the
+   avatar shall show that vendor's mark through `ptah-provider-mark`, resolved through one CLI id → provider id
+   table in the frontend (a reviewer finds exactly one such table and no per-id branch in a template).
+2. When a CLI lane's id has no artwork, the avatar shall show the monogram tile with the id's first letter; it shall
+   not show `Bot`, `>_` or any sub-agent role icon.
+3. When an agent is a sub-agent or a background agent, the avatar shall show the role icon of its agent type from one
+   lookup table (`design-delta-2-options.md` §2.3); when the type is missing or not in the table, it shall show
+   `Bot`. A background agent is told apart from a sub-agent by its `Background` kind badge or group, not by a
+   different icon set.
+4. When the Orchestrator is shown, its avatar shall show the provider mark of the provider the session actually runs
+   on: the Claude mark (through the provider id `claude-cli`) for a Claude session, the mark of the CLI provider for a
+   session that runs on one. The provider is read from data the frontend already receives (decisions.md row 31,
+   frontend only).
+5. When that data does not identify the session's provider, the Orchestrator avatar shall show a neutral orchestrator
+   glyph, not a guessed vendor mark and not `Bot` (PM-14); its accessible name stays `Orchestrator`.
+6. When any agent is shown, the product shall show no Gemini label, mark or entry; no lane kind other than today's
+   (Orchestrator, sub-agent, CLI lane, background) shall appear (decisions.md rows 30-31).
+7. When an agent has a state, the avatar shall show it as a ring treatment plus a corner glyph, and the status word
+   shall be shown beside it or carried in the accessible name; running, needs you, error, done and stopped shall
+   each have a distinct ring-and-glyph pair, and no state shall be told by colour alone (WCAG 1.4.1).
+8. When the same agent appears in the chip row, an AGENTS row, the dock, the hover card and the menu, the system shall
+   show the same icon and the same status word in each, and a status change shall update all of them without a
+   reload.
+9. When `prefers-reduced-motion: reduce` is set, the running ring shall not rotate and the needs-you halo shall not
+   pulse; the state stays readable from the static ring, glyph and word.
+10. When a mark or icon is rendered, it shall be hidden from assistive technology (`aria-hidden`), and the control or
+    row that holds it shall carry the agent's name, kind and status word in its accessible name.
+11. When the avatar is shown in the dark `anubis` and light `anubis-light` themes, ring, glyph and status word shall meet
+    the contrast pairs already measured in design-spec §8.2 (text 4.5:1, UI 3:1); no unmeasured colour pair is added.
+
+### 19. Thread switcher as the agent dock (Delta 2; decisions.md row 31; parity section E)
+
+Requirement: the Canvas Rail pane's thread switcher, today the horizontal lane strip of
+`libs/frontend/canvas/src/lib/canvas-detail/canvas-lane-tabs.component.ts` (mounted at
+`libs/frontend/canvas/src/lib/canvas-rail/canvas-focus-area.component.ts:56-61`), becomes option B "agent dock"
+(`design-delta-2-options.md` §3) — so the user sees which agent's thread is shown, sees that the other agents are
+clickable, learns an agent's state and activity before switching, and reaches every agent of the session however many
+there are. Every current capability of the strip stays (parity section E).
+
+Acceptance criteria:
+
+1. When a session is in focus, the dock shall list the Orchestrator first, then each sub-agent, CLI lane and background
+   agent the session owns, each exactly once, with the same membership rules as today: agents of other sessions and
+   agents with an unresolved owner are excluded, a sub-agent in background state is listed as background, a background
+   record that matches a listed sub-agent is not listed twice, and a session with no resolved id lists only the
+   Orchestrator (parity E-3 to E-6).
+2. When an agent is the selected one, the dock shall show it as the one expanded item with its avatar, name, status
+   word and duration (duration omitted when the AGENTS row has none) and a selected indicator that is not colour
+   alone; every other agent shall be an avatar button whose accessible name reads "{name}, {kind}, {status}
+   {duration}".
+3. When the user clicks an avatar, or selects an agent from the menu, the system shall open that agent's thread in the
+   pane below, as selecting a lane tab does today (`laneSelected` → `CanvasDetailService.selectLaneFor`,
+   `canvas-focus-area.component.ts:60`).
+4. When the dock has keyboard focus, it shall behave as one tab stop with a roving tabindex: Left / Right move to the
+   previous / next visible agent and wrap, Home / End go to the first / last visible agent, the agent receiving focus
+   is selected and its thread opens (automatic activation), and these keys shall not reach the Rail keyboard handler
+   (today `canvas-lane-tabs.component.ts:216-239`).
+5. When the pointer rests on an avatar for 220 ms, or an avatar receives keyboard focus, the system shall show a card
+   with the agent's name, kind, status word, duration, its current activity (omitted when there is none) and the hint
+   that clicking opens its thread; the card shall be referenced by the avatar's `aria-describedby`.
+6. When the card is shown, it shall stay open while the pointer moves onto it, close when both pointer and focus have
+   left the avatar and the card, and close on Escape without moving focus, changing the selection or closing the open
+   thread (WCAG 1.4.13; requirement 14.9).
+7. When the agents do not all fit the dock's width, the system shall keep visible, in this order of priority, the
+   Orchestrator, the selected agent, every agent that needs the user, every agent in error, running agents, then the
+   rest; it shall never hide an agent of higher priority while showing one of lower priority.
+8. When any agent is hidden by overflow, the `N agents ›` button shall show the count and a pip when a hidden agent
+   needs the user or is in error; the pip's meaning shall be part of the button's accessible name.
+9. When the `N agents ›` button is activated (also when nothing is hidden), the system shall open a menu listing every
+   agent grouped by kind with counts, each row with avatar, name and status word; Up / Down / Home / End move, Enter
+   selects the agent and opens its thread, Escape closes the menu and returns focus to the button, Tab closes it; a
+   long list scrolls inside the menu.
+10. When the selected agent changes, or the dock is resized, the selected agent shall stay visible in the dock
+    (today: `revealSelected`, `canvas-lane-tabs.component.ts:203-214`).
+11. When the selected lane key no longer matches a listed agent, the system shall keep today's fallback: a `sub:` key
+    follows its agent to `bg:` and back, otherwise the selection falls back to the Orchestrator, and the parent is told
+    the corrected key (today `canvas-lane-tabs.component.ts:164-177`).
+12. When the dock renders at a pane width of 400 px, every interactive target shall be at least 24 x 24 px, no two
+    targets shall overlap, the dock shall show no horizontal scrollbar and no clipped target, and the `N agents ›`
+    label may shorten to a count.
+13. When an agent's status changes, the dock shall update that agent's avatar and word without moving focus or
+    changing the selection.
+14. When a device has no hover, tapping an avatar shall select it, and the menu shall give the same name, kind and
+    status information as the card.
+15. When the Orchestrator is shown in the dock, its status shall reflect the session's actual state (running only
+    while the session is working), not a fixed `running` (today hard-coded at `canvas-lane-tabs.component.ts:119`).
+16. When the dock is shown in the Rail pane, it shall stay below the focus header as today (layout asserted by
+    `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts:150-154`), and every focusable element in it shall show a
+    visible focus indicator.
+
+### 20. Work-log tool-call rows unchanged (Delta 2; decisions.md row 32)
+
+Requirement: tool-call rows inside the expanded work log — today rendered by `ptah-tool-call-item`
+(`libs/frontend/chat/src/lib/components/molecules/tool-execution/tool-call-item.component.ts`, mounted at
+`libs/frontend/chat/src/lib/components/organisms/execution/execution-node.component.ts:316-336`) and `ptah-tool-call-header`
+(`libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-call-header.component.ts`) — keep their look and
+behaviour, so the user reads tool activity exactly as today inside the new work log.
+
+Acceptance criteria:
+
+1. Tool-call rows reuse the existing components and styles unchanged; only the surrounding work-log disclosure is new.
+2. When a tool-call row is shown in the expanded work log, it shall show the same verb, bold file name, path and
+   arguments chip, with the same expand behaviour, as the same tool call shows in the current build (side-by-side
+   screenshot in dark and light).
+
 ## Non-functional requirements
 
 - Performance (bundle): the webview initial bundle is 3.49 MB against a 3.50 MB budget (handoff-1 §2, PR #730 CI). The
@@ -651,6 +801,9 @@ Acceptance criteria:
   not part of the initial bundle; the chat bundle shall not import the tasks-ui board, its panels or
   `TasksStoreService` — only shared types and the presentation helpers (`TASK_STATUS_LABELS` and peers in
   `task-presentation.ts`). Checked by review of the chat/chat-ui import graph and by the CI budget check.
+  Delta 2: the agent dock replaces the lane strip one to one (the old strip markup and scroll-edge code are deleted, not
+  kept beside it), and the role icons are imported per component as single lucide icon objects; both count against the
+  same CI budget check.
 - Compatibility: VS Code webview (including the 400 px sidebar), Electron single chat view, and Canvas Rail panes shall
   each render the clean turn and the inspector; breakpoints are based on the session container width, not the window.
 - Conventions: Angular standalone components, `OnPush`, signals and `inject()`; lucide-angular icons imported per
@@ -701,9 +854,16 @@ Acceptance criteria:
 | The inspector depends on `TasksStoreService`, which drops pushes with no board open (`tasks-store.service.ts:1121-1128`) and pulls the board store into the chat bundle | MEDIUM | HIGH | Architect specifies the push subscription and data read for the inspector without that store (17.11, NFR Performance); code-style reviewer checks the chat/chat-ui import graph |
 | No phase source exists in `TaskSpecDetail`, so a "phase" is invented | MEDIUM | LOW | Architect records the derivation or its absence in `implementation-plan.md`; 17.3 omits the phase when none can be derived |
 | Today's hover-only Branch/Rewind reveal, kept by user decision, leaves a keyboard user focusing an invisible button | MEDIUM | LOW | Kept as today by user decision (decisions.md row 23); the orchestrator lists it in the PR body as a known state for a later decision |
+| Delta 2: no frontend field identifies a session's provider, so the Orchestrator avatar shows a wrong vendor mark | MEDIUM | MEDIUM | Architect names the field or records its absence in `implementation-plan.md`; without one, 18.5's neutral glyph ships (PM-14); code-logic reviewer checks no default vendor is hard-coded |
+| Delta 2: Escape on the hover card or menu also reaches the Rail keyboard handler or closes the open thread | MEDIUM | MEDIUM | Visual reviewer exercises 19.6 and 19.9 in a Rail pane with a lane open; code-logic reviewer checks event propagation against `canvas-rail-keyboard.ts` and requirement 14.9 |
+| Delta 2: the rebuilt switcher drops a strip behaviour (sub/bg key migration, ownership filter, reveal on resize) | MEDIUM | HIGH | Code-logic reviewer checks every row of parity section E against the diff; the existing `canvas-lane-tabs.component.spec.ts` cases keep passing (markup-only spec updates allowed by PM-3) |
 
 ## Open questions
 
+- Delta 2: which field the frontend already receives identifies the provider a session runs on (requirement 18.4;
+  `TabState` carries model names, `libs/frontend/chat-types/src/lib/chat-types.ts:730-760`, but no provider id was
+  confirmed), and which session state drives the Orchestrator's status (requirement 19.15). Answer: the architect,
+  recorded in `implementation-plan.md`; when no field identifies the provider, requirement 18.5 applies (PM-14).
 - Answered (decisions.md row 23): the user approved B-8/B-11/B-12 behind `Show activity`, and did not approve the
   B-16 hover/focus-only time and `You` or the B-14/B-15 focus reveal; both stay as today (Scope, requirements 3.4-3.5).
 - How the phase of a linked task is derived from data the frontend already receives (requirement 17.3), and which
@@ -719,6 +879,9 @@ Acceptance criteria:
 - Why: the shape is the open question — the session-scoped aggregation contract, the request routing per host, the
   `@defer` split under the bundle budget, the replacement of a component shared with the Rail card, and the TASK
   section's push subscription and file-open route without the tasks-ui store.
+- Delta 2: the architect also starts after the design-spec Delta 2 section (agent avatar, agent dock) passes the codex
+  delta review (`design-spec-review-delta2.md`, decisions.md row 31); the dock's card/menu focus model and the
+  provider source (Open questions) are part of the shape.
 
 ## Revision round 1
 
@@ -768,3 +931,21 @@ Requirement count after this delta: 17 numbered requirements (1-17).
 
 Proposed removals (user decision): none. The TASK section adds a capability; it replaces nothing, so it adds no
 parity row.
+
+## Delta 2 (user decisions)
+
+This delta applies only decisions.md rows 27, 30, 31 and 32; nothing else was re-opened. `design-spec.md` and
+`prototype/` are aligned by the designers in parallel and are not edited here.
+
+| Decision | Change | Where |
+| --- | --- | --- |
+| Row 27: agent tiles with real icons | New requirement 18 (11 criteria): one agent avatar (provider mark for CLI lanes through one CLI id → provider id table, monogram fallback; role icon with `Bot` default for sub-agents and background agents; ring + glyph + word). Requirements 4.1 and 8.1 now point at it (PM-13) | Scope, req. 4.1, 8.1, 18; parity E-15, E-16 |
+| Rows 30-31: no Gemini, Antigravity is the real lane type; Orchestrator avatar = the session's provider mark; no new lane types; frontend only | Requirement 18.4-18.6; neutral glyph when the provider is unknown (PM-14); Gemini out-of-scope line amended; new out-of-scope lines for lane types and backend | Scope, Decisions, req. 18, Open questions, Risks |
+| Row 31: switcher option B "agent dock" with hover/focus card | New requirement 19 (16 criteria): membership, selection, roving keyboard model, 220 ms hover / focus card with WCAG 1.4.13 dismissal, priority overflow with pip, `N agents ›` menu, 24 px targets at 400 px; horizontal scroll replaced by overflow (PM-15) | Scope, Decisions, req. 19, NFR Performance; parity section E |
+| Row 32: tool-call rows keep today's rendering | New requirement 20 (2 criteria) | Scope, Decisions (PM-16), req. 20; parity B-5a |
+
+Requirement count after this delta: 20 numbered requirements (1-20).
+
+Proposed removals (user decision): none. Every capability of `canvas-lane-tabs.component.ts` is `keep` or `move` in
+parity section E; today's `>_` / `◇` / `≋` glyphs are replaced by marks and role icons (a changed visual of a kept
+capability, parity E-16), not removed.

@@ -6,6 +6,9 @@ Surfaces replaced or rebuilt:
 - B. Per-message auto-collapse and bubble chrome in `ptah-message-bubble` — `C/organisms/message-bubble.component.{ts,html}`.
 - C. Chat-view surfaces around the transcript — `C/templates/chat-view.component.html:20-190`.
 - D. Canvas Rail details aside — `CV/canvas-detail/canvas-session-details.component.ts` (re-skinned as the inspector body).
+- E. Canvas thread switcher (lane strip) — `CV/canvas-detail/canvas-lane-tabs.component.ts`, mounted at
+  `CV/canvas-rail/canvas-focus-area.component.ts:56-61` (rebuilt as the agent dock, Delta 2, task-description req. 18-19),
+  plus today's agent kind glyphs of the chat-host compact card (E-16).
 
 Prefixes: C = `libs/frontend/chat/src/lib/components`, CU = `libs/frontend/chat-ui/src/lib`, CS = `libs/frontend/chat-state/src/lib`,
 CV = `libs/frontend/canvas/src/lib`. Line numbers come from `handoff-1.md` §4, `design-spec-review.md` finding 1, and direct reads of
@@ -49,6 +52,7 @@ keep passing; "postponed (T2)" where no spec exists or the existing spec does no
 | B-3 | Message title and collapsed description | `message-bubble.component.html:56-62`, `:76-89` (`messageSummary`) | `messageSummary()` | move | Final answer always visible under the disclosure (req. 1.2) | `message-bubble.component.spec.ts` |
 | B-4 | Collapsed-header tool count and files-changed count | `message-bubble.component.html:63-72` | `messageSummary().toolCount`, `.filesChanged` | move | Count meta `{n} tools · {n} files` at the right end of the disclosure row, part of its accessible name; visible at rest (design-spec §3.2, §12.2; req. 1.10) | postponed (T2) |
 | B-5 | Execution tree: text, markdown, thinking, tool cards, SDK cards, agent summary, `ptah-ui`, inline permission card, agent nodes | `message-bubble.component.html:99-133`; `C/organisms/execution/execution-node.component.ts:167-340` | `ExecutionNode` tree from streaming state | keep | Expanded work log (req. 2.1) | `execution-node.ptah-ui.spec.ts`, `execution-node.render-throttle.spec.ts`, `execution-node.send-message.spec.ts`, `execution-node.streaming-dom.spec.ts` |
+| B-5a | Tool-call row rendering (verb, bold file name, path, arguments chip; expandable input, output and errors) | `C/organisms/execution/execution-node.component.ts:316-336` (`ptah-tool-call-item`); `C/molecules/tool-execution/tool-call-item.component.ts:84-99` (`ptah-tool-call-header`, `ptah-tool-input-display`, `ptah-tool-output-display`); `CU/molecules/tool-execution/tool-call-header.component.ts` | `ExecutionNode` tool nodes from streaming state | keep | Unchanged, wrapped by the work log (user decision, decisions.md row 32; task-description req. 20) | `C/molecules/tool-execution/tool-call-item.component.spec.ts`; `CU/molecules/tool-execution/tool-call-header.component.spec.ts`, `tool-input-display.component.spec.ts`, `tool-output-display.component.spec.ts` |
 | B-6 | Mermaid fallback rendering of message text | `message-bubble.component.html:117` (`ptah-mermaid-message-text`) | message text | keep | Final answer / work log (req. 2.1) | postponed (T2) |
 | B-7 | Typing cursor while streaming | `message-bubble.component.html:130` | `isStreaming` | move | Streaming caret on the last log line (design-spec §3.3) | `message-bubble.component.spec.ts` |
 | B-8 | Collapsed-state cost badge | `message-bubble.component.html:136-148` | `messageSummary().cost` | move | `Cost` in the turn's activity panel behind `Show activity`: the turn total in the summary and, when the turn has more than one assistant message, each message's own cost in the per-message breakdown (design-spec §3.11, §12.2; req. 5.5, 5.6); session cost also in the inspector (req. 7.1). Visibility change: one click instead of always visible | `message-bubble.component.spec.ts` (asserts absence case at :183) |
@@ -108,12 +112,42 @@ keep passing; "postponed (T2)" where no spec exists or the existing spec does no
 | D-10 | Lazy load of the details aside (`@defer`, bundle budget) | `CV/canvas-rail/canvas-rail-board.component.ts:181`, `:208`, `:239` (`@defer (on idle)` around `ptah-canvas-session-details`); import note `:26-28` (history: commit `828b0e66e`) | Angular `@defer` | keep | Inspector stays deferred (NFR Performance) | `CV/canvas-rail/canvas-rail-board.component.spec.ts` |
 | D-11 | "Open details" button and 288 px aside in the Rail board | `CV/canvas-rail/canvas-rail-board.component.ts:180-211` | — | keep | Unchanged at >= 400 px; overlay below 400 px (req. 6.5, T1-32) | `canvas-rail-board.component.spec.ts` |
 
+## E. Canvas thread switcher (`canvas-lane-tabs`) and agent kind glyphs (Delta 2)
+
+Source: direct reads of `CV/canvas-detail/canvas-lane-tabs.component.ts` (244 lines), `CV/canvas-detail/lane-owner.ts`,
+`canvas-lane-tabs.component.spec.ts`, the parent `CV/canvas-rail/canvas-focus-area.component.ts:56-61` and
+`CU/molecules/compact-session/compact-session-lanes.component.ts` in this worktree (2026-10-15). `LT` = `CV/canvas-detail/canvas-lane-tabs.component.ts`;
+`LT spec` = `CV/canvas-detail/canvas-lane-tabs.component.spec.ts`. New location = the agent dock (task-description req. 19) unless stated.
+Today the strip has no needs-you or error indicator; the dock's priority overflow and pip (req. 19.7-19.8) are new capabilities and add no row.
+
+| ID | Capability | Where today (file:line) | Backing RPC / API / store | Decision | New location | Test that proves it |
+| --- | --- | --- | --- | --- | --- | --- |
+| E-1 | Component contract: inputs `sessionId`, `panelId` (default `canvas-lane-panel`), `laneKey` (default `orchestrator`); output `laneSelected(key)`; parent binds `tab()?.claudeSessionId`, `detail.laneKeyFor(id)` and `detail.selectLaneFor(id, $event)` | `LT:94-97`; `CV/canvas-rail/canvas-focus-area.component.ts:56-61` | `CanvasDetailService.laneKeyFor` / `selectLaneFor` | keep | Same parent binding, same lane keys; the dock opens the thread in the pane below (req. 19.3) | `LT spec` (all cases set `sessionId` and subscribe to `laneSelected`) |
+| E-2 | Orchestrator entry always first, without a group label | `LT:47`, `:116-121` | — | keep | First dock item; avatar shows the session's provider mark, neutral glyph when unknown (req. 18.4-18.5, 19.1) | `LT spec:27` |
+| E-3 | Ownership filter: only agents whose owner equals the session id; no session id → no agents (only the Orchestrator) | `CV/canvas-detail/lane-owner.ts:1-8`; `LT:99-114` | `AgentMonitorStore.subagents()` (`parentSessionId`), `.agents()` (`parentSessionId`), `BackgroundAgentStore.agents()` (`sessionId`) | keep | Dock and menu membership (req. 19.1) | `LT spec:75`, `:148` |
+| E-4 | Sub-agent entries: non-background sub-agents, key `sub:{parentToolUseId}`, label `teammateName` → `agentType` → `description` → `Sub-agent` | `LT:122-132` | `AgentMonitorStore.subagents()`, `laneKey('subagent', …)` (`@ptah-extension/chat`) | keep | Dock avatar with role icon (req. 18.3); same key and label fallback | `LT spec:27` |
+| E-5 | CLI lane entries: key `cli:{agentId}`, label = `cli`, each owned lane once | `LT:133-140` | `AgentMonitorStore.agents()`, `laneKey('cli', …)` | keep | Dock avatar with provider mark through one CLI id → provider id table, monogram fallback (req. 18.1-18.2) | `LT spec:148` |
+| E-6 | Background entries: sub-agents in `background` status (key `bg:{parentToolUseId}`) plus background-store agents not already listed as a sub-agent (dedup by `toolCallId`), label fallback `Background agent` | `LT:141-160` | `AgentMonitorStore.subagents()`, `BackgroundAgentStore.agents()`, `laneKey('background', …)` | keep | Dock avatar with role icon and `Background` group (req. 18.3, 19.1) | `LT spec:27`, `:101` |
+| E-7 | Groups in fixed order Orchestrator, Sub-agents, CLI lanes, Background; empty groups hidden; group labels as `role="presentation"` text | `LT:46-53`, `:115-162` | — | move | Group dividers in the dock and grouped sections with counts in the `N agents ›` menu (req. 19.9; `design-delta-2-options.md` §3 option B) | `LT spec:27` |
+| E-8 | Selection fallback: unknown key → Orchestrator; `sub:` ↔ `bg:` migration for the same agent; the parent is told the corrected key | `LT:164-177` | `laneSelected` output | keep | Same rule (req. 19.11) | `LT spec:101`, `:119`, `:135` |
+| E-9 | Overflow: horizontal scroll with hidden scrollbar and an edge fade mask when content is cut left or right | `LT:42-44` (`overflow-x-auto`, `mask-image`), `:88-93` (`edgeMask`), `:195-201` (`updateEdges`) | — | move | Priority overflow (Orchestrator, selected, needs you, error, running, rest) behind the `N agents ›` menu with a pip (req. 19.7-19.9, PM-15); every lane stays reachable | `LT spec:184` (edge update on resize, today's mechanism); priority overflow postponed (decisions.md row 3) |
+| E-10 | Selected entry kept in view on selection change, list change and strip resize; `ResizeObserver` disconnected on destroy | `LT:178-193`, `:203-214` (`revealSelected`) | — | keep | Selected agent stays visible in the dock (req. 19.10) | `LT spec:184`, `:214` |
+| E-11 | ARIA: `role="tablist"` `aria-label="Lanes"`; `role="tab"` with `aria-selected`, `aria-controls` = `panelId`, id `{panelId}-tab-{key}` | `LT:38-41`, `:55-65`, `:241-243` | `panelId` input (also on `ptah-canvas-lane-view`, `canvas-focus-area.component.ts:63-64`) | keep | Dock tablist; each avatar keeps tab semantics, id and `aria-controls`; accessible name extended to "{name}, {kind}, {status} {duration}" and `aria-describedby` to the card (req. 19.2, 19.5) | `LT spec:75`, `:101`, `:119`, `:135` (`aria-selected`, tab id) |
+| E-12 | Keyboard: roving tabindex (selected 0, others -1); Left / Right wrap; Home / End; `preventDefault` + `stopPropagation`; automatic activation (emits the key) and focus moves to the new tab | `LT:66`, `:69`, `:216-239` | `laneSelected` output | keep | Same model over the visible dock items (req. 19.4); menu keys added (req. 19.9) | `LT spec:162` |
+| E-13 | Click on a tab selects that lane | `LT:68` | `laneSelected` output | keep | Click or tap on an avatar or a menu row (req. 19.3, 19.14) | postponed (decisions.md row 3) |
+| E-14 | Selected and hover visuals: 2 px bottom border in `primary`, full-ink label vs muted label, hover ink; 36 px high tabs | `LT:59-63` | — | move | Expanded gold-bordered pill with name, status word and duration, selection not by colour alone; hover fill on avatars; targets at least 24 x 24 px (req. 19.2, 19.12) | postponed (decisions.md row 3) |
+| E-15 | Status indicator: raw status string as `title` tooltip; decorative `bg-current` dot (label colour, so status is not visible at rest) | `LT:67`, `:72-75` | `status` of each store record | move | Status ring + corner glyph + status word in the avatar, word in the accessible name and the hover card (req. 18.7, 19.2, 19.5) | `LT spec:27` (asserts `title` = status at `:72`; spec updates to the new markup allowed by PM-3) |
+| E-16 | Agent kind glyphs `◇` (sub-agent), `›_` (CLI lane), `≋` (background) beside lane rows of the chat-host compact card; the approved design-spec §4.2 anatomy also drew `>_` / `◇` | `CU/molecules/compact-session/compact-session-lanes.component.ts:16-20` (map), `:105-106` (render); mounted via `compact-session-activity.component.ts:771` in `compact-session-card.component.ts:149` (A-8) | `CompactLaneKind` | keep (changed visual) | Kind stays identifiable: provider mark or monogram for CLI lanes, role icon with `Bot` default for sub-agents and background agents, plus the kind badge, in chips, AGENTS rows and the dock (req. 4.1, 8.1, 18.1-18.3; PM-13) | `CU/molecules/compact-session/compact-session-lanes.component.spec.ts` (today's glyphs); new avatar postponed (decisions.md row 3) |
+| E-17 | Orchestrator status fixed to `running` (tooltip) | `LT:119` | — | move | Orchestrator status from the session's actual state (req. 19.15) | postponed (decisions.md row 3) |
+| E-18 | Strip placed directly below the Rail focus header in each pane | `CV/canvas-rail/canvas-focus-area.component.ts:56-61` | — | keep | Dock in the same place (req. 19.16) | `apps/ptah-electron-e2e/src/specs/canvas/canvas.spec.ts:150-154` (e2e; not run in this task) |
+
 ## Proposed removals (user decision)
 
 None. Design-spec revise round 1 keeps every row that round 0 of this inventory proposed to remove (design-spec §12.2-12.3, D19): B-4, B-8 and
 B-11 are now `move`, B-14 and B-15 are `keep`. No row in this inventory is `remove-proposed`, so no user approval is needed to proceed.
 Requirements revision round 2 keeps per-message tokens, cost and duration reachable in the activity panel's per-message breakdown
 (task-description req. 5.6), so B-8, B-11 and B-12 lose no granularity and remain `move`, not `remove-proposed`.
+Delta 2 adds rows B-5a and E-1..E-18; each is `keep` or `move` (E-16 is `keep` with a changed visual), so the answer stays: none.
 
 ## User-visible changes (not removals)
 
@@ -130,3 +164,14 @@ Proposed by the design but not approved by the user (decisions.md row 23), so vi
 
 Delta 1 (decisions.md row 21) adds the inspector TASK section (task-description req. 17). It is a new capability that replaces no existing
 surface, so it adds no row to this inventory; no row is `remove-proposed`.
+
+Delta 2 (decisions.md rows 27, 30-32) changes how kept capabilities look, not whether they exist:
+
+- E-9: lanes that do not fit are reached through the `N agents ›` menu instead of horizontal scrolling; the fade edges
+  give way to a count and a pip (task-description PM-15).
+- E-14, E-15, E-17: the selected lane reads as an expanded pill; status moves from a tooltip-only string to ring +
+  glyph + word; the Orchestrator shows its real state instead of a fixed `running`.
+- E-16: the `◇` / `›_` / `≋` kind glyphs (and the `>_` / `◇` of the earlier design anatomy) become provider marks and
+  role icons; the chip icons of task-description req. 4.1 (`Bot` / `terminal` / `Layers`, design only, never shipped)
+  follow the same avatar (PM-13).
+- B-5a: tool-call rows are not restyled (user decision, decisions.md row 32).
