@@ -79,3 +79,12 @@ goes under `## Proposed Removals` for user approval.
   passed. #733 MERGED 2026-10-15 17:09 UTC as `35c80dfa0`. The 649 branch now rebases on `main`
   and its PR targets `main` (D3 retarget no longer needed). The 677 session was not reachable
   (no live session); message it when a 677 session appears.
+
+## Session 3 (2026-10-15)
+
+- Messaged 677 session `ptah-ptah-extension-task-677-new-chat-vi-58b5bd00002js2qeo7ft70t`:
+  #733 merged as `35c80dfa0`; 649 D1/D8 unchanged; 649 PR targets `main`.
+- Gate 1.7 re-presented to the user with open finding 5 and the recommended fix.
+- Gate 1.7 APPROVED by the user with amendments D9 (finding 5 fix), D10 (Setup Hub home
+  screen as is; only internal builder pages redesigned; §7.2 withdrawn) and D11 (sidebar
+  scrolls). Next: software-architect plan.

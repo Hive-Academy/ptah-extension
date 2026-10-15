@@ -1,6 +1,12 @@
 # Design Spec - TASK_2026_649_33c4: AI Team Builder and New Project builder page on shared chat sessions
 
-Designer: ui-ux-designer. Status: revision round 1 (after the cross-side review, `design-spec-review.md`), awaiting re-review and Gate 1.7 (user APPROVED). See the Revision log at the end.
+Designer: ui-ux-designer. Status: Gate 1.7 APPROVED by the user on 2026-10-15 with the amendments D9-D11 below (`decisions.md`). See the Revision log at the end.
+
+**Gate 1.7 amendments (they win over any other text in this spec):**
+
+- **D9, preview turn attribution.** Each agent proposal record stores the start time of the turn that proposed it, written with the record. A record without that time is underivable, and the user choice wins (5.4 rule 2).
+- **D10, Setup Hub unchanged.** The Setup Hub home screen keeps today's design. Only the internal builder pages (AI Team Builder, New Project) get the design in this spec. All the §7.2 Hub additions are withdrawn: the Resume draft card, the Delete draft confirm, the abort-failed, open-failed and relay banners, the AI Team Builder card label (decision 15, L10), and the shared leave dialog on the Hub. Today's Hub confirm, cards and states stay as they are. The shared leave dialog (7.1) is used on the builder page only. Hub behaviour that the builder needs (entry, same-mode resume, cross-mode handling) goes through today's Hub elements with no visual change. If a capability cannot work without a new Hub element, the architect lists it for the user at Gate 2 and does not add it.
+- **D11, sidebar scrolls.** The builder sidebar scrolls vertically at every host width, docked and as the narrow sheet. The scroll body (5.1) is the scroll container. Every ancestor from the route host down to the sidebar limits its height (`min-h-0`, no `overflow-visible` growth), so the sidebar body scrolls and the page does not. The header strip stays fixed above the scroll body.
 Prototype: `prototype/` (open `prototype/index.html` and `prototype/hub.html`; states are URL parameters, listed in `prototype/README.md`). Screenshots: `prototype/screenshots/`.
 Companion inputs: `context.md`, `decisions.md` (D1, D2, D5-D8), `parity-inventory.md` (60 rows, section 12 below maps every keep, move and wire row), `../TASK_2026_648_374e/decisions.md` (D5-D9), `../TASK_2026_652_7284/draft-workflow-plan.md`.
 
@@ -55,7 +61,7 @@ What this spec does not design: the chat internals (transcript, cards, composer,
 | 12 | The "Targeting <workspace>" pin badge keeps today's rule: shown only when the active workspace differs from the one the build started in. The Apply section always states the target ("Writes into <workspace>"). | always on; on mismatch | Parity row 13 (`workspaceSwitchedDuringBuild`), `harness-builder-view.component.ts` header | yes |
 | 13 | A failed builder init never blocks the chat. The sidebar shows the error with Retry; Apply and the AI helpers wait for init because they need the pinned workspace. Today a full-page error hides everything. | full-page error (today); degrade | Parity row 12; losing a running conversation because a side call failed is the worse failure | yes |
 | 14 | Error messages use base-content text; the error colour is only on the icon and border. | state-err text | Measured: `state-err` text on the error tint is 4.35:1 and on surface-3 is 4.15:1 in the dark theme (section 9) | yes |
-| 15 | Setup Hub: the AI Team Builder card gets the same "Running" / "In progress" label and "Resume" wording the New Project card already has. | none; label | Parity row 3 (move) and row 4; same rule for both modes avoids a card that silently re-enters a session | yes |
+| 15 | WITHDRAWN by D10. Setup Hub: the AI Team Builder card gets the same "Running" / "In progress" label and "Resume" wording the New Project card already has. | none; label | Parity row 3 (move) and row 4; same rule for both modes avoids a card that silently re-enters a session | yes |
 | 16 | `technical-content-writer/DESIGN-SYSTEM.md` is not applied. It defines the marketing identity (Cinzel display, obsidian and gold hero gradients). This surface is product UI in the webview, so its authority is the webview theme (`anubis`, `anubis-light`) in `apps/ptah-extension-webview/tailwind.config.js` and `styles.css`. | marketing system; webview theme | Same call as 677; the existing builder uses DaisyUI tokens | yes |
 
 ## 3. Page anatomy and header
@@ -100,7 +106,7 @@ Failure of the preamble or seed composition is a page-level notice, not a consol
 `<aside id="builder-sidebar" aria-label="Configuration" class="flex flex-col w-[336px] shrink-0 min-h-0 bg-surface-1">`.
 
 - Header strip `px-4 py-2.5 min-h-12 border-b border-surface-border`: settings icon, `h2 text-xs font-semibold` "Configuration", config summary `text-[11px] text-base-content-muted` at the right. Hidden under 720 px (the peek bar is the header there).
-- Scroll body: `flex-1 min-h-0 overflow-y-auto`. Sections are `<section aria-labelledby>`, `p-4 border-b border-surface-border` (677 recipe), label `h3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-base-content-muted`, meta `text-[11px] text-base-content-muted`.
+- Scroll body: `flex-1 min-h-0 overflow-y-auto` (D11: it must scroll at every host width, docked and as the sheet; every ancestor limits its height). Sections are `<section aria-labelledby>`, `p-4 border-b border-surface-border` (677 recipe), label `h3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-base-content-muted`, meta `text-[11px] text-base-content-muted`.
 - Section order, top to bottom: Apply, Stack profile (New Project only), Preview, AI helpers, Presets, Session. Reason: the state the user must act on comes first; the live preview is next because it is why the page exists; helpers and presets are optional; stats are reference.
 - At most one primary button in the whole sidebar at any time (the Apply button in its "ready" or "changed" state).
 - Every field edge uses `border-base-content/50` (section 9: the stock 20% edge measures 1.6 to 1.9:1).
@@ -171,7 +177,7 @@ States:
 **Preview ownership and precedence (review finding 5).** The preview the user sees is the agent's proposals (kept by the backend, hydrated per session) overlaid with a user snapshot. Behaviour, independent of where the architect stores it:
 
 1. Ownership. The snapshot belongs to one tab in one workspace: key = pinned workspace root + tab id (the same key as the stack-profile record, section 11 note 4). It holds only user-chosen fields: results added with "Add to preview", a loaded preset, and "Use as prompt". Each field carries `source` (`user`) and `updatedAt`; each hydrated agent proposal field carries the time the proposal was written.
-2. Precedence, per field (persona, agents, skills, system prompt, MCP servers). A user-chosen field records `chosenAt`. An agent proposal carries its turn-start time: the time of the last user message of this tab's session before the proposal was written (live: the in-flight turn's start; after a reload: derived from the persisted session transcript, which survives the reload, and the proposal's write time). An agent proposal replaces a user-chosen field only when its turn-start time is later than `chosenAt`; a proposal from a turn that started before the user's choice is stale and is ignored for the fields the user chose. The same rule applies live and after a reload, so a late result of an older turn can never replace the user's choice. When the turn-start time cannot be derived, the user's choice wins. Fields the user did not choose take the latest proposal. Lists (agents, skills, MCP servers) merge by id, never by position; an item missing from a later proposal is not removed. A preset load wins over existing items of the same id and keeps the others (the Presets help line, 5.6).
+2. Precedence, per field (persona, agents, skills, system prompt, MCP servers). A user-chosen field records `chosenAt`. An agent proposal carries its turn-start time: the start time of the turn that proposed it, stored in the proposal record when the record is written (D9). It is never derived later from the transcript or the write time, because a late proposal of an older turn can be written after a newer user message. An agent proposal replaces a user-chosen field only when its turn-start time is later than `chosenAt`; a proposal from a turn that started before the user's choice is stale and is ignored for the fields the user chose. The same rule applies live and after a reload, so a late result of an older turn can never replace the user's choice. When a proposal record has no stored turn-start time (for example a record written before this change), the user's choice wins. Fields the user did not choose take the latest proposal. Lists (agents, skills, MCP servers) merge by id, never by position; an item missing from a later proposal is not removed. A preset load wins over existing items of the same id and keeps the others (the Presets help line, 5.6).
 3. Clearing. The snapshot and the stack-profile record are deleted on Start over, on Discard in the leave dialog, when the tab closes, and when its session is deleted (an init sweep also removes records whose tab id is no longer in the tab list). Save as draft and Stop keep them. Apply keeps them; the preview stays so "Preview changed since the last apply" can compare.
 4. No resurrection. Hydration reads only the proposals of this tab's own session ids (row 36). It never falls back to "the latest proposal for the workspace", so a new builder session starts with an empty preview even though an older session's proposal record stays in the backend (7.1 note).
 5. Workspace isolation. The page is pinned to the workspace the build started in (row 13). Reading with another workspace finds nothing, so switching the active workspace mid-build neither shows nor writes another workspace's preview. The "Targeting <workspace>" badge (decision 12) is the only visible effect.
@@ -246,7 +252,7 @@ There is no "Not shown in the grid" notice on this page (D5, section 11): the bu
 
 ### 7.1 The shared leave dialog (replaces the builder confirm and the Hub confirm; parity rows 8, 43)
 
-One standalone OnPush component, used on the builder page and on the Hub. It appears only on leaving actions: Start over, a conflicting start from the Hub, a mode switch, and Resume while another session is active. Stop never opens it.
+One standalone OnPush component, used on the builder page only (D10: the Hub keeps today's confirm; the Hub contexts below are withdrawn). It appears only on leaving actions: Start over, a conflicting start from the Hub, a mode switch, and Resume while another session is active. Stop never opens it.
 
 Structure: `role="dialog" aria-modal="true" aria-labelledby aria-describedby`. Backdrop `fixed inset-0 z-[60] flex items-center justify-center bg-base-300/70 p-4` (same as today's Hub confirm). Panel `surface-3 rounded-lg p-5 w-full max-w-[420px] max-h-[calc(100vh-2rem)] overflow-y-auto`. Title `text-base font-semibold`. Body `text-sm text-base-content-muted`. Notes `rounded-md border border-surface-border-strong bg-surface-2 px-2.5 py-2 text-xs`. Buttons `btn btn-sm`, right aligned, in this DOM and visual order:
 
@@ -281,6 +287,8 @@ Keyboard (verified with real key presses in the prototype, `capture.mjs checks`)
 Abort failure: leaving continues. The destination (Setup Hub) shows a persistent, dismissible warning (7.2). The raw RPC error is never shown. One leave transition runs at a time.
 
 ### 7.2 Setup Hub changes (parity rows 1-10)
+
+**WITHDRAWN by D10 (Gate 1.7).** The Setup Hub keeps today's design and gets none of the items in the table below. The table stays only as a record of the reviewed proposal. Do not implement it.
 
 The Hub keeps its look. Changes only:
 
@@ -488,7 +496,7 @@ Rows delivered by the shared chat inside the embed (`replace-infra`): 11 (hand-o
 - `[lane-proposed]` L12: preview precedence and snapshot lifecycle (5.4) and the sheet/dialog focus and derived-`inert` rules (section 8).
 - `[lane-proposed]` L8: leave dialog default focus on Cancel, order Cancel, Discard, Save as draft, backdrop click = Cancel (decision 10).
 - `[lane-proposed]` L9: Apply shows weight by completeness and a sticky result with a "Preview changed" state (decisions 5 and 6).
-- `[lane-proposed]` L10: Setup Hub AI Team Builder card gets the Running / In progress label and "Resume" wording (decision 15).
+- `[lane-proposed]` L10 (WITHDRAWN by D10): Setup Hub AI Team Builder card gets the Running / In progress label and "Resume" wording (decision 15).
 - `[lane-proposed]` L11: focus moves to the result heading after Apply succeeds and to "Try again" after it fails (5.2).
 
 ### Tool-introduced constraints
@@ -554,3 +562,11 @@ Round 2 (orchestrator, after `design-spec-re-review.md`; findings 4 and 5 were P
 | --- | --- | --- |
 | 4 stack write order and binding | Entry step 3: the durable stack-profile write (3e) now comes before the first New Project turn (3f); note 4 cites 3e. Note 6: the route parameter is the only binding authority across reloads; a single mutable "active builder tab id" is not acceptable; only explicit entries rebind | 11 entry step 3, notes 4 and 6 |
 | 5 stale result after reload | Rule 2: proposals carry a turn-start time (live, or derived after reload from the persisted transcript); a proposal replaces a user-chosen field only if its turn started after `chosenAt`; same rule live and after reload; underivable turn start = user choice wins | 5.4 rule 2 |
+
+Gate 1.7 (user, 2026-10-15, after `design-spec-re-review-2.md` finding 5 PARTIAL at the cap):
+
+| Item | Change | Where |
+| ---- | ------ | ----- |
+| Finding 5 (D9) | Each proposal record stores its own turn-start time at write time; no derivation from transcript or write time; record without it = user choice wins | 5.4 rule 2 |
+| Hub as is (D10) | §7.2 Hub additions, decision 15 and L10 withdrawn; leave dialog on the builder page only | top amendments, 2, 7.1, 7.2, 13 |
+| Sidebar scroll (D11) | Sidebar body scrolls at every width, docked and sheet; ancestors limit height | top amendments, 5.1 |
