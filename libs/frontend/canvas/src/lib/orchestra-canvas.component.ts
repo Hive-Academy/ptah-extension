@@ -26,6 +26,8 @@ import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
+// Deferred (`@defer` only, never a value here): its own declaration, and no
+// eager file imports it, so the compiler and esbuild move it to a lazy chunk.
 import { CanvasNeedsYouQueueComponent } from './canvas-needs-you-queue.component';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
@@ -107,7 +109,16 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
           }
         </div>
 
-        <ptah-canvas-needs-you-queue />
+        @defer (on idle) {
+          <ptah-canvas-needs-you-queue />
+        } @placeholder {
+          <!-- Keeps the trigger's footprint so the controls after it do not move. -->
+          <span
+            class="btn btn-xs btn-ghost invisible border border-base-300"
+            aria-hidden="true"
+            >All clear</span
+          >
+        }
         @if (layoutPersistence.writeFailed()) {
           <span class="text-xs text-warning" role="status"
             >Board layout could not be saved. Changes stay for this

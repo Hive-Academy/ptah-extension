@@ -33,7 +33,7 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
-import { TestBed } from '@angular/core/testing';
+import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { ApplicationRef, signal, type WritableSignal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
@@ -53,6 +53,13 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
   template: '',
 })
 class NeedsYouQueueStub {}
+
+/** The needs-you queue loads in a lazy `@defer (on idle)` chunk; render it now. */
+async function completeDeferBlocks(fixture: ComponentFixture<unknown>): Promise<void> {
+  for (const block of await fixture.getDeferBlocks()) {
+    await block.render(DeferBlockState.Complete);
+  }
+}
 @Component({
   selector: 'ptah-canvas-rail-board',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -858,7 +865,18 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     );
   });
 
-  it('shares reserved dock between the queue and the New Session anchor, with no Grid controls', () => {
+  it('reserves the queue trigger footprint with a hidden placeholder until the queue loads', async () => {
+    const dock = fixture.debugElement.query(By.css('[data-testid="canvas-dock"]'));
+    const placeholder = dock.nativeElement.querySelector('span.btn.invisible[aria-hidden="true"]');
+    expect(placeholder).not.toBeNull();
+    expect(dock.query(By.directive(NeedsYouQueueStub))).toBeNull();
+    await completeDeferBlocks(fixture);
+    expect(dock.query(By.directive(NeedsYouQueueStub))).not.toBeNull();
+    expect(dock.nativeElement.querySelector('span.btn.invisible')).toBeNull();
+  });
+
+  it('shares reserved dock between the queue and the New Session anchor, with no Grid controls', async () => {
+    await completeDeferBlocks(fixture);
     const dock = fixture.debugElement.query(
       By.css('[data-testid="canvas-dock"]'),
     );
@@ -917,7 +935,8 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
    * moved the Layout and New Session buttons. It now sits in this row, in
    * normal flow, on the free left edge.
    */
-  it('renders the ticker inside the dock, before the queue', () => {
+  it('renders the ticker inside the dock, before the queue', async () => {
+    await completeDeferBlocks(fixture);
     activityIdle.set(false);
     activityItems.set([activityItem('a', 'Backup finished')]);
     fixture.detectChanges();

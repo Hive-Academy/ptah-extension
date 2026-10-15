@@ -9,7 +9,7 @@ import {
   signal,
   type WritableSignal,
 } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
@@ -174,6 +174,13 @@ class FocusStub {
 })
 class DetailsStub {
   readonly tabId = input.required<string>();
+}
+
+/** Session details load in a lazy `@defer (on idle)` chunk; render them now. */
+async function completeDeferBlocks(fixture: Pick<ComponentFixture<unknown>, 'getDeferBlocks'>): Promise<void> {
+  for (const block of await fixture.getDeferBlocks()) {
+    await block.render(DeferBlockState.Complete);
+  }
 }
 @Component({
   selector: 'ptah-project-setup-card',
@@ -452,13 +459,25 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.debugElement.query(By.directive(FocusStub)).componentInstance.focusedTabId()).toBe('c');
   });
 
-  it('synchronizes pane, rail and Details after external removal of the focused tile', () => {
+  it('keeps the Details aside and shows a heading placeholder until the deferred details load', async () => {
+    const { fixture } = mount(true, 2);
+    const aside = fixture.nativeElement.querySelector('aside:not([data-dock])');
+    expect(aside).not.toBeNull();
+    expect(fixture.debugElement.query(By.directive(DetailsStub))).toBeNull();
+    expect(aside?.textContent).toContain('Session details');
+    await completeDeferBlocks(fixture);
+    expect(fixture.nativeElement.querySelector('aside:not([data-dock])')).toBe(aside);
+    expect(fixture.debugElement.query(By.directive(DetailsStub))).not.toBeNull();
+  });
+
+  it('synchronizes pane, rail and Details after external removal of the focused tile', async () => {
     const { fixture, focused, tiles } = mount(true, 3);
     focused.set('b');
     fixture.detectChanges();
     tiles.update((current) => current.filter((tile) => tile.tabId !== 'b'));
     focused.set(null);
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     const pane = fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
     const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
     const details = fixture.debugElement.query(By.directive(DetailsStub)).componentInstance as DetailsStub;

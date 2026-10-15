@@ -23,6 +23,8 @@ import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
+// Deferred (`@defer` only, never a value here): its own declaration, and no
+// eager file imports it, so the compiler and esbuild move it to a lazy chunk.
 import { CanvasSessionDetailsComponent } from '../canvas-detail/canvas-session-details.component';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
@@ -176,7 +178,11 @@ function isTabbable(element: HTMLElement): boolean {
                   @if (splitDisplayed() && detailsOpen() && activeSide() === side) {
                     <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" (keydown.escape)="closeSplitDetails($event)">
                       <button type="button" class="btn btn-ghost btn-sm" aria-label="Close details" (click)="closeSplitDetails()">Close details</button>
-                      <ptah-canvas-session-details [tabId]="id" />
+                      @defer (on idle) {
+                        <ptah-canvas-session-details [tabId]="id" />
+                      } @placeholder {
+                        <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
+                      }
                     </aside>
                   }
                 </section>
@@ -199,10 +205,16 @@ function isTabbable(element: HTMLElement): boolean {
                 Close details
               </button>
               @if (focusedId(); as id) {
-                <ptah-canvas-session-details
-                  class="min-h-0 flex-1 overflow-auto"
-                  [tabId]="id"
-                />
+                @defer (on idle) {
+                  <ptah-canvas-session-details
+                    class="min-h-0 flex-1 overflow-auto"
+                    [tabId]="id"
+                  />
+                } @placeholder {
+                  <div class="min-h-0 flex-1 p-4 text-sm font-semibold" aria-hidden="true">
+                    Session details
+                  </div>
+                }
               }
             </aside>
           } @else {
@@ -224,7 +236,11 @@ function isTabbable(element: HTMLElement): boolean {
             [class.w-[296px]]="band() === 'md'"
           >
             @if (focusedId(); as id) {
-              <ptah-canvas-session-details [tabId]="id" />
+              @defer (on idle) {
+                <ptah-canvas-session-details [tabId]="id" />
+              } @placeholder {
+                <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
+              }
             }
           </aside>
         }

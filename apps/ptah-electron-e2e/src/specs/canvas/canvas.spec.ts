@@ -17,6 +17,16 @@ const visualPane = async (page: Page, position: 0 | 1): Promise<Locator> => {
   throw new Error(`no pane at visual position ${position}`);
 };
 
+/**
+ * Stable side of the pane at a visual position, or null while none is there.
+ * Never throws, so `expect.poll` can retry it until Angular applies a CSS `order` change.
+ */
+const visualSide = (page: Page, position: 0 | 1): Promise<string | null> =>
+  panes(page).evaluateAll(
+    (nodes, wanted) => nodes.find((node) => Number((node as HTMLElement).style.order || '0') === wanted)?.getAttribute('data-pane-side') ?? null,
+    position,
+  );
+
 async function addRailSessions(page: Page, count: number): Promise<void> {
   for (let created = 0; created < count; created++) {
     await page.locator('[data-testid="canvas-new-session-anchor"]').click();
@@ -161,15 +171,15 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await panes(page).evaluateAll((nodes) =>
       nodes.forEach((node) => node.querySelector('ptah-chat-view')?.setAttribute('data-e2e-host', node.getAttribute('data-pane-side') ?? '')),
     );
-    const firstBefore = await (await visualPane(page, 0)).getAttribute('data-pane-side');
+    const firstBefore = await visualSide(page, 0);
     const activeSide = await paneContainer(page).locator('[data-pane-side][aria-label$=", active"]').getAttribute('data-pane-side');
     // Open the menu on the ACTIVE pane. Interacting with an inactive pane's header
     // activates that pane (click and focusin on the wrapper), which would change the
     // active side this case asserts is untouched by Swap.
     await headerAction(page, paneContainer(page).locator(`[data-pane-side="${activeSide}"]`), 'Swap panes');
 
-    const firstAfter = await (await visualPane(page, 0)).getAttribute('data-pane-side');
-    expect(firstAfter).not.toBe(firstBefore);
+    // Swap only flips a signal; Angular applies the CSS `order` on its next render, so poll for it.
+    await expect.poll(() => visualSide(page, 0)).not.toBe(firstBefore);
     await expect(railBoard(page).locator('ptah-chat-view')).toHaveCount(2);
     for (const side of ['left', 'right']) {
       await expect(paneContainer(page).locator(`[data-pane-side="${side}"] ptah-chat-view`)).toHaveAttribute('data-e2e-host', side);
@@ -198,7 +208,9 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await openSplit(page);
     await expect(paneContainer(page)).toHaveClass(/\bflex-col\b/);
 
+    const topBefore = await visualSide(page, 0);
     await headerAction(page, await visualPane(page, 0), 'Swap panes');
+    await expect.poll(() => visualSide(page, 0)).not.toBe(topBefore);
     const top = await visualPane(page, 0);
     // The Rail footer's New session button is the last tabbable element of the Rail, so Tab
     // from it is the Rail -> panes hand-off. (Tab from the last card only reaches this button.)
