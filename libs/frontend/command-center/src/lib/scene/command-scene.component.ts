@@ -15,6 +15,7 @@ import {
 import type {
   CommandTheme,
   CommandVoiceState,
+  CommandWorkNode,
 } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import { layoutScene, type SceneLayout } from './scene-layout';
@@ -50,10 +51,10 @@ const SCENE_PALETTES: Record<CommandTheme, Record<string, SpritePalette>> = {
 function paletteName(
   kind: string,
   providerId: string | null,
-  nodeId: string,
+  nodeKind: CommandWorkNode['kind'],
 ): string {
   if (kind === 'root' || kind === 'tribunal') return 'gold';
-  if (kind === 'satellite' || nodeId.startsWith('child:')) return 'silver';
+  if (kind === 'satellite' || nodeKind === 'child') return 'silver';
   const id = providerId?.toLowerCase() ?? '';
   if (id.includes('grok')) return 'teal';
   if (id.includes('opencode')) return 'plum';
@@ -176,7 +177,7 @@ export class CommandSceneComponent {
         const name = paletteName(
           sceneNode.kind,
           sceneNode.node.providerId,
-          sceneNode.node.id,
+          sceneNode.node.kind,
         );
         return {
           id: sceneNode.node.id,

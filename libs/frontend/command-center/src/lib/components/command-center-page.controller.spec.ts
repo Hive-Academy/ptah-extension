@@ -159,6 +159,7 @@ describe('CommandCenterPageController', () => {
       [
         {
           id: 'root:session',
+          kind: 'root',
           parentId: null,
           label: 'Ptah',
           providerId: null,

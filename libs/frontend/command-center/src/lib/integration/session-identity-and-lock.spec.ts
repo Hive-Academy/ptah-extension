@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { CommandCenterSendLockService } from '@ptah-extension/chat-state';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
-import { createHarness } from './integration-harness';
+import { createHarness } from './integration-harness.testing';
 
 describe('Command Center session integration', () => {
   afterEach(() => TestBed.resetTestingModule());

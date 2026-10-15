@@ -7,6 +7,17 @@ const node = (
   state: CommandWorkNode['state'],
 ): CommandWorkNode => ({
   id,
+  kind: id.startsWith('root:')
+    ? 'root'
+    : id.startsWith('tribunal:')
+      ? 'tribunal'
+      : id.startsWith('phase:')
+        ? 'phase'
+        : id.startsWith('lane:')
+          ? 'lane'
+          : id.startsWith('child:')
+            ? 'child'
+            : 'agent',
   parentId,
   state,
   label: 'Worker',

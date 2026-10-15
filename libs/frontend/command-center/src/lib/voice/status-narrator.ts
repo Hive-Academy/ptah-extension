@@ -42,13 +42,7 @@ export class StatusNarrator {
     for (const node of owned.values()) {
       const prior = this.previous.get(node.id);
       if (prior?.state === node.state || node.id === root) continue;
-      const meaningful =
-        node.id.startsWith('phase:') || node.id.startsWith('tribunal:')
-          ? ['running', 'completed', 'failed'].includes(node.state)
-          : ['child:', 'cli:', 'sdk:', 'lane:'].some((prefix) =>
-              node.id.startsWith(prefix),
-            ) &&
-            ['starting', 'running', 'completed', 'failed'].includes(node.state);
+      const meaningful = this.meaningful(node);
       if (!meaningful) continue;
       const action =
         node.state === 'starting' || node.state === 'running'
@@ -69,6 +63,26 @@ export class StatusNarrator {
     }
     this.previous.clear();
     for (const [id, node] of owned) this.previous.set(id, node);
+  }
+
+  private meaningful(node: CommandWorkNode): boolean {
+    switch (node.kind) {
+      case 'phase':
+      case 'tribunal':
+        return ['running', 'completed', 'failed'].includes(node.state);
+      case 'child':
+      case 'agent':
+      case 'lane':
+        return ['starting', 'running', 'completed', 'failed'].includes(
+          node.state,
+        );
+      case 'root':
+        return false;
+      default: {
+        const exhaustive: never = node.kind;
+        return exhaustive;
+      }
+    }
   }
 
   public drain(): string[] {

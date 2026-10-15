@@ -6,6 +6,7 @@ describe('buildStatusContext', () => {
     const nodes: CommandWorkNode[] = [
       {
         id: 'cli:a',
+        kind: 'agent',
         parentId: null,
         label: 'secret password',
         providerId: 'api-key',
@@ -21,6 +22,7 @@ describe('buildStatusContext', () => {
       { length: 100 },
       (_, index) => ({
         id: `cli:${index}`,
+        kind: 'agent',
         parentId: null,
         label: '',
         providerId: null,

@@ -10,6 +10,7 @@ import {
 const nodes: CommandWorkNode[] = [
   {
     id: 'a',
+    kind: 'root',
     parentId: null,
     label: 'Alpha',
     providerId: 'codex',
@@ -17,6 +18,7 @@ const nodes: CommandWorkNode[] = [
   },
   {
     id: 'b',
+    kind: 'child',
     parentId: 'a',
     label: 'Beta',
     providerId: 'unknown',

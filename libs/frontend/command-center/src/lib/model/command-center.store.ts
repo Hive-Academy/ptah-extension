@@ -24,6 +24,8 @@ export type CommandWorkState =
 
 export interface CommandWorkNode {
   readonly id: string;
+  readonly kind: 'root' | 'child' | 'agent' | 'tribunal' | 'lane' | 'phase';
+  readonly agentKind?: 'cli' | 'sdk';
   readonly parentId: string | null;
   readonly label: string;
   readonly providerId: string | null;
@@ -51,6 +53,7 @@ export interface CommandProviderReadiness {
 export interface CommandToast {
   readonly message: string;
   readonly tone: 'info' | 'success' | 'warning' | 'error';
+  readonly action?: 'retry-speech';
 }
 
 export type CommandTheme = 'light' | 'dark';

@@ -6,6 +6,7 @@ import {
 
 const root: CommandWorkNode = {
   id: 'root:r',
+  kind: 'root',
   parentId: null,
   label: 'Ptah',
   providerId: null,
@@ -13,6 +14,7 @@ const root: CommandWorkNode = {
 };
 const child: CommandWorkNode = {
   id: 'cli:a',
+  kind: 'agent',
   parentId: root.id,
   label: 'A',
   providerId: null,

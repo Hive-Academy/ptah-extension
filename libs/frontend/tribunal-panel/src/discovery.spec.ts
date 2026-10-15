@@ -8,7 +8,7 @@ describe('Tribunal discovery entry', () => {
     expect(Object.keys(discovery)).toEqual(['TribunalDiscoveryService']);
   });
 
-  it('does not reach the Tribunal page or gridstack through relative imports', () => {
+  it('does not reach page, gridstack, or state service through relative imports', () => {
     const visited = new Set<string>();
     const visit = (file: string): void => {
       const path = resolve(file);
@@ -22,7 +22,9 @@ describe('Tribunal discovery entry', () => {
         true,
       );
       const follow = (specifier: string): void => {
-        expect(specifier).not.toMatch(/tribunal-page\.component|gridstack/);
+        expect(specifier).not.toMatch(
+          /tribunal-page\.component|gridstack|tribunal-state\.service/,
+        );
         if (specifier.startsWith('.')) {
           visit(resolve(dirname(path), `${specifier}.ts`));
         }

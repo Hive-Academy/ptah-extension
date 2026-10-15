@@ -11,39 +11,26 @@ import type {
   VendorLane,
 } from '@ptah-extension/tribunal-panel/phase';
 import type { CommandWorkState } from '../model/command-center.store';
+import { workStateForStatus } from '../model/work-state';
 import type { ProjectionInput } from '../model/work-projection';
 
 function provider(id: string | null | undefined): string | undefined {
   return id && Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ? id : undefined;
 }
 
-function state(status: string): CommandWorkState {
-  switch (status) {
-    case 'streaming':
-    case 'resuming':
-    case 'running':
-    case 'background':
-      return 'running';
-    case 'pending':
-    case 'draft':
-      return 'queued';
-    case 'fresh':
-    case 'switching':
-      return 'starting';
-    case 'paused':
-    case 'awaiting-background':
-      return 'awaiting input';
-    case 'completed':
-      return 'completed';
-    case 'failed':
-    case 'timeout':
-      return 'failed';
-    case 'killed':
-    case 'stopped':
-      return 'cancelled';
-    default:
-      return 'unknown';
-  }
+export function runState(
+  agents: readonly { readonly status: string }[],
+): CommandWorkState {
+  if (agents.length === 0) return 'starting';
+  const states = agents.map((agent) => workStateForStatus(agent.status));
+  if (states.includes('running')) return 'running';
+  if (states.includes('failed')) return 'failed';
+  if (states.includes('awaiting input')) return 'awaiting input';
+  if (states.includes('starting')) return 'starting';
+  if (states.includes('queued')) return 'queued';
+  if (states.includes('unknown')) return 'unknown';
+  if (states.includes('cancelled')) return 'cancelled';
+  return 'completed';
 }
 
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- page-scoped provider
@@ -101,7 +88,7 @@ export class CommandCenterProjectionSource {
             : (tab.agentOrigin?.parentTabId ?? root.sessionId)),
         name: tab.name,
         providerId: provider(tab.liveModelStats?.contextCapacity?.providerId),
-        state: state(tab.status),
+        state: workStateForStatus(tab.status),
         updatedAt: tab.lastActivityAt,
       }));
     const persistedChildren = sessions
@@ -123,7 +110,7 @@ export class CommandCenterProjectionSource {
         agentId: agent.agentId,
         kind: 'cli' as const,
         parentSessionId: agent.parentSessionId ?? root.sessionId,
-        state: state(agent.status),
+        state: workStateForStatus(agent.status),
         providerId: provider(agent.ptahCliId ?? agent.cli),
         runId: agent.workflowRunId,
         updatedAt: agent.completedAt ?? agent.startedAt,
@@ -136,7 +123,7 @@ export class CommandCenterProjectionSource {
         agentId: agent.agentId ?? agent.parentToolUseId,
         kind: 'sdk' as const,
         parentSessionId: agent.parentSessionId ?? root.sessionId,
-        state: state(agent.status),
+        state: workStateForStatus(agent.status),
         providerId: 'anthropic',
         runId: agent.workflowRunId,
         updatedAt: agent.lastEventAt,
@@ -189,24 +176,7 @@ export class CommandCenterProjectionSource {
               runId: manifest.runId,
               rootSessionId: root.sessionId,
               phase,
-              state:
-                runAgents.length === 0
-                  ? ('starting' as const)
-                  : runAgents.some((agent) => agent.status === 'running')
-                    ? ('running' as const)
-                    : runAgents.some(
-                          (agent) =>
-                            agent.status === 'failed' ||
-                            agent.status === 'timeout',
-                        )
-                      ? ('failed' as const)
-                      : runAgents.every(
-                            (agent) =>
-                              agent.status === 'completed' ||
-                              agent.status === 'stopped',
-                          )
-                        ? ('completed' as const)
-                        : ('starting' as const),
+              state: runState(runAgents),
               updatedAt: manifest.startedAt,
             };
           })

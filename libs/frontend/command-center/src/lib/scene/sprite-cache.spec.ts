@@ -9,6 +9,11 @@ const palette: SpritePalette = {
 };
 const node = (id: string, providerId: string | null): CommandWorkNode => ({
   id,
+  kind: id.startsWith('tribunal:')
+    ? 'tribunal'
+    : id.startsWith('lane:')
+      ? 'lane'
+      : 'agent',
   parentId: 'root:r',
   label: 'Builder',
   providerId,

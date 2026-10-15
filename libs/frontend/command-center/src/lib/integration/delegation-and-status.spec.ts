@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
-import { createHarness } from './integration-harness';
+import { createHarness } from './integration-harness.testing';
 
 describe('Command Center delegation and status integration', () => {
   afterEach(() => TestBed.resetTestingModule());

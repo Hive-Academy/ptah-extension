@@ -7,6 +7,7 @@ import type {
   CommandWorkNode,
   CommandWorkState,
 } from './command-center.store';
+import { workStateForStatus } from './work-state';
 
 export interface OwnedChild {
   readonly tabId: string;
@@ -57,6 +58,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
   const nodes: CommandWorkNode[] = [
     {
       id: rootId,
+      kind: 'root',
       parentId: null,
       label: 'Ptah',
       providerId: input.rootProviderId ?? null,
@@ -124,6 +126,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     if (!owned.has(canonical(child.id))) continue;
     nodes.push({
       id: nodeForSession(child.id),
+      kind: 'child',
       parentId: nodeForSession(child.parent),
       label: child.name ?? 'Child session',
       providerId: child.providerId ?? null,
@@ -140,6 +143,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     const runId = `tribunal:${run.runId}`;
     nodes.push({
       id: runId,
+      kind: 'tribunal',
       parentId: nodeForSession(run.rootSessionId),
       label: `Tribunal ${run.phase.move}`,
       providerId: null,
@@ -148,18 +152,12 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     });
     for (const lane of run.phase.laneBindings.lanes) {
       const status = run.phase.laneBindings.bound.get(lane.laneId)?.status;
-      const state: CommandWorkState =
-        status === 'running'
-          ? 'running'
-          : status === 'completed'
-            ? 'completed'
-            : status === 'failed' || status === 'timeout'
-              ? 'failed'
-              : status === 'stopped'
-                ? 'cancelled'
-                : 'queued';
+      const state: CommandWorkState = status
+        ? workStateForStatus(status)
+        : 'queued';
       nodes.push({
         id: `lane:${run.runId}:${lane.laneId}`,
+        kind: 'lane',
         parentId: runId,
         label: lane.role
           ? `${lane.displayName} (${lane.role})`
@@ -173,6 +171,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       for (const step of phase.phases)
         nodes.push({
           id: `phase:${run.runId}:${step.role}`,
+          kind: 'phase',
           parentId: runId,
           label: step.role,
           providerId: null,
@@ -186,6 +185,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     } else if (phase.kind === 'crucible') {
       nodes.push({
         id: `phase:${run.runId}:round-${phase.currentRound}`,
+        kind: 'phase',
         parentId: runId,
         label: `Round ${phase.currentRound}`,
         providerId: null,
@@ -194,6 +194,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     } else {
       nodes.push({
         id: `phase:${run.runId}:stage`,
+        kind: 'phase',
         parentId: runId,
         label:
           phase.kind === 'none' ? 'No phase tracking' : 'Phase unavailable',
@@ -215,6 +216,8 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
         : `sdk:${agent.parentSessionId}:${agent.agentId}`;
     nodes.push({
       id,
+      kind: 'agent',
+      agentKind: agent.kind,
       parentId:
         run && lane
           ? `lane:${run.runId}:${lane.laneId}`

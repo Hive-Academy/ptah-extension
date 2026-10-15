@@ -4,6 +4,7 @@ import { CommandWorkListComponent } from './command-work-list.component';
 
 const nodes: CommandWorkNode[] = Array.from({ length: 30 }, (_, index) => ({
   id: `node:${index}`,
+  kind: index ? 'child' : 'root',
   parentId: index ? 'node:0' : null,
   label: `Work ${index}`,
   providerId: index === 29 ? 'unlisted-provider' : 'codex',

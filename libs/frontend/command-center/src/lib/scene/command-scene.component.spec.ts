@@ -6,6 +6,7 @@ import { SpriteCache } from './sprite-cache';
 
 const root: CommandWorkNode = {
   id: 'root:r',
+  kind: 'root',
   parentId: null,
   label: 'Ptah',
   providerId: null,
@@ -177,6 +178,7 @@ describe('CommandSceneComponent', () => {
         root,
         {
           id: 'cli:a',
+          kind: 'agent',
           parentId: root.id,
           label: 'A',
           providerId: 'codex',

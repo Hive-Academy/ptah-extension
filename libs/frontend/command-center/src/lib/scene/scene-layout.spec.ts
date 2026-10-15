@@ -3,6 +3,7 @@ import { layoutScene, type SceneRect } from './scene-layout';
 
 const root: CommandWorkNode = {
   id: 'root:r',
+  kind: 'root',
   parentId: null,
   label: 'Ptah',
   providerId: null,
@@ -15,6 +16,15 @@ const node = (
   providerId: string | null = 'codex',
 ): CommandWorkNode => ({
   id,
+  kind: id.startsWith('tribunal:')
+    ? 'tribunal'
+    : id.startsWith('lane:')
+      ? 'lane'
+      : id.startsWith('phase:')
+        ? 'phase'
+        : id.startsWith('child:')
+          ? 'child'
+          : 'agent',
   parentId,
   label: id.split(':')[1],
   providerId,

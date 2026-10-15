@@ -68,7 +68,7 @@ export function layoutScene(
     };
   const byId = new Map(projection.nodes.map((node) => [node.id, node]));
   const rest = projection.nodes.filter(
-    (node) => node.id !== root.id && !node.id.startsWith('phase:'),
+    (node) => node.id !== root.id && node.kind !== 'phase',
   );
   const priority = (node: CommandWorkNode): number =>
     node.id === selectedId
@@ -93,7 +93,7 @@ export function layoutScene(
       }
       visited.add(parentId);
       const parent = byId.get(parentId);
-      if (!parent || parent.id.startsWith('phase:')) {
+      if (!parent || parent.kind === 'phase') {
         valid = false;
         break;
       }
@@ -124,13 +124,12 @@ export function layoutScene(
   }[] = [
     { node: root, x: cx, y: cy, radius: rootRadius, scale: 1, kind: 'root' },
   ];
-  const orbitNodes = visible.filter((node) => !node.id.startsWith('lane:'));
+  const orbitNodes = visible.filter((node) => node.kind !== 'lane');
   const many = orbitNodes.length > 8;
   for (let i = 0; i < orbitNodes.length; i++) {
     const node = orbitNodes[i];
-    const kind: SceneNode['kind'] = node.id.startsWith('tribunal:')
-      ? 'tribunal'
-      : 'delegate';
+    const kind: SceneNode['kind'] =
+      node.kind === 'tribunal' ? 'tribunal' : 'delegate';
     const inner = many && i < 8;
     const ringIndex = inner ? i : many ? i - 8 : i;
     const ringCount = inner
@@ -177,8 +176,7 @@ export function layoutScene(
       const envelope =
         point.kind === 'tribunal' &&
         visible.some(
-          (node) =>
-            node.parentId === point.node.id && node.id.startsWith('lane:'),
+          (node) => node.parentId === point.node.id && node.kind === 'lane',
         )
           ? point.radius + 44
           : point.radius;
@@ -189,7 +187,7 @@ export function layoutScene(
   // Satellites inherit the final core position, so pair separation cannot detach them.
   for (const core of placed.filter((point) => point.kind === 'tribunal')) {
     const lanes = visible.filter(
-      (node) => node.id.startsWith('lane:') && node.parentId === core.node.id,
+      (node) => node.kind === 'lane' && node.parentId === core.node.id,
     );
     const orbitRadius = core.radius + 16 + 12;
     lanes.forEach((node, index) => {
@@ -211,9 +209,10 @@ export function layoutScene(
     const parent = point.node.parentId
       ? byId.get(point.node.parentId)
       : undefined;
-    const label = point.node.id.startsWith('child:')
-      ? `${providerName(parent?.providerId ?? null)} · ${point.node.label}`
-      : point.node.label;
+    const label =
+      point.node.kind === 'child'
+        ? `${providerName(parent?.providerId ?? null)} · ${point.node.label}`
+        : point.node.label;
     const must =
       point.kind === 'root' ||
       point.node.id === selectedId ||
@@ -270,8 +269,7 @@ export function layoutScene(
     const phases =
       point.kind === 'tribunal'
         ? projection.nodes.filter(
-            (node) =>
-              node.id.startsWith('phase:') && node.parentId === point.node.id,
+            (node) => node.kind === 'phase' && node.parentId === point.node.id,
           )
         : [];
     return { ...point, label, labelRect, phases };

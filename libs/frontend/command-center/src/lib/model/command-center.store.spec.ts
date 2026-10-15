@@ -59,6 +59,7 @@ describe('CommandCenterStore', () => {
     const nodes: CommandWorkNode[] = [
       {
         id: 'child',
+        kind: 'child',
         parentId: 'root',
         label: 'Child',
         providerId: 'claude',
@@ -66,6 +67,7 @@ describe('CommandCenterStore', () => {
       },
       {
         id: 'other',
+        kind: 'root',
         parentId: null,
         label: 'Other',
         providerId: null,
@@ -73,6 +75,7 @@ describe('CommandCenterStore', () => {
       },
       {
         id: 'root',
+        kind: 'root',
         parentId: null,
         label: 'Root',
         providerId: null,
@@ -80,6 +83,7 @@ describe('CommandCenterStore', () => {
       },
       {
         id: 'grandchild',
+        kind: 'child',
         parentId: 'child',
         label: 'Grandchild',
         providerId: 'codex',

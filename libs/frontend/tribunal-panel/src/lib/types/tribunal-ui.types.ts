@@ -1,6 +1,8 @@
 import type { CliType } from '@ptah-extension/shared';
 import type { TileLayout } from '@ptah-extension/canvas';
 
+export const TRIBUNAL_MAX_VENDOR_TILES = 8;
+
 export const TRIBUNAL_MOVES = [
   'council',
   'forge',

@@ -79,9 +79,8 @@ export class SpriteCache {
       const sprite = this.sprites.get(previous.key);
       if (sprite) return sprite;
     }
-    const tribunal = node.id.startsWith('tribunal:');
-    const satellite =
-      node.id.startsWith('lane:') || node.id.startsWith('phase:');
+    const tribunal = node.kind === 'tribunal';
+    const satellite = node.kind === 'lane' || node.kind === 'phase';
     const size = Math.max(satellite ? 32 : 12, request.size);
     const dpr = Math.max(1, Math.min(2, request.dpr));
     const slug = node.providerId

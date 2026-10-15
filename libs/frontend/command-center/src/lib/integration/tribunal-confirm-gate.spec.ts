@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { createHarness } from './integration-harness';
+import { createHarness } from './integration-harness.testing';
 
 describe('Command Center Tribunal confirmation integration', () => {
   afterEach(() => TestBed.resetTestingModule());

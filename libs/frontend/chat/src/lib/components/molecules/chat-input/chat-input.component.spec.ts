@@ -70,6 +70,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { FilePickerService } from '../../../services/file-picker.service';
 import {
   AutopilotStateService,
+  AppStateManager,
   CommandDiscoveryFacade,
   ClaudeRpcService,
   VSCodeService,
@@ -207,6 +208,7 @@ describe('ChatInputComponent', () => {
         { provide: ChatStore, useValue: mockChatStore },
         { provide: TabManagerService, useValue: mockTabManager },
         { provide: AutopilotStateService, useValue: mockAutopilotState },
+        { provide: AppStateManager, useValue: { setCurrentView: jest.fn() } },
         { provide: FilePickerService, useValue: mockFilePicker },
         { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
         { provide: ClaudeRpcService, useValue: mockRpcService },
@@ -483,7 +485,9 @@ describe('ChatInputComponent', () => {
     first.handleInput({
       target: { value: 'draft typed' },
     } as unknown as Event);
-    const second = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    const second = TestBed.runInInjectionContext(
+      () => new ChatInputComponent(),
+    );
     first.ngOnDestroy();
     second.ngOnDestroy();
     component = TestBed.runInInjectionContext(() => new ChatInputComponent());
@@ -519,7 +523,9 @@ describe('ChatInputComponent', () => {
   describe('contextual F5 drafts per SESSION_CONTEXT tab', () => {
     const typed = (composer: ChatInputComponent, value: string) =>
       composer.handleInput({ target: { value } } as unknown as Event);
-    function paneComposer(context: WritableSignal<string | null>): ChatInputComponent {
+    function paneComposer(
+      context: WritableSignal<string | null>,
+    ): ChatInputComponent {
       const injector = createEnvironmentInjector(
         [{ provide: SESSION_CONTEXT, useValue: context.asReadonly() }],
         TestBed.inject(EnvironmentInjector),
@@ -568,7 +574,9 @@ describe('ChatInputComponent', () => {
       TestBed.tick();
       expect(left.currentMessage()).toBe('left draft');
       expect(right.currentMessage()).toBe('right draft');
-      expect(TestBed.inject(ComposerDraftStore).get('tile-C')?.text).toBe('replacement draft');
+      expect(TestBed.inject(ComposerDraftStore).get('tile-C')?.text).toBe(
+        'replacement draft',
+      );
     });
 
     it('F5: both pane composers remount and each restores its own tab draft, also after a pane swap', () => {
@@ -583,7 +591,9 @@ describe('ChatInputComponent', () => {
       expect(left.currentMessage()).toBe('left draft');
       expect(right.currentMessage()).toBe('right draft');
       // A swap moves no composer; even a composer bound to the other tab reads that tab's draft.
-      expect(paneComposer(signal<string | null>('tile-B')).currentMessage()).toBe('right draft');
+      expect(
+        paneComposer(signal<string | null>('tile-B')).currentMessage(),
+      ).toBe('right draft');
     });
   });
 
@@ -757,6 +767,7 @@ describe('ChatInputComponent', () => {
           { provide: ChatStore, useValue: chatStore },
           { provide: TabManagerService, useValue: tabManager },
           { provide: AutopilotStateService, useValue: mockAutopilotState },
+          { provide: AppStateManager, useValue: { setCurrentView: jest.fn() } },
           { provide: FilePickerService, useValue: mockFilePicker },
           { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
           { provide: ClaudeRpcService, useValue: mockRpcService },

@@ -10,7 +10,6 @@ import {
   ElementRef,
   OnInit,
   OnDestroy,
-  Injector,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -486,7 +485,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
   private readonly commandCenterSendLock = inject(CommandCenterSendLockService);
-  private readonly injector = inject(Injector);
+  private readonly appState = inject(AppStateManager);
   private readonly draftStore = inject(ComposerDraftStore);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
@@ -634,7 +633,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   });
 
   public openCommandCenter(): void {
-    this.injector.get(AppStateManager).setCurrentView('command-center');
+    this.appState.setCurrentView('command-center');
   }
 
   /**

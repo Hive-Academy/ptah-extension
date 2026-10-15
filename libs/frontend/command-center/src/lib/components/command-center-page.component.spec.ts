@@ -29,6 +29,7 @@ describe('CommandCenterPageComponent', () => {
   const nodes: ProjectionResult['nodes'] = [
     {
       id: 'root:session',
+      kind: 'root',
       parentId: null,
       label: 'Root',
       providerId: null,
@@ -36,6 +37,7 @@ describe('CommandCenterPageComponent', () => {
     },
     {
       id: 'child:one',
+      kind: 'child',
       parentId: 'root:session',
       label: 'Child',
       providerId: null,

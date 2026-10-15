@@ -8,7 +8,7 @@ import type {
   CliType,
   ProviderModelInfo,
 } from '@ptah-extension/shared';
-import { TRIBUNAL_MAX_VENDOR_TILES } from './tribunal-state.service';
+import { TRIBUNAL_MAX_VENDOR_TILES } from '../types/tribunal-ui.types';
 import {
   laneBaseKey,
   makeLaneId,
