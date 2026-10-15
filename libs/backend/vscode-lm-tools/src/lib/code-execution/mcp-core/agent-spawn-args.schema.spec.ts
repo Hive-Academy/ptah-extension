@@ -1,7 +1,4 @@
-import {
-  OUTCOME_TASK_KINDS,
-  SYSTEM_CLI_TYPES,
-} from '@ptah-extension/shared';
+import { OUTCOME_TASK_KINDS, SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import {
   AgentSpawnArgsSchema,
   MAX_EFFORT_LENGTH,

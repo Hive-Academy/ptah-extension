@@ -4,10 +4,7 @@ import {
   SUBAGENT_FAMILY,
   SYSTEM_CLI_TYPES,
 } from '@ptah-extension/shared';
-import {
-  SEED_LABEL_SCORE,
-  STALENESS_AGE_MS,
-} from '../routing-constants';
+import { SEED_LABEL_SCORE, STALENESS_AGE_MS } from '../routing-constants';
 import {
   CapabilityMatrixSchema,
   MatrixCellSchema,
@@ -72,8 +69,11 @@ describe('seed matrix', () => {
     for (const profile of buildSeedMatrix(NOW).profiles) {
       for (const kind of OUTCOME_TASK_KINDS) {
         if (kind === 'implement') continue;
-        expect({ profile: profile.model, kind, cell: profile.cells[kind] })
-          .toEqual({ profile: profile.model, kind, cell: { kind: 'unknown' } });
+        expect({
+          profile: profile.model,
+          kind,
+          cell: profile.cells[kind],
+        }).toEqual({ profile: profile.model, kind, cell: { kind: 'unknown' } });
       }
     }
   });
@@ -171,12 +171,19 @@ describe('matrix schema', () => {
         cells: {
           ...unknownCells,
           review: {
-            kind: 'value', score: 70, source: 'user',
-            asOf: '2026-10-01', stale: false,
+            kind: 'value',
+            score: 70,
+            source: 'user',
+            asOf: '2026-10-01',
+            stale: false,
           },
           tests: {
-            kind: 'value', score: 60, source: 'local',
-            asOf: '2026-10-10T08:30:00.000Z', stale: false, sampleCount: 5,
+            kind: 'value',
+            score: 60,
+            source: 'local',
+            asOf: '2026-10-10T08:30:00.000Z',
+            stale: false,
+            sampleCount: 5,
           },
         },
       }),
@@ -193,14 +200,18 @@ describe('matrix schema', () => {
     );
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.path).toEqual([
-      'profiles', 0, 'cells', 'docs',
+      'profiles',
+      0,
+      'cells',
+      'docs',
     ]);
   });
 
   it('rejects an unknown task kind', () => {
     const result = CapabilityMatrixSchema.safeParse(
       matrixWith({
-        family: 'codex', model: '*',
+        family: 'codex',
+        model: '*',
         cells: { ...unknownCells, architecture: { kind: 'unknown' } },
       }),
     );
@@ -208,8 +219,14 @@ describe('matrix schema', () => {
   });
 
   it('rejects a duplicate profile key and names the entry', () => {
-    const profile = { family: 'codex', model: 'gpt-6-sol', cells: unknownCells };
-    const result = CapabilityMatrixSchema.safeParse(matrixWith(profile, profile));
+    const profile = {
+      family: 'codex',
+      model: 'gpt-6-sol',
+      cells: unknownCells,
+    };
+    const result = CapabilityMatrixSchema.safeParse(
+      matrixWith(profile, profile),
+    );
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.path).toEqual(['profiles', 1, 'model']);
   });
@@ -225,17 +242,22 @@ describe('matrix schema', () => {
   });
 
   it('rejects a blank family or model', () => {
-    expect(CapabilityMatrixSchema.safeParse(
-      matrixWith({ family: ' ', model: '*', cells: unknownCells }),
-    ).success).toBe(false);
-    expect(CapabilityMatrixSchema.safeParse(
-      matrixWith({ family: 'codex', model: '', cells: unknownCells }),
-    ).success).toBe(false);
+    expect(
+      CapabilityMatrixSchema.safeParse(
+        matrixWith({ family: ' ', model: '*', cells: unknownCells }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CapabilityMatrixSchema.safeParse(
+        matrixWith({ family: 'codex', model: '', cells: unknownCells }),
+      ).success,
+    ).toBe(false);
   });
 
   it('rejects an unsupported version', () => {
-    expect(CapabilityMatrixSchema.safeParse({ version: 2, profiles: [] }).success)
-      .toBe(false);
+    expect(
+      CapabilityMatrixSchema.safeParse({ version: 2, profiles: [] }).success,
+    ).toBe(false);
   });
 
   it.each([
@@ -245,12 +267,27 @@ describe('matrix schema', () => {
     ['a seed value without a source', { ...seedCell, sourceRef: undefined }],
     ['a seed value without a note', { ...seedCell, note: undefined }],
     ['a seed value with a sample count', { ...seedCell, sampleCount: 9 }],
-    ['a user value with a sample count', { ...seedCell, source: 'user', sampleCount: 9 }],
-    ['a local value without a sample count', { ...seedCell, source: 'local', sourceRef: undefined }],
-    ['a local value below the minimum sample count', {
-      ...seedCell, source: 'local', sourceRef: undefined, sampleCount: 4,
-    }],
-    ['a local value with an external source', { ...seedCell, source: 'local', sampleCount: 5 }],
+    [
+      'a user value with a sample count',
+      { ...seedCell, source: 'user', sampleCount: 9 },
+    ],
+    [
+      'a local value without a sample count',
+      { ...seedCell, source: 'local', sourceRef: undefined },
+    ],
+    [
+      'a local value below the minimum sample count',
+      {
+        ...seedCell,
+        source: 'local',
+        sourceRef: undefined,
+        sampleCount: 4,
+      },
+    ],
+    [
+      'a local value with an external source',
+      { ...seedCell, source: 'local', sampleCount: 5 },
+    ],
     ['an unknown source', { ...seedCell, source: 'vendor' }],
     ['a malformed asOf', { ...seedCell, asOf: '17/02/2026' }],
     ['a missing stale flag', { ...seedCell, stale: undefined }],

@@ -993,9 +993,7 @@ describe('buildAgentNamespace — list', () => {
     const list = await buildAgentNamespace(deps).list();
 
     expect(list.find((r) => r.cli === 'codex')?.family).toBe('codex');
-    expect(list.find((r) => r.ptahCliId === 'ptah-alice')?.family).toBe(
-      'z-ai',
-    );
+    expect(list.find((r) => r.ptahCliId === 'ptah-alice')?.family).toBe('z-ai');
     expect(list.find((r) => r.ptahCliId === 'ptah-bob')?.family).toBe(
       'ptah-cli:ptah-bob',
     );
@@ -1234,7 +1232,11 @@ describe('buildAgentNamespace — waitFor', () => {
       cancelled: true,
       waitedMs: 5,
       entries: [
-        { agentId: 'x', state: 'running', info: { ...info, status: 'running' } },
+        {
+          agentId: 'x',
+          state: 'running',
+          info: { ...info, status: 'running' },
+        },
       ],
     });
 
@@ -1263,7 +1265,12 @@ describe('buildAgentNamespace — waitFor', () => {
     let waitSignal: AbortSignal | undefined;
     let waitSettled: Promise<unknown> = Promise.resolve();
     mocks.processManager.waitForAgents.mockImplementation(
-      (_ids: string[], mode: string, _timeout: number, signal?: AbortSignal) => {
+      (
+        _ids: string[],
+        mode: string,
+        _timeout: number,
+        signal?: AbortSignal,
+      ) => {
         waitSignal = signal;
         const settled = new Promise((resolve) => {
           signal?.addEventListener('abort', () =>

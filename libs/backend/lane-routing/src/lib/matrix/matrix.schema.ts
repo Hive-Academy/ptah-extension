@@ -45,13 +45,15 @@ export const ValueMatrixCellSchema = z
     if (cell.source === 'seed') {
       if (cell.sourceRef === undefined) {
         ctx.addIssue({
-          code: 'custom', path: ['sourceRef'],
+          code: 'custom',
+          path: ['sourceRef'],
           message: 'a seed value must name its dataset or URL',
         });
       }
       if (cell.note === undefined) {
         ctx.addIssue({
-          code: 'custom', path: ['note'],
+          code: 'custom',
+          path: ['note'],
           message: 'a seed value must say what it measures',
         });
       }
@@ -59,19 +61,22 @@ export const ValueMatrixCellSchema = z
     if (cell.source === 'local') {
       if (cell.sampleCount === undefined) {
         ctx.addIssue({
-          code: 'custom', path: ['sampleCount'],
+          code: 'custom',
+          path: ['sampleCount'],
           message: 'a local value must carry its sample count',
         });
       }
       if (cell.sourceRef !== undefined) {
         ctx.addIssue({
-          code: 'custom', path: ['sourceRef'],
+          code: 'custom',
+          path: ['sourceRef'],
           message: 'a local value has no external source',
         });
       }
     } else if (cell.sampleCount !== undefined) {
       ctx.addIssue({
-        code: 'custom', path: ['sampleCount'],
+        code: 'custom',
+        path: ['sampleCount'],
         message: 'only a local value carries a sample count',
       });
     }
@@ -115,7 +120,8 @@ export const CapabilityMatrixSchema = z
       const key = JSON.stringify([profile.family, profile.model]);
       if (seen.has(key)) {
         ctx.addIssue({
-          code: 'custom', path: ['profiles', index, 'model'],
+          code: 'custom',
+          path: ['profiles', index, 'model'],
           message:
             `duplicate profile for family "${profile.family}" ` +
             `and model "${profile.model}"`,
