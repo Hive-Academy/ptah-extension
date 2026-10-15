@@ -105,3 +105,34 @@ export {
   AUTOMATIC_MATRIX_MODEL,
   deriveLocalMatrix,
 } from './lib/matrix/local-derivation';
+export {
+  score,
+  type CandidateScore,
+  type FallbackModel,
+  type ListedModel,
+  type ListedProvenance,
+  type ModelProvenance,
+  type ScoreCell,
+  type ScoreInput,
+  type ScoreMatrix,
+} from './lib/ranking/score';
+export {
+  spread,
+  type RankedCandidate,
+  type SpreadInput,
+  type SpreadPreferences,
+  type SpreadResult,
+} from './lib/ranking/spread';
+export {
+  ROTATION_DOCUMENT_VERSION,
+  ROTATION_UNAVAILABLE_REASON,
+  RotationStore,
+  emptyRotationState,
+  lastCandidateId,
+  rotationKey,
+  withPick,
+  type RotationLoad,
+  type RotationPick,
+  type RotationState,
+  type RotationWrite,
+} from './lib/ranking/rotation.store';
