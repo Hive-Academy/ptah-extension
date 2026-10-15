@@ -67,6 +67,7 @@
         "session-organization",
         "output-styles",
         "skill-synthesis",
+        "lane-routing",
         "harness-sync",
         "thoth-runtime",
         "core",

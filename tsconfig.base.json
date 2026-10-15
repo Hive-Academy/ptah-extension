@@ -156,6 +156,9 @@
       "@ptah-extension/skill-synthesis": [
         "./libs/backend/skill-synthesis/src/index.ts"
       ],
+      "@ptah-extension/lane-routing": [
+        "./libs/backend/lane-routing/src/index.ts"
+      ],
       "@ptah-extension/output-styles": [
         "./libs/backend/output-styles/src/index.ts"
       ],
