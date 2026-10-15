@@ -264,7 +264,6 @@ describe('CanvasFocusAreaComponent', () => {
   it('passes a unique panel id and pane focus state to each lane view', () => {
     const { fixture } = mountWithLanes();
     fixture.componentRef.setInput('paneId', 'right');
-    fixture.componentRef.setInput('paneLabel', 'Right session: A');
     fixture.componentRef.setInput('paneFocused', false);
     fixture.componentRef.setInput('splitDisplayed', true);
     fixture.detectChanges();
@@ -274,7 +273,7 @@ describe('CanvasFocusAreaComponent', () => {
     expect(view.panelId()).toBe('rail-right-lane-panel');
     expect(view.paneFocused()).toBe(false);
     expect(view.splitDisplayed()).toBe(true);
-    expect(fixture.nativeElement.querySelector('section').getAttribute('aria-label')).toBe('Right session: A');
+    expect(fixture.nativeElement.querySelector('section').hasAttribute('aria-label')).toBe(false);
   });
 
   it.each(['left', 'right'] as const)(

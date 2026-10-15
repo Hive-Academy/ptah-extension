@@ -29,6 +29,7 @@ class RailTileStub {
 class RailDisplayPanelStub {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly summary = input<unknown>(null);
+  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);

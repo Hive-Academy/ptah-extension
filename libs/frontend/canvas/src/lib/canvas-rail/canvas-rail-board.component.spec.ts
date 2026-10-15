@@ -3,6 +3,7 @@ import {
   Component,
   effect,
   input,
+  NO_ERRORS_SCHEMA,
   type OnDestroy,
   output,
   signal,
@@ -10,7 +11,7 @@ import {
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { CompactSessionCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
+import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
@@ -25,6 +26,7 @@ import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
 import { CanvasRailBoardComponent } from './canvas-rail-board.component';
 import { CanvasRailCardComponent } from './canvas-rail-card.component';
+import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
 
 const sourceState = signal<CompactRailState>('idle');
 type TestHost = Omit<HTMLElement, 'querySelector'> & {
@@ -59,6 +61,7 @@ class RailStub {
   readonly focusedTabId = input<string | null>(null);
   readonly density = input<CompactRailDensity>('comfortable');
   readonly collapsed = input(false);
+  readonly autoCollapsed = input(false);
   readonly band = input('lg');
   readonly runningCount = input(0);
   readonly canStart = input(true);
@@ -151,7 +154,6 @@ class StatefulLaneStub implements OnDestroy {
 class FocusStub {
   readonly focusedTabId = input<string | null>(null);
   readonly paneId = input<'left' | 'right'>('left');
-  readonly paneLabel = input('Focused session');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
   readonly paneNumber = input<1 | 2 | null>(null);
@@ -173,6 +175,12 @@ class FocusStub {
 class DetailsStub {
   readonly tabId = input.required<string>();
 }
+@Component({
+  selector: 'ptah-project-setup-card',
+  standalone: true,
+  template: '<button type="button">Open Marketplace Skills</button>',
+})
+class ProjectSetupStub {}
 
 describe('CanvasRailBoardComponent actions', () => {
   const board = () => {
@@ -267,6 +275,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     initialFocus: string | null = 'a',
     surface?: WritableSignal<boolean>,
     realCard = false,
+    realFocus = false,
   ) {
     sourceState.set('idle');
     jest
@@ -319,6 +328,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       removeTile,
       reorderTiles: jest.fn(),
       setRailScrollTop: jest.fn(),
+      isSessionRunning: () => false,
       tiles: () => tiles(),
     };
     TestBed.configureTestingModule({
@@ -328,7 +338,11 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: CanvasStore, useValue: store },
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
         { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
-        { provide: CanvasDetailService, useValue: {} },
+        {
+          provide: CanvasDetailService,
+          useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
+        },
+        ...(realFocus ? [{ provide: ChatStore, useValue: {} }] : []),
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
           provide: TabManagerService,
@@ -341,8 +355,21 @@ describe('CanvasRailBoardComponent rendering', () => {
       ],
     });
     TestBed.overrideComponent(CanvasRailBoardComponent, {
-      set: { imports: [RailStub, FocusStub, DetailsStub] },
+      set: {
+        imports: [
+          RailStub,
+          realFocus ? CanvasFocusAreaComponent : FocusStub,
+          DetailsStub,
+          ProjectSetupStub,
+        ],
+      },
     });
+    if (realFocus) {
+      // The real focus area renders its own markup; its header, lane tabs and lane view stay inert.
+      TestBed.overrideComponent(CanvasFocusAreaComponent, {
+        set: { imports: [], schemas: [NO_ERRORS_SCHEMA] },
+      });
+    }
     if (realCard) {
       TestBed.overrideComponent(CanvasRailCardComponent, {
         remove: { imports: [CompactSessionCardComponent] },
@@ -693,6 +720,78 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(trigger.getAttribute('aria-disabled')).toBeNull();
     trigger.click();
     expect(requested).toHaveBeenCalledTimes(1);
+  });
+
+  it('0 tiles: renders project setup on the canvas landing screen', () => {
+    const { fixture } = mount(true, 0);
+    const emptyBoard = fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]');
+    expect(emptyBoard?.querySelector('ptah-project-setup-card')).not.toBeNull();
+    expect(emptyBoard?.textContent).toContain('Open Marketplace Skills');
+  });
+
+  it.each([
+    [0, false],
+    [639, true],
+    [640, false],
+  ])('width %i gives display collapse %s without persisting it', (pixels, collapsed) => {
+    const { fixture, width, board, store } = mount();
+    width.set(pixels);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.effectiveCollapsed()).toBe(collapsed);
+    expect(fixture.debugElement.query(By.directive(RailStub)).componentInstance.collapsed()).toBe(collapsed);
+    expect(board().railCollapsed).toBe(false);
+    expect(store.setRailCollapsed).not.toHaveBeenCalled();
+  });
+
+  it('width 639: the Rail toggle is auto-disabled and a click never writes the persisted collapse', () => {
+    const { fixture, width, board, store } = mount();
+    width.set(639);
+    fixture.detectChanges();
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    expect(rail.autoCollapsed()).toBe(true);
+    rail.collapseToggled.emit();
+    fixture.detectChanges();
+    expect(store.setRailCollapsed).not.toHaveBeenCalled();
+    expect(board().railCollapsed).toBe(false);
+    expect(rail.collapsed()).toBe(true);
+  });
+
+  it('width 640: the Rail toggle persists the collapse as before', () => {
+    const { fixture, width, board, store } = mount();
+    width.set(640);
+    fixture.detectChanges();
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    expect(rail.autoCollapsed()).toBe(false);
+    rail.collapseToggled.emit();
+    fixture.detectChanges();
+    expect(store.setRailCollapsed).toHaveBeenCalledWith('workspace', true);
+    expect(board().railCollapsed).toBe(true);
+    expect(rail.collapsed()).toBe(true);
+  });
+
+  it('sm band with details open: the toggle is auto-disabled and does not persist', () => {
+    const { fixture, width, store } = mount();
+    width.set(1000);
+    fixture.detectChanges();
+    fixture.componentInstance.toggleDetails();
+    fixture.detectChanges();
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    expect(rail.autoCollapsed()).toBe(true);
+    fixture.componentInstance.toggleCollapse();
+    expect(store.setRailCollapsed).not.toHaveBeenCalled();
+  });
+
+  it('0 tiles: the empty board scrolls and centres its content with my-auto instead of clipping', () => {
+    const { fixture } = mount(true, 0);
+    const emptyBoard = fixture.nativeElement.querySelector<HTMLElement>('[data-testid="canvas-rail-empty-board"]');
+    expect(emptyBoard.classList).toContain('overflow-y-auto');
+    expect(emptyBoard.classList).toContain('min-h-0');
+    expect(emptyBoard.classList).not.toContain('justify-center');
+    const content = emptyBoard.querySelector<HTMLElement>('[data-testid="canvas-rail-empty-board-content"]');
+    expect(content?.parentElement).toBe(emptyBoard);
+    expect(content?.classList).toContain('my-auto');
+    expect(content?.querySelector('ptah-project-setup-card')).not.toBeNull();
+    expect(content?.querySelector('#canvas-rail-empty-board-title')).not.toBeNull();
   });
 
   it('0 tiles: at the running cap the aria-disabled trigger keeps its reason and does not emit', () => {
@@ -1266,6 +1365,32 @@ describe('CanvasRailBoardComponent rendering', () => {
     instance.onLanesRequested('b');
     fixture.detectChanges();
     expect(document.activeElement).toBe(paneOf(fixture, 'right')?.querySelector('[role="tab"]'));
+  });
+
+  it('each labelled pane holds the real focus area, whose inner section is no second landmark', () => {
+    const { fixture } = mount(true, 2, 'a', undefined, false, true);
+    const innerSections = () => {
+      const panes = [...fixture.nativeElement.querySelectorAll<HTMLElement>('[data-pane-side]')];
+      return panes.map((pane) => {
+        expect(pane.getAttribute('aria-label')).toMatch(/session: [ab]/);
+        const inner = pane.querySelector<HTMLElement>('ptah-canvas-focus-area section');
+        expect(inner).not.toBeNull();
+        expect(pane.querySelectorAll('[aria-label]')).toHaveLength(0);
+        return inner as HTMLElement;
+      });
+    };
+    const single = innerSections();
+    expect(single).toHaveLength(1);
+    expect(single[0].hasAttribute('aria-label')).toBe(false);
+    expect(single[0].hasAttribute('aria-labelledby')).toBe(false);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    const split = innerSections();
+    expect(split).toHaveLength(2);
+    for (const inner of split) {
+      expect(inner.hasAttribute('aria-label')).toBe(false);
+      expect(inner.hasAttribute('aria-labelledby')).toBe(false);
+    }
   });
 
   it('close split from the active header keeps the active tab and the focus on that header', async () => {

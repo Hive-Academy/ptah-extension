@@ -67,6 +67,34 @@ describe('CanvasRailComponent', () => {
     fixture.componentRef.setInput('canAdd', false); fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('The board holds 20 sessions. Close one to add another.');
   });
+  it('collapse toggle: aria-expanded follows the visible state and a click emits', () => {
+    const fixture = mount([tile('a', 1)]); const emit = jest.fn(); fixture.componentInstance.collapseToggled.subscribe(emit);
+    const host = fixture.nativeElement as HTMLElement;
+    const toggle = () => host.querySelector('[data-testid="rail-collapse-toggle"]') as HTMLButtonElement;
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(toggle().getAttribute('aria-label')).toBe('Collapse rail');
+    expect(toggle().getAttribute('aria-disabled')).toBeNull();
+    expect(toggle().hasAttribute('title')).toBe(false);
+    toggle().click(); expect(emit).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('collapsed', true); fixture.detectChanges();
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    expect(toggle().getAttribute('aria-label')).toBe('Expand rail');
+    toggle().click(); expect(emit).toHaveBeenCalledTimes(2);
+  });
+  it('collapse toggle: auto-collapsed it stays focusable, explains why and refuses its click', () => {
+    const fixture = mount([tile('a', 1)]); const emit = jest.fn(); fixture.componentInstance.collapseToggled.subscribe(emit);
+    fixture.componentRef.setInput('collapsed', true); fixture.componentRef.setInput('autoCollapsed', true); fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const toggle = host.querySelector('[data-testid="rail-collapse-toggle"]') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute('aria-disabled')).toBe('true');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('title')).toBe('Widen the canvas to expand the Rail');
+    expect(toggle.getAttribute('aria-describedby')).toBe('rail-collapse-reason');
+    expect(host.querySelector('#rail-collapse-reason')?.textContent?.trim()).toBe('Widen the canvas to expand the Rail');
+    toggle.focus(); expect(document.activeElement).toBe(toggle);
+    toggle.click(); expect(emit).not.toHaveBeenCalled();
+  });
   it('toggles density, hides it when collapsed, and shows the large-list hint', () => {
     const fixture = mount(Array.from({ length: 12 }, (_, i) => tile(String(i), i)));
     const host = fixture.nativeElement as HTMLElement;

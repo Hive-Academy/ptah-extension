@@ -116,6 +116,35 @@ describe('CanvasLaneTabsComponent', () => {
     expect(fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]').id).toContain('bg:x');
   });
 
+  it('migrates a selected background tab back to its completed sub-agent tab', () => {
+    const sub = { parentToolUseId: 'x', parentSessionId: 'owner', status: 'background', agentType: 'Worker' };
+    subagents.set(new Map([['x', sub]]));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'bg:x');
+    const selected = jest.fn();
+    fixture.componentInstance.laneSelected.subscribe(selected);
+    fixture.detectChanges();
+    subagents.set(new Map([['x', { ...sub, status: 'completed' }]]));
+    fixture.detectChanges();
+    expect(selected).toHaveBeenCalledWith('sub:x');
+    expect(selected).not.toHaveBeenCalledWith('orchestrator');
+    expect(fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]').id).toContain('sub:x');
+  });
+
+  it('falls back to orchestrator when a background lane has no matching key', () => {
+    subagents.set(new Map([['other', { parentToolUseId: 'other', parentSessionId: 'owner', status: 'completed', agentType: 'Worker' }]]));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'bg:x');
+    const selected = jest.fn();
+    fixture.componentInstance.laneSelected.subscribe(selected);
+    fixture.detectChanges();
+    expect(selected).toHaveBeenCalledWith('orchestrator');
+    expect(selected).not.toHaveBeenCalledWith('sub:other');
+    expect(fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]').id).toContain('orchestrator');
+  });
+
   it('shows an owned CLI lane once while excluding unresolved and foreign lanes', () => {
     agents.set([
       { agentId: 'unowned', cli: 'Unowned', status: 'running' },

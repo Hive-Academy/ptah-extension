@@ -36,6 +36,65 @@ describe('handleCanvasRailKeydown', () => {
     expect(focus).not.toHaveBeenCalled();
   });
 
+  it('moves focus when the window keydown target is the document body', () => {
+    const host = document.createElement('section');
+    document.body.append(host);
+    try {
+      const event = dispatch(document.body, 'ArrowRight', { ...ctx, host });
+      expect(event.defaultPrevented).toBe(true);
+      expect(focus).toHaveBeenCalledWith('c');
+      expect(focusSelectButton).toHaveBeenCalledWith('c');
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('leaves arrows outside the canvas and inside scrollable content alone', () => {
+    const host = document.createElement('section');
+    const inside = document.createElement('button');
+    const outside = document.createElement('button');
+    host.append(inside);
+    document.body.append(host, outside);
+    try {
+      const context = { ...ctx, host };
+      expect(dispatch(outside, 'ArrowRight', context).defaultPrevented).toBe(false);
+      expect(focus).not.toHaveBeenCalled();
+
+      const scroller = document.createElement('div');
+      scroller.style.overflowX = 'auto';
+      Object.defineProperty(scroller, 'scrollWidth', { value: 200 });
+      Object.defineProperty(scroller, 'clientWidth', { value: 100 });
+      scroller.append(inside);
+      host.append(scroller);
+      expect(dispatch(inside, 'ArrowRight', context).defaultPrevented).toBe(false);
+      expect(focus).not.toHaveBeenCalled();
+      host.append(inside);
+      expect(dispatch(inside, 'ArrowRight', context).defaultPrevented).toBe(true);
+      expect(focus).toHaveBeenCalledWith('c');
+    } finally {
+      host.remove();
+      outside.remove();
+    }
+  });
+
+  it('navigates from a vertically scrolling region with no horizontal overflow', () => {
+    const host = document.createElement('section');
+    const scroller = document.createElement('div');
+    const inside = document.createElement('button');
+    scroller.style.overflowY = 'auto';
+    Object.defineProperty(scroller, 'scrollHeight', { value: 200 });
+    Object.defineProperty(scroller, 'clientHeight', { value: 100 });
+    scroller.append(inside);
+    host.append(scroller);
+    document.body.append(host);
+    try {
+      expect(dispatch(inside, 'ArrowRight', { ...ctx, host }).defaultPrevented).toBe(true);
+      expect(focus).toHaveBeenCalledWith('c');
+    } finally {
+      host.remove();
+    }
+  });
+
   it('returns from an inner button and ignores inputs, menus and tablists', () => {
     const card = document.createElement('li'); card.dataset['railCard'] = ''; card.dataset['tabId'] = 'b';
     const inner = document.createElement('button'); card.append(inner);

@@ -24,6 +24,7 @@ import {
 import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
 
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
+const AUTO_COLLAPSE_REASON = 'Widen the canvas to expand the Rail';
 const CHIP_STATES = [
   { state: 'needs', label: 'needs you' },
   { state: 'error', label: 'error' },
@@ -107,11 +108,24 @@ const CHIP_STATES = [
           <button
             type="button"
             class="btn btn-ghost btn-xs"
+            data-testid="rail-collapse-toggle"
+            [class.opacity-60]="autoCollapsed()"
             [attr.aria-label]="collapsed() ? 'Expand rail' : 'Collapse rail'"
-            (click)="collapseToggled.emit()"
+            [attr.aria-expanded]="!collapsed()"
+            [attr.aria-disabled]="autoCollapsed() ? 'true' : null"
+            [attr.aria-describedby]="
+              autoCollapsed() ? 'rail-collapse-reason' : null
+            "
+            [attr.title]="autoCollapsed() ? autoCollapseReason : null"
+            (click)="onCollapseToggle()"
           >
             {{ collapsed() ? '›' : '‹' }}
           </button>
+          @if (autoCollapsed()) {
+            <span id="rail-collapse-reason" class="sr-only">{{
+              autoCollapseReason
+            }}</span>
+          }
         </div>
         @if (!collapsed()) {
           <div
@@ -231,6 +245,8 @@ export class CanvasRailComponent {
   readonly focusedTabId = input<string | null>(null);
   readonly density = input<CompactRailDensity>('comfortable');
   readonly collapsed = input(false);
+  /** The board forces the 56 px form for its width; the toggle cannot expand it. */
+  readonly autoCollapsed = input(false);
   readonly band = input<'xl' | 'lg' | 'md' | 'sm'>('lg');
   readonly runningCount = input(0);
   readonly canStart = input(true);
@@ -253,6 +269,7 @@ export class CanvasRailComponent {
   readonly moveDownRequested = output<string>();
   readonly maxRunning = MAX_RUNNING_SESSIONS;
   readonly chips = CHIP_STATES;
+  readonly autoCollapseReason = AUTO_COLLAPSE_REASON;
   readonly orderedTiles = computed(() =>
     [...this.tiles()].sort((a, b) => a.order - b.order),
   );
@@ -280,6 +297,9 @@ export class CanvasRailComponent {
     return this.orderedTiles().filter(
       (tile) => this.states().get(tile.tabId) === state,
     ).length;
+  }
+  onCollapseToggle(): void {
+    if (!this.autoCollapsed()) this.collapseToggled.emit();
   }
   onNewSession(): void {
     if (!this.disabledReason()) this.newSession.emit();

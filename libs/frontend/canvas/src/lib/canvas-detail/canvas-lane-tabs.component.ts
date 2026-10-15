@@ -165,8 +165,9 @@ export class CanvasLaneTabsComponent {
     const key = this.laneKey();
     const keys = this.groups().flatMap((group) => group.tabs.map((tab) => tab.key));
     if (keys.includes(key)) return key;
-    const backgroundKey = key.startsWith('sub:') ? `bg:${key.slice(4)}` : null;
-    return backgroundKey && keys.includes(backgroundKey) ? backgroundKey : 'orchestrator';
+    const alternateKey = key.startsWith('sub:') ? `bg:${key.slice(4)}`
+      : key.startsWith('bg:') ? `sub:${key.slice(3)}` : null;
+    return alternateKey && keys.includes(alternateKey) ? alternateKey : 'orchestrator';
   });
 
   constructor() {

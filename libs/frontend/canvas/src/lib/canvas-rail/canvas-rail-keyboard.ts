@@ -1,5 +1,6 @@
 export interface CanvasRailKeyboardContext {
   readonly surfaceActive: boolean;
+  readonly host?: HTMLElement | null;
   readonly orderedIds: readonly string[];
   readonly focusedId: string | null;
   focus(id: string): void;
@@ -60,6 +61,23 @@ export function handleCanvasRailKeydown(
       default: return;
     }
   } else {
+    const documentRoot =
+      target === target.ownerDocument.body ||
+      target === target.ownerDocument.documentElement;
+    if (!documentRoot) {
+      if (ctx.host && !ctx.host.contains(target)) return;
+      for (
+        let region: Element | null = target;
+        region && region !== ctx.host;
+        region = region.parentElement
+      ) {
+        const style = getComputedStyle(region);
+        const scrollsHorizontally =
+          /(auto|scroll)/.test(style.overflowX) &&
+          region.scrollWidth > region.clientWidth;
+        if (scrollsHorizontally) return;
+      }
+    }
     if (event.key === 'ArrowLeft') next = (index - 1 + ctx.orderedIds.length) % ctx.orderedIds.length;
     else if (event.key === 'ArrowRight') next = (index + 1) % ctx.orderedIds.length;
     else return;

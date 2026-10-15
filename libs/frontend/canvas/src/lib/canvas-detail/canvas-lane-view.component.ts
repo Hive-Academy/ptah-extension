@@ -291,8 +291,12 @@ export class CanvasLaneViewComponent {
       if (frame !== undefined) onCleanup(() => globalThis.cancelAnimationFrame(frame));
       else this.fade.set(false);
     });
+    let previousCliId: string | null = null;
     effect(() => {
       const agent = this.selectedCli();
+      const id = agent?.agentId ?? null;
+      if (id === previousCliId) return;
+      previousCliId = id;
       if (agent && !agent.expanded)
         this.monitor.toggleAgentExpanded(agent.agentId);
     });

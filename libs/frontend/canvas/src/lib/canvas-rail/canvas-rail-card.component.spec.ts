@@ -313,6 +313,17 @@ describe('CanvasRailCardComponent', () => {
     expect(focusTile).toHaveBeenCalledWith('a');
   });
 
+  it('announces focus on a collapsed card only when focused', () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button.rail-collapsed') as HTMLButtonElement;
+    expect(button.getAttribute('aria-label')).not.toContain('in focus');
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-label')).toContain('in focus');
+  });
+
   it('keeps focusRailSelectButton reaching the select and collapsed buttons', () => {
     const fixture = mount();
     const host = fixture.nativeElement as HTMLElement;

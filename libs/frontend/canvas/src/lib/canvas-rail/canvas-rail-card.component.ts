@@ -110,7 +110,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
         <button
           type="button"
           class="rail-collapsed flex h-14 w-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-base-content/10 bg-base-200 text-xs"
-          [attr.aria-label]="current.title + ', ' + state() + ', in focus'"
+          [attr.aria-label]="current.title + ', ' + state() + (focused() ? ', in focus' : '')"
           [attr.aria-current]="focused() ? 'true' : null"
           [attr.title]="current.title + ', ' + state()"
           [tabIndex]="focused() ? 0 : -1"

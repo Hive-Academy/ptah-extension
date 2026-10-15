@@ -149,6 +149,38 @@ describe('CanvasLaneViewComponent', () => {
     expect(toggleAgentExpanded).not.toHaveBeenCalledWith('b');
   });
 
+  it('does not reopen a CLI lane after its user collapses it', () => {
+    const agent = { agentId: 'a', parentSessionId: 'owner', cli: 'Codex', expanded: false, permissionQueue: [] };
+    agents.set([agent]);
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'cli:a');
+    fixture.detectChanges();
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
+    agents.set([{ ...agent, expanded: true }]);
+    fixture.detectChanges();
+    agents.set([{ ...agent, expanded: false }]);
+    fixture.detectChanges();
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
+  });
+
+  it('expands the same CLI lane again after switching away and re-selecting it', () => {
+    const agent = { agentId: 'a', parentSessionId: 'owner', cli: 'Codex', expanded: false, permissionQueue: [] };
+    agents.set([agent]);
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'cli:a');
+    fixture.detectChanges();
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('laneKey', 'orchestrator');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('laneKey', 'cli:a');
+    fixture.detectChanges();
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(2);
+  });
+
   it('uses the owner responder for CLI Allow and Deny', () => {
     agents.set([
       {

@@ -13,7 +13,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
+import { ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import type { CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
@@ -36,6 +36,8 @@ import {
 const TABBABLE = 'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]';
 /** Open layers inside a pane that own their focus: Details dialog, menus, an overlay dock. */
 const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-dock.absolute';
+// 272 px Rail + 44 px details control + about 320 px for the session pane.
+const RAIL_AUTO_COLLAPSE_PX = 640;
 
 function isTabbable(element: HTMLElement): boolean {
   if (element.tabIndex < 0 || (element as HTMLButtonElement).disabled) return false;
@@ -57,6 +59,7 @@ function isTabbable(element: HTMLElement): boolean {
     CanvasRailComponent,
     CanvasFocusAreaComponent,
     CanvasSessionDetailsComponent,
+    ProjectSetupCardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [RailTranscriptRetentionCoordinator],
@@ -78,6 +81,7 @@ function isTabbable(element: HTMLElement): boolean {
           [focusedTabId]="focusedId()"
           [density]="board().railDensity"
           [collapsed]="effectiveCollapsed()"
+          [autoCollapsed]="autoCollapsed()"
           [band]="band()"
           [runningCount]="store.runningSessionCount()"
           [canStart]="store.canStartRunningSession()"
@@ -102,38 +106,45 @@ function isTabbable(element: HTMLElement): boolean {
         />
         @if (orderedTiles().length === 0) {
           <section
-            class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+            class="flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto p-6 text-center"
             data-testid="canvas-rail-empty-board"
             aria-labelledby="canvas-rail-empty-board-title"
           >
-            <h2
-              id="canvas-rail-empty-board-title"
-              class="text-sm font-semibold text-base-content"
+            <!-- my-auto centres the content while it fits; taller content scrolls instead of clipping. -->
+            <div
+              class="my-auto flex w-full flex-col items-center gap-3"
+              data-testid="canvas-rail-empty-board-content"
             >
-              No sessions on this board
-            </h2>
-            <p class="max-w-xs text-xs text-base-content-muted">
-              Start a session to see it here.
-            </p>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              [attr.aria-disabled]="newSessionBlockReason() ? 'true' : null"
-              [attr.aria-describedby]="
-                newSessionBlockReason() ? 'canvas-rail-empty-board-reason' : null
-              "
-              (click)="emptyBoardNewSession()"
-            >
-              New session
-            </button>
-            @if (newSessionBlockReason(); as reason) {
-              <p
-                id="canvas-rail-empty-board-reason"
-                class="text-xs text-base-content-muted"
+              <h2
+                id="canvas-rail-empty-board-title"
+                class="text-sm font-semibold text-base-content"
               >
-                {{ reason }}
+                No sessions on this board
+              </h2>
+              <p class="max-w-xs text-xs text-base-content-muted">
+                Start a session to see it here.
               </p>
-            }
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                [attr.aria-disabled]="newSessionBlockReason() ? 'true' : null"
+                [attr.aria-describedby]="
+                  newSessionBlockReason() ? 'canvas-rail-empty-board-reason' : null
+                "
+                (click)="emptyBoardNewSession()"
+              >
+                New session
+              </button>
+              @if (newSessionBlockReason(); as reason) {
+                <p
+                  id="canvas-rail-empty-board-reason"
+                  class="text-xs text-base-content-muted"
+                >
+                  {{ reason }}
+                </p>
+              }
+              <ptah-project-setup-card class="w-full max-w-md mt-4" />
+            </div>
           </section>
         } @else {
           <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" data-testid="rail-pane-container">
@@ -149,7 +160,6 @@ function isTabbable(element: HTMLElement): boolean {
                     class="block h-full min-w-0"
                     [focusedTabId]="id"
                     [paneId]="side"
-                    [paneLabel]="paneLabel(side, id)"
                     [paneFocused]="activeSide() === side"
                     [splitDisplayed]="splitDisplayed()"
                     [paneNumber]="splitDisplayed() ? paneNumber(side) : null"
@@ -285,10 +295,14 @@ export class CanvasRailBoardComponent {
   readonly newSessionBlockReason = computed(() =>
     this.store.canStartRunningSession() ? null : RUNNING_CAP_MESSAGE,
   );
-  readonly effectiveCollapsed = computed(
+  /** The board width forces the 56 px Rail, whatever the persisted preference. */
+  readonly autoCollapsed = computed(
     () =>
-      this.board().railCollapsed ||
+      (this.layout.containerWidth() > 0 && this.layout.containerWidth() < RAIL_AUTO_COLLAPSE_PX) ||
       (!this.splitDisplayed() && this.band() === 'sm' && this.detailsOpen()),
+  );
+  readonly effectiveCollapsed = computed(
+    () => this.board().railCollapsed || this.autoCollapsed(),
   );
   private geometryBaseline: RailGeometryBaseline | null = null;
   private restoredScroll = false;
@@ -666,6 +680,8 @@ export class CanvasRailBoardComponent {
     this.anchor();
   }
   toggleCollapse(): void {
+    // A click cannot change what is shown here, so it must not rewrite the preference.
+    if (this.autoCollapsed()) return;
     this.geometryBaseline = null;
     this.store.setRailCollapsed(
       this.workspacePath(),

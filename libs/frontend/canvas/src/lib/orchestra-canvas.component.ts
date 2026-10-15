@@ -262,6 +262,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     if (!board) return;
     handleCanvasRailKeydown(event, {
       surfaceActive: this.surfaceActive(),
+      host: this.sessionViewport()?.nativeElement ?? null,
       orderedIds: board.orderedTiles().map((tile) => tile.tabId),
       focusedId: board.focusedId(),
       focus: (id) => board.focus(id),
@@ -393,7 +394,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
       const name = this.appState.newCanvasSessionRequest();
       if (name !== null) {
         if (this.canvasStore.canStartRunningSession()) {
-          this.canvasStore.addTile(name);
+          if (!this.canvasStore.addTile(name))
+            this.headerMessage.set(TILE_BOUND_MESSAGE);
         } else {
           this.headerMessage.set(this.runningCapMessage);
         }

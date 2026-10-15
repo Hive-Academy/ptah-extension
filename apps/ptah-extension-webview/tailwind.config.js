@@ -112,7 +112,7 @@ module.exports = {
           '--state-ink-need': '#f97316',
           '--state-ink-err': '#ef4444',
           '--state-ink-done': '#16a34a',
-          '--state-ink-idle': '#6b7280',
+          '--state-ink-idle': '#9ca3af',
 
           // SEMANTIC COLORS
           info: '#3b82f6',

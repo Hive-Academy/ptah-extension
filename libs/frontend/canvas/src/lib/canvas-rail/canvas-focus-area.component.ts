@@ -28,7 +28,6 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
   host: { class: 'block h-full min-h-0 min-w-0' },
   template: `
     <section
-      [attr.aria-label]="paneLabel()"
       class="flex h-full min-h-0 flex-col bg-base-100"
     >
       @if (focusedTabId(); as id) {
@@ -83,7 +82,6 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 export class CanvasFocusAreaComponent {
   readonly focusedTabId = input<string | null>(null);
   readonly paneId = input<'left' | 'right'>('left');
-  readonly paneLabel = input('Focused session');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
   /** Split only: visual position (1 = left/top) and its positional word, for the header marker. */

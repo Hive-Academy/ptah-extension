@@ -153,6 +153,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
   const writeFailed = signal(false);
   const readOnlyPaths = signal(new Set<string>());
   const canAddTile = signal(true);
+  const newSessionRequest = signal<string | null>(null);
   /** Raw stored board modes; `'grid'` is the legacy value a v3 record may hold. */
   const modes = new Map<string, string>();
   const addTile = jest.fn((_name?: string): string | null => 'new-tab');
@@ -186,6 +187,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     writeFailed.set(false);
     canStart.set(true);
     canAddTile.set(true);
+    newSessionRequest.set(null);
     readOnlyPaths.set(new Set());
     addTile.mockReset();
     addTile.mockReturnValue('new-tab');
@@ -216,7 +218,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
             takeCanvasSessionRequests: jest.fn(() => []),
             canvasFocusRequests: signal([]),
             takeCanvasFocusRequests: jest.fn(() => []),
-            newCanvasSessionRequest: signal(null),
+            newCanvasSessionRequest: newSessionRequest,
             clearNewCanvasSessionRequest: jest.fn(),
             canvasTabRequests: signal([]),
             takeCanvasTabRequests: jest.fn(() => []),
@@ -392,6 +394,23 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     expect(
       find('[data-testid="canvas-dock"] [role="status"]')?.textContent,
     ).toContain('Close one to add another');
+  });
+
+  it('announces the tile bound when an external new session request cannot add a tile', () => {
+    addTile.mockReturnValue(null);
+    canAddTile.set(false);
+    newSessionRequest.set('Gamma');
+    fixture.detectChanges();
+    expect(addTile).toHaveBeenCalledWith('Gamma');
+    expect(find('[data-testid="canvas-dock"] [role="status"]')?.textContent)
+      .toContain('Close one to add another');
+  });
+
+  it('leaves the header message empty when an external new session request succeeds', () => {
+    newSessionRequest.set('Gamma');
+    fixture.detectChanges();
+    expect(addTile).toHaveBeenCalledWith('Gamma');
+    expect(find('[data-testid="canvas-dock"] [role="status"]')?.textContent?.trim() ?? '').toBe('');
   });
 
   it.each([
