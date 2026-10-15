@@ -1431,6 +1431,13 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Step 3: visual-reviewer, dark + light, against `prototype/`; after screenshots compared with
   `screenshots/before/` (capture method in `visual-before.md`, Electron renderer rebuild allowed); include Rail at
   400 / 760 px and a split pane for the dock hover card (C open check 2).
+- Result Step 0-1: codex phase review `code-logic-review.md` REVISE 5/10 (row 104); grok B-5 review
+  `code-logic-review-B-5.md` REVISE 5/10 (row 105).
+- Result Step 2: FIX-1 `ccc43b737`, FIX-2 `0cf3936f6`, FIX-3 `6e96c36c3` (codex lanes, row 105); grok
+  re-review `code-logic-review-fixes.md` APPROVED 7/10 (row 108). Moderate items -> "TASK_2026_677 follow-ups".
+- Result Step 3: codex `visual-review.md` FAIL (2 Serious, 1 Moderate; row 109) -> FIX-4 `5594828d3`
+  (row 110) -> codex re-check `visual-recheck-FIX-4.md` PASS: 3/3 FIXED dark + light,
+  no new issues; screenshots `screenshots/after-fix4/`, inspected by the orchestrator (row 112).
 
 ## After 648 merges (not batches now; plan §7.4)
 
