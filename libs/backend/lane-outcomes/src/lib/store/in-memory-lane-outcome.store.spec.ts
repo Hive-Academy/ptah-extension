@@ -3,6 +3,21 @@ import { InMemoryLaneOutcomeStore } from './in-memory-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
 
 describe('InMemoryLaneOutcomeStore', () => {
+  it('round-trips subagent session identifiers', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const row = {
+      ...outcomeRow('subagent:session'),
+      subagentSessionId: 'session',
+      parentSessionId: 'parent',
+      workspaceRoot: '/workspace',
+    };
+    await store.insertIfAbsent(row);
+    expect(await store.get(row.runId)).toMatchObject({
+      subagentSessionId: 'session',
+      parentSessionId: 'parent',
+      workspaceRoot: '/workspace',
+    });
+  });
   it('joins deliverables then revise in held order, receipts once, replay no-op', async () => {
     const store = new InMemoryLaneOutcomeStore();
     const now = Date.now();

@@ -43,3 +43,18 @@ export type {
   OutcomeWriteResult,
   OutcomeStoreAvailability,
 } from './lib/write/outcome-write-pipeline';
+export { LaneOutcomeRecorder } from './lib/lane-outcome-recorder.service';
+export type { LaneCompletionOutcomeInput } from './lib/lane-outcome-recorder.service';
+export { LaneOutcomeReader } from './lib/lane-outcome-reader.service';
+export type { LaneOutcomeQueries } from './lib/lane-outcome-reader.service';
+export type {
+  SkillTelemetrySeam,
+  SubagentRunTelemetry,
+} from './lib/skill-telemetry-seam.port';
+export { computeAgentSignals } from './lib/agent-signals';
+export { applySubagentJoin, subagentRunId } from './lib/subagent-join';
+export {
+  registerLaneOutcomeServices,
+  LANE_OUTCOME_PIPELINE,
+} from './lib/di/register';
+export { startLaneOutcomes } from './lib/di/start';

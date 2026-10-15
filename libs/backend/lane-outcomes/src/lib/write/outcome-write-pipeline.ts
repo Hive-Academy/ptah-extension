@@ -129,6 +129,7 @@ export class OutcomeWritePipeline {
     private readonly logger: LaneOutcomeLogger,
     private readonly storage?: IStateStorage,
     private readonly availability?: OutcomeStoreAvailability,
+    private readonly onLaneRecordInserted?: (row: LaneOutcomeRecord) => void,
   ) {
     this.journal = storage
       ? new KeyValueOutcomeJournal<OutcomeWriteOp>(storage)
@@ -541,7 +542,19 @@ export class OutcomeWritePipeline {
             },
             'invalid-payload',
           );
-      } else await this.store.insertIfAbsent(row);
+      } else {
+        const inserted = await this.store.insertIfAbsent(row);
+        if (inserted && this.onLaneRecordInserted) {
+          try {
+            this.onLaneRecordInserted(row);
+          } catch (error: unknown) {
+            this.logger.warn('Outcome insert callback failed', {
+              runId: row.runId,
+              code: error instanceof Error ? error.name : 'UNKNOWN',
+            });
+          }
+        }
+      }
     } else if (op.kind === 'budget-stop') {
       await this.store.markBudgetStopped(op.runId, Date.now());
     } else return this.applyReport(op);

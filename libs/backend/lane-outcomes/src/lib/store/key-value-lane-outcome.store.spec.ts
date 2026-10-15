@@ -36,6 +36,23 @@ function storage() {
 }
 
 describe('KeyValueLaneOutcomeStore', () => {
+  it('round-trips subagent session identifiers through persisted state', async () => {
+    const memory = storage();
+    const store = new KeyValueLaneOutcomeStore(memory.state);
+    const row = {
+      ...outcomeRow('subagent:session'),
+      subagentSessionId: 'session',
+      parentSessionId: 'parent',
+      workspaceRoot: '/workspace',
+    };
+    await store.insertIfAbsent(row);
+    const reopened = new KeyValueLaneOutcomeStore(memory.state);
+    expect(await reopened.get(row.runId)).toMatchObject({
+      subagentSessionId: 'session',
+      parentSessionId: 'parent',
+      workspaceRoot: '/workspace',
+    });
+  });
   it('joins in held order in one update and replays without a write', async () => {
     const memory = storage();
     const store = new KeyValueLaneOutcomeStore(memory.state);

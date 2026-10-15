@@ -18,6 +18,9 @@ const columns = [
   ['executorKind', 'executor_kind'],
   ['laneId', 'lane_id'],
   ['agentId', 'agent_id'],
+  ['subagentSessionId', 'subagent_session_id'],
+  ['parentSessionId', 'parent_session_id'],
+  ['workspaceRoot', 'workspace_root'],
   ['family', 'family'],
   ['provider', 'provider'],
   ['model', 'model'],
@@ -82,7 +85,7 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
   private values(row: LaneOutcomeRecord): unknown[] {
     const parsed = LaneOutcomeRowSchema.parse(row);
     const values: Record<string, unknown> = { ...parsed };
-    return columns.map(([key]) => values[key]);
+    return columns.map(([key]) => values[key] ?? null);
   }
 
   async insertIfAbsent(input: LaneOutcomeRecord): Promise<boolean> {

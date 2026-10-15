@@ -61,10 +61,74 @@ function report(
   return { kind, report: held };
 }
 
+const pipelines: OutcomeWritePipeline[] = [];
+
+function trackedPipeline(
+  ...args: ConstructorParameters<typeof OutcomeWritePipeline>
+): OutcomeWritePipeline {
+  const pipeline = new OutcomeWritePipeline(...args);
+  pipelines.push(pipeline);
+  return pipeline;
+}
+
 describe('OutcomeWritePipeline', () => {
+  afterEach(async () => {
+    await Promise.all(
+      pipelines.splice(0).map((pipeline) => pipeline.dispose()),
+    );
+  });
+  it('calls insert callback once for a new lane row and skips duplicates', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const inserted = jest.fn();
+    const pipeline = trackedPipeline(
+      store,
+      logger,
+      undefined,
+      undefined,
+      inserted,
+    );
+    const row = outcomeRow('lane:once');
+    pipeline.enqueue({ kind: 'lane-completion', row });
+    pipeline.enqueue({ kind: 'lane-completion', row });
+    await pipeline.flush();
+    expect(inserted).toHaveBeenCalledTimes(1);
+    expect(inserted).toHaveBeenCalledWith(row);
+    await pipeline.dispose();
+  });
+
+  it('logs a throwing insert callback and keeps draining', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const warn = jest.fn();
+    const pipeline = trackedPipeline(
+      store,
+      { ...logger, warn },
+      undefined,
+      undefined,
+      () => {
+        throw new Error('callback failure');
+      },
+    );
+    pipeline.enqueue({
+      kind: 'lane-completion',
+      row: outcomeRow('lane:first'),
+    });
+    pipeline.enqueue({
+      kind: 'lane-completion',
+      row: outcomeRow('lane:second'),
+    });
+    await pipeline.flush();
+    expect(await store.get('lane:first')).not.toBeNull();
+    expect(await store.get('lane:second')).not.toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      'Outcome insert callback failed',
+      expect.objectContaining({ runId: 'lane:first' }),
+    );
+    await pipeline.dispose();
+  });
+
   it('joins reports submitted by runId and agentId before either stop', async () => {
     const store = new InMemoryLaneOutcomeStore();
-    const pipeline = new OutcomeWritePipeline(store, logger);
+    const pipeline = trackedPipeline(store, logger);
     expect(await pipeline.submit(reportOp('subagent:A', 601))).toMatchObject({
       ok: true,
       state: 'held',
@@ -96,7 +160,7 @@ describe('OutcomeWritePipeline', () => {
 
   it('keeps concurrent same-slug held and applied reports on their own runs', async () => {
     const store = new InMemoryLaneOutcomeStore();
-    const pipeline = new OutcomeWritePipeline(store, logger);
+    const pipeline = trackedPipeline(store, logger);
     await store.insertStopWithHeldReports(
       { ...outcomeRow('subagent:A'), role: 'shared' },
       Date.now(),
@@ -126,7 +190,7 @@ describe('OutcomeWritePipeline', () => {
   it('joins a held report after a KV store and pipeline reopen', async () => {
     const storage = new MemoryState();
     const availability = new Availability();
-    const first = new OutcomeWritePipeline(
+    const first = trackedPipeline(
       new KeyValueLaneOutcomeStore(storage),
       logger,
       storage,
@@ -140,12 +204,7 @@ describe('OutcomeWritePipeline', () => {
     availability.open = false;
     await first.dispose();
     const reopened = new KeyValueLaneOutcomeStore(storage);
-    const second = new OutcomeWritePipeline(
-      reopened,
-      logger,
-      storage,
-      availability,
-    );
+    const second = trackedPipeline(reopened, logger, storage, availability);
     availability.reopen();
     second.enqueue({ kind: 'subagent-stop', row: outcomeRow('subagent:kv') });
     await second.flush();
@@ -160,7 +219,7 @@ describe('OutcomeWritePipeline', () => {
     const file = join(dir, 'outcomes.sqlite');
     try {
       const first = sqliteFixture(file);
-      const initial = new OutcomeWritePipeline(first.store, logger);
+      const initial = trackedPipeline(first.store, logger);
       expect(
         await initial.submit(reportOp('subagent:sqlite', 607)),
       ).toMatchObject({ ok: true, state: 'held' });
@@ -169,7 +228,7 @@ describe('OutcomeWritePipeline', () => {
       first.db.close();
       const reopened = sqliteFixture(file);
       try {
-        const pipeline = new OutcomeWritePipeline(reopened.store, logger);
+        const pipeline = trackedPipeline(reopened.store, logger);
         pipeline.enqueue({
           kind: 'subagent-stop',
           row: outcomeRow('subagent:sqlite'),
@@ -206,7 +265,7 @@ describe('OutcomeWritePipeline', () => {
         expiresAt: now - 1,
       });
       const warnings = { ...logger, warn: jest.fn() };
-      const pipeline = new OutcomeWritePipeline(store, warnings);
+      const pipeline = trackedPipeline(store, warnings);
       await pipeline.flush();
       expect(await store.listHeldReports(now - 2)).toHaveLength(0);
       expect(warnings.warn).toHaveBeenCalledTimes(2);
@@ -235,12 +294,7 @@ describe('OutcomeWritePipeline', () => {
     const warnings = { ...logger, warn: jest.fn() };
     const availability = new Availability();
     availability.open = true;
-    const pipeline = new OutcomeWritePipeline(
-      store,
-      warnings,
-      undefined,
-      availability,
-    );
+    const pipeline = trackedPipeline(store, warnings, undefined, availability);
     await pipeline.flush();
     store.seed({ ...reportOp('subagent:old', 610).report, expiresAt: now - 1 });
     expect(await pipeline.submit(reportOp('subagent:new', 611))).toMatchObject({
@@ -255,7 +309,7 @@ describe('OutcomeWritePipeline', () => {
   });
   it('rejects an unknown lane target without changing the journal', async () => {
     const storage = new MemoryState();
-    const pipeline = new OutcomeWritePipeline(
+    const pipeline = trackedPipeline(
       new InMemoryLaneOutcomeStore(),
       logger,
       storage,
@@ -276,7 +330,7 @@ describe('OutcomeWritePipeline', () => {
 
   it('rejects an unknown review even when the store is closed', async () => {
     const storage = new MemoryState();
-    const pipeline = new OutcomeWritePipeline(
+    const pipeline = trackedPipeline(
       new InMemoryLaneOutcomeStore(),
       logger,
       storage,
@@ -299,12 +353,9 @@ describe('OutcomeWritePipeline', () => {
 
   it('uses unexpired rows for the readable-store capacity check', async () => {
     const store = new SeededStore();
-    const pipeline = new OutcomeWritePipeline(
-      store,
-      logger,
-      new MemoryState(),
-      { isOpen: () => true },
-    );
+    const pipeline = trackedPipeline(store, logger, new MemoryState(), {
+      isOpen: () => true,
+    });
     await pipeline.flush();
     const now = Date.now();
     for (let i = 0; i < 500; i++) {
@@ -336,7 +387,7 @@ describe('OutcomeWritePipeline', () => {
         ...heldReport(i, now),
         expiresAt: now + 86400000,
       });
-    const pipeline = new OutcomeWritePipeline(store, logger, storage, {
+    const pipeline = trackedPipeline(store, logger, storage, {
       isOpen: () => true,
     });
     const before = new KeyValueOutcomeJournal<OutcomeWriteOp>(
@@ -354,7 +405,7 @@ describe('OutcomeWritePipeline', () => {
 
   it('applies an insert before its following report', async () => {
     const store = new InMemoryLaneOutcomeStore();
-    const pipeline = new OutcomeWritePipeline(store, logger);
+    const pipeline = trackedPipeline(store, logger);
     pipeline.enqueue({ kind: 'subagent-stop', row: outcomeRow('subagent:z') });
     expect(await pipeline.submit(report('subagent:z', 1))).toMatchObject({
       ok: true,
@@ -369,7 +420,7 @@ describe('OutcomeWritePipeline', () => {
     const store = new SeededStore();
     const storage = new MemoryState();
     let open = true;
-    const pipeline = new OutcomeWritePipeline(store, logger, storage, {
+    const pipeline = trackedPipeline(store, logger, storage, {
       isOpen: () => open,
     });
     expect(await pipeline.submit(report('subagent:z', 10))).toMatchObject({

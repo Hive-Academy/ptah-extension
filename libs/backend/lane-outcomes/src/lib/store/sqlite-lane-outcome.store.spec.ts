@@ -21,6 +21,7 @@ function fixture(file = ':memory:') {
     CREATE TABLE IF NOT EXISTS lane_outcome_records (
       run_id TEXT NOT NULL PRIMARY KEY, executor_kind TEXT NOT NULL,
       lane_id TEXT NOT NULL, agent_id TEXT NOT NULL, family TEXT,
+      subagent_session_id TEXT, parent_session_id TEXT, workspace_root TEXT,
       provider TEXT, model TEXT NOT NULL, role TEXT, task_kind TEXT,
       task_id TEXT, verdict TEXT NOT NULL, failure_class TEXT,
       budget_stopped INTEGER NOT NULL DEFAULT 0, started_at INTEGER,
@@ -49,6 +50,25 @@ function fixture(file = ':memory:') {
 }
 
 describe('SqliteLaneOutcomeStore', () => {
+  it('round-trips subagent session identifiers', async () => {
+    const { db, store } = fixture();
+    try {
+      const row = {
+        ...outcomeRow('subagent:session'),
+        subagentSessionId: 'session',
+        parentSessionId: 'parent',
+        workspaceRoot: '/workspace',
+      };
+      await store.insertIfAbsent(row);
+      expect(await store.get(row.runId)).toMatchObject({
+        subagentSessionId: 'session',
+        parentSessionId: 'parent',
+        workspaceRoot: '/workspace',
+      });
+    } finally {
+      db.close();
+    }
+  });
   it('joins in held order with receipts and replay no-op', async () => {
     const { db, store } = fixture();
     try {

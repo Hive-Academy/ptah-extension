@@ -45,11 +45,7 @@ export type OutcomeFinalReview = 'approved' | 'rejected';
  * Lanes: 'not-applicable'.
  */
 export type OutcomeTelemetryJoin =
-  | 'matched'
-  | 'unmatched'
-  | 'ambiguous'
-  | 'unavailable'
-  | 'not-applicable';
+  'matched' | 'unmatched' | 'ambiguous' | 'unavailable' | 'not-applicable';
 
 /**
  * Executor id of every subagent record (Req 5.2 "or `subagent`"); the slug is
@@ -70,6 +66,10 @@ export interface LaneOutcomeRecord {
   /** cli id, ptahCliId, or {@link SUBAGENT_LANE_ID}. */
   readonly laneId: string;
   readonly agentId: string;
+  /** Session and workspace identifiers for subagent telemetry joins; null for lanes. */
+  readonly subagentSessionId?: string | null;
+  readonly parentSessionId?: string | null;
+  readonly workspaceRoot?: string | null;
   /** `laneFamilyOf(...)` at write time (SC-5); `SUBAGENT_FAMILY` for subagents. */
   readonly family: string;
   readonly provider: string | null;
