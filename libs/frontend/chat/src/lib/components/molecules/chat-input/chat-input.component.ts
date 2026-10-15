@@ -10,6 +10,7 @@ import {
   ElementRef,
   OnInit,
   OnDestroy,
+  Injector,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -34,7 +35,10 @@ import {
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { isTabBusyGenerating } from '../../../services/chat-store/message-dispatch.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  CommandCenterSendLockService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   SESSION_CONTEXT,
   SESSION_START_GUARD,
@@ -49,6 +53,7 @@ import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
+  AppStateManager,
   VSCodeService,
 } from '@ptah-extension/core';
 import { VoiceInputService } from '../../../services/voice-input.service';
@@ -145,6 +150,14 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
       (drop)="handleDrop($event)"
     >
       <!-- Image attachment validation error (auto-clears after 4s) -->
+      @if (commandCenterHeld()) {
+        <div role="status" class="text-xs text-base-content-muted px-2 pb-1.5">
+          Command Center voice owns this session. Regular chat sends are held.
+          <button type="button" class="link" (click)="openCommandCenter()">
+            Open Command Center
+          </button>
+        </div>
+      }
       @if (imageAttachmentError()) {
         <div
           class="flex items-center gap-1.5 text-xs text-error px-2 pb-1.5"
@@ -232,9 +245,11 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
             style="field-sizing: content"
             class="block w-full min-h-[calc(2lh+1rem)] max-h-[10rem] overflow-y-auto resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-sm leading-relaxed text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
             [placeholder]="
-              attachedReadOnly()
-                ? 'Session is attached to messaging — read-only'
-                : 'Ask a question or describe a task...'
+              commandCenterHeld()
+                ? 'Command Center voice owns this session — sends held'
+                : attachedReadOnly()
+                  ? 'Session is attached to messaging — read-only'
+                  : 'Ask a question or describe a task...'
             "
             [value]="currentMessage()"
             [readonly]="attachedReadOnly()"
@@ -400,7 +415,9 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
             <!-- Send Button (always functional - queues message during streaming) -->
             <button
               class="btn btn-circle btn-primary btn-sm min-h-0 h-8 w-8"
-              [disabled]="!canSend() || attachedReadOnly()"
+              [disabled]="
+                !canSend() || attachedReadOnly() || commandCenterHeld()
+              "
               (click)="handleSend()"
               type="button"
               title="Send message"
@@ -468,6 +485,8 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
 export class ChatInputComponent implements OnInit, OnDestroy {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
+  private readonly commandCenterSendLock = inject(CommandCenterSendLockService);
+  private readonly injector = inject(Injector);
   private readonly draftStore = inject(ComposerDraftStore);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
@@ -607,6 +626,16 @@ export class ChatInputComponent implements OnInit, OnDestroy {
 
   /** True when this tab's session is attached to a messaging binding. */
   readonly attachedReadOnly = computed(() => this.attachedBinding() != null);
+
+  public readonly commandCenterHeld = computed(() => {
+    this.commandCenterSendLock.state();
+    const tab = this.resolvedTab();
+    return tab != null && this.commandCenterSendLock.isHeld(tab.id);
+  });
+
+  public openCommandCenter(): void {
+    this.injector.get(AppStateManager).setCurrentView('command-center');
+  }
 
   /**
    * Per-tab compaction state. In canvas mode, scoped to this tile's tab
@@ -1464,7 +1493,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     if (!this.showSuggestions() && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       // Read-only while attached to a messaging binding — Enter must not send.
-      if (this.attachedReadOnly()) return;
+      if (this.attachedReadOnly() || this.commandCenterHeld()) return;
       this.handleSend();
     }
   }
@@ -1476,7 +1505,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   async handleSend(): Promise<void> {
     // Composer is read-only while the session is attached to a messaging
     // binding — block sends; the user must "Resolve back to webview" first.
-    if (this.attachedReadOnly()) return;
+    if (this.attachedReadOnly() || this.commandCenterHeld()) return;
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
@@ -1633,11 +1662,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     )
       return;
     this.lastDraft = { text, files, images };
-    if (
-      !text &&
-      files.length === 0 &&
-      images.length === 0
-    ) {
+    if (!text && files.length === 0 && images.length === 0) {
       this.draftStore.clear(this.draftTabId);
       return;
     }

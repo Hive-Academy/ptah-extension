@@ -147,6 +147,16 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             <button
               role="tab"
               class="tab gap-1.5 no-drag"
+              [class.tab-active]="appState.currentView() === 'command-center'"
+              [attr.aria-selected]="appState.currentView() === 'command-center'"
+              title="Command Center"
+              (click)="openCommandCenter()"
+            >
+              Command Center
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
               [class.tab-active]="appState.currentView() === 'apps'"
               [attr.aria-selected]="appState.currentView() === 'apps'"
               title="Apps"
@@ -514,6 +524,10 @@ export class ElectronShellComponent {
 
   openApps(): void {
     this.appState.setCurrentView('apps');
+  }
+
+  public openCommandCenter(): void {
+    this.appState.setCurrentView('command-center');
   }
 
   openSetupHub(): void {

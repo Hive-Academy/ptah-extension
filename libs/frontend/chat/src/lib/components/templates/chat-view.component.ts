@@ -72,6 +72,7 @@ import {
   TabSessionBinding,
   TabId,
   ConfirmationDialogService,
+  commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
@@ -112,8 +113,10 @@ export function shouldOverlayDock(
   panelOpen: boolean,
 ): boolean {
   if (hostWidth === 0) return panelOpen;
-  return hostWidth < AGENT_PANEL_OVERLAY_BREAKPOINT ||
-    (minContentWidth !== null && hostWidth - dockWidth < minContentWidth);
+  return (
+    hostWidth < AGENT_PANEL_OVERLAY_BREAKPOINT ||
+    (minContentWidth !== null && hostWidth - dockWidth < minContentWidth)
+  );
 }
 
 /** Product names of the lane CLIs, for runs that carry no display name. */
@@ -270,7 +273,9 @@ export class ChatViewComponent implements OnDestroy {
   readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
-  private readonly railMinContentWidth = inject(RAIL_MIN_CONTENT_WIDTH, { optional: true });
+  private readonly railMinContentWidth = inject(RAIL_MIN_CONTENT_WIDTH, {
+    optional: true,
+  });
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly ngZone = inject(NgZone);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
@@ -475,7 +480,9 @@ export class ChatViewComponent implements OnDestroy {
       custom ?? DISPLAY_DOCK_DEFAULT_WIDTH,
       this.hostWidth(),
     );
-    return custom === null ? width : Math.min(width, this.dockMaxWidth() ?? Infinity);
+    return custom === null
+      ? width
+      : Math.min(width, this.dockMaxWidth() ?? Infinity);
   });
   protected readonly dockMaxWidth = computed(() => {
     const host = this.hostWidth();
@@ -864,9 +871,10 @@ export class ChatViewComponent implements OnDestroy {
     // Reading tabs keeps this list reactive when that happens.
     if (ctx && this._railRetention) {
       this._tabManager.tabs();
-      const existing = retained.filter((id) =>
-        this._tabManager.findTabByIdAcrossWorkspaces(id) &&
-        !this._retention.liveElsewhere(id),
+      const existing = retained.filter(
+        (id) =>
+          this._tabManager.findTabByIdAcrossWorkspaces(id) &&
+          !this._retention.liveElsewhere(id),
       );
       const active = this.resolvedTabId();
       return active &&
@@ -1674,11 +1682,16 @@ export class ChatViewComponent implements OnDestroy {
   ): Promise<void> {
     const anchorId = this.resolveAnchorId(messageId);
     const anchorHint = this.buildAnchorHint(messageId);
+    const rewindTab = this._tabManager.findTabBySessionId(sessionId);
+    const systemPrompt = rewindTab
+      ? commandCenterPersonaFor(rewindTab)
+      : undefined;
     const dryRun = await this._claudeRpc.rewindFiles(
       sessionId,
       anchorId,
       true,
       anchorHint,
+      systemPrompt,
     );
 
     if (!dryRun.isSuccess()) {
@@ -1759,6 +1772,7 @@ export class ChatViewComponent implements OnDestroy {
         anchorId,
         false,
         anchorHint,
+        systemPrompt,
       );
       if (!commit.isSuccess()) {
         const errMsg = commit.error ?? 'unknown error';
@@ -1945,4 +1959,3 @@ function clampDockWidth(width: number, hostWidth: number): number {
   const min = Math.min(DOCK_MIN_WIDTH, max);
   return Math.round(Math.min(Math.max(width, min), max));
 }
-

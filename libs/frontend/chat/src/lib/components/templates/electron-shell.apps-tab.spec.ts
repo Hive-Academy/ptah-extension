@@ -134,9 +134,10 @@ describe('ElectronShellComponent Apps tab', () => {
 
   afterEach(() => fixture.destroy());
 
-  it('orders the tab row Chat, Apps, Tasks, Tribunal, Analytics, Setup hub when folders exist', () => {
+  it('orders the tab row Chat, Command Center, Apps, Tasks, Tribunal, Analytics, Setup hub when folders exist', () => {
     const order = [
       'Chat',
+      'Command Center',
       'Apps',
       'Tasks',
       'Tribunal',
@@ -145,7 +146,7 @@ describe('ElectronShellComponent Apps tab', () => {
     ];
     expect(tabs().map((tab) => tab.title)).toEqual(order);
     expect(tabs().map((tab) => tab.textContent?.trim())).toEqual(order);
-    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(6);
+    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(7);
   });
 
   it('renders the Apps tab with the sibling tab pattern and the AppWindow icon', () => {
@@ -187,6 +188,7 @@ describe('ElectronShellComponent Apps tab', () => {
     appStateStub.currentView.set('apps');
     fixture.detectChanges();
     expect(tabs().map((tab) => tab.getAttribute('aria-selected'))).toEqual([
+      'false',
       'false',
       'true',
       'false',
