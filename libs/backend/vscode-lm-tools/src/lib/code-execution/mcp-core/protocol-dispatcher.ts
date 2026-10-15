@@ -16,6 +16,7 @@ import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import {
   compactCoverage,
   type CompactCoverage,
+  type IFileSystemProvider,
   type IOutputChannel,
   type IWorkspaceProvider,
   type LanguageCoverage,
@@ -176,6 +177,14 @@ import {
   buildSessionStopTool,
 } from './session-tools';
 import { handleSessionToolCall } from './session-tool-handlers';
+import { ROUTE_DECIDE_TOOL_NAME, buildRouteDecideTool } from './route-tools';
+import { handleRouteToolCall } from './route-tool-handlers';
+import {
+  OUTCOME_REPORT_TOOL_NAME,
+  buildOutcomeReportTool,
+  runOutcomeReport,
+  type OutcomeReportDependencies,
+} from './tools/outcome-report.tool';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import { buildServerInstructions } from './server-instructions';
@@ -316,6 +325,13 @@ export interface ProtocolHandlerDependencies {
   now?: () => number;
   /** Test seam for HTTP run-check dispatch; production uses {@link runCheck}. */
   runCheck?: typeof runCheck;
+  /**
+   * Outcome-report collaborators, resolved when the tool is called — after
+   * the MCP request context is set, so the caller workspace is visible.
+   * Absent, or a resolve that returns `undefined`: the tool still parses
+   * its arguments and answers `outcome store unavailable`.
+   */
+  resolveOutcomeReport?: () => OutcomeReportDependencies | undefined;
 }
 
 /**
@@ -426,6 +442,10 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * - ptah_session_handoff (TASK_2026_655), beside ptah_session_link_task: the
  *   budget banner's handoff action relies on it, so the 'agent' toggle must
  *   not remove it.
+ * - ptah_route_decide (TASK_2026_646), always-on beside the handoff tool.
+ * - ptah_outcome_report (TASK_2026_646), listed on every tools/list and left
+ *   deferred: it is not in ALWAYS_EAGER_TOOLS, so markEagerTools does not
+ *   stamp `anthropic/alwaysLoad` (the same treatment as execute_code).
  * - ptah_task_create/update/get/list/check (TASK_2026_179, step 17). These sit
  *   in the core set on purpose and have NO entry in the namespace-toggle list
  *   below: an agent that cannot rely on the task tools being present will fall
@@ -524,6 +544,12 @@ function buildToolDefinitions(
     // Always-on (TASK_2026_655): the budget banner's handoff action relies on
     // it, so the `agent` toggle must not remove it.
     buildSessionHandoffTool(),
+    // Always-on (TASK_2026_646): staffing one request stays listed when the
+    // `agent` toggle is off. Not eager — see ALWAYS_EAGER_TOOLS.
+    buildRouteDecideTool(),
+    // Listed on every tools/list, not eager (TASK_2026_646): markEagerTools
+    // leaves it deferred, the same way as execute_code.
+    buildOutcomeReportTool(),
     // Listed only under the apps profile (TASK_2026_595), filtered in buildToolSet.
     buildDashboardProposeSpecTool(),
     buildSurfaceUpdateTool(),
@@ -638,6 +664,9 @@ const APPROVAL_PROMPT_TOOL_NAME = 'approval_prompt';
 /**
  * Tools that should load eagerly on every runtime instead of being deferred
  * behind the SDK's built-in tool-search tool.
+ *
+ * `ptah_route_decide` and `ptah_outcome_report` are listed on every
+ * tools/list and are deliberately absent here, so they stay deferred.
  */
 const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
   'ptah_search_files',
@@ -1195,11 +1224,15 @@ async function handleIndividualTool(
           ? spawnGateVerdict(preLimits, target, now)
           : undefined;
         if (preLimits && verdict?.kind === 'blocked' && !spawnArgs.force) {
-          logger.info('[MCP] ptah_agent_spawn refused at limit', 'CodeExecutionMCP', {
-            cli: verdict.limit.row.cli,
-            ptahCliId: verdict.limit.row.ptahCliId,
-            reason: verdict.block.kind,
-          });
+          logger.info(
+            '[MCP] ptah_agent_spawn refused at limit',
+            'CodeExecutionMCP',
+            {
+              cli: verdict.limit.row.cli,
+              ptahCliId: verdict.limit.row.ptahCliId,
+              reason: verdict.block.kind,
+            },
+          );
           return toolErrorResponse(
             request,
             `Error: ${formatSpawnRefusal(preLimits, verdict, now)}`,
@@ -1224,6 +1257,8 @@ async function handleIndividualTool(
             parentSessionId: request._callerSessionId,
             role: spawnArgs.role,
             effort: spawnArgs.effort,
+            taskKind: spawnArgs.taskKind,
+            routingSource: spawnArgs.routingSource,
           });
         } catch (error: unknown) {
           // Any other failure keeps its pre-existing path: re-thrown to the
@@ -2336,6 +2371,12 @@ async function handleIndividualTool(
           : await createToolSuccessResponse(request, reply.text, deps);
       }
 
+      case ROUTE_DECIDE_TOOL_NAME:
+        return routeDecideResponse(request, args, ptahAPI, logger, deps);
+
+      case OUTCOME_REPORT_TOOL_NAME:
+        return outcomeReportResponse(request, args, deps);
+
       case 'ptah_ast_analyze': {
         const { file, workspaceRoot } = args as {
           file: string;
@@ -2742,6 +2783,96 @@ function toolErrorResponse(request: MCPRequest, text: string): MCPResponse {
     result: {
       content: [{ type: 'text', text }],
       isError: true,
+    },
+  };
+}
+
+/** One-line delegation for `ptah_route_decide`. The handler owns validation. */
+async function routeDecideResponse(
+  request: MCPRequest,
+  args: unknown,
+  ptahAPI: PtahAPI,
+  logger: Logger,
+  deps: ProtocolHandlerDependencies,
+): Promise<MCPResponse> {
+  const reply = await handleRouteToolCall(args, ptahAPI.route, logger);
+  return reply.isError
+    ? toolErrorResponse(request, reply.text)
+    : createToolSuccessResponse(request, reply.text, deps);
+}
+
+/**
+ * One-line delegation for `ptah_outcome_report`. Parse always runs, including
+ * when the store is not registered: an invalid call is a tool error, and a
+ * parsed call with no store is `{ recorded: false }`.
+ */
+async function outcomeReportResponse(
+  request: MCPRequest,
+  args: unknown,
+  deps: ProtocolHandlerDependencies,
+): Promise<MCPResponse> {
+  try {
+    const result = await runOutcomeReport(args, outcomeReportDeps(deps));
+    return createToolSuccessResponse(request, JSON.stringify(result), deps);
+  } catch (error: unknown) {
+    return toolErrorResponse(request, outcomeReportErrorText(error));
+  }
+}
+
+function outcomeReportDeps(
+  deps: ProtocolHandlerDependencies,
+): OutcomeReportDependencies {
+  const resolved = deps.resolveOutcomeReport?.();
+  if (resolved) return resolved;
+  return {
+    pipeline: undefined,
+    store: undefined,
+    fileSystem: unavailableOutcomeFileSystem(),
+    workspaceRoot: '',
+    logger: adaptOutcomeLogger(deps.logger),
+  };
+}
+
+function outcomeReportErrorText(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    return `Error: invalid ${OUTCOME_REPORT_TOOL_NAME} arguments — ${describeZodIssues(error)}`;
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return `${OUTCOME_REPORT_TOOL_NAME} failed: ${error.message.trim()}`;
+  }
+  return `${OUTCOME_REPORT_TOOL_NAME} failed: unknown error`;
+}
+
+function adaptOutcomeLogger(
+  logger: Logger,
+): OutcomeReportDependencies['logger'] {
+  return {
+    debug: (message, meta) => logger.debug(message, meta),
+    info: (message, meta) => logger.info(message, meta),
+    warn: (message, meta) => logger.warn(message, meta),
+    error: (message, meta) => logger.error(message, meta),
+  };
+}
+
+/** Satisfies the required filesystem when no resolver is wired. Never read on the early return. */
+function unavailableOutcomeFileSystem(): IFileSystemProvider {
+  const fail = (method: string): Promise<never> =>
+    Promise.reject(new Error(`outcome filesystem unavailable: ${method}`));
+  return {
+    readFile: () => fail('readFile'),
+    readFileBytes: () => fail('readFileBytes'),
+    writeFile: () => fail('writeFile'),
+    writeFileBytes: () => fail('writeFileBytes'),
+    readDirectory: () => fail('readDirectory'),
+    stat: () => fail('stat'),
+    exists: () => fail('exists'),
+    delete: () => fail('delete'),
+    createDirectory: () => fail('createDirectory'),
+    createDirectoryExclusive: () => fail('createDirectoryExclusive'),
+    copy: () => fail('copy'),
+    findFiles: () => fail('findFiles'),
+    createFileWatcher: () => {
+      throw new Error('outcome filesystem unavailable: createFileWatcher');
     },
   };
 }

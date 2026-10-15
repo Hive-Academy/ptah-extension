@@ -86,6 +86,8 @@ export const TOOL_RESULT_BUDGET_OVERRIDES: Readonly<
   ptah_browser_content: charBudget(BROWSER_CONTENT_CHARS),
   ptah_session_read: charBudget(SESSION_READ_CHARS),
   ptah_surface_get_state: charBudget(SURFACE_LIMITS.maxStateReadBytes),
+  // A 70-phase gate-0.1 answer (TASK_2026_646, part A §8).
+  ptah_route_decide: charBudget(24_000),
 });
 
 /**
@@ -121,6 +123,10 @@ export const TOOL_CONTENT_HINTS: Readonly<Record<string, ContentKind>> =
     ptah_session_stop: 'preformatted',
     // Session handoff (TASK_2026_655): a short reply naming the new tab.
     ptah_session_handoff: 'preformatted',
+    // Route decide (TASK_2026_646): one JSON roster. Outcome report: one JSON
+    // receipt. The outline reducer would keep a header and drop the body.
+    ptah_route_decide: 'preformatted',
+    ptah_outcome_report: 'preformatted',
     ptah_task_list: 'preformatted',
   });
 

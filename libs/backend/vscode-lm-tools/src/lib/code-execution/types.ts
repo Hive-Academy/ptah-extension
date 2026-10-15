@@ -2,7 +2,7 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 21 namespaces exposing VS Code extension capabilities to Claude CLI.
+ * Supports 22 namespaces exposing VS Code extension capabilities to Claude CLI.
  */
 
 import type {
@@ -45,6 +45,7 @@ import type { CorpusNamespace } from './namespace-builders/corpus-namespace.buil
 import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 import type { TasksNamespace } from './namespace-builders/tasks-namespace.builder';
 import type { SessionOrganizationNamespace } from './namespace-builders/session-organization-namespace.builder';
+import type { RouteNamespace } from './namespace-builders/route-namespace.builder';
 import type {
   WebSearchFailureReason,
   WebSearchProviderType,
@@ -52,7 +53,7 @@ import type {
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 21 namespaces for comprehensive workspace intelligence
+ * Provides 22 namespaces for comprehensive workspace intelligence
  */
 export interface PtahAPI {
   workspace: WorkspaceNamespace;
@@ -66,6 +67,12 @@ export interface PtahAPI {
   ide: IDENamespace;
   orchestration: OrchestrationNamespace;
   agent: AgentNamespace;
+  /**
+   * Staffing decision for one engineering request (TASK_2026_646).
+   * NON-optional: an unregistered route service throws at call time rather
+   * than omitting the namespace.
+   */
+  route: RouteNamespace;
   git: GitNamespace;
   json: JsonNamespace;
   browser: BrowserNamespace;

@@ -6,7 +6,8 @@
  * to the underlying
  * `PtahAPI.agent` namespace, plus the two blocking waits (TASK_2026_597):
  * `agent_wait` (`PtahAPI.agent.waitForAgents`) and `run_check` (an Nx run in
- * the host's working directory). Each route:
+ * the host's working directory), plus `route_decide` and `outcome_report`
+ * (TASK_2026_646). Eleven tools. Each route:
  *
  *   1. Parses the inbound `tools/call` arguments through a Zod schema.
  *   2. Delegates to the corresponding `PtahAPI.agent.*` method.
@@ -30,7 +31,10 @@
  */
 
 import { z } from 'zod';
-import type { IOutputChannel } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  IOutputChannel,
+} from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { CliDetectionResult } from '@ptah-extension/shared';
 import type {
@@ -79,6 +83,12 @@ import {
 } from '../mcp-core/wait-tools-args.schema';
 import { runAgentWait } from '../mcp-core/agent-wait.tool';
 import { runCheck } from '../mcp-core/run-check.tool';
+import { handleRouteToolCall } from '../mcp-core/route-tool-handlers';
+import {
+  OUTCOME_REPORT_TOOL_NAME,
+  runOutcomeReport,
+  type OutcomeReportDependencies,
+} from '../mcp-core/tools/outcome-report.tool';
 import {
   AgentMessageError,
   AgentRoleError,
@@ -202,6 +212,56 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function outcomeReportErrorText(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    return `Error: invalid ${OUTCOME_REPORT_TOOL_NAME} arguments — ${error.issues
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('; ')}`;
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return `${OUTCOME_REPORT_TOOL_NAME} failed: ${error.message.trim()}`;
+  }
+  return `${OUTCOME_REPORT_TOOL_NAME} failed: unknown error`;
+}
+
+function fallbackOutcomeDeps(logger: Logger): OutcomeReportDependencies {
+  return {
+    pipeline: undefined,
+    store: undefined,
+    fileSystem: unavailableOutcomeFileSystem(),
+    workspaceRoot: '',
+    logger: {
+      debug: (message, meta) => logger.debug(message, meta),
+      info: (message, meta) => logger.info(message, meta),
+      warn: (message, meta) => logger.warn(message, meta),
+      error: (message, meta) => logger.error(message, meta),
+    },
+  };
+}
+
+/** Satisfies the required filesystem when no resolver is wired. Never read on the early return. */
+function unavailableOutcomeFileSystem(): IFileSystemProvider {
+  const fail = (method: string): Promise<never> =>
+    Promise.reject(new Error(`outcome filesystem unavailable: ${method}`));
+  return {
+    readFile: () => fail('readFile'),
+    readFileBytes: () => fail('readFileBytes'),
+    writeFile: () => fail('writeFile'),
+    writeFileBytes: () => fail('writeFileBytes'),
+    readDirectory: () => fail('readDirectory'),
+    stat: () => fail('stat'),
+    exists: () => fail('exists'),
+    delete: () => fail('delete'),
+    createDirectory: () => fail('createDirectory'),
+    createDirectoryExclusive: () => fail('createDirectoryExclusive'),
+    copy: () => fail('copy'),
+    findFiles: () => fail('findFiles'),
+    createFileWatcher: () => {
+      throw new Error('outcome filesystem unavailable: createFileWatcher');
+    },
+  };
+}
+
 /**
  * Dispatch a single MCP `tools/call` invocation for one of the six agent
  * wrapper tools. Returns `null` when the tool name is not handled by this
@@ -233,6 +293,13 @@ export class AgentToolDispatcher {
      * host-owned workspace folder.
      */
     private readonly spoolRoot: () => string = () => process.cwd(),
+    /**
+     * Outcome-report collaborators, read when the tool is called. Absent:
+     * arguments are still parsed, and a valid call answers
+     * `outcome store unavailable`.
+     */
+    private readonly resolveOutcomeReport?: () =>
+      OutcomeReportDependencies | undefined,
   ) {}
 
   static readonly TOOL_NAMES: readonly string[] = [
@@ -245,6 +312,8 @@ export class AgentToolDispatcher {
     'agent_list',
     'agent_wait',
     'run_check',
+    'route_decide',
+    'outcome_report',
   ];
 
   handles(name: string): boolean {
@@ -300,8 +369,53 @@ export class AgentToolDispatcher {
         return this.handleWait(request, args);
       case 'run_check':
         return this.handleRunCheck(request, args);
+      case 'route_decide':
+        return this.handleRouteDecide(request, args);
+      case 'outcome_report':
+        return this.handleOutcomeReport(request, args);
       default:
         return null;
+    }
+  }
+
+  private async handleRouteDecide(
+    request: MCPRequest,
+    args: unknown,
+  ): Promise<MCPResponse> {
+    const reply = await handleRouteToolCall(
+      args,
+      this.ptahAPI.route,
+      this.logger,
+    );
+    return reply.isError
+      ? toolError(request, reply.text, 'mcp_tool_failed', {
+          tool: 'route_decide',
+        })
+      : this.toolSuccess(request, 'route_decide', reply.text);
+  }
+
+  private async handleOutcomeReport(
+    request: MCPRequest,
+    args: unknown,
+  ): Promise<MCPResponse> {
+    const resolved = this.resolveOutcomeReport?.();
+    const reportDeps = resolved ?? fallbackOutcomeDeps(this.logger);
+    try {
+      const result = await runOutcomeReport(args, reportDeps);
+      return await this.toolSuccess(
+        request,
+        'outcome_report',
+        JSON.stringify(result),
+      );
+    } catch (error: unknown) {
+      return toolError(
+        request,
+        outcomeReportErrorText(error),
+        error instanceof z.ZodError
+          ? 'mcp_invalid_tool_args'
+          : 'mcp_tool_failed',
+        { tool: 'outcome_report' },
+      );
     }
   }
 
@@ -446,10 +560,10 @@ export class AgentToolDispatcher {
         parentSessionId: this.callerSessionId,
         role: p.role,
         effort: p.effort,
+        taskKind: p.taskKind,
+        routingSource: p.routingSource,
       });
-      const limits = target
-        ? preLimits
-        : await this.lookupAgentLimits();
+      const limits = target ? preLimits : await this.lookupAgentLimits();
       return await this.toolSuccess(
         request,
         'agent_spawn',
@@ -477,9 +591,7 @@ export class AgentToolDispatcher {
     } catch (err: unknown) {
       // The lane the request named, so a failed spawn shows the same
       // `Limit state` a successful spawn on that lane would (design §5.2).
-      const limits = target
-        ? preLimits
-        : await this.lookupAgentLimits();
+      const limits = target ? preLimits : await this.lookupAgentLimits();
       const limitBlock = limits
         ? `\n\n${formatSpawnLimitBlock(limits, target, true, undefined, { forced })}`
         : '';

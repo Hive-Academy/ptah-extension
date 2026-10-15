@@ -25,6 +25,7 @@ import {
   CONTEXT_FILE,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_TASK,
+  OUTCOME_TASK_KINDS,
   SYSTEM_CLI_TYPES,
   TASK_ESTIMATES,
   TASK_STATUSES,
@@ -734,6 +735,17 @@ export function buildAgentSpawnTool({
             'Reasoning effort for this lane: minimal, low, medium, high, xhigh ' +
             'or max. Wins over the per-CLI setting and the chat effort. A value ' +
             'the chosen CLI does not take is ignored. Omit to use the setting.',
+        },
+        taskKind: {
+          type: 'string',
+          enum: [...OUTCOME_TASK_KINDS],
+          description:
+            'Task kind this lane is routed for, recorded with its outcome.',
+        },
+        routingSource: {
+          type: 'string',
+          enum: ['model', 'ranking', 'pin'],
+          description: 'What routed this lane: model, ranking, or pin.',
         },
         force: {
           type: 'boolean',

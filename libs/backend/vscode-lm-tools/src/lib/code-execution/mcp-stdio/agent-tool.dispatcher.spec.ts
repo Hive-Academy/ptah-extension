@@ -71,6 +71,59 @@ function createHarness(): {
 }
 
 describe('AgentToolDispatcher — agent_spawn schema', () => {
+  it('forwards routing fields and leaves them undefined when absent', async () => {
+    const { dispatcher, spawn } = createHarness();
+    await dispatcher.dispatch('agent_spawn', request, {
+      task: 'Review',
+      taskKind: 'review',
+      routingSource: 'ranking',
+    });
+    await dispatcher.dispatch('agent_spawn', request, { task: 'Review' });
+    expect(spawn.mock.calls[0]?.[0]).toMatchObject({
+      taskKind: 'review',
+      routingSource: 'ranking',
+    });
+    expect(spawn.mock.calls[1]?.[0].taskKind).toBeUndefined();
+    expect(spawn.mock.calls[1]?.[0].routingSource).toBeUndefined();
+  });
+
+  it('dispatches route_decide and outcome_report to their handlers', async () => {
+    const { dispatcher } = createHarness();
+    const route = await dispatcher.dispatch('route_decide', request, {});
+    const outcome = await dispatcher.dispatch('outcome_report', request, {});
+    expect(toolResult(route)).toMatchObject({ isError: true });
+    expect(toolResult(outcome)).toMatchObject({
+      isError: true,
+      structuredContent: { ptah_code: 'mcp_invalid_tool_args' },
+    });
+  });
+
+  it('serves valid route and outcome calls', async () => {
+    const { dispatcher } = createHarness();
+    const decide = jest
+      .fn()
+      .mockResolvedValue({ taskType: 'FEATURE', depth: 'Full' });
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    const api = { route: { decide } } as unknown as PtahAPI;
+    const routeDispatcher = new AgentToolDispatcher(api, logger);
+    const route = await routeDispatcher.dispatch('route_decide', request, {
+      stage: 'pre-flight',
+      request: 'ship the parser',
+    });
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(toolResult(route).isError).toBeFalsy();
+    const outcome = await dispatcher.dispatch('outcome_report', request, {
+      kind: 'review',
+      target: { runId: 'subagent:a1' },
+      verdict: 'approved',
+    });
+    expect(toolResult(outcome).isError).toBeFalsy();
+  });
   it('accepts boolean force without forwarding it to the spawn API', async () => {
     const { dispatcher, spawn } = createHarness();
     const response = await dispatcher.dispatch('agent_spawn', request, {
@@ -596,7 +649,10 @@ describe('AgentToolDispatcher — result budget', () => {
   function spoolFiles(): string[] {
     const dir = path.join(spoolRoot, '.ptah', 'tmp', 'mcp-out');
     return fs.existsSync(dir)
-      ? fs.readdirSync(dir).filter((n) => n !== '.gitignore').map((name) => path.join(dir, name))
+      ? fs
+          .readdirSync(dir)
+          .filter((n) => n !== '.gitignore')
+          .map((name) => path.join(dir, name))
       : [];
   }
 

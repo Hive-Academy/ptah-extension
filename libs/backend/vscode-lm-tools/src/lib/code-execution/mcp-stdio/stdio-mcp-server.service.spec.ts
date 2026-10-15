@@ -161,7 +161,7 @@ describe('StdioMcpServerService', () => {
   });
 
   describe('handleToolsList', () => {
-    it('returns exactly the 10 MVP tool definitions with MCP-wire names', () => {
+    it('returns exactly the 12 MVP tool definitions with MCP-wire names', () => {
       const { svc } = makeService();
       const req = makeRequest({ method: 'tools/list' });
       const resp = svc.handleToolsList(req);
@@ -176,10 +176,21 @@ describe('StdioMcpServerService', () => {
         'agent_list',
         'agent_wait',
         'run_check',
+        'route_decide',
+        'outcome_report',
         'session_submit',
       ]);
-      expect(tools).toHaveLength(10);
+      expect(tools).toHaveLength(12);
       expect(tools.every((t) => !t.name.startsWith('ptah_'))).toBe(true);
+      expect(
+        (
+          tools.find((tool) => tool.name === 'outcome_report') as
+            | {
+                _meta?: Record<string, unknown>;
+              }
+            | undefined
+        )?._meta?.['anthropic/alwaysLoad'],
+      ).toBeUndefined();
     });
 
     it('filters tools through the allowedTools override', () => {
@@ -190,12 +201,12 @@ describe('StdioMcpServerService', () => {
       expect(tools.map((t) => t.name)).toEqual(['agent_spawn', 'agent_list']);
     });
 
-    it('ignores an empty allowedTools array (returns all 10 tools)', () => {
+    it('ignores an empty allowedTools array (returns all 12 tools)', () => {
       const { svc } = makeService();
       const req = makeRequest({ method: 'tools/list' });
       const resp = svc.handleToolsList(req, []);
       const tools = (resp.result as { tools: { name: string }[] }).tools;
-      expect(tools).toHaveLength(10);
+      expect(tools).toHaveLength(12);
     });
 
     it('declares each served tool’s result ceiling in _meta (review r3: R3-06)', () => {
@@ -222,6 +233,8 @@ describe('StdioMcpServerService', () => {
         agent_list: 8000,
         agent_wait: 8000,
         run_check: 8000,
+        route_decide: 24000,
+        outcome_report: 8000,
         session_submit: 1_048_576,
       });
       for (const tool of tools) {
@@ -836,7 +849,11 @@ describe('StdioMcpServerService', () => {
 
       expect(duplicate.error?.code).toBe(-32600);
       expect(handler.dispatch).toHaveBeenCalledTimes(1);
-      finish({ jsonrpc: '2.0', id: 'duplicate-submit', result: { content: [] } });
+      finish({
+        jsonrpc: '2.0',
+        id: 'duplicate-submit',
+        result: { content: [] },
+      });
       await first;
     });
     it('returns sdk_init_failed when no handler is registered', async () => {
