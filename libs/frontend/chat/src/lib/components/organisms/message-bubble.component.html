@@ -121,7 +121,7 @@
 
     @if (showActions()) {
       <div class="st-t mt-2 -ml-1.5 flex gap-0.5" data-testid="turn-action-row">
-        <ptah-copy-button [message]="message()" />
+        <ptah-copy-button [message]="message()" [turnActionSize]="true" />
         @if (canShowActivity()) {
           <button
             type="button"

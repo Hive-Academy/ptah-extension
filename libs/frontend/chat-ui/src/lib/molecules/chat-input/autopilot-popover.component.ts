@@ -13,12 +13,15 @@ import { AutopilotStateService } from '@ptah-extension/core';
 import { type PermissionLevel, type SessionId } from '@ptah-extension/shared';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
 
+let nextApprovalPopoverId = 0;
+
 @Component({
   selector: 'ptah-autopilot-popover',
   imports: [LucideAngularModule, NativeDropdownComponent],
   template: `
     <ptah-native-dropdown
       [isOpen]="isOpen()"
+      [panelRole]="null"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
       (backdropClicked)="closeDropdown()"
@@ -31,8 +34,9 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
         type="button"
         (click)="toggleDropdown()"
         [disabled]="autopilotState.isPending()"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         [attr.aria-expanded]="isOpen()"
+        [attr.aria-controls]="isOpen() ? popoverId : null"
         [attr.aria-label]="'Approval mode: ' + tabStatusText()"
         [title]="'Approval mode: ' + tabStatusText()"
         data-testid="composer-approval-chip"
@@ -53,7 +57,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
       </button>
 
       <!-- Dropdown Content -->
-      <div content class="w-72 flex flex-col">
+      <div content class="w-72 flex flex-col" role="dialog" aria-label="Approval mode settings" [id]="popoverId">
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300 flex items-center gap-2">
           <lucide-angular
@@ -193,6 +197,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AutopilotPopoverComponent {
+  protected readonly popoverId = `ptah-approval-popover-${++nextApprovalPopoverId}`;
   readonly autopilotState = inject(AutopilotStateService);
 
   /**

@@ -144,14 +144,7 @@ export function buildSessionAgentRoster(
 
   const subagentToolCallIds = new Set(subagents.map((a) => a.parentToolUseId));
 
-  return [
-    orchestratorAgent(
-      orchestratorStatusWord(
-        input.tabStatus,
-        orchestratorRequestIds.length > 0,
-      ),
-      orchestratorRequestIds,
-    ),
+  const agents: SessionAgent[] = [
     ...subagents
       .filter((a) => a.status !== 'background')
       .map((a) => subagentRow(a, 'subagent', 'Sub-agent', a.description)),
@@ -191,5 +184,22 @@ export function buildSessionAgentRoster(
           openRequestIds: [],
         }),
       ),
+  ];
+  const hasLiveAgents = agents.some(
+    (agent) =>
+      agent.status === 'running' ||
+      agent.status === 'waiting' ||
+      agent.status === 'queued',
+  );
+  return [
+    orchestratorAgent(
+      orchestratorStatusWord(
+        input.tabStatus,
+        orchestratorRequestIds.length > 0,
+        hasLiveAgents,
+      ),
+      orchestratorRequestIds,
+    ),
+    ...agents,
   ];
 }

@@ -66,6 +66,8 @@ export class AgentSteerInputComponent {
   readonly steerable = input.required<boolean>();
   /** Disables the input while a steer request is in flight. */
   readonly pending = input<boolean>(false);
+  /** Keep the draft while the caller waits for a send result. */
+  readonly clearOnSubmit = input<boolean>(true);
   /** Placeholder / accessible label. */
   readonly placeholder = input<string>('Steer this agent…');
 
@@ -94,6 +96,6 @@ export class AgentSteerInputComponent {
     const text = this.draft().trim();
     if (text.length === 0 || this.pending()) return;
     this.steer.emit(text);
-    this.draft.set('');
+    if (this.clearOnSubmit()) this.draft.set('');
   }
 }

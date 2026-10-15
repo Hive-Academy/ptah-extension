@@ -218,9 +218,15 @@ let nextSectionId = 0;
                   class="mb-2 ml-[62px] mr-4 block"
                   [steerable]="view.tray.entry.steerable"
                   [pending]="pendingSteerId() === view.key"
+                  [clearOnSubmit]="false"
                   [placeholder]="'Steer ' + view.name + '...'"
                   (steer)="onSteer(view.key, $event)"
                 />
+                @if (steerErrorKey() === view.key) {
+                  <p role="alert" class="mb-2 ml-[62px] mr-4 text-xs text-state-err">
+                    Could not send your message. Try again.
+                  </p>
+                }
               }
             </li>
           }
@@ -256,6 +262,7 @@ export class InspectorAgentsSectionComponent {
   protected readonly menuOpenKey = signal<string | null>(null);
   protected readonly steerOpenKey = signal<string | null>(null);
   protected readonly pendingSteerId = signal<string | null>(null);
+  protected readonly steerErrorKey = signal<string | null>(null);
   private readonly now = signal(Date.now());
 
   private readonly rows = computed(() => this.agents().data?.rows ?? []);
@@ -362,6 +369,7 @@ export class InspectorAgentsSectionComponent {
         this.tray.viewTranscript(ctx);
         break;
       case 'steer':
+        this.steerErrorKey.set(null);
         this.steerOpenKey.set(key);
         break;
       case 'background':
@@ -376,10 +384,13 @@ export class InspectorAgentsSectionComponent {
   protected async onSteer(key: string, text: string): Promise<void> {
     const ctx = this.contextOf(key);
     if (!ctx) return;
+    this.steerErrorKey.set(null);
     this.pendingSteerId.set(key);
     try {
-      await this.tray.steer(ctx, text);
-      if (this.steerOpenKey() === key) this.steerOpenKey.set(null);
+      const sent = await this.tray.steer(ctx, text);
+      if (this.steerOpenKey() !== key) return;
+      if (sent) this.steerOpenKey.set(null);
+      else this.steerErrorKey.set(key);
     } finally {
       this.pendingSteerId.set(null);
     }

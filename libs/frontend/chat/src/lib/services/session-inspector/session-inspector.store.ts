@@ -95,7 +95,8 @@ function orchestratorState(
 ): OrchestratorState {
   if (orchestratorRequests > 0) return { kind: 'needs-you' };
   const busy = status !== null && BUSY_STATUSES.has(status);
-  if (busy && liveAgents > 0) return { kind: 'waiting', agents: liveAgents };
+  if ((busy || status === 'awaiting-background') && liveAgents > 0)
+    return { kind: 'waiting', agents: liveAgents };
   if (busy) return { kind: 'working' };
   return { kind: 'idle' };
 }

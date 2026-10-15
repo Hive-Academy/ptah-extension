@@ -80,8 +80,12 @@ export class SessionAgentTrayService {
     if (tab) this.tabManager.switchTab(tab.id);
   }
 
-  async steer(ctx: TrayAgentContext, text: string): Promise<void> {
-    await this.monitor.sendMessageToAgent(ctx.entry.id, text, ctx.sessionId);
+  async steer(ctx: TrayAgentContext, text: string): Promise<boolean> {
+    try {
+      return await this.monitor.sendMessageToAgent(ctx.entry.id, text, ctx.sessionId);
+    } catch {
+      return false;
+    }
   }
 
   stop(ctx: TrayAgentContext): void {

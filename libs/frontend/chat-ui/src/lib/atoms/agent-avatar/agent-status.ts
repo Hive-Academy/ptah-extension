@@ -91,8 +91,10 @@ export function backgroundAgentStatusWord(
 export function orchestratorStatusWord(
   status: SessionStatus,
   hasOpenRequest: boolean,
+  hasLiveAgents: boolean,
 ): AgentStatusWord | null {
   if (hasOpenRequest) return 'waiting';
+  if (status === 'awaiting-background' && hasLiveAgents) return 'waiting';
   switch (status) {
     case 'streaming':
     case 'resuming':
