@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 36 | Batches: 31 | Complete: 3/31
+Total tasks: 36 | Batches: 31 | Complete: 8/31
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -141,6 +141,9 @@ Edge cases:
 | TL-6 | Guard-spec rule 8 applies per registering batch; executors stop-and-report instead of re-planning | defer all guard specs to AB14 (plan R4b) | spawner instruction (Gate 0.1) overrides R4b for specs the registering batch affects | yes |
 | TL-7 | Wave 1 starts with Batches 1, 2, 3 (A2, AB1, B3); Batch 4 (B2) takes the first free slot | all four at once | max 3 executors in flight | yes |
 | TL-8 | R6-1 lives in Task 6.1 (store query) and Task 15.2 (pipeline + fixture) | B4b only | the count query is a store method; the capacity decision is in `submit` | yes |
+| TL-9 | Batch 9 seed with one profile (`z-ai`/`glm-5`, implement 80, stale) is accepted; no further rows required | (a) also seed rows whose model id appears in some lane list (opencode routes, Copilot, claude-cli entries) | Req 6.2 seeds only evidenced values and says a row "whose model cannot be matched to one family and model id without guessing shall not be seeded"; part-a:194-196 needs the family stated in the row and the exact listed id. Checked on disk: GLM-5 row states Z.ai, `provider-registry.ts:341` lists `glm-5` under `z-ai` (row excludes Ollama Cloud). The Opus/GPT-5.x/Sonnet 4.5 ids exist only in lanes the rows do not name (`opencode-model-routes.ts:49-112` — opencode has no single default per research :78) or not at all in the named lane (Codex fallback list, subagent tiers); Haiku 4.5 / GPT-5 mini appear in several lanes (Copilot, claude-cli, opencode), so no single family; Gemini rows name no lane. Task-description risk row :587 already expects mostly neutral scores | yes — add rows to `SEED_MATRIX_ROWS` when a row names a lane and id |
+| TL-10 | `sourceRef` (dataset URL, required on seed values) beside `source: 'seed'\|'user'\|'local'` is accepted as the resolution of a contract conflict, not a deviation to undo | (a) `source` = URL string (Req 6.2 wording, part-a:196); (b) per-source cell union | The plan contradicts itself: part-a:192 types `source` as the enum and Req 6.5/6.6 require `source` = user / local outcomes, while Req 6.2 and part-a:196 put the URL in `source`. Only a split satisfies all; precedence (A4b) and reasons (A7) key on the enum unchanged. Downstream: Batch 16 view and user-file schema must carry `sourceRef` (Req 6.2/6.8 visibility); Batch 13 reasons use `source` for provenance; Batch 21 (A8) exports the types as-is. Notes added to Tasks 13.1 and 16.1 | yes — field rename/merge before Batch 16 |
+| TL-11 | Git hooks are not wired in this worktree (`core.hooksPath=.husky/_`, directory absent), so pre-commit format/lint, commit-msg and pre-push gates do not run here. Batch 9 commit message checked by hand with `npx commitlint` (pass); eslint clean. `nx format:check` flags `matrix.schema.ts`, `seed-matrix.spec.ts` (Batch 9) and `contracts/route-decide-{args,result}.schema.ts` (Batch 5) — formatting only, recorded Minor, not a batch rejection | reject Batch 9 for format; TL formats the files itself | Decision #53 checks (jest, typecheck, lint) all pass; formatting is the hook's job and the TL does not edit code. Fix: orchestrator runs `npx husky` in the worktree, then one `style(lane-routing)` format-only commit via `npx nx format:write --files=...` before the wave-3 lane-routing shared check; pre-push gates must run before any push | yes |
 
 ## Waves and in-flight order (max 3 executors at once; phase reviews take a slot)
 
@@ -270,7 +273,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Result (team-leader, 2026-10-15): the 4 agent-sdk specs passed, 114 tests (ts-jest diagnostics on, so spec types are checked). agent-sdk typecheck passed. ESLint on the 13 changed files: 0 errors; 3 warnings were already there (`max-lines` on the monitor, unused `SetupRpcHandlers` in both smoke specs). Rule 8: electron `container.smoke.spec.ts` 20/20, cli `container.smoke.spec.ts` (`jest.config.cjs`) 10/10. VS Code `container.smoke.spec.ts` and every `expected-resolvable.ts` list no SDK registry tokens (the sibling `SDK_SUBAGENT_STOP_CALLBACK_REGISTRY` is absent too), so they need no change. `TOKENS.SUBAGENT_REGISTRY_SERVICE`, which the hook handler now injects, is registered for every host in `vscode-core/src/di/register-platform-agnostic.ts:77`
 - IA-5: the report records the fallback (`tool_response.agentId` on a registry miss) and the open live capture. Batch 31 (A15) owns that capture. No Batch 3 path needs IA-5 proven: the sync, async and miss shapes are covered by specs
 
-## Batch 4 (B2): Migrations 0054, 0055 — IN_PROGRESS
+## Batch 4 (B2): Migrations 0054, 0055 — COMPLETE (commit 3ada54c23; actual executor: CLI lane Glm, Zhipu)
 
 - Recommended executor: CLI lane antigravity (Google) — SQL migrations
 - Actual executor: CLI lane Glm (Zhipu) — antigravity hit its quota (decisions.md #54)
@@ -282,7 +285,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: none
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 4.1: Lane outcome tables and skill invocation run id — IN_PROGRESS
+### Task 4.1: Lane outcome tables and skill invocation run id — COMPLETE
 
 - File: CREATE `W\libs\backend\persistence-sqlite\src\lib\migrations\0054_lane_outcome_records.ts` (+ spec), `0055_skill_invocation_run_id.ts` (+ spec); MODIFY `W\libs\backend\persistence-sqlite\src\lib\migrations\index.ts`
 - Plan reference: implementation-plan.md:735; part-b:191-224 (§2); SC-10 keys :383-650
@@ -294,8 +297,53 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 ### Batch 4 verification
 
 - `npx nx test @ptah-extension/persistence-sqlite --parallel=1`
+- Mode 2 round 1 (team-leader, 2026-10-15): NOT ACCEPTED. Report `reports\batch-4-report.md`.
+  - On disk: 0054 and 0055 SQL match part-b:195-208 and plan:330-332/:440-441 column for column. All
+    three tables, the three record indexes, the receipts `run_id` index, the held `run_id` and
+    `expires_at` indexes (R6-1) and `IF NOT EXISTS` are present. The 0055 nullable `run_id` and
+    `idx_skill_inv_events_run` are present. index.ts registers v54 then v55 after v53. Each of the
+    15 ratchet edits is a single 53 -> 55 line. They are needed: every spec pins
+    `Math.max(versions)`.
+  - typecheck passed. lint passed with 0 errors; its 22 warnings are in old files, and the 5 new or
+    changed files lint clean.
+  - test FAILED: 2 suites, 2 tests (601 passed).
+    1. `0053_memory_boot_scan_failure_generation.spec.ts:105-106` calls `applyAll(MIGRATIONS)`, so
+       it now applies `[53, 54, 55]`, but the assertion expects `[53]`. Fix it the way the 0052 spec
+       does at `:101`: `applyAll(MIGRATIONS.filter((m) => m.version <= 53))`. Check every other
+       spec that calls `applyAll(MIGRATIONS)` with a fixed `appliedVersions` list the same way.
+    2. `0054_lane_outcome_records.spec.ts:194` fails because PRAGMA reports notnull=0 for
+       `run_id TEXT PRIMARY KEY`. In a rowid table, SQLite lets a non-INTEGER PRIMARY KEY column
+       hold NULL. The same assertion also applies to `report_id` at `:197` and `:200`. Fix:
+       declare `NOT NULL` on the three key columns in `0054_lane_outcome_records.ts:36,72,80`
+       (`run_id TEXT NOT NULL PRIMARY KEY`, and the same for both `report_id` columns), and add
+       one spec case showing that a NULL key insert is rejected. See decision TL-B4-1.
+  - Decision TL-B4-1: add `NOT NULL` to the keys. Rejected options: change the spec to expect
+    notnull=0, which keeps the plan's literal `TEXT PRIMARY KEY` and the repo's habit of a plain
+    `TEXT PRIMARY KEY`.
+    - Evidence: SC-10 dedup depends on keys that are never NULL, and a NULL is unique to SQLite, so
+      a NULL `run_id` or `report_id` would never dedupe. The executor's own spec expects
+      notnull=1.
+    - Cost: a column constraint on new tables only, with no data transform.
+    - Reversible: yes, until the migration ships.
+- Mode 2 round 2 (team-leader, 2026-10-15): ACCEPTED. Report `reports\batch-4-report-r2.md`
+  (fix round 1, CLI lane Glm, Zhipu).
+  - On disk: `0053_memory_boot_scan_failure_generation.spec.ts:105` uses
+    `applyAll(MIGRATIONS.filter((m) => m.version <= 53))`.
+    `0054_lane_outcome_records.ts:40,76,84` declare `TEXT NOT NULL PRIMARY KEY` (TL-B4-1), and the
+    header comment at :23 records why. `0054_lane_outcome_records.spec.ts:206-230` adds the
+    table-driven NULL-key rejection case (3 inserts, each `/NOT NULL/i`).
+    `0055_skill_invocation_run_id.spec.ts:117` is bounded to `<= 55` the same way. A grep for
+    `applyAll(MIGRATIONS)` under `migrations/` finds no unbounded call left.
+  - test: 54 suites passed; 604 passed, 3 skipped, 0 failed. typecheck passed. eslint on the 6
+    round-2 and new files was clean.
+  - Commit 3ada54c23 contains 20 files, all under `libs/backend/persistence-sqlite/`.
+- P1 is now fully committed: Batches 1, 2, 3, 4, 5 and 7. Its phase review is due on the
+  combined diff `7ea895538..3ada54c23`, covering code-logic and code-style, with Anthropic
+  reviewers.
+  - Expected deliverables: `reviews\p1-code-logic-review.md` and `reviews\p1-code-style-review.md`.
+  - When the reviews accept, record their paths here.
 
-## Batch 5 (A3): Route contracts and ports — IN_PROGRESS (actual executor: CLI lane codex, OpenAI — decision #55)
+## Batch 5 (A3): Route contracts and ports — COMPLETE (commit 5e5c9ffca; actual executor: CLI lane codex, OpenAI — decision #55)
 
 - Recommended executor: CLI lane grok (xAI) — TypeScript + Zod schemas
 - Execution mode: sequential
@@ -306,7 +354,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 1, Batch 2
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 5.1: Route-decide args/result schemas and ports — IN_PROGRESS
+### Task 5.1: Route-decide args/result schemas and ports — COMPLETE
 
 - File: CREATE `LR\contracts\route-decide-args.schema.ts`, `LR\contracts\route-decide-result.schema.ts`, `LR\contracts\contracts.spec.ts`, `LR\route-candidate-source.port.ts`, `LR\lane-model-listing.port.ts`
 - Plan reference: implementation-plan.md:737; part-a:922
@@ -318,8 +366,14 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 ### Batch 5 verification
 
 - `npx nx test @ptah-extension/lane-routing --parallel=1`, then `npx nx lint @ptah-extension/lane-routing`
+- Result (team-leader, decision #53): test 1 suite / 16 tests passed; lint clean; typecheck clean.
+  On disk: `.strict()` schemas match part-a:589-718; no `lane-outcome-reader.port.ts` (SC-2);
+  `ChosenEntry.taskKind` from `OUTCOME_TASK_KINDS` (SC-6); imports only `@ptah-extension/shared`
+  and `zod` (rule 9; `zod` resolves from the root `package.json`, the lib has no `package.json`
+  and no `@nx/dependency-checks` rule). `src/index.ts` untouched (A8 owns exports). The
+  one-entry-per-phase assertion is deferred to the A8 service spec (part-a:695-696).
 
-## Batch 6 (B4a): lane-outcomes scaffold, schema and stores — PENDING
+## Batch 6 (B4a): lane-outcomes scaffold, schema and stores — COMPLETE (commit 8fc9278e9; actual executor: CLI lane codex, OpenAI; report `reports/batch-6-report.md`; checks: test 4 suites / 7 tests pass, lint clean, typecheck pass)
 
 - Recommended executor: CLI lane codex (OpenAI) — backend TypeScript, SQLite and key-value stores
 - Execution mode: sequential
@@ -330,7 +384,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 2, Batch 3, Batch 4
 - Phase: P2 Outcome store core | Phase review: code-logic + code-style
 
-### Task 6.1: Scaffold `@ptah-extension/lane-outcomes`, SC-7 schema, three stores — PENDING
+### Task 6.1: Scaffold `@ptah-extension/lane-outcomes`, SC-7 schema, three stores — COMPLETE
 
 - File: CREATE `W\libs\backend\lane-outcomes\` (`project.json`, tsconfigs, `jest.config.ts`, `eslint.config.mjs`, `src\index.ts`), `LO\di\tokens.ts`, `LO\lane-outcome.schema.ts` (SC-7 `OutcomeReportArgsSchema`, the only report-args schema, decision I7), `LO\store\lane-outcome.store.ts`, `LO\store\sqlite-lane-outcome.store.ts`, `LO\store\in-memory-lane-outcome.store.ts`, `LO\store\key-value-lane-outcome.store.ts` (each logic file + spec); MODIFY `W\tsconfig.base.json`, `W\.commitlintrc.json`
 - Plan reference: implementation-plan.md:738 (B4 row); part-b:225-329 (§3, files :320-328); SC-7 :254-367; SC-9 :375-382; SC-10 :383-650
@@ -343,8 +397,16 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `npx nx test @ptah-extension/lane-outcomes --parallel=1`, then `npx nx lint @ptah-extension/lane-outcomes`, then `npx nx typecheck @ptah-extension/lane-outcomes`
 - Only wave-2 batch touching `tsconfig.base.json`
+- TL verification (Mode 2): tags, rule 9 imports (shared, platform-core, persistence-sqlite,
+  zod only), single SC-7 schema, R6-1 in all three stores with 500/3/497 specs, KV over
+  `IStateStorage`, `store.test-support.ts` spec-only (excluded in tsconfig.lib, not exported)
+- Carry to the P2 code-logic review (after Batch 20): (a) KV `evict()` drops receipts whose
+  `runId` has no kept row, so a receipt recorded before its row exists is lost on the next
+  write (idempotency); (b) `holdReport` purges with `Date.now()` rather than a caller `nowMs`;
+  (c) SQLite `decode` fixes `telemetryJoin`/`skillsLoaded`/`sessionEvidenceClass` to defaults
+  because migration 0054 has no such columns (deferred to B4c per the report)
 
-## Batch 7 (A1b): Row `family` + spawn routing fields — PENDING
+## Batch 7 (A1b): Row `family` + spawn routing fields — COMPLETE (commit 15b9c2c02; actual executor: CLI lane Glm, Zhipu)
 
 - Recommended executor: CLI lane Glm (Zhipu) — TypeScript, MCP formatter
 - Execution mode: sequential
@@ -355,7 +417,10 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 2
 - Phase: P1 Foundations | Phase review: code-logic + code-style
 
-### Task 7.1: Expose `family` on agent rows; accept `taskKind`/`routingSource` on spawn — PENDING
+### Task 7.1: Expose `family` on agent rows; accept `taskKind`/`routingSource` on spawn — COMPLETE
+
+- IA-1 result (report `reports/batch-7-report.md`): the args → `SpawnAgentRequest` mapping is in two Batch 29 (AB9) files — `protocol-dispatcher.ts:1212-1227` (HTTP) and `mcp-stdio/agent-tool.dispatcher.ts:434-448` (stdio). Not edited here; the `taskKind`/`routingSource` copy lines moved to Task 29.1. Schema accepts both fields; nothing forwards them until Batch 29 lands.
+- F52 byte-lock in `mcp-response-formatter.spec.ts` re-locked deliberately for the new `Family` column only (header, separator, one cell per row); roles block and remaining bytes unchanged.
 
 - File: MODIFY `VLT\namespace-builders\agent-namespace.builder.ts`, `VLT\mcp-core\mcp-response-formatter.ts` (+ spec), `VLT\mcp-core\agent-spawn-args.schema.ts` (+ spec), and the spawn-args → `SpawnAgentRequest` mapping site
 - Plan reference: implementation-plan.md:740; part-a:933; SC-6 :233-253
@@ -367,6 +432,8 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 ### Batch 7 verification
 
 - `J(libs/backend/vscode-lm-tools, <formatter spec, agent-namespace spec, spawn-args spec>)`, then `npx nx typecheck @ptah-extension/vscode-lm-tools`
+- Result (team-leader, decision #53): Jest 3 suites / 272 tests passed; typecheck passed; eslint on the 6 files 0 errors (8 pre-existing warnings in `mcp-response-formatter.ts`, none on changed lines)
+- Minor (recorded, not fixed — fix-round rule): Prettier wrap drift introduced in `agent-spawn-args.schema.spec.ts:1-4` (named import fits one line) and `agent-namespace.builder.spec.ts:996-998` (`toBe('z-ai')` fits one line); lint-staged `nx format:write` did not reformat them. `agent-namespace.builder.spec.ts` already had Prettier drift before this batch (e.g. `:1198`, `:1237`, `:1266` at 5e5c9ffca). Fold into the P1 fix batch if one is raised; otherwise left for a formatting sweep
 
 ## Batch 8 (B8): Library Agents-tab outcome signals — PENDING
 
@@ -392,7 +459,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `npx nx test @ptah-extension/skill-synthesis-ui --parallel=1`, then `npx nx lint @ptah-extension/skill-synthesis-ui`
 
-## Batch 9 (A4): Matrix data — PENDING
+## Batch 9 (A4): Matrix data — COMPLETE (commit 55a58c96b; actual executor: subagent backend-developer, Anthropic — decision #56; report `reports/batch-9-report.md`; checks: seed-matrix.spec 36/36, typecheck lane-routing pass, eslint matrix/ clean; TL-9, TL-10, TL-11)
 
 - Recommended executor: CLI lane antigravity (Google)
 - Execution mode: sequential
@@ -403,7 +470,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 5
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 9.1: Capability matrix types, schema and seed — PENDING
+### Task 9.1: Capability matrix types, schema and seed — COMPLETE
 
 - File: CREATE `LR\matrix\matrix.types.ts`, `LR\matrix\matrix.schema.ts`, `LR\matrix\seed-matrix.ts`, `LR\matrix\seed-matrix.spec.ts`
 - Plan reference: implementation-plan.md:741; part-a:923 and §3 (Req 6.2, 6.3)
@@ -416,7 +483,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/matrix/seed-matrix.spec.ts)`
 
-## Batch 10 (A5a): Hard constraints — PENDING
+## Batch 10 (A5a): Hard constraints — IN_PROGRESS (actual executor: CLI lane grok, xAI — first fallback, Glm busy)
 
 - Recommended executor: CLI lane Glm (Zhipu)
 - Execution mode: sequential
@@ -440,7 +507,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/ranking/hard-constraints.spec.ts)`
 
-## Batch 11 (A6a): System One wire + payload — PENDING
+## Batch 11 (A6a): System One wire + payload — IN_PROGRESS (actual executor: CLI lane Glm, Zhipu — first fallback, grok busy)
 
 - Recommended executor: CLI lane grok (xAI)
 - Execution mode: sequential
@@ -505,7 +572,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:745; part-a:926 (Req 13.2-13.5)
 - Pattern to follow: Batch 10 pure-function style
 - Quality requirements: every Req 13.x rule has a spec case
-- Validation notes: rule 9
+- Validation notes: rule 9. TL-10: matrix provenance in reasons comes from the cell's `source` enum (`seed`/`user`/`local`); the dataset URL is the separate `sourceRef` field (`LR/matrix/matrix.types.ts`, commit 55a58c96b)
 - Implementation details: deterministic text from structured inputs
 
 ### Batch 13 verification
@@ -536,7 +603,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/rpc-handlers, <adapter spec>)`, then `npx nx typecheck @ptah-extension/rpc-handlers`, then rule-8 guard specs
 
-## Batch 15 (B4b): Journal, write pipeline, report holds — PENDING
+## Batch 15 (B4b): Journal, write pipeline, report holds — IN_PROGRESS
 
 - Recommended executor: CLI lane codex (OpenAI)
 - Execution mode: sequential
@@ -547,7 +614,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 2 | Depends on: Batch 6
 - Phase: P2 Outcome store core | Phase review: code-logic + code-style
 
-### Task 15.1: `KeyValueOutcomeJournal` — PENDING
+### Task 15.1: `KeyValueOutcomeJournal` — IN_PROGRESS
 
 - File: CREATE `LO\write\key-value-outcome-journal.ts` (+ spec)
 - Plan reference: implementation-plan.md:738; SC-10 :383-650 (journal value incl. `heldRuns` with `holdExpiries`)
@@ -556,7 +623,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Validation notes: restart, delayed-open, bound, ordering, shutdown specs
 - Implementation details: pure serialization + bounded append/remove
 
-### Task 15.2: `OutcomeWritePipeline` with holds and backlog validation — PENDING
+### Task 15.2: `OutcomeWritePipeline` with holds and backlog validation — IN_PROGRESS
 
 - Depends on: Task 15.1
 - File: CREATE `LO\write\outcome-write-pipeline.ts` (+ spec)
@@ -574,6 +641,11 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 ### Batch 15 verification
 
 - `npx nx test @ptah-extension/lane-outcomes --parallel=1`, then `npx nx lint @ptah-extension/lane-outcomes`
+- TL note from Batch 6: the held-report cap is global (plan:342-345, :538-545), so use the store's
+  global `countHeldReports(nowMs)`; `holdReport` purges expired rows with `Date.now()`, so specs that
+  pin `now` must use a value at or below wall-clock time. The pipeline must not delete receipts.
+  KV `evict()` drops receipts whose run has no kept row; if the pipeline records a receipt before its
+  row exists, report that to the team-leader rather than editing Batch 6 files silently
 
 ## Batch 16 (A4b): Matrix store + local derivation — PENDING
 
@@ -592,7 +664,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:749; part-a:927 (Req 6.4-6.8); SC-2 :143-167
 - Pattern to follow: Batch 9 types
 - Quality requirements: reads `isPersistent`, `SUBAGENT_LANE_ID`, `LANE_DEFAULT_MODEL` from shared
-- Validation notes: PA-2 first (grep `'.ptah'` in `libs/backend/platform-core/src`); if absent, take the home path by injection (AB14 supplies it). Write-path: record file path and format for the Mode 3 trace
+- Validation notes: PA-2 first (grep `'.ptah'` in `libs/backend/platform-core/src`); if absent, take the home path by injection (AB14 supplies it). Write-path: record file path and format for the Mode 3 trace. TL-10: cells carry `source` (enum) plus `sourceRef` (dataset/URL, required on seed, forbidden on local); the view file must include `sourceRef` with `source`, `asOf`, `stale`, sample count (Req 6.2/6.8); user-file cells must have `source: 'user'` (reject `seed`/`local` in the user file, naming the entry, Req 6.7); reuse `isStale` from `seed-matrix.ts` and the Batch 9 schemas
 - Implementation details: derivation from outcome summaries is pure
 
 ### Batch 16 verification
@@ -903,7 +975,8 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - File: MODIFY `VLT\...\protocol-dispatcher.ts` (route tool after `buildSessionHandoffTool()`; two `case`s in `switch (name)` at `:1037`), `tool-result-budget.ts`, `ptah-api-builder.service.ts`, the `PtahAPI` type file, `mcp-http\http-mcp-server.service.ts`, `mcp-stdio\{tool-builders.ts,agent-tool.dispatcher.ts,index.ts}`, `ptah-system-prompt.constant.ts` (two rows); tool-name registry specs
 - Plan reference: implementation-plan.md:759; part-a §8; part-b §8
 - Pattern to follow: `buildSessionHandoffTool()` registration
-- Quality requirements: route tool always-on, report tool deferred; plus the IA-1 mapping line if Batch 7 deferred it
+- Quality requirements: route tool always-on, report tool deferred; plus the IA-1 mapping lines Batch 7 deferred (below)
+- IA-1 copy lines (moved from Batch 7): copy `taskKind` and `routingSource` from the parsed `AgentSpawnArgsSchema` result into `SpawnAgentRequest` beside the existing `role`/`effort` copy at both mapping sites — HTTP `VLT\mcp-core\protocol-dispatcher.ts:1212-1227` (request built at `:1226`, `effort: spawnArgs.effort`; `role` at `:1225`), stdio `VLT\mcp-stdio\agent-tool.dispatcher.ts:434-448` (`ptahAPI.agent.spawn({...})`, `effort: p.effort` at `:448`; parsed at `:384`). Line numbers as of commit of Batch 7; re-locate by the `effort` copy. Add one spec per transport proving both fields reach `SpawnAgentRequest`, and `undefined` when absent
 - Validation notes: file cap exception (plan: one owner for all registration files); rule 8 — tool-name registry specs updated here
 - Implementation details: both dispatchers (HTTP, stdio) serve both tools
 
