@@ -1189,14 +1189,15 @@ export class SkillCandidateStore {
     metrics?: SubagentRunMetrics | null;
     /** Exact task attribution (TASK_YYYY_NNN) when derivable, else NULL. */
     taskId?: string | null;
+    runId?: string | null;
   }): void {
     const m = input.metrics ?? null;
     const stmt = this.db.prepare(
       `INSERT INTO skill_invocation_events
          (id, skill_slug, session_id, context_id, source, succeeded, is_error, invoked_at,
           input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-          cost_usd, duration_ms, tool_count, task_id, workspace_root)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          cost_usd, duration_ms, tool_count, task_id, workspace_root, run_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     stmt.run(
       ulid(),
@@ -1216,6 +1217,7 @@ export class SkillCandidateStore {
       m?.toolCount ?? null,
       input.taskId ?? null,
       input.workspaceRoot ?? null,
+      input.runId ?? null,
     );
   }
 

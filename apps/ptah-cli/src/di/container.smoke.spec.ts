@@ -37,6 +37,8 @@ import {
   type PostToolUseCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   ChildWorktreeProvisioner,
@@ -69,6 +71,19 @@ import {
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
 } from './expected-resolvable';
+
+describe('CLI DI — skill telemetry seam', () => {
+  it('resolves after skill services register', () => {
+    const child = rootContainer.createChildContainer();
+    child.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    registerSkillSynthesisServices(child, {
+      info: jest.fn(),
+    } as unknown as Logger);
+    expect(() =>
+      child.resolve(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM),
+    ).not.toThrow();
+  });
+});
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();

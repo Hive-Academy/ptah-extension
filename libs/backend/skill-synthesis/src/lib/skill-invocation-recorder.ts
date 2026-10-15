@@ -20,6 +20,7 @@ export interface RecordSkillEventInput {
   readonly metrics?: SubagentRunMetrics | null;
   /** Exact task attribution (TASK_YYYY_NNN) for subagent runs, else NULL. */
   readonly taskId?: string | null;
+  readonly runId?: string | null;
 }
 
 @injectable()
@@ -36,9 +37,10 @@ export class SkillInvocationRecorder {
     if (!input.slug || input.slug.length === 0) return;
     if (blankToUndefined(input.sessionId) === undefined) return;
 
-    const key = `${input.slug}|${input.sessionId}|${Math.floor(
-      input.invokedAt / DEDUP_BUCKET_MS,
-    )}`;
+    const key =
+      input.source === 'subagent' && blankToUndefined(input.runId ?? '')
+        ? `subagent-run:${input.runId}`
+        : `${input.slug}|${input.sessionId}|${Math.floor(input.invokedAt / DEDUP_BUCKET_MS)}`;
     if (this.seen.has(key)) return;
     this.remember(key);
 
@@ -59,6 +61,7 @@ export class SkillInvocationRecorder {
         invokedAt: input.invokedAt,
         metrics: input.metrics ?? null,
         taskId: input.taskId ?? null,
+        runId: input.source === 'subagent' ? (input.runId ?? null) : null,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

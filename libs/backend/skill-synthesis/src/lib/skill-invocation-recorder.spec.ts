@@ -44,6 +44,26 @@ function input(
 }
 
 describe('SkillInvocationRecorder', () => {
+  it('uses runId for subagent dedup and keeps bucket dedup without it', () => {
+    const { store, record } = makeStore();
+    const recorder = new SkillInvocationRecorder(makeLogger(), store);
+    recorder.recordSkillEvent(
+      input({ source: 'subagent', runId: 'a', invokedAt: 1000 }),
+    );
+    recorder.recordSkillEvent(
+      input({ source: 'subagent', runId: 'b', invokedAt: 1500 }),
+    );
+    recorder.recordSkillEvent(
+      input({ source: 'subagent', runId: 'a', invokedAt: 1600 }),
+    );
+    recorder.recordSkillEvent(input({ source: 'subagent', invokedAt: 4000 }));
+    recorder.recordSkillEvent(input({ source: 'subagent', invokedAt: 4500 }));
+    expect(record).toHaveBeenCalledTimes(3);
+    expect(record).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ runId: 'b' }),
+    );
+  });
   describe('dedup (slug, sessionId, 2s-bucket)', () => {
     it('suppresses a second event in the same 2s bucket', () => {
       const logger = makeLogger();
@@ -141,6 +161,7 @@ describe('SkillInvocationRecorder', () => {
         invokedAt: 4242,
         metrics: null,
         taskId: null,
+        runId: null,
       });
     });
   });
