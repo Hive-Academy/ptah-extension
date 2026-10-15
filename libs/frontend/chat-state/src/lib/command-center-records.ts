@@ -15,7 +15,7 @@ const manifestSchema = z.object({
   rootSdkId: nonEmpty,
   move: z.enum(['council', 'forge', 'race', 'relay', 'crucible']),
   specTaskId: nonEmpty,
-  lanes: z.array(z.object({ laneId: nonEmpty, role: nonEmpty })),
+  lanes: z.array(z.object({ laneId: nonEmpty, role: nonEmpty.optional() })),
   rounds: z.number().int().positive(),
   startedAt: timestamp,
 });
@@ -61,10 +61,14 @@ export class CommandCenterRecordsService {
       typeof rawRuns === 'object' &&
       !Array.isArray(rawRuns)
     ) {
-      for (const [rootTabId, rawManifest] of Object.entries(rawRuns)) {
+      for (const [storedKey, rawManifest] of Object.entries(rawRuns)) {
         const manifest = manifestSchema.safeParse(rawManifest);
-        if (manifest.success && manifest.data.rootTabId === rootTabId) {
-          empty.runs[rootTabId] = manifest.data;
+        if (
+          manifest.success &&
+          (storedKey === manifest.data.runId ||
+            storedKey === manifest.data.rootTabId)
+        ) {
+          empty.runs[manifest.data.runId] = manifest.data;
         }
       }
     }
@@ -109,11 +113,13 @@ export class CommandCenterRecordsService {
     return this.write(workspacePath, records);
   }
 
-  readRunManifest(
+  readRunManifests(
     workspacePath: string,
     rootTabId: string,
-  ): CommandCenterRunManifest | undefined {
-    return this.read(workspacePath).runs[rootTabId];
+  ): readonly CommandCenterRunManifest[] {
+    return Object.values(this.read(workspacePath).runs)
+      .filter((manifest) => manifest.rootTabId === rootTabId)
+      .sort((a, b) => a.startedAt - b.startedAt);
   }
 
   writeRunManifest(
@@ -123,13 +129,21 @@ export class CommandCenterRecordsService {
     const validated = manifestSchema.safeParse(value);
     if (!validated.success) return false;
     const records = this.read(workspacePath);
-    records.runs[validated.data.rootTabId] = validated.data;
+    records.runs[validated.data.runId] = validated.data;
     return this.write(workspacePath, records);
   }
 
-  removeRunManifest(workspacePath: string, rootTabId: string): boolean {
+  removeRunManifest(workspacePath: string, runId: string): boolean {
     const records = this.read(workspacePath);
-    delete records.runs[rootTabId];
+    delete records.runs[runId];
+    return this.write(workspacePath, records);
+  }
+
+  removeRunManifests(workspacePath: string, rootTabId: string): boolean {
+    const records = this.read(workspacePath);
+    for (const [runId, manifest] of Object.entries(records.runs)) {
+      if (manifest.rootTabId === rootTabId) delete records.runs[runId];
+    }
     return this.write(workspacePath, records);
   }
 }

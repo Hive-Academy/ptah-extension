@@ -72,7 +72,7 @@ import {
 
 export type { LiveModelStatsPayload };
 
-type CommandCenterRecordKind = 'activeTabId' | 'lastSession';
+type CommandCenterRecordKind = 'activeTabId' | 'lastSession' | 'runManifest';
 export interface CommandCenterRecordWriteFailure {
   workspacePath: string;
   record: CommandCenterRecordKind;
@@ -1416,6 +1416,14 @@ export class TabManagerService {
     this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
     if (validCommandCenterOrigin(tab.commandCenterOrigin)) {
       this.commandCenterSendLock.clearForRoot(tabId);
+      this.recordCommandCenterWrite(
+        tab.commandCenterOrigin.workspaceId,
+        'runManifest',
+        this.commandCenterRecords.removeRunManifests(
+          tab.commandCenterOrigin.workspaceId,
+          tabId,
+        ),
+      );
     }
 
     this.emitTabClosed({

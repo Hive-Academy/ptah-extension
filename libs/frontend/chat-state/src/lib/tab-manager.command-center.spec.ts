@@ -7,6 +7,17 @@ import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
 import { TabManagerService } from './tab-manager.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
 
+const run = (rootTabId: string, runId: string) => ({
+  runId,
+  rootTabId,
+  rootSdkId: 'sdk',
+  move: 'council' as const,
+  specTaskId: 'task',
+  lanes: [{ laneId: 'lane' }],
+  rounds: 1,
+  startedAt: 1,
+});
+
 describe('TabManagerService Command Center lifecycle', () => {
   let tabs: TabManagerService;
   let records: CommandCenterRecordsService;
@@ -81,7 +92,14 @@ describe('TabManagerService Command Center lifecycle', () => {
   });
 
   it('warns on close, aborts its stream, and retains the last-session record', async () => {
+    const other = tabs.createCommandCenterTab();
     const id = tabs.createCommandCenterTab();
+    const firstRun = run(id, 'b5fa2ef3-a71c-4e13-8f33-b861f65e7744');
+    const secondRun = run(id, 'ca22a5f9-0871-4a9c-a68d-2a0c0774a14d');
+    const otherRun = run(other, '64d98ce1-8ab0-45dc-9dfb-56f519ac5328');
+    records.writeRunManifest('/workspace', firstRun);
+    records.writeRunManifest('/workspace', secondRun);
+    records.writeRunManifest('/workspace', otherRun);
     tabs.attachSession(id, '22222222-2222-4222-8222-222222222222');
     const controller = tabs.createAbortController(id);
     lock.engage(id, '22222222-2222-4222-8222-222222222222', 'voice');
@@ -90,6 +108,10 @@ describe('TabManagerService Command Center lifecycle', () => {
     expect(tabs.tabs().some((tab) => tab.id === id)).toBe(true);
     expect(controller.aborted).toBe(false);
     expect(lock.isHeld(id)).toBe(true);
+    expect(records.readRunManifests('/workspace', id)).toEqual([
+      firstRun,
+      secondRun,
+    ]);
     await tabs.closeTab(id);
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(controller.aborted).toBe(true);
@@ -97,6 +119,8 @@ describe('TabManagerService Command Center lifecycle', () => {
     expect(lock.isHeld(id)).toBe(false);
     expect(lock.isHeld('22222222-2222-4222-8222-222222222222')).toBe(false);
     expect(records.readActiveTabId('/workspace')).toBeUndefined();
+    expect(records.readRunManifests('/workspace', id)).toEqual([]);
+    expect(records.readRunManifests('/workspace', other)).toEqual([otherRun]);
     expect(records.readLastSession('/workspace')?.sdkSessionId).toBe(
       '22222222-2222-4222-8222-222222222222',
     );
@@ -112,6 +136,8 @@ describe('TabManagerService Command Center lifecycle', () => {
 
   it('keeps the lock when a tab is parked during the close confirmation', async () => {
     const id = tabs.createCommandCenterTab();
+    const manifest = run(id, 'b5fa2ef3-a71c-4e13-8f33-b861f65e7744');
+    records.writeRunManifest('/workspace', manifest);
     lock.engage(id, null, 'voice');
     confirm.mockImplementationOnce(async () => {
       tabs.switchWorkspace('/other');
@@ -121,6 +147,7 @@ describe('TabManagerService Command Center lifecycle', () => {
     expect(switchWorkspace).toHaveBeenCalled();
     expect(lock.isHeld(id)).toBe(true);
     expect(records.readActiveTabId('/workspace')).toBe(id);
+    expect(records.readRunManifests('/workspace', id)).toEqual([manifest]);
   });
 
   it('surfaces a failed bind write and clears the notice on a successful write', () => {
@@ -173,9 +200,13 @@ describe('TabManagerService Command Center lifecycle', () => {
     );
   });
 
-  it('surfaces a failed close write while the tab still closes', async () => {
+  it('surfaces a failed manifest removal while the tab still closes', async () => {
     const warning = jest.spyOn(console, 'warn').mockImplementation();
     const id = tabs.createCommandCenterTab();
+    records.writeRunManifest(
+      '/workspace',
+      run(id, 'b5fa2ef3-a71c-4e13-8f33-b861f65e7744'),
+    );
     expect(tabs.commandCenterRecordWriteFailure()).toBeNull();
     jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('storage failure must stay private');
@@ -184,11 +215,11 @@ describe('TabManagerService Command Center lifecycle', () => {
     expect(tabs.tabs().some((tab) => tab.id === id)).toBe(false);
     expect(tabs.commandCenterRecordWriteFailure()).toEqual({
       workspacePath: '/workspace',
-      record: 'activeTabId',
+      record: 'runManifest',
     });
     expect(warning).toHaveBeenCalledWith(
       expect.stringContaining(
-        'activeTabId record write failed for workspace /workspace',
+        'runManifest record write failed for workspace /workspace',
       ),
     );
     expect(warning.mock.calls.flat().join(' ')).not.toContain(
@@ -207,7 +238,9 @@ describe('TabManagerService Command Center lifecycle', () => {
     const failure = tabs.commandCenterRecordWriteFailure();
     const warningCount = warning.mock.calls.length;
     const id = tabs.createTab();
+    const remove = jest.spyOn(records, 'removeRunManifests');
     await tabs.closeTab(id);
+    expect(remove).not.toHaveBeenCalled();
     expect(confirm).not.toHaveBeenCalled();
     expect(records.readLastSession('/workspace')).toBeUndefined();
     expect(tabs.commandCenterRecordWriteFailure()).toEqual(failure);

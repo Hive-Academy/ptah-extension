@@ -10,9 +10,19 @@ const manifest: CommandCenterRunManifest = {
   rootSdkId: 'sdk',
   move: 'council',
   specTaskId: 'task',
-  lanes: [{ laneId: 'lane-1', role: 'reviewer' }],
+  lanes: [{ laneId: 'lane-1' }],
   rounds: 2,
   startedAt: 123,
+};
+const sibling: CommandCenterRunManifest = {
+  ...manifest,
+  runId: 'ca22a5f9-0871-4a9c-a68d-2a0c0774a14d',
+  startedAt: 100,
+};
+const otherRoot: CommandCenterRunManifest = {
+  ...manifest,
+  runId: '64d98ce1-8ab0-45dc-9dfb-56f519ac5328',
+  rootTabId: 'other',
 };
 
 describe('CommandCenterRecordsService', () => {
@@ -24,7 +34,7 @@ describe('CommandCenterRecordsService', () => {
     records = TestBed.inject(CommandCenterRecordsService);
   });
 
-  it('writes and reads workspace-scoped last session and active marker', () => {
+  it('keeps last session and active marker scoped to their workspace', () => {
     expect(
       records.writeLastSession('/one', {
         sdkSessionId: 'sdk',
@@ -46,37 +56,94 @@ describe('CommandCenterRecordsService', () => {
     expect(records.readLastSession('/one')?.sdkSessionId).toBe('sdk');
   });
 
-  it('keeps last session after closing its tab and removes the run independently', () => {
-    records.writeLastSession('/one', {
-      sdkSessionId: 'sdk',
-      tabId: 'root',
-      updatedAt: 1,
-    });
-    records.writeRunManifest('/one', manifest);
-    records.setActiveTabId('/one', null);
-    records.removeRunManifest('/one', 'root');
-    expect(records.readLastSession('/one')?.sdkSessionId).toBe('sdk');
-    expect(records.readRunManifest('/one', 'root')).toBeUndefined();
-    expect(records.readRunManifest('/two', 'root')).toBeUndefined();
+  it('keeps two role-less runs under one root after reload, sorted by start time', () => {
+    expect(records.writeRunManifest('/one', manifest)).toBe(true);
+    expect(records.writeRunManifest('/one', sibling)).toBe(true);
+    expect(records.readRunManifests('/one', 'root')).toEqual([
+      sibling,
+      manifest,
+    ]);
+    expect(
+      TestBed.inject(CommandCenterRecordsService).readRunManifests(
+        '/one',
+        'root',
+      ),
+    ).toEqual([sibling, manifest]);
+    expect(records.readRunManifests('/two', 'root')).toEqual([]);
   });
 
-  it('round-trips run manifests by root and drops malformed entries', () => {
-    expect(records.writeRunManifest('/one', manifest)).toBe(true);
-    expect(records.readRunManifest('/one', 'root')).toEqual(manifest);
+  it('migrates old root-keyed records on the next write and retains role values', () => {
+    const key = 'ptah.tabs.ws._2Fone.command-center';
+    const old = {
+      ...manifest,
+      lanes: [{ laneId: 'lane-1', role: 'reviewer' }],
+    };
+    localStorage.setItem(key, JSON.stringify({ runs: { root: old } }));
+    expect(records.readRunManifests('/one', 'root')).toEqual([old]);
+    expect(records.writeRunManifest('/one', sibling)).toBe(true);
+    const stored = JSON.parse(localStorage.getItem(key) ?? '{}') as {
+      runs: Record<string, unknown>;
+    };
+    expect(Object.keys(stored.runs).sort()).toEqual(
+      [manifest.runId, sibling.runId].sort(),
+    );
+    expect(records.readRunManifests('/one', 'root')).toEqual([sibling, old]);
+  });
+
+  it('drops corrupt and mismatched entries without losing valid runs', () => {
     const key = 'ptah.tabs.ws._2Fone.command-center';
     localStorage.setItem(
       key,
       JSON.stringify({
         lastSession: { sdkSessionId: 1, updatedAt: 'bad' },
         activeTabId: 7,
-        runs: { root: { ...manifest, rounds: 'bad' }, other: manifest },
+        runs: {
+          [manifest.runId]: manifest,
+          [sibling.runId]: { ...sibling, rounds: 'bad' },
+          unrelated: otherRoot,
+        },
       }),
     );
     expect(records.readLastSession('/one')).toBeUndefined();
     expect(records.readActiveTabId('/one')).toBeUndefined();
-    expect(records.readRunManifest('/one', 'root')).toBeUndefined();
-    expect(records.readRunManifest('/one', 'other')).toBeUndefined();
+    expect(records.readRunManifests('/one', 'root')).toEqual([manifest]);
+    expect(records.readRunManifests('/one', 'other')).toEqual([]);
     localStorage.setItem(key, '{');
-    expect(records.readRunManifest('/one', 'root')).toBeUndefined();
+    expect(records.readRunManifests('/one', 'root')).toEqual([]);
+  });
+
+  it('rejects an empty role while accepting absent and non-empty roles', () => {
+    expect(
+      records.writeRunManifest('/one', {
+        ...manifest,
+        lanes: [{ laneId: 'lane-1', role: '' }],
+      }),
+    ).toBe(false);
+    expect(records.readRunManifests('/one', 'root')).toEqual([]);
+    expect(records.writeRunManifest('/one', manifest)).toBe(true);
+    expect(
+      records.writeRunManifest('/one', {
+        ...sibling,
+        lanes: [{ laneId: 'lane-2', role: 'reviewer' }],
+      }),
+    ).toBe(true);
+    expect(records.readRunManifests('/one', 'root')).toHaveLength(2);
+  });
+
+  it('removes one run or every run of a root without touching other roots or last session', () => {
+    records.writeLastSession('/one', {
+      sdkSessionId: 'sdk',
+      tabId: 'root',
+      updatedAt: 1,
+    });
+    records.writeRunManifest('/one', manifest);
+    records.writeRunManifest('/one', sibling);
+    records.writeRunManifest('/one', otherRoot);
+    expect(records.removeRunManifest('/one', manifest.runId)).toBe(true);
+    expect(records.readRunManifests('/one', 'root')).toEqual([sibling]);
+    expect(records.removeRunManifests('/one', 'root')).toBe(true);
+    expect(records.readRunManifests('/one', 'root')).toEqual([]);
+    expect(records.readRunManifests('/one', 'other')).toEqual([otherRoot]);
+    expect(records.readLastSession('/one')?.sdkSessionId).toBe('sdk');
   });
 });
