@@ -997,12 +997,19 @@ export class SubagentBudgetMonitor {
     }
     liveState.stopFired = true;
     liveState.stopped = true;
-    if (prepared.record && registryRecord?.agentId) {
+    // The signal means Ptah stopped this subagent. A safety stop whose record
+    // was not saved still publishes; only a missing agent id cannot.
+    if (registryRecord?.agentId) {
       this.budgetStopCallbacks?.notifyAll({
         agentId: registryRecord.agentId,
         parentSessionId: sessionId,
         timestamp: Date.now(),
       });
+    } else {
+      this.logger.warn(
+        '[SubagentBudgetMonitor] Budget stop succeeded without an agent id; signal not published',
+        { sessionId, toolCallId },
+      );
     }
     // A completed record is dropped from the registry, so it is never offered for resume.
     if (registryRecord) {

@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
+import type { SubagentRecord } from '@ptah-extension/shared';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 import { MainThreadNoticeQueue } from './main-thread-notice-queue';
@@ -39,45 +43,167 @@ function getHookCallback(
 describe('PostToolUseHookHandler', () => {
   it.each([
     ['sync result', 'Agent', { agentId: 'response_id' }, 'registry_id'],
-    ['async launch', 'Task', { agentId: 'async_id', status: 'running' }, 'registry_id'],
+    [
+      'async launch',
+      'Task',
+      { agentId: 'async_id', status: 'running' },
+      'registry_id',
+    ],
     ['registry miss', 'Agent', { agentId: 'fallback_id' }, undefined],
-  ])('adds the Ptah run tag for %s', async (_name, toolName, response, registryId) => {
-    const logger = makeLogger();
-    const notices = new MainThreadNoticeQueue(logger);
-    notices.post('parent', 'existing notice');
-    const lookup = { get: jest.fn(() => registryId ? { agentId: registryId } : null) };
-    const handler = new PostToolUseHookHandler(
-      logger, new PostToolUseCallbackRegistry(logger), undefined, notices, undefined, lookup,
-    );
-    const fn = getHookCallback(handler, 'parent', '/workspace');
-    const result = await fn({
-      hook_event_name: 'PostToolUse', tool_name: toolName,
-      tool_use_id: 'tool-1', tool_input: {}, tool_response: response,
-      session_id: 'parent',
-    } as HookInput, undefined, { signal: new AbortController().signal });
-    expect(result).toEqual(expect.objectContaining({
-      hookSpecificOutput: expect.objectContaining({
-        additionalContext: `existing notice\nptah-run: runId=subagent:${registryId ?? response.agentId}`,
-      }),
-    }));
-    expect(lookup.get).toHaveBeenCalledWith('tool-1');
-    if (registryId) expect(logger.warn).toHaveBeenCalledTimes(1);
-  });
+  ])(
+    'adds the Ptah run tag for %s',
+    async (_name, toolName, response, registryId) => {
+      const logger = makeLogger();
+      const notices = new MainThreadNoticeQueue(logger);
+      notices.post('parent', 'existing notice');
+      const lookup = {
+        get: jest.fn((toolCallId: string): SubagentRecord | null =>
+          registryId
+            ? {
+                toolCallId,
+                agentType: 'Explore',
+                status: 'running',
+                startedAt: 0,
+                agentId: registryId,
+              }
+            : null,
+        ),
+      };
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        undefined,
+        notices,
+        undefined,
+        lookup,
+      );
+      const fn = getHookCallback(handler, 'parent', '/workspace');
+      const result = await fn(
+        {
+          hook_event_name: 'PostToolUse',
+          tool_name: toolName,
+          tool_use_id: 'tool-1',
+          tool_input: {},
+          tool_response: response,
+          session_id: 'parent',
+        } as HookInput,
+        undefined,
+        { signal: new AbortController().signal },
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          hookSpecificOutput: expect.objectContaining({
+            additionalContext: `existing notice\nptah-run: runId=subagent:${registryId ?? response.agentId}`,
+          }),
+        }),
+      );
+      expect(lookup.get).toHaveBeenCalledWith('tool-1');
+      if (registryId) expect(logger.warn).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('keeps the tool result intact when the registry lookup throws', async () => {
     const logger = makeLogger();
     const handler = new PostToolUseHookHandler(
-      logger, new PostToolUseCallbackRegistry(logger), undefined, undefined, undefined,
-      { get: () => { throw new Error('lookup unavailable'); } },
+      logger,
+      new PostToolUseCallbackRegistry(logger),
+      undefined,
+      undefined,
+      undefined,
+      {
+        get: () => {
+          throw new Error('lookup unavailable');
+        },
+      },
     );
     const fn = getHookCallback(handler, 'parent', '/workspace');
-    const result = await fn({
-      hook_event_name: 'PostToolUse', tool_name: 'Agent',
-      tool_use_id: 'tool-1', tool_input: {}, tool_response: { agentId: 'fallback' },
-    } as HookInput, undefined, { signal: new AbortController().signal });
+    const result = await fn(
+      {
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Agent',
+        tool_use_id: 'tool-1',
+        tool_input: {},
+        tool_response: { agentId: 'fallback' },
+      } as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
     expect(result).toEqual({ continue: true });
-    expect(logger.debug).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[PostToolUseHookHandler] subagent run tag lookup failed',
+      expect.objectContaining({
+        error: 'lookup unavailable',
+        toolName: 'Agent',
+      }),
+    );
   });
+
+  it('warns once when two Agent results in one session have no agent id', async () => {
+    const logger = makeLogger();
+    const lookup: Pick<SubagentRegistryService, 'get'> = {
+      get: () => null,
+    };
+    const handler = new PostToolUseHookHandler(
+      logger,
+      new PostToolUseCallbackRegistry(logger),
+      undefined,
+      undefined,
+      undefined,
+      lookup,
+    );
+    const fn = getHookCallback(handler, 'parent', '/workspace');
+    const input = {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Agent',
+      tool_use_id: 'tool-1',
+      tool_input: {},
+      tool_response: {},
+      session_id: 'parent',
+    } as HookInput;
+    await fn(input, undefined, { signal: new AbortController().signal });
+    await fn({ ...input, tool_use_id: 'tool-2' } as HookInput, undefined, {
+      signal: new AbortController().signal,
+    });
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[PostToolUseHookHandler] subagent run tag skipped',
+      expect.objectContaining({
+        reason: 'missing-agent-id',
+        toolName: 'Agent',
+      }),
+    );
+  });
+
+  it('a non-Agent tool logs the run-tag skip at debug only', async () => {
+    const logger = makeLogger();
+    const handler = new PostToolUseHookHandler(
+      logger,
+      new PostToolUseCallbackRegistry(logger),
+    );
+    const fn = getHookCallback(handler, 'parent', '/workspace');
+    const result = await fn(
+      {
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Read',
+        tool_use_id: 'tool-1',
+        tool_input: {},
+        tool_response: { content: 'file' },
+        session_id: 'parent',
+      } as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toEqual({ continue: true });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(
+      '[PostToolUseHookHandler] subagent run tag skipped',
+      { reason: 'not-an-agent-tool', toolName: 'Read' },
+    );
+  });
+
   it('happy path: validated PostToolUse input → registry.notifyAll with mapped payload', async () => {
     const logger = makeLogger();
     const registry = new PostToolUseCallbackRegistry(logger);
@@ -445,7 +571,13 @@ describe('PostToolUseHookHandler', () => {
       );
 
       expect(await call(handler, baseInput)).toEqual({ continue: true });
-      expect(logger.debug).toHaveBeenCalledTimes(1);
+      expect(
+        logger.debug.mock.calls.filter(
+          (call) =>
+            call[0] ===
+            '[PostToolUseHookHandler] could not attach the pending notice, skipping it',
+        ),
+      ).toHaveLength(1);
     });
 
     it('without a queue the result is unchanged', async () => {
@@ -586,7 +718,11 @@ describe('PostToolUseHookHandler', () => {
           continue: true,
         });
         expect(cap).not.toHaveBeenCalled();
-        expect(logger.debug).toHaveBeenCalledTimes(1);
+        expect(
+          logger.debug.mock.calls.filter((call) =>
+            String(call[0]).includes('hook aborted'),
+          ),
+        ).toHaveLength(1);
       });
 
       it('an abort while the capper runs returns the original output at once and releases the listener', async () => {

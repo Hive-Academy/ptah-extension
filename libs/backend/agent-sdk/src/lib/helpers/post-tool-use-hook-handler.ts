@@ -1,5 +1,8 @@
 import { injectable, inject } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   HookCallbackMatcher,
@@ -61,6 +64,9 @@ function deriveSuccess(
 
 @injectable()
 export class PostToolUseHookHandler {
+  /** Parent sessions already warned for a missing or invalid run-tag agent id. */
+  private readonly runTagMissSessions = new Set<string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY)
@@ -74,9 +80,7 @@ export class PostToolUseHookHandler {
     @inject(SubagentNoticeQueue)
     private readonly subagentNotices?: SubagentNoticeQueue,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private readonly subagentRegistry?: {
-      get(toolCallId: string): { agentId: string } | null | undefined;
-    },
+    private readonly subagentRegistry?: Pick<SubagentRegistryService, 'get'>,
   ) {}
 
   /**
@@ -93,7 +97,10 @@ export class PostToolUseHookHandler {
       : this.takeMainThreadNotice(input, sessionId);
   }
 
-  private runTag(input: PostToolUseHookInput): string | null {
+  private runTag(
+    input: PostToolUseHookInput,
+    sessionId: string | undefined,
+  ): string | null {
     try {
       const result = buildSubagentRunTag(
         input,
@@ -112,12 +119,7 @@ export class PostToolUseHookHandler {
           },
         );
       }
-      if (result.reason) {
-        this.logger.debug('[PostToolUseHookHandler] subagent run tag skipped', {
-          reason: result.reason,
-          toolName: input.tool_name,
-        });
-      }
+      this.logRunTagSkip(input, sessionId, result.reason);
       return result.tag;
     } catch (error: unknown) {
       // degradation-audit: reported - a failed registry lookup loses only this
@@ -130,6 +132,38 @@ export class PostToolUseHookHandler {
         },
       );
       return null;
+    }
+  }
+
+  /**
+   * `missing-agent-id` and `invalid-agent-id` are a lost join key: warn once
+   * per parent session. A tool that is not Agent or Task is not a join, so
+   * that skip stays at debug.
+   */
+  private logRunTagSkip(
+    input: PostToolUseHookInput,
+    sessionId: string | undefined,
+    reason: 'missing-agent-id' | 'invalid-agent-id' | undefined,
+  ): void {
+    if (reason === 'missing-agent-id' || reason === 'invalid-agent-id') {
+      const parentSessionId = resolveHookSessionId(input.session_id, sessionId);
+      if (parentSessionId !== null) {
+        if (this.runTagMissSessions.has(parentSessionId)) {
+          return;
+        }
+        this.runTagMissSessions.add(parentSessionId);
+      }
+      this.logger.warn('[PostToolUseHookHandler] subagent run tag skipped', {
+        reason,
+        toolName: input.tool_name,
+      });
+      return;
+    }
+    if (input.tool_name !== 'Agent' && input.tool_name !== 'Task') {
+      this.logger.debug('[PostToolUseHookHandler] subagent run tag skipped', {
+        reason: 'not-an-agent-tool',
+        toolName: input.tool_name,
+      });
     }
   }
 
@@ -190,7 +224,7 @@ export class PostToolUseHookHandler {
               this.fanOut(input, sessionId, cwd);
               const rewritten = cappedOutput !== input.tool_response;
               const notice = this.takeNotice(input, sessionId);
-              const tag = this.runTag(input);
+              const tag = this.runTag(input, sessionId);
               const additionalContext = [notice, tag]
                 .filter(
                   (part): part is string => part !== undefined && part !== null,
