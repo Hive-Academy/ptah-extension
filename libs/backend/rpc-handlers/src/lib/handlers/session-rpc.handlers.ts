@@ -8,6 +8,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { SYSTEM_PROMPT_MAX_LENGTH } from './chat-rpc.schema';
 import {
   Logger,
   RpcHandler,
@@ -1375,6 +1376,13 @@ export class SessionRpcHandlers {
       'session:rewindFiles',
       async (params: SessionRewindParams) => {
         try {
+          if (
+            params.systemPrompt !== undefined &&
+            (typeof params.systemPrompt !== 'string' ||
+              params.systemPrompt.length > SYSTEM_PROMPT_MAX_LENGTH)
+          ) {
+            throw new RpcUserError('Invalid systemPrompt', 'INVALID_PARAMS');
+          }
           const sessionId = this.validateSessionId(params.sessionId);
           const userMessageId = this.validateUserMessageId(
             params.userMessageId,
@@ -1406,6 +1414,7 @@ export class SessionRpcHandlers {
               sessionId as SessionId,
               sessionId,
               workspacePath,
+              params.systemPrompt,
             );
             if ('resumed' in outcome && outcome.resumed === false) {
               throw new Error(`session-not-active: ${outcome.error}`);
@@ -1467,6 +1476,7 @@ export class SessionRpcHandlers {
             deletions: result.deletions,
           };
         } catch (error) {
+          if (error instanceof RpcUserError) throw error;
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
           this.logger.error('RPC: session:rewindFiles failed', errorObj);

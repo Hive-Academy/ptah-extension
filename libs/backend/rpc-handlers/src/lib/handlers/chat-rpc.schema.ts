@@ -31,6 +31,13 @@ import {
   UUID_REGEX,
 } from '@ptah-extension/shared';
 
+/** Maximum renderer-supplied persona length at the RPC boundary. */
+export const SYSTEM_PROMPT_MAX_LENGTH = 16 * 1024;
+const SystemPromptSchema = z
+  .string({ error: 'systemPrompt must be a string' })
+  .max(SYSTEM_PROMPT_MAX_LENGTH, 'systemPrompt exceeds maximum length')
+  .optional();
+
 const HistoryPageSizeSchema = z
   .number()
   .int()
@@ -70,6 +77,7 @@ export const ChatStartParamsSchema = z
  */
 export const ChatContinueParamsSchema = z
   .object({
+    systemPrompt: SystemPromptSchema,
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
     surfaceMode: z.boolean().optional(),
@@ -83,6 +91,7 @@ export const ChatContinueParamsSchema = z
  */
 export const ChatResumeParamsSchema = z
   .object({
+    systemPrompt: SystemPromptSchema,
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
     ptahUiFence: z.boolean().optional(),
