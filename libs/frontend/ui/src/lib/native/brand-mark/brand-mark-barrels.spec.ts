@@ -68,6 +68,18 @@ describe('brand-mark barrels (R7)', () => {
     ]);
   });
 
+  it('exposes only provider art and its type through the narrow entry', () => {
+    const entry = readFileSync(
+      join(__dirname, '..', '..', '..', 'provider-brand-art.ts'),
+      'utf8',
+    );
+    expect(valueExports(entry)).toEqual(['PROVIDER_BRAND_ART']);
+    expect(specifiers(entry)).toEqual([
+      './lib/native/brand-mark/provider-brand-art.vendored',
+      './lib/native/brand-mark/mark-artwork',
+    ]);
+  });
+
   // The load-bearing rule: esbuild never emits a star-only barrel, so these
   // umbrellas do not carry reachability. One concrete export (a named
   // re-export, a const, an import) would keep the file and pull every barrel

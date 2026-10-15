@@ -221,6 +221,9 @@
       ],
       "@ptah-extension/ui": ["./libs/frontend/ui/src/index.ts"],
       "@ptah-extension/ui/brand-mark": ["./libs/frontend/ui/src/brand-mark.ts"],
+      "@ptah-extension/ui/provider-brand-art": [
+        "./libs/frontend/ui/src/provider-brand-art.ts"
+      ],
       "@ptah-extension/workspace-indexing": [
         "./libs/frontend/workspace-indexing/src/index.ts"
       ],
