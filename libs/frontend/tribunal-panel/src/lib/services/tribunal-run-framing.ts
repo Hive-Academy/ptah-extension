@@ -1,0 +1,249 @@
+import { RUBRIC_FILE, SPEC_ROOT, roundJudgeFile } from '@ptah-extension/shared';
+import { RELAY_DELIVERABLE } from './spec-documents';
+import { RELAY_ROLES, rolesForMove, type LaneRole, type RelayRole, type TribunalMove, type VendorLane } from '../types/tribunal-ui.types';
+
+const MOVE_PHRASE: Record<TribunalMove, string> = {
+  council: 'Convene a Tribunal Council',
+  forge: 'Convene a Tribunal Forge',
+  race: 'Convene a Tribunal Race',
+  relay: 'Convene a Tribunal Relay',
+  crucible: 'Convene a Tribunal Crucible',
+};
+
+const MOVE_FRAMING: Record<TribunalMove, string> = {
+  council:
+    'Council: each panelist weighs in independently, then synthesize a single cited verdict.',
+  forge:
+    'Forge: each panelist implements the objective in its own worktree, then cross-review the diffs.',
+  race: 'Race: panelists compete on the objective; score the results against a rubric and rank them.',
+  relay:
+    'Relay: one task through a sequential plan → architect → implement → review pipeline, one CLI lane per phase.',
+  crucible:
+    'Crucible: a cheap executor lane writes the code and a stronger judge lane from a different family scores it against a frozen rubric, looping until PASS or the round cap.',
+};
+
+/**
+ * The autonomy rules the flat moves (council/forge/race) carry, verbatim.
+ *
+ * ONE frozen array shared by all three arms of {@link MOVE_AUTONOMY}, so the
+ * three cannot drift from each other by an edit to one of them. The string is
+ * byte-identical to the module constant this replaced: the framing is a wire
+ * contract with the tribunal skill, and a plausible paraphrase here is a silent
+ * break the conductor reads and nothing type-checks.
+ */
+const FLAT_MOVE_AUTONOMY: readonly string[] = [
+  'Do NOT call AskUserQuestion. Run fully autonomously and make reasonable assumptions; state assumptions inline rather than asking.',
+];
+
+/**
+ * Autonomy is a property of the MOVE, not a user preference.
+ *
+ * Council/Forge/Race read nothing and gate on nothing, so full autonomy is
+ * honest for them. Relay and Crucible both write code and both have mandatory
+ * user checkpoints their CLI lanes cannot run themselves, so "run fully
+ * autonomously" would contradict the skill it is instructing. The record is
+ * exhaustive with no `default:` — a sixth move must state its own answer.
+ */
+const MOVE_AUTONOMY: Record<TribunalMove, readonly string[]> = {
+  council: FLAT_MOVE_AUTONOMY,
+  forge: FLAT_MOVE_AUTONOMY,
+  race: FLAT_MOVE_AUTONOMY,
+  relay: [
+    'Do NOT call `AskUserQuestion` for ordinary implementation decisions — state assumptions inline. You DO own every gate, because CLI lanes cannot ask: after `task-description.md` and again after `implementation-plan.md`, have a reviewer on the other execution side (a subagent for a lane-written document) review it. When the approval mode is `Approval: lane-review` and no escalation applies, an APPROVED review passes the gate: post the document path, the reviewer and the verdict as a short plain message, then relay the next phase without waiting. Otherwise present the document to the user and wait for `APPROVED` — that is, when the user asked to approve gates themselves (`Approval: user`), the review still says REVISE after the revise cap, the review was not cross-side, the document proposes a removal or bans an existing project component, or the user sent feedback on it. If a lane sends a question or returns a `## Clarifications Needed` block, settle it from evidence (code, docs, web search) or a cross-side peer first and log it in `decisions.md`; surface only user-reserved or unsettled questions to the user. Then answer the lane with `ptah_agent_message`, or re-spawn it with a `## Decisions` section.',
+  ],
+  crucible: [
+    'Do NOT call `AskUserQuestion` for ordinary decisions. The round cap below is hard: stop at it and present the open defects honestly. A 3rd revise round runs **only if the user explicitly asks for it** — never on your own initiative, and never a 4th.',
+  ],
+};
+
+/** The flat moves' conductor clause, verbatim and shared — see {@link FLAT_MOVE_AUTONOMY}. */
+const FLAT_MOVE_CONDUCTOR_CLAUSE =
+  'You are the Tribunal conductor running FULLY AUTONOMOUSLY.';
+
+/**
+ * The second place the old code hardcoded full autonomy. Per-move for the same
+ * reason {@link MOVE_AUTONOMY} is: telling the conductor it runs fully
+ * autonomously and then handing it four mandatory gates is a contradiction the
+ * model resolves by ignoring one of them.
+ */
+const MOVE_CONDUCTOR_CLAUSE: Record<TribunalMove, string> = {
+  council: FLAT_MOVE_CONDUCTOR_CLAUSE,
+  forge: FLAT_MOVE_CONDUCTOR_CLAUSE,
+  race: FLAT_MOVE_CONDUCTOR_CLAUSE,
+  relay: 'You are the Tribunal conductor. You own every user gate.',
+  crucible: 'You are the Tribunal conductor. You own every user gate.',
+};
+
+/** The skill reference file each role move defers to, by name only. */
+const MOVE_REFERENCE: Partial<Record<TribunalMove, string>> = {
+  relay: 'references/relay.md',
+  crucible: 'references/crucible.md',
+};
+
+/** Placeholder used when no spec folder could be allocated (Q3 failure path). */
+const UNALLOCATED_SPEC_FOLDER = '<spec folder>';
+
+/**
+ * `round-N-judge.md` as the conductor should read it — the per-round name with
+ * the round left as the symbol `N`.
+ *
+ * Derived from {@link roundJudgeFile} rather than hand-written so a rename of
+ * the artifact reaches this framing automatically. The panel's Crucible parser
+ * reads the very files this line asks for; the two must never disagree.
+ */
+const ROUND_JUDGE_NAME_PATTERN = roundJudgeFile(1).replace('1', 'N');
+
+/** Crucible's default revise-round cap, and its maximum at launch (AC-3.2). */
+export const DEFAULT_CRUCIBLE_ROUND_CAP = 2;
+
+export type TribunalFramingContext = { readonly specTaskId: string | null; readonly roundCap: number | null; readonly rubric: string | null };
+
+export function roundCapFor(spec: { readonly move: TribunalMove; readonly roundCap?: number }): number | null {
+  if (spec.move !== 'crucible') return null;
+  const requested = spec.roundCap ?? DEFAULT_CRUCIBLE_ROUND_CAP;
+  return Math.min(Math.max(1, Math.trunc(requested)), 2);
+}
+
+export function laneTag(laneId: string, role?: LaneRole): string {
+  return `[tribunal:${laneId}]${role ? ` (${role})` : ''}`;
+}
+
+/** A launch instruction for an already approved run, appended to the existing persona. */
+export function buildApprovedRootFraming(move: TribunalMove, lanes: readonly VendorLane[], context: TribunalFramingContext): string {
+  return `${buildTribunalFraming(move, lanes, context)}
+
+Conduct this approved run, then return to your normal role.`;
+}
+
+export function buildTribunalFraming(
+  move: TribunalMove,
+  lanes: readonly VendorLane[],
+  context: {
+    specTaskId: string | null;
+    roundCap: number | null;
+    rubric: string | null;
+  },
+): string {
+  const isRoleMove = rolesForMove(move).length > 0;
+  const specFolder = context.specTaskId
+    ? `${SPEC_ROOT}/${context.specTaskId}`
+    : UNALLOCATED_SPEC_FOLDER;
+
+  const laneLines = lanes
+    .map((lane) => laneLine(move, lane, specFolder))
+    .join('\n');
+
+  const reference = MOVE_REFERENCE[move];
+
+  return [
+    `${MOVE_PHRASE[move]}. ${MOVE_CONDUCTOR_CLAUSE[move]}`,
+    '',
+    MOVE_FRAMING[move],
+    ...(reference
+      ? [
+          '',
+          `Read the tribunal skill's ${reference} before spawning anything; it is the authority for this move.`,
+        ]
+      : []),
+    ...(context.specTaskId
+      ? [
+          '',
+          `Spec folder: ${context.specTaskId} (already created by the Tribunal UI). Use it. Do NOT scan for or allocate a new task id.`,
+        ]
+      : []),
+    '',
+    'This panel is EXPLICITLY defined by the user. Spawn EXACTLY these panelists with EXACTLY these spawn args via ptah_agent_spawn, passing each the objective stated at the end of this message. Do NOT run your own vendor discovery or family-spread selection, do NOT collapse duplicate vendors, and do NOT substitute models. The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task, verbatim.',
+    ...(isRoleMove
+      ? [
+          "Each lane's ROLE is stated below and is authoritative — do not infer it from lane order.",
+        ]
+      : []),
+    '',
+    laneLines,
+    ...crucibleBlock(move, context, specFolder),
+    '',
+    'Rules:',
+    ...MOVE_AUTONOMY[move].map((rule) => `- ${rule}`),
+    '- The [tribunal:<laneId>] tag MUST be the first line of each sub-agent task. Do not omit it and do not alter the laneId inside it.',
+    '',
+    'Objective:',
+  ].join('\n');
+}
+
+/**
+ * Crucible's extra block: the round cap, the verbatim rubric, and the one
+ * protocol fact the panel's own parser is coupled to. Everything else about
+ * the move stays in the skill — two copies of a protocol drift, and drift
+ * here means the panel and the skill disagree about the judge contract the
+ * parser gates on.
+ */
+function crucibleBlock(
+  move: TribunalMove,
+  context: { roundCap: number | null; rubric: string | null },
+  specFolder: string,
+): readonly string[] {
+  if (move !== 'crucible') return [];
+  const cap = context.roundCap ?? DEFAULT_CRUCIBLE_ROUND_CAP;
+  const lines = [
+    '',
+    `Round cap: ${cap} revise rounds. Stop at the cap and report open defects honestly.`,
+  ];
+  if (context.rubric) {
+    lines.push(
+      `Rubric — write this VERBATIM to ${specFolder}/${RUBRIC_FILE} before the first spawn, then freeze it after round 1:`,
+      context.rubric,
+    );
+  }
+  lines.push(
+    '',
+    `Each judge round writes ${specFolder}/${ROUND_JUDGE_NAME_PATTERN} under the ## VERDICT / ## SCORES / ## DEFECTS / ## MENTOR NOTE headings, with every defect carrying a file:line citation. The Tribunal panel reads those files to show progress.`,
+  );
+  return lines;
+}
+
+function laneLine(
+  move: TribunalMove,
+  lane: VendorLane,
+  specFolder: string,
+): string {
+  const spawn = `ptah_agent_spawn({ ${spawnArgsFor(lane)} })`;
+  const role = lane.role;
+  if (!role) {
+    return `  ${laneTag(lane.laneId)} ${lane.displayName} — ${spawn} with the objective below as the task.`;
+  }
+  const head = `  ${laneTag(lane.laneId, role)} ${lane.displayName} — ${spawn}`;
+  if (move === 'relay' && isRelayRole(role)) {
+    return `${head}. Phase: ${role}. Deliverable: ${specFolder}/${RELAY_DELIVERABLE[role]}`;
+  }
+  return `${head} with the objective below as the task.`;
+}
+
+function isRelayRole(role: LaneRole): role is RelayRole {
+  return (RELAY_ROLES as readonly string[]).includes(role);
+}
+
+
+function spawnArgsFor(lane: VendorLane): string {
+  const modelArg = lane.model ? `, model: "${lane.model}"` : '';
+  switch (lane.cli) {
+    case 'codex':
+      return `cli: "codex"${modelArg}`;
+    case 'copilot':
+      return `cli: "copilot"${modelArg}`;
+    case 'cursor':
+      return 'cli: "cursor"';
+    case 'antigravity':
+      // agy takes a model label (e.g. "Gemini 3.5 Flash (High)"); no effort
+      // arg — reasoning effort is baked into the label. The adapter adds the
+      // --print / --dangerously-skip-permissions flags on spawn.
+      return `cli: "antigravity"${modelArg}`;
+    case 'opencode':
+      return `cli: "opencode"${modelArg}`;
+    case 'pi':
+      return `cli: "pi"${modelArg}`;
+    case 'grok':
+      return `cli: "grok"${modelArg}`;
+    case 'ptah-cli':
+      return `ptahCliId: "${lane.ptahCliId ?? ''}"${modelArg}`;
+  }
+}

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 53 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 8/21
+Total tasks: 53 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 9/21
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -563,7 +563,7 @@ last batch header.
   last level of a burst can be dropped and a meter can hold a stale non-zero value after input
   stops. B10 (voice loop) must push a final zero level on stop/mute/idle; the Phase B review checks it.
 
-## Batch 6: Session coordinator - COMPLETE (commit: see Batch 6 verification)
+## Batch 6: Session coordinator - COMPLETE (commit 7bf32ad0c)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript)
 - Execution mode: sequential
@@ -709,7 +709,7 @@ last batch header.
   signal through `TabManagerService` with the inferred type (see Task 14.2). Add the type export only
   if a later batch must name the type, and count `chat-state` in that batch's scoped command.
 
-## Batch 7: Tribunal pure framing, phase derivation and narrow phase entry - IN_PROGRESS
+## Batch 7: Tribunal pure framing, phase derivation and narrow phase entry - COMPLETE (commit: SHA recorded after commit)
 
 - Recommended executor: CLI lane (implementation; behaviour-preserving refactor, Angular TypeScript)
 - Execution mode: sequential
@@ -723,7 +723,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `refactor(tribunal-panel): batch 7 - extract run framing and phase derivation`
 
-### Task 7.1: Extract tribunal-run-framing.ts - IN_PROGRESS
+### Task 7.1: Extract tribunal-run-framing.ts - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-run-framing.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-run-framing.spec.ts` (new),
@@ -738,7 +738,7 @@ last batch header.
 - Validation notes: existing tribunal-run specs stay green unchanged except imports.
 - Implementation details: move, re-export, spec snapshots of existing strings.
 
-### Task 7.2: Extract tribunal-phase-derivation.ts - IN_PROGRESS
+### Task 7.2: Extract tribunal-phase-derivation.ts - COMPLETE
 
 - Depends on: Task 7.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-phase-derivation.ts` (new),
@@ -753,7 +753,7 @@ last batch header.
 - Validation notes: Tribunal page behaviour unchanged.
 - Implementation details: progress service delegates; existing progress specs stay green.
 
-### Task 7.3: Narrow phase entry and alias - IN_PROGRESS
+### Task 7.3: Narrow phase entry and alias - COMPLETE
 
 - Depends on: Task 7.2
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/phase.ts` (new),
@@ -770,8 +770,16 @@ last batch header.
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed; existing tribunal specs green.
 - No per-batch review.
+- Result (team-leader, Mode 2): implementer codex CLI lane `1c4132d2`; report `TASK/reports/batch-7-report.md`.
+  Scoped `run-many -t test typecheck lint -p @ptah-extension/tribunal-panel` header named 1 project and passed
+  (19 suites, 0 lint warnings). On disk: `phase.ts` exports only `buildTribunalFraming`,
+  `buildApprovedRootFraming`, `roundCapFor`, `laneTag`, `derivePhase` and 3 types; one alias at
+  `tsconfig.base.json:33`; `tribunal-run.service.spec.ts` unchanged; progress spec changed one import; no
+  `command-center` import and no catch site in tribunal-panel's new files. Carried to the Phase B style review:
+  `derivePhase` uses literal `2` instead of `DEFAULT_CRUCIBLE_ROUND_CAP` (`tribunal-phase-derivation.ts`), and
+  the new files use long one-line declarations (Prettier `format:write` in lint-staged normalises them at commit).
 
-## Batch 8: Owned work projection, status context and Tribunal roster gate (A1) - PENDING
+## Batch 8: Owned work projection, status context and Tribunal roster gate (A1) - IN_PROGRESS
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design)
 - Execution mode: sequential
@@ -785,7 +793,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 8 - work projection and tribunal roster gate`
 
-### Task 8.1: Owned work projection - PENDING
+### Task 8.1: Owned work projection - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/work-projection.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/work-projection.spec.ts` (new)
@@ -800,7 +808,7 @@ last batch header.
 - Validation notes: no new RPC (plan line 18).
 - Implementation details: pure reducer over inputs; spec covers rekey, sibling exclusion, restart join, two runs.
 
-### Task 8.2: COMMAND_CENTER_STATUS_CONTEXT builder - PENDING
+### Task 8.2: COMMAND_CENTER_STATUS_CONTEXT builder - IN_PROGRESS
 
 - Depends on: Task 8.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/status-context.ts` (new),
@@ -813,7 +821,7 @@ last batch header.
 - Validation notes: ordinary chat sends never receive the block.
 - Implementation details: pure function; spec covers cap, redaction, empty tree.
 
-### Task 8.3: Roster proposal validation and Tribunal run coordinator (Amendment A1) - PENDING
+### Task 8.3: Roster proposal validation and Tribunal run coordinator (Amendment A1) - IN_PROGRESS
 
 - Depends on: Task 8.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-roster-proposal.ts` (new),
@@ -837,7 +845,7 @@ last batch header.
 - Implementation details: confirmation input is a method called only by the card's click/key handler (B13); no
   speech path reaches it.
 
-### Task 8.4: Degradation-audit clean command-center lib (carried from Batch 6) - PENDING
+### Task 8.4: Degradation-audit clean command-center lib (carried from Batch 6) - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.ts`
   (same file Task 8.2 already edits; no new file)
@@ -861,6 +869,11 @@ last batch header.
 - The scoped command passes; output tailed.
 - Phase B's last batch: after commit return NEEDS REVIEW (code-logic + style, combined diff B5-B8); reviewer checks
   A1 conformance, the no-`MESSAGE_HANDLERS` rule and that chat/tribunal-panel never import command-center.
+- Phase B review plan (team-leader, after B7): implementer family codex for B5-B8 (B6A also lane-implemented).
+  Code-logic review: grok CLI lane (different family). Style review is due (new public API
+  `@ptah-extension/command-center` and `@ptah-extension/tribunal-panel/phase`): in-process `code-style-reviewer`
+  subagent (Anthropic family, different from codex); it may run after the logic review returns, never as a
+  concurrent heavy check. Both reviews read the range `fa97a6967^..HEAD` (covers B5, B6A, B6, B7, B8).
 
 ## Batch 9: Voice primitives (adapted from property-hub) - PENDING
 
