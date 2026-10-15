@@ -13,8 +13,6 @@ import {
   NgModule,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 jest.mock('ngx-markdown', () => {
   @Component({
@@ -51,6 +49,7 @@ import { By } from '@angular/platform-browser';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import { MessageBubbleComponent } from './message-bubble.component';
+import { buildTurnContexts } from '../../utils/turn-facts.utils';
 import { ExecutionNodeComponent } from './execution/execution-node.component';
 import { VSCodeService } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
@@ -88,16 +87,20 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.detectChanges();
   }
 
-  it('forwards the opt-in agent tile mode to the execution tree', () => {
+  it('forwards the opt-in agent tile mode to each execution tree row', () => {
     setMessage(createExecutionChatMessage({
       id: 'agent-message', role: 'assistant', rawContent: '',
       streamingState: { id: 'root', type: 'message', status: 'complete', content: null,
-        children: [], isCollapsed: false },
+        children: [{ id: 'text-1', type: 'text', status: 'complete', content: 'done',
+          children: [], isCollapsed: false }], isCollapsed: false },
     }));
     fixture.componentRef.setInput('agentTileMode', true);
     fixture.detectChanges();
-    const tree = fixture.debugElement.query(By.directive(ExecutionNodeComponent));
-    expect(tree.componentInstance.agentTileMode()).toBe(true);
+    // The bubble renders the root's children itself (work log / answer),
+    // each through an unchanged ptah-execution-node.
+    const row = fixture.debugElement.query(By.directive(ExecutionNodeComponent));
+    expect(row.componentInstance.node().id).toBe('text-1');
+    expect(row.componentInstance.agentTileMode()).toBe(true);
   });
 
   it('renders branch + rewind buttons for user role messages', () => {
@@ -140,8 +143,57 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     expect(rewind).toBeNull();
   });
 
-  it('renders cost unavailable when an assistant message has usage but no known price', () => {
-    setMessage(
+  /** A settled assistant message as its turn's only message. */
+  function setSettledTurn(message: ExecutionChatMessage): void {
+    fixture = TestBed.createComponent(MessageBubbleComponent);
+    fixture.componentRef.setInput('message', message);
+    fixture.componentRef.setInput(
+      'turn',
+      buildTurnContexts([message]).get(message.id) ?? null,
+    );
+    fixture.detectChanges();
+  }
+
+  function showActivityButton(): HTMLButtonElement | null {
+    return fixture.nativeElement.querySelector(
+      '[data-testid="turn-show-activity"]',
+    );
+  }
+
+  function activityPanel(): HTMLElement | null {
+    return fixture.nativeElement.querySelector(
+      '[data-test="turn-activity-panel"]',
+    );
+  }
+
+  it('keeps tokens and cost in the activity panel, closed by default (B-8, B-11)', () => {
+    setSettledTurn(
+      createExecutionChatMessage({
+        id: 'msg-assistant-priced',
+        role: 'assistant',
+        rawContent: 'response',
+        tokens: { input: 10, output: 5 },
+        cost: 0.5,
+      }),
+    );
+
+    const button = showActivityButton();
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('aria-expanded')).toBe('false');
+    expect(activityPanel()).toBeNull();
+
+    button?.click();
+    fixture.detectChanges();
+
+    expect(button?.getAttribute('aria-expanded')).toBe('true');
+    const panel = activityPanel();
+    expect(panel?.id).toBe(button?.getAttribute('aria-controls'));
+    expect(panel?.textContent).toContain('Tokens');
+    expect(panel?.textContent).toContain('$0.50');
+  });
+
+  it('omits the cost item when usage has no known price', () => {
+    setSettledTurn(
       createExecutionChatMessage({
         id: 'msg-assistant-unpriced',
         role: 'assistant',
@@ -151,13 +203,15 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
       }),
     );
 
-    expect(
-      fixture.debugElement.query(By.css('[data-testid="cost-unavailable"]')),
-    ).not.toBeNull();
+    showActivityButton()?.click();
+    fixture.detectChanges();
+
+    expect(activityPanel()?.textContent).toContain('Tokens');
+    expect(activityPanel()?.textContent).not.toContain('Cost');
   });
 
-  it('renders a genuinely known zero cost as $0.0000', () => {
-    setMessage(
+  it('renders a genuinely known zero cost as $0.0000 in the activity panel', () => {
+    setSettledTurn(
       createExecutionChatMessage({
         id: 'msg-assistant-free',
         role: 'assistant',
@@ -167,8 +221,10 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
       }),
     );
 
-    expect(fixture.nativeElement.textContent).toContain('$0.0000');
-    expect(fixture.nativeElement.textContent).not.toContain('cost unavailable');
+    showActivityButton()?.click();
+    fixture.detectChanges();
+
+    expect(activityPanel()?.textContent).toContain('$0.0000');
   });
 
   it('renders no cost badge when a message has no usage', () => {
@@ -186,8 +242,8 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     ).toBeNull();
   });
 
-  it('renders no metadata footer for an unknown cost without usage or duration', () => {
-    setMessage(
+  it('hides Show activity when every activity item is unknown', () => {
+    setSettledTurn(
       createExecutionChatMessage({
         id: 'msg-assistant-empty-metadata',
         role: 'assistant',
@@ -197,10 +253,10 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     );
 
     expect(
-      fixture.debugElement.query(
-        By.css('[data-testid="message-metadata-footer"]'),
-      ),
-    ).toBeNull();
+      fixture.nativeElement.querySelector('[data-testid="turn-action-row"]'),
+    ).not.toBeNull();
+    expect(showActivityButton()).toBeNull();
+    expect(activityPanel()).toBeNull();
   });
 
   it('emits branchRequested with the message id when the branch button is clicked', () => {
@@ -306,76 +362,6 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     button.nativeElement.click();
     expect(emitted).toEqual(['msg-user-active']);
   });
-
-  it.each([
-    [true, false],
-    [false, true],
-  ] as const)(
-    'applies the badge motion gate for isFinalizing=%s (enabled=%s)',
-    async (isFinalizing, expectsAnimation) => {
-      fixture = TestBed.createComponent(MessageBubbleComponent);
-      fixture.componentRef.setInput(
-        'message',
-        createExecutionChatMessage({
-          id: `msg-motion-${isFinalizing}`,
-          role: 'assistant',
-          rawContent: 'complete',
-        }),
-      );
-      fixture.componentRef.setInput('isFinalizing', isFinalizing);
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.componentRef.setInput(
-        'message',
-        createExecutionChatMessage({
-          id: `msg-motion-${isFinalizing}`,
-          role: 'assistant',
-          rawContent: 'complete',
-          duration: 100,
-        }),
-      );
-      let rafSawEnterClass = false;
-      const rafSpy = jest
-        .spyOn(window, 'requestAnimationFrame')
-        .mockImplementation((callback: FrameRequestCallback) => {
-          rafSawEnterClass ||=
-            fixture.nativeElement.querySelector('.bubble-fade-enter') !== null;
-          callback(0);
-          return 1;
-        });
-      fixture.detectChanges();
-      await Promise.resolve();
-
-      if (expectsAnimation) {
-        // jsdom has no Web Animations API, so inspect the production template
-        // binding itself. This catches an inverted ternary or wrong class for
-        // both animation directions while AOT verifies the bound syntax.
-        const template = readFileSync(
-          join(__dirname, 'message-bubble.component.html'),
-          'utf8',
-        );
-        expect(template).toContain(
-          `[animate.enter]="isFinalizing() ? '' : 'bubble-fade-enter'"`,
-        );
-        expect(template).toContain(
-          `[animate.leave]="isFinalizing() ? '' : 'bubble-fade-leave'"`,
-        );
-        expect(
-          fixture.nativeElement.querySelector('.text-base-content-muted'),
-        ).not.toBeNull();
-        expect(fixture.componentInstance.isFinalizing()).toBe(false);
-      } else {
-        expect(
-          fixture.nativeElement.querySelector('.bubble-fade-enter'),
-        ).toBeNull();
-        // Input scheduling happened before the spy; the suppressed enter
-        // binding itself schedules no frame and never applies the class.
-        expect(rafSawEnterClass).toBe(false);
-        expect(rafSpy).not.toHaveBeenCalled();
-      }
-      rafSpy.mockRestore();
-    },
-  );
 
   describe('inbound peer bubble', () => {
     function peerMessage(label: string): ExecutionChatMessage {

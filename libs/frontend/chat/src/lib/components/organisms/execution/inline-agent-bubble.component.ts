@@ -49,8 +49,6 @@ import type {
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
-import { resolveModelDisplayName } from '@ptah-extension/shared';
-import { ModelStateService } from '@ptah-extension/core';
 import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
 
 /**
@@ -512,15 +510,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           [animate.enter]="isFinalizing() ? '' : 'agent-fade-in'"
           [animate.leave]="isFinalizing() ? '' : 'agent-fade-out'"
         >
-          @if (modelDisplayName()) {
-            <span
-              class="badge badge-xs text-[9px] font-medium flex-shrink-0 border-white/20 text-white/80"
-              [style.background-color]="agentColor()"
-              [title]="rawModelId() || ''"
-            >
-              {{ modelDisplayName() }}
-            </span>
-          }
           @if (agentTokenUsage()) {
             <ptah-token-badge [tokens]="agentTokenUsage()!" />
           }
@@ -616,7 +605,6 @@ export class InlineAgentBubbleComponent {
   private readonly ngZone = inject(NgZone);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
-  private readonly modelState = inject(ModelStateService);
   private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
   private readonly scrollDirty = inject(ScrollDirtyService);
 
@@ -886,25 +874,6 @@ export class InlineAgentBubbleComponent {
   });
 
   /**
-   * Computed: raw model ID from the agent node (e.g., "claude-sonnet-4-20250514")
-   * Used for both display name formatting and tooltip.
-   */
-  readonly rawModelId = computed(
-    () => this.node().agentModel || this.node().model || null,
-  );
-
-  /**
-   * Computed: human-readable model display name (e.g., "Sonnet 4", "Opus 4.5")
-   * Uses agentModel (preferred) or model field, formatted via shared utility.
-   * Returns null if no model info is available.
-   */
-  readonly modelDisplayName = computed(() => {
-    const model = this.rawModelId();
-    if (!model) return null;
-    return resolveModelDisplayName(model, this.modelState.availableModels());
-  });
-
-  /**
    * Computed: aggregated token usage for the agent
    * Returns null if no token data is available.
    */
@@ -923,7 +892,6 @@ export class InlineAgentBubbleComponent {
    */
   readonly hasStats = computed(() => {
     return !!(
-      this.modelDisplayName() ||
       this.agentTokenUsage() ||
       (this.agentCost() !== null && this.agentCost()! > 0) ||
       this.agentDuration() !== null

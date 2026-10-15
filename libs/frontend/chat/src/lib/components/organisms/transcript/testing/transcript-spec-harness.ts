@@ -20,7 +20,14 @@ import type {
 import { ChangeSetStore } from '../../../../services/change-set/change-set.store';
 import { ChangeSetActionsService } from '../../../../services/change-set/change-set-actions.service';
 import { ChatEmptyStateComponent } from '../../../molecules/setup-plugins/chat-empty-state.component';
-import { MessageBubbleComponent } from '../../message-bubble.component';
+import {
+  MessageBubbleComponent,
+  type TurnLogToggle,
+} from '../../message-bubble.component';
+import type { TurnContext } from '../../../../utils/turn-facts.utils';
+import type { SessionAgent } from '../../../../services/session-agents/session-agent-roster';
+import { SessionAgentRosterService } from '../../../../services/session-agents/session-agent-roster.service';
+import { SessionInspectorStore } from '../../../../services/session-inspector/session-inspector.store';
 import { SESSION_CONTEXT } from '../../../../tokens/session-context.token';
 import { ChatTranscriptComponent } from '../chat-transcript.component';
 
@@ -37,13 +44,21 @@ export class TranscriptMessageBubbleStub {
   // transcript template binds it, so the stub must accept it.
   @Input() ptahUiOrderKey = 0;
   @Input() ptahUiSnapshot: TurnSourceSnapshot | null = null;
-  @Input() messageIndex = 0;
-  @Input() totalMessages = 0;
   @Input() isStreaming = false;
   @Input() isFinalizing = false;
   @Input() isSessionActive = false;
+  // The clean-turn inputs and outputs the transcript binds (A1-3).
+  @Input() turn: TurnContext | null = null;
+  @Input() viewMode: 'full' | 'compact' = 'full';
+  @Input() logOpen: boolean | null = null;
+  @Input() turnLive = false;
+  @Input() now = 0;
+  @Input() needsYouCount = 0;
+  @Input() agents: readonly SessionAgent[] = [];
   @Output() branchRequested = new EventEmitter<string>();
   @Output() rewindRequested = new EventEmitter<string>();
+  @Output() logToggled = new EventEmitter<TurnLogToggle>();
+  @Output() laneRequested = new EventEmitter<string>();
 }
 
 @Component({
@@ -116,6 +131,18 @@ export function configureTranscriptTestBed(
       {
         provide: SESSION_CONTEXT,
         useValue: options.sessionContext ?? null,
+      },
+      // Turn agents and the live line's needs-you count (A1-3): no agents
+      // and nothing open unless a spec overrides them.
+      {
+        provide: SessionAgentRosterService,
+        useValue: { roster: () => [] } as unknown as SessionAgentRosterService,
+      },
+      {
+        provide: SessionInspectorStore,
+        useValue: {
+          modelFor: () => signal({ needsYouCount: 0 }),
+        } as unknown as SessionInspectorStore,
       },
     ],
   });

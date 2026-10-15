@@ -95,8 +95,6 @@ import { SESSION_CARD_ACTIONS, SESSION_VISIBLE } from '../../tokens/session-cont
 })
 class MessageBubbleStub {
   @Input() message: unknown;
-  @Input() messageIndex = 0;
-  @Input() totalMessages = 0;
   @Input() isStreaming = false;
   @Input() isFinalizing = false;
   @Input() isSessionActive = false;
@@ -105,8 +103,18 @@ class MessageBubbleStub {
   // Mirrors MessageBubbleComponent's ptah-ui inputs (TASK_2026_610 B7/C2a).
   @Input() ptahUiOrderKey = 0;
   @Input() ptahUiSnapshot: unknown = null;
+  // Mirrors MessageBubbleComponent's turn inputs/outputs (TASK_2026_677 A1-3).
+  @Input() turn: unknown = null;
+  @Input() viewMode: 'full' | 'compact' = 'full';
+  @Input() logOpen: boolean | null = null;
+  @Input() turnLive = false;
+  @Input() now = 0;
+  @Input() needsYouCount = 0;
+  @Input() agents: readonly unknown[] = [];
   @Output() branchRequested = new EventEmitter<string>();
   @Output() rewindRequested = new EventEmitter<string>();
+  @Output() logToggled = new EventEmitter<unknown>();
+  @Output() laneRequested = new EventEmitter<string>();
 }
 
 @Component({

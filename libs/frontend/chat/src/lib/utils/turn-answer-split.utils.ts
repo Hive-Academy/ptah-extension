@@ -45,8 +45,11 @@ function isActivityNode(node: ExecutionNode): boolean {
 }
 
 /** True when the root has any non-text top-level child. */
-export function rootHasActivity(root: ExecutionNode | null): boolean {
-  return root !== null && root.children.some(isActivityNode);
+export function rootHasActivity(
+  root: ExecutionNode | null | undefined,
+): boolean {
+  // Replayed/history messages and partial fixtures can omit the tree.
+  return Array.isArray(root?.children) && root.children.some(isActivityNode);
 }
 
 /**
@@ -88,7 +91,8 @@ function computeSplit(
   root: ExecutionNode,
   opts: TurnMessageSplitOptions,
 ): TurnMessageSplit {
-  const children = root.children;
+  // Replayed/history messages and partial fixtures can omit the children array.
+  const children = root.children ?? EMPTY;
   let lastActivity = -1;
   for (let i = children.length - 1; i >= 0; i--) {
     if (isActivityNode(children[i])) {
