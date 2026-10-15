@@ -461,7 +461,7 @@ then the oldest beyond 2 000 rows. Evictions are logged at `debug` with a count.
   and also on `onDidOpen` and at the next start. Logging: one `warn` (ids, code) at the first failure of a
   streak, one `warn` per 10 further failed retries with the count, one `info` when the backlog drains.
 - Backlog mode (desktop/CLI). The journal is one ordered list `{ nextSeq, entries: [{ seq, op }],
-  droppedAtCapacity }` under `ptah.laneOutcomes.journal.v1`. While it is non-empty (DB not open yet, or a
+  droppedAtCapacity, heldRuns }` (`heldRuns`: the R4-1 held-run index below) under `ptah.laneOutcomes.journal.v1`. While it is non-empty (DB not open yet, or a
   transient failure), every new op, fire-and-forget or report, is appended to its tail, and the drain
   consumes only from its head. FIFO across retries and restarts follows from that single list. When it
   empties, the pipeline returns to direct mode. On `onDidOpen`, and at start when `isOpen` is already true,
@@ -476,21 +476,52 @@ then the oldest beyond 2 000 rows. Evictions are logged at `debug` with a count.
      5 000 entries. A key whose op was dead-lettered leaves the index.
   2. Pending holds: the run ids of unacknowledged `deliverables` reports for `subagent:` targets in the
      queue or journal (same index, same lifetime).
-  3. The store, only when it is open (backlog because of a transient failure): `getRow(runId)` and the held
-     reports for `runId`. A read that throws counts as "store not readable".
+  3. Held-run index (Gate 2 round 4 fix R4-1, decision #48), consulted only when the store is not open or
+     not readable. It lists the `subagent:` run ids that have an applied, unjoined, unexpired held
+     `deliverables` report, so a hold that was applied and acknowledged before a store outage is still
+     recognised. Storage: the field `heldRuns: [{ runId, expiresAt }]` of the journal value
+     `ptah.laneOutcomes.journal.v1` (the same `IStateStorage` key, so it is written by the same per-turn
+     `update` as the journal rewrite and needs no new key or write). `expiresAt` is the latest `expires_at`
+     of the run's held `deliverables` reports (24 h after `held_at`, decision #41). Lifecycle:
+     - Added when a drain turn applies a `deliverables` op that results in a held report (or finds its
+       `report_id` already held, on replay). The op is acknowledged only after both its SQLite transaction
+       and the turn's `IStateStorage.update` carrying the entry have resolved; a rejected `update` is the
+       existing transient class, and the replay is a no-op by `report_id`. In direct mode a turn that
+       added or removed an entry ends with that one `update` (no `update` for turns that did not).
+     - Removed in the turn's `update` when the run's stop op joins its holds, or when the expiry sweep
+       removes its last held `deliverables` report. An entry past its `expiresAt` is ignored on read and
+       dropped at the next write, so the index expires on its own while the store stays closed.
+     - Bounded at 500 entries: holds are capped at 500 (decision #41), so at most 500 runs can be held.
+     - Restart: the field is loaded with the journal at start (expired entries dropped) and rebuilt with
+       it, so it survives a process restart that happens while the store is closed.
+     - Disagreement: when the store is open and readable, the store wins and the index is not consulted.
+       At `onDidOpen` (and at a start where `isOpen` is already true) the first drain turn replaces
+       `heldRuns` with the store's runs that hold an unexpired `deliverables` report (one read of
+       `lane_outcome_held_reports`), which drops a stale entry (for example a join committed in SQLite
+       just before a crash, before the index `update`) and restores a missing one. A review accepted
+       through a stale entry while the store was closed is safe: at apply time it finds the joined row
+       (applied normally) or a held `deliverables` (held), and otherwise follows the apply-time residue
+       rule below (`target-missing` dead-letter with one `warn`).
+     The index is desktop/CLI only; the VS Code KV store keeps holds in its own `held` array and is read
+     before `submit` resolves. A lane run id never enters the index, and a `subagent:` id enters it only
+     after a `deliverables` hold for it was applied, so a truly unknown id still gets the Req 5.6 error.
+  4. The store, only when it is open (backlog because of a transient failure): `getRow(runId)` and the held
+     reports for `runId`. A read that throws counts as "store not readable". A readable store overrides
+     the held-run index (step 3 is skipped).
   Result of `submit` in backlog mode (direct mode and VS Code are unchanged: the store is read before
   `submit` resolves):
   | Target | Evidence | Result | Appended to the journal |
   | --- | --- | --- | --- |
   | any run id | a pending insert for it, or a readable row | `{ ok: true, state: 'queued', runId }`, text "queued until the outcome store is available" | yes |
   | `subagent:` id, `deliverables` | no pending insert, no readable row (store readable or not) | `{ ok: true, state: 'held', runId }`, text "held until run <runId> stops" (decision #41 report hold; the stat facts are taken now) | yes; on apply it joins the row if one exists by then, else becomes a held report |
-  | `subagent:` id, `review` | no pending insert or readable row, but a pending hold or a readable held `deliverables` report for the run | `{ ok: true, state: 'held', runId }` | yes |
-  | `subagent:` id, `review` | none of the above | `{ ok: false, error }` naming the id | no |
+  | `subagent:` id, `review` | no pending insert or readable row, but a pending hold, a readable held `deliverables` report for the run, or (store not open or not readable) an unexpired held-run index entry for it | `{ ok: true, state: 'held', runId }`; on apply it joins the row if the stop landed first, else is held behind the `deliverables` hold | yes |
+  | `subagent:` id, `review` | none of the above (store readable with no row and no held `deliverables`, even if a stale index entry exists; or store not readable and no pending hold and no unexpired index entry) | `{ ok: false, error }` naming the id | no |
   | lane run id | no pending insert, and no readable row (absent, or store not open / not readable) | `{ ok: false, error }` naming the id | no |
   The error text is `run <runId> not found` when the store was read, and `run <runId> not found: the outcome
   store is not open yet, so the run could not be verified; retry after it opens` when it was not. Either way
   nothing is written to the store, the journal or the hold table, and no `reportId` receipt exists, so a
-  retry with a new call is safe. Hold capacity (500) counts readable holds plus pending holds; a refusal is
+  retry with a new call is safe. Hold capacity (500) counts readable holds (held-run index entries when the store is not
+  readable) plus pending holds; a refusal is
   `{ ok: false, error: 'too many held reports' }` with nothing appended.
   Apply-time residue: a report accepted as `queued` whose insert was later dead-lettered (permanent
   failure) finds no row when applied; a `subagent:` `deliverables` report then becomes a held report, any
@@ -541,6 +572,19 @@ Required tests (B4 unless noted):
   naming `subagent:x`, nothing appended. (d) A `deliverables` report for `subagent:y` with no pending insert →
   `state: 'held'`, one entry appended; on open with no stop for `y` it is a held report; with S(y) applied
   first it joins the row. (e) A review naming L1 (pending insert) → `queued`, applied after L1 on open.
+- Held review across a store outage (R4-1, decision #48), desktop/CLI pipeline over a fake connection and
+  `IStateStorage`: with the store open and no row for `subagent:z`, apply and acknowledge a `deliverables`
+  report for it (result `held`; the hold table has it; the journal value's `heldRuns` contains
+  `subagent:z`; the pending-hold index does not). Close the store (`isOpen = false`), submit a `review`
+  `revise` for `subagent:z` → `{ ok: true, state: 'held' }` and one entry appended. Reopen, then insert
+  the stop S(z) → exactly one row for `subagent:z` with the deliverables verdict and `reviseRounds = 1`,
+  one receipt per `reportId`, an empty hold table and no `subagent:z` in `heldRuns`. Variants: (i) the same
+  with a process restart (new pipeline over the same storage) while the store is closed, before the review
+  → same result; (ii) store closed, review for `subagent:w` that was never held → error naming
+  `subagent:w`, journal deep-equal before/after; (iii) store open and readable, `heldRuns` lists
+  `subagent:v` but the store has no row and no hold for it → error naming `subagent:v`, and after the first
+  drain turn following open `heldRuns` no longer lists it; (iv) the hold expires (fake timers, 24 h) while the store is
+  closed → a review for it gets the error naming the id.
 - Dead-lettered target (R3-1): journal `[S1 (fails Zod), R(review of S1)]` → S1 dead-lettered, R moved to
   the dead-letter key with `reason: 'target-missing'` and one `warn`; no row, no receipt.
 - Ordering: `declareSubagentDeliverables` submitted right after `recordSubagentStop` for the same run applies
@@ -611,7 +655,7 @@ Required tests (B4 unless noted):
 | 5.3 lane tokens/cost null | B5 |
 | 5.4 subagent one-to-one join | B2 (0055), B4, B6 (recorder dedup by exact `runId` for subagent events; two runs in one 2 s bucket end-to-end spec) |
 | 5.5 declared deliverables | B5 (helper export), B2 (`deliverables_declared_at`), B3 (Ptah run tag on the Agent result, IA-5), B4 + B10a (SC-7 run-tag and `agentId` targets, report hold with join and expiry; repeated/concurrent same-slug and report-before-stop specs on both paths), B2 (held-report and receipt tables), AB9, A15 (report by run tag, else `agentId`) |
-| 5.6 review attach | B4 (receipts: one `revise` per `reportId` across replays; backlog `submit` validates the id before appending, unknown-id fixtures, R3-1), B10a (backlog unknown-id tool fixture), AB9, A15 |
+| 5.6 review attach | B4 (receipts: one `revise` per `reportId` across replays; backlog `submit` validates the id before appending, unknown-id fixtures, R3-1; held-run index keeps an applied hold's review valid across a store outage, R4-1), B10a (backlog unknown-id tool fixture), AB9, A15 |
 | 5.7 persists, routing reads | B2, B4 (SC-10: SQLite, VS Code `IStateStorage` store, journal with per-op acknowledgement, backlog mode and a 5 000-entry capacity that refuses only the newest op; restart, delayed-open, replay-failure, ack-crash, recovery, >1 000 pre-open and capacity fixtures), A4b, AB14 (alias, disposer awaited on shutdown) |
 | 5.8 no text | B4 (row schema), SC-4 input shape (A16, B4) |
 | 5.9 write failure non-blocking | B4 (SC-10 pipeline: async drain, bound, permanent/transient failure classes with backoff retry, logged and counted refusals), B5 (notifier signal-path specs with delayed and throwing stores) |
@@ -660,7 +704,7 @@ in-process.
 | B2 | Migrations 0054, 0055 | B §2; 0054 gains `deliverables_declared_at INTEGER` (SC-1, finding 4), and `lane_outcome_report_receipts` + `lane_outcome_held_reports` with their indexes (SC-10 keys, SC-7 report hold; rev 2 findings 1, 2) | `@ptah-extension/persistence-sqlite` | none | `npx nx test @ptah-extension/persistence-sqlite --parallel=1` | yes | CLI lane | Shipping |
 | B3 | Subagent budget-stop registry; Ptah run tag | B §5, plus SC-7 run tag: CREATE `subagent-run-tag.ts` (+ spec), MODIFY `post-tool-use-hook-handler.ts` (+ spec), resolves IA-5 (rev 2 finding 2) | `@ptah-extension/agent-sdk` | none | `J(libs/backend/agent-sdk, <budget-stop registry spec, monitor spec, run-tag spec, post-tool-use-hook-handler spec>)` + `npx nx typecheck @ptah-extension/agent-sdk` | yes | CLI lane | Shipping |
 | A3 | Route contracts and ports | A3 row minus `lane-outcome-reader.port.ts` (type comes from shared, SC-2); `ChosenEntry.taskKind` (SC-6); task kinds from `OUTCOME_TASK_KINDS` | `@ptah-extension/lane-routing` | AB1, A2 | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | CLI lane | Shipping |
-| B4 | lane-outcomes lib | B §3, plus SC-2 split (`LaneOutcomeQueries`), SC-4 recorder hook, SC-7 schema, SC-9 logger; MODIFY `tsconfig.base.json`; SC-10 write pipeline, `KeyValueLaneOutcomeStore`, `KeyValueOutcomeJournal` (restart, delayed-open, bound, ordering and shutdown specs); rev 2 finding 1: per-op acknowledgement, failure classes and backoff, backlog mode, 5 000-entry journal with durable refusal counter, receipts, dead-letter key, and the replay-failure, restart, recovery, ack-crash, >1 000 pre-open and capacity specs; SC-7 target resolution (`runId` from the run tag, `agentId`) and the report hold with join, expiry and restart specs (rev 2 finding 2); R3-1 (decision #45): backlog `submit` validates the target against pending inserts, pending holds and a readable store before appending, with the SC-10 `queued`/`held`/error table; acceptance: the backlog unknown-id fixtures (a)-(e) and the dead-lettered-target fixture (result `{ ok: false }` naming the id, journal deep-equal before/after, no store, receipt or hold write) | `@ptah-extension/lane-outcomes` | AB1, B2, B3 | `npx nx test @ptah-extension/lane-outcomes --parallel=1` + `npx nx lint @ptah-extension/lane-outcomes` | yes (only wave-2 batch touching `tsconfig.base.json`) | CLI lane (largest; one lane) | Shipping |
+| B4 | lane-outcomes lib | B §3, plus SC-2 split (`LaneOutcomeQueries`), SC-4 recorder hook, SC-7 schema, SC-9 logger; MODIFY `tsconfig.base.json`; SC-10 write pipeline, `KeyValueLaneOutcomeStore`, `KeyValueOutcomeJournal` (restart, delayed-open, bound, ordering and shutdown specs); rev 2 finding 1: per-op acknowledgement, failure classes and backoff, backlog mode, 5 000-entry journal with durable refusal counter, receipts, dead-letter key, and the replay-failure, restart, recovery, ack-crash, >1 000 pre-open and capacity specs; SC-7 target resolution (`runId` from the run tag, `agentId`) and the report hold with join, expiry and restart specs (rev 2 finding 2); R3-1 (decision #45): backlog `submit` validates the target against pending inserts, pending holds and a readable store before appending, with the SC-10 `queued`/`held`/error table; acceptance: the backlog unknown-id fixtures (a)-(e) and the dead-lettered-target fixture (result `{ ok: false }` naming the id, journal deep-equal before/after, no store, receipt or hold write); R4-1 (decision #48): the `heldRuns` held-run index in the journal value (added with an applied hold, removed on join or expiry, consulted only when the store is not readable, replaced from the store at open); acceptance: the held-review-across-a-store-outage fixture (apply and acknowledge a `subagent:z` deliverables hold, close the store, submit its review → `held`, reopen, insert the stop → one joined row with `reviseRounds = 1`) and its variants (i)-(iv) | `@ptah-extension/lane-outcomes` | AB1, B2, B3 | `npx nx test @ptah-extension/lane-outcomes --parallel=1` + `npx nx lint @ptah-extension/lane-outcomes` | yes (only wave-2 batch touching `tsconfig.base.json`) | CLI lane (largest; one lane) | Shipping |
 | B8 | Library Agents-tab signals | B §9 | `@ptah-extension/skill-synthesis-ui` | AB1 | `npx nx test @ptah-extension/skill-synthesis-ui --parallel=1` | yes | CLI lane (frontend) | Shipping |
 | A1b | Row `family` + spawn routing fields | MODIFY `namespace-builders/agent-namespace.builder.ts`, `mcp-core/mcp-response-formatter.ts` (+ spec), `mcp-core/agent-spawn-args.schema.ts` (+ spec) (SC-6), and the spawn-args → `SpawnAgentRequest` mapping site (IA-1) | `@ptah-extension/vscode-lm-tools` | AB1 | `J(libs/backend/vscode-lm-tools, <formatter, agent-namespace, spawn-args specs>)` + `npx nx typecheck @ptah-extension/vscode-lm-tools` | yes, unless IA-1 puts the mapping in `protocol-dispatcher.ts`; in that case the mapping moves to AB9 | CLI lane | Shipping |
 | A4 | Matrix data | A4 row | `@ptah-extension/lane-routing` | A3 | `J(libs/backend/lane-routing, <A4 specs>)` | yes (LR/matrix types) | CLI lane | Shipping |
@@ -807,3 +851,9 @@ guard, so it needs no exception from another task.
 | --- | --- | --- |
 | R3-1 (Serious) Req 5.6: backlog `submit` returned `queued` before validating the run id | Backlog `submit` now validates the target before appending, against an in-memory index of pending inserts and pending holds (queue + journal, rebuilt at start) and, when the store is open, its row and held reports. A table fixes the outcome: a pending insert or readable row → `queued`; a `subagent:` `deliverables` report with neither → `held` (decision #41 hold kept); a `subagent:` `review` → `held` only behind a pending or readable held `deliverables`, else error; a lane id with no pending insert and no readable row (including store not open) → `{ ok: false }` naming the id, nothing appended or written. Apply-time residue (target dead-lettered) goes to the dead-letter key with `target-missing`, never a silent ack. Decision #45 | This file: SC-10 "Report ops in backlog mode" bullet; Required tests (backlog unknown-id fixtures (a)-(e), dead-lettered target); requirement coverage 5.6; B4 and B10a batch rows |
 | R3-2 (Moderate) Req 1.5: a live model-not-found 404 was persisted as `unsupported-endpoint` | The client flag is now `notFound` (evidence, not a verdict). On a live 404/405 the pipeline calls `DecisionModelStatus.recheckAfterLiveNotFound`, which re-runs the decision #42 discriminator (no request text sent; coalesced, at most one per 60 s). Only an `unsupported-endpoint` re-check writes the persisted mark; a `ready` re-check writes none, clears an old one, and keeps the row `ready` with `last call failed: <error>` as detail. DTO state set unchanged. Live model-not-found, live route-missing and coalescing fixtures added. Decision #46 | Part A §5 (live-call paragraph, client bullet, verification seam); this file: coverage 1.1-1.8; A6a, A6b, A8 batch rows |
+
+## Revision log (Gate 2 round 4 fix)
+
+| Finding | What changed | Where |
+| --- | --- | --- |
+| R4-1 (Serious) Req 5.6 / decision #41: a `subagent:` deliverables hold applied and acknowledged before a store outage left the pending-hold index, so backlog `submit` rejected its review as unknown | Added a durable held-run index: field `heldRuns: [{ runId, expiresAt }]` of the journal value in the same `IStateStorage` key, written in the drain turn's existing `update` when a hold is applied (the op is acknowledged only after that `update` resolves), removed on join or expiry, self-expiring at 24 h, bounded at 500, loaded at start and replaced from the store's held `deliverables` at open. Backlog `submit` consults pending inserts, pending holds, the index (only when the store is not open or not readable), then the store; a readable store wins over the index. Result table: a `review` with an unexpired index entry and the store not readable → `held`; a stale entry with a readable store → error; truly unknown ids still error with nothing written. Apply-time residue rule covers a review accepted through a stale entry. Decision #48 | This file: SC-10 journal shape and "Report ops in backlog mode" bullet (evidence step 3, result table review rows); Required tests (held review across a store outage, variants (i)-(iv)); requirement coverage 5.6; B4 batch row |
