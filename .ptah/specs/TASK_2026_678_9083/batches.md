@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 17/28 | Phases A and B CLOSED; next: Phase C (B9) after the B0 baseline
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 19/28 | Phases A and B CLOSED; B9 and B11 done (D32); next: B10 and B12 after the B0 baseline
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -141,6 +141,7 @@ Edge cases:
 | D30 | 8FG is accepted and Phase B is CLOSED: the grok review of `ea106f685..433aab5ad` is APPROVED 9/10 with 0 new Blocking, Serious, Moderate or Minor. Per D23 the generated diffs `phase-b.diff`, `phase-b-8f.diff` and `phase-b-8fg.diff` are deleted, not committed. Carried items stay where D28 and D29 put them (Task 14.2; Minors recorded). Phase C (B9) waits for the B0 baseline (D2). | (a) another fix round; (b) close Phase B | `code-logic-review-phase-b-8fg.md` (reviewer grok, implementer codex): RR-S1 closed at `tribunal-run-coordinator.ts:119-123` with every `isCancelled` check before `writeManifest` (`:216`); RR-M2 closed at `command-center-records.ts:64-82`; D18 and A1 hold; its top risk is the D29 Minor. This was the last review the revise cap allowed, and it passed, so (a) has nothing to fix. | yes |
 | D31 | The user chose "Popover fix only" on 2026-10-15. The node popover flicker on dense scenes is fixed in Batch 14 only: Task 14.1 replaces the per-label instant tooltip with ONE shared node card keyed by stable node ID (hover intent with open/close delays, safe area, no close while the canvas hit test still reports the node, sphere anchor for hidden labels, click/Enter pin, `FloatingUIService` positioning at most once per frame, reduced motion), adds `command-overlay.component.spec.ts`, and Task 14.2 wires and specs it. Task 12.2 gains ONLY a `hoveredNodeId` output, because the canvas pointer hit test lives in `CommandSceneComponent` and the overlay cannot know the hovered node otherwise; nothing else in Batch 12 changes, and Batches 11 and 13 do not change. Zoom and pan are OUT of scope for this task: no scene camera, zoom, pan, fit-to-view or zoom-to-node in any batch. Candidate follow-up task: zoom and pan with a hand-written bounded camera (`{scale,tx,ty}`), d3-zoom as the fallback, no minimap (research recommendation). Batch 14 now carries 7 files in one project (one over the 6-file rule); kept as one batch because the card and its page wiring are one rollback unit. Rules are tagged in Task 14.1: delay values (150/200 ms, tunable at B18) and the bridge safe-area method are lane-proposed. | (a) popover fix only; (b) popover fix plus zoom and pan across B11-B14 (research amendment, one new camera helper) | User decision 2026-10-15. `research-canvas-zoom-pan.md` "Flicker root cause" and "Popover options"; `prototype/command-center.html:81` (label `mouseenter` -> `showTip`, `mouseleave` -> `display='none'`, no delay, safe area or pin) and `:95` (`positionLabels` moves, compacts or hides labels while drawing; dense at `nodes.length > 12`); `floating-ui.service.ts:125-163` (`offset`, `flip`, `shift`, fixed strategy, `autoUpdate`; no hover intent or safe area). | yes |
 | D32 | The user chose "Unblock B9/B11 now" on 2026-10-15. The B0 gate (D2) now covers only B10 (voice loop) and B12 (scene renderer), the first batches that consume the measured frame and voice budgets. B9 (pure voice primitives) and B11 (brand-art entry, pure layout, sprite cache) start now. The user records the B0 baseline in `test-report.md` before B10 and B12. Per the user's relayed instruction for 2026-10-15/16 (Claude usage near its limit), CLI lanes do the implementation and review work, and the orchestrator records team-leader bookkeeping and commits. | (a) unblock B9/B11 now; (b) user measures now, keep D2; (c) defer every measurement to B18 | User decision 2026-10-15. B9 and B11 read no measured number: B9 tasks 9.1-9.4 are pure logic, and B11 tasks 11.1-11.3 are an export entry, pure geometry and a sprite cache; the frame and voice budgets first apply in B10 (voice loop) and B12 (renderer). | yes |
+| D33 | B9 (`b65372ba1`) and B11 (`4b7455a36`) are accepted after one orchestrator fix round each (3 defects per batch, all fixed by the same codex lane, recorded in each batch's verification). The B11 lane found that child nodes cannot show `Codex · Builder` because the B8 projection carries no child session name and no provider ids; the fix is carried to Task 14.2, which already owns `work-projection.ts` (D28). No per-batch review (plan); the Phase C logic review runs after B10, and the Phase D reviews after B16. | (a) carry the child-label fix to Task 14.2; (b) a new bounded batch now | `reports/batch-11-report.md` "Carry-over"; `work-projection.ts` child label `'Child session'` and `providerId: null`; Task 14.2 already lists `work-projection.ts` (D28), so (a) adds no new file owner. | yes |
 
 ## Phases and reviews
 
@@ -1751,7 +1752,7 @@ Lane rules for this batch:
 - Status: COMPLETE. Phase B CLOSED. The generated diffs (`TASK/reports/phase-b.diff`, `phase-b-8f.diff`,
   `phase-b-8fg.diff`) were deleted uncommitted (D23).
 
-## Batch 9: Voice primitives (adapted from property-hub) - PENDING
+## Batch 9: Voice primitives (adapted from property-hub) - COMPLETE (commit b65372ba1)
 
 - Recommended executor: CLI lane (implementation; TypeScript, Web Audio)
 - Execution mode: sequential
@@ -1765,7 +1766,7 @@ Lane rules for this batch:
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 9 - vad, chunker, playback queue, spoken text`
 
-### Task 9.1: VAD - PENDING
+### Task 9.1: VAD - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/vad.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/vad.spec.ts` (new)
@@ -1776,7 +1777,7 @@ Lane rules for this batch:
 - Validation notes: silence and noise produce no utterance.
 - Implementation details: adapt to Ptah lint rules; new spec (source has none).
 
-### Task 9.2: Sentence chunker - PENDING
+### Task 9.2: Sentence chunker - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/sentence-chunker.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/sentence-chunker.spec.ts` (new)
@@ -1786,7 +1787,7 @@ Lane rules for this batch:
 - Validation notes: abbreviations and decimals do not split.
 - Implementation details: port and adapt the spec.
 
-### Task 9.3: TTS playback queue - PENDING
+### Task 9.3: TTS playback queue - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/tts-playback-queue.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/tts-playback-queue.spec.ts` (new)
@@ -1797,7 +1798,7 @@ Lane rules for this batch:
 - Validation notes: superseded audio never plays.
 - Implementation details: inject the synth function (`voice:synthesize` wrapper) for testability.
 
-### Task 9.4: Spoken-text boundary filter - PENDING
+### Task 9.4: Spoken-text boundary filter - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/spoken-text.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/spoken-text.spec.ts` (new)
@@ -1814,6 +1815,13 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed.
 - No per-batch review.
+- Result: implementer codex lane (`reports/batch-9-report.md`). Orchestrator review found 3 defects, fixed by
+  the same lane: false playback failure after barge-in and double reports (`tts-playback-queue.ts` guarded
+  `fail()`), bullet lists stripped as diff lines (`spoken-text.ts` `stripUnifiedDiff`), and a short onset with no
+  closing transition (`vad.ts` `'discard'`). The orchestrator updated one stale spec input (a bare `+const` line
+  now sits under a hunk header) and added the `public` modifiers that lint warned about. Scoped command (run
+  together with B11): "Successfully ran targets test, typecheck, lint for 2 projects", 680 + 82 tests, 0 lint
+  problems in the new files; command-center re-run green after the lint fix. Commit `b65372ba1` passed the hooks.
 
 ## Batch 10: PCM capture, voice loop and status narrator - PENDING
 
@@ -1882,7 +1890,7 @@ Lane rules for this batch:
 - The scoped command passes; output tailed.
 - Phase C's last batch: after commit return NEEDS REVIEW (code-logic, combined diff B9-B10).
 
-## Batch 11: Provider brand-art entry, scene layout and sprite cache - PENDING
+## Batch 11: Provider brand-art entry, scene layout and sprite cache - COMPLETE (commit 4b7455a36)
 
 - Recommended executor: CLI lane (implementation; TypeScript, Canvas 2D)
 - Execution mode: sequential
@@ -1896,7 +1904,7 @@ Lane rules for this batch:
   (header must say 2 projects). Verification rules above apply.
 - Suggested commit: `feat(ui,command-center): batch 11 - brand-art entry and scene layout`
 
-### Task 11.1: Narrow provider-brand-art entry and barrel guard - PENDING
+### Task 11.1: Narrow provider-brand-art entry and barrel guard - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/ui/src/provider-brand-art.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/ui/src/lib/native/brand-mark/brand-mark-barrels.spec.ts`,
@@ -1909,7 +1917,7 @@ Lane rules for this batch:
 - Validation notes: existing barrel tests stay green.
 - Implementation details: mirror the brand-mark entry test.
 
-### Task 11.2: Scene layout - PENDING
+### Task 11.2: Scene layout - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/scene/scene-layout.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/scene/scene-layout.spec.ts` (new)
@@ -1922,7 +1930,7 @@ Lane rules for this batch:
 - Validation notes: deterministic for a given projection and size.
 - Implementation details: pure functions over projection + viewport.
 
-### Task 11.3: Sprite cache - PENDING
+### Task 11.3: Sprite cache - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/scene/sprite-cache.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/scene/sprite-cache.spec.ts` (new)
@@ -1940,6 +1948,13 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes (2 projects); output tailed.
 - No per-batch review.
+- Result: implementer codex lane (`reports/batch-11-report.md`). Orchestrator review found 3 defects, fixed by
+  the same lane: lanes and phases placed on the global rings (now lanes orbit their Tribunal core and phase nodes
+  are exposed as the core's `phases` for the B12 arc, design-spec.md:40,46), hidden non-completed nodes and
+  orphaned children past the cap (now `overflowOther`, a `+M more` chip text, and ancestors kept with each shown
+  node), and an unbounded sprite cache (now `SpriteCache.prune`). Carry-over D33 (child session name and parent
+  provider) moves to Task 14.2. Scoped command: "Successfully ran targets test, typecheck, lint for 2 projects".
+  Commit `4b7455a36` passed the hooks.
 
 ## Batch 12: Scene renderer and scene component - PENDING
 
@@ -2180,6 +2195,14 @@ Lane rules for this batch:
   child `{ tabId: 'temporary', sessionId: 'child-sdk' }` plus persisted `{ sessionId: 'temporary' }` gives one
   `child:child-sdk` node in the live state. Also apply the recorded style Minor there (`childBySession` as a
   `Set<string>` built with `flatMap`).
+- Carried from the B11 review (Decision D33), owned here because this task already owns `work-projection.ts`:
+  child nodes show `Session · Child session` because `projectOwnedWork` gives every child `label: 'Child session'`
+  and `providerId: null`, and the root has no provider id. Add optional `name` and `providerId` to `OwnedChild`
+  and an optional `rootProviderId` to `ProjectionInput`; emit the child's session name as its label (fallback
+  `'Child session'`) and the provider ids on the nodes; the page fills them from the tab and session data it
+  already reads. `layoutScene` already prefixes a child label with its parent's provider name, so the scene then
+  shows `Codex · Builder` (design-spec.md:40, design-spec-review R3-10). Spec: a named child of a Codex parent
+  gives the label `Codex · Builder` through `layoutScene`; an unnamed child keeps the fallback.
 
 ### Batch 14 verification
 
