@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 47 | Batches: 38 | Complete: 28/38 | Phases accepted: P1 | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 Mode 2 round 1 NOT ACCEPTED (TL-58 spec fix round; TL-59: commit waits for new Batch 30a host registration)
+Total tasks: 47 | Batches: 38 | Complete: 30/38 | Phases accepted: P1, P2 (decision #85) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 Mode 2 round 1 NOT ACCEPTED (TL-58 spec fix round; TL-59: commit waits for new Batch 30a host registration) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90)
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -1314,7 +1314,7 @@ state)` (`rotation.store.ts:203`). The value is `{ version: 1, entries: [{ key, 
 - Findings: TL-56 (APM grew 24 lines past an existing over-700 size), TL-57 (envelope helper
   duplicate, APM spec gap), both for the P5 review and named later tasks FE-23a..FE-23c
 
-## Batch 24 (B6): Kept skill-synthesis stores — COMPLETE (Mode 2 round 2, 2026-10-15; round 1 NOT ACCEPTED TL-49..TL-54, round 2 accepted TL-61; actual executor rounds 1 and 2: CLI lane codex, OpenAI (decision #87); reports `T\reports\batch-24-report.md`, `T\reports\batch-24-round2-report.md`)
+## Batch 24 (B6): Kept skill-synthesis stores — COMPLETE (commit 2f7833b8f; Mode 2 round 2, 2026-10-15; round 1 NOT ACCEPTED TL-49..TL-54, round 2 accepted TL-61; actual executor rounds 1 and 2: CLI lane codex, OpenAI (decision #87); reports `T\reports\batch-24-report.md`, `T\reports\batch-24-round2-report.md`)
 
 - Recommended executor: CLI lane grok (xAI)
 - Execution mode: sequential
@@ -1455,7 +1455,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 
 - `J(libs/backend/rpc-handlers, <outcome handler spec> libs/backend/rpc-handlers/src/lib/rpc-allowlist.spec.ts)`, then `npx nx typecheck @ptah-extension/rpc-handlers`, then rule-8 guard specs
 
-## Batch 26 (A9a): Route tool modules — PENDING
+## Batch 26 (A9a): Route tool modules — COMPLETE (orchestrator Mode 2, decision #90; executor CLI lane grok, xAI; report `reports/batch-26-report.md`)
 
 - Recommended executor: CLI lane antigravity (Google)
 - Execution mode: sequential
@@ -1466,7 +1466,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 1 | Depends on: Batch 21
 - Phase: P6 MCP + host integration | Phase review: code-logic + code-style
 
-### Task 26.1: `ptah_route_decide` tool modules and namespace builder — PENDING
+### Task 26.1: `ptah_route_decide` tool modules and namespace builder — COMPLETE
 
 - File: CREATE `VLT\mcp-core\route-tools.ts`, `VLT\mcp-core\route-tool-handlers.ts`, `VLT\namespace-builders\route-namespace.builder.ts`, and their specs
 - Plan reference: implementation-plan.md:757; part-a §8, :931-932
@@ -1503,7 +1503,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 
 - `npx nx test @ptah-extension/lane-routing --parallel=1`, then `npx nx lint @ptah-extension/lane-routing`
 
-## Batch 28 (B10a): Report tool module — PENDING
+## Batch 28 (B10a): Report tool module — COMPLETE (orchestrator Mode 2, decision #90; executor CLI lane codex, OpenAI; report `reports/batch-28-report.md`)
 
 - Recommended executor: CLI lane codex (OpenAI)
 - Execution mode: sequential
@@ -1514,7 +1514,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 1 | Depends on: Batch 20, Batch 23
 - Phase: P5 Outcome producers + Agents tab | Phase review: code-logic + code-style + visual
 
-### Task 28.1: `ptah_outcome_report` tool module — PENDING
+### Task 28.1: `ptah_outcome_report` tool module — COMPLETE
 
 - File: CREATE `VLT\mcp-core\tools\outcome-report.tool.ts` (+ spec)
 - Plan reference: implementation-plan.md:754; part-b:494-551 (§8); SC-7 :254-367
