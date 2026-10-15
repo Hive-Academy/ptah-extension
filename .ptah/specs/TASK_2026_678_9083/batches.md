@@ -140,6 +140,7 @@ Edge cases:
 | D29 | Re-review Minors (`removeManifest` false ignored; Decline boolean ignored on duplicate receive and lanes-unavailable) and the 3 style re-review Minors are recorded only, not fixed. 8FG.1 does touch the rollback path, but only for the cancel case. | fix the Minors in 8FG | Fix-round rule: Minor recorded, not fixed. No path sends a launch: a false rollback leaves a run key that the retry rewrites, and an undelivered Decline still ends with the host's Decline-first timeout. The `childBySession` style Minor rides with D28 in Task 14.2. | yes |
 | D30 | 8FG is accepted and Phase B is CLOSED: the grok review of `ea106f685..433aab5ad` is APPROVED 9/10 with 0 new Blocking, Serious, Moderate or Minor. Per D23 the generated diffs `phase-b.diff`, `phase-b-8f.diff` and `phase-b-8fg.diff` are deleted, not committed. Carried items stay where D28 and D29 put them (Task 14.2; Minors recorded). Phase C (B9) waits for the B0 baseline (D2). | (a) another fix round; (b) close Phase B | `code-logic-review-phase-b-8fg.md` (reviewer grok, implementer codex): RR-S1 closed at `tribunal-run-coordinator.ts:119-123` with every `isCancelled` check before `writeManifest` (`:216`); RR-M2 closed at `command-center-records.ts:64-82`; D18 and A1 hold; its top risk is the D29 Minor. This was the last review the revise cap allowed, and it passed, so (a) has nothing to fix. | yes |
 | D31 | The user chose "Popover fix only" on 2026-10-15. The node popover flicker on dense scenes is fixed in Batch 14 only: Task 14.1 replaces the per-label instant tooltip with ONE shared node card keyed by stable node ID (hover intent with open/close delays, safe area, no close while the canvas hit test still reports the node, sphere anchor for hidden labels, click/Enter pin, `FloatingUIService` positioning at most once per frame, reduced motion), adds `command-overlay.component.spec.ts`, and Task 14.2 wires and specs it. Task 12.2 gains ONLY a `hoveredNodeId` output, because the canvas pointer hit test lives in `CommandSceneComponent` and the overlay cannot know the hovered node otherwise; nothing else in Batch 12 changes, and Batches 11 and 13 do not change. Zoom and pan are OUT of scope for this task: no scene camera, zoom, pan, fit-to-view or zoom-to-node in any batch. Candidate follow-up task: zoom and pan with a hand-written bounded camera (`{scale,tx,ty}`), d3-zoom as the fallback, no minimap (research recommendation). Batch 14 now carries 7 files in one project (one over the 6-file rule); kept as one batch because the card and its page wiring are one rollback unit. Rules are tagged in Task 14.1: delay values (150/200 ms, tunable at B18) and the bridge safe-area method are lane-proposed. | (a) popover fix only; (b) popover fix plus zoom and pan across B11-B14 (research amendment, one new camera helper) | User decision 2026-10-15. `research-canvas-zoom-pan.md` "Flicker root cause" and "Popover options"; `prototype/command-center.html:81` (label `mouseenter` -> `showTip`, `mouseleave` -> `display='none'`, no delay, safe area or pin) and `:95` (`positionLabels` moves, compacts or hides labels while drawing; dense at `nodes.length > 12`); `floating-ui.service.ts:125-163` (`offset`, `flip`, `shift`, fixed strategy, `autoUpdate`; no hover intent or safe area). | yes |
+| D32 | The user chose "Unblock B9/B11 now" on 2026-10-15. The B0 gate (D2) now covers only B10 (voice loop) and B12 (scene renderer), the first batches that consume the measured frame and voice budgets. B9 (pure voice primitives) and B11 (brand-art entry, pure layout, sprite cache) start now. The user records the B0 baseline in `test-report.md` before B10 and B12. Per the user's relayed instruction for 2026-10-15/16 (Claude usage near its limit), CLI lanes do the implementation and review work, and the orchestrator records team-leader bookkeeping and commits. | (a) unblock B9/B11 now; (b) user measures now, keep D2; (c) defer every measurement to B18 | User decision 2026-10-15. B9 and B11 read no measured number: B9 tasks 9.1-9.4 are pure logic, and B11 tasks 11.1-11.3 are an export entry, pure geometry and a sprite cache; the frame and voice budgets first apply in B10 (voice loop) and B12 (renderer). | yes |
 
 ## Phases and reviews
 
@@ -164,7 +165,7 @@ last batch header.
 - Subagent reason: N/A - this needs the user's Electron hardware and an Electron run, which `CLAUDE.md` bars agents from starting
 - Review family: N/A
 - Rationale: plan line 60 requires measured frame and audio baselines before voice/scene code; it is a user action.
-- Tasks: 1 | Depends on: none | Gates: B9, B10, B11, B12 (Decision D2)
+- Tasks: 1 | Depends on: none | Gates: B10, B12 (Decision D2, narrowed by D32)
 - Phase: 0 - Baseline | Phase review: none
 
 ### Task 0.1: Record the baseline in test-report.md - IN_PROGRESS
@@ -1758,7 +1759,7 @@ Lane rules for this batch:
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: pure, well-specified units ported per A1 item 5.
-- Tasks: 4 | Depends on: B0 recorded (D2), B5
+- Tasks: 4 | Depends on: B5 (B0 gate removed by D32)
 - Phase: C - Voice | Phase review: code-logic (after B10)
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
   Verification rules above apply.
@@ -1822,7 +1823,7 @@ Lane rules for this batch:
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: integrates the primitives with the coordinator; 6 files.
-- Tasks: 3 | Depends on: B6, B8, B9
+- Tasks: 3 | Depends on: B0 recorded (D2, D32), B6, B8, B9
 - Phase: C (last batch) | Phase review: code-logic on the combined diff B9-B10
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
   Verification rules above apply.
@@ -1889,7 +1890,7 @@ Lane rules for this batch:
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: pure geometry and cached drawing plus a narrow UI entry; 7 files in 2 projects.
-- Tasks: 3 | Depends on: B0 recorded (D2), B8
+- Tasks: 3 | Depends on: B8 (B0 gate removed by D32)
 - Phase: D - Scene, page, route, nav | Phase review: code-logic + style (after B16)
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/ui @ptah-extension/command-center --parallel=1 2>&1 | tail -60`
   (header must say 2 projects). Verification rules above apply.
@@ -1948,7 +1949,7 @@ Lane rules for this batch:
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: frame loop and its Angular host; 4 files.
-- Tasks: 2 | Depends on: B11
+- Tasks: 2 | Depends on: B0 recorded (D2, D32), B11
 - Phase: D | Phase review: after B16
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
   Verification rules above apply.
