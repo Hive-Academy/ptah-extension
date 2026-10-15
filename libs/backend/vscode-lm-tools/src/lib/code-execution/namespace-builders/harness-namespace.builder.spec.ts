@@ -114,6 +114,7 @@ function makeDeps(
     mcpInstaller?: McpInstallerMock;
     sessionId?: string;
     saveProposal?: jest.Mock;
+    getProposingTurnStartedAt?: jest.Mock;
   } = {},
 ): {
   deps: HarnessNamespaceDependencies;
@@ -124,6 +125,7 @@ function makeDeps(
   mcpInstaller?: McpInstallerMock;
   broadcast: jest.Mock;
   saveProposal: jest.Mock;
+  getProposingTurnStartedAt: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
 } {
   const skills = overrides.skills ?? [];
@@ -142,6 +144,9 @@ function makeDeps(
     listServers: jest.fn().mockResolvedValue(servers),
   };
   const broadcast = jest.fn();
+  const getProposingTurnStartedAt =
+    overrides.getProposingTurnStartedAt ??
+    jest.fn().mockReturnValue({ release: jest.fn() });
   const saveProposal =
     overrides.saveProposal ??
     jest.fn(
@@ -153,6 +158,14 @@ function makeDeps(
           configUpdates,
           isConfigComplete,
           updatedAt: '2026-10-13T00:00:00Z',
+          revisions: [
+            {
+              id: 'revision-1',
+              configUpdates,
+              isConfigComplete,
+              updatedAt: '2026-10-13T00:00:00Z',
+            },
+          ],
         }) satisfies HarnessProposal,
     );
   const logger = {
@@ -174,6 +187,7 @@ function makeDeps(
         : 'D:/ws',
     broadcast,
     getCallerSdkSessionId: () => overrides.sessionId ?? 'sdk-1',
+    getProposingTurnStartedAt,
     saveProposal,
     logger,
   };
@@ -186,6 +200,7 @@ function makeDeps(
     mcpInstaller: overrides.mcpInstaller,
     broadcast,
     saveProposal,
+    getProposingTurnStartedAt,
     logger,
   };
 }
@@ -458,7 +473,8 @@ describe('buildHarnessNamespace — proposeConfig', () => {
   });
 
   it('rejects an unresolved session without saving or broadcasting', async () => {
-    const { deps, saveProposal, broadcast } = makeDeps();
+    const { deps, saveProposal, broadcast, getProposingTurnStartedAt } =
+      makeDeps();
     deps.getCallerSdkSessionId = () => undefined;
     const proposal = buildHarnessNamespace(deps).proposeConfig({ name: 'X' });
     await expect(proposal).rejects.toThrow(/no SDK session/);
@@ -466,16 +482,26 @@ describe('buildHarnessNamespace — proposeConfig', () => {
       name: 'HarnessProposalNoSessionError',
     });
     expect(saveProposal).not.toHaveBeenCalled();
+    expect(getProposingTurnStartedAt).not.toHaveBeenCalled();
     expect(broadcast).not.toHaveBeenCalled();
   });
 
   it('does not broadcast when persistence fails', async () => {
     const saveProposal = jest.fn().mockRejectedValue(new Error('disk full'));
-    const { deps, broadcast } = makeDeps({ saveProposal });
+    const release = jest.fn();
+    const getProposingTurnStartedAt = jest.fn().mockReturnValue({
+      turnStartedAt: '2026-10-13T00:00:00Z',
+      release,
+    });
+    const { deps, broadcast } = makeDeps({
+      saveProposal,
+      getProposingTurnStartedAt,
+    });
     await expect(
       buildHarnessNamespace(deps).proposeConfig({ name: 'X' }),
     ).rejects.toThrow('disk full');
     expect(broadcast).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('broadcasts only after saving and uses the stored session id', async () => {
@@ -489,6 +515,14 @@ describe('buildHarnessNamespace — proposeConfig', () => {
         configUpdates: update,
         isConfigComplete: complete,
         updatedAt: 'now',
+        revisions: [
+          {
+            id: 'revision-1',
+            configUpdates: update,
+            isConfigComplete: complete,
+            updatedAt: 'now',
+          },
+        ],
       } as HarnessProposal;
     });
     const { deps, broadcast } = makeDeps({
@@ -497,12 +531,100 @@ describe('buildHarnessNamespace — proposeConfig', () => {
     });
     broadcast.mockImplementation(() => order.push('broadcast'));
     await buildHarnessNamespace(deps).proposeConfig({ name: 'X' });
-    expect(saveProposal).toHaveBeenCalledWith(' sdk-1 ', { name: 'X' }, false);
+    expect(saveProposal).toHaveBeenCalledWith(
+      ' sdk-1 ',
+      { name: 'X' },
+      false,
+      undefined,
+    );
     expect(order).toEqual(['save', 'broadcast']);
     expect(broadcast).toHaveBeenCalledWith(
       'harness:config-proposed',
       expect.objectContaining({ sessionId: 'sdk-1' }),
     );
+  });
+
+  it('freezes the invocation turn before an awaited save and broadcasts its saved revision', async () => {
+    const order: string[] = [];
+    const release = jest.fn(() => order.push('release'));
+    let latestTurn = 'T1';
+    const getProposingTurnStartedAt = jest.fn(() => {
+      order.push('capture');
+      return { turnStartedAt: latestTurn, release };
+    });
+    let finishSave: ((proposal: HarnessProposal) => void) | undefined;
+    const saveProposal = jest.fn(
+      () =>
+        new Promise<HarnessProposal>((resolve) => {
+          order.push('save');
+          finishSave = resolve;
+        }),
+    );
+    const { deps, broadcast } = makeDeps({
+      getProposingTurnStartedAt,
+      saveProposal,
+    });
+    const pending = buildHarnessNamespace(deps).proposeConfig({
+      name: 'inbound',
+    });
+    expect(getProposingTurnStartedAt).toHaveBeenCalledWith('sdk-1', 'D:/ws');
+    expect(saveProposal).toHaveBeenCalledWith(
+      'sdk-1',
+      { name: 'inbound' },
+      false,
+      'T1',
+    );
+    expect(order).toEqual(['capture', 'save']);
+    latestTurn = 'T3';
+    const savedRevision = {
+      id: 'saved-T1',
+      configUpdates: { name: 'saved' },
+      isConfigComplete: false,
+      updatedAt: 'write-T1',
+      turnStartedAt: 'T1',
+    };
+    finishSave?.({
+      version: 1,
+      workspaceRoot: 'D:/ws',
+      sessionId: 'sdk-1',
+      configUpdates: { name: 'newer-T3' },
+      isConfigComplete: true,
+      updatedAt: 'write-T1',
+      revisions: [
+        savedRevision,
+        {
+          id: 'newer-T3',
+          configUpdates: { name: 'newer-T3' },
+          isConfigComplete: true,
+          updatedAt: 'write-T3',
+          turnStartedAt: 'T3',
+        },
+      ],
+    });
+    await pending;
+    expect(broadcast).toHaveBeenCalledWith('harness:config-proposed', {
+      sessionId: 'sdk-1',
+      configUpdates: savedRevision.configUpdates,
+      isConfigComplete: false,
+      revision: savedRevision,
+    });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['capture', 'save', 'release']);
+  });
+
+  it('passes absent attribution through an ambiguous invocation', async () => {
+    const release = jest.fn();
+    const { deps, saveProposal } = makeDeps({
+      getProposingTurnStartedAt: jest.fn().mockReturnValue({ release }),
+    });
+    await buildHarnessNamespace(deps).proposeConfig({ name: 'X' });
+    expect(saveProposal).toHaveBeenCalledWith(
+      'sdk-1',
+      { name: 'X' },
+      false,
+      undefined,
+    );
+    expect(release).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -389,10 +389,15 @@ export interface HarnessNamespaceDependencies {
    */
   getPolicyWorkspaceRoot: () => string | undefined;
   getCallerSdkSessionId: () => string | undefined;
+  getProposingTurnStartedAt: (
+    sessionId: string,
+    workspaceRoot: string | undefined,
+  ) => { readonly turnStartedAt?: string; release(): void };
   saveProposal: (
     sessionId: string,
     update: Partial<HarnessConfig>,
     complete: boolean,
+    turnStartedAt?: string,
   ) => Promise<HarnessProposal>;
   broadcast: (type: string, payload: unknown) => void;
   logger: {
@@ -512,6 +517,7 @@ export function buildHarnessNamespace(
     getWorkspaceRoot,
     getPolicyWorkspaceRoot,
     getCallerSdkSessionId,
+    getProposingTurnStartedAt,
     saveProposal,
     broadcast,
     logger,
@@ -1101,26 +1107,41 @@ export function buildHarnessNamespace(
           'Harness proposal could not be saved: no SDK session is resolved. Retry after the session starts.',
         );
       }
-      const proposal = await saveProposal(
-        sessionId,
-        validatedUpdate,
-        isConfigComplete ?? false,
-      );
-      const payload: HarnessConfigProposedPayload = {
-        sessionId: proposal.sessionId,
-        configUpdates: validatedUpdate,
-        isConfigComplete: isConfigComplete ?? false,
-      };
-      broadcast?.(MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED, payload);
+      const workspaceRoot = getPolicyWorkspaceRoot();
+      const capture = getProposingTurnStartedAt(sessionId, workspaceRoot);
+      const turnStartedAt = capture.turnStartedAt;
+      try {
+        const proposal = await saveProposal(
+          sessionId,
+          validatedUpdate,
+          isConfigComplete ?? false,
+          turnStartedAt,
+        );
+        const revision = proposal.revisions?.find(
+          (item) => item.updatedAt === proposal.updatedAt,
+        );
+        if (!revision) {
+          throw new Error('Saved harness proposal revision is missing.');
+        }
+        const payload: HarnessConfigProposedPayload = {
+          sessionId: proposal.sessionId,
+          configUpdates: revision.configUpdates,
+          isConfigComplete: revision.isConfigComplete,
+          revision,
+        };
+        broadcast(MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED, payload);
 
-      const fieldCount = Object.keys(parsed.data).length;
-      logger.info(
-        `[Harness] proposeConfig applied ${fieldCount} field(s), complete=${isConfigComplete ?? false}`,
-      );
+        const fieldCount = Object.keys(revision.configUpdates).length;
+        logger.info(
+          `[Harness] proposeConfig applied ${fieldCount} field(s), complete=${revision.isConfigComplete}`,
+        );
 
-      return isConfigComplete
-        ? 'Configuration marked complete and pushed to the surface.'
-        : `Proposed ${fieldCount} configuration field(s) to the surface.`;
+        return revision.isConfigComplete
+          ? 'Configuration marked complete and pushed to the surface.'
+          : `Proposed ${fieldCount} configuration field(s) to the surface.`;
+      } finally {
+        capture.release();
+      }
     },
   };
 }

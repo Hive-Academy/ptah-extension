@@ -873,7 +873,15 @@ export class PtahAPIBuilder {
           // Same root source as `getPluginPaths`: never the home fallback.
           getPolicyWorkspaceRoot: () => this.resolveSessionWorkspaceRoot(),
           getCallerSdkSessionId: () => this.resolveCallerSdkSessionId(),
-          saveProposal: (sessionId, update, complete) => {
+          getProposingTurnStartedAt: (sessionId, workspaceRoot) => {
+            // The store's capture contract resolves its own provider root.
+            // Never attribute a session-root call to a different active root.
+            if (
+              !workspaceRoot ||
+              workspaceRoot !== this.workspaceProvider.getWorkspaceRoot()
+            ) {
+              return { release: () => undefined };
+            }
             const token = PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE;
             if (!this.container?.isRegistered(token, true)) {
               throw new Error(
@@ -882,7 +890,18 @@ export class PtahAPIBuilder {
             }
             return this.container
               .resolve<IHarnessProposalStore>(token)
-              .save(sessionId, update, complete);
+              .captureProposingTurnStartedAt(sessionId);
+          },
+          saveProposal: (sessionId, update, complete, turnStartedAt) => {
+            const token = PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE;
+            if (!this.container?.isRegistered(token, true)) {
+              throw new Error(
+                'Harness proposal store is unavailable; retry when the host is ready.',
+              );
+            }
+            return this.container
+              .resolve<IHarnessProposalStore>(token)
+              .save(sessionId, update, complete, turnStartedAt);
           },
           broadcast: (type, payload) => {
             if (!webviewManager) {

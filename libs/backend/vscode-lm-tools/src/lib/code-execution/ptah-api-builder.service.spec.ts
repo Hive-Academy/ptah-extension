@@ -262,8 +262,17 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
     sessionManager.find.mockImplementation((id: string) =>
       id === 'tab-7' ? { realSessionId } : undefined,
     );
+    sessionManager.getSessionWorkspace.mockReturnValue(PLATFORM_ROOT);
+    const release = jest.fn();
+    const captureProposingTurnStartedAt = jest.fn().mockReturnValue({
+      turnStartedAt: '2026-10-15T08:00:00Z',
+      release,
+    });
     const save = jest.fn().mockResolvedValue({ sessionId: 'sdk-7' });
-    const resolve = jest.fn().mockReturnValue({ save });
+    const resolve = jest.fn().mockReturnValue({
+      save,
+      captureProposingTurnStartedAt,
+    });
     const container = {
       isRegistered: jest.fn().mockReturnValue(true),
       resolve,
@@ -282,12 +291,35 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
       expect(deps.getCallerSdkSessionId()).toBeUndefined();
       realSessionId = 'sdk-7';
       expect(deps.getCallerSdkSessionId()).toBe('sdk-7');
-      await deps.saveProposal('sdk-7', { name: 'X' }, false);
-      await deps.saveProposal('sdk-7', { name: 'Y' }, true);
+      const pinnedRoot = deps.getPolicyWorkspaceRoot();
+      const capture = deps.getProposingTurnStartedAt('sdk-7', pinnedRoot);
+      expect(capture.turnStartedAt).toBe('2026-10-15T08:00:00Z');
+      await deps.saveProposal(
+        'sdk-7',
+        { name: 'X' },
+        false,
+        capture.turnStartedAt,
+      );
+      await deps.saveProposal('sdk-7', { name: 'Y' }, true, undefined);
+      capture.release();
     });
-    expect(save).toHaveBeenNthCalledWith(1, 'sdk-7', { name: 'X' }, false);
-    expect(save).toHaveBeenNthCalledWith(2, 'sdk-7', { name: 'Y' }, true);
-    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(captureProposingTurnStartedAt).toHaveBeenCalledWith('sdk-7');
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenNthCalledWith(
+      1,
+      'sdk-7',
+      { name: 'X' },
+      false,
+      '2026-10-15T08:00:00Z',
+    );
+    expect(save).toHaveBeenNthCalledWith(
+      2,
+      'sdk-7',
+      { name: 'Y' },
+      true,
+      undefined,
+    );
+    expect(resolve).toHaveBeenCalledTimes(3);
     expect(resolve).toHaveBeenCalledWith(
       PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
     );
@@ -311,6 +343,30 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
     expect(() => deps.saveProposal('sdk-7', {}, false)).toThrow(
       /store is unavailable/,
     );
+    expect(() =>
+      deps.getProposingTurnStartedAt('sdk-7', PLATFORM_ROOT),
+    ).toThrow(/store is unavailable/);
+  });
+
+  it('leaves attribution absent when the pinned caller workspace differs from the store root', () => {
+    const captureProposingTurnStartedAt = jest.fn();
+    const container = {
+      isRegistered: jest.fn().mockReturnValue(true),
+      resolve: jest.fn().mockReturnValue({ captureProposingTurnStartedAt }),
+    };
+    const builder = buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      makeSessionManager(),
+    );
+    Object.assign(builder, { pluginLoader: {}, container });
+    builder.build();
+    const deps = (
+      namespaceBuilders.buildHarnessNamespace as jest.Mock
+    ).mock.calls.at(-1)?.[0];
+    const capture = deps.getProposingTurnStartedAt('sdk-7', SESSION_ROOT);
+    expect(capture.turnStartedAt).toBeUndefined();
+    expect(captureProposingTurnStartedAt).not.toHaveBeenCalled();
+    capture.release();
   });
 });
 
