@@ -6,3 +6,27 @@
 | D2 | Builder sessions are flagged (`TabState.workflow` = `harness-configure` / `harness-new-project`, workflow badge from 648). In 649, a flagged session opened from the tab bar or session list shows as a normal chat with its badge (no "Open in AI Team Builder" action in 649). A click on a flagged session in the session sidebar that opens its builder page (also for New Project and later Setup Hub sessions) is follow-up task TASK_2026_680_bc6c | chat + return action in 649; always builder page; flag now + follow-up task | User answer 2026-10-15: "flag these sessions and add a small follow up task ... when clicked they open in ai team builder same for other sessions for setup hub and project builder" | yes | user |
 | D3 | Branch `feat/task-649-builders-on-chat` stacks on `feat/task-648-session-embed` (PR #733 still OPEN, BLOCKED on review, 2026-10-15). The 649 PR targets `feat/task-648-session-embed` and is retargeted to `main` after #733 merges | wait for #733; stack | 648 D1 precedent; handoff step 3 | yes | orchestrator |
 | D4 | The task folder TASK_2026_680_bc6c was created by `ptah_task_create` in the main checkout and moved into this worktree (copied, `cmp` identical, then removed from main) so that the main checkout has no task changes | leave in main; move | Project CLAUDE.md worktree rule | yes | orchestrator |
+| D5 | Builder entry uses a builder-local adapter (create tab, `setWorkflow`, first-message preamble, route to the builder page with the tab id) through existing `TabManagerService` APIs. The shared `WorkflowTabLauncherService` is NOT split or changed by 649; grid-cap refusal handling (FU-648-2) applies only to a caller that adopts into the grid | split the launcher (design §11); builder-local adapter | design-spec-review.md finding 3 (codex): the launcher always navigates to chat (`workflow-tab-launcher.service.ts:26-59`), a local adapter is feasible; D1 forbids chat changes | yes | orchestrator |
+| D6 | The Configure first screen uses the shared chat's normal placeholder; builder guidance goes in the sidebar. `requestComposerPrefill(text, tabId)` is used only where sendable text is intended (preset note, "propose it again") | scoped placeholder API in chat; generic placeholder | design-spec-review.md finding 2: prefill sets the value, not the placeholder (`chat-input.component.ts:234-240,1574-1581`); embedded prefill works today (`chat-view.component.ts:1375-1389`) | yes | orchestrator |
+| D7 | Parity row 54: `harness:search-skills` and `harness:create-skill` stay available through the agent's existing tools (row 48); reclassified from `wire` to `keep (agent tool)`. No new sidebar buttons. `discover-mcp`, `generate-prompt`, `generate-claude-md` stay `wire` | add sidebar actions; agent tools | User answer 2026-10-15 ("Agent tools are enough") | yes | user |
+| D8 | Hiding the 677 session header / inspector on the builder page: option B agreed with the 677 session. 677 owns `libs/frontend/chat/src/lib/tokens/session-embed-chrome.token.ts` and the barrel line; 649 adds a BYTE-IDENTICAL copy (text below) so either merge order works, adds a `chrome` input (`'full'` default) on `ptah-session-embed` that provides the token, and sets `chrome="bare"` only on the builder page. 677 CV-1 (no inspector, no D36 default-open, no shell controller) and CV-2 (no session header, chips, limit dot) read it. 649 does not edit ChatView for it; until 677 lands, the stats strip shows both in ChatView and in the builder Session section (accepted). After 677 the Session section uses `injectSessionStatsSource` + `ptah-inspector-session-stats` | embed input (649 only); 677 skips embedded builder tabs; A: 649 owns token; B: 677 owns token | User answer 2026-10-15: "ask the new session that works on task 677 now, to allow for this and co-ordinate without affecting each other code"; 677 reply 2026-10-15 (677 decisions row 85): B so 677 compiles before 649 merges | yes | user / 677 session |
+
+D8 token file text (byte-identical in both branches):
+
+```ts
+import { InjectionToken } from '@angular/core';
+
+/**
+ * How much session chrome a hosted chat view renders. `'bare'` hides the
+ * session header and the "This session" inspector, because the host page
+ * brings its own. Absent or `'full'` keeps the default chrome.
+ */
+export type SessionEmbedChrome = 'full' | 'bare';
+
+export const SESSION_EMBED_CHROME = new InjectionToken<SessionEmbedChrome>(
+  'SESSION_EMBED_CHROME',
+);
+```
+
+Barrel line appended to `libs/frontend/chat/src/index.ts`:
+`export { SESSION_EMBED_CHROME, type SessionEmbedChrome } from './lib/tokens/session-embed-chrome.token';`

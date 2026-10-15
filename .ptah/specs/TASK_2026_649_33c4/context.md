@@ -50,3 +50,32 @@ goes under `## Proposed Removals` for user approval.
   cursor and pi not installed; Glm (ptah-cli, Ollama Cloud) AT LIMIT, reset unknown.
 - Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-647-setup-hub-chat-sessions`;
   branch for 649 is stacked on `feat/task-648-session-embed` (648 D1 precedent).
+
+## Session 2 (2026-10-15)
+
+- Design confirmed by the user (decisions D1, D2); follow-up TASK_2026_680_bc6c created.
+- Branch `feat/task-649-builders-on-chat` created from `feat/task-648-session-embed`; #733 still
+  OPEN (BLOCKED, review required).
+- Lane roster: codex room (weekly 13%), grok room (weekly 40%), opencode near limit (monthly 92%),
+  antigravity reader failed (unknown), Glm AT LIMIT. Designer and architect run as Claude
+  subagents; their cross-side document reviews (Gates 1.7, 2) run on codex (most room). Code-logic
+  review on shipping code: grok (antigravity unknown).
+- 16:02 UTC: user asked antigravity to fix PR #733 (CI bundle budget + CodeRabbit comments) in
+  worktree `.claude-worktrees/task-648-pr-fixes`. Lane `antigravity` (family antigravity) failed
+  after 8 s: confirmed usage limit, `RESOURCE_EXHAUSTED (code 429): Individual quota reached`,
+  resets in 70h46m (~2026-10-18 12:48 UTC). Skip antigravity until then.
+- 16:30 UTC: messaged 677 session `ptah-ptah-extension-task-677-new-chat-vi-31eddc00002js2qeo7ft70l`
+  with D1/D2 and the chrome contract request (D8, option A = `SESSION_EMBED_CHROME` token +
+  embed `chrome` input). Waiting for its reply.
+- Gate 1.7 review round 1: codex REVISE (design-spec-review.md), 8 findings; user decided D7 and
+  D8; orchestrator decided D5, D6. Designer revision round 1 started. Reviewer lane CLI session
+  for the re-review (resume): `01a14059-774b-79c2-9f6e-8b79132c0fb0`.
+- 677 replied (677 decisions row 85): option B, recorded as D8.
+- Gate 1.7 round 1 re-review (codex, fresh lane): REVISE, findings 4 and 5 PARTIAL. Orchestrator
+  round-2 edits (§11 step 3e/3f, note 6, §5.4 rule 2). Round 2 re-review: REVISE, finding 4
+  RESOLVED, finding 5 PARTIAL (reload turn attribution). Revise cap reached; goes to the user.
+- PR #733 fix `c638c21fa` (codex, worktree `task-648-pr-fixes`): grok code-logic review APPROVED
+  8/10, no findings (`../TASK_2026_648_374e/pr733-fix-code-logic-review.md`). All CI checks
+  passed. #733 MERGED 2026-10-15 17:09 UTC as `35c80dfa0`. The 649 branch now rebases on `main`
+  and its PR targets `main` (D3 retarget no longer needed). The 677 session was not reachable
+  (no live session); message it when a 677 session appears.
