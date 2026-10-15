@@ -389,9 +389,11 @@ export class CanvasLaneTabsComponent {
         const tab = document.getElementById(this.tabDomId(key));
         const card = document.getElementById(`${this.panelId()}-agent-card`);
         if (!tab || !card) return;
+        const boundary = this.dock().nativeElement.closest<HTMLElement>('[data-pane-side]');
         void this.floatingUI.position(tab, card, {
           placement: 'bottom-start',
           offset: 0,
+          boundary: boundary ?? undefined,
         });
       },
       { injector: this.injector },

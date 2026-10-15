@@ -74,6 +74,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     '[attr.data-canvas-focus-swaps]': 'focusSwaps()',
     '[attr.data-canvas-rail-shifts]': 'railShifts()',
     '(keydown)': 'onTabKey($event)',
+    '(document:keydown.escape)': 'onDocumentEscape($event)',
   },
   template: `
     @if (visible()) {
@@ -236,17 +237,13 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             [class.w-[296px]]="band() === 'md'"
           >
             @if (focusedId(); as id) {
-              @defer (on idle) {
-                <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
-              } @placeholder {
-                <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
-              }
+              <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
             }
           </aside>
         }
         @if (compactSheetOpen()) {
           @if (focusedId(); as id) {
-             <div class="absolute inset-0 z-30 bg-base-100" tabindex="-1" data-compact-sheet (keydown.escape)="closeCompactSheet($event)" (keydown)="onSheetKeydown($event)">
+             <div class="fixed inset-0 z-50 overflow-y-auto bg-base-100" role="dialog" aria-modal="true" aria-label="Session details" tabindex="-1" data-compact-sheet (keydown)="onSheetKeydown($event)">
               @defer (on idle) {
                  <ptah-session-inspector [tabId]="id" presentation="sheet" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="openLaneFromCompactSheet(id, $event)" (closeRequested)="closeCompactSheet()" />
               } @placeholder {
@@ -726,6 +723,10 @@ export class CanvasRailBoardComponent {
     afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`)?.focus(), { injector: this.injector });
   }
 
+  onDocumentEscape(event: Event): void {
+    if (this.visible() && this.compactSheetOpen()) this.closeCompactSheet(event);
+  }
+
   openLaneFromCompactSheet(id: string, laneKey: string): void {
     this.detail.selectLaneFor(id, laneKey);
     this.closeCompactSheet();
@@ -733,7 +734,8 @@ export class CanvasRailBoardComponent {
 
   onSheetKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Tab') return;
-    const sheet = this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"]');
+    const wrapper = this.host.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]');
+    const sheet = wrapper?.querySelector<HTMLElement>('ptah-session-inspector [role="dialog"]') ?? wrapper;
     if (!sheet) { event.preventDefault(); return; }
     const items = [...sheet.querySelectorAll<HTMLElement>(TABBABLE)].filter((element) =>
       isTabbable(element, sheet),

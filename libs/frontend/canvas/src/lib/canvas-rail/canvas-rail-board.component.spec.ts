@@ -472,15 +472,13 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.debugElement.query(By.directive(FocusStub)).componentInstance.focusedTabId()).toBe('c');
   });
 
-  it('keeps the Details aside and shows a heading placeholder until the deferred details load', async () => {
+  it('renders the focused session in the wide Details aside immediately', () => {
     const { fixture } = mount(true, 2);
     const aside = fixture.nativeElement.querySelector('aside:not([data-dock])');
     expect(aside).not.toBeNull();
-    expect(fixture.debugElement.query(By.directive(InspectorStub))).toBeNull();
-    expect(aside?.textContent).toContain('Session details');
-    await completeDeferBlocks(fixture);
-    expect(fixture.nativeElement.querySelector('aside:not([data-dock])')).toBe(aside);
-    expect(fixture.debugElement.query(By.directive(InspectorStub))).not.toBeNull();
+    const inspector = fixture.debugElement.query(By.directive(InspectorStub));
+    expect(inspector).not.toBeNull();
+    expect(inspector.componentInstance.tabId()).toBe('a');
   });
 
   it('synchronizes pane, rail and Details after external removal of the focused tile', async () => {
@@ -1117,6 +1115,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     await fixture.whenStable();
     const wrapper = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]')!;
     expect(document.activeElement).toBe(wrapper);
+    expect(wrapper.classList).toContain('fixed');
+    expect(wrapper.getAttribute('aria-modal')).toBe('true');
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
     const close = wrapper.querySelector<HTMLButtonElement>('[data-inspector-close]')!;
@@ -1137,6 +1137,19 @@ describe('CanvasRailBoardComponent rendering', () => {
     fixture.detectChanges();
     expect(selectLaneFor).toHaveBeenCalledWith('a', 'agent-1');
     expect(fixture.componentInstance.detailsOpen()).toBe(false);
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+  });
+
+  it('closes the compact sheet on Escape even when focus has moved outside it', () => {
+    const { fixture, width } = mount();
+    width.set(390);
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('left');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).not.toBeNull();
+    document.body.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
   });
 
