@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 14/27
+Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 15/27
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -1295,7 +1295,7 @@ Lane rules for this batch:
 - Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/tribunal-panel`,
   header 1 project, all 3 targets green. Commit `545d3b53a`: hook and commitlint passed on the first attempt.
 
-## Batch 8FD: Session coordinator resume, voice release and meter zero (S3, S4, S6, M5, M7) - COMPLETE (commit: subject `fix(command-center,chat): batch 8FD - pinned resume and voice release`; SHA added at the 8FC commit)
+## Batch 8FD: Session coordinator resume, voice release and meter zero (S3, S4, S6, M5, M7) - COMPLETE (commit a5adac5cd)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design)
 - Execution mode: sequential within the batch; runs in PARALLEL wave 1 beside 8FA and 8FB
@@ -1388,10 +1388,10 @@ Lane rules for this batch:
   payload without a `sessions` array as a failed attempt; `newCommandCenter` calls `stopVoiceLocally()` (release
   lock, `idle`, `resetLevels`); `mute` and `stop` also call `resetLevels`. One new non-spec catch, marked.
 - Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/chat
-  @ptah-extension/command-center`, header 2 projects, all 6 tasks green. Hook and commitlint result: see the
-  8FD commit (subject on the header); the SHA is added to the header at the 8FC commit.
+  @ptah-extension/command-center`, header 2 projects, all 6 tasks green. Commit `a5adac5cd`: hook and commitlint
+  passed on the first attempt (Wave 1: `dd8e42cd9`, `545d3b53a`, `a5adac5cd`, no hook failure).
 
-## Batch 8FC: Tribunal confirm state machine, real roster rule, saved preferences (S1, S2, S5, TL-2 coordinator half, style S2/S3, Moderate 4) - IN_PROGRESS
+## Batch 8FC: Tribunal confirm state machine, real roster rule, saved preferences (S1, S2, S5, TL-2 coordinator half, style S2/S3, Moderate 4) - COMPLETE (commit: subject `fix(command-center): batch 8FC - retryable confirm and real roster rule`; SHA added at the 8FE commit)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design; paid-spawn safety)
 - Execution mode: sequential
@@ -1412,7 +1412,7 @@ Lane rules for this batch:
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.spec.ts`
 - Suggested commit: `fix(command-center): batch 8FC - retryable confirm and real roster rule`
 
-### Task 8FC.1: Roster proposal uses Tribunal's rule and constants, and enforces saved preferences (style S2, S3; logic S5) - IN_PROGRESS
+### Task 8FC.1: Roster proposal uses Tribunal's rule and constants, and enforces saved preferences (style S2, S3; logic S5) - COMPLETE
 
 - Findings:
   - style S2 `tribunal-roster-proposal.ts:35-51`: `rosterIsLaunchableLocally` mirrors and has already diverged from
@@ -1440,7 +1440,7 @@ Lane rules for this batch:
   rejected through the real Tribunal rule; a Council lane with a role is rejected; rounds above
   `MAX_CRUCIBLE_ROUND_CAP` are rejected; the ranker drops disabled and AT LIMIT lanes and keeps preference order.
 
-### Task 8FC.2: Confirm keeps the proposal retryable until the launch is sent (logic S1, S2, TL-2 coordinator half; style Moderate 4) - IN_PROGRESS
+### Task 8FC.2: Confirm keeps the proposal retryable until the launch is sent (logic S1, S2, TL-2 coordinator half; style Moderate 4) - COMPLETE
 
 - Depends on: Task 8FC.1
 - Findings:
@@ -1507,8 +1507,30 @@ Lane rules for this batch:
 - Every listed artifact exists; the scoped command passes, 1 project.
 - The team leader reads every `catch` in the two files against `check-degradation.ts` (Decision D12 method).
 - `rosterIsLaunchableLocally` is gone from the lib (grep); the zod enums carry no literal CLI, role, move or 2.
+- Result (team-leader, Mode 2): executor codex lane `daeb9089`; report `TASK/reports/batch-8FC-report.md`. Exactly
+  the 4 listed files changed. On disk, `tribunal-roster-proposal.ts`: `cli` is `z.enum([...SYSTEM_CLI_TYPES,
+  'ptah-cli'])` (the one literal the task names), `role` from `[...RELAY_ROLES, ...CRUCIBLE_ROLES]`, `move` from
+  `TRIBUNAL_MOVES`, `rounds.max(MAX_CRUCIBLE_ROUND_CAP)`, one `AT_LIMIT_STATE`; `proposalShapeIsValid` plus
+  `rosterIsLaunchable` from `@ptah-extension/tribunal-panel/phase` (no cast); required `ProposalAvailability`;
+  `rankAvailableLanes` drops AT LIMIT and disabled CLIs; exported `rosterIsAvailable`. `rosterIsLaunchableLocally`
+  has no match under `libs/`. `tribunal-run-coordinator.ts`: exported `ProposalReceiveContext`/`PendingProposal`,
+  states `open -> answered -> launched | declined` (only terminal states enter `consumed`), duplicate ids decline the
+  new question, one shared in-flight promise per id, `specTaskId`/`runId` kept on the entry and reused, role-less
+  manifest lanes omit `role`, send failure rolls back with `removeManifest`, one `reportFailure` per `ok: false` with
+  fixed `CONFIRM_FAILURE_MESSAGES`, `pageExit` drops `answered` entries without a turn. The coordinator spec writes a
+  role-less Council manifest through the real `CommandCenterRecordsService`. No stubs, no skipped or focused specs.
+- Catch classification (D12 method, against `check-degradation.ts`; a valid marker in zone 1 or 2 is consumed by any
+  catch, flagged or not, so none is orphaned): `tribunal-roster-proposal.ts:114` returns `null`, a
+  catch-return-sentinel, suppressed by a valid `reported` marker. `tribunal-run-coordinator.ts:162`, `:182`, `:206`
+  return `this.failure(...)` (a call, not a literal), not flagged, marker consumed. `:224` and `:229` hold a
+  comment only, so they are not "truly empty" (`isTrulyEmpty` needs no text between the braces) and have no literal
+  return; not flagged, marker consumed (the marker would also suppress an empty-catch). One direct audit run
+  (`check-degradation.ts --max-warnings=-1`, exit 0): no `libs/frontend/command-center` line (0 sites, baseline 0),
+  no orphaned or bare marker there; `chat-state 2 ok (baseline 2)`, `tribunal-panel 1 ok (baseline 1)`.
+- Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/command-center`,
+  header 1 project, all 3 targets green.
 
-## Batch 8FE: Tribunal lanes and stage in the projection; persisted state unknown (logic S7, M6; style Moderate 3) - PENDING
+## Batch 8FE: Tribunal lanes and stage in the projection; persisted state unknown (logic S7, M6; style Moderate 3) - IN_PROGRESS
 
 - Recommended executor: CLI lane (implementation; pure TypeScript reducer, test design)
 - Execution mode: sequential (after 8FC, because both edit `command-center`)
@@ -1527,7 +1549,7 @@ Lane rules for this batch:
   (add `'unknown'` to `CommandWorkState` (`:19-26`) only)
 - Suggested commit: `fix(command-center): batch 8FE - tribunal lanes and stage in work tree`
 
-### Task 8FE.1: Lanes and stage for every Tribunal run; persisted-only children are unknown - PENDING
+### Task 8FE.1: Lanes and stage for every Tribunal run; persisted-only children are unknown - IN_PROGRESS
 
 - Findings:
   - S7: the review's data-flow and requirement tables call this "S7" (AC15 PARTIAL), though its summary counts six
