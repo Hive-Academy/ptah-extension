@@ -10,6 +10,7 @@ import { TestBed } from '@angular/core/testing';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { RailTranscriptRetentionCoordinator } from '../../services/rail-transcript-retention-coordinator.service';
+import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
 import {
   RAIL_TRANSCRIPT_RETENTION,
   SESSION_CARD_ACTIONS,
@@ -77,6 +78,7 @@ describe('SessionEmbedComponent', () => {
     const chat = fixture.nativeElement.querySelector('ng-component');
     expect(fixture.nativeElement.textContent).toContain('chat session');
     expect(injector.get(SESSION_CONTEXT)()).toBe('first');
+    expect(injector.get(SESSION_EMBED_CHROME)).toBe('full');
     expect(injector.get(SESSION_VISIBLE)()).toBe(true);
     expect(injector.get(SESSION_FOCUSED)()).toBe(true);
     expect(injector.get(SURFACE_ACTIVE)()).toBe(true);
@@ -98,6 +100,23 @@ describe('SessionEmbedComponent', () => {
     expect(visibleTabIds()).toEqual(new Set(['second']));
     fixture.destroy();
     expect(visibleTabIds().size).toBe(0);
+  });
+
+  it('provides bare chrome to a hosted chat while retaining visible-tab ownership', () => {
+    const fixture = TestBed.createComponent(SessionEmbedComponent);
+    (fixture.componentInstance as { chatView: Type<unknown> }).chatView =
+      ChatStubComponent;
+    fixture.componentRef.setInput('tabId', 'builder');
+    fixture.componentRef.setInput('chrome', 'bare');
+    fixture.detectChanges();
+    TestBed.flushEffects();
+
+    expect(
+      fixture.componentInstance.childInjector.get(SESSION_EMBED_CHROME),
+    ).toBe('bare');
+    expect(visibleTabIds().has('builder')).toBe(true);
+    fixture.destroy();
+    expect(visibleTabIds().has('builder')).toBe(false);
   });
 
   it('passes the optional start guard, card actions and rail policy', () => {

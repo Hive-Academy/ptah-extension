@@ -45,3 +45,7 @@ export type { SessionCardActions } from './lib/tokens/session-context.token';
 export { RAIL_TRANSCRIPT_RETENTION } from './lib/tokens/session-context.token';
 export { RAIL_MIN_CONTENT_WIDTH } from './lib/components/templates/chat-view.component';
 export { RailTranscriptRetentionCoordinator } from './lib/services/rail-transcript-retention-coordinator.service';
+export {
+  SESSION_EMBED_CHROME,
+  type SessionEmbedChrome,
+} from './lib/tokens/session-embed-chrome.token';
