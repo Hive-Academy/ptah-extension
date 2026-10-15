@@ -557,6 +557,7 @@ function makeHarness(
     findTabByIdAcrossWorkspacesMock,
     rebindTabSessionMock,
     closeTabMock,
+    tabManagerStub,
     forgetWorkflowSessionMock,
     upsertSessionSummaryMock,
     removeSessionFromListMock,
@@ -940,6 +941,29 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     );
   });
 
+  it('keeps the origin workspace when it changes during tab close', async () => {
+    const h = makeHarness();
+    primeHappyPath(h);
+    h.confirmWithCheckboxesMock.mockResolvedValueOnce({
+      confirmed: true,
+      checkboxes: { deleteOriginal: true },
+    });
+    h.findTabsBySessionIdMock
+      .mockReturnValueOnce([{ id: 'tab-abc' }])
+      .mockReturnValueOnce([]);
+    h.closeTabMock.mockImplementationOnce(async () => {
+      Object.defineProperty(h.tabManagerStub, 'activeWorkspacePath', {
+        value: '/other',
+        configurable: true,
+      });
+    });
+
+    await h.component.onRewindRequested('msg-delete-orig');
+    expect(h.forgetWorkflowSessionMock).toHaveBeenCalledWith(
+      'session-uuid-123',
+      '/ws',
+    );
+  });
   it('C5/UICS-011 — delete-original aborts when a streaming tab survives closeTab cancellation; warning banner shown', async () => {
     const h = makeHarness();
     primeHappyPath(h);

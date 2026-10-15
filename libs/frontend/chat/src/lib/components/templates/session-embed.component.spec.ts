@@ -114,12 +114,33 @@ describe('SessionEmbedComponent', () => {
     expect(
       fixture.componentInstance.childInjector.get(SESSION_START_GUARD)?.(),
     ).toBe('Wait for capacity');
-    expect(
-      fixture.componentInstance.childInjector.get(SESSION_CARD_ACTIONS),
-    ).toBe(actions);
+    const injectedActions =
+      fixture.componentInstance.childInjector.get(SESSION_CARD_ACTIONS);
+    injectedActions.openLane('first');
+    expect(actions.openLane).toHaveBeenCalledWith('first');
+    const nextActions = { openLane: jest.fn(), openSession: jest.fn() };
+    fixture.componentRef.setInput('cardActions', nextActions);
+    fixture.detectChanges();
+    injectedActions.openLane('second');
+    injectedActions.openSession();
+    expect(nextActions.openLane).toHaveBeenCalledWith('second');
+    expect(nextActions.openSession).toHaveBeenCalledTimes(1);
     expect(
       fixture.componentInstance.childInjector.get(RAIL_TRANSCRIPT_RETENTION),
     ).toBe(true);
+    fixture.destroy();
+  });
+
+  it('reads a changed start guard through the same injected function', () => {
+    const fixture = mount('guarded');
+    const injectedGuard =
+      fixture.componentInstance.childInjector.get(SESSION_START_GUARD);
+    fixture.componentRef.setInput('startGuard', () => 'First');
+    fixture.detectChanges();
+    expect(injectedGuard()).toBe('First');
+    fixture.componentRef.setInput('startGuard', () => 'Second');
+    fixture.detectChanges();
+    expect(injectedGuard()).toBe('Second');
     fixture.destroy();
   });
 

@@ -79,10 +79,14 @@ export class SessionEmbedComponent implements OnDestroy {
       { provide: SESSION_VISIBLE, useValue: this.sessionVisible },
       { provide: SESSION_FOCUSED, useValue: this.sessionFocused },
       { provide: RAIL_MIN_CONTENT_WIDTH, useValue: this.minContentWidth },
-      { provide: SESSION_START_GUARD, useFactory: () => this.startGuard() },
+      {
+        provide: SESSION_START_GUARD,
+        useValue: () => this.startGuard()?.() ?? null,
+      },
       { provide: SURFACE_ACTIVE, useValue: this.sessionVisible },
       {
         provide: RAIL_TRANSCRIPT_RETENTION,
+        // Boolean token: ChatView reads this once when its injector creates it.
         useFactory: () => this.retainRailTranscript(),
       },
       ...(this.coordinator
@@ -93,7 +97,18 @@ export class SessionEmbedComponent implements OnDestroy {
             },
           ]
         : []),
-      { provide: SESSION_CARD_ACTIONS, useFactory: () => this.cardActions() },
+      {
+        provide: SESSION_CARD_ACTIONS,
+        // Preserve null at creation: compact cards use it to hide actions.
+        useFactory: () =>
+          this.cardActions()
+            ? ({
+                openLane: (laneKey: string) =>
+                  this.cardActions()?.openLane(laneKey),
+                openSession: () => this.cardActions()?.openSession(),
+              } satisfies SessionCardActions)
+            : null,
+      },
     ],
     this.parentInjector,
   );

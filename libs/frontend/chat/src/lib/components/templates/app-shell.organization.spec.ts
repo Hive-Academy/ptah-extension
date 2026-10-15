@@ -342,6 +342,37 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       await fixture.componentInstance.deleteSession(new Event('click'), target);
       expect(forgetWorkflowSession).not.toHaveBeenCalled();
     });
+    it('keeps the deleted row workspace when it changes during confirmation', async () => {
+      const target = session('tagged', 'Tagged');
+      store.sessions.set([target]);
+      const fixture = configure(store);
+      let confirm: (accepted: boolean) => void = () => undefined;
+      confirmDelete.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          confirm = resolve;
+        }),
+      );
+      deleteSession.mockResolvedValueOnce({
+        isSuccess: () => true,
+        data: { success: true },
+      });
+
+      const pending = fixture.componentInstance.deleteSession(
+        new Event('click'),
+        target,
+      );
+      Object.defineProperty(
+        TestBed.inject(TabManagerService),
+        'activeWorkspacePath',
+        {
+          value: '/other',
+          configurable: true,
+        },
+      );
+      confirm(true);
+      await pending;
+      expect(forgetWorkflowSession).toHaveBeenCalledWith('tagged', '/work');
+    });
     it("renders today's controls only", () => {
       store.sessions.set([
         session('a', 'Alpha', { organization: organization() }),

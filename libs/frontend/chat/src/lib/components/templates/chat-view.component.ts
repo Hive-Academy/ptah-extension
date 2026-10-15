@@ -1679,6 +1679,13 @@ export class ChatViewComponent implements OnDestroy {
     sessionId: SessionId,
     messageId: string,
   ): Promise<void> {
+    const originalTab = this._tabManager.findTabBySessionId(sessionId);
+    const originWorkspacePath = originalTab
+      ? (this._tabManager.findTabByIdAcrossWorkspaces(originalTab.id)
+          ?.workspacePath ??
+        this._tabManager.activeWorkspacePath ??
+        '')
+      : (this._tabManager.activeWorkspacePath ?? '');
     const anchorId = this.resolveAnchorId(messageId);
     const anchorHint = this.buildAnchorHint(messageId);
     const dryRun = await this._claudeRpc.rewindFiles(
@@ -1848,7 +1855,10 @@ export class ChatViewComponent implements OnDestroy {
 
     let deleteSuffix: string | null = null;
     if (deleteOriginal && !swapFailed) {
-      const result = await this.deleteOriginalSession(sessionId);
+      const result = await this.deleteOriginalSession(
+        sessionId,
+        originWorkspacePath,
+      );
       if (!result.allTabsClosed) {
         deleteSuffix =
           'original session left in place — close the streaming tab first';
@@ -1896,7 +1906,10 @@ export class ChatViewComponent implements OnDestroy {
     return msg.includes(ChatViewComponent.MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE);
   }
 
-  private async deleteOriginalSession(originalId: SessionId): Promise<{
+  private async deleteOriginalSession(
+    originalId: SessionId,
+    originWorkspacePath: string,
+  ): Promise<{
     allTabsClosed: boolean;
     deletedOk: boolean;
     deleteError?: string;
@@ -1926,10 +1939,7 @@ export class ChatViewComponent implements OnDestroy {
           deleteError: del.error ?? undefined,
         };
       }
-      this._tabManager.forgetWorkflowSession(
-        originalId,
-        this._tabManager.activeWorkspacePath ?? '',
-      );
+      this._tabManager.forgetWorkflowSession(originalId, originWorkspacePath);
       return { allTabsClosed: true, deletedOk: true };
     } catch (err: unknown) {
       return {

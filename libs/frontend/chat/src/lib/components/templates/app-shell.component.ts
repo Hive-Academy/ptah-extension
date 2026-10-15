@@ -941,6 +941,7 @@ export class AppShellComponent {
     event.stopPropagation();
 
     const sessionName = this.getSessionDisplayName(session);
+    const deletedWorkspacePath = this.tabManager.activeWorkspacePath ?? '';
     const confirmed = await this.confirmDialog.confirm({
       title: 'Delete Session',
       message: `Are you sure you want to delete "${sessionName}"? This action cannot be undone.`,
@@ -957,10 +958,7 @@ export class AppShellComponent {
       const result = await this.rpcService.deleteSession(session.id);
 
       if (result.isSuccess() && result.data?.success) {
-        this.tabManager.forgetWorkflowSession(
-          session.id,
-          this.tabManager.activeWorkspacePath ?? '',
-        );
+        this.tabManager.forgetWorkflowSession(session.id, deletedWorkspacePath);
         this.chatStore.removeSessionFromList(session.id);
         if (this.organizingSessionId() === session.id) {
           this.closeOrganizer();

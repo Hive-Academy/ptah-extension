@@ -125,10 +125,12 @@
       @if (organizationAvailable()) {
         <!-- Organization host: search text, filters, sort and grouping go to
              the server (TASK_2026_580). The date range below stays local. -->
-        <ptah-session-filter-bar
-          [query]="listQuery()"
-          (queryChange)="onListQueryChange($event)"
-        />
+        @defer (on immediate; prefetch on idle) {
+          <ptah-session-filter-bar
+            [query]="listQuery()"
+            (queryChange)="onListQueryChange($event)"
+          />
+        }
       } @else {
         <!-- Search input (local name filter over the loaded pages) -->
         <label
