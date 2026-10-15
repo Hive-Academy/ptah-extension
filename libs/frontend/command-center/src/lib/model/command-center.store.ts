@@ -28,6 +28,7 @@ export interface CommandWorkNode {
   readonly label: string;
   readonly providerId: string | null;
   readonly state: CommandWorkState;
+  readonly updatedAt?: number;
 }
 
 export interface CommandWorkEdge {

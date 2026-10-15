@@ -13,6 +13,9 @@ export interface OwnedChild {
   readonly sessionId?: string;
   readonly parentSessionId: string;
   readonly state: CommandWorkState;
+  readonly name?: string;
+  readonly providerId?: string;
+  readonly updatedAt?: number;
 }
 export interface OwnedAgent {
   readonly agentId: string;
@@ -21,20 +24,24 @@ export interface OwnedAgent {
   readonly state: CommandWorkState;
   readonly providerId?: string;
   readonly runId?: string;
+  readonly updatedAt?: number;
 }
 export interface OwnedRun {
   readonly runId: string;
   readonly rootSessionId: string;
   readonly phase: PhaseDerivationInput;
   readonly state: CommandWorkState;
+  readonly updatedAt?: number;
 }
 export interface ProjectionInput {
   readonly rootTabId: string;
   readonly rootSessionId: string;
+  readonly rootProviderId?: string;
   readonly children: readonly OwnedChild[];
   readonly persistedChildren: readonly {
     readonly sessionId: string;
     readonly parentSessionId: string;
+    readonly updatedAt?: number;
   }[];
   readonly agents: readonly OwnedAgent[];
   readonly runs: readonly OwnedRun[];
@@ -52,7 +59,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       id: rootId,
       parentId: null,
       label: 'Ptah',
-      providerId: null,
+      providerId: input.rootProviderId ?? null,
       state: 'running',
     },
   ];
@@ -63,31 +70,48 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     ),
   );
   const canonical = (id: string): string => aliases.get(id) ?? id;
-  const childBySession = new Map(
-    input.children
-      .filter((child) => child.sessionId)
-      .map((child) => [child.sessionId, child]),
+  const childBySession = new Set<string>(
+    input.children.flatMap((child) =>
+      child.sessionId ? [canonical(child.sessionId)] : [],
+    ),
   );
   const candidates = [
     ...input.children.map((child) => ({
       id: child.sessionId ?? child.tabId,
       parent: child.parentSessionId,
       state: child.state,
+      name: child.name,
+      providerId: child.providerId,
+      updatedAt: child.updatedAt,
     })),
     ...input.persistedChildren
-      .filter((child) => !childBySession.has(child.sessionId))
+      .filter((child) => !childBySession.has(canonical(child.sessionId)))
       .map((child) => ({
         id: child.sessionId,
         parent: child.parentSessionId,
         state: 'unknown' as const,
+        name: undefined,
+        providerId: undefined,
+        updatedAt: child.updatedAt,
       })),
   ];
+  const childrenBySession = new Map<string, (typeof candidates)[number]>();
+  for (const child of candidates) {
+    const id = canonical(child.id);
+    const existing = childrenBySession.get(id);
+    if (
+      !existing ||
+      (existing.state === 'unknown' && child.state !== 'unknown')
+    )
+      childrenBySession.set(id, child);
+  }
   let changed = true;
   while (changed) {
     changed = false;
-    for (const child of candidates) {
-      if (!owned.has(child.id) && owned.has(canonical(child.parent))) {
-        owned.add(child.id);
+    for (const child of childrenBySession.values()) {
+      const id = canonical(child.id);
+      if (!owned.has(id) && owned.has(canonical(child.parent))) {
+        owned.add(id);
         changed = true;
       }
     }
@@ -96,14 +120,15 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     canonical(id) === input.rootSessionId || id === input.rootTabId
       ? rootId
       : `child:${canonical(id)}`;
-  for (const child of candidates) {
-    if (!owned.has(child.id)) continue;
+  for (const child of childrenBySession.values()) {
+    if (!owned.has(canonical(child.id))) continue;
     nodes.push({
       id: nodeForSession(child.id),
       parentId: nodeForSession(child.parent),
-      label: 'Child session',
-      providerId: null,
+      label: child.name ?? 'Child session',
+      providerId: child.providerId ?? null,
       state: child.state,
+      updatedAt: child.updatedAt,
     });
   }
   const runs = new Map(
@@ -119,6 +144,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       label: `Tribunal ${run.phase.move}`,
       providerId: null,
       state: run.state,
+      updatedAt: run.updatedAt,
     });
     for (const lane of run.phase.laneBindings.lanes) {
       const status = run.phase.laneBindings.bound.get(lane.laneId)?.status;
@@ -197,6 +223,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       label: agent.kind === 'cli' ? 'CLI agent' : 'SDK agent',
       providerId: agent.providerId ?? null,
       state: agent.state,
+      updatedAt: agent.updatedAt,
     });
   }
   const unique = [...new Map(nodes.map((node) => [node.id, node])).values()];
@@ -206,4 +233,18 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       node.parentId === null ? [] : [{ fromId: node.parentId, toId: node.id }],
     ),
   };
+}
+
+/** Ages for nodes whose source supplied a timestamp. */
+export function computeAgesMs(
+  nodes: readonly CommandWorkNode[],
+  now: number,
+): ReadonlyMap<string, number> {
+  return new Map(
+    nodes.flatMap((node) =>
+      node.updatedAt === undefined
+        ? []
+        : [[node.id, now - node.updatedAt] as const],
+    ),
+  );
 }
