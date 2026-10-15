@@ -122,7 +122,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         />
         <ptah-command-pending-input
           [pending]="page.store.pendingInput()"
-          [proposal]="page.pendingProposal()"
+          [proposal]="page.shownProposal()"
           (confirm)="page.confirmProposal($event.proposalId)"
           (decline)="page.declineProposal($event)"
           (response)="

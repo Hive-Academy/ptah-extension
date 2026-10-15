@@ -1,4 +1,4 @@
-import { Component, input, output, signal } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -57,6 +57,9 @@ describe('CommandCenterPageComponent', () => {
     hoveredNodeId,
     canvasUnavailable,
     pendingProposal,
+    shownProposal: computed(() =>
+      store.pendingInput()?.kind === 'approval' ? null : pendingProposal(),
+    ),
     recordWriteFailure,
     latestReply: signal<string | null>(null),
     coordinator: { newCommandCenter: jest.fn(), sendStatusTurn: jest.fn() },

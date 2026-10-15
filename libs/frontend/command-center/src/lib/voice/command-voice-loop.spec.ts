@@ -39,6 +39,28 @@ describe('CommandVoiceLoop', () => {
     expect(loop['lastReply']).toBe('Current');
   });
 
+  it('queues a typed turn behind a voice boundary and arms token 2 after token 1', () => {
+    const { loop } = frameLoop();
+    const armed: number[] = [];
+    Object.assign(loop['options'], {
+      onVoiceSend: (token: number) => armed.push(token),
+    });
+    loop['speak'] = jest.fn();
+    loop['active'] = true;
+    loop['turnGeneration'] = loop['generation'];
+    loop['awaitingBoundary'] = true;
+    loop['awaitingTurnToken'] = 1;
+    loop['nextVoiceTurnToken'] = 1;
+    loop.armTypedTurn();
+    expect(loop['awaitingTurnToken']).toBe(1);
+    expect(armed).toEqual([]);
+    loop.onTurnBoundary('Voice reply', 1);
+    expect(armed).toEqual([2]);
+    expect(loop['awaitingTurnToken']).toBe(2);
+    loop.onTurnBoundary('Typed reply', 2);
+    expect(loop['lastReply']).toBe('Typed reply');
+  });
+
   function frameLoop(isIndependentSpeech?: () => boolean): {
     loop: CommandVoiceLoop;
     bargeIn: jest.SpyInstance;

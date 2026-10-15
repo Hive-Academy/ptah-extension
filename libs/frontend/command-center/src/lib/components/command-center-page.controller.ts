@@ -46,8 +46,9 @@ export class CommandCenterPageController {
       : null;
   });
   private readonly voiceTurnToken = signal<number | null>(null);
-  private minPulseSeq = 0;
+  private readonly armedTurns: { token: number; minPulseSeq: number }[] = [];
   private deliveredPulseSeq = 0;
+  private readonly spokenRequestIds = new Set<string>();
   public readonly ordinaryQuestion = computed(() => {
     const tabId = this.store.markedTabId();
     const sessionId = this.store.sessionId();
@@ -77,6 +78,43 @@ export class CommandCenterPageController {
         ) ?? null
     );
   });
+  public readonly shownInput = computed(() => {
+    const permission = this.permissionRequest();
+    if (permission)
+      return {
+        id: permission.id,
+        kind: 'approval' as const,
+        title: `${permission.toolName} permission`,
+        description: permission.description,
+        prompt: `${permission.toolName} requests permission. Use the card to approve or deny.`,
+      };
+    const proposal = this.pendingProposal();
+    if (proposal && this.handledRosterQuestionId)
+      return {
+        id: this.handledRosterQuestionId,
+        kind: 'question' as const,
+        title: 'Tribunal proposal',
+        description: 'Review the roster before launch.',
+        prompt: `Tribunal ${proposal.move} proposal. Review the pending card.`,
+      };
+    const request = this.ordinaryQuestion();
+    const question = request?.questions[0];
+    return request && question
+      ? {
+          id: request.id,
+          kind: 'question' as const,
+          title: question.header,
+          description: question.question,
+          prompt: question.question,
+        }
+      : null;
+  });
+  public readonly shownProposal = computed(() =>
+    this.shownInput()?.kind === 'question' &&
+    this.shownInput()?.id === this.handledRosterQuestionId
+      ? this.pendingProposal()
+      : null,
+  );
   public readonly projection = computed(() => {
     const tabId = this.store.markedTabId();
     const root = this.tabs.tabs().find((tab) => tab.id === tabId);
@@ -98,11 +136,13 @@ export class CommandCenterPageController {
           : false;
       },
       onVoiceSend: (token) => {
-        this.voiceTurnToken.set(token);
         const tabId = this.store.markedTabId();
-        this.minPulseSeq = tabId
-          ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0)
-          : 0;
+        const minPulseSeq = Math.max(
+          this.deliveredPulseSeq,
+          tabId ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0) : 0,
+        );
+        this.armedTurns.push({ token, minPulseSeq });
+        this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
       },
       sendTranscript: (transcript) => this.sendCommand(transcript, 'voice'),
     },
@@ -169,44 +209,25 @@ export class CommandCenterPageController {
         () => this.timeoutProposal(proposal.proposalId),
         120_000,
       );
-      this.store.setPendingInput({
-        id: request.id,
-        kind: 'question',
-        title: 'Tribunal proposal',
-        description: 'Review the roster before launch.',
-      });
-      this.voice.onRosterProposal(
-        `Tribunal ${proposal.move} proposal. Review the pending card.`,
-        true,
-      );
     });
     effect(() => {
-      const permission = this.permissionRequest();
-      const request = this.ordinaryQuestion();
-      if (permission) {
-        this.store.setPendingInput({
-          id: permission.id,
-          kind: 'approval',
-          title: `${permission.toolName} permission`,
-          description: permission.description,
-        });
-        this.voice.onPendingPrompt(
-          `${permission.toolName} requests permission. Use the card to approve or deny.`,
-        );
-        return;
+      const shown = this.shownInput();
+      this.store.setPendingInput(
+        shown
+          ? {
+              id: shown.id,
+              kind: shown.kind,
+              title: shown.title,
+              description: shown.description,
+            }
+          : null,
+      );
+      if (shown && !this.spokenRequestIds.has(shown.id)) {
+        this.spokenRequestIds.add(shown.id);
+        if (shown.id === this.handledRosterQuestionId && this.pendingProposal())
+          this.voice.onRosterProposal(shown.prompt, true);
+        else this.voice.onPendingPrompt(shown.prompt);
       }
-      const question = request?.questions[0];
-      if (!request || !question) {
-        if (!this.pendingProposal()) this.store.setPendingInput(null);
-        return;
-      }
-      this.store.setPendingInput({
-        id: request.id,
-        kind: 'question',
-        title: question.header,
-        description: question.question,
-      });
-      this.voice.onPendingPrompt(question.question);
     });
     effect(() => {
       const tabId = this.store.markedTabId();
@@ -215,7 +236,7 @@ export class CommandCenterPageController {
       const candidate = this.tabs.lastTerminalPulseByTab().get(tabId);
       const pulse =
         candidate &&
-        candidate.seq > this.minPulseSeq &&
+        candidate.seq > (this.armedTurns[0]?.minPulseSeq ?? 0) &&
         candidate.seq > this.deliveredPulseSeq &&
         candidate.classification === 'success' &&
         candidate.lastAssistantMessage
@@ -223,7 +244,8 @@ export class CommandCenterPageController {
           : null;
       if (!pulse?.lastAssistantMessage) return;
       this.deliveredPulseSeq = pulse.seq;
-      this.voiceTurnToken.set(null);
+      this.armedTurns.shift();
+      this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
       this.voice.onTurnBoundary(pulse.lastAssistantMessage, token);
     });
   }
@@ -280,7 +302,6 @@ export class CommandCenterPageController {
       id,
       answers: { [question.question]: answer },
     });
-    this.store.setPendingInput(null);
     return true;
   }
   public answerPermission(id: string, answer: string): boolean {
@@ -295,7 +316,6 @@ export class CommandCenterPageController {
       id,
       decision: answer === 'Approve' ? 'allow' : 'deny',
     });
-    this.store.setPendingInput(null);
     return true;
   }
   public async sendCommand(

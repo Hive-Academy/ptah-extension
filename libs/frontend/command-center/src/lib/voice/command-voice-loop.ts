@@ -63,6 +63,7 @@ export class CommandVoiceLoop {
   private nextVoiceTurnToken = 0;
   private awaitingTurnToken: number | null = null;
   private awaitingBoundary = false;
+  private queuedTypedTurns = 0;
   private sendTail: Promise<void> = Promise.resolve();
   private firstReplyAfterStart = true;
   private bargeInOnset = false;
@@ -413,6 +414,10 @@ export class CommandVoiceLoop {
   /** Called by the page after the assistant stream and its tool calls settle. */
   public armTypedTurn(): void {
     if (!this.active) return;
+    if (this.awaitingBoundary) {
+      this.queuedTypedTurns++;
+      return;
+    }
     this.turnGeneration = this.generation;
     this.awaitingBoundary = true;
     this.awaitingTurnToken = ++this.nextVoiceTurnToken;
@@ -434,6 +439,10 @@ export class CommandVoiceLoop {
     this.currentReplyOrigin = null;
     for (const update of this.narrator.drain()) this.speak(update, 'status');
     this.finishTurn();
+    if (this.active && this.queuedTypedTurns > 0) {
+      this.queuedTypedTurns--;
+      this.armTypedTurn();
+    }
   }
 
   public onProjection(root: string): void {
@@ -535,6 +544,7 @@ export class CommandVoiceLoop {
     this.synthesisIds.length = 0;
     this.turnGeneration = null;
     this.awaitingBoundary = false;
+    this.queuedTypedTurns = 0;
     this.currentReplyOrigin = null;
     this.currentUtteranceOrigin = null;
     this.pendingRoster = false;

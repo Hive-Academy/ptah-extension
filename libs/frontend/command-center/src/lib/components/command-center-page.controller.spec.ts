@@ -259,6 +259,47 @@ describe('CommandCenterPageController', () => {
     expect(boundary).not.toHaveBeenCalled();
   });
 
+  it('settles voice pulse 5 before typed pulse 6 with separate turn tokens', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.voice['active'] = true;
+    page.voice['speak'] = jest.fn();
+    const boundary = jest.spyOn(page.voice, 'onTurnBoundary');
+    const pulse = (seq: number, text: string): TerminalTurnPulse => ({
+      seq,
+      tabId: 'root-tab',
+      sessionId: 'session',
+      workspacePath: '/workspace',
+      revision: seq,
+      phase: 'idle',
+      terminalReason: 'completed',
+      lastAssistantMessage: text,
+      classification: 'success',
+      title: 'Command Center',
+      occurredAt: Date.now(),
+    });
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse(4, 'Old')]]));
+    TestBed.tick();
+    page.voice['turnGeneration'] = page.voice['generation'];
+    page.voice['awaitingBoundary'] = true;
+    page.voice['awaitingTurnToken'] = 1;
+    page.voice['nextVoiceTurnToken'] = 1;
+    page.voice['options'].onVoiceSend?.(1);
+    expect(await page.sendCommand('Typed request')).toBe(true);
+    expect(page.voice['awaitingTurnToken']).toBe(1);
+    lastTerminalPulseByTab.set(
+      new Map([['root-tab', pulse(5, 'Voice reply')]]),
+    );
+    TestBed.tick();
+    expect(boundary).toHaveBeenCalledWith('Voice reply', 1);
+    expect(page.voice['awaitingTurnToken']).toBe(2);
+    lastTerminalPulseByTab.set(
+      new Map([['root-tab', pulse(6, 'Typed reply')]]),
+    );
+    TestBed.tick();
+    expect(boundary).toHaveBeenCalledWith('Typed reply', 2);
+    expect(boundary).toHaveBeenCalledTimes(2);
+  });
+
   it('shows only the marked tab permission and handles Approve and Deny once by request id', () => {
     page.store.setSession('root-tab', 'session', '/workspace');
     permissionRequests.set([
@@ -431,6 +472,86 @@ describe('CommandCenterPageController', () => {
     ]);
     TestBed.tick();
   };
+
+  it('keeps approval shown when a roster arrives and shows roster after permission resolves', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    const prompt = jest
+      .spyOn(page.voice, 'onPendingPrompt')
+      .mockImplementation();
+    permissionRequests.set([
+      {
+        id: 'permission-1',
+        tabId: 'root-tab',
+        toolName: 'Write',
+        description: 'Edit',
+      },
+    ]);
+    TestBed.tick();
+    await page.sendCommand('Council review');
+    const nonce =
+      /"nonce":"([^"]+)"/.exec(
+        coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+      )?.[1] ?? '';
+    offer(roster(nonce));
+    expect(page.store.pendingInput()).toMatchObject({
+      id: 'permission-1',
+      kind: 'approval',
+    });
+    expect(page.shownProposal()).toBeNull();
+    expect(page.answerPermission('permission-1', 'Approve')).toBe(true);
+    permissionRequests.set([]);
+    TestBed.tick();
+    expect(page.store.pendingInput()).toMatchObject({
+      id: 'q-roster',
+      kind: 'question',
+    });
+    expect(page.shownProposal()?.proposalId).toBe('p1');
+    permissionRequests.set([
+      {
+        id: 'permission-1',
+        tabId: 'root-tab',
+        toolName: 'Write',
+        description: 'Edit',
+      },
+    ]);
+    TestBed.tick();
+    expect(page.store.pendingInput()).toMatchObject({
+      id: 'permission-1',
+      kind: 'approval',
+    });
+    expect(page.shownProposal()).toBeNull();
+    expect(prompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores approval after declining a roster while permission remains current and speaks its id once', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    const prompt = jest
+      .spyOn(page.voice, 'onPendingPrompt')
+      .mockImplementation();
+    permissionRequests.set([
+      {
+        id: 'permission-1',
+        tabId: 'root-tab',
+        toolName: 'Write',
+        description: 'Edit',
+      },
+    ]);
+    TestBed.tick();
+    await page.sendCommand('Council review');
+    const nonce =
+      /"nonce":"([^"]+)"/.exec(
+        coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+      )?.[1] ?? '';
+    offer(roster(nonce));
+    page.declineProposal('p1');
+    TestBed.tick();
+    expect(page.store.pendingInput()).toMatchObject({
+      id: 'permission-1',
+      kind: 'approval',
+    });
+    expect(page.shownProposal()).toBeNull();
+    expect(prompt).toHaveBeenCalledTimes(1);
+  });
 
   it('frames typed move words with a fresh page nonce and root id; ordinary text stays unchanged', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
