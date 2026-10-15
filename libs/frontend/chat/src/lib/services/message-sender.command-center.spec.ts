@@ -10,7 +10,9 @@ import { SessionId } from '@ptah-extension/shared';
 describe('Command Center sender', () => {
   const marked = { id: 'root', claudeSessionId: 'sdk', status: 'loaded', name: 'Root', messages: [], commandCenterOrigin: { workspaceId: '/repo', createdAt: 1, version: 1 } };
   const plain = { ...marked, id: 'plain', claudeSessionId: 'other', commandCenterOrigin: undefined };
-  const tabs = [marked, plain];
+  const markedNew = { ...marked, id: 'new-root', claudeSessionId: null };
+  const plainNew = { ...plain, id: 'new-plain', claudeSessionId: null };
+  const tabs = [marked, plain, markedNew, plainNew];
   const call = jest.fn((method: string, _params: object) => Promise.resolve(method === 'session:validate' ? { success: true, data: { exists: true } } : { success: true, data: { success: true } }));
   let sender: MessageSenderService;
   let lock: CommandCenterSendLockService;
@@ -27,8 +29,9 @@ describe('Command Center sender', () => {
         createAbortController: () => new AbortController().signal,
         getAbortSignal: () => undefined,
         setMessages: jest.fn(), markResuming: jest.fn(), markStreaming: jest.fn(), markLoaded: jest.fn(), markTabIdle: jest.fn(), markTabStreaming: jest.fn(),
+        applyNewConversationStreaming: jest.fn(), appendUserMessageAndResetStreaming: jest.fn(), consumeFirstMessagePreamble: () => undefined,
       } },
-      { provide: SessionManager, useValue: { setStatus: jest.fn() } },
+      { provide: SessionManager, useValue: { setStatus: jest.fn(), clearNodeMaps: jest.fn(), setSessionId: jest.fn() } },
       { provide: StreamingHandlerService, useValue: { recordUserPromptBoundary: jest.fn() } },
       { provide: MessageValidationService, useValue: { validate: () => ({ valid: true }), sanitize: (s: string) => s } },
       { provide: ModelStateService, useValue: { currentModel: () => 'model', availableModels: () => [{ id: 'model', isSelected: true }] } },
@@ -60,5 +63,19 @@ describe('Command Center sender', () => {
     const params = call.mock.calls.filter(([method]) => method === 'chat:continue').map(([, p]) => p);
     expect(params[0]).toEqual(expect.objectContaining({ systemPrompt: COMMAND_CENTER_PERSONA }));
     expect(params[1]).not.toHaveProperty('systemPrompt');
+  });
+
+  it('uses the same persona on the first start of a marked tab', async () => {
+    await sender.send('new objective', { tabId: 'new-root' });
+    const start = call.mock.calls.find(([method]) => method === 'chat:start');
+    expect(start?.[1]).toEqual(expect.objectContaining({
+      options: expect.objectContaining({ systemPrompt: COMMAND_CENTER_PERSONA }),
+    }));
+  });
+
+  it('omits the system prompt key on an ordinary tab start', async () => {
+    await sender.send('new objective', { tabId: 'new-plain' });
+    const start = call.mock.calls.find(([method]) => method === 'chat:start');
+    expect((start?.[1] as { options?: object } | undefined)?.options).not.toHaveProperty('systemPrompt');
   });
 });

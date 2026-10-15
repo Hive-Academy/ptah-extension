@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 52 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 7/21
+Total tasks: 53 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 8/21
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -563,7 +563,7 @@ last batch header.
   last level of a burst can be dropped and a meter can hold a stale non-zero value after input
   stops. B10 (voice loop) must push a final zero level on stop/mute/idle; the Phase B review checks it.
 
-## Batch 6: Session coordinator - IN_PROGRESS
+## Batch 6: Session coordinator - COMPLETE (commit: see Batch 6 verification)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript)
 - Execution mode: sequential
@@ -577,7 +577,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 6 - session coordinator over an ordinary tab`
 
-### Task 6.1: CommandCenterSessionCoordinator - IN_PROGRESS
+### Task 6.1: CommandCenterSessionCoordinator - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.spec.ts` (new),
@@ -596,7 +596,7 @@ last batch header.
   bounded backoff; safe errors without raw exception text.
 - Implementation details: depends on `@ptah-extension/chat-state` and `@ptah-extension/chat`; specs mock `ClaudeRpcService`.
 
-### Task 6.2: Persona on the first chat:start of a marked tab (deferred Phase A review L2) - IN_PROGRESS
+### Task 6.2: Persona on the first chat:start of a marked tab (deferred Phase A review L2) - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/message-sender.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/message-sender.command-center.spec.ts`
@@ -620,8 +620,33 @@ last batch header.
   `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center @ptah-extension/chat --parallel=1 2>&1 | tail -60`
   (header must name 2 projects) in place of the one-project command above.
 - No per-batch review.
+- Result (2026-10-15): implementer codex lane fcec9867. Orchestrator ran
+  `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center @ptah-extension/chat --parallel=1`
+  in the foreground: header "Running targets test, typecheck, lint for 2 projects", "Successfully ran
+  targets test, typecheck, lint for 2 projects". Team-leader read `session-coordinator.ts`, its spec,
+  the barrel line and the sender/spec diff on disk: real code, no TODO/stub markers, explicit `public`
+  modifiers, the only lint suppression is the documented page-scope one. L2 closed:
+  `message-sender.service.ts:455,473` spreads `systemPrompt` on `chat:start` for a marked tab only;
+  specs pin the marked and unmarked start. Report: `TASK/reports/batch-6-report.md`.
+- Closed by team-leader on disk: a voice lock engaged before the first send holds
+  `sdkSessionId: null`, keyed by `rootTabId`; `isHeld` matches on the root tab ID and
+  `TabManagerService.attachSession` (`tab-manager.service.ts:1962`) calls `rekey(tabId, sessionId)`,
+  so the lock follows the new SDK ID.
+- Carried defect (fixed in Task 8.4, before any push): `tools/degradation-audit` runs in CI
+  (`.github/workflows/ci.yml:81-84`) and `libs/frontend/command-center` has no baseline entry
+  (baseline 0). By the detector rules (`check-degradation.ts:505-625`) three sites in
+  `session-coordinator.ts` count: `:41-43` `.catch(() => undefined)` (promise-catch-sentinel),
+  `:80-83` and `:167-170` (catch-return-sentinel: `this.fail` is not an `.error(...)` call). The
+  `:97` catch holds a comment and no literal return, so it does not count. The scoped Nx lint does
+  not run this tool, so the batch checks passed; CI would fail.
+- Phase B code-logic review watch items: (1) resume path `session-coordinator.ts:71-79` attaches the
+  last SDK ID to a new marked tab, then calls `ChatStore.switchSession`; confirm it does not open a
+  second tab for the same SDK ID, and that the first send after resume reaches `chat:continue` with the
+  persona (B4) rather than relying on a history-only resume. (2) The `:80` failure path leaves the
+  newly created marked tab in place with the SDK ID attached; confirm a retry reuses it rather than
+  creating another. (3) `openOrResume` dedupe at `:37-45`.
 
-## Batch 6A: Lock release on close and record-write surfacing (deferred Phase A review L3, L4) - COMPLETE (commit: see Batch 6A verification)
+## Batch 6A: Lock release on close and record-write surfacing (deferred Phase A review L3, L4) - COMPLETE (commit f7230a25b)
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
 - Execution mode: sequential
@@ -684,7 +709,7 @@ last batch header.
   signal through `TabManagerService` with the inferred type (see Task 14.2). Add the type export only
   if a later batch must name the type, and count `chat-state` in that batch's scoped command.
 
-## Batch 7: Tribunal pure framing, phase derivation and narrow phase entry - PENDING
+## Batch 7: Tribunal pure framing, phase derivation and narrow phase entry - IN_PROGRESS
 
 - Recommended executor: CLI lane (implementation; behaviour-preserving refactor, Angular TypeScript)
 - Execution mode: sequential
@@ -698,7 +723,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `refactor(tribunal-panel): batch 7 - extract run framing and phase derivation`
 
-### Task 7.1: Extract tribunal-run-framing.ts - PENDING
+### Task 7.1: Extract tribunal-run-framing.ts - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-run-framing.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-run-framing.spec.ts` (new),
@@ -713,7 +738,7 @@ last batch header.
 - Validation notes: existing tribunal-run specs stay green unchanged except imports.
 - Implementation details: move, re-export, spec snapshots of existing strings.
 
-### Task 7.2: Extract tribunal-phase-derivation.ts - PENDING
+### Task 7.2: Extract tribunal-phase-derivation.ts - IN_PROGRESS
 
 - Depends on: Task 7.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-phase-derivation.ts` (new),
@@ -728,7 +753,7 @@ last batch header.
 - Validation notes: Tribunal page behaviour unchanged.
 - Implementation details: progress service delegates; existing progress specs stay green.
 
-### Task 7.3: Narrow phase entry and alias - PENDING
+### Task 7.3: Narrow phase entry and alias - IN_PROGRESS
 
 - Depends on: Task 7.2
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/phase.ts` (new),
@@ -754,7 +779,7 @@ last batch header.
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: carries the paid-spawn safety invariant (A1); highest-risk logic, so the batch stays at 8 files.
-- Tasks: 3 | Depends on: B6, B7
+- Tasks: 4 | Depends on: B6, B7
 - Phase: B (last batch) | Phase review: code-logic + style on the combined diff B5-B8
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
   Verification rules above apply.
@@ -811,6 +836,24 @@ last batch header.
   preferences respected; two runs; restart with manifest; missing folder.
 - Implementation details: confirmation input is a method called only by the card's click/key handler (B13); no
   speech path reaches it.
+
+### Task 8.4: Degradation-audit clean command-center lib (carried from Batch 6) - PENDING
+
+- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.ts`
+  (same file Task 8.2 already edits; no new file)
+- Plan reference: Batch 6 verification "Carried defect"; `tools/degradation-audit/check-degradation.ts:1-60` (rules
+  and suppression syntax); CI step `.github/workflows/ci.yml:81-84`
+- Pattern to follow: suppression fixture `tools/degradation-audit/__fixtures__/suppressed-optional-capability.ts`
+- Quality requirements: zero unsuppressed degradation-audit sites under `libs/frontend/command-center/src` (non-spec
+  files), because the lib has no baseline entry. For `session-coordinator.ts:80-83` and `:167-170` (the catch shows a
+  safe toast through `fail`), add `// degradation-audit: reported — <reason>` inside the catch body. For `:41-43`,
+  either drop the derived `.catch` by restructuring the dedupe reset so no derived promise can reject unhandled, or
+  keep it with a `// degradation-audit: reported — the caller receives the original promise and handles its
+  rejection` marker on the comment run directly above the statement. Every new catch or `.catch` written in Tasks
+  8.1-8.3 either rethrows, calls an `.error(...)` logger, avoids returning a literal, or carries a valid marker.
+- Validation notes: never edit `tools/degradation-audit/baseline.json` (a new lib starts at 0; the ratchet only
+  drops). A malformed or orphaned marker is itself a violation.
+- Implementation details: comment-only change for the existing sites unless the `:41-43` restructure is chosen.
 
 ### Batch 8 verification
 

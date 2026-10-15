@@ -452,6 +452,7 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
+      const systemPrompt = activeTab && commandCenterPersonaFor(activeTab);
       const abortSignal = this.wireAbortDispatch(activeTabId);
       const result = await this.claudeRpcService.call(
         'chat:start',
@@ -469,6 +470,7 @@ export class MessageSenderService {
             ...(files ? { files } : {}),
             ...(images && images.length > 0 ? { images } : {}),
             ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+            ...(systemPrompt ? { systemPrompt } : {}),
           },
         },
         { signal: abortSignal },
