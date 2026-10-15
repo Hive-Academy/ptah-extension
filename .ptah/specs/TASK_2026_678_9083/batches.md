@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 19/28 | Phases A and B CLOSED; B9 and B11 done (D32); B0 waived (D34); next: B10 and B12
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 21/28 | Phases A and B CLOSED; B9 and B11 done (D32); B0 waived (D34); next: Phase C review (B9-B10), B13
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -143,6 +143,7 @@ Edge cases:
 | D32 | The user chose "Unblock B9/B11 now" on 2026-10-15. The B0 gate (D2) now covers only B10 (voice loop) and B12 (scene renderer), the first batches that consume the measured frame and voice budgets. B9 (pure voice primitives) and B11 (brand-art entry, pure layout, sprite cache) start now. The user records the B0 baseline in `test-report.md` before B10 and B12. Per the user's relayed instruction for 2026-10-15/16 (Claude usage near its limit), CLI lanes do the implementation and review work, and the orchestrator records team-leader bookkeeping and commits. | (a) unblock B9/B11 now; (b) user measures now, keep D2; (c) defer every measurement to B18 | User decision 2026-10-15. B9 and B11 read no measured number: B9 tasks 9.1-9.4 are pure logic, and B11 tasks 11.1-11.3 are an export entry, pure geometry and a sprite cache; the frame and voice budgets first apply in B10 (voice loop) and B12 (renderer). | yes |
 | D33 | B9 (`b65372ba1`) and B11 (`4b7455a36`) are accepted after one orchestrator fix round each (3 defects per batch, all fixed by the same codex lane, recorded in each batch's verification). The B11 lane found that child nodes cannot show `Codex · Builder` because the B8 projection carries no child session name and no provider ids; the fix is carried to Task 14.2, which already owns `work-projection.ts` (D28). No per-batch review (plan); the Phase C logic review runs after B10, and the Phase D reviews after B16. | (a) carry the child-label fix to Task 14.2; (b) a new bounded batch now | `reports/batch-11-report.md` "Carry-over"; `work-projection.ts` child label `'Child session'` and `providerId: null`; Task 14.2 already lists `work-projection.ts` (D28), so (a) adds no new file owner. | yes |
 | D34 | The user waived the B0 baseline on 2026-10-15 ("continue as if the test went well"). B0 is WAIVED, and nothing gates B10 or B12 any more. No measured number is recorded or invented: `test-report.md` "Preimplementation baseline" records the waiver only. Until B18, code and specs use the plan's fixed scene targets (p95 draw at most 8 ms at N=24, sustained at least 30 FPS, implementation-plan.md:60) and record latency marks without a pass/fail bound. B18 (the Electron Scene and Voice Gate) now also takes the baseline: the refresh interval, the provider pair, the 30 or more end-of-utterance to first-audio samples, and the voice p95 bound; AC20 is judged there. Risk: a budget problem first shows at B18, after B10-B17 are built. | (a) waive B0 and measure at B18; (b) wait for the user's measurements | User instruction 2026-10-15. The plan forbids invented numbers (implementation-plan.md:60, B0 validation notes). | yes |
+| D35 | B10 (`cd3a5c6e9`) and B12 (`64c69a8ca`) are accepted after one orchestrator fix round each (3 and 2 defects, fixed by the same codex lanes; recorded in each batch's verification). Both lanes report page integration that their file lists exclude: the voice loop lifecycle and callbacks, including the new `onRosterResolved`, and the scene's `setOverlayLabels` and `setCardAnchor`. Task 14.2 owns that wiring because the page owns the voice and scene lifecycle. The Phase C code-logic review of the combined B9-B10 voice diff runs next on a different family (grok). | (a) carry the wiring to Task 14.2; (b) a new integration batch | `reports/batch-10-report.md` and `reports/batch-12-report.md` "Needed changes outside the batch"; Task 14.2 already owns the page lifecycle ("voice loop start/stop"). | yes |
 
 ## Phases and reviews
 
@@ -1824,7 +1825,7 @@ Lane rules for this batch:
   together with B11): "Successfully ran targets test, typecheck, lint for 2 projects", 680 + 82 tests, 0 lint
   problems in the new files; command-center re-run green after the lint fix. Commit `b65372ba1` passed the hooks.
 
-## Batch 10: PCM capture, voice loop and status narrator - PENDING
+## Batch 10: PCM capture, voice loop and status narrator - COMPLETE (commit cd3a5c6e9)
 
 - Recommended executor: CLI lane (implementation; TypeScript, Web Audio, Angular services)
 - Execution mode: sequential
@@ -1838,7 +1839,7 @@ Lane rules for this batch:
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 10 - hands-free voice loop and narration`
 
-### Task 10.1: PCM capture with pre-roll and WAV encoding - PENDING
+### Task 10.1: PCM capture with pre-roll and WAV encoding - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/pcm-capture.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/pcm-capture.spec.ts` (new)
@@ -1851,7 +1852,7 @@ Lane rules for this batch:
 - Validation notes: AC5, AC7; no MediaRecorder onset start (loses pre-roll).
 - Implementation details: injectable factories for `AudioContext`/`getUserMedia` for tests.
 
-### Task 10.2: CommandVoiceLoop - PENDING
+### Task 10.2: CommandVoiceLoop - COMPLETE
 
 - Depends on: Task 10.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/command-voice-loop.ts` (new),
@@ -1871,7 +1872,7 @@ Lane rules for this batch:
   500 ms and drops a trailing zero, logic review M5).
 - Implementation details: state flows into `CommandCenterStore` voice state.
 
-### Task 10.3: Status narrator - PENDING
+### Task 10.3: Status narrator - COMPLETE
 
 - Depends on: Task 10.2
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/voice/status-narrator.ts` (new),
@@ -1890,6 +1891,14 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed.
 - Phase C's last batch: after commit return NEEDS REVIEW (code-logic, combined diff B9-B10).
+- Result: implementer codex lane (`reports/batch-10-report.md`). Orchestrator review found 3 defects, fixed by
+  the same lane: barge-in impossible by default (`isIndependentSpeech` now defaults to browser echo cancellation
+  plus the sustained playback-mode onset), latency marks that timed only the synth RPC (now end of utterance to
+  first play start, labelled cold-worker, post-barge-in or warm), and a voice route that could answer a Tribunal
+  roster question (now a pending-roster gate with `onRosterResolved`, Amendment A1). The orchestrator removed
+  three unused catch bindings that lint rejected. Scoped command: "Successfully ran targets test, typecheck, lint
+  for project @ptah-extension/command-center", 102 tests; degradation audit exit 0. Commit `cd3a5c6e9` passed the
+  hooks. Page wiring of the loop is carried to Task 14.2 (D35).
 
 ## Batch 11: Provider brand-art entry, scene layout and sprite cache - COMPLETE (commit 4b7455a36)
 
@@ -1957,7 +1966,7 @@ Lane rules for this batch:
   provider) moves to Task 14.2. Scoped command: "Successfully ran targets test, typecheck, lint for 2 projects".
   Commit `4b7455a36` passed the hooks.
 
-## Batch 12: Scene renderer and scene component - PENDING
+## Batch 12: Scene renderer and scene component - COMPLETE (commit 64c69a8ca)
 
 - Recommended executor: CLI lane (implementation; Angular, Canvas 2D performance)
 - Execution mode: sequential
@@ -1971,7 +1980,7 @@ Lane rules for this batch:
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 12 - canvas scene renderer`
 
-### Task 12.1: CommandSceneRenderer - PENDING
+### Task 12.1: CommandSceneRenderer - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/scene/command-scene-renderer.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/scene/command-scene-renderer.spec.ts` (new)
@@ -1983,7 +1992,7 @@ Lane rules for this batch:
 - Validation notes: separate voice ring and selection halo.
 - Implementation details: spec with a mocked 2D context counting calls.
 
-### Task 12.2: CommandSceneComponent - PENDING
+### Task 12.2: CommandSceneComponent - COMPLETE
 
 - Depends on: Task 12.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/scene/command-scene.component.ts` (new),
@@ -2006,6 +2015,13 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed.
 - No per-batch review.
+- Result: implementer codex lane (`reports/batch-12-report.md`). Orchestrator review found 2 defects, fixed by
+  the same lane: every voice-level update re-ran the layout and sprite requests (now a layout effect and a
+  separate voice effect that calls `setVoice`), and label and anchor styles were written on every frame (now
+  written only on change). The renderer also positions the Task 14.1 card anchor (`setCardAnchor`, assumption
+  A-D31 holds). The orchestrator corrected one spec assertion that expected a `hoveredNodeId` null emission with
+  no prior hover (the output emits only on change). Scoped command: "Successfully ran targets test, typecheck,
+  lint for project @ptah-extension/command-center", 102 tests. Commit `64c69a8ca` passed the hooks.
 
 ## Batch 13: Presentational components (pending card, work list, HUD, session controls) - PENDING
 
@@ -2204,6 +2220,18 @@ Lane rules for this batch:
   already reads. `layoutScene` already prefixes a child label with its parent's provider name, so the scene then
   shows `Codex · Builder` (design-spec.md:40, design-spec-review R3-10). Spec: a named child of a Codex parent
   gives the label `Codex · Builder` through `layoutScene`; an unnamed child keeps the fallback.
+- Voice loop wiring (D35), owned here because the page owns the voice lifecycle. `CommandVoiceLoop`
+  (`voice/command-voice-loop.ts`, B10) is page-owned: construct it with the store, the session coordinator and
+  `ClaudeRpcService`; call `start`/`mute`/`stop` from the session controls and `exit` on page teardown; call
+  `onTurnBoundary(assistantText)` only after the assistant stream and its tool calls settle; call
+  `onProjection(rootId)` on owned projection changes; call `onPendingPrompt(summary)` for a pending ordinary
+  question; call `onRosterProposal(summary, valid)` when the roster card opens and `onRosterResolved()` on confirm,
+  decline, timeout or page exit; pass `answerOrdinaryQuestion` that answers only a non-roster question with its
+  full prompt and question key; offer `retrySpeech()` after a playback-failure toast. Page spec cases: the controls
+  drive start, mute and stop; a turn boundary reaches the loop once; the roster open and resolve calls reach the
+  loop; teardown calls `exit` and leaves no capture or timer. `getLatencyMarks()` feeds the B18 latency table.
+- Scene wiring (D35): call `CommandSceneComponent.setOverlayLabels(...)` with the overlay's measured label
+  elements and `setCardAnchor(element, nodeId)` for the Task 14.1 card anchor (`reports/batch-12-report.md`).
 
 ### Batch 14 verification
 
