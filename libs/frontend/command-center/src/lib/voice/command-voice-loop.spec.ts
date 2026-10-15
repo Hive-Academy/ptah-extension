@@ -21,6 +21,24 @@ describe('CommandVoiceLoop', () => {
     expect(loop['lastReply']).toBe('Current reply.');
   });
 
+  it('arms one typed turn only while active and rejects a stale token', () => {
+    const { loop } = frameLoop();
+    loop['speak'] = jest.fn();
+    loop['active'] = false;
+    loop.armTypedTurn();
+    expect(loop['awaitingBoundary']).toBe(false);
+    loop['active'] = true;
+    loop.armTypedTurn();
+    expect(loop['awaitingTurnToken']).toBe(1);
+    loop.onTurnBoundary('Stale', 0);
+    expect(loop['awaitingBoundary']).toBe(true);
+    loop.onTurnBoundary('Current', 1);
+    expect(loop['lastReply']).toBe('Current');
+    expect(loop['awaitingBoundary']).toBe(false);
+    loop.onTurnBoundary('Duplicate', 1);
+    expect(loop['lastReply']).toBe('Current');
+  });
+
   function frameLoop(isIndependentSpeech?: () => boolean): {
     loop: CommandVoiceLoop;
     bargeIn: jest.SpyInstance;

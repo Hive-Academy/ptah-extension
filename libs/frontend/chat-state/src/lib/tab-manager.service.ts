@@ -274,6 +274,9 @@ export class TabManagerService {
   private readonly _terminalTurnPulses = signal<readonly TerminalTurnPulse[]>(
     [],
   );
+  private readonly _lastTerminalPulseByTab = signal<
+    ReadonlyMap<string, TerminalTurnPulse>
+  >(new Map());
   private _terminalTurnPulseSeq = 0;
 
   /**
@@ -335,6 +338,11 @@ export class TabManagerService {
   }
 
   private emitTabClosed(event: ClosedTabEvent): void {
+    this._lastTerminalPulseByTab.update((current) => {
+      const next = new Map(current);
+      next.delete(event.tabId);
+      return next;
+    });
     this._closedTab.set(event);
     // Snapshotting keeps a nested close and listener teardown from changing
     // this event's recipient list. Each recipient is isolated so a view-level
@@ -440,6 +448,8 @@ export class TabManagerService {
   readonly tabs = this._tabs.asReadonly();
   readonly activeTabId = this._activeTabId.asReadonly();
   readonly terminalTurnPulses = this._terminalTurnPulses.asReadonly();
+  public readonly lastTerminalPulseByTab =
+    this._lastTerminalPulseByTab.asReadonly();
 
   /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
   readonly streamingTabIds = this._streamingTabIds.asReadonly();
@@ -1786,6 +1796,9 @@ export class TabManagerService {
         occurredAt: Date.now(),
       };
       this._terminalTurnPulses.update((pulses) => [...pulses, pulse]);
+      this._lastTerminalPulseByTab.update((current) =>
+        new Map(current).set(tabId, pulse),
+      );
     }
   }
 

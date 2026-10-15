@@ -411,6 +411,14 @@ export class CommandVoiceLoop {
   }
 
   /** Called by the page after the assistant stream and its tool calls settle. */
+  public armTypedTurn(): void {
+    if (!this.active) return;
+    this.turnGeneration = this.generation;
+    this.awaitingBoundary = true;
+    this.awaitingTurnToken = ++this.nextVoiceTurnToken;
+    this.options.onVoiceSend?.(this.awaitingTurnToken);
+  }
+
   public onTurnBoundary(assistantText: string, turnToken?: number): void {
     if (
       !this.active ||

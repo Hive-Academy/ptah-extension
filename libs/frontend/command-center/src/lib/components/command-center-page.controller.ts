@@ -38,15 +38,12 @@ export class CommandCenterPageController {
     this.tabs.commandCenterRecordWriteFailure;
   public readonly latestReply = computed(() => {
     const tabId = this.store.markedTabId();
-    return (
-      this.tabs
-        .terminalTurnPulses()
-        .filter(
-          (pulse) =>
-            pulse.tabId === tabId && pulse.classification === 'success',
-        )
-        .at(-1)?.lastAssistantMessage ?? null
-    );
+    const pulse = tabId
+      ? this.tabs.lastTerminalPulseByTab().get(tabId)
+      : undefined;
+    return pulse?.classification === 'success'
+      ? (pulse.lastAssistantMessage ?? null)
+      : null;
   });
   private readonly voiceTurnToken = signal<number | null>(null);
   private minPulseSeq = 0;
@@ -64,6 +61,19 @@ export class CommandCenterPageController {
             !request.questions[0].question.includes(
               '<TRIBUNAL_ROSTER_PROPOSAL>',
             ),
+        ) ?? null
+    );
+  });
+  public readonly permissionRequest = computed(() => {
+    const tabId = this.store.markedTabId();
+    const sessionId = this.store.sessionId();
+    return (
+      this.chat
+        .permissionRequests()
+        .find((request) =>
+          request.tabId
+            ? request.tabId === tabId
+            : !!sessionId && request.sessionId === sessionId,
         ) ?? null
     );
   });
@@ -89,12 +99,12 @@ export class CommandCenterPageController {
       },
       onVoiceSend: (token) => {
         this.voiceTurnToken.set(token);
-        this.minPulseSeq = Math.max(
-          0,
-          ...this.tabs.terminalTurnPulses().map((pulse) => pulse.seq),
-        );
+        const tabId = this.store.markedTabId();
+        this.minPulseSeq = tabId
+          ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0)
+          : 0;
       },
-      sendTranscript: (transcript) => this.sendCommand(transcript),
+      sendTranscript: (transcript) => this.sendCommand(transcript, 'voice'),
     },
   );
 
@@ -171,7 +181,20 @@ export class CommandCenterPageController {
       );
     });
     effect(() => {
+      const permission = this.permissionRequest();
       const request = this.ordinaryQuestion();
+      if (permission) {
+        this.store.setPendingInput({
+          id: permission.id,
+          kind: 'approval',
+          title: `${permission.toolName} permission`,
+          description: permission.description,
+        });
+        this.voice.onPendingPrompt(
+          `${permission.toolName} requests permission. Use the card to approve or deny.`,
+        );
+        return;
+      }
       const question = request?.questions[0];
       if (!request || !question) {
         if (!this.pendingProposal()) this.store.setPendingInput(null);
@@ -189,16 +212,15 @@ export class CommandCenterPageController {
       const tabId = this.store.markedTabId();
       const token = this.voiceTurnToken();
       if (!tabId || token === null) return;
-      const pulse = this.tabs
-        .terminalTurnPulses()
-        .find(
-          (item) =>
-            item.tabId === tabId &&
-            item.seq > this.minPulseSeq &&
-            item.seq > this.deliveredPulseSeq &&
-            item.classification === 'success' &&
-            !!item.lastAssistantMessage,
-        );
+      const candidate = this.tabs.lastTerminalPulseByTab().get(tabId);
+      const pulse =
+        candidate &&
+        candidate.seq > this.minPulseSeq &&
+        candidate.seq > this.deliveredPulseSeq &&
+        candidate.classification === 'success' &&
+        candidate.lastAssistantMessage
+          ? candidate
+          : null;
       if (!pulse?.lastAssistantMessage) return;
       this.deliveredPulseSeq = pulse.seq;
       this.voiceTurnToken.set(null);
@@ -261,25 +283,49 @@ export class CommandCenterPageController {
     this.store.setPendingInput(null);
     return true;
   }
-  public sendCommand(content: string): Promise<boolean> {
+  public answerPermission(id: string, answer: string): boolean {
+    const request = this.permissionRequest();
+    if (
+      !request ||
+      request.id !== id ||
+      (answer !== 'Approve' && answer !== 'Deny')
+    )
+      return false;
+    this.chat.handlePermissionResponse({
+      id,
+      decision: answer === 'Approve' ? 'allow' : 'deny',
+    });
+    this.store.setPendingInput(null);
+    return true;
+  }
+  public async sendCommand(
+    content: string,
+    source: 'text' | 'voice' = 'text',
+  ): Promise<boolean> {
     const movePattern = new RegExp(
       `\\b(?:${TRIBUNAL_MOVES.join('|')})\\b`,
       'i',
     );
-    if (!movePattern.test(content)) return this.coordinator.send(content);
+    if (!movePattern.test(content)) {
+      const sent = await this.coordinator.send(content);
+      if (sent && source === 'text') this.voice.armTypedTurn();
+      return sent;
+    }
     const rootSessionId = this.store.sessionId();
     if (!rootSessionId) {
       this.store.setToast({
         message: 'Start a Command Center session before requesting Tribunal.',
         tone: 'error',
       });
-      return Promise.resolve(false);
+      return false;
     }
     const nonce = crypto.randomUUID();
     this.expectedRequest.set({ nonce, rootSessionId });
-    return this.coordinator.send(
+    const sent = await this.coordinator.send(
       `${content}\n\n<COMMAND_CENTER_TRIBUNAL_REQUEST>\n${JSON.stringify({ nonce, rootSessionId })}\n</COMMAND_CENTER_TRIBUNAL_REQUEST>`,
     );
+    if (sent && source === 'text') this.voice.armTypedTurn();
+    return sent;
   }
   public async confirmProposal(id: string): Promise<void> {
     if (this.pendingProposal()?.proposalId !== id) return;
@@ -292,6 +338,8 @@ export class CommandCenterPageController {
     if (this.pendingProposal()?.proposalId !== id) return;
     this.clearRosterTimeout();
     this.tribunal.decline(id);
+    this.tribunal.pageExit();
+    this.tribunalTransport.cancelDiscovery();
     this.pendingProposal.set(null);
     this.voice.onRosterResolved();
   }
@@ -308,6 +356,7 @@ export class CommandCenterPageController {
   public exit(): Promise<void> {
     this.clearRosterTimeout();
     this.tribunal.pageExit();
+    this.tribunalTransport.pageExit();
     this.pendingProposal.set(null);
     this.voice.onRosterResolved();
     return this.voice.exit();

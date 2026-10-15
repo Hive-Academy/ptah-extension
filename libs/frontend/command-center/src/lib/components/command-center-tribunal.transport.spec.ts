@@ -28,6 +28,9 @@ describe('CommandCenterTribunalTransport', () => {
   ]);
   const discovered = signal(true);
   const pulses = signal<readonly TerminalTurnPulse[]>([]);
+  const lastTerminalPulseByTab = signal<ReadonlyMap<string, TerminalTurnPulse>>(
+    new Map(),
+  );
   const coordinator = {
     answerQuestion: jest.fn(),
     sendLaunchTurn: jest.fn(async () => true),
@@ -48,6 +51,7 @@ describe('CommandCenterTribunalTransport', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     pulses.set([]);
+    lastTerminalPulseByTab.set(new Map());
     TestBed.configureTestingModule({
       providers: [
         CommandCenterStore,
@@ -55,7 +59,7 @@ describe('CommandCenterTribunalTransport', () => {
         { provide: CommandCenterSessionCoordinator, useValue: coordinator },
         {
           provide: TabManagerService,
-          useValue: { terminalTurnPulses: pulses },
+          useValue: { terminalTurnPulses: pulses, lastTerminalPulseByTab },
         },
         { provide: CommandCenterRecordsService, useValue: records },
         {
@@ -107,5 +111,48 @@ describe('CommandCenterTribunalTransport', () => {
       id: 'q2',
       answers: { roster: 'Decline' },
     });
+  });
+
+  const pulse = (seq: number): TerminalTurnPulse => ({
+    seq,
+    tabId: 'root-tab',
+    sessionId: 'session',
+    workspacePath: '/workspace',
+    revision: seq,
+    phase: 'idle',
+    terminalReason: 'completed',
+    lastAssistantMessage: 'Done',
+    classification: 'success',
+    title: 'Command Center',
+    occurredAt: Date.now(),
+  });
+
+  it('resolves discovery after the ledger consumes the queue', async () => {
+    transport.answer('q1', 'roster', 'Discovery turn ended.');
+    const complete = transport.discoveryComplete();
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse(1)]]));
+    pulses.set([]);
+    TestBed.tick();
+    await expect(complete).resolves.toBeUndefined();
+  });
+
+  it('resolves discovery when the marked pulse arrives before the waiter is armed', async () => {
+    transport.answer('q1', 'roster', 'Discovery turn ended.');
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse(1)]]));
+    await expect(transport.discoveryComplete()).resolves.toBeUndefined();
+  });
+
+  it('rejects a pending discovery waiter on page exit', async () => {
+    transport.answer('q1', 'roster', 'Discovery turn ended.');
+    const complete = transport.discoveryComplete();
+    transport.pageExit();
+    await expect(complete).rejects.toThrow('Page exited');
+  });
+
+  it('rejects a pending discovery waiter when Decline cancels confirmation', async () => {
+    transport.answer('q1', 'roster', 'Discovery turn ended.');
+    const complete = transport.discoveryComplete();
+    transport.cancelDiscovery();
+    await expect(complete).rejects.toThrow('Discovery cancelled');
   });
 });

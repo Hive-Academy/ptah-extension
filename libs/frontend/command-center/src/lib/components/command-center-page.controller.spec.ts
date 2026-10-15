@@ -19,6 +19,19 @@ describe('CommandCenterPageController', () => {
   } | null>(null);
   const tabs = signal([]);
   const terminalTurnPulses = signal<readonly TerminalTurnPulse[]>([]);
+  const lastTerminalPulseByTab = signal<ReadonlyMap<string, TerminalTurnPulse>>(
+    new Map(),
+  );
+  const permissionRequests = signal<
+    readonly {
+      id: string;
+      tabId: string;
+      toolName: string;
+      description: string;
+    }[]
+  >([]);
+  const handlePermissionResponse = jest.fn();
+  const rpc = { call: jest.fn() };
   const questionRequests = signal<
     readonly {
       id: string;
@@ -35,7 +48,7 @@ describe('CommandCenterPageController', () => {
     openOrResume: jest.fn(async () => 'root-tab'),
     setStatusContextProvider: jest.fn(),
     answerQuestion: jest.fn(),
-    send: jest.fn(async () => true),
+    send: jest.fn(async (_content: string) => true),
     sendLaunchTurn: jest.fn(async () => true),
     mute: jest.fn(),
     stop: jest.fn(async () => undefined),
@@ -43,7 +56,9 @@ describe('CommandCenterPageController', () => {
   let page: CommandCenterPageController;
   const transport = {
     open: jest.fn(async () => undefined),
-    answer: jest.fn(() => true),
+    answer: jest.fn((_id: string, _key: string, _answer: string) => true),
+    pageExit: jest.fn(),
+    cancelDiscovery: jest.fn(),
     availability: jest.fn(() => ({
       lanes: [
         { laneId: 'codex#1', state: 'READY', family: 'codex', cli: 'codex' },
@@ -58,7 +73,7 @@ describe('CommandCenterPageController', () => {
       ],
       disabledClis: [],
     })),
-    discoveryComplete: jest.fn(async () => undefined),
+    discoveryComplete: jest.fn(async (): Promise<void> => undefined),
     createTask: jest.fn(async () => 'task-1'),
     writeManifest: jest.fn(() => true),
     removeManifest: jest.fn(() => true),
@@ -73,6 +88,9 @@ describe('CommandCenterPageController', () => {
     transport.sendLaunchTurn.mockImplementation(async () => true);
     recordWriteFailure.set(null);
     terminalTurnPulses.set([]);
+    lastTerminalPulseByTab.set(new Map());
+    permissionRequests.set([]);
+    rpc.call.mockReset();
     questionRequests.set([]);
     TestBed.configureTestingModule({
       providers: [
@@ -83,12 +101,20 @@ describe('CommandCenterPageController', () => {
           useValue: {
             tabs,
             terminalTurnPulses,
+            lastTerminalPulseByTab,
             commandCenterRecordWriteFailure: recordWriteFailure,
           },
         },
         { provide: CommandCenterSessionCoordinator, useValue: coordinator },
-        { provide: ChatStore, useValue: { questionRequests } },
-        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+        {
+          provide: ChatStore,
+          useValue: {
+            questionRequests,
+            permissionRequests,
+            handlePermissionResponse,
+          },
+        },
+        { provide: ClaudeRpcService, useValue: rpc },
         { provide: CommandCenterTribunalTransport, useValue: transport },
         {
           provide: CommandCenterProjectionSource,
@@ -147,7 +173,7 @@ describe('CommandCenterPageController', () => {
     expect(provider?.()).toContain('root:session | running | 5s');
   });
 
-  it('delivers one settled boundary and ignores a pulse predating the voice send', () => {
+  it('delivers a settled boundary from the snapshot after another reader consumes the queue', () => {
     const boundary = jest
       .spyOn(page.voice, 'onTurnBoundary')
       .mockImplementation();
@@ -165,15 +191,145 @@ describe('CommandCenterPageController', () => {
       title: 'Command Center',
       occurredAt: Date.now(),
     });
-    terminalTurnPulses.set([pulse(1, 'Old reply')]);
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse(1, 'Old reply')]]));
     TestBed.tick();
     page.voice['options'].onVoiceSend?.(2);
     TestBed.tick();
     expect(boundary).not.toHaveBeenCalled();
-    terminalTurnPulses.set([pulse(1, 'Old reply'), pulse(2, 'New reply')]);
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse(2, 'New reply')]]));
+    terminalTurnPulses.set([]);
     TestBed.tick();
     expect(boundary).toHaveBeenCalledTimes(1);
     expect(boundary).toHaveBeenCalledWith('New reply', 2);
+    expect(page.latestReply()).toBe('New reply');
+  });
+
+  it('arms a typed send during voice and delivers its pulse boundary once', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.voice['active'] = true;
+    page.voice['speak'] = jest.fn();
+    const boundary = jest.spyOn(page.voice, 'onTurnBoundary');
+    expect(await page.sendCommand('Summarize')).toBe(true);
+    const pulse: TerminalTurnPulse = {
+      seq: 1,
+      tabId: 'root-tab',
+      sessionId: 'session',
+      workspacePath: '/workspace',
+      revision: 1,
+      phase: 'idle',
+      terminalReason: 'completed',
+      lastAssistantMessage: 'Typed reply',
+      classification: 'success',
+      title: 'Command Center',
+      occurredAt: Date.now(),
+    };
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse]]));
+    TestBed.tick();
+    TestBed.tick();
+    expect(boundary).toHaveBeenCalledTimes(1);
+    expect(boundary).toHaveBeenCalledWith('Typed reply', 1);
+    expect(page.voice['lastReply']).toBe('Typed reply');
+  });
+
+  it('does not deliver a typed pulse boundary while voice is inactive', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    const boundary = jest.spyOn(page.voice, 'onTurnBoundary');
+    expect(await page.sendCommand('Summarize')).toBe(true);
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'root-tab',
+          {
+            seq: 1,
+            tabId: 'root-tab',
+            sessionId: 'session',
+            workspacePath: '/workspace',
+            revision: 1,
+            phase: 'idle',
+            terminalReason: 'completed',
+            lastAssistantMessage: 'Quiet reply',
+            classification: 'success',
+            title: 'Command Center',
+            occurredAt: Date.now(),
+          },
+        ],
+      ]),
+    );
+    TestBed.tick();
+    expect(boundary).not.toHaveBeenCalled();
+  });
+
+  it('shows only the marked tab permission and handles Approve and Deny once by request id', () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    permissionRequests.set([
+      {
+        id: 'other',
+        tabId: 'other-tab',
+        toolName: 'Bash',
+        description: 'Other',
+      },
+    ]);
+    TestBed.tick();
+    expect(page.store.pendingInput()).toBeNull();
+    permissionRequests.set([
+      {
+        id: 'p1',
+        tabId: 'root-tab',
+        toolName: 'Write',
+        description: 'Edit file',
+      },
+    ]);
+    TestBed.tick();
+    expect(page.store.pendingInput()).toMatchObject({
+      id: 'p1',
+      kind: 'approval',
+    });
+    expect(page.answerPermission('p1', 'Approve')).toBe(true);
+    expect(handlePermissionResponse).toHaveBeenCalledWith({
+      id: 'p1',
+      decision: 'allow',
+    });
+    permissionRequests.set([
+      {
+        id: 'p2',
+        tabId: 'root-tab',
+        toolName: 'Bash',
+        description: 'Run command',
+      },
+    ]);
+    TestBed.tick();
+    expect(page.answerPermission('p2', 'Deny')).toBe(true);
+    expect(handlePermissionResponse).toHaveBeenLastCalledWith({
+      id: 'p2',
+      decision: 'deny',
+    });
+    expect(handlePermissionResponse).toHaveBeenCalledTimes(2);
+    expect(page.answerPermission('p2', 'yes')).toBe(false);
+    expect(handlePermissionResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a spoken yes from answering a marked permission', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    permissionRequests.set([
+      {
+        id: 'p-voice',
+        tabId: 'root-tab',
+        toolName: 'Bash',
+        description: 'Run command',
+      },
+    ]);
+    TestBed.tick();
+    rpc.call.mockResolvedValue({
+      success: true,
+      data: { ok: true, transcript: 'yes' },
+    });
+    page.voice['active'] = true;
+    await page.voice['onClip']({
+      audioBase64: 'AA==',
+      mimeType: 'audio/wav',
+    });
+    expect(handlePermissionResponse).not.toHaveBeenCalled();
+    expect(coordinator.send).not.toHaveBeenCalled();
   });
 
   it('exposes a safe record write failure notice signal', () => {
@@ -342,6 +498,31 @@ describe('CommandCenterPageController', () => {
       /confirm|yes|approve/i,
     );
     expect(transport.sendLaunchTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels an answered confirmation when Decline is used before launch', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('Council review');
+    const nonce =
+      /"nonce":"([^"]+)"/.exec(
+        coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+      )?.[1] ?? '';
+    offer(roster(nonce));
+    let rejectDiscovery: ((reason: Error) => void) | null = null;
+    transport.discoveryComplete.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectDiscovery = reject;
+        }),
+    );
+    transport.cancelDiscovery.mockImplementationOnce(() => {
+      rejectDiscovery?.(new Error('Discovery cancelled'));
+    });
+    const confirmation = page.confirmProposal('p1');
+    page.declineProposal('p1');
+    await confirmation;
+    expect(page.pendingProposal()).toBeNull();
+    expect(transport.sendLaunchTurn).not.toHaveBeenCalled();
   });
 
   it('declines and times out proposals with Decline, then resolves voice', async () => {

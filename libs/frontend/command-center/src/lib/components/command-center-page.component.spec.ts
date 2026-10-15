@@ -65,6 +65,7 @@ describe('CommandCenterPageComponent', () => {
     confirmProposal: jest.fn(async (_id: string) => undefined),
     declineProposal: jest.fn((_id: string) => undefined),
     answerOrdinaryQuestion: jest.fn(),
+    answerPermission: jest.fn(),
     startVoice: jest.fn(),
     stopVoice: jest.fn(),
     toggleMuteVoice: jest.fn(),
@@ -203,6 +204,35 @@ describe('CommandCenterPageComponent', () => {
     expect(controller.confirmProposal).toHaveBeenCalledWith('p1');
     expect(controller.declineProposal).toHaveBeenCalledWith('p1');
     fixture.destroy();
+  });
+
+  it('routes approval card decisions to permission response only', () => {
+    store.setPendingInput({
+      id: 'permission-1',
+      kind: 'approval',
+      title: 'Write permission',
+      description: 'Edit a file',
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const card = fixture.debugElement.query(
+      By.directive(CommandPendingInputComponent),
+    ).componentInstance as CommandPendingInputComponent;
+    card.response.emit({ id: 'permission-1', answer: 'Approve' });
+    card.response.emit({ id: 'permission-1', answer: 'Deny' });
+    expect(controller.answerPermission).toHaveBeenNthCalledWith(
+      1,
+      'permission-1',
+      'Approve',
+    );
+    expect(controller.answerPermission).toHaveBeenNthCalledWith(
+      2,
+      'permission-1',
+      'Deny',
+    );
+    expect(controller.answerOrdinaryQuestion).not.toHaveBeenCalled();
+    fixture.destroy();
+    store.setPendingInput(null);
   });
 
   it('exits on destroy and leaves no overlay card or pending timer', () => {

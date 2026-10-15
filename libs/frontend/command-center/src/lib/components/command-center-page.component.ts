@@ -125,7 +125,11 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           [proposal]="page.pendingProposal()"
           (confirm)="page.confirmProposal($event.proposalId)"
           (decline)="page.declineProposal($event)"
-          (response)="page.answerOrdinaryQuestion($event.id, $event.answer)"
+          (response)="
+            page.store.pendingInput()?.kind === 'approval'
+              ? page.answerPermission($event.id, $event.answer)
+              : page.answerOrdinaryQuestion($event.id, $event.answer)
+          "
         />
         @if (page.latestReply(); as reply) {
           <p

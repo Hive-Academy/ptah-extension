@@ -56,35 +56,64 @@ export class CommandCenterProjectionSource {
 
   public input(root: { tabId: string; sessionId: string }): ProjectionInput {
     const tabs = this.tabs.tabs();
+    const sessions = this.chat.sessions();
     const rootTab = tabs.find((tab) => tab.id === root.tabId);
+    const sessionByTab = new Map<string, string>(
+      tabs.flatMap((tab) =>
+        tab.claudeSessionId ? [[tab.id, tab.claudeSessionId] as const] : [],
+      ),
+    );
+    const ownedTabs = new Set([root.tabId]);
+    const owned = new Set([root.sessionId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const tab of tabs) {
+        if (tab.id === root.tabId || ownedTabs.has(tab.id)) continue;
+        const parentTabId = tab.agentOrigin?.parentTabId;
+        if (!parentTabId || !ownedTabs.has(parentTabId)) continue;
+        ownedTabs.add(tab.id);
+        if (tab.claudeSessionId) owned.add(tab.claudeSessionId);
+        changed = true;
+      }
+      for (const session of sessions) {
+        const parentSessionId = session.organization?.parentSessionId;
+        if (
+          session.id === root.sessionId ||
+          owned.has(session.id) ||
+          !parentSessionId ||
+          !owned.has(parentSessionId)
+        )
+          continue;
+        owned.add(session.id);
+        changed = true;
+      }
+    }
     const children = tabs
-      .filter((tab) => tab.agentOrigin?.parentTabId === root.tabId)
+      .filter((tab) => tab.id !== root.tabId && ownedTabs.has(tab.id))
       .map((tab) => ({
         tabId: tab.id,
         sessionId: tab.claudeSessionId ?? undefined,
-        parentSessionId: root.sessionId,
+        parentSessionId:
+          sessionByTab.get(tab.agentOrigin?.parentTabId ?? '') ??
+          (tab.agentOrigin?.parentTabId === root.tabId
+            ? root.sessionId
+            : (tab.agentOrigin?.parentTabId ?? root.sessionId)),
         name: tab.name,
         providerId: provider(tab.liveModelStats?.contextCapacity?.providerId),
         state: state(tab.status),
         updatedAt: tab.lastActivityAt,
       }));
-    const persistedChildren = this.chat
-      .sessions()
+    const persistedChildren = sessions
       .filter(
-        (session) => session.organization?.parentSessionId === root.sessionId,
+        (session) => session.id !== root.sessionId && owned.has(session.id),
       )
       .map((session) => ({
         sessionId: session.id,
-        parentSessionId: root.sessionId,
+        parentSessionId:
+          session.organization?.parentSessionId ?? root.sessionId,
         updatedAt: session.lastActivityAt,
       }));
-    const owned = new Set([
-      root.sessionId,
-      ...children.flatMap((child) =>
-        child.sessionId ? [child.sessionId] : [],
-      ),
-      ...persistedChildren.map((child) => child.sessionId),
-    ]);
     const cli = this.monitor
       .agents()
       .filter(
@@ -123,15 +152,24 @@ export class CommandCenterProjectionSource {
             const runAgents = this.monitor
               .agents()
               .filter((agent) => agent.workflowRunId === manifest.runId);
+            const claimed = new Set<string>();
+            const bound = new Map<string, (typeof runAgents)[number] | null>();
             const lanes: VendorLane[] = manifest.lanes.map((lane) => {
+              const family = lane.laneId.replace(/#\d+$/, '');
               const agent = runAgents.find(
-                (candidate) => candidate.agentId === lane.laneId,
+                (candidate) =>
+                  !claimed.has(candidate.agentId) &&
+                  (candidate.cli === family ||
+                    candidate.ptahCliId === family) &&
+                  (!lane.role || candidate.role === lane.role),
               );
+              if (agent) claimed.add(agent.agentId);
+              bound.set(lane.laneId, agent ?? null);
               return {
                 laneId: lane.laneId,
                 role: lane.role as VendorLane['role'],
-                family: agent?.cli ?? 'unknown',
-                displayName: agent?.cli ?? lane.laneId,
+                family,
+                displayName: agent?.displayName ?? lane.laneId,
                 cli: agent?.cli ?? 'ptah-cli',
                 agentId: agent?.agentId,
                 providerId: provider(agent?.ptahCliId ?? agent?.cli),
@@ -142,13 +180,7 @@ export class CommandCenterProjectionSource {
               specTaskId: manifest.specTaskId,
               laneBindings: {
                 lanes,
-                bound: new Map(
-                  lanes.map((lane) => [
-                    lane.laneId,
-                    runAgents.find((agent) => agent.agentId === lane.agentId) ??
-                      null,
-                  ]),
-                ),
+                bound,
               },
               agents: runAgents,
               artifacts: null,
@@ -157,9 +189,24 @@ export class CommandCenterProjectionSource {
               runId: manifest.runId,
               rootSessionId: root.sessionId,
               phase,
-              state: runAgents.some((agent) => agent.status === 'running')
-                ? ('running' as const)
-                : ('unknown' as const),
+              state:
+                runAgents.length === 0
+                  ? ('starting' as const)
+                  : runAgents.some((agent) => agent.status === 'running')
+                    ? ('running' as const)
+                    : runAgents.some(
+                          (agent) =>
+                            agent.status === 'failed' ||
+                            agent.status === 'timeout',
+                        )
+                      ? ('failed' as const)
+                      : runAgents.every(
+                            (agent) =>
+                              agent.status === 'completed' ||
+                              agent.status === 'stopped',
+                          )
+                        ? ('completed' as const)
+                        : ('starting' as const),
               updatedAt: manifest.startedAt,
             };
           })

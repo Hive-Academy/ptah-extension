@@ -1,4 +1,4 @@
-import { Injectable, effect, inject } from '@angular/core';
+import { DestroyRef, Injectable, effect, inject } from '@angular/core';
 import {
   CommandCenterRecordsService,
   TabManagerService,
@@ -24,30 +24,29 @@ export class CommandCenterTribunalTransport implements ProposalTransport {
   private readonly discovery = inject(TribunalDiscoveryService);
   private readonly rpc = inject(ClaudeRpcService);
   private readonly store = inject(CommandCenterStore);
+  private readonly destroyRef = inject(DestroyRef);
   private disabledClis: readonly string[] = [];
   private configReady = false;
   private boundarySeq = 0;
   private boundaryResolve: (() => void) | null = null;
+  private boundaryReject: ((reason: Error) => void) | null = null;
+  private exited = false;
 
   public constructor() {
     effect(() => {
       const tabId = this.store.markedTabId();
-      const pulse = this.tabs
-        .terminalTurnPulses()
-        .find(
-          (item) =>
-            item.tabId === tabId &&
-            item.seq > this.boundarySeq &&
-            (item.classification === 'success' ||
-              item.classification === 'error'),
-        );
-      if (pulse && this.boundaryResolve) {
+      const pulse = tabId
+        ? this.tabs.lastTerminalPulseByTab().get(tabId)
+        : undefined;
+      if (pulse && pulse.seq > this.boundarySeq && this.boundaryResolve) {
         this.boundarySeq = pulse.seq;
         const resolve = this.boundaryResolve;
         this.boundaryResolve = null;
+        this.boundaryReject = null;
         resolve();
       }
     });
+    this.destroyRef.onDestroy(() => this.pageExit());
   }
 
   public async open(): Promise<void> {
@@ -82,10 +81,7 @@ export class CommandCenterTribunalTransport implements ProposalTransport {
   ): boolean {
     const tabId = this.store.markedTabId();
     if (!tabId) return false;
-    this.boundarySeq = Math.max(
-      0,
-      ...this.tabs.terminalTurnPulses().map((pulse) => pulse.seq),
-    );
+    this.boundarySeq = this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0;
     try {
       this.coordinator.answerQuestion({
         id: questionId,
@@ -117,9 +113,31 @@ export class CommandCenterTribunalTransport implements ProposalTransport {
   }
 
   public discoveryComplete(): Promise<void> {
-    return new Promise<void>((resolve) => {
+    if (this.exited) return Promise.reject(new Error('Page exited'));
+    const tabId = this.store.markedTabId();
+    const pulse = tabId
+      ? this.tabs.lastTerminalPulseByTab().get(tabId)
+      : undefined;
+    if (pulse && pulse.seq > this.boundarySeq) {
+      this.boundarySeq = pulse.seq;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
       this.boundaryResolve = resolve;
+      this.boundaryReject = reject;
     });
+  }
+
+  public pageExit(): void {
+    this.exited = true;
+    this.cancelDiscovery('Page exited');
+  }
+
+  public cancelDiscovery(reason = 'Discovery cancelled'): void {
+    const reject = this.boundaryReject;
+    this.boundaryResolve = null;
+    this.boundaryReject = null;
+    reject?.(new Error(reason));
   }
 
   public async createTask(

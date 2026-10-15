@@ -169,7 +169,7 @@ describe('projectOwnedWork', () => {
     );
   });
 
-  it('projects three bound Council lanes, their agent, and a stage', () => {
+  it('projects three bound Council lanes without a duplicate CLI agent and a stage', () => {
     const lanes: VendorLane[] = [
       {
         laneId: 'a',
@@ -245,13 +245,10 @@ describe('projectOwnedWork', () => {
         state: 'running',
       }),
     ]);
-    expect(
-      result.nodes.find((node) => node.id === 'cli:agent-a')?.parentId,
-    ).toBe('lane:run:a');
-    expect(result.edges).toContainEqual({
-      fromId: 'lane:run:a',
-      toId: 'cli:agent-a',
-    });
+    expect(result.nodes.some((node) => node.id === 'cli:agent-a')).toBe(false);
+    expect(result.edges.some((edge) => edge.toId === 'cli:agent-a')).toBe(
+      false,
+    );
   });
 
   it('keeps Relay phases and adds a lane with an optional role', () => {

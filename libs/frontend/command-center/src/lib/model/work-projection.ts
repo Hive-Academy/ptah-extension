@@ -208,6 +208,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     const lane = run?.phase.laneBindings.lanes.find(
       (candidate) => candidate.agentId === agent.agentId,
     );
+    if (agent.kind === 'cli' && lane) continue;
     const id =
       agent.kind === 'cli'
         ? `cli:${agent.agentId}`
