@@ -26,4 +26,18 @@ describe('CommandCenterSendLockService', () => {
     oldPage.engage('root', 'sdk', 'voice');
     expect(new CommandCenterSendLockService().isHeld('sdk')).toBe(false);
   });
+
+  it('clears only the matching root and makes a later owner release harmless', () => {
+    const lock = new CommandCenterSendLockService();
+    lock.engage('root', 'sdk', 'voice');
+    lock.clearForRoot('other');
+    expect(lock.isHeld('root')).toBe(true);
+    expect(lock.isHeld('sdk')).toBe(true);
+    lock.clearForRoot('root');
+    expect(lock.state()).toBeNull();
+    expect(lock.isHeld('root')).toBe(false);
+    expect(lock.isHeld('sdk')).toBe(false);
+    lock.release('voice');
+    expect(lock.state()).toBeNull();
+  });
 });

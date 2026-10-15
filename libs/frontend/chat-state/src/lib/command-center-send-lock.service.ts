@@ -23,6 +23,11 @@ export class CommandCenterSendLockService {
     this._state.set(null);
   }
 
+  clearForRoot(tabId: string): void {
+    if (this._state()?.rootTabId !== tabId) return;
+    this._state.set(null);
+  }
+
   rekey(rootTabId: string, sdkSessionId: string): void {
     const current = this._state();
     if (!current?.active || current.rootTabId !== rootTabId || !sdkSessionId) return;

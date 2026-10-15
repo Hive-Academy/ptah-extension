@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 52 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 5/21
+Total tasks: 52 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 7/21
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -506,7 +506,7 @@ last batch header.
   forward: L2 -> Task 6.2 (D9); L3, L4 -> Batch 6A (D10). L2-L4 were not re-reviewed; the
   Phase B review checks them.
 
-## Batch 5: command-center lib skeleton, scope and store - IN_PROGRESS
+## Batch 5: command-center lib skeleton, scope and store - COMPLETE (commit fa97a6967)
 
 - Recommended executor: CLI lane (implementation; Nx/Angular library setup)
 - Execution mode: sequential
@@ -520,7 +520,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 5 - add command-center lib and store` (needs the scope added here)
 
-### Task 5.1: Library skeleton, alias and commit scope - IN_PROGRESS
+### Task 5.1: Library skeleton, alias and commit scope - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/{project.json,eslint.config.mjs,jest.config.ts,tsconfig.json,tsconfig.lib.json,tsconfig.spec.json,src/test-setup.ts,src/index.ts}` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/tsconfig.base.json`,
@@ -532,7 +532,7 @@ last batch header.
 - Validation notes: the barrel exports real code only (Task 5.2 store); no placeholder export.
 - Implementation details: copy-and-rename from `mcp-apps-page`.
 
-### Task 5.2: CommandCenterStore - IN_PROGRESS
+### Task 5.2: CommandCenterStore - COMPLETE
 
 - Depends on: Task 5.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/command-center.store.ts` (new),
@@ -551,8 +551,19 @@ last batch header.
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed; `.commitlintrc.json` contains `command-center`.
 - No per-batch review.
+- Result (2026-10-15): implementer codex lane 13183492 plus fix round 1 (lane c63f7544). The first
+  orchestrator run failed lint (1 error `use-injectable-provided-in` at `command-center.store.ts:61`,
+  29 `explicit-member-accessibility` warnings). The fix round added the repo-convention suppression
+  with a reason (as at `marketplace/.../capability-toggles.store.ts:85-86`), explicit `public`
+  modifiers, and removed a non-null assertion. Re-run with `--skip-nx-cache`: header "for project
+  @ptah-extension/command-center", "Successfully ran targets test, typecheck, lint", 0 errors,
+  0 warnings. Team-leader read all 10 lib files on disk: real store, no TODO/stub markers; the only
+  suppression is the documented page-scope one. Report: `TASK/reports/batch-5-report.md`.
+- Phase B review watch item (not a defect today): `updateLevels` samples on the leading edge, so the
+  last level of a burst can be dropped and a meter can hold a stale non-zero value after input
+  stops. B10 (voice loop) must push a final zero level on stop/mute/idle; the Phase B review checks it.
 
-## Batch 6: Session coordinator - PENDING
+## Batch 6: Session coordinator - IN_PROGRESS
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript)
 - Execution mode: sequential
@@ -566,7 +577,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 6 - session coordinator over an ordinary tab`
 
-### Task 6.1: CommandCenterSessionCoordinator - PENDING
+### Task 6.1: CommandCenterSessionCoordinator - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.spec.ts` (new),
@@ -585,7 +596,7 @@ last batch header.
   bounded backoff; safe errors without raw exception text.
 - Implementation details: depends on `@ptah-extension/chat-state` and `@ptah-extension/chat`; specs mock `ClaudeRpcService`.
 
-### Task 6.2: Persona on the first chat:start of a marked tab (deferred Phase A review L2) - PENDING
+### Task 6.2: Persona on the first chat:start of a marked tab (deferred Phase A review L2) - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/message-sender.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/message-sender.command-center.spec.ts`
@@ -610,7 +621,7 @@ last batch header.
   (header must name 2 projects) in place of the one-project command above.
 - No per-batch review.
 
-## Batch 6A: Lock release on close and record-write surfacing (deferred Phase A review L3, L4) - IN_PROGRESS
+## Batch 6A: Lock release on close and record-write surfacing (deferred Phase A review L3, L4) - COMPLETE (commit: see Batch 6A verification)
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
 - Execution mode: sequential
@@ -624,7 +635,7 @@ last batch header.
   (header must name 1 project). Verification rules above apply.
 - Suggested commit: `fix(chat-state): batch 6A - release lock on close, surface record failures`
 
-### Task 6A.1: Drop the send lock when its root tab closes (L3) - IN_PROGRESS
+### Task 6A.1: Drop the send lock when its root tab closes (L3) - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.spec.ts`,
@@ -638,7 +649,7 @@ last batch header.
   `release` after the clear is a no-op; another root's lock is untouched.
 - Validation notes: do not treat the next `engage` overwrite as the release path.
 
-### Task 6A.2: Surface a failed records write on bind, create and close (L4) - IN_PROGRESS
+### Task 6A.2: Surface a failed records write on bind, create and close (L4) - COMPLETE
 
 - Depends on: Task 6A.1 (same file)
 - Files: same as Task 6A.1 (tab-manager service and its command-center spec)
@@ -657,6 +668,21 @@ last batch header.
 - No per-batch review; the Phase B review covers it.
 - Edge cases: close of a marked tab with lock engaged; close of a non-root tab; park on workspace switch;
   setItem throws on bind and on close.
+- Result (2026-10-15): implementer codex lane 08e4604b, run concurrently with B5 (Decision D11);
+  the lane ran no Nx or Jest. Orchestrator scoped run: header "for project @ptah-extension/chat-state",
+  "Successfully ran targets test, typecheck, lint". Team-leader read the diff on disk:
+  `clearForRoot(tabId)` clears only a matching root (`command-center-send-lock.service.ts:26-29`);
+  `closeTab` calls it after the post-confirm re-read and the `_tabs` removal, so a cancelled close or
+  a workspace-switch park returns before it (`tab-manager.service.ts:1370-1405`).
+  `recordCommandCenterWrite` warns with workspace and record kind only (no raw exception text) and
+  sets or clears the readonly `commandCenterRecordWriteFailure` signal on create, close and SDK bind;
+  the lifecycle proceeds. `console.warn` matches the file's existing style (TabManagerService has no
+  injected Logger). All four edge cases are covered in `tab-manager.command-center.spec.ts` and
+  `command-center-send-lock.service.spec.ts`. Report: `TASK/reports/batch-6A-report.md`.
+- Barrel note: `CommandCenterRecordWriteFailure` is exported from `tab-manager.service.ts` but not
+  from `libs/frontend/chat-state/src/index.ts`. B14 needs no barrel change if the page reads the
+  signal through `TabManagerService` with the inferred type (see Task 14.2). Add the type export only
+  if a later batch must name the type, and count `chat-state` in that batch's scoped command.
 
 ## Batch 7: Tribunal pure framing, phase derivation and narrow phase entry - PENDING
 
@@ -1128,6 +1154,12 @@ last batch header.
   mode when Canvas 2D is unavailable; mic denied/provider missing keep text and graph usable.
 - Validation notes: navigation away releases mic/playback and keeps identity (AC16). Read the Task 6A.2
   records-write-failure signal and show a safe notice that the session pointer was not saved.
+  Read it as `inject(TabManagerService).commandCenterRecordWriteFailure()` with the inferred type, so
+  no `chat-state` barrel change is needed. `CommandCenterRecordWriteFailure` is not exported from the
+  chat-state barrel; if the page must name the type, add
+  `type CommandCenterRecordWriteFailure` to `libs/frontend/chat-state/src/index.ts` (tab-manager export
+  block, lines 11-20) and use a 2-project scoped command
+  (`-p @ptah-extension/command-center @ptah-extension/chat-state`, header must name 2 projects).
 - Implementation details: export `CommandCenterPageComponent` from `src/index.ts`.
 
 ### Batch 14 verification

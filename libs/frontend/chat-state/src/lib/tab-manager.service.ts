@@ -72,6 +72,12 @@ import {
 
 export type { LiveModelStatsPayload };
 
+type CommandCenterRecordKind = 'activeTabId' | 'lastSession';
+export interface CommandCenterRecordWriteFailure {
+  workspacePath: string;
+  record: CommandCenterRecordKind;
+}
+
 export type TerminalTurnClassification = 'success' | 'error';
 
 /**
@@ -261,6 +267,10 @@ export class TabManagerService {
 
   private readonly _tabs = signal<TabState[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
+  private readonly _commandCenterRecordWriteFailure =
+    signal<CommandCenterRecordWriteFailure | null>(null);
+  readonly commandCenterRecordWriteFailure =
+    this._commandCenterRecordWriteFailure.asReadonly();
   private readonly _terminalTurnPulses = signal<readonly TerminalTurnPulse[]>(
     [],
   );
@@ -989,8 +999,24 @@ export class TabManagerService {
     this.updateTabInternal(tabId, {
       commandCenterOrigin: { workspaceId: workspacePath, createdAt: Date.now(), version: 1 },
     });
-    this.commandCenterRecords.setActiveTabId(workspacePath, tabId);
+    this.recordCommandCenterWrite(workspacePath, 'activeTabId',
+      this.commandCenterRecords.setActiveTabId(workspacePath, tabId));
     return tabId;
+  }
+
+  private recordCommandCenterWrite(
+    workspacePath: string,
+    record: CommandCenterRecordKind,
+    succeeded: boolean,
+  ): void {
+    if (succeeded) {
+      this._commandCenterRecordWriteFailure.set(null);
+      return;
+    }
+    console.warn(
+      `[TabManagerService] Command Center ${record} record write failed for workspace ${workspacePath}`,
+    );
+    this._commandCenterRecordWriteFailure.set({ workspacePath, record });
   }
 
   /**
@@ -1348,7 +1374,9 @@ export class TabManagerService {
     if (!tab) return;
     if (validCommandCenterOrigin(tab.commandCenterOrigin) &&
       this.commandCenterRecords.readActiveTabId(tab.commandCenterOrigin.workspaceId) === tabId) {
-      this.commandCenterRecords.setActiveTabId(tab.commandCenterOrigin.workspaceId, null);
+      const workspacePath = tab.commandCenterOrigin.workspaceId;
+      this.recordCommandCenterWrite(workspacePath, 'activeTabId',
+        this.commandCenterRecords.setActiveTabId(workspacePath, null));
     }
 
     // Abort any in-flight streaming RPC BEFORE tab state cleanup so the
@@ -1372,6 +1400,9 @@ export class TabManagerService {
 
     // Remove tab
     this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
+    if (validCommandCenterOrigin(tab.commandCenterOrigin)) {
+      this.commandCenterSendLock.clearForRoot(tabId);
+    }
 
     this.emitTabClosed({
       tabId,
@@ -1929,9 +1960,11 @@ export class TabManagerService {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (tab && validCommandCenterOrigin(tab.commandCenterOrigin)) {
       this.commandCenterSendLock.rekey(tabId, sessionId);
-      this.commandCenterRecords.writeLastSession(tab.commandCenterOrigin.workspaceId, {
-        sdkSessionId: sessionId, tabId, updatedAt: Date.now(),
-      });
+      const workspacePath = tab.commandCenterOrigin.workspaceId;
+      this.recordCommandCenterWrite(workspacePath, 'lastSession',
+        this.commandCenterRecords.writeLastSession(workspacePath, {
+          sdkSessionId: sessionId, tabId, updatedAt: Date.now(),
+        }));
     }
   }
 
