@@ -88,3 +88,26 @@ goes under `## Proposed Removals` for user approval.
 - Gate 1.7 APPROVED by the user with amendments D9 (finding 5 fix), D10 (Setup Hub home
   screen as is; only internal builder pages redesigned; §7.2 withdrawn) and D11 (sidebar
   scrolls). Next: software-architect plan.
+- 18:05 UTC: user instruction relayed by the 677 session: Claude usage at 95%, so until
+  2026-10-16 no Claude subagents; CLI lanes only, orchestrator plans and verifies. The Claude
+  architect subagent was stopped before it wrote anything. Architect plan moved to a codex lane
+  (role software-architect, agent 3549548c-65ba-45cb-9bfb-e34c5571c66e). Roster 18:07 UTC:
+  codex room (weekly 16%), grok room (weekly 67%), opencode near limit (monthly 92%),
+  antigravity reader failed (unknown), Glm AT LIMIT (reset unknown).
+- Gate 2 document review plan: the author is a CLI lane (codex), and the opposite side
+  (in-process subagent) is not allowed until 2026-10-16. Review runs same-side on grok
+  (different family). Reason recorded; approval mode is `user` anyway.
+- Codex architect lane delivered `implementation-plan.md` (9m 49s; CLI session
+  `01a140bf-7bf9-7e13-9acc-6ad9e1c14e3b` for revise rounds). Grok plan review started
+  (agent 69288181-75f3-4f6d-b290-47166ca332c8) -> `implementation-plan-review.md`.
+- Grok plan review: REVISE (4 Serious: D9 capture overwritten by a later turn, cross-mode leave
+  path, D11 proof not observable in jsdom, batches not file-disjoint; 1 Moderate; 1 Minor) and
+  3 user decisions (abort warning, Hub confirm copy, relay error on the Hub). Grok CLI session
+  `01a140c8-e1a6-7660-acdb-0c29ed369e6e`. Revise round 1 of 2 on codex (fresh lane with handoff
+  brief, agent d9b65a0c-a989-45f0-b034-2e930eb44074; resume refused: context over 60k).
+  Codex revision delivered (CLI session `01a140d8-394a-78a2-9288-9b5a4dc51342`).
+- Grok re-review round 1: APPROVED, 6/6 findings RESOLVED, 1 new Minor (intake copy before
+  intent clear), recorded in the plan's Open items. Gate 2 presented to the user with
+  decisions (a) abort warning, (b) Hub confirm copy, (c) relay error on the Hub.
+- Gate 2 APPROVED by the user (D12): Hub keeps its look; a1, b1, c1. Next: team-leader
+  decomposition on a codex lane (no Claude subagents until 2026-10-16).
