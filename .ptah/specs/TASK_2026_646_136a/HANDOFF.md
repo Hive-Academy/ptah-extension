@@ -1,4 +1,4 @@
-# HANDOFF - TASK_2026_646_136a (2026-10-15, session 6)
+# HANDOFF - TASK_2026_646_136a (2026-10-15, session 7)
 
 ## Goal
 
@@ -10,116 +10,110 @@ An optional decision model for orchestration routing, plus a lane evaluation loo
 - A spread rule across every spawnable lane.
 
 Approved requirements: `task-description.md` (revision 3). Approved plan: `implementation-plan.md` (+ part-a, part-b),
-Gate 2 PASSED at round 6 (decision #52). Work is in `batches.md` (35 batches).
+Gate 2 PASSED (decision #52). Work is in `batches.md` (38 batches).
 
 Final user decisions (do not reopen): #12, #13, #18 (as amended by #22), #19. Keep `skillSynthesis.enabled=false` in
-`~/.ptah/settings.json`. Leave memory untouched. Lanes: mode `enabled`, Approval `lane-review`.
+`~/.ptah/settings.json`. Leave memory untouched. Lanes: mode `enabled`, Approval `lane-review`. User preference (#82):
+"restart anyone u like and try to utilize our cli tools for parallel work if possible".
+
+## Temporary rule until 2026-10-16 (relayed user instruction, Claude usage at 95%)
+
+Do NOT spawn Claude subagents (Agent/Task tool) for implementation, review or research. Use CLI lanes
+(`ptah_agent_spawn`, load the `agent-lanes` skill first; run `ptah_agent_list` before each spawn). The orchestrator
+plans, writes lane briefs, runs the Mode 2 checks itself, and commits (decision #90 precedent). Glm is AT LIMIT;
+opencode light work only; copilot disabled; antigravity unknown. From 2026-10-16 the team-leader subagent flow may
+resume.
 
 ## Done
 
 Branch `feat/decision-model-routing`, worktree `D:\projects\ptah-extension\.claude-worktrees\decision-model-routing`,
 draft PR https://github.com/Hive-Academy/ptah-extension/pull/731 (keep it a draft until the task is complete).
-Batch count in batches.md: **23/35 COMPLETE**. Every code commit is pushed (origin = dd021d709).
+Batch count: **30/38 COMPLETE**. Phases accepted: **P1, P2** (#85).
 
-Commits this session (all pushed; each batch verified by a Mode 2 team-leader with scoped checks):
+Commits this session:
 
 | Commit | What | Executor (family) |
 | --- | --- | --- |
-| 53340703e | build: lane-routing + lane-outcomes paths in electron/cli/tui `tsconfig.build.json` (unblocked the pre-push gate, #75) | orchestrator |
-| 2493f2dd5 | Batch 34 - atomic store contract v2 | codex (OpenAI) |
-| ce300e918 | Batch 35 - store contract specs and report effect | codex (OpenAI) |
-| f4425ce5c | Batch 15 - outcome journal and write pipeline (spec fix #77) | codex (OpenAI) + orchestrator |
-| 004195ee9 | Batch 16 - matrix store and local derivation (TL-26 spec fix) | grok (xAI) + opencode fix |
-| 5ed3d9092 | Batch 17 - score, spread band, rotation store | grok (xAI) |
-| 4876fe923 | Batch 8 - Agents tab outcome signals UI | (earlier session) |
-| 53dc2bb99 | Batch 19 - structured decision adapter (+ TS4111 fix in `system-one.client.ts`, #81) | grok (xAI) + orchestrator |
-| dd021d709 | Batch 20 - recorder, reader, signals, DI (+ #78 additions, F20-1..4 fixes) | codex (OpenAI) |
+| 8cd5cc212 | Batch 36 - P2 fix round | codex (OpenAI) |
+| bfae43c3c | Batch 36b - journal op validation (+ #84 import) | codex (OpenAI) + orchestrator |
+| 653b71cf2 | Batch 21 - route decide pipeline | grok (xAI) |
+| 1b9966147 | FE-19a strict flag in lane-routing tsconfig; P2 accepted; #85-#87 | orchestrator |
+| bf898ae9c | Batch 23 - lane outcome write point (+ #88 lane-outcomes TS4111) | codex (OpenAI) |
+| 2f7833b8f | Batch 24 - kept skill-synthesis stores (2 rounds) | codex (OpenAI) |
+| 0c52b416b | Batches 26 + 28 - route and report tool modules (#90) | grok (xAI), codex (OpenAI) |
 
-Phases: P1 accepted earlier. **P2 (Batches 6, 34, 35, 15, 20) is fully committed; its phase review ran and both say
-REVISE** (see Open problems).
+Pushed: everything up to 0c52b416b, plus this handoff docs commit.
 
-## In progress
+## In progress (uncommitted in the worktree)
 
-Nothing is running. No lane, subagent or push is in flight. The worktree has no uncommitted code. The task-folder docs
-(batches.md, decisions.md, new reports and reviews, this file) are committed with this handoff.
-
-- **Batch 21 (A8, route decide pipeline): STOPPED BY THE USER** while the backend-developer subagent was still reading
-  the plan. It wrote no files and no report. Do not restart it without asking the user (executor choice and timing).
-  Batch 21 blocks Batch 18 (#73), FE-19a, and the P3 review.
+- **Batch 18 (A11, decision-model config RPC, grok):** files in `libs/shared/src/lib/types/rpc/rpc-agents.types.ts`,
+  `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts`, the new
+  `agent-rpc.handlers.decision-model.spec.ts` (orchestrator added the auth-providers mock, 15/15 pass, #89) and five
+  sibling specs (constructor arg). Round 1 checks otherwise passed (typecheck shared + rpc-handlers, lint, guard specs
+  as known). **Commit only after Batch 30a** (TL-59): no host calls `registerLaneRoutingServices`, so
+  `AgentRpcHandlers` would fail at boot in all three hosts.
+- **Batch 30a (AB14-pre, lane-routing host registration, grok lane `46f3684d-49fc-4295-88c6-cd910705510b`):** adds
+  `registerLaneRoutingServices` to `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts`,
+  `apps/ptah-electron/src/di/phase-2-libraries.ts`, `libs/backend/cli-engine/src/lib/container.ts`, and smoke-spec
+  cases that resolve `DECISION_MODEL_CONFIG` and `AgentRpcHandlers`. Report: `reports/batch-30a-report.md`. See the
+  status line at the end of this file.
+- **Batch 27 (A16, failure classifier, grok):** lane done, report `reports/batch-27-report.md`; files
+  `libs/backend/lane-routing/src/lib/failure-class/**`, `lane-routing/src/lib/di/register.ts(+spec)`,
+  `lane-routing/src/index.ts`. **Not yet verified.**
 
 ## Open problems and decisions
 
-- **Decisions this session:** #75-#81 in `decisions.md`; team-leader decisions TL-27..TL-31 in `batches.md`.
-- **P2 phase review = REVISE (both, different family: Anthropic subagents reviewed OpenAI work):**
-  - `reviews/p2-code-logic-review.md` (6/10): **S-1 Serious** - `outcome-write-pipeline.ts:259-290` (`accept`) and
-    `:326-347` (`drain`): while `drain` awaits the journal write, `accept` takes the same items and a new op arrives;
-    `queue.splice(0, moved.length)` then deletes the new op unjournaled, and earlier ops are journaled twice.
-    Moderates M-1..M-11 (M-2 = M20-1 unbounded `classificationInputs`; M-3 = M20-2 role `'unknown'` -> null; M-4 =
-    M20-3 reader leaks full rows; M-5 non-atomic SQLite `update()`; M-7 stall on failing `expireHolds`/poison op; M-8
-    uncapped queue + raw `submit` error; M-9 one corrupt row kills a store read; M-11 a lane deliverables report
-    overwrites a `failed` verdict).
-  - `reviews/p2-code-style-review.md` (6/10): **Serious 1** - the journal-append loop is copied three times in
-    `outcome-write-pipeline.ts` (`:265-280`, `:332-347`, `:651-664`; two copies hard-code `5000` instead of
-    `OUTCOME_JOURNAL_LIMIT`; `KeyValueOutcomeJournal.append` is unused); bare numbers `1000/25/250/200/2000`; three
-    `'subagent:'` literals bypass `subagentRunId`. **Serious 2** - the new public API (40-name barrel, register, start,
-    tokens, store port, pipeline) has almost no JSDoc. 11 Moderates, 7 Minors.
-  - Rule (orchestration lean rule 4): one fix round for Blocking + Serious; a Moderate is fixed only if it can break a
-    lane config or lose data (candidates: M-5, M-8, M-9, M-11), else it becomes a named later task. Then one short
-    re-review scoped to the fixes.
-- **Lane defects seen (#80):** a codex lane that receives a queued `ptah_agent_message` runs it as a NEW turn after its
-  report, so do not respawn a lane for the same work until its `<agent-lane-completed>` arrives. A codex resume with a
-  large context becomes a fresh lane with a handoff brief, so always give a full brief.
-- **Pre-push gate:** works now. Always push with `NX_NO_CLOUD=true` (Nx Cloud returns 401, free plan exceeded).
-- **`@nx/dependency-checks`:** never add `@ptah-extension/lane-routing` or `lane-outcomes` to a lib `package.json` (those
-  libs have no package.json; the rule reports the entry as unused - Batch 14 and #79 precedent).
-- **Strict consumers:** agent-sdk compiles lane-routing source with `noPropertyAccessFromIndexSignature`; lane-routing's
-  own tsconfig does not. FE-19a: add that flag to `libs/backend/lane-routing/tsconfig.json` after Batch 21 commits.
-- **Hook lints the whole working tree (#65):** an uncommitted file of another batch can block every commit. Commit one
-  batch at a time; stage only that batch's files.
-- **Shared lanes:** other sessions (TASK_2026_648_374e, TASK_2026_678_9083) also run codex and grok lanes; never stop
-  them.
-- **Lane limits (15:06 UTC):** codex Weekly ~12% (room), grok Weekly 40% (room), opencode Monthly 92% (light work only),
-  Glm AT LIMIT (reset unknown, #63), antigravity out until about 2026-10-18 (#54).
-- **Known red specs until Batch 25:** the three host `rpc-surface.spec.ts` files and `rpc-allowlist.spec.ts` fail by
-  exactly `agent:outcomeSignals`. Electron `state-storage-oversized-profile.bundle.spec.ts` needs a built `dist/`.
-- **Recorded later tasks:** FE-8a (move agent RPC methods out of `skill-synthesis-rpc.service.ts`, 706 > 700 lines);
-  FE-12a (split probe helpers out of `decision-model.config.ts`); FE-19a (above); P1-L1 (13 Prettier-dirty files, one
-  `style(...)` commit); P5 Minor `runTagMissSessions` never cleared; `subagent-budget-monitor.ts` over `max-lines`.
-- **Batch 8 visual:** after screenshots and the P5 visual review run only after Batch 25 (before shots in
-  `visual/batch-8-before.md`, base worktree `.claude-worktrees/646-base-shots` kept).
+- Decisions this session: #82-#90 in `decisions.md`; TL-47..TL-61 in `batches.md`.
+- Later tasks added: LT-P2-17/18 (P2c), FE-21a (split `route-decide.gate.spec.ts`, 792 lines), FE-23a/b/c, FE-24a/b/c/d.
+- **Reviews due:**
+  - P3 (Batches 9-13, 16, 17, 21, 27, 33): codex lane (OpenAI) after Batch 27 commits.
+  - P4 (14, 18, 19, 22): codex lane + visual review, after Batches 18 and 22.
+  - P5 (8, 23, 24, 25, 28, 32): Anthropic subagents (all other families implemented P5) - not before 2026-10-16.
+  - P6 (26, 29, 30, 30a): codex lane.
+- P4 review notes (TL-59 run): `getStatus()` rejection fails the whole `agent:getConfig`; the new spec's state-set
+  guard checks lane-routing's DTO, not the shared mirror type. Setting key used: section `ptah`, key
+  `agentOrchestration.decisionModel`, global scope; Jev key in secret storage `ptah.laneRouting.jevApiKey` (part-a says
+  section `agentOrchestration`, key `decisionModel`) - for the Mode 3 write-path trace.
+- Known red until Batch 25: the three host `rpc-surface.spec.ts` files and `rpc-allowlist.spec.ts` fail by exactly
+  `agent:outcomeSignals`.
+- Lane rules: never add lane-routing/lane-outcomes to a lib package.json (#79); never `@inject` an unregistered token
+  (#73); after a queued `ptah_agent_message`, wait for that lane's completion before a respawn (#80); executors run no
+  Nx/Jest (#53); the pre-commit hook may lint the whole working tree (#65).
 
 ## Key files
 
 All in `D:\projects\ptah-extension\.claude-worktrees\decision-model-routing\.ptah\specs\TASK_2026_646_136a\`:
-- `batches.md` - rules (lines 21-60), TL decisions, waves, phases, per-batch states and Mode 2 notes.
-- `decisions.md` (#1-#81), `context.md`, `implementation-plan.md` (+ part-a, part-b), `task-description.md`.
-- `reviews/p2-code-logic-review.md`, `reviews/p2-code-style-review.md` (the open P2 fix round).
-- `reports/batch-*-report.md` (this session: 15-3-fix2, 16-fix, 19, 20, 20-fix).
+`batches.md` (rules lines 21-60, waves ~line 183, phases ~196, per-batch sections), `decisions.md` (#1-#90),
+`implementation-plan.md` (+ part-a, part-b), `task-description.md`, `reports/batch-*-report.md`, `reviews/*.md`.
 
 ## Next steps
 
-1. Read this file, then `batches.md` (rules lines 21-60, TL-27..TL-31, the Batch 20 and 21 sections) and `decisions.md`
-   #75-#81. Work only in the worktree above. Run `ptah_agent_list`. The session 6 docs are committed and pushed with
-   this handoff; confirm `git log --oneline origin/feat/decision-model-routing..HEAD` is empty.
-2. **Ask the user about Batch 21** (they stopped it in session 6): restart now, which executor (plan: subagent
-   backend-developer; codex is excluded because it is the P3 reviewer; fallback grok), or wait.
-3. **P2 fix round:** invoke a fresh team-leader in Mode 2 step 6 with both review paths and verdicts. It triages into a
-   P2 fix batch (S-1, style Serious 1 and 2, and the Moderates that can lose data or break a lane config). The fix
-   executor may be codex (it wrote P2); the re-review must again come from the Anthropic family. Then a fresh
-   team-leader Mode 2 verifies and commits, and one short re-review scoped to the fixes. P2 is accepted only when both
-   reviews accept.
-4. After Batch 21 commits: FE-19a, Batch 18 (grok), then Batches 22, 23, 24, 25 (B-side needs P2 accepted), 26-31 per
-   the waves table. P3 review (OpenAI family, codex lane) after Batches 21 and 27.
-5. Limits: max 3 executors in flight, file-disjoint, declare `deliverables` on every spawn, full brief for codex.
-   Executors run no Nx/Jest (#53); they may run eslint, prettier, the degradation pre-check and di-lint once each. Never
-   `@inject` a token that no `register*.ts` registers (#73). Each Mode 2 team-leader verifies; shipping-code review
-   comes from a different family than the implementer. Act on `<agent-lane-completed>`; never poll.
-6. Verification (one heavy check at a time, never workspace-wide, never build/serve/e2e/package; prefix nx with
-   `NX_NO_CLOUD=true`):
-   - One project: `npx nx test <project> --parallel=1`, `npx nx typecheck <project>`, `npx nx lint <project>`.
-   - Several: `npx nx run-many -t test -p A B --parallel=1` (confirm "Running target test for N projects").
-   - Single specs: `npx jest -c <lib>/jest.config.ts <spec...> --coverage=false --maxWorkers=2`.
-   - Degradation: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts --max-warnings=-1 | grep -E "FAIL|TOTAL"` (TOTAL 296, no FAIL; never raise a baseline).
-   - di-lint: `npx ts-node --transpile-only tools/di-lint/check-injects.ts | tail -5`.
-7. Commit in the foreground (600000 ms timeout; read `.commitlintrc.json`; subject <= 72, body lines <= 100; never
-   `--no-verify`). Push in the background with `NX_NO_CLOUD=true`. Never commit to main.
+1. Read this file, then `batches.md` rules (21-60), the Batch 18, 27, 30a, 22, 25, 29, 30, 31 sections, and
+   `decisions.md` #82-#90. Work only in the worktree. `git status --short`; `git log --oneline
+   origin/feat/decision-model-routing..HEAD` (push anything unpushed in the background with `NX_NO_CLOUD=true`).
+2. **Batch 30a + Batch 18:** if the 30a lane delivered, verify one at a time:
+   `npx jest -c apps/ptah-extension-vscode/jest.config.ts apps/ptah-extension-vscode/src/di/container.smoke.spec.ts --coverage=false --maxWorkers=2`,
+   then the same for `apps/ptah-electron` and `apps/ptah-cli`, then the cli-engine `rpc-surface.spec.ts` (red only by
+   `agent:outcomeSignals`). Commit 30a, then Batch 18 (re-run
+   `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers --coverage=false --maxWorkers=2`
+   and `NX_NO_CLOUD=true npx nx typecheck @ptah-extension/rpc-handlers`).
+3. **Batch 27:** `NX_NO_CLOUD=true npx nx test @ptah-extension/lane-routing --parallel=1`, then lint, then typecheck;
+   confirm the five spec cases in the Batch 27 section; commit. Then spawn the **P3 review** on a codex lane (full
+   brief, deliverables `reviews/p3-code-logic-review.md` and `reviews/p3-code-style-review.md`).
+4. Then: Batch 22 (UI settings row; grok, or codex is excluded as P4 reviewer -> grok), Batch 25 (Glm AT LIMIT ->
+   grok or codex), Batch 29 (MCP registration; after 26, 28), Batch 30 (host wiring; do not re-add 30a calls), Batch 31
+   (docs; opencode light). Max 3 lanes, file-disjoint, `deliverables` on every spawn, full brief for codex.
+5. Checks per changed project only, one heavy check at a time, `NX_NO_CLOUD=true`:
+   - Degradation: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts --max-warnings=-1 | grep -E "FAIL|TOTAL"` (296, no FAIL).
+   - di-lint: `npx ts-node --transpile-only tools/di-lint/check-injects.ts | tail -2`.
+6. Commit in the foreground (600000 ms timeout; read `.commitlintrc.json`; subject <= 72, body <= 100; end with
+   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; never `--no-verify`). Push in the background. Never commit
+   to main. Keep PR #731 a draft.
+
+## Batch 30a lane status at handoff
+
+The grok lane completed (exit 0, 13m 33s, verdict delivered). Report: `reports/batch-30a-report.md` (8655 bytes).
+**Not verified.** Uncommitted files: the three `phase-2-libraries.ts`/`container.ts` roots (vscode, electron,
+cli-engine), the three `container.smoke.spec.ts` and three `expected-resolvable.ts` (vscode, electron, cli). The lane
+ran no Jest and did not run `validate-deps` (the pre-push gate runs it). Next step 2 verifies it. Grok session for a
+resume: `01a140c5-bc48-7f60-af5b-2576c7176ea7`. Pushed: up to 0c52b416b; this handoff commit is pushed after it.
