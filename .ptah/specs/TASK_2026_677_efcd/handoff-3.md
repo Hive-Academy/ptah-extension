@@ -80,7 +80,30 @@ No agent or lane is running. Open items:
    - TASK section with no linked task: req 17.6 "No task linked to this session" text vs D27 render nothing
      (architect recommends D27).
 
-## 4. Decisions to know (decisions.md rows 1-41)
+### 3.4 TASK_2026_648 embed hosting contract (received after the plan parts; decisions row 42)
+
+648 Batch 2 commit `db30cc25d` (branch `feat/task-648-session-embed`, local, stacked on PR #732):
+- `SessionEmbedComponent` `ptah-session-embed` (`@ptah-extension/chat`,
+  `libs/frontend/chat/src/lib/components/templates/session-embed.component.ts`) hosts ONE unchanged `ChatViewComponent`
+  via `*ngComponentOutlet` with a child EnvironmentInjector created once.
+- Inputs: `tabId` (req), `visible`, `contentVisible`, `focused`, `minContentWidth`, `startGuard`, `cardActions`,
+  `retainRailTranscript`.
+- Child-injector tokens: SESSION_CONTEXT = tabId signal; SESSION_VISIBLE = parent SURFACE_ACTIVE && visible &&
+  contentVisible; SESSION_FOCUSED = SESSION_VISIBLE && focused; SURFACE_ACTIVE = SESSION_VISIBLE; RAIL_MIN_CONTENT_WIDTH
+  (canvas split 360); SESSION_START_GUARD, SESSION_CARD_ACTIONS, RAIL_TRANSCRIPT_RETENTION (optional);
+  RailTranscriptRetentionCoordinator only if the parent has one.
+- Visible tabs: `TabManagerService.registerVisibleTab(tabId)` is now reference-counted per owner; `visibleTabIds()`
+  keeps a tab until its last owner unregisters.
+- Embed slots: only `[sessionHeader]` (before) and `[sessionAddon]` (after), plain pass-through.
+- `canvas-detail-transcript.component.ts` now renders `<ptah-session-embed>` (677 does not touch it).
+- PLAN IMPACT (architect check 6 / plan part B §inspectorSection): the embed creates ChatViewComponent through
+  `*ngComponentOutlet`, so content projection into ChatView's `[inspectorSection]` / header slots is NOT automatic —
+  it needs `ngComponentOutletContent` (projectable nodes) or the registry-token fallback keyed by workflow kind.
+  Prefer the registry token for 649 add-ons; confirm in implementation-plan.md and tell the 648/652 session.
+- 648 Batch 3 next (launcher, workflow badges, additive forgetWorkflowSession in app-shell + chat-view); that session
+  will message when the stacked PR opens.
+
+## 4. Decisions to know (decisions.md rows 1-42)
 
 Rows 18-20 duration/inspector/message-duration rules; 21-23 user decisions (TASK section; Gate 1; visibility: B-16
 visible at rest, B-14/B-15 hover reveal kept — WCAG 2.4.7 limitation accepted); 24 rail question focus; 25 never kill
