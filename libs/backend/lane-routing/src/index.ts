@@ -3,10 +3,7 @@
  *
  * May import only `@ptah-extension/shared` and `@ptah-extension/platform-core`.
  */
-export {
-  LANE_ROUTING_TOKENS,
-  type LaneRoutingDIToken,
-} from './lib/di/tokens';
+export { LANE_ROUTING_TOKENS, type LaneRoutingDIToken } from './lib/di/tokens';
 export type {
   LaneRoutingLogMeta,
   LaneRoutingLogger,
@@ -36,7 +33,6 @@ export {
   ROTATION_KEY_SEPARATOR,
   ROTATION_MAX_KEYS,
   ROTATION_STORAGE_KEY,
-  ROTATION_TASK_KINDS,
   SCORE_MAX,
   SCORE_MIN,
   SEED_LABEL_SCORE,
@@ -46,8 +42,43 @@ export {
   TIE_BREAK_STEPS,
   type DecisionOptionProvider,
   type InsideBandLimitState,
-  type RotationTaskKind,
   type SeedLabel,
   type TieBreakExecutorKind,
   type TieBreakStep,
 } from './lib/routing-constants';
+export {
+  DecisionModelConfig,
+  type DecisionModelConfigSeams,
+  type SystemOneTarget,
+} from './lib/decision-model/decision-model.config';
+export {
+  DECISION_MODEL_CONFIG_KEY,
+  DECISION_MODEL_CONFIG_SECTION,
+  DECISION_MODEL_JEV_SECRET_KEY,
+  DECISION_MODEL_PROBE_TIMEOUT_MS,
+  DECISION_MODEL_RECHECK_WINDOW_MS,
+  DECISION_MODEL_UNSUPPORTED_STORAGE_KEY,
+  DecisionModelSelectionSchema,
+  DecisionModelUnsupportedMarkSchema,
+  JEV_BASE_URL,
+  SYSTEM_ONE_CONTROL_PATH,
+  type DecisionModelKind,
+  type DecisionModelLocality,
+  type DecisionModelProbeOutcome,
+  type DecisionModelProbeResult,
+  type DecisionModelSelection,
+  type DecisionModelSelectionInput,
+  type DecisionModelState,
+  type DecisionModelStatusDto,
+  type DecisionModelUnsupportedMark,
+} from './lib/decision-model/decision-model.types';
+export type {
+  StructuredDecisionCompleter,
+  StructuredDecisionRequest,
+} from './lib/decision-model/structured-decision.port';
+export type {
+  CapabilityMatrix,
+  MatrixCell,
+  MatrixCellSource,
+  MatrixProfile,
+} from './lib/matrix/matrix.types';

@@ -21,15 +21,15 @@ const PhaseSchema = z
     id: z.string().min(1).max(64),
     kind: z.enum(PHASE_KINDS),
     role: z.string().min(1).max(64).optional(),
-    reviews: z.array(z.string()).max(64).optional(),
+    reviews: z.array(z.string().max(200)).max(64).optional(),
   })
   .strict();
 
 const PinSchema = z
   .object({
     phaseId: z.string().min(1),
-    executor: z.string().min(1),
-    model: z.string().min(1).optional(),
+    executor: z.string().min(1).max(200),
+    model: z.string().min(1).max(200).optional(),
   })
   .strict();
 
@@ -38,20 +38,20 @@ export const RouteDecideArgsSchema = z
     z
       .object({
         stage: z.literal('pre-flight'),
-        request: z.string().min(1).max(8000),
+        request: z.string().trim().min(1).max(8000),
       })
       .strict(),
     z
       .object({
         stage: z.literal('gate-0.1'),
-        request: z.string().min(1).max(8000),
+        request: z.string().trim().min(1).max(8000),
         taskType: z.enum(TASK_TYPES),
         depth: z.enum(DEPTHS),
         phases: z.array(PhaseSchema).min(1).max(100),
         pins: z.array(PinSchema).max(100).optional(),
         preferenceSource: z.string().max(200).optional(),
         preferences: z
-          .object({ prefer: z.array(z.string()).max(32) })
+          .object({ prefer: z.array(z.string().max(200)).max(32) })
           .strict()
           .optional(),
       })
@@ -84,6 +84,7 @@ export const RouteDecideArgsSchema = z
       });
     });
 
+    const pinnedPhaseIds = new Set<string>();
     args.pins?.forEach((pin, index) => {
       if (!phaseIds.has(pin.phaseId)) {
         ctx.addIssue({
@@ -91,7 +92,14 @@ export const RouteDecideArgsSchema = z
           path: ['pins', index, 'phaseId'],
           message: 'pin phase id must name a phase',
         });
+      } else if (pinnedPhaseIds.has(pin.phaseId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['pins', index, 'phaseId'],
+          message: 'a phase takes at most one pin',
+        });
       }
+      pinnedPhaseIds.add(pin.phaseId);
     });
   });
 

@@ -75,19 +75,10 @@ export type TieBreakExecutorKind =
 
 /**
  * K. Rotation key is `${phaseId}${ROTATION_KEY_SEPARATOR}${taskKind}`
- * with `taskKind` one of `ROTATION_TASK_KINDS`. Phase ids belong to the caller.
+ * with `taskKind` an `OutcomeTaskKind` (`OUTCOME_TASK_KINDS` in
+ * `@ptah-extension/shared`, the single task-kind union, plan R4j).
+ * Phase ids belong to the caller.
  */
-export const ROTATION_TASK_KINDS = [
-  'plan',
-  'implement',
-  'review',
-  'research',
-  'tests',
-  'docs',
-] as const;
-
-export type RotationTaskKind = (typeof ROTATION_TASK_KINDS)[number];
-
 export const ROTATION_KEY_SEPARATOR = '|';
 
 /** L. Global `IStateStorage` key. Map of rotation key to last chosen id. */
@@ -154,9 +145,7 @@ function assertRoutingConstantInvariants(): void {
   const strongToGood = SEED_LABEL_SCORE.strong - SEED_LABEL_SCORE.good;
   const goodToWeak = SEED_LABEL_SCORE.good - SEED_LABEL_SCORE.weak;
   if (CLOSENESS_BAND >= strongToGood || CLOSENESS_BAND >= goodToWeak) {
-    throw new Error(
-      'CLOSENESS_BAND must be smaller than every seed-label gap',
-    );
+    throw new Error('CLOSENESS_BAND must be smaller than every seed-label gap');
   }
   if (OPTIONS_PER_PHASE_CAP < MIN_OPTIONS_PER_PHASE) {
     throw new Error(
