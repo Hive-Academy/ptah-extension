@@ -81,7 +81,6 @@ import type {
   HarnessStartNewProjectResult,
   HarnessGetProposalParams,
   HarnessGetProposalResult,
-  HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
   HarnessHealthParams,
   HarnessHealthResult,
@@ -924,14 +923,13 @@ export class HarnessRpcHandlers {
   }
 
   private registerWorkflowPrompt(): void {
-    this.wire<HarnessWorkflowPromptParams, HarnessWorkflowPromptResponse>(
-      'harness:workflow-prompt',
-      'registerWorkflowPrompt',
-      async (params) => {
-        const parsed = HarnessWorkflowPromptParamsSchema.parse(params);
-        return this.workflowPrompt.composePrompt(parsed);
-      },
-    );
+    this.wire<
+      Parameters<HarnessWorkflowPromptService['composePrompt']>[0],
+      HarnessWorkflowPromptResponse
+    >('harness:workflow-prompt', 'registerWorkflowPrompt', async (params) => {
+      const parsed = HarnessWorkflowPromptParamsSchema.parse(params);
+      return this.workflowPrompt.composePrompt(parsed);
+    });
   }
 
   // -- Reconciler surface (TASK_2026_278 Batch 4) ---------------------------

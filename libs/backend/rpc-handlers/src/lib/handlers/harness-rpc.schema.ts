@@ -85,10 +85,18 @@ export const HarnessWorkspacePinParamsSchema = z
   })
   .passthrough();
 
-export const HarnessWorkflowPromptParamsSchema = z.object({
-  mode: z.literal('configure-harness'),
-  intent: z.string().min(1),
-});
+export const HarnessWorkflowPromptParamsSchema = z.union([
+  z.object({
+    mode: z.literal('configure-harness'),
+    intent: z.string().min(1),
+    contextOnly: z.never().optional(),
+  }),
+  z.object({
+    mode: z.literal('configure-harness'),
+    contextOnly: z.literal(true),
+    intent: z.never().optional(),
+  }),
+]);
 
 /**
  * The reconciler surface (TASK_2026_278 Batch 4).

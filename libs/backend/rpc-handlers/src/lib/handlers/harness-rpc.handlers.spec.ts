@@ -1680,6 +1680,25 @@ describe('HarnessRpcHandlers (thin facade)', () => {
   });
 
   describe('harness:workflow-prompt', () => {
+    it('passes a context-only Configure request to the composer', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:workflow-prompt',
+      )({
+        mode: 'configure-harness',
+        contextOnly: true,
+      });
+
+      expect(result).toEqual({ prompt: 'WORKFLOW PROMPT' });
+      expect(suite.workflowPrompt.composePrompt).toHaveBeenCalledWith({
+        mode: 'configure-harness',
+        contextOnly: true,
+      });
+    });
+
     it('returns the prompt composed by HarnessWorkflowPromptService', async () => {
       const suite = buildSuite();
       suite.workflowPrompt.composePrompt.mockResolvedValueOnce({

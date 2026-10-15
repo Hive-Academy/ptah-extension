@@ -15,7 +15,9 @@ export class HarnessWorkflowPromptService {
   ) {}
 
   async composePrompt(
-    params: HarnessWorkflowPromptParams,
+    params:
+      | HarnessWorkflowPromptParams
+      | { mode: 'configure-harness'; contextOnly: true; intent?: undefined },
   ): Promise<HarnessWorkflowPromptResponse> {
     const workspaceContext =
       await this.workspaceContext.resolveWorkspaceContext();
@@ -80,6 +82,11 @@ This workspace has no project yet. Before designing any AI team, plan the projec
 3. Propose an architecture and a plan, and confirm it with the user.
 4. Only then design the AI team (agents, skills, MCP servers) that fits the planned project — leverage the available skills and subagent setup below, and call proposeConfig as decisions firm up.`;
 
+    const intentBlock =
+      'contextOnly' in params && params.contextOnly
+        ? ''
+        : `\n\n## User's Intent\n${params.intent}`;
+
     const empty = `You are a harness architect collaborating with a user to plan a brand-new project and build the AI coding assistant configuration that will drive it. Work conversationally.
 
 ## Workspace
@@ -97,10 +104,7 @@ ${toolsBlock}
 
 ${applyExpectations}
 
-Ask clarifying questions when intent is unclear, and call proposeConfig once the project plan and the AI team that supports it are firm.
-
-## User's Intent
-${params.intent}`;
+Ask clarifying questions when intent is unclear, and call proposeConfig once the project plan and the AI team that supports it are firm.${intentBlock}`;
 
     const existing = `You are a harness architect collaborating with a user to build their AI coding assistant configuration. Work conversationally and drive the configuration to completion.
 
@@ -117,10 +121,7 @@ ${toolsBlock}
 
 Actively search for and recommend relevant skills and MCP servers beyond what the user explicitly asks for. Ask clarifying questions when intent is unclear, and call proposeConfig early and often so the surface reflects the evolving configuration.
 
-${applyExpectations}
-
-## User's Intent
-${params.intent}`;
+${applyExpectations}${intentBlock}`;
 
     return { prompt: isEmptyWorkspace ? empty : existing };
   }
