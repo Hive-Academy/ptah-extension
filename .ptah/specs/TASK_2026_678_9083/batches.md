@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 56 | Batches: 22 (20 code batches + 2 user-run gates) | Complete: 10/22
+Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 10/27
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -122,6 +122,17 @@ Edge cases:
 | D12 | Task 8.4 is verified by a per-site classification table in the B8 report plus the team-leader's on-disk read of every `catch`/`.catch` under `libs/frontend/command-center/src` (non-spec). Neither the lane nor the team-leader runs `nx run degradation-audit:lint`; CI runs it on push (`.github/workflows/ci.yml:81-84`). | lane runs the audit; on-disk classification | The audit has no path flag (`check-degradation.ts:863-865` reads only `--self-test`, `--self-test-parse-guard`, `--update-baseline`) and its inputs are `libs/**/src/**/*.ts` and `apps/**/src/**/*.ts` (`tools/degradation-audit/project.json`), so it is a workspace-wide scan, which `CLAUDE.md` forbids unless the user asks. The detector rules are explicit enough to classify each site by reading it. | yes |
 | D13 | The run-manifest contract gaps found at B8 (TL-1 multi-run overwrite, TL-2 empty role rejected by the schema, TL-3 close does not remove the manifest) go into Batch 8F, the Phase B fix round, seeded now as PENDING. Phase B review findings that the fix-round rule covers are appended to B8F when the verdict returns; B8F's re-review is the one re-review. | (a) seed B8F now; (b) record as a named later task with the user; (c) fold into B13 (page wiring) | Two runs and restart-with-manifest are B8 validation notes and plan :16, :74, :98 (AC 10-16 rows at plan :54-56), so this is in scope, not a later task. `command-center-records.ts:29,104,111,117` keys `runs` by `rootTabId`; `:18` requires a non-empty `role` while `tribunal-run-coordinator.ts:54` writes `role: item.role ?? ''` for Council/Forge/Race, so every non-role run is withheld once the real transport is wired; `tab-manager.service.ts` has no `removeRunManifest` call (only `setActiveTabId` at :1003, :1379 and `writeLastSession` at :1965). B13 is presentational and should not carry a persisted-schema change. No production caller of the manifest API exists yet, so nothing is lost before B8F. | yes |
 | D14 | Batch 8 keeps its local `rosterIsLaunchableLocally` copy (`tribunal-roster-proposal.ts:35-51`) for now; the Phase B style review decides between the copy and widening `@ptah-extension/tribunal-panel/phase` to export `rosterIsLaunchable`. A widening, if chosen, lands in B8F. | keep copy; widen the phase entry now | The phase entry was scoped narrow on purpose (B7, Decision D6); the copy mirrors `tribunal-roster-rules.ts:42-106` and can drift. This is a structure call that the style reviewer owns. | yes |
+| D14-R | D14 resolved by the Phase B style review (ruling 3): widen `@ptah-extension/tribunal-panel/phase` with `rosterIsLaunchable`, the two round-cap constants, the role and move values and their types (Batch 8FB), and delete the local copy (Batch 8FC). | keep copy | `code-style-review.md` S2, S3, ruling 3: the rule file is pure, `VendorLane` already accepts the parsed lanes, and the copy has already drifted. | yes |
+| D15 | Root cause of style S1 (unformatted files): **no git hook has ever run in this worktree**. `core.hooksPath` is the relative `.husky/_`, which git resolves per worktree. Husky created that folder only in the main checkout, and `node_modules` here is a symlink, so `prepare` never ran. B1-B8 skipped lint-staged (Prettier and lint), commitlint and pre-push. The team leader ran `npx husky` in the worktree on 2026-10-15. It wrote a self-ignored `.husky/_/` and set the shared `core.hooksPath` to the same `.husky/_` value. `npx commitlint --from main --to HEAD` passes for every existing commit. | leave hooks off and format by hand; restore hooks | `.husky/pre-commit`, `.lintstagedrc.mjs` (`nx format:write --files=…` then `nx affected --target=lint`); `ls .husky/_` was missing; `nx format:check --files=<file>` flags the file correctly, so the formatter itself works. Follow-up outside this task: every worktree created per `CLAUDE.md` has the same gap; recommend a separate chore so worktree setup runs `npx husky`. | yes (delete `.husky/_`) |
+| D16 | With hooks restored, every commit that stages TS runs `nx affected --target=lint` on about 80 projects, because this branch changes `libs/shared` (nx `parallel: 2`). That conflicts with the `CLAUDE.md` memory rule against workspace-wide checks. **Open question Q1 for the orchestrator.** Default until answered: keep the hook (never bypass it) and run each TS commit alone in the foreground with a long timeout and no other heavy check in flight. Docs-only commits run only `nx format:write`. | (a) keep hook, serialise commits (recommended); (b) user approves a one-off scoped lint arrangement; (c) bypass (refused) | `npx nx show projects --affected --withTarget=lint` lists about 80 projects; `nx.json:4` sets `parallel: 2`. | yes |
+| D17 | 8F0 formats 41 files whole: 37 new, 3 modified that were Prettier-clean on `main`, and `chat.store.ts`. It excludes `session-loader.service.ts` and `chat-rpc.schema.spec.ts`. Two in-hunk drifts stay as recorded residue: `session-loader.service.ts:997` and `chat-rpc.schema.spec.ts:36-44`. | reformat everything; hand-wrap hunks in the dirty files | `main` check with `prettier --check --stdin-filepath`. `session-loader.service.ts` has 217 drift lines that predate this task, and lint-staged formats whole staged files, so staging it would rewrite unrelated code. `chat.store.ts` has about 8 drift lines that predate this task, and 8FD stages it anyway. `tab-manager.service.ts` and `message-sender.service.ts` were clean on `main`, contrary to the style review's assumption. | yes |
+| D18 | Logic S1 fix: a per-proposal state machine (`open` -> `answered` -> `launched`, or `declined`). The id is consumed only on launch or Decline. Failures after the D1 answer stay retryable and reuse the `specTaskId` and `runId`. The manifest is rolled back when the launch send fails. One fixed safe message goes through `transport.reportFailure`. Confirm-time availability re-check comes before the answer. | consume on confirm (today); always Decline on any failure | A1 items 1-3; review S1 fix text; Decision D1 (once the fixed text is delivered, the question is closed and a later Decline is impossible, so a retry handle is the only path to launch). | yes |
+| D19 | Logic S4: when another tab already owns the last-session SDK id, Command Center refuses (switches to that tab and shows a safe message) instead of adopting that tab. Logic S6: `newCommandCenter` stops voice (`idle`, lock released, meters zeroed) instead of re-engaging the lock on the new tab. | adopt the tab (needs a new chat-state mark-existing-tab API and lifecycle rules); carry voice to the new tab | No mark-existing API exists (`tab-manager.service.ts:995` only creates). The voice loop does not exist until B10, so carrying voice has no owner. Both choices keep one SDK id on one tab and one writer. | yes |
+| D20 | Fix-round disposition. **Fixed in 8F:** logic S1-S6; S7 (D22); M1-M3 (TL-1..TL-3); M5, inside the S6 voice-release path, which also gives B10.2 its zero API; M6 (AC11 correctness, same rewrite as S7, no later owner); M7 (a malformed success starts a new session whose first send overwrites the persisted last-session record, losing the resume pointer: data loss). Style S1-S3; Moderate 2 (guard for the S2 widening); Moderate 4 (the S5 fix rewrites that signature); Moderate 5 (= TL-2); Moderate 3 (casts inside the lines 8FE rewrites). **Carried to named later tasks:** logic M4 and style Moderate 6 (status ages producer, `setStatusContextProvider` seam) and style Moderate 1 (barrel `export *`) go to Task 14.2. Style Minors are recorded only. | fix all Moderates now; carry all Moderates | Fix-round rule: Blocking and Serious are fixed; a Moderate is fixed only if it can break a lane config or lose data, else it gets a named later task. | yes |
+| D21 | Manifest lane `role` is `role?: string` (non-empty when present), not `LaneRole`. | `role?: LaneRole` (style Moderate 5) | `chat-state` is `type:data-access` and may not import `tribunal-panel` (`type:feature`) under `eslint.config.mjs:407-414`. The producer (8FC) only writes roles from the zod enum built from `RELAY_ROLES`/`CRUCIBLE_ROLES`. | yes |
+| D22 | "Flat Tribunal moves have no lanes or stage" is treated as Serious S7. Lane nodes get the new stable id prefix `lane:<runId>:<laneId>`, and a missing stage gets `phase:<runId>:stage`. | Moderate / later task | The review's data-flow item 10 and requirements row AC15 cite it as "S7", although its summary counts six Serious. AC15 is unmet and no later batch owns the projector. | yes |
+| D23 | `TASK/reports/phase-b.diff` (137 KB, generated) is not committed. Delete it after the 8F re-review returns. | commit it | Reproducible with `git diff fa97a6967^..2137ab904`; the re-review range is the 8F commits. | yes |
+| D24 | 8F runs in this order: 8F0 alone, then wave 1 in PARALLEL MODE (8FA, 8FB, 8FD; disjoint files and disjoint Nx projects; lanes run no nx or jest), then 8FC, then 8FE. The team leader checks and commits one batch at a time. Each lane stays at 6 files or fewer, in at most 2 projects, under 40 tool calls. | one 8F batch (about 20 files, 5 projects); fully sequential | Batch-size rule; orchestrator's parallel condition (file-disjoint and different projects); 8FC needs 8FA and 8FB; 8FC and 8FE share `command-center`. | yes |
 
 ## Phases and reviews
 
@@ -129,7 +140,7 @@ Edge cases:
 | ----- | ------- | ------------ |
 | 0 - Baseline | B0 | none (measurement) |
 | A - Chat runtime contracts | B1-B4, fix B4F | CLOSED: code-logic (B1-B4: NEEDS_REVISION); B4F re-review APPROVED (L1 closed) |
-| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); REQUESTED after B8 on `fa97a6967^..<B8 SHA>`; B8F is the one fix round (pre-seeded, Decision D13) |
+| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24); then one logic re-review (grok) on `<8F0 SHA>..HEAD` plus style re-review (phase widening) |
 | C - Voice | B9-B10 | code-logic |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
 | E - Acceptance | B17-B18 | none (tests and measurement); B18 visual evidence is still required for Mode 3 |
@@ -783,7 +794,7 @@ last batch header.
   the new files keep long one-line declarations (the lint-staged `format:write` left them unchanged; commit
   `git show --stat` matched the working diff line for line, so no whole-file CRLF rewrite).
 
-## Batch 8: Owned work projection, status context and Tribunal roster gate (A1) - COMPLETE (commit PENDING_SHA)
+## Batch 8: Owned work projection, status context and Tribunal roster gate (A1) - COMPLETE (commit 2137ab904)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design)
 - Execution mode: sequential
@@ -909,79 +920,559 @@ last batch header.
   `tab-manager.service.ts`), against plan :16, :98.
 - Carried to the Phase B style review (Decision D14): local `rosterIsLaunchableLocally` copy; zod
   `rounds.max(2)` literal (`tribunal-roster-proposal.ts:19`) next to B7's literal `2` in `derivePhase`.
-- Phase B review: REQUESTED on `fa97a6967^..PENDING_SHA`. Implementer family: codex (B5, B6, B6A, B7, B8).
+- Phase B review: REQUESTED on `fa97a6967^..2137ab904`. Implementer family: codex (B5, B6, B6A, B7, B8).
   Code-logic reviewer: grok CLI lane (different family), output `TASK/code-logic-review-phase-b.md`.
   Style reviewer: in-process `code-style-reviewer` subagent (Anthropic family), output
   `TASK/code-style-review.md`, run after the logic review returns.
+- Phase B verdicts (team-leader, Mode 2 step 6, 2026-10-15): logic `TASK/code-logic-review-phase-b.md`
+  NEEDS_REVISION 4/10 (0 B, 6 S + S7, 7 M; grok lane `a59878ea`); style `TASK/code-style-review.md`
+  NEEDS_REVISION 6/10 (0 B, 3 S, 6 M, 5 Minor; Anthropic in-process). Both are different families from the
+  codex implementer. The orchestrator spot-checked S2 (`tribunal-run-coordinator.ts:28`) and S6
+  (`session-coordinator.ts:116-120`) on disk. The one fix round is B8F (8F0, 8FA-8FE). Disposition: Decision D20.
 
-## Batch 8F: Phase B fix round - multi-run manifest, manifest role contract, close cleanup - PENDING
+## Batch 8F: Phase B fix round - split into 8F0, 8FA, 8FB, 8FC, 8FD, 8FE - see sub-batches
 
-- Recommended executor: CLI lane (implementation; Angular data-access TypeScript with a persisted-schema migration)
+The Phase B reviews returned NEEDS_REVISION on both sides (`TASK/code-logic-review-phase-b.md`, grok, 4/10, 0 B,
+6 S, 7 M; `TASK/code-style-review.md`, Anthropic in-process, 6/10, 0 B, 3 S, 6 M, 5 Minor). This is the one fix
+round (Decision D13). Disposition of every finding: Decision D20. The original Tasks 8F.1-8F.3 (TL-1..TL-3) move
+into Batch 8FA (chat-state half) and Batch 8FC (coordinator half of TL-2).
+
+Run order (Decisions D16, D24):
+
+1. **8F0** alone (format-only; every later 8F batch edits files it formats). Commit before any lane starts.
+2. **Wave 1, PARALLEL MODE: 8FA, 8FB, 8FD**, three lanes. They are file-disjoint and in disjoint Nx projects
+   (8FA `chat-state`; 8FB `tribunal-panel`; 8FD `chat` + `command-center`). Lanes run no `nx` and no `jest`.
+   When all three are back, the team leader checks and commits them one at a time, in this order:
+   8FA, 8FB, 8FD (one heavy check in flight at a time).
+3. **8FC** (needs the 8FA manifest contract and the 8FB phase exports on disk and committed).
+4. **8FE**. It edits `command-center.store.ts` after 8FD and shares the `command-center` project with 8FC, so
+   it runs after 8FC, not beside it.
+5. NEEDS REVIEW: one code-logic re-review (grok lane) on `<8F0 SHA>..HEAD`, which excludes the format-only
+   commit. A style re-review also runs (in-process `code-style-reviewer`), because 8FB widens the
+   `@ptah-extension/tribunal-panel/phase` entry. Scope it to `phase.ts`, its guard spec, `tribunal-roster-proposal.ts`
+   and Prettier compliance of the 8F files.
+
+Implementer family for 8F lanes: any capable family except grok, so the grok re-review stays independent. If a
+lane falls back to grok, the logic re-review goes to another non-implementer family. Record the families on the
+8FE header.
+
+### 8F lane prompt preamble (paste verbatim at the top of every 8F lane prompt, then the batch section)
+
+```text
+Worktree (the only place you edit): D:/projects/ptah-extension/.claude-worktrees/command-center (branch feat/command-center)
+Task folder: D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083
+Read first: <task folder>/batches.md (your batch section and "Verification rules"), <task folder>/code-logic-review-phase-b.md,
+<task folder>/code-style-review.md, <task folder>/implementation-plan.md lines 118-137 (Amendment A1, binding).
+
+Verification rules (verbatim from batches.md):
+- Verify only the project(s) the batch changed. Use the batch's one scoped command below. For one-off spec runs:
+  `npx jest -c <lib>/jest.config.ts <spec...> --coverage=false --maxWorkers=2`.
+- Never run workspace-wide checks and never `nx run-many` across projects the batch did not change.
+- Never run `build`, `serve`, `dev`, `e2e` or `package` targets.
+- Cap concurrency: `--parallel=1` for Nx, `--maxWorkers=2` for Jest.
+- One heavy check at a time across all lanes; never start a second one while one is in flight.
+- One foreground run with a long timeout; filter output (`| tail -40`, `grep`) instead of re-running.
+- With `nx run-many -p A B`, confirm the header names the requested project count. Never use positional
+  `nx test A B`.
+- Lanes never run git. The team-leader owns commits. Executors never edit `batches.md` or `task.md`.
+
+Lane rules for this batch:
+- You run NO nx and NO jest command. Other lanes run beside you; the team leader runs the scoped command
+  listed in your batch section after you return. Do not run it yourself.
+- Hard ceiling: 40 tool calls. If you reach it, stop and report what is done and what is left.
+- Keep any Jest or tool cache outside the worktree (never create .jest-cache or similar under the worktree).
+- No git commands of any kind (no add, commit, stash, checkout, restore).
+- Touch only the files listed in your batch section. If a fix needs another file, stop and report it; do not edit it.
+- Real code only: no TODO, PLACEHOLDER or STUB markers, no empty method bodies, no mock data standing in for
+  logic, no logging in place of an implementation. Replace code in place; no V2 copies or compatibility shims.
+- New and changed code is lint-clean under the project's eslint config and Prettier-formatted. Finish with
+  `npx prettier --write <every file you changed>` then `npx prettier --check <the same files>` (must print
+  "All matched files use Prettier code style!"). Prettier is the only command you may run besides reads.
+- Degradation-audit rules (tools/degradation-audit/check-degradation.ts; CI runs it on push): every new or changed
+  `catch` / `.catch` in non-spec code either rethrows, calls an `.error(...)` logger, avoids returning a literal
+  (object literals and `false`/`null` count as literals), or carries a valid marker. Marker syntax is
+  `// degradation-audit: reported — <reason>` (em dash), as the first comment line inside the catch body, or on
+  the comment run directly above a `.catch(` call. A malformed or orphaned marker is itself a violation. Never
+  edit tools/degradation-audit/baseline.json.
+- Deliverable: write <task folder>/reports/batch-<id>-report.md with: each task and finding ID and how it was
+  fixed (file:line), the absolute path of every file changed, the specs added or changed and what each asserts,
+  every catch site and its degradation-audit classification, the prettier --check output line, and anything you
+  could not do. Then return a short summary naming that report path.
+```
+
+## Batch 8F0: Format-only pass on files this task created or changed - IN_PROGRESS
+
+- Recommended executor: CLI lane (mechanical; one command)
+- Execution mode: sequential (runs alone, before every other 8F batch)
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: N/A
+- Review family: none (format-only; excluded from the re-review range)
+- Rationale: style review S1. The cause was that no git hook ever ran in this worktree (Decision D15). Formatting
+  first keeps every later 8F diff readable.
+- Tasks: 1 | Depends on: Phase B verdicts (received)
+- Phase: B (fix round) | Phase review: none (formatting only)
+- Scoped verification (team leader): `npx prettier --check <the 41 files below>` must print "All matched files use
+  Prettier code style!"; `git diff --name-only` must list exactly those 41 files. No nx/jest: Prettier keeps the
+  AST, and the logic batches that follow re-run each project's tests.
+- Suggested commit: `style: batch 8F0 - prettier on command center task files` (no scope; commitlint
+  `scope-empty` is not enforced). Body: names Decision D15/D17 and lists the excluded files.
+
+### Task 8F0.1: Prettier on the 41 task files - IN_PROGRESS
+
+- Files (all relative to the worktree root; the lane passes these exact paths, never a glob):
+  `libs/backend/rpc-handlers/src/lib/chat/session/chat-session-persona-resume.spec.ts`,
+  `libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-persona.spec.ts`,
+  `libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts`,
+  `libs/backend/rpc-handlers/src/lib/handlers/session-rpc-rewind-persona.spec.ts`,
+  `libs/frontend/chat-state/src/index.ts`,
+  `libs/frontend/chat-state/src/lib/command-center-persona.spec.ts`,
+  `libs/frontend/chat-state/src/lib/command-center-records.spec.ts`,
+  `libs/frontend/chat-state/src/lib/command-center-records.ts`,
+  `libs/frontend/chat-state/src/lib/command-center-send-lock.service.ts`,
+  `libs/frontend/chat-state/src/lib/tab-manager.command-center.spec.ts`,
+  `libs/frontend/chat-state/src/lib/tab-manager.service.ts`,
+  `libs/frontend/chat-state/src/lib/tab-restore-command-center.spec.ts`,
+  `libs/frontend/chat/src/lib/services/chat-store/message-dispatch.command-center-lock.spec.ts`,
+  `libs/frontend/chat/src/lib/services/chat-store/message-dispatch.service.ts`,
+  `libs/frontend/chat/src/lib/services/chat-store/session-loader.command-center-persona.spec.ts`,
+  `libs/frontend/chat/src/lib/services/chat.store.question-tab.spec.ts`,
+  `libs/frontend/chat/src/lib/services/chat.store.ts`,
+  `libs/frontend/chat/src/lib/services/message-sender.command-center.spec.ts`,
+  `libs/frontend/chat/src/lib/services/message-sender.service.ts`,
+  `libs/frontend/command-center/src/lib/model/command-center.store.spec.ts`,
+  `libs/frontend/command-center/src/lib/model/command-center.store.ts`,
+  `libs/frontend/command-center/src/lib/model/session-coordinator.spec.ts`,
+  `libs/frontend/command-center/src/lib/model/session-coordinator.ts`,
+  `libs/frontend/command-center/src/lib/model/status-context.spec.ts`,
+  `libs/frontend/command-center/src/lib/model/status-context.ts`,
+  `libs/frontend/command-center/src/lib/model/tribunal-roster-proposal.spec.ts`,
+  `libs/frontend/command-center/src/lib/model/tribunal-roster-proposal.ts`,
+  `libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.spec.ts`,
+  `libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.ts`,
+  `libs/frontend/command-center/src/lib/model/work-projection.spec.ts`,
+  `libs/frontend/command-center/src/lib/model/work-projection.ts`,
+  `libs/frontend/tribunal-panel/src/lib/services/tribunal-phase-derivation.spec.ts`,
+  `libs/frontend/tribunal-panel/src/lib/services/tribunal-phase-derivation.ts`,
+  `libs/frontend/tribunal-panel/src/lib/services/tribunal-progress.service.spec.ts`,
+  `libs/frontend/tribunal-panel/src/lib/services/tribunal-progress.service.ts`,
+  `libs/frontend/tribunal-panel/src/lib/services/tribunal-run-framing.spec.ts`,
+  `libs/frontend/tribunal-panel/src/lib/services/tribunal-run-framing.ts`,
+  `libs/frontend/tribunal-panel/src/lib/services/tribunal-run.service.ts`,
+  `libs/frontend/tribunal-panel/src/phase.ts`,
+  `libs/shared/src/lib/types/rpc/rpc-chat.types.spec.ts`,
+  `tsconfig.base.json`
+- Quality requirements: run `npx prettier --write <the 41 paths>` from the worktree root, then
+  `npx prettier --check <the 41 paths>`. No other edit. Do NOT format
+  `libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts` (217 lines of drift that predate this
+  task; the task's hunks sit at :40 and :995-1001) or
+  `libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.schema.spec.ts` (drift at :194-195 predates this task).
+  Staging either file makes the re-enabled lint-staged hook rewrite the whole file (Decision D17).
+- Validation notes: 37 of the 41 are new in this task. The other modified files (`tab-manager.service.ts`,
+  `message-sender.service.ts`, `message-dispatch.service.ts`, `chat-slash-command-router.service.ts`,
+  `tribunal-progress.service*.ts`, `tribunal-run.service.ts`, `chat-state/src/index.ts`, `rpc-chat.types.spec.ts`,
+  `tsconfig.base.json`) were Prettier-clean on `main`, so a whole-file run changes only this task's hunks. The
+  style review assumed otherwise; the team leader checked `main` with `prettier --check --stdin-filepath`.
+  `chat.store.ts` was already dirty on `main` (drift at :33 and :228, about 8 lines). It is formatted whole anyway,
+  because 8FD stages it again and the hook would format it whole at that point too.
+- Lane prompt: preamble plus this section. Deliverable `TASK/reports/batch-8F0-report.md`.
+
+### Batch 8F0 verification
+
+- `prettier --check` on the 41 files passes; `git diff --name-only` lists exactly the 41 files; the diff carries
+  no token changes beyond formatting (spot-check `git diff --word-diff` on 3 files).
+- The commit runs the restored pre-commit hook (Decision D16, Q1).
+
+## Batch 8FA: chat-state manifest contract and close cleanup (TL-1, TL-2 schema, TL-3) - PENDING
+
+- Recommended executor: CLI lane (implementation; Angular data-access TypeScript, persisted-schema migration)
+- Execution mode: sequential within the batch; runs in PARALLEL wave 1 beside 8FB and 8FD
+- Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (grok re-review)
+- Rationale: one persisted contract and its close-path consumer, in one project. Same task text as the
+  pre-seeded 8F.1-8F.3, plus a remove-by-run API that 8FC's rollback needs.
+- Tasks: 3 | Depends on: 8F0 committed
+- Phase: B (fix round) | Phase review: covered by the 8F re-review
+- Scoped verification (team leader): `npx nx run-many -t test typecheck lint -p @ptah-extension/chat-state --parallel=1 2>&1 | tail -60`.
+  The header must name 1 project (`@ptah-extension/chat-state`).
+- Files the lane may touch (4):
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.spec.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.service.ts` (close-path hunk only),
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.command-center.spec.ts`
+- Suggested commit: `fix(chat-state): batch 8FA - per-run manifests and close cleanup`
+
+### Task 8FA.1: Key run manifests by run ID and migrate the old shape on read (TL-1 / logic M1) - PENDING
+
+- Finding: `command-center-records.ts:29` (`runs: Record<string, …>` keyed by `rootTabId`), `:103-118`
+  (`readRunManifest`/`writeRunManifest`/`removeRunManifest` by `rootTabId`, write at `:111`). A second run under
+  one root replaces the first.
+- Plan reference: implementation-plan.md:16, :74, :98; B8 validation notes "two runs", "restart with manifest"
+- Pattern to follow: the existing per-field `safeParse` sanitising read (`command-center-records.ts:41-67`)
+- Quality requirements: store `runs` keyed by `runId`. Replace the three methods in place (no V2):
+  `readRunManifests(workspacePath, rootTabId): readonly CommandCenterRunManifest[]` (every valid manifest for that
+  root, sorted by `startedAt` ascending); `writeRunManifest(workspacePath, manifest): boolean` (adds or replaces
+  by `runId`); `removeRunManifest(workspacePath, runId): boolean` (drops one run; 8FC's rollback calls it through
+  its transport); `removeRunManifests(workspacePath, rootTabId): boolean` (drops every run of that root). On read,
+  accept the old shape: an entry keyed by a `rootTabId` whose manifest `rootTabId` equals the key is re-keyed by its
+  `runId`. Drop entries that fail the schema or whose key matches neither the manifest's `runId` nor its
+  `rootTabId`, without losing the valid ones. The next write persists only the new shape. Last-session and
+  active-tab fields stay byte-compatible.
+- Validation notes (write-path trace, required by Mode 3): the only writer is `writeRunManifest` (8FC transport,
+  wired in B13/B14). Removers are `removeRunManifest` (8FC rollback) and `removeRunManifests` (8FA.3 close). The
+  reader is `readRunManifests` (B13/B14 restart join). Same storage key (`<partition>.command-center`, `:37-39`),
+  same workspace scope, no env side effects. Spec cases: two runs under one root survive a reload; old-shape record
+  loads and the next write stores the new shape; a corrupt entry is dropped and the others survive; workspace
+  isolation; remove-by-run leaves the sibling run; remove-by-root leaves other roots.
+
+### Task 8FA.2: Role-less lanes in the manifest schema (TL-2 schema half / logic M2 / style Moderate 5) - PENDING
+
+- Depends on: Task 8FA.1 (same file)
+- Finding: `command-center-records.ts:18` requires `role: nonEmpty`. The coordinator writes `role: item.role ?? ''`
+  for Council/Forge/Race (`tribunal-run-coordinator.ts:54`), so every flat-move manifest fails the schema.
+- Quality requirements: lane `role` becomes `nonEmpty.optional()`: absent for flat moves, never `''`, and still
+  non-empty when present. The inferred `CommandCenterRunManifest` lane type becomes `{ laneId: string; role?: string }`
+  (Decision D21: not `LaneRole`, because `chat-state` is `type:data-access` and must not import `tribunal-panel`).
+  Spec: a role-less Council manifest writes and reads back; a manifest with `role: ''` is rejected; old records with
+  non-empty roles still load.
+
+### Task 8FA.3: Remove the root's run manifests on confirmed close (TL-3 / logic M3) - PENDING
+
+- Depends on: Task 8FA.1
+- Finding: `tab-manager.service.ts:1370-1405` (close path) never calls a manifest remover. Close clears only the
+  active-tab id (`:1378-1379`) and the send lock (`:1403-1404`).
+- Plan reference: implementation-plan.md:16, :98 ("Closing it warns, aborts its stream and removes its tab/manifest")
+- Pattern to follow: the B6A close path, `clearForRoot` and `recordCommandCenterWrite` (`:1007-1019`)
+- Quality requirements: after the confirmed removal of a marked root tab, call `removeRunManifests(workspace, tabId)`
+  and route its boolean through `recordCommandCenterWrite`. Add `'runManifest'` to `CommandCenterRecordKind`
+  (`tab-manager.service.ts:75`). A cancelled close and a workspace-switch park (`:1374` early return) keep the
+  manifests. The last-session record stays untouched, so Resume stays available. Unmarked tabs never touch the
+  records. Touch only the close-path hunk and the record-kind union in this 3182-line file.
+- Spec (`tab-manager.command-center.spec.ts`): confirmed close removes that root's runs and leaves another root's;
+  cancel keeps them; a failed remove sets `commandCenterRecordWriteFailure` with record `'runManifest'`; an unmarked
+  tab close never calls the remover.
+
+### Batch 8FA verification
+
+- Every listed artifact exists and contains the required work (team leader reads the 4 files on disk).
+- The scoped command passes, 1 project in the header.
+- Write-path trace recorded on this header after commit (8FA.1 validation notes).
+
+## Batch 8FB: Tribunal phase entry widening and constants (style S2, S3, Moderate 2) - PENDING
+
+- Recommended executor: CLI lane (implementation; pure TypeScript module surface)
+- Execution mode: sequential within the batch; runs in PARALLEL wave 1 beside 8FA and 8FD
+- Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (grok logic re-review plus in-process style re-review, because the
+  public `phase` entry widens)
+- Rationale: style ruling 3 (Decision D14 resolved: widen). The rule file is pure; exporting the real rule and
+  constants removes the Command Center mirror in 8FC.
+- Tasks: 3 | Depends on: 8F0 committed
+- Phase: B (fix round) | Phase review: covered by the 8F re-review (logic + style)
+- Scoped verification (team leader): `npx nx run-many -t test typecheck lint -p @ptah-extension/tribunal-panel --parallel=1 2>&1 | tail -60`.
+  The header must name 1 project.
+- Files the lane may touch (5):
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/phase.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/phase.spec.ts` (new),
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-run-framing.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/services/tribunal-phase-derivation.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/types/tribunal-ui.types.ts`
+- Suggested commit: `refactor(tribunal-panel): batch 8FB - export roster rule and round caps`
+
+### Task 8FB.1: Split the round cap and replace the literal 2s (style S3, ruling 2) - PENDING
+
+- Findings: `tribunal-run-framing.ts:97` (`DEFAULT_CRUCIBLE_ROUND_CAP = 2`, doc says "default AND maximum"),
+  `:104` (`Math.min(..., 2)`), `tribunal-phase-derivation.ts:61` (`?? 2`).
+- Quality requirements: keep `DEFAULT_CRUCIBLE_ROUND_CAP = 2` and add `MAX_CRUCIBLE_ROUND_CAP = 2` beside it, each
+  with a one-line doc comment for its own meaning. `roundCapFor` clamps with `MAX_CRUCIBLE_ROUND_CAP`.
+  `derivePhase` uses `?? DEFAULT_CRUCIBLE_ROUND_CAP` (import from `./tribunal-run-framing`). Behaviour does not change.
+  The existing framing and derivation specs must still pass unchanged.
+
+### Task 8FB.2: A canonical move list (style S3, moves re-typed) - PENDING
+
+- Finding: `TribunalMove` is a type only (`tribunal-ui.types.ts:4`), so `tribunal-roster-proposal.ts:16` re-types
+  the five moves as a zod enum literal.
+- Quality requirements: in `tribunal-ui.types.ts` add `export const TRIBUNAL_MOVES = ['council', 'forge', 'race',
+  'relay', 'crucible'] as const;` and derive `export type TribunalMove = (typeof TRIBUNAL_MOVES)[number];`. The type
+  must stay identical, and no other file in `tribunal-panel` needs an edit for it.
+
+### Task 8FB.3: Widen the phase entry, add its header and a barrel guard (style S2, Moderate 2, ruling 3) - PENDING
+
+- Depends on: Tasks 8FB.1, 8FB.2
+- Findings: `phase.ts:1-4` exports only framing and derivation, so the Command Center keeps a drifting copy of
+  `rosterIsLaunchable` (`tribunal-roster-proposal.ts:35-51` against `tribunal-roster-rules.ts:42-47`). `phase.ts`
+  has no header and no guard, unlike `chat-ui/src/turn-recap.ts` and `marketplace/src/harness.ts`; `ui` guards its
+  entry with `brand-mark-barrels.spec.ts`.
+- Quality requirements: `phase.ts` adds `rosterIsLaunchable` (from `./lib/services/tribunal-roster-rules`),
+  `DEFAULT_CRUCIBLE_ROUND_CAP` and `MAX_CRUCIBLE_ROUND_CAP` (from `./lib/services/tribunal-run-framing`), and
+  `RELAY_ROLES`, `CRUCIBLE_ROLES`, `TRIBUNAL_MOVES` plus types `TribunalMove`, `LaneRole`, `VendorLane` (from
+  `./lib/types/tribunal-ui.types`). Named exports only, never `export *`. Add a 6-8 line header: why the entry
+  exists (Command Center reads Tribunal's pure rules without the Angular panel), and that it must stay pure (no
+  Angular, no DI, no `TribunalStateService`, no component). Name Decision D6 and say no eager importer may be added.
+  First confirm that `tribunal-roster-rules.ts` and `tribunal-ui.types.ts` import nothing from Angular. Report their
+  import lines.
+  New `phase.spec.ts` asserts the exact sorted list of runtime export names of `./phase` (`import * as phase`), so an
+  accidental `export *` or an Angular symbol fails the test. Use `brand-mark-barrels.spec.ts` in `libs/frontend/ui`
+  as the pattern.
+
+### Batch 8FB verification
+
+- Every listed artifact exists; the scoped command passes, 1 project in the header.
+- `git diff` of `tribunal-run-framing.ts` / `tribunal-phase-derivation.ts` shows constant swaps only.
+
+## Batch 8FD: Session coordinator resume, voice release and meter zero (S3, S4, S6, M5, M7) - PENDING
+
+- Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design)
+- Execution mode: sequential within the batch; runs in PARALLEL wave 1 beside 8FA and 8FB
+- Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (grok re-review)
+- Rationale: one owner class (`CommandCenterSessionCoordinator`) plus the store method it calls and a one-field
+  `ChatStore` pass-through. It does not depend on 8FA or 8FB: the coordinator reads only `readActiveTabId` and
+  `readLastSession`, and neither changes.
+- Tasks: 3 | Depends on: 8F0 committed
+- Phase: B (fix round) | Phase review: covered by the 8F re-review
+- Scoped verification (team leader): `npx nx run-many -t test typecheck lint -p @ptah-extension/chat @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
+  The header must say 2 projects.
+- Files the lane may touch (6):
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/session-coordinator.spec.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/command-center.store.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/command-center.store.spec.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/chat.store.ts` (the `switchSession` signature only, :220-225),
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/services/chat.store.question-tab.spec.ts`
+  (add one case; it already builds a `ChatStore` TestBed)
+- Suggested commit: `fix(command-center,chat): batch 8FD - pinned resume and voice release`
+
+### Task 8FD.1: Pin resume to the marked tab and retry an unfinished restore (logic S3, S4, M7) - PENDING
+
+- Findings:
+  - S3 `session-coordinator.ts:61-65` and `:73-85`: if `switchSession` throws after `createCommandCenterTab` and
+    `attachSession`, the next `openOrResume` (often a new page instance, so in-memory flags do not survive) takes
+    the "tab already marked" branch. It marks the session `running` without ever restoring history.
+  - S4 `session-coordinator.ts:73-78`: `switchSession` gets no `targetTabId`. If another live tab already owns the
+    SDK id, `session-loader.service.ts:860-868` switches to that older tab and returns. One SDK id then sits on two
+    tabs, and the store points at the new, empty one.
+  - M7 `session-coordinator.ts:97-98`: a `success: true` payload with no `sessions` array returns `false`, which
+    falls through to `newCommandCenter()` (`:88`). The next send then overwrites the persisted last-session record,
+    which loses the resume pointer (Decision D20).
+- Quality requirements:
+  - `ChatStore.switchSession` (`chat.store.ts:220-225`) widens `opts` with `targetTabId?: TabId` and passes it to
+    `sessionLoader.switchSession` unchanged (`SessionLoaderService` already accepts it, `session-loader.service.ts:117`).
+    No other `ChatStore` change.
+  - Last-session branch: before `createCommandCenterTab`, look up an existing tab for `last.sdkSessionId`
+    (`TabManagerService.findTabBySessionId`). If one exists, do not create or attach: `switchTab` to it, `fail` with
+    "This session is already open in another tab. Close it there to resume it in Command Center.", and return null
+    (Decision D19: refuse, do not adopt). Otherwise create, attach, then
+    `chat.switchSession(SessionId.from(id), { targetTabId: TabId.from(tabId) })`. Use whatever `TabId`
+    constructor/parse helper the codebase already uses; `chat.store.ts` uses `TabId.safeParse`. Set
+    `running` only after it resolves.
+  - Existing-marked-tab branch: if the tab has a `claudeSessionId`, has no messages, and is not `hasLiveSession`
+    (verify these fields on `TabState`, `libs/frontend/chat-types/src/lib/chat-types.ts:603`), treat the restore as
+    unfinished. Call `switchSession(..., { targetTabId })` again, set `running` only after it resolves, and on throw
+    `fail('Could not restore the Command Center session.')` and return null (the tab stays marked for the next try).
+    A tab with messages or a live session keeps today's path.
+  - `sessionExists`: a `success: true` result whose `data.sessions` is not an array counts as a failed attempt
+    (retry, then `null`, then the existing fail toast), never as "not found".
+- Specs (`session-coordinator.spec.ts`): retry after a thrown restore calls `switchSession` again with the marked
+  tab id and only then reports `running`; an SDK id already on another tab creates no tab, calls no `attachSession`,
+  and toasts; the happy path passes `targetTabId`; a success payload without `sessions` creates no tab. One case in
+  `chat.store.question-tab.spec.ts` asserts that `switchSession` forwards `targetTabId` to the loader.
+
+### Task 8FD.2: New Command Center stops voice together with the lock (logic S6) - PENDING
+
+- Finding: `session-coordinator.ts:110-120`. `newCommandCenter()` releases the lock (`:116`) but leaves `voiceState`
+  (for example `listening`). Regular chat sends are no longer held (`message-sender.service.ts:100-102`) while the
+  page still shows voice as on, which breaks AC25.
+- Quality requirements: one private `stopVoiceLocally()` (name is the lane's choice) releases the lock, sets
+  `voiceState` to `'idle'` and zeroes the meters through 8FD.3's `resetLevels()`. `newCommandCenter` uses it (voice
+  is stopped, not carried to the new tab: Decision D19). `mute` and `stop` keep their states (`'muted'`,
+  `'stopped'`) but also zero the meters. `DestroyRef` teardown keeps releasing the lock.
+- Spec: `newCommandCenter` while listening leaves `isHeld` false and `voiceState` `'idle'`, with levels 0.
+
+### Task 8FD.3: A trailing zero always reaches the meters (logic M5) - PENDING
+
+- Finding: `command-center.store.ts:136-150`. `updateLevels` drops every sample inside 500 ms, including a final
+  `(0, 0)`, so output stays at the last accepted level. Batch 10.2 must push a final zero on stop, mute and idle.
+- Quality requirements: add `resetLevels(): void`, which sets both levels to 0 and clears `lastLevelUpdateAt`, so the
+  throttle restarts. It is the only way to bypass the throttle; `updateLevels` stays as is. Spec: `updateLevels(0.8,
+  0.8)` then `resetLevels()` within 500 ms gives 0/0; the next `updateLevels` is accepted at once.
+
+### Batch 8FD verification
+
+- Every listed artifact exists; the scoped command passes with 2 projects in the header.
+- `chat.store.ts` diff is the `switchSession` signature and forwarding only (plus the 8F0 formatting already
+  committed).
+
+## Batch 8FC: Tribunal confirm state machine, real roster rule, saved preferences (S1, S2, S5, TL-2 coordinator half, style S2/S3, Moderate 4) - PENDING
+
+- Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design; paid-spawn safety)
 - Execution mode: sequential
 - Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
 - Subagent reason: N/A
-- Review family: different from implementer (re-review by a non-implementer family, scoped to the B8F commit)
-- Rationale: one persisted contract (`CommandCenterRunManifest` storage) with its producer and its close-path
-  consumer; the producer and the store must change in the same commit or the contract is broken between commits.
-- Tasks: 3 (+ Phase B review findings appended when the verdict returns) | Depends on: B8 and the Phase B verdict
-- Phase: B (fix round) | Phase review: code-logic re-review scoped to the B8F commit; style re-review only if B8F
-  changes a public entry (for example a `phase` widening under D14)
-- Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/chat-state @ptah-extension/command-center --parallel=1 2>&1 | tail -60`
-  (header must say 2 projects). Verification rules above apply.
-- Suggested commit: `fix(chat-state,command-center): batch 8F - per-run manifests`
-
-### Task 8F.1: Key run manifests by run ID and migrate the old shape on read (TL-1) - PENDING
-
-- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.ts`,
-  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.spec.ts`
-- Plan reference: implementation-plan.md:16, :74, :98; B8 validation notes "two runs" and "restart with manifest"
-- Pattern to follow: the existing per-field `safeParse` sanitising read (`command-center-records.ts:41-67`)
-- Quality requirements: store `runs` keyed by `runId`; API `readRunManifests(workspace, rootTabId)` returns every
-  valid manifest for that root (stable order by `startedAt`), `writeRunManifest` adds or replaces one run by
-  `runId`, `removeRunManifests(workspace, rootTabId)` drops all runs of that root. On read, accept the old shape
-  (an entry keyed by `rootTabId` whose manifest `rootTabId` equals the key) and re-key it by its `runId`; drop
-  entries that fail the schema or whose key matches neither `runId` nor `rootTabId`. The next write persists only
-  the new shape. Last-session and active-tab fields stay byte-compatible.
-- Validation notes (write-path trace, required by Mode 3): the only writer is `writeRunManifest`, called by the
-  B13 transport; readers are `readRunManifests` (B13/B14 restart join) and the projection input. Same storage
-  key (`<partition>.command-center`, `:37-39`), same scope (workspace partition), no env side effects. The spec
-  covers: two runs under one root survive a reload; an old-shape record loads and is rewritten in the new shape;
-  a corrupt entry is dropped without losing the others; workspace isolation.
-- Implementation details: replace the old single-run methods in place (no V2 copies); update the 4 spec cases
-  that call `readRunManifest`/`removeRunManifest`.
-
-### Task 8F.2: Allow role-less lanes in the manifest contract (TL-2) - PENDING
-
-- Depends on: Task 8F.1 (same file)
-- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.ts`,
+- Review family: different from implementer (grok re-review)
+- Rationale: carries the A1 paid-spawn invariant. Two source files and their specs only, so the lane has room
+  for test design inside 40 tool calls.
+- Tasks: 2 | Depends on: 8FA and 8FB committed (needs the optional `role` and `removeRunManifest`, and the `phase`
+  exports)
+- Phase: B (fix round) | Phase review: covered by the 8F re-review (style re-review reads `tribunal-roster-proposal.ts`)
+- Scoped verification (team leader): `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
+  The header must name 1 project.
+- Files the lane may touch (4):
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-roster-proposal.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-roster-proposal.spec.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.spec.ts`
-- Plan reference: implementation-plan.md:31, :74; Amendment A1 item 3 (registration before launch)
-- Quality requirements: lane `role` becomes optional in the schema (absent, never `''`), and the coordinator omits
-  `role` when the proposal lane has none. Add a coordinator spec that runs `writeManifest` through a real
-  `manifestSchema`-shaped check (or the records service) for a Council roster, so a mock can no longer hide the
-  contract.
-- Validation notes: Relay and Crucible manifests keep their roles; old records with non-empty roles still load.
+- Suggested commit: `fix(command-center): batch 8FC - retryable confirm and real roster rule`
 
-### Task 8F.3: Remove the root's run manifests on confirmed close (TL-3) - PENDING
+### Task 8FC.1: Roster proposal uses Tribunal's rule and constants, and enforces saved preferences (style S2, S3; logic S5) - PENDING
 
-- Depends on: Task 8F.1
-- Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.service.ts`,
-  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.command-center.spec.ts`
-- Plan reference: implementation-plan.md:16, :98 ("Closing it warns, aborts its stream and removes its tab/manifest")
-- Pattern to follow: the B6A close path (`tab-manager.service.ts:1370-1405`, `clearForRoot` and
-  `recordCommandCenterWrite`)
-- Quality requirements: after the confirmed removal of a marked root tab, call `removeRunManifests` for that root and
-  route a `false` through `recordCommandCenterWrite`; a cancelled close and a workspace-switch park keep the
-  manifests; last-session record is untouched (Resume stays available).
-- Validation notes: unmarked tabs never touch the records.
+- Findings:
+  - style S2 `tribunal-roster-proposal.ts:35-51`: `rosterIsLaunchableLocally` mirrors and has already diverged from
+    `tribunal-roster-rules.ts:42-106` (inlined relay roles `:38`, inlined `normalizeModel` `:40`).
+  - style S3 `:8` (CLI enum re-typed; canonical `SYSTEM_CLI_TYPES` in `libs/shared/src/lib/types/agent-process.types.ts:70-82`
+    plus `'ptah-cli'`), `:10` (roles), `:16` (moves), `:19` (`rounds.max(2)`), `:28` and `:67` (`'AT LIMIT'` twice).
+  - logic S5 `:27-32` and `:67`: `availableLanes` is optional, so AT LIMIT is enforced only when the caller passes it.
+    `rankAvailableLanes` has no `disabledClis`, so a lane the user disabled can be proposed and launched.
+- Quality requirements:
+  - Delete `rosterIsLaunchableLocally`. Keep only the two shape checks that the Tribunal rule lacks, as
+    `proposalShapeIsValid(proposal)`: unique `laneId`, and flat moves carry no `role`. Launchability is
+    `proposalShapeIsValid(p) && rosterIsLaunchable(p.move, p.lanes)` from `@ptah-extension/tribunal-panel/phase`. If
+    the zod lane type is not assignable to `VendorLane`, map it explicitly; no cast.
+  - zod enums come from the canonical values: `cli` from `[...SYSTEM_CLI_TYPES, 'ptah-cli']` (confirm the export path
+    from `@ptah-extension/shared`), `role` from `[...RELAY_ROLES, ...CRUCIBLE_ROLES]`, `move` from `TRIBUNAL_MOVES`, and
+    `rounds.max(MAX_CRUCIBLE_ROUND_CAP)`. Add one `const AT_LIMIT_STATE = 'AT LIMIT'`.
+  - A named `ProposalAvailability { readonly lanes: readonly AvailableLane[]; readonly disabledClis: readonly string[] }`.
+    `AvailableLane` gains `readonly cli: string`. `rankAvailableLanes(availability, preferredAgentOrder)` drops AT
+    LIMIT lanes and lanes whose `cli` is disabled, then sorts by preference.
+    `parseRosterProposal(payload, expectedRoot, expectedNonce, availability)` takes a **required** availability and
+    rejects a proposal with any lane that is missing from `availability.lanes`, is AT LIMIT, or has a `cli` in
+    `disabledClis`. Export a `rosterIsAvailable(proposal, availability)` helper for the coordinator's
+    confirm-time re-check.
+- Specs: a disabled CLI is rejected; an AT LIMIT lane is rejected; a Relay with self-review (same family and model) is
+  rejected through the real Tribunal rule; a Council lane with a role is rejected; rounds above
+  `MAX_CRUCIBLE_ROUND_CAP` are rejected; the ranker drops disabled and AT LIMIT lanes and keeps preference order.
 
-### Batch 8F verification
+### Task 8FC.2: Confirm keeps the proposal retryable until the launch is sent (logic S1, S2, TL-2 coordinator half; style Moderate 4) - PENDING
 
-- Every listed artifact exists and contains the required work, plus any appended review fixes.
-- The scoped command passes (2 projects in the header); output tailed.
-- Write-path trace recorded in the batch result (Task 8F.1 validation notes).
-- Then the one code-logic re-review, scoped to the B8F commit, closes Phase B.
+- Depends on: Task 8FC.1
+- Findings:
+  - S1 `tribunal-run-coordinator.ts:36-66`: `confirm` deletes the pending entry and marks the id consumed (`:39-40`)
+    before anything succeeds. Every later failure (`discoveryComplete` rejects, `createTask` null, `writeManifest`
+    false, `sendLaunchTurn` false) returns `false` with nothing the user can see, and the id can never launch. The
+    Decline fallback at `:41-43` ignores its own result.
+  - S2 `:22-28`: a second `receive` with an id that is still pending overwrites the first question. The first
+    question is never answered and Confirm answers the wrong card. Task 8.3 requires a replay to be a no-op.
+  - TL-2 `:54`: `role: item.role ?? ''`.
+  - style Moderate 4 `:13`, `:22`: an anonymous 8-field context and a `Pending` interface that duplicates it.
+- Quality requirements (Decision D18):
+  - Named exported types (exported from this file only, not the barrel): `ProposalReceiveContext { questionId,
+    questionKey, rootSdkId, rootTabId, workspace, nonce, availability: ProposalAvailability }` (all readonly,
+    availability **required**), and `PendingProposal` built on a readonly base plus its state.
+  - Per-proposal state: `open` (question unanswered) -> `answered` (the fixed D1 text was delivered; launch not yet
+    sent) -> `launched`; or -> `declined`. `launched` and `declined` are terminal, and only they put the id in
+    `consumed`.
+  - `receive`: an id that is terminal, or already open or answered, answers `Decline` to the **new** question,
+    keeps the first entry untouched, and returns null (S2).
+  - `confirm(proposalId): Promise<ConfirmResult>`, where `ConfirmResult = { ok: true } | { ok: false; reason:
+    ConfirmFailureReason; retryable: boolean }`. Concurrent calls for one id share one in-flight promise.
+    - From `open`: re-check `rosterIsAvailable(proposal, transport.availability())`. If unavailable, answer `Decline`,
+      mark it declined, and report `lanes-unavailable`, not retryable. Otherwise send `CONFIRMED_DISCOVERY_ANSWER`.
+      If that is not delivered, try `Decline`. If `Decline` is delivered, mark it declined (`answer-undelivered`, not
+      retryable). If neither is delivered, stay `open` (`answer-undelivered`, retryable; the host's timeout still
+      resolves Decline first).
+    - From `answered`, or straight after the answer: `discoveryComplete()`, then revalidate (shape, rule, root,
+      availability). If revalidation fails, the state is terminal `declined` with `not-launchable`. No further turn
+      is sent, and the failure is reported.
+    - Relay/Crucible `createTask` runs once per proposal: keep the returned `specTaskId` on the entry and reuse it on
+      retry. Then `writeManifest` with lanes that omit `role` when the proposal lane has none (TL-2; never `''`).
+      Then `sendLaunchTurn`. When the send returns false or throws after the manifest write, roll back with
+      `transport.removeManifest(workspace, runId)`. Keep the `runId` on the entry, so a retry reuses or rewrites one
+      run.
+    - Each failure after `answered` keeps the state `answered` with `retryable: true`
+      (`discovery-failed`, `task-create-failed`, `manifest-write-failed`, `launch-send-failed`). Success sets
+      `launched`.
+    - Every `ok: false` calls `transport.reportFailure(message)` once, with a fixed safe message per reason from an
+      exported `CONFIRM_FAILURE_MESSAGES: Record<ConfirmFailureReason, string>`. Messages carry no error text and no
+      payload content.
+  - `ProposalTransport` gains `availability(): ProposalAvailability`, `removeManifest(workspace: string, runId:
+    string): boolean` and `reportFailure(message: string): void`. The page wires them in B13/B14 (records service,
+    store toast).
+  - `pageExit` declines only `open` entries. `answered` entries are dropped without sending a turn. `decline` and
+    `timeout` act only on `open` entries.
+  - Each `catch` follows the degradation-audit rules in the preamble. A `catch` that returns a result object
+    literal needs the marker.
+- Specs (`tribunal-run-coordinator.spec.ts`). At least one spec writes the manifest through the real
+  `CommandCenterRecordsService` from `@ptah-extension/chat-state`, over an in-memory storage, for a role-less Council
+  roster, so a stub can no longer hide the schema. Cases:
+  - the delivered answer never contains "Confirm" or any affirmative token (kept);
+  - a manifest-write failure, then a retry, launches exactly once and calls `createTask` once (Relay);
+  - a launch-send failure rolls back the manifest, and a retry launches once;
+  - an undelivered answer with an undelivered Decline stays retryable;
+  - a duplicate pending id declines the second question and keeps the first;
+  - a disabled CLI at confirm time declines and reports `lanes-unavailable`;
+  - every failure calls `reportFailure` exactly once;
+  - `pageExit` after `answered` sends no `Decline`;
+  - no launch starts from a timeout or auto-resolve (kept).
+
+### Batch 8FC verification
+
+- Every listed artifact exists; the scoped command passes, 1 project.
+- The team leader reads every `catch` in the two files against `check-degradation.ts` (Decision D12 method).
+- `rosterIsLaunchableLocally` is gone from the lib (grep); the zod enums carry no literal CLI, role, move or 2.
+
+## Batch 8FE: Tribunal lanes and stage in the projection; persisted state unknown (logic S7, M6; style Moderate 3) - PENDING
+
+- Recommended executor: CLI lane (implementation; pure TypeScript reducer, test design)
+- Execution mode: sequential (after 8FC, because both edit `command-center`)
+- Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (grok re-review)
+- Rationale: one pure reducer file and its spec. AC15 and AC11 gaps that no later batch owns (Decision D20).
+- Tasks: 1 | Depends on: 8FD committed (8FD edits `command-center.store.ts` first) and 8FC committed (same project)
+- Phase: B (fix round, last batch) | Phase review: after commit, NEEDS REVIEW for the 8F range
+- Scoped verification (team leader): `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
+  The header must name 1 project.
+- Files the lane may touch (3):
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/work-projection.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/work-projection.spec.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/command-center.store.ts`
+  (add `'unknown'` to `CommandWorkState` (`:19-26`) only)
+- Suggested commit: `fix(command-center): batch 8FE - tribunal lanes and stage in work tree`
+
+### Task 8FE.1: Lanes and stage for every Tribunal run; persisted-only children are unknown - PENDING
+
+- Findings:
+  - S7: the review's data-flow and requirement tables call this "S7" (AC15 PARTIAL), though its summary counts six
+    Serious (Decision D22). `work-projection.ts:41-50`: Council, Forge and Race runs project one `tribunal:<runId>`
+    node with no lanes and no stage, because `derivePhase` returns `kind: 'none'` (`tribunal-phase-derivation.ts:51-53`).
+    The spec asserts only group ids (`work-projection.spec.ts:14-20`).
+  - M6 `work-projection.ts:27`: persisted-only children are labelled `completed`, so after a restart a running child
+    reads as done (AC11) until its live descriptor arrives.
+  - style Moderate 3 `:22` (`child.sessionId as string`) and `:59` (`node.parentId as string`). These lines are inside
+    the code this task rewrites.
+- Quality requirements:
+  - For every run (all five moves), emit one node per `run.phase.laneBindings.lanes` entry with id
+    `lane:<runId>:<laneId>` (new stable prefix, recorded in Decision D22), parent `tribunal:<runId>`, label the lane's
+    `displayName` (with the role when present), `providerId` from the lane's `cli`, and state mapped from
+    `laneBindings.bound.get(laneId)?.status` (unbound lanes are `'queued'`). An owned agent whose `runId` matches and
+    whose `agentId` equals a lane's `agentId` parents under that lane node instead of the group. No duplicate nodes.
+  - When `derivePhase` gives `kind: 'none'` or `'unavailable'`, emit one `phase:<runId>:stage` node with a label for
+    that case and the run's state. Relay and Crucible output stays as today.
+  - Persisted-only children get state `'unknown'`. Add `'unknown'` to `CommandWorkState` in `command-center.store.ts`
+    and nothing else there. Live rows still win. If `status-context.ts` or any other switch over `CommandWorkState`
+    fails to typecheck, stop and report it; do not widen the file list.
+  - Replace the two `as string` casts with a type-guard filter or `flatMap`.
+- Specs: a Council run with 3 bound lanes gives 3 lane nodes plus one stage node; a lane agent parents under its
+  lane; a Relay is unchanged; a persisted-only child is `'unknown'` and turns live when its descriptor arrives; two
+  runs under one root keep separate lanes.
+
+### Batch 8FE verification
+
+- Every listed artifact exists; the scoped command passes, 1 project.
+- Phase B fix round closes with NEEDS REVIEW: logic re-review (grok) on `<8F0 SHA>..HEAD`, plus a style
+  re-review (in-process) of the `phase` widening and the 8F files' formatting.
 
 ## Batch 9: Voice primitives (adapted from property-hub) - PENDING
 
@@ -1089,7 +1580,9 @@ last batch header.
   speak one short summary for a valid roster proposal; transcription failure creates no turn; synth/playback failure
   keeps text and allows retry; mute stops capture without ending the session; stop releases everything; exit releases
   tracks, context, worker, URLs, timers and listeners.
-- Validation notes: record cold-worker and post-barge-in latency marks for B18.
+- Validation notes: record cold-worker and post-barge-in latency marks for B18. Push the final meter zero on
+  stop, mute and idle through `CommandCenterStore.resetLevels()` (added in 8FD.3; `updateLevels` throttles to
+  500 ms and drops a trailing zero, logic review M5).
 - Implementation details: state flows into `CommandCenterStore` voice state.
 
 ### Task 10.3: Status narrator - PENDING
@@ -1325,6 +1818,14 @@ last batch header.
   block, lines 11-20) and use a 2-project scoped command
   (`-p @ptah-extension/command-center @ptah-extension/chat-state`, header must name 2 projects).
 - Implementation details: export `CommandCenterPageComponent` from `src/index.ts`.
+- Carried from the Phase B reviews (Decision D20), owned here:
+  - (style Moderate 1) Replace `export *` in `src/index.ts` with named exports: only `CommandCenterPageComponent`,
+    plus a one-line comment that the model classes are page-internal.
+  - (logic M4 / style Moderate 6) Give `buildStatusContext` a real `agesMs` producer: node timestamps from the
+    projection inputs, wired by the page. Otherwise drop the parameter and the `setStatusContextProvider` seam
+    (`session-coordinator.ts:28,34`) if the page needs no second provider.
+  - Wire the 8FC transport additions (`availability()`, `removeManifest`, `reportFailure` -> store toast) and
+    pass a required `ProposalAvailability` to `receive`.
 
 ### Batch 14 verification
 
