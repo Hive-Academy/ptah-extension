@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 21/28 | Phases A and B CLOSED; B9 and B11 done (D32); B0 waived (D34); next: Phase C review (B9-B10), B13
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 25/28 | Phases A, B and C CLOSED; B9-B16 done; B0 waived (D34); next: Phase D reviews (B11-B16), then B17, B18
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -144,6 +144,10 @@ Edge cases:
 | D33 | B9 (`b65372ba1`) and B11 (`4b7455a36`) are accepted after one orchestrator fix round each (3 defects per batch, all fixed by the same codex lane, recorded in each batch's verification). The B11 lane found that child nodes cannot show `Codex · Builder` because the B8 projection carries no child session name and no provider ids; the fix is carried to Task 14.2, which already owns `work-projection.ts` (D28). No per-batch review (plan); the Phase C logic review runs after B10, and the Phase D reviews after B16. | (a) carry the child-label fix to Task 14.2; (b) a new bounded batch now | `reports/batch-11-report.md` "Carry-over"; `work-projection.ts` child label `'Child session'` and `providerId: null`; Task 14.2 already lists `work-projection.ts` (D28), so (a) adds no new file owner. | yes |
 | D34 | The user waived the B0 baseline on 2026-10-15 ("continue as if the test went well"). B0 is WAIVED, and nothing gates B10 or B12 any more. No measured number is recorded or invented: `test-report.md` "Preimplementation baseline" records the waiver only. Until B18, code and specs use the plan's fixed scene targets (p95 draw at most 8 ms at N=24, sustained at least 30 FPS, implementation-plan.md:60) and record latency marks without a pass/fail bound. B18 (the Electron Scene and Voice Gate) now also takes the baseline: the refresh interval, the provider pair, the 30 or more end-of-utterance to first-audio samples, and the voice p95 bound; AC20 is judged there. Risk: a budget problem first shows at B18, after B10-B17 are built. | (a) waive B0 and measure at B18; (b) wait for the user's measurements | User instruction 2026-10-15. The plan forbids invented numbers (implementation-plan.md:60, B0 validation notes). | yes |
 | D35 | B10 (`cd3a5c6e9`) and B12 (`64c69a8ca`) are accepted after one orchestrator fix round each (3 and 2 defects, fixed by the same codex lanes; recorded in each batch's verification). Both lanes report page integration that their file lists exclude: the voice loop lifecycle and callbacks, including the new `onRosterResolved`, and the scene's `setOverlayLabels` and `setCardAnchor`. Task 14.2 owns that wiring because the page owns the voice and scene lifecycle. The Phase C code-logic review of the combined B9-B10 voice diff runs next on a different family (grok). | (a) carry the wiring to Task 14.2; (b) a new integration batch | `reports/batch-10-report.md` and `reports/batch-12-report.md` "Needed changes outside the batch"; Task 14.2 already owns the page lifecycle ("voice loop start/stop"). | yes |
+| D36 | B13 (`fd493f2c9`) is accepted after one orchestrator fix round (5 defects: 2 lint errors for outputs named as DOM events, stale typed answer per request, duplicate answer/decline emits, unclamped roving list index, 4 spec non-null warnings; same codex lane family). The Phase C fix round (`57f5d0940`) closes S1, M1, M2, M3 in code; one residual of S1 is carried to Task 14.2: `onTurnBoundary(text)` has no turn token, so a stale boundary that arrives after a new send has settled cannot be told apart inside the loop. The page, which calls it, passes a turn token (or calls it only for the turn it sent). Task 14 runs as two sequential codex lanes (14.1 overlay, then 14.2 page) because B14 has 7+ files. | (a) carry the turn token to 14.2; (b) a voice-loop contract change now without a caller | `reports/batch-13-fix-report.md`; `reports/phase-c-fix-report.md` "Carried to Task 14.2"; the page owns the assistant-stream boundary (D35). | yes |
+| D37 | Phase C CLOSED: grok re-review of `57f5d0940` APPROVED 7/10 (`code-logic-review-phase-c-rereview.md`; reviewer grok, implementer codex). New Moderate N1 (barge-in clears `playbackMarks` but leaves `synthesisIds` queued, so a later reply's latency origin can attach to the wrong chunk; `command-voice-loop.ts:82,96,154-163,271-273`) is fixed in a small follow-up (Task 14.2c: clear `synthesisIds` with `playbackMarks` on barge-in plus a spec), run after the page lane because that lane may edit `command-voice-loop.ts` for the turn token (D36). `reports/phase-c.diff` deleted (same rule as D23). Grok weekly usage reached 91% during this phase; Phase D reviews must stay off codex, so they use grok if it has room, else the in-process reviewers after 2026-10-16. | (a) close Phase C and carry N1; (b) another revise round now | Revise cap: one fix round plus one re-review used; N1 is Moderate, not Blocking or Serious; the reviewer approved. | yes |
+| D38 | Task 14.2 runs as five codex lanes: 14.1 overlay (`5b02f44a8`), 14.2a projection model (`4d7cd2f92`), 14.2b page shell, controller, voice wiring and named export (partial: no Tribunal, empty agents/runs), 14.2c Tribunal wiring, 14.2d projection source and N1, then a final lane that wires the source and writes the page specs. Tribunal nonce: the PAGE issues it. On an explicit move word the controller appends a delimited request block with a `crypto.randomUUID()` nonce and the root session id; the persona (`command-center-persona.ts`) tells the model to copy them into the AskUserQuestion payload instead of inventing a nonce; `parseRosterProposal` checks both. Lane availability comes from `TribunalDiscoveryService` plus `agent:getConfig` disabledClis. | (a) page-issued nonce; (b) accept the model's nonce (no authority); (c) defer Tribunal launch | Plan unit 5 (`implementation-plan.md:31`: the coordinator sends the discovery-only turn and validates the matching nonce); A1; `tribunal-roster-proposal.ts:98-130` expects a caller-known nonce; `reports/batch-14-2b-report.md` "Needed changes". | yes |
+| D39 | The webview routing specs failed when the route loaded the real `@ptah-extension/command-center` chunk: the lib imported `TribunalDiscoveryService` from the MAIN `@ptah-extension/tribunal-panel` barrel, which also exports the Tribunal page (`tribunal-page.component.ts` imports `gridstack/dist/angular`, ESM-only in Jest), so the lazy Command Center chunk carried the whole Tribunal page. Fix: a narrow secondary entry `@ptah-extension/tribunal-panel/discovery` (`src/discovery.ts`, alias in `tsconfig.base.json`, purity guard `src/discovery.spec.ts`) in the style of `/phase` (D6), and command-center imports only the narrow entries. Also replaced 5 banned `text-base-content/70` classes found by the webview design-lint spec. New public API for the Phase D style review. | (a) narrow entry; (b) add gridstack to the webview Jest `transformIgnorePatterns` (hides the bundle cost); (c) mock the module in the routing spec | `/tmp` B15 check: 4 routing failures with the gridstack ESM error, 1 design-lint failure; `reports/batch-14-2e-report.md`. | yes |
 
 ## Phases and reviews
 
@@ -152,7 +156,7 @@ Edge cases:
 | 0 - Baseline | B0 | none (measurement) |
 | A - Chat runtime contracts | B1-B4, fix B4F | CLOSED: code-logic (B1-B4: NEEDS_REVISION); B4F re-review APPROVED (L1 closed) |
 | B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24), all committed; re-review on `5d52cfa5b..b5af1cc42`: logic NEEDS_REVISION 7/10 (grok; all 13 prior findings closed; 1 new S, 2 M), style APPROVED (Anthropic); bounded correction 8FG (D26-D29) committed `433aab5ad`; 8FG review on `ea106f685..433aab5ad`: logic APPROVED 9/10 (grok; implementer codex; RR-S1, RR-M2 closed, 0 new issues). CLOSED (D30) |
-| C - Voice | B9-B10 | code-logic |
+| C - Voice | B9-B10, fix 57f5d0940 | code-logic: initial review on `0c9ca43a9..48d2fafee` NEEDS_REVISION 6/10 (grok; implementer codex; 1 S, 3 M); fix round `57f5d0940` (codex); re-review on `57f5d0940^..57f5d0940` APPROVED 7/10 (grok; S1, M1, M2, M3 closed; 1 new Moderate N1 carried to Task 14.2c, D37). CLOSED (D37) |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
 | E - Acceptance | B17-B18 | none (tests and measurement); B18 visual evidence is still required for Mode 3 |
 
@@ -2023,7 +2027,7 @@ Lane rules for this batch:
   no prior hover (the output emits only on change). Scoped command: "Successfully ran targets test, typecheck,
   lint for project @ptah-extension/command-center", 102 tests. Commit `64c69a8ca` passed the hooks.
 
-## Batch 13: Presentational components (pending card, work list, HUD, session controls) - PENDING
+## Batch 13: Presentational components (pending card, work list, HUD, session controls) - COMPLETE (commit fd493f2c9)
 
 - Recommended executor: CLI lane (implementation; Angular UI)
 - Execution mode: sequential
@@ -2037,7 +2041,7 @@ Lane rules for this batch:
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 13 - pending card, work list, hud, controls`
 
-### Task 13.1: CommandPendingInputComponent - PENDING
+### Task 13.1: CommandPendingInputComponent - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-pending-input.component.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-pending-input.component.spec.ts` (new)
@@ -2050,7 +2054,7 @@ Lane rules for this batch:
 - Validation notes: spec covers click and key confirm, spoken "yes" ignored, Decline, timeout, duplicate click.
 - Implementation details: 44 px targets, focus rings, accessible text state.
 
-### Task 13.2: CommandWorkListComponent - PENDING
+### Task 13.2: CommandWorkListComponent - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-work-list.component.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-work-list.component.spec.ts` (new)
@@ -2062,7 +2066,7 @@ Lane rules for this batch:
 - Validation notes: list stays complete when the scene caps at 24.
 - Implementation details: input projection, output selection.
 
-### Task 13.3: CommandVoiceHudComponent - PENDING
+### Task 13.3: CommandVoiceHudComponent - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-voice-hud.component.ts` (new)
 - Plan reference: implementation-plan.md:40, :46; task-description AC3, AC4, AC7, AC8, AC9
@@ -2072,7 +2076,7 @@ Lane rules for this batch:
 - Validation notes: covered by page spec (Task 14.2) and integration specs (B17).
 - Implementation details: input voice state, outputs control intents.
 
-### Task 13.4: CommandSessionControlsComponent - PENDING
+### Task 13.4: CommandSessionControlsComponent - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-session-controls.component.ts` (new)
 - Plan reference: implementation-plan.md:5, :46; task-description AC16, AC17, AC25
@@ -2087,8 +2091,14 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed.
 - No per-batch review.
+- Result (2026-10-15, orchestrator): codex lane delivered the 6 files; orchestrator review found 5 defects
+  (D36), fixed by a codex lane (`reports/batch-13-fix-report.md`). Scoped run before the fix: test 112/112,
+  typecheck pass, lint 2 errors; after the fix: `npx eslint` on the 6 files clean, the 2 B13 specs 14/14,
+  pre-commit `nx affected --target=lint` pass. A1 rules checked on disk: Confirm only from click or focused
+  Enter/Space, once per proposal; invalid proposal shows no Confirm; spoken input has no confirm path; the work
+  list is uncapped with one polite live region.
 
-## Batch 14: Overlay and page component - PENDING
+## Batch 14: Overlay and page component - COMPLETE (commits 5b02f44a8, 4d7cd2f92, 6606037c1, 0d2b4d91a)
 
 - Recommended executor: CLI lane (implementation; Angular UI)
 - Execution mode: sequential
@@ -2103,7 +2113,7 @@ Lane rules for this batch:
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 14 - command center page`
 
-### Task 14.1: CommandOverlayComponent - PENDING
+### Task 14.1: CommandOverlayComponent - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-overlay.component.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-overlay.component.spec.ts` (new, D31)
@@ -2171,7 +2181,7 @@ Lane rules for this batch:
 - Implementation details: exposes element refs to the scene (labels plus the one card anchor); inputs: projection
   nodes, `hoveredNodeId`, `selectedId`, `reducedMotion`; outputs: pin and unpin with node ID.
 
-### Task 14.2: CommandCenterPageComponent and lazy export - PENDING
+### Task 14.2: CommandCenterPageComponent and lazy export - COMPLETE
 
 - Depends on: Task 14.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/components/command-center-page.component.ts` (new),
@@ -2238,8 +2248,14 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed.
 - No per-batch review.
+- Result (2026-10-15, orchestrator): six codex lanes (D36, D38, D39; reports `batch-14-1`, `14-2a` to `14-2f`). Orchestrator fixes found by
+  the scoped runs: overlay typecheck (Event narrowing), a rAF spec and an emit after destroy (14.1 correction); a `workspaceRoot` narrowing
+  error in the Tribunal transport (fixed by the orchestrator); the transport rewrote the D1 answer text (14.2f forwards it, never "Confirm").
+  Final scoped run `-p @ptah-extension/command-center @ptah-extension/chat-state @ptah-extension/tribunal-panel` (3 projects): tests 597 + 345 +
+  154 pass, typecheck pass, lint 0 errors (warnings only in files this task did not change). Known limit: a Tribunal move word on a new tab
+  without an SDK root session id is refused with a safe toast until the first turn settles (`reports/batch-14-2c-report.md`).
 
-## Batch 15: Surface id and Electron-only route - PENDING
+## Batch 15: Surface id and Electron-only route - COMPLETE (commit eb3b280c4)
 
 - Recommended executor: CLI lane (implementation; Angular routing + shared types)
 - Execution mode: sequential
@@ -2253,7 +2269,7 @@ Lane rules for this batch:
   (header must say 2 projects). Verification rules above apply.
 - Suggested commit: `feat(shared,webview): batch 15 - command-center surface id and route`
 
-### Task 15.1: command-center surface id - PENDING
+### Task 15.1: command-center surface id - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/shared/src/lib/types/webview-surface.types.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/shared/src/lib/types/webview-surface.types.spec.ts`
@@ -2265,7 +2281,7 @@ Lane rules for this batch:
   in the two batch projects; report any outside them instead of editing.
 - Implementation details: type + list + spec line.
 
-### Task 15.2: Electron-only lazy route - PENDING
+### Task 15.2: Electron-only lazy route - COMPLETE
 
 - Depends on: Task 15.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/apps/ptah-extension-webview/src/app/app.routes.ts`,
@@ -2282,8 +2298,11 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes (2 projects); output tailed.
 - No per-batch review.
+- Result (2026-10-15, orchestrator): first scoped run failed 5 tests (4 routing cases on the gridstack ESM import through the main
+  tribunal-panel barrel, 1 design-lint case on `text-base-content/70`), fixed by D39. Final run (2 projects): shared 113 suites / 3597 tests,
+  webview 18 suites / 481 tests pass; typecheck pass; lint 0 errors.
 
-## Batch 16: Electron nav, regular-chat lock banner and rewind persona - PENDING
+## Batch 16: Electron nav, regular-chat lock banner and rewind persona - COMPLETE (commit 45fb50746)
 
 - Recommended executor: CLI lane (implementation; Angular UI)
 - Execution mode: sequential
@@ -2297,7 +2316,7 @@ Lane rules for this batch:
   (header must say 2 projects). Verification rules above apply.
 - Suggested commit: `feat(chat,core): batch 16 - command center nav, lock banner, rewind persona`
 
-### Task 16.1: Electron navigation entry - PENDING
+### Task 16.1: Electron navigation entry - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/components/templates/electron-shell.command-center-tab.spec.ts` (new)
@@ -2307,7 +2326,7 @@ Lane rules for this batch:
 - Validation notes: no VS Code nav change.
 - Implementation details: mirror the Apps tab.
 
-### Task 16.2: Regular-chat lock banner and Open Command Center link - PENDING
+### Task 16.2: Regular-chat lock banner and Open Command Center link - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.command-center-lock.spec.ts` (new)
@@ -2318,7 +2337,7 @@ Lane rules for this batch:
 - Validation notes: queued content stays visible and sendable after unlock.
 - Implementation details: signal from `CommandCenterSendLockService`.
 
-### Task 16.3: Persona on rewind activation - PENDING
+### Task 16.3: Persona on rewind activation - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/core/src/lib/services/claude-rpc.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/core/src/lib/services/claude-rpc.rewind-persona.spec.ts` (new),
@@ -2338,6 +2357,11 @@ Lane rules for this batch:
 - The scoped command passes (2 projects); output tailed.
 - Phase D's last batch: after commit return NEEDS REVIEW (code-logic + style, combined diff B11-B16). Visual review is
   requested with B18 evidence.
+- Result (2026-10-15, orchestrator): codex lane delivered the 8 files; the orchestrator rejected 3 source-text specs (`readFileSync`) and a codex
+  correction replaced the shell-tab and composer-lock specs with TestBed behavior specs (`chat-view.rewind-persona.spec.ts` stays source-level:
+  weaker evidence, chat-view is very large) and updated the pinned Apps tab order. The orchestrator updated the pinned tab list in
+  `electron-shell.config-gate.spec.ts`. Scoped run: core 41 suites / 1255 tests pass; chat 216 suites pass after the config-gate fix (18/18 in
+  that suite); typecheck pass; lint 0 errors (2 existing max-lines warnings on chat-input and chat-view).
 
 ## Batch 17: Acceptance integration specs - PENDING
 
