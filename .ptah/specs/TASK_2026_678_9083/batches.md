@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 48 | Batches: 19 (17 code batches + 2 user-run gates) | Complete: 1/19
+Total tasks: 48 | Batches: 19 (17 code batches + 2 user-run gates) | Complete: 2/19
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -160,7 +160,7 @@ last batch header.
 - `TASK/test-report.md` holds every field above with units, date and hardware.
 - No Nx command.
 
-## Batch 1: Persona RPC contract on continue, activate and rewind - COMPLETE
+## Batch 1: Persona RPC contract on continue, activate and rewind - COMPLETE (commit 639470cfc)
 
 - Recommended executor: CLI lane (implementation; TypeScript backend + shared contracts)
 - Execution mode: sequential
@@ -231,7 +231,7 @@ last batch header.
 - No per-batch review; the Phase A code-logic review covers this batch.
 - Edge cases: restart then regular-chat send (persona present), history-only resume unchanged.
 
-## Batch 2: Tab marker, persona resolver and Command Center records - IN_PROGRESS
+## Batch 2: Tab marker, persona resolver and Command Center records - COMPLETE
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
 - Execution mode: sequential
@@ -245,7 +245,7 @@ last batch header.
   (chat-types has no test target; header must list both projects for typecheck/lint). Verification rules above apply.
 - Suggested commit: `feat(chat-types,chat-state): batch 2 - command center tab marker and records`
 
-### Task 2.1: commandCenterOrigin on TabState, validated on restore - IN_PROGRESS
+### Task 2.1: commandCenterOrigin on TabState, validated on restore - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-types/src/lib/chat-types.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-persistence.ts`,
@@ -259,7 +259,7 @@ last batch header.
 - Validation notes: corrupt markers sanitize to ordinary tabs (plan Risks paragraph 1).
 - Implementation details: type plus validator inside `sanitizeRestoredTab`; spec with valid, malformed and absent markers.
 
-### Task 2.2: Fixed head-of-engineering persona resolver - IN_PROGRESS
+### Task 2.2: Fixed head-of-engineering persona resolver - COMPLETE
 
 - Depends on: Task 2.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-persona.ts` (new),
@@ -278,7 +278,7 @@ last batch header.
 - Implementation details: pure module; spec asserts marked/unmarked/malformed behaviour and that the text contains the
   Decline-first and no-spawn-in-discovery rules.
 
-### Task 2.3: Workspace last-session record and Tribunal run manifest - IN_PROGRESS
+### Task 2.3: Workspace last-session record and Tribunal run manifest - COMPLETE
 
 - Depends on: Task 2.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.ts` (new),
@@ -299,6 +299,10 @@ last batch header.
 - The scoped command passes; output tailed.
 - No per-batch review; Phase A review covers it.
 - Edge cases: corrupt marker restore, records survive tab close, workspace isolation.
+- Result: files verified on disk; orchestrator's foreground scoped run passed for 2 projects
+  (`TASK/reports/batch-2-report.md`). Notes for the Phase A review: the marker's `workspaceId` and
+  the records' `workspacePath` key must name the same value when B3 writes them; the records
+  service does read-modify-write on one key per workspace (last writer wins across windows).
 
 ## Batch 3: Send lock service and marked-tab lifecycle - PENDING
 
