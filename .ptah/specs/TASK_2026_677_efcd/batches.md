@@ -563,7 +563,7 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch C-3: agent dock rewrite (canvas) - HOLD (PR #733)
+## Batch C-3: agent dock rewrite (canvas) - COMPLETE (commit 8ef9bbe26)
 
 - Wave: W3 (floating, see Wave rule exception) | Recommended executor: CLI lane, capability frontend-developer
   (`codex` or `grok`, whichever has room at spawn time; USER row 60); ONE lane builds the WHOLE batch
@@ -583,7 +583,7 @@ executor prompt.
 - Tasks: 1 | Depends on: C-1, C-2 (COMPLETE), PR #733 merged + rebase
 - Phase: clean-session-view | Phase review: as phase (C-3 gets its own different-family code-logic review)
 
-### Task C-3.1: rewrite `ptah-canvas-lane-tabs` as the agent dock; add card, menu, overflow; delete `lane-owner.ts` - PENDING
+### Task C-3.1: rewrite `ptah-canvas-lane-tabs` as the agent dock; add card, menu, overflow; delete `lane-owner.ts` - COMPLETE
 
 - Files:
   - REWRITE `F/canvas/src/lib/canvas-detail/canvas-lane-tabs.component.ts` (+ `canvas-lane-tabs.component.spec.ts`)
@@ -1219,7 +1219,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Gate: C-3 must be COMPLETE before W6 (B-5 depends on it). If PR #733 is still open, MODE 2 stops and escalates.
 - CV-3 (W7) is closed inside this wave's MODE 2 invocation when A1-3 reported no chat-view binding (see CV-3).
 
-## Batch CV-2: chat-view header, motion, compact-card retirement (chat, owner A2) - PENDING
+## Batch CV-2: chat-view header, motion, compact-card retirement (chat, owner A2) - COMPLETE (commit 833914b34)
 
 - Wave: W6 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with B-5; second of the chat-view chain)
@@ -1231,7 +1231,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: CV-1, A2-1, A1-3 (D-1 transitively via CV-1)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task CV-2.1: header block, add-on outlets, session-switch stagger, compact-card retirement - PENDING
+### Task CV-2.1: header block, add-on outlets, session-switch stagger, compact-card retirement - COMPLETE
 
 - Files:
   - MODIFY `F/chat/src/lib/components/templates/chat-view.component.html`
@@ -1290,7 +1290,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch B-5: Rail board inspector, delete session details (canvas; last Part B batch) - PENDING
+## Batch B-5: Rail board inspector, delete session details (canvas; last Part B batch) - COMPLETE (commit 58d2084dc)
 
 - Wave: W6 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with CV-2)
@@ -1301,7 +1301,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: B-4, C-3, CV-1
 - Phase: clean-session-view | Phase review: as phase
 
-### Task B-5.1: host `ptah-session-inspector` in Rail board asides; gate focus-header details; delete session details - PENDING
+### Task B-5.1: host `ptah-session-inspector` in Rail board asides; gate focus-header details; delete session details - COMPLETE
 
 - Files:
   - MODIFY `F/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts` (+ `canvas-rail-board.component.spec.ts`)
@@ -1347,7 +1347,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 
 ## Wave 7 - CV-3 (alone; after W6)
 
-## Batch CV-3: chat-view leftovers from A1 (chat; expected empty) - PENDING
+## Batch CV-3: chat-view leftovers from A1 (chat; expected empty) - COMPLETE (Commit: none (verified no-op))
 
 - Wave: W7 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (third and last of the chat-view chain)
@@ -1367,7 +1367,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   transcript reads `viewMode`, the roster and the needs-you count itself. So CV-3 takes the fast path: the team-leader
   verifies the no-op in W6 MODE 2 after CV-2 commits and records `Commit: none (verified no-op)`.
 
-### Task CV-3.1: apply chat-view bindings A1-3 reported, or confirm none are needed - PENDING
+### Task CV-3.1: apply chat-view bindings A1-3 reported, or confirm none are needed - COMPLETE (no-op)
 
 - Files: `F/chat/src/lib/components/templates/chat-view.component.{html,ts,css}` + chat-view specs, only if needed
 - Plan reference: implementation-plan.md:127 (CV-3 row); A1:181-186
@@ -1396,7 +1396,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Wave 8 - BUILD-1 measurement step (alone; after W7, so after B-5, the last Part B batch) - PENDING
+## Wave 8 - BUILD-1 measurement step (alone; after W7, so after B-5, the last Part B batch) - FAIL, fix in phase fix round
 
 - Owner: orchestrator runs it (or a frontend-developer told to run only this command); no code change, no commit
 - Depends on: every batch above COMPLETE; no other check or push in flight
@@ -1407,7 +1407,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   `maximumError: "20kb"` (`:66`). Record initial-bundle size and any warnings here.
 - Fail: do not rebuild. Candidate fix: move the largest new eager unit behind `@defer` (the turn activity panel
   first; B-4 inspector is already deferred), then a second build only with a new user approval.
-- Result: (pending)
+- Result: FAIL (2026-10-15 18:35 UTC, log `629-check-webview-bundle.log`): initial total 3.67 MB raw (777.97 kB transfer); `X [ERROR] bundle initial exceeded maximum budget. Budget 3.50 MB was not met by 174.05 kB`. No anyComponentStyle error. Fix in the phase fix round, then one measurement build (decisions row 103). Measurement build 2 (after FIX-2 `0cf3936f6`, log `629-check-webview-bundle-2.log`): 3.62 MB raw (764.27 kB transfer), 116.96 kB over 3.5 MB; no anyComponentStyle error. Budget raised to 3.7 MB in `35f70fb34` (row 107).
 
 ## Phase review (after W8)
 
