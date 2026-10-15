@@ -57,6 +57,7 @@ export class CommandCenterPageController {
   private readonly expectedRequest = signal<{
     nonce: string;
     rootSessionId: string;
+    minPulseSeq: number;
   } | null>(null);
   private handledRosterQuestionId: string | null = null;
   private rosterTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -78,23 +79,23 @@ export class CommandCenterPageController {
   private deliveredPulseSeq = 0;
   private readonly spokenRequestIds = new Set<string>();
   private readonly invalidRosterQuestionIds = new Set<string>();
-  private readonly invalidRosterQuestion = computed(() => {
+  private readonly activeTribunalRequest = computed(() => {
     const expected = this.expectedRequest();
-    if (!expected || expected.rootSessionId !== this.store.sessionId())
-      return null;
+    return expected?.rootSessionId === this.store.sessionId() ? expected : null;
+  });
+  private readonly invalidRosterQuestion = computed(() => {
+    if (!this.activeTribunalRequest()) return null;
     const tabId = this.store.markedTabId();
+    const sessionId = this.store.sessionId();
     return (
       this.chat
         .questionRequests()
         .find(
           (request) =>
-            request.tabId === tabId &&
+            (request.tabId === tabId || request.sessionId === sessionId) &&
             !!request.questions[0] &&
             !request.questions[0].question.includes(
               `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
-            ) &&
-            request.questions[0].options.some((option) =>
-              /confirm/i.test(option.label),
             ),
         ) ?? null
     );
@@ -112,17 +113,21 @@ export class CommandCenterPageController {
             !request.questions[0].question.includes(
               `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
             ) &&
+            !this.invalidRosterQuestionIds.has(request.id) &&
             request.id !== this.invalidRosterQuestion()?.id,
         ) ?? null
     );
   });
   public readonly ordinaryChoices = computed(() => {
     const options = this.ordinaryQuestion()?.questions[0]?.options ?? [];
-    const hasConfirm = options.some((option) => /confirm/i.test(option.label));
+    const hasConfirm =
+      !!this.activeTribunalRequest() &&
+      options.some((option) => /\bconfirm\b/i.test(option.label));
     return options
       .filter(
         (option) =>
-          !hasConfirm || !/^(confirm|yes|approve|go ahead)/i.test(option.label),
+          !hasConfirm ||
+          !/^(confirm|yes|approve|go ahead)\b/i.test(option.label),
       )
       .map((option) => option.label);
   });
@@ -220,8 +225,18 @@ export class CommandCenterPageController {
         this.invalidRosterQuestionIds.has(request.id)
       )
         return;
+      if (
+        !this.tribunalTransport.answer(request.id, question.question, 'Decline')
+      ) {
+        this.store.setToast({
+          message:
+            'Invalid Tribunal proposal could not be declined. Retry the request.',
+          tone: 'error',
+        });
+        return;
+      }
       this.invalidRosterQuestionIds.add(request.id);
-      this.tribunalTransport.answer(request.id, question.question, 'Decline');
+      this.expectedRequest.set(null);
       this.store.setToast({
         message: 'Invalid Tribunal proposal. It was declined.',
         tone: 'error',
@@ -286,6 +301,7 @@ export class CommandCenterPageController {
         availability: this.tribunalTransport.availability(),
       });
       if (!proposal || !expected || expected.rootSessionId !== rootSessionId) {
+        this.expectedRequest.set(null);
         this.pendingProposal.set(null);
         this.store.setToast({
           message: 'Invalid Tribunal proposal. It was declined.',
@@ -297,6 +313,30 @@ export class CommandCenterPageController {
       }
       this.pendingProposal.set(proposal);
       this.rosterTimedOut.set(false);
+    });
+    effect(() => {
+      const expected = this.activeTribunalRequest();
+      const tabId = this.store.markedTabId();
+      const pulse = tabId
+        ? this.tabs.lastTerminalPulseByTab().get(tabId)
+        : undefined;
+      if (
+        expected &&
+        pulse &&
+        pulse.seq > expected.minPulseSeq &&
+        !this.pendingProposal() &&
+        !this.chat
+          .questionRequests()
+          .some(
+            (request) =>
+              (request.tabId === tabId ||
+                request.sessionId === expected.rootSessionId) &&
+              !!request.questions[0]?.question.includes(
+                `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
+              ),
+          )
+      )
+        this.expectedRequest.set(null);
     });
     effect(() => {
       const shown = this.shownInput();
@@ -405,8 +445,9 @@ export class CommandCenterPageController {
     const question = request?.questions[0];
     if (!request || !question || request.id !== id) return false;
     if (
-      question.options.some((option) => /confirm/i.test(option.label)) &&
-      /^(confirm|yes|approve|go ahead)/i.test(answer.trim())
+      this.activeTribunalRequest() &&
+      question.options.some((option) => /\bconfirm\b/i.test(option.label)) &&
+      /^(confirm|yes|approve|go ahead)\b/i.test(answer.trim())
     )
       return false;
     this.coordinator.answerQuestion({
@@ -451,10 +492,15 @@ export class CommandCenterPageController {
       return false;
     }
     const nonce = crypto.randomUUID();
-    this.expectedRequest.set({ nonce, rootSessionId });
+    const tabId = this.store.markedTabId();
+    const minPulseSeq = tabId
+      ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0)
+      : 0;
+    this.expectedRequest.set({ nonce, rootSessionId, minPulseSeq });
     const sent = await this.coordinator.send(
       `${content}\n\n<${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>\n${JSON.stringify({ nonce, rootSessionId })}\n</${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>`,
     );
+    if (!sent) this.expectedRequest.set(null);
     if (sent && source === 'text') this.voice.armTypedTurn();
     return sent;
   }
@@ -462,12 +508,14 @@ export class CommandCenterPageController {
     if (this.pendingProposal()?.proposalId !== id) return;
     this.clearRosterTimeout();
     const result = await this.tribunal.confirm(id);
+    this.expectedRequest.set(null);
     if (result.ok) this.pendingProposal.set(null);
     this.voice.onRosterResolved();
   }
   public declineProposal(id: string): void {
     if (this.pendingProposal()?.proposalId !== id) return;
     this.clearRosterTimeout();
+    this.expectedRequest.set(null);
     this.tribunal.decline(id);
     this.tribunal.pageExit();
     this.tribunalTransport.cancelDiscovery();
@@ -477,6 +525,7 @@ export class CommandCenterPageController {
   public timeoutProposal(id: string): void {
     if (this.pendingProposal()?.proposalId !== id) return;
     this.clearRosterTimeout();
+    this.expectedRequest.set(null);
     this.rosterTimedOut.set(true);
     this.store.setToast({
       message: 'Tribunal proposal timed out. Request a new roster.',
@@ -492,6 +541,7 @@ export class CommandCenterPageController {
   public exit(): Promise<void> {
     this.clearArmedTurns();
     this.clearRosterTimeout();
+    this.expectedRequest.set(null);
     this.tribunal.pageExit();
     this.tribunalTransport.pageExit();
     this.pendingProposal.set(null);

@@ -26,6 +26,7 @@ describe('CommandCenterPageController', () => {
     readonly {
       id: string;
       tabId: string;
+      sessionId?: string;
       toolName: string;
       description: string;
     }[]
@@ -36,6 +37,7 @@ describe('CommandCenterPageController', () => {
     readonly {
       id: string;
       tabId: string;
+      sessionId?: string;
       questions: {
         question: string;
         header: string;
@@ -510,7 +512,7 @@ describe('CommandCenterPageController', () => {
     );
   });
 
-  it('filters affirmative choices and answers on an ordinary Confirm question', () => {
+  it('offers Confirm and accepts Confirm or yes on an ordinary question without Tribunal', () => {
     page.store.setSession('root-tab', 'session', '/workspace');
     questionRequests.set([
       {
@@ -530,15 +532,13 @@ describe('CommandCenterPageController', () => {
       },
     ]);
     TestBed.tick();
-    expect(page.ordinaryChoices()).toEqual(['Decline']);
-    for (const answer of ['Confirm', 'yes', 'Approve', 'go ahead']) {
-      expect(page.answerOrdinaryQuestion('q-choice', answer)).toBe(false);
-    }
-    expect(page.answerOrdinaryQuestion('q-choice', 'Decline')).toBe(true);
-    expect(coordinator.answerQuestion).toHaveBeenCalledTimes(1);
+    expect(page.ordinaryChoices()).toEqual(['Decline', 'Confirm now']);
+    expect(page.answerOrdinaryQuestion('q-choice', 'Confirm')).toBe(true);
+    expect(page.answerOrdinaryQuestion('q-choice', 'yes')).toBe(true);
+    expect(coordinator.answerQuestion).toHaveBeenCalledTimes(2);
     expect(coordinator.answerQuestion).toHaveBeenCalledWith({
       id: 'q-choice',
-      answers: { 'Proceed?': 'Decline' },
+      answers: { 'Proceed?': 'yes' },
     });
   });
 
@@ -609,6 +609,124 @@ describe('CommandCenterPageController', () => {
     ]);
     TestBed.tick();
   };
+
+  const offerOrdinaryConfirm = (): void => {
+    questionRequests.set([
+      {
+        id: 'q-later',
+        tabId: 'root-tab',
+        questions: [
+          {
+            question: 'Overwrite config?',
+            header: 'Config',
+            options: [
+              { label: 'Cancel', description: '' },
+              { label: 'Confirm', description: '' },
+            ],
+            multiSelect: false,
+          },
+        ],
+      },
+    ]);
+    TestBed.tick();
+  };
+
+  it('restores ordinary Confirm after a proposal resolves', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('Council review');
+    const nonce =
+      /"nonce":"([^"]+)"/.exec(
+        coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+      )?.[1] ?? '';
+    offer(roster(nonce));
+    page.declineProposal('p1');
+    transport.answer.mockClear();
+    offerOrdinaryConfirm();
+    expect(page.ordinaryChoices()).toContain('Confirm');
+    expect(page.answerOrdinaryQuestion('q-later', 'yes')).toBe(true);
+    expect(transport.answer).not.toHaveBeenCalled();
+  });
+
+  it('restores ordinary Confirm after a request turn ends without a proposal', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('Council review');
+    const pulse: TerminalTurnPulse = {
+      seq: 1,
+      tabId: 'root-tab',
+      sessionId: 'session',
+      workspacePath: '/workspace',
+      revision: 1,
+      phase: 'idle',
+      terminalReason: 'completed',
+      lastAssistantMessage: 'No proposal',
+      classification: 'success',
+      title: 'Command Center',
+      occurredAt: Date.now(),
+    };
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse]]));
+    TestBed.tick();
+    offerOrdinaryConfirm();
+    expect(page.ordinaryChoices()).toContain('Confirm');
+    expect(page.answerOrdinaryQuestion('q-later', 'Confirm')).toBe(true);
+    expect(transport.answer).not.toHaveBeenCalled();
+  });
+
+  it('declines deviating untagged output on the root session while Tribunal is outstanding', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('Council review');
+    questionRequests.set([
+      {
+        id: 'q-deviating',
+        tabId: 'other-tab',
+        sessionId: 'session',
+        questions: [
+          {
+            question: 'Launch council?',
+            header: 'Council',
+            multiSelect: false,
+            options: [
+              { label: 'Proceed', description: '' },
+              { label: 'Cancel', description: '' },
+            ],
+          },
+        ],
+      },
+    ]);
+    TestBed.tick();
+    expect(page.ordinaryQuestion()).toBeNull();
+    expect(transport.answer).toHaveBeenCalledWith(
+      'q-deviating',
+      'Launch council?',
+      'Decline',
+    );
+    expect(coordinator.answerQuestion).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed automatic Decline and reports success only after answer succeeds', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('Council review');
+    transport.answer.mockReturnValueOnce(false);
+    const request = {
+      id: 'q-deviating',
+      tabId: 'root-tab',
+      questions: [
+        {
+          question: 'Proceed?',
+          header: 'Council',
+          multiSelect: false as const,
+          options: [{ label: 'Proceed', description: '' }],
+        },
+      ],
+    };
+    questionRequests.set([request]);
+    TestBed.tick();
+    expect(page.store.toast()?.message).toContain('could not be declined');
+    expect(transport.answer).toHaveBeenCalledTimes(1);
+    questionRequests.set([{ ...request }]);
+    TestBed.tick();
+    expect(transport.answer).toHaveBeenCalledTimes(2);
+    expect(page.store.toast()?.message).toContain('It was declined');
+  });
 
   it('keeps approval shown when a roster arrives and shows roster after permission resolves', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
@@ -712,14 +830,20 @@ describe('CommandCenterPageController', () => {
       .spyOn(page.voice, 'onRosterProposal')
       .mockImplementation();
     await page.sendCommand('Council review');
-    const nonce =
+    offer(roster('wrong'), 'q-wrong');
+    expect(page.pendingProposal()).toBeNull();
+    await page.sendCommand('Council review');
+    let nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
       )?.[1] ?? '';
-    offer(roster('wrong'), 'q-wrong');
-    expect(page.pendingProposal()).toBeNull();
     offer(roster(nonce, 'wrong'), 'q-root');
     expect(page.pendingProposal()).toBeNull();
+    await page.sendCommand('Council review');
+    nonce =
+      /"nonce":"([^"]+)"/.exec(
+        coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+      )?.[1] ?? '';
     offer(roster(nonce), 'q-good');
     expect(page.pendingProposal()?.proposalId).toBe('p1');
     expect(announce).toHaveBeenCalledWith(

@@ -135,6 +135,37 @@ describe('CommandPendingInputComponent', () => {
     expect(choice.disabled).toBe(true);
   });
 
+  it('re-enables a rejected answer with feedback, then sends a valid answer once', () => {
+    const fixture = setup(null);
+    fixture.componentRef.setInput('choices', ['Decline']);
+    fixture.detectChanges();
+    const response = jest.fn();
+    fixture.componentInstance.response.subscribe(response);
+    fixture.componentInstance.answer.set('yes');
+    fixture.detectChanges();
+    const send = buttonWithText(fixture.nativeElement, 'Send answer');
+    send.click();
+    send.click();
+    expect(response).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('answerResult', {
+      id: 'q1',
+      accepted: false,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'That answer is not accepted here',
+    );
+    expect(send.disabled).toBe(false);
+    const decline = buttonWithText(fixture.nativeElement, 'Decline');
+    decline.click();
+    decline.click();
+    expect(response).toHaveBeenCalledTimes(2);
+    expect(response).toHaveBeenLastCalledWith({ id: 'q1', answer: 'Decline' });
+    fixture.componentRef.setInput('answerResult', { id: 'q1', accepted: true });
+    fixture.detectChanges();
+    expect(send.disabled).toBe(true);
+  });
+
   it('emits Decline once despite duplicate clicks, including after timeout', () => {
     const fixture = setup();
     const decline = jest.fn();

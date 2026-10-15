@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   inject,
+  signal,
   viewChild,
 } from '@angular/core';
 import { CommandCenterStore } from '../model/command-center.store';
@@ -129,13 +130,10 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           [proposal]="page.shownProposal()"
           [choices]="page.ordinaryChoices()"
           [timedOut]="page.rosterTimedOut()"
+          [answerResult]="answerResult()"
           (confirm)="page.confirmProposal($event.proposalId)"
           (decline)="page.declineProposal($event)"
-          (response)="
-            page.store.pendingInput()?.kind === 'approval'
-              ? page.answerPermission($event.id, $event.answer)
-              : page.answerOrdinaryQuestion($event.id, $event.answer)
-          "
+          (response)="answerPendingInput($event)"
         />
         @if (page.latestReply(); as reply) {
           <p
@@ -161,6 +159,18 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
 })
 export class CommandCenterPageComponent {
   public readonly page = inject(CommandCenterPageController);
+  public readonly answerResult = signal<{
+    id: string;
+    accepted: boolean;
+  } | null>(null);
+
+  public answerPendingInput(response: { id: string; answer: string }): void {
+    const accepted =
+      this.page.store.pendingInput()?.kind === 'approval'
+        ? this.page.answerPermission(response.id, response.answer)
+        : this.page.answerOrdinaryQuestion(response.id, response.answer);
+    this.answerResult.set({ id: response.id, accepted });
+  }
   private readonly destroyRef = inject(DestroyRef);
   private readonly scene = viewChild(CommandSceneComponent);
   private readonly overlay = viewChild(CommandOverlayComponent);

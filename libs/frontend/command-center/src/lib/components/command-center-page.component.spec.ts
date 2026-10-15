@@ -269,4 +269,31 @@ describe('CommandCenterPageComponent', () => {
       jest.useRealTimers();
     }
   });
+
+  it('passes a rejected ordinary answer result back to the pending card', () => {
+    store.setPendingInput({
+      id: 'q-reject',
+      kind: 'question',
+      title: 'Choice',
+      description: 'Choose',
+    });
+    controller.answerOrdinaryQuestion
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const card = fixture.debugElement.query(
+      By.directive(CommandPendingInputComponent),
+    ).componentInstance as CommandPendingInputComponent;
+    card.respond('q-reject', 'yes');
+    fixture.detectChanges();
+    expect(card.rejectedId()).toBe('q-reject');
+    expect(card.respondedIds().has('q-reject')).toBe(false);
+    card.respond('q-reject', 'Decline');
+    fixture.detectChanges();
+    expect(card.respondedIds().has('q-reject')).toBe(true);
+    expect(controller.answerOrdinaryQuestion).toHaveBeenCalledTimes(2);
+    fixture.destroy();
+    store.setPendingInput(null);
+  });
 });
