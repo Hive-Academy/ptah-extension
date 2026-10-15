@@ -99,12 +99,18 @@ export class PostToolUseHookHandler {
         input,
         (toolUseId) => this.subagentRegistry?.get(toolUseId)?.agentId,
       );
-      if (result.registryAgentId && result.responseAgentId &&
-          result.registryAgentId !== result.responseAgentId) {
-        this.logger.warn('[PostToolUseHookHandler] subagent agent ids disagree', {
-          registryAgentId: result.registryAgentId,
-          responseAgentId: result.responseAgentId,
-        });
+      if (
+        result.registryAgentId &&
+        result.responseAgentId &&
+        result.registryAgentId !== result.responseAgentId
+      ) {
+        this.logger.warn(
+          '[PostToolUseHookHandler] subagent agent ids disagree',
+          {
+            registryAgentId: result.registryAgentId,
+            responseAgentId: result.responseAgentId,
+          },
+        );
       }
       if (result.reason) {
         this.logger.debug('[PostToolUseHookHandler] subagent run tag skipped', {
@@ -114,10 +120,15 @@ export class PostToolUseHookHandler {
       }
       return result.tag;
     } catch (error: unknown) {
-      this.logger.debug('[PostToolUseHookHandler] subagent run tag lookup failed', {
-        error: error instanceof Error ? error.message : String(error),
-        toolName: input.tool_name,
-      });
+      // degradation-audit: reported - a failed registry lookup loses only this
+      // tool call's run tag; the hook must still return the tool result.
+      this.logger.warn(
+        '[PostToolUseHookHandler] subagent run tag lookup failed',
+        {
+          error: error instanceof Error ? error.message : String(error),
+          toolName: input.tool_name,
+        },
+      );
       return null;
     }
   }
@@ -180,9 +191,11 @@ export class PostToolUseHookHandler {
               const rewritten = cappedOutput !== input.tool_response;
               const notice = this.takeNotice(input, sessionId);
               const tag = this.runTag(input);
-              const additionalContext = [notice, tag].filter(
-                (part): part is string => part !== undefined && part !== null,
-              ).join('\n');
+              const additionalContext = [notice, tag]
+                .filter(
+                  (part): part is string => part !== undefined && part !== null,
+                )
+                .join('\n');
               if (!rewritten && additionalContext.length === 0) {
                 return { continue: true };
               }
@@ -191,8 +204,8 @@ export class PostToolUseHookHandler {
                 hookSpecificOutput: {
                   hookEventName: 'PostToolUse',
                   ...(rewritten ? { updatedToolOutput: cappedOutput } : {}),
-                   ...(additionalContext.length > 0
-                     ? { additionalContext }
+                  ...(additionalContext.length > 0
+                    ? { additionalContext }
                     : {}),
                 },
               };
