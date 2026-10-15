@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 36 | Batches: 31 | Complete: 8/31
+Total tasks: 41 | Batches: 35 | Complete: 15/35 | Phases accepted: P1
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -144,6 +144,17 @@ Edge cases:
 | TL-9 | Batch 9 seed with one profile (`z-ai`/`glm-5`, implement 80, stale) is accepted; no further rows required | (a) also seed rows whose model id appears in some lane list (opencode routes, Copilot, claude-cli entries) | Req 6.2 seeds only evidenced values and says a row "whose model cannot be matched to one family and model id without guessing shall not be seeded"; part-a:194-196 needs the family stated in the row and the exact listed id. Checked on disk: GLM-5 row states Z.ai, `provider-registry.ts:341` lists `glm-5` under `z-ai` (row excludes Ollama Cloud). The Opus/GPT-5.x/Sonnet 4.5 ids exist only in lanes the rows do not name (`opencode-model-routes.ts:49-112` — opencode has no single default per research :78) or not at all in the named lane (Codex fallback list, subagent tiers); Haiku 4.5 / GPT-5 mini appear in several lanes (Copilot, claude-cli, opencode), so no single family; Gemini rows name no lane. Task-description risk row :587 already expects mostly neutral scores | yes — add rows to `SEED_MATRIX_ROWS` when a row names a lane and id |
 | TL-10 | `sourceRef` (dataset URL, required on seed values) beside `source: 'seed'\|'user'\|'local'` is accepted as the resolution of a contract conflict, not a deviation to undo | (a) `source` = URL string (Req 6.2 wording, part-a:196); (b) per-source cell union | The plan contradicts itself: part-a:192 types `source` as the enum and Req 6.5/6.6 require `source` = user / local outcomes, while Req 6.2 and part-a:196 put the URL in `source`. Only a split satisfies all; precedence (A4b) and reasons (A7) key on the enum unchanged. Downstream: Batch 16 view and user-file schema must carry `sourceRef` (Req 6.2/6.8 visibility); Batch 13 reasons use `source` for provenance; Batch 21 (A8) exports the types as-is. Notes added to Tasks 13.1 and 16.1 | yes — field rename/merge before Batch 16 |
 | TL-11 | Git hooks are not wired in this worktree (`core.hooksPath=.husky/_`, directory absent), so pre-commit format/lint, commit-msg and pre-push gates do not run here. Batch 9 commit message checked by hand with `npx commitlint` (pass); eslint clean. `nx format:check` flags `matrix.schema.ts`, `seed-matrix.spec.ts` (Batch 9) and `contracts/route-decide-{args,result}.schema.ts` (Batch 5) — formatting only, recorded Minor, not a batch rejection | reject Batch 9 for format; TL formats the files itself | Decision #53 checks (jest, typecheck, lint) all pass; formatting is the hook's job and the TL does not edit code. Fix: orchestrator runs `npx husky` in the worktree, then one `style(lane-routing)` format-only commit via `npx nx format:write --files=...` before the wave-3 lane-routing shared check; pre-push gates must run before any push | yes |
+| TL-12 | P1 accepted with no fix batch. Its one data-loss Moderate (P1-C1) and the two Moderates in the same files go to carry-over Batch 32. Three schema and constant Moderates that downstream batches would otherwise build on go to Batch 33. Every other finding is a named later task or a recorded Minor (see P1 review triage) | (a) a P1 fix batch now, then a P1 re-review; (b) record everything with no batch | Both verdicts APPROVED with 0 Blocking/Serious. Step 6 raises a fix batch only on a rejecting verdict. Lean rule 4 fixes only Moderates that break config or lose data, and C1 loses data only once Batch 24's listener persists it. Batch 10/13 specs in W parse `UnavailableEntrySchema` (`ranking/hard-constraints.spec.ts:210`, `reasons/compile-reasons.spec.ts:614`), so Batch 33 must follow them. A commit now would run lint-staged while lanes write in W | yes |
+| TL-13 | No Prettier commit in this Mode 2 (P1-L1) | (a) TL runs `prettier --write` on the 18 files outside `apps/*/src/di/**` and commits now | The orchestrator forbids touching `apps/*/src/di/**` during this run. CLAUDE.md warns that lint-staged can lose edits made while the hook runs, and Batches 14 and 15 lanes are live. The TL does not edit code. Hooks are now wired, so staged files self-format | yes |
+| TL-14 | Batch 15 is a PARTIAL FAILURE (2026-10-15, decided on evidence; no Nx/Jest run because the visual-reviewer app run holds the check slot, decision #58). Task 15.1 IMPLEMENTED; Task 15.2 FAILED; fix round = Batches 34, 35 and Task 15.3 | (a) accept 15 with named later tasks; (b) BATCH 15 NOT ACCEPTED with no contract change | Report `reports/batch-15-report.md:29` lists the required fixtures as "Not done" and `:35-38` as unsatisfied guarantees. Defects found on disk beyond the report: (1) **Blocking, loses accepted entries**: the ack rewrite `write/outcome-write-pipeline.ts:223` replaces the journal with the turn-start snapshot, so an op that `submit`/`accept` appended during the turn, and any `droppedAtCapacity` increment, is discarded (breaks decision #40). (2) The stop join `:271-283` deletes held reports with `takeHeldReports` before it applies them, and `:308-318` writes the row and its receipt in separate store calls. A crash loses the held join or double-applies `revise`, against SC-7 (plan:338-341) and SC-10 (:435, :442, :448). (3) Budget stop `:287` (TL-16). (4) The join uses the verdict stored at submit time (`:306`), but plan:338-340 computes it at join with the row's `startedAt` (TL-20). (5) The expiry sweep `:197` emits no per-report `warn` (plan:343-345). (6) `dispose` `:337-341` keeps `enqueue` open during the 2 s drain and never journals the in-memory remainder (plan:564-567). (7) The capacity `warn` fires on every turn (`:189`; plan:551 says first, then every 100). (8) The store-wins rebuild depends on an optional caller reader (`:27`, `:192`), so at open it does not run in practice (plan:510-515) | yes |
+| TL-15 | The fix round extends and replaces the Batch 6 store contract, in all three stores: in-memory, KV and SQLite. The SQLite store exists (`store/sqlite-lane-outcome.store.ts`, commit 8fc9278e9), so Batch 20 adds no store work. New atomic methods: `insertStopWithHeldReports`, `applyReportWithReceipt`, `markBudgetStopped`. New non-destructive method: `listHeldReports(nowMs)`. `expireHeldReports` now returns the expired entries. The non-atomic `recordReceipt` and `takeHeldReports` are deleted (replace, do not accumulate) | (a) the pipeline composes the existing calls (cannot be atomic); (b) a generic `transaction(fn)` on the port (a better-sqlite3 transaction is synchronous, so an async callback cannot run in it) | The only consumers are the uncommitted Batch 15 pipeline and the Batch 6 store specs (no other `LaneOutcomeStore` user: grep of `libs` and `apps`). SQLite already runs `this.db.transaction` (`sqlite-lane-outcome.store.ts:197`). KV `write()` already gives one `update` per call (`key-value-lane-outcome.store.ts:48-66`). P2 is not yet reviewed, so the contract can still change. File-disjoint from in-flight Batches 8, 10, 11, 13 and 14 (only `libs/backend/lane-outcomes/**`) | yes |
+| TL-16 | Budget stop: the store keeps a `budgetStopped` flag backed by 0054's existing column `budget_stopped INTEGER NOT NULL DEFAULT 0` (`0054_lane_outcome_records.ts:52`). It is exposed only on the store row type `LaneOutcomeRow = LaneOutcomeRecord & { budgetStopped: boolean }`, with no change to the shared `LaneOutcomeRecord` or the Zod write-edge schema. The pipeline never writes `failureClass` for a budget stop. A budget stop that arrives before its stop insert (the usual order: the monitor stops the run before SubagentStop fires) becomes a durable marker in the hold table (kind `'budget-stop'`, `report_id = 'budget-stop:' + runId`; 0054:84-91 has no CHECK on `kind`, so no migration). The stop transaction applies the marker. The marker is excluded from report counts, `hasHeldDeliverables`, `listHeldReports` and `heldRuns`, and expires after 24 h with one `warn` | (a) keep `failureClass: 'timeout'` (Batch 15 as written); (b) a typed op with no store field until Batch 24; (c) add `budgetStopped` to the shared record | (a) is wrong: part-b:389-390, :622, :646 and D6 :761 derive `timeout` at **read** time, and only for verdict `failed`/`no-deliverable`. A write-time class mislabels a run that later delivers or is approved, and it is lost when the budget stop precedes the insert (`update` returns false, `:287`). (b) leaves the flag unpersisted and pushes lane-outcomes store work into Batch 24 (skill-synthesis scope). (c) touches P1-accepted shared contracts that no other lib reads (`LaneOutcomeRecord` is used only in lane-outcomes and shared). P1-C1 (Batch 32) still gates the publisher, and Batch 24 adds the listener. Batch 20's reader applies the read-time rule. User decisions #12, #13, #18/#22 and #19 are untouched | yes |
+| TL-17 | Dead-letter versus ack: fixed in this round, not recorded. Each dead-letter entry carries its op key (`kind` + `runId` for row/budget ops, `kind` + `reportId` for reports). `reject` skips an entry whose key is already among the kept 200 and does not bump `overflow` for it. It writes before the turn's ack, so a crash between the two replays into a no-op | (a) record as a Minor; (b) one `update` over both keys | `IStateStorage` is per-key `get / update / keys` (`platform-core/src/interfaces/state-storage.interface.ts`, plan:390-391), so (b) is impossible. The duplicate (report :38) inflates the Req 5.9 counts that every start logs (plan:551-553). The fix is about 10 lines inside a file already in the fix round | yes |
+| TL-18 | VS Code atomicity is per op, not per turn. Each store call is one KV `update` (rows, receipts and held entries together), and an in-memory op is acknowledged only after its call resolves | one `update` per drain turn (plan:451-452), which needs a store-level multi-op transaction API | The per-op atomic methods give exactly-once per `reportId` and an atomic join, the guarantees plan:441-443 asks for. A turn holds at most 25 ops, so the cost is at most 25 `update`s per turn on a rare event path. Recorded for the P2 reviewer | yes |
+| TL-19 | Desktop/CLI journals every op (the pipeline moves the in-memory queue into the journal at the start of each turn, `:174-190`). This is accepted as a Minor deviation from plan:465-470, where direct mode uses the in-memory queue | (a) a separate direct mode | It is more durable (every op survives a crash) and FIFO holds trivially. The only cost is at most 2 `update`s per turn on a rare event path. The fixtures that count journal rewrites per turn (">1 000 pre-open") still apply | yes |
+| TL-20 | The held and direct `deliverables` verdict is computed at **apply** time from the stored stat checks and the row's `startedAt`, by a lane-outcomes pure function (`write/report-effect.ts`, Batch 35). It mirrors `sessionChildVerdictOf('completed', checks)` (`cli-agent-runtime/src/lib/cli-agents/lane-completion-notifier.service.ts:132-145`: no checks gives `unverified`; every check `exists && bytes > 0 && (mtimeMs == null \|\| startedAt == null \|\| mtimeMs >= startedAt)` gives `delivered`; otherwise `no-deliverable`). The check shape is `{ exists: boolean, bytes: number, mtimeMs: number \| null }`, at most 20. `bytes` is added to SC-7's `{ exists, mtimeMs }` because the rule needs `bytes > 0`. B10a (Batch 28) must send that shape | (a) the caller precomputes the verdict (current code); (b) inject the cli-agent-runtime function | (a) cannot know `startedAt` before the stop exists, and plan:338-340 says the join computes the verdict. (b) Rule 9 forbids lane-outcomes importing cli-agent-runtime, and B10a is the only caller that could inject it. The parity cases live in the Batch 35 spec. Only numbers and booleans are stored (Req 5.8) | yes |
+| TL-21 | Batches 34, 35 and Task 15.3 are verified in one Mode 2 and committed as three commits in order (34, 35, 15) after one green `test` + `lint` + `typecheck` of `@ptah-extension/lane-outcomes` | verify and commit 34 alone | Batch 34 deletes `recordReceipt`/`takeHeldReports`, and the uncommitted pipeline calls them (`:273`, `:318`), so a lane-outcomes typecheck cannot pass between 34 and 15.3. One project and one heavy check (CLAUDE.md). The P2 review is unchanged (after Batch 20) | yes |
+| TL-24 | Batch 12 accepted with `decision-model.config.ts` at 803 lines; no split in this batch. Named later task FE-12a: move the probe and discriminator helpers (`:606-803`) to `decision-model.probe.ts` before any batch adds code to the file (noted on Batch 21) | (a) NOT ACCEPTED with a split as the fix; (b) accept, named later task | The repo's file-size rule is `max-lines` 700 with `skipBlankLines` and `skipComments` (`eslint.config.mjs:556-559`). The file counts 656 such lines, and `eslint` on the 4 files gives 0 warnings, so the limit holds for this new file. A split now costs one more round with no rule breached. Headroom is about 44 lines, so the next growth must split first | yes |
 
 ## Waves and in-flight order (max 3 executors at once; phase reviews take a slot)
 
@@ -151,8 +162,8 @@ Edge cases:
 | --- | --- | --- |
 | 1 | 1 A2, 2 AB1, 3 B3, then 4 B2 | none |
 | 2 | 6 B4a, 5 A3, 7 A1b, then 8 B8 | none |
-| 3 | 15 B4b, 9 A4, 11 A6a, then 10 A5a, 12 A6b, 13 A7, 14 A10 | `npx nx test @ptah-extension/lane-routing --parallel=1` + `npx nx lint @ptah-extension/lane-routing` before committing the wave's last lane-routing batch |
-| 4 | 20 B4c, 16 A4b, 17 A5b, then 18 A11, 19 A13 | lane-routing as in wave 3; `npx nx typecheck @ptah-extension/rpc-handlers` after Batch 18 |
+| 3 | 15 B4b, 9 A4, 11 A6a, then 10 A5a, 12 A6b, 13 A7, 14 A10; Batch 15 fix round (TL-14): 34 B4b-S1, then 35 B4b-S2, then Task 15.3, one codex lane, one joint Mode 2 (TL-21) | `npx nx test @ptah-extension/lane-routing --parallel=1` + `npx nx lint @ptah-extension/lane-routing` before committing the wave's last lane-routing batch |
+| 4 | 33 P1c (after 10 and 13 commit; before 17), 20 B4c, 16 A4b, 17 A5b, then 18 A11, 19 A13, 32 P1c (any free slot; before 24) | lane-routing as in wave 3; `npx nx typecheck @ptah-extension/rpc-handlers` after Batch 18 |
 | 5 | 21 A8, 23 B5, 24 B6, then 25 B7, 22 A12 | `npx nx typecheck @ptah-extension/rpc-handlers` after Batch 25 |
 | 6 | 28 B10a, 26 A9a, 27 A16 | none |
 | 7 | 29 AB9 | full `npx nx test @ptah-extension/vscode-lm-tools --parallel=1` |
@@ -162,16 +173,43 @@ Edge cases:
 
 | Phase | Batches | Implementer families | Phase review | Reviewer (family) |
 | --- | --- | --- | --- | --- |
-| P1 Foundations | 1, 2, 3, 4, 5, 7 | xAI, Zhipu, OpenAI, Google | code-logic + code-style (new shared contracts, new lib public API) | Claude code-logic-reviewer + code-style-reviewer (Anthropic) |
-| P2 Outcome store core | 6, 15, 20 | OpenAI | code-logic + code-style (new lib public API) | Claude subagents (Anthropic) |
-| P3 Routing engine | 9, 10, 11, 12, 13, 16, 17, 21, 27 | Google, Zhipu, xAI, Anthropic | code-logic + code-style (lane-routing public API) | codex lane (OpenAI) |
+| P1 Foundations — ACCEPTED 2026-10-15 | 1, 2, 3, 4, 5, 7 | xAI, Zhipu, OpenAI (actual; Google planned, not used) | code-logic + code-style (new shared contracts, new lib public API) | Claude code-logic-reviewer + code-style-reviewer (Anthropic): `T\reviews\p1-code-logic-review.md` APPROVED 7/10, `T\reviews\p1-code-style-review.md` APPROVED 7/10. Weaker evidence: orchestrator commit `566fa772c` is same-family (Anthropic) as its reviewers |
+| P2 Outcome store core | 6, 15, 34, 35, 20 | OpenAI | code-logic + code-style (new lib public API) | Claude subagents (Anthropic) |
+| P3 Routing engine | 9, 10, 11, 12, 13, 16, 17, 21, 27, 33 | Google, Zhipu, xAI, Anthropic | code-logic + code-style (lane-routing public API) | codex lane (OpenAI) |
 | P4 Decision-model settings | 14, 18, 19, 22 | Zhipu, xAI, Google | code-logic + visual (A12 renders) | codex lane (OpenAI); visual-reviewer subagent |
-| P5 Outcome producers + Agents tab | 8, 23, 24, 25, 28 | Google, OpenAI, xAI, Zhipu | code-logic + code-style (new RPC method, new MCP tool module) + visual (B8) | Claude subagents (Anthropic); visual-reviewer subagent |
+| P5 Outcome producers + Agents tab | 8, 23, 24, 25, 28, 32 | Google, OpenAI, xAI, Zhipu | code-logic + code-style (new RPC method, new MCP tool module) + visual (B8) | Claude subagents (Anthropic); visual-reviewer subagent |
 | P6 MCP + host integration | 26, 29, 30 | Google, Anthropic | code-logic + code-style (two new MCP tools) | codex lane (OpenAI) |
 | P7 Skill docs | 31 | opencode | none — docs only; team-leader checks the grep evidence in Mode 2 | n/a |
 
 A phase review is requested when every batch of the phase is COMPLETE; its diff is the phase's commit list
 (SHAs recorded on the batch headers; phases interleave, so the range is non-contiguous).
+
+## P1 review triage (team-leader, 2026-10-15)
+
+Both P1 reviews APPROVED with 0 Blocking and 0 Serious, so no P1 fix batch and no re-review. Rule
+applied: a Moderate is fixed only if it can break a lane config or lose data; otherwise it becomes a
+named later task. Minors are recorded and not fixed. Each finding was checked against W before
+triage. Carry-over batches are labelled `P1c`. They are reviewed in the phase that consumes them,
+not in P1.
+
+| Id | Finding (review ref) | Class | Disposition |
+| --- | --- | --- | --- |
+| P1-C1 | Budget stop goes unpublished when no handoff record exists. It is gated on `prepared.record && registryRecord?.agentId` (`subagent-budget-monitor.ts:1000`), and the skip is silent (logic M1/FM-2) | Moderate, loses data once Batch 24 persists `budget_stopped` | FIX in **Batch 32** before Batch 24 (its first consumer). No data is lost today because nothing listens yet |
+| P1-C2 | Run-tag misses `missing-agent-id`/`invalid-agent-id` are logged at `debug` only (`post-tool-use-hook-handler.ts:115-119`; logic M2/FM-1) | Moderate, observability for a lost join key | Same file as C3, so it rides in **Batch 32** |
+| P1-C3 | Inline structural registry type instead of `Pick<SubagentRegistryService,'get'>` (`post-tool-use-hook-handler.ts:76-79`; style M6) | Moderate, style | Same file as C2, so it rides in **Batch 32** |
+| P1-C4 | Result schema has no cross-field rules (unavailable `source`/`pinRule`/`needsDisclosedFallback`, lane needs `cli`/`ptahCliId`, subagent needs `role`, `value:null` with `source:'model'`) (logic M5/FM-5). It also re-states constants and lacks `satisfies`/`Schema` suffixes (style M3) | Moderate, not config or data | Named later task, **Batch 33**. It must land before A8 (Batch 21) builds on the schema and after in-flight Batches 10 and 13, whose specs parse `UnavailableEntrySchema` |
+| P1-C5 | Duplicate pins per `phaseId` accepted, free strings unbounded (logic M4/FM-4), whitespace-only `request` (logic m4) | Moderate + Minor | Named later task, **Batch 33**. The m4 trim rides along because the file is already being edited |
+| P1-C6 | `ROTATION_TASK_KINDS`/`RotationTaskKind` hand-copy `OUTCOME_TASK_KINDS` (style M2, logic m3; plan R4j) | Moderate, drift | Named later task, **Batch 33** (delete and import from shared). Batch 17 depends on 33 |
+| P1-L1 | 20 P1 files are not Prettier-clean at HEAD (style M1). Re-checked 2026-10-15 with `npx prettier --check`: 20/20 dirty, none modified in W | Moderate, format only | Named later task: no TL code edit, and no commit while lanes are writing in W (CLAUDE.md lint-staged warning). Hooks are now wired (`.husky/_` present, so TL-11 is superseded), so lint-staged formats each file the next time a batch stages it. Batch 32 covers 2 agent-sdk specs and Batch 33 covers 3 lane-routing files. Batch 30 covers the 2 `apps/*/src/di/container.smoke.spec.ts` files. The rest (shared 4, persistence-sqlite 4, `subagent-run-tag.ts`(+spec), `subagent-budget-stop-callback-registry.spec.ts`, lane-routing README and `route-candidate-source.port.ts`) are formatted in one orchestrator `style(...)` commit via `npx nx format:write --files=...` at the first moment no lane is in flight |
+| P1-L2 | Dev-host boot throws until Batch 25 (manifest owner missing). The vscode, electron and cli-engine `rpc-surface.spec.ts` stay known-red until then (logic M3/FM-3, style M11; R-5) | Moderate, sequencing | Recorded. Batch 8's after-screenshots and the P5 visual review run only after Batch 25 is committed, and no host is dev-booted before then. Rule-8 guard specs for Batches 8-24 tolerate that one red partition |
+| P1-L3 | Subagent family hard-wired to `claude` (`lane-family.ts:24`; logic M6/FM-6) | Moderate, plan-sanctioned (part-a:142) | Named later task on **Batch 24**: derive the subagent `family` from the active provider where it is known, with fallback `claude`. Reversible |
+| P1-L4 | `['model','ranking','pin']` has three owners (style M4, logic m2). This is a plan amendment to SC-6 | Moderate, drift | Named later task, unscheduled: the shared `SPAWN_ROUTING_SOURCES` const spans 3 libs. Candidate owner is Batch 29 (spawn-field propagation) if it fits the cap |
+| P1-L5 | Run-id/tag format has no single owner (style M5) | Moderate, wire-format drift | Named later task on **Batch 20**: the recorder builds `subagent:${agentId}` through one shared helper (`subagentRunId`). Moving the tag writer to that helper is unscheduled |
+| P1-L6 | Budget-stop registry skips `helpers/index.ts` and has no doc comment (style M7) | Moderate, style | Named later task, unscheduled. Batch 32 would exceed the cap if it carried this |
+| P1-L7 | Container smoke assertions are placed in unrelated `it` blocks, and `toBeDefined` adds nothing (style M8) | Moderate, test hygiene | Named later task on **Batch 30**, which already edits those smoke specs |
+| P1-L8 | `LaneOutcomeRecord` declares 3 fields that 0054 does not persist (style M9) | Moderate, legibility | Named later task, unscheduled (doc or `LaneOutcomeRow` split). Batch 20 must not treat those 3 fields as stored |
+| P1-L9 | `CliDetectionResult.family?` stores a derivable value (style M10) | Moderate, design | Named later task, unscheduled. Reversible |
+| P1-m | Logic m1 (`formatAgentList` "byte for byte" docstring is wrong and the `Family` column is undisclosed), m5 (leading newline when `take()` is empty), m6 (barrel exports owned by Batch 21). Style Minor 1-9 (load-time invariant throw, 36 public constants, `PROVIDER_OPTION_LIMIT` citations, `PHASE_KINDS`/`DEPTHS` names, `isStale` placement, shared type-import cycle, rule-9 ESLint restriction, unused `LaneRoutingDIToken`, `566fa772c` reflow) | Minor | Recorded, not fixed. m6 is already Batch 21's task (it must export the ports and schemas). Logic m1 is noted for Batch 31's skill text |
 
 ---
 
@@ -273,7 +311,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Result (team-leader, 2026-10-15): the 4 agent-sdk specs passed, 114 tests (ts-jest diagnostics on, so spec types are checked). agent-sdk typecheck passed. ESLint on the 13 changed files: 0 errors; 3 warnings were already there (`max-lines` on the monitor, unused `SetupRpcHandlers` in both smoke specs). Rule 8: electron `container.smoke.spec.ts` 20/20, cli `container.smoke.spec.ts` (`jest.config.cjs`) 10/10. VS Code `container.smoke.spec.ts` and every `expected-resolvable.ts` list no SDK registry tokens (the sibling `SDK_SUBAGENT_STOP_CALLBACK_REGISTRY` is absent too), so they need no change. `TOKENS.SUBAGENT_REGISTRY_SERVICE`, which the hook handler now injects, is registered for every host in `vscode-core/src/di/register-platform-agnostic.ts:77`
 - IA-5: the report records the fallback (`tool_response.agentId` on a registry miss) and the open live capture. Batch 31 (A15) owns that capture. No Batch 3 path needs IA-5 proven: the sync, async and miss shapes are covered by specs
 
-## Batch 4 (B2): Migrations 0054, 0055 — COMPLETE (commit 3ada54c23; actual executor: CLI lane Glm, Zhipu)
+## Batch 4 (B2): Migrations 0054, 0055 — COMPLETE (commit 3ada54c23; actual executor: CLI lane Glm, Zhipu; P1 phase review: `reviews\p1-code-logic-review.md` APPROVED, `reviews\p1-code-style-review.md` APPROVED)
 
 - Recommended executor: CLI lane antigravity (Google) — SQL migrations
 - Actual executor: CLI lane Glm (Zhipu) — antigravity hit its quota (decisions.md #54)
@@ -342,6 +380,12 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
   reviewers.
   - Expected deliverables: `reviews\p1-code-logic-review.md` and `reviews\p1-code-style-review.md`.
   - When the reviews accept, record their paths here.
+- P1 phase review ACCEPTED on 2026-10-15. Reviews:
+  - `T\reviews\p1-code-logic-review.md`: APPROVED, 7/10, 0 B / 0 S / 6 M / 6 m.
+  - `T\reviews\p1-code-style-review.md`: APPROVED, 7/10, 0 B / 0 S / 11 M / 9 m.
+  - Families: the implementers were xAI, Zhipu and OpenAI; the reviewers were Anthropic.
+  - Triage is in `## P1 review triage`, and the carry-overs are Batches 32 and 33 (TL-12, TL-13).
+  - There is no P1 fix batch and no re-review.
 
 ## Batch 5 (A3): Route contracts and ports — COMPLETE (commit 5e5c9ffca; actual executor: CLI lane codex, OpenAI — decision #55)
 
@@ -452,7 +496,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:739; part-b:552-589 (§9); `T\parity-inventory.md`
 - Pattern to follow: `clone-card.component.ts:401-439` metrics `computed`
 - Quality requirements: only `kind === 'agent'` loses "Success" (decision #13); skills/commands keep it; invocations, last enhanced, history count, scorecard badge unchanged (parity rows `keep`); `outcomeSignals = input<AgentOutcomeSignals | ...>`
-- Validation notes: R-10 — before screenshots (dark + light) of the Agents tab from base commit c57a9a1e7 are captured before this batch is committed; PB-4 acceptance; R-11 parity
+- Validation notes: R-10 — before screenshots (dark + light) of the Agents tab from base commit c57a9a1e7 are captured before this batch is committed; PB-4 acceptance; R-11 parity. P1-L2: the after-screenshots and the P5 visual review boot a dev host, which throws until Batch 25 adds the manifest owner, so run them only after Batch 25 is committed. That ordering does not block this batch's own commit
 - Implementation details: `SkillSynthesisRpcService.getAgentOutcomeSignals(slugs)` → `'agent:outcomeSignals'`
 
 ### Batch 8 verification
@@ -483,7 +527,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/matrix/seed-matrix.spec.ts)`
 
-## Batch 10 (A5a): Hard constraints — IN_PROGRESS (actual executor: CLI lane grok, xAI — first fallback, Glm busy)
+## Batch 10 (A5a): Hard constraints — COMPLETE (commit 900efd94d; 2026-10-15 final: `prettier --write LR/ranking/` (2 files reformatted), hard-constraints.spec re-run 29/29, degradation TOTAL 296 no FAIL, pre-commit hook passed) (actual executor: CLI lane grok, xAI — first fallback, Glm busy; report `reports/batch-10-report.md`; verified 2026-10-15: hard-constraints.spec 29/29, eslint ranking/ clean; commit BLOCKED by pre-commit `nx affected --target=lint` on other writers' working-tree files — `@ptah-extension/rpc-handlers:lint` (@nx/dependency-checks: unused `@ptah-extension/lane-routing` in libs/backend/rpc-handlers/package.json, Batch 14) and `degradation-audit:lint` (libs/backend/lane-outcomes 1 vs baseline 0: src/lib/write/report-effect.ts:58 catch-return-sentinel, Batch 15); ranking files unstaged, unchanged, ready to commit once those clear. Re-check 2026-10-15 (TL-22): the degradation pre-check now shows TOTAL 296 and no FAIL, so lane-outcomes is clear. The rpc-handlers dependency-checks error is still there (Batch 14 issue 1), so the commit stays blocked until the Batch 14 fix lands. Batch 10 commits right after Batch 14. Re-check 2026-10-15 (Batch 11 Mode 2): `git diff -- libs/backend/rpc-handlers/package.json` still shows the added `@ptah-extension/lane-routing` line at :21, degradation TOTAL 296 with no FAIL; still blocked, not committed. Re-check 2026-10-15 (Batch 13 Mode 2): `package.json:21` line still present, degradation TOTAL 296 no FAIL; still blocked. `prettier --check` flags `ranking/hard-constraints.ts` and `ranking/hard-constraints.spec.ts`; run `prettier --write` on `LR/ranking/` and re-run the spec before the Batch 10 commit)
 
 - Recommended executor: CLI lane Glm (Zhipu)
 - Execution mode: sequential
@@ -494,7 +538,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 5
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 10.1: Candidate types and hard-constraint filter — PENDING
+### Task 10.1: Candidate types and hard-constraint filter — COMPLETE
 
 - File: CREATE `LR\ranking\candidate.types.ts`, `LR\ranking\hard-constraints.ts`, `LR\ranking\hard-constraints.spec.ts`
 - Plan reference: implementation-plan.md:742; part-a:924 (Req 3.2-3.6)
@@ -507,7 +551,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/ranking/hard-constraints.spec.ts)`
 
-## Batch 11 (A6a): System One wire + payload — IN_PROGRESS (actual executor: CLI lane Glm, Zhipu — first fallback, grok busy)
+## Batch 11 (A6a): System One wire + payload — COMPLETE (commit e5fee2a40; pre-commit hook passed 2026-10-15) (actual executor: CLI lane Glm, Zhipu — first fallback, grok busy; report `reports/batch-11-report.md`; Mode 2 2026-10-15: NOT ACCEPTED — Jest 24/25, 1 fail at `system-one.client.spec.ts:177` (spec arithmetic: the detail prefix `model "qwen3:0.6b" not found ` is 29 chars, the spec subtracts 27; the implementation's 200-char cut is correct, so fix the spec, not `system-one.client.ts`); eslint decision-model/ clean; prettier --check flags all 5 files. Fix executor: Glm is at its limit, use the next fallback. Commit also still blocked by the rpc-handlers `package.json:21` dependency-checks error, Batch 14 issue 1. Fix round by the orchestrator (decision #68); re-verified 2026-10-15 (Batch 13 Mode 2): both specs 2 suites 25/25, prettier --check clean on `LR/decision-model/`; VERIFIED, commit still blocked by `package.json:21`)
 
 - Recommended executor: CLI lane grok (xAI)
 - Execution mode: sequential
@@ -518,7 +562,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 5
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 11.1: System One client and decision payload — PENDING
+### Task 11.1: System One client and decision payload — COMPLETE
 
 - File: CREATE `LR\decision-model\system-one.schema.ts`, `LR\decision-model\system-one.client.ts` (+ `system-one.client.spec.ts`), `LR\decision-model\decision-payload.ts` (+ `decision-payload.spec.ts`)
 - Plan reference: implementation-plan.md:743; part-a:925, :300-360 (§5)
@@ -531,7 +575,11 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/decision-model/system-one.client.spec.ts LR/decision-model/decision-payload.spec.ts)`
 
-## Batch 12 (A6b): Decision-model settings and probe — PENDING
+## Batch 12 (A6b): Decision-model settings and probe — COMPLETE (commit abf0d2b31, 2026-10-15; actual executor: subagent backend-developer, Anthropic — decision #69; report `reports/batch-12-report.md`, decisions D1-D11; verified: decision-model.config.spec 1 suite 30/30, eslint 4 files 0 errors 0 warnings, prettier --check clean, di-lint OK (1838 sites, 798 tokens), degradation TOTAL 296 no FAIL, pre-commit hook passed; full lane-routing test + wave-3 shared check deferred to Batch 33 Mode 2 (decision #71); file size: TL-24)
+
+- TL-24 file-size note: `decision-model.config.ts` is 803 physical lines, 656 counted by the repo rule `max-lines` 700 with `skipBlankLines`/`skipComments` (`eslint.config.mjs:556-559`); eslint reports no warning, so the limit holds. Named later task FE-12a: before any batch adds code to this file, move the probe and discriminator helpers (`decision-model.config.ts:606-803`) to `decision-model.probe.ts`
+- Acceptance verified on disk (`decision-model.config.spec.ts`): (a) `:361-385` route 400 vs control 404 → `ready`, `last call failed: …`, `storage.update` never called; (b) `:387-422` both 404 → `unsupported-endpoint`, mark written once and present after two restarts; (c) `:424-444` two live 404s inside 60 s → one `/api/version` + one `/v1/systemone`, re-check again at 60 000 ms
+- Write-path record (Mode 3 trace): key `ptah.decisionModel.unsupported.v1` (`decision-model.types.ts:90`); scope global `PLATFORM_TOKENS.STATE_STORAGE` (not workspace); value `{ selection, baseUrl, detail, at }` validated on load by the strict `DecisionModelUnsupportedMarkSchema`; cleared with `update(key, undefined)`; writer `markUnsupported` `decision-model.config.ts:287-310`, clear `:566-582`, reader `loadMark` `:541-557` at construction
 
 - Recommended executor: CLI lane grok (xAI), after Batch 11
 - Execution mode: sequential
@@ -542,7 +590,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 5, Batch 11
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 12.1: Decision-model config, probe, `recheckAfterLiveNotFound` — PENDING
+### Task 12.1: Decision-model config, probe, `recheckAfterLiveNotFound` — COMPLETE
 
 - File: CREATE `LR\decision-model\decision-model.types.ts`, `LR\decision-model\decision-model.config.ts` (+ `decision-model.config.spec.ts`), `LR\decision-model\structured-decision.port.ts`
 - Plan reference: implementation-plan.md:744; part-a:929, §5; decisions #42, #46
@@ -555,7 +603,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/decision-model/decision-model.config.spec.ts)`
 
-## Batch 13 (A7): Reasons and confidence — PENDING
+## Batch 13 (A7): Reasons and confidence — COMPLETE (commit ab5038c72, 2026-10-15: di-lint OK after Batch 12's fix, degradation TOTAL 296 no FAIL, pre-commit hook passed; actual executor: CLI lane grok, xAI; report `reports/batch-13-report.md`; verified 2026-10-15: compile-reasons.spec + confidence.spec 2 suites 80/80, eslint reasons/ clean, prettier --write applied to `LR/reasons/` (3 files reformatted) then --check clean and specs re-run 80/80; `src/index.ts` untouched (A8 owns exports); commit BLOCKED by rpc-handlers `package.json:21` (Batch 14 issue 1, TL-22); degradation TOTAL 296 no FAIL. Commit order once clear: Batch 10, 11, 13. Commit attempt 2026-10-15 (after 900efd94d, e5fee2a40): pre-commit `nx affected --target=lint` FAILED on `di-lint:lint` — `libs/backend/lane-routing/src/lib/decision-model/decision-model.config.ts:117` injects `LANE_ROUTING_TOKENS.STRUCTURED_DECISION` (`isOptional: true`) but no register*.ts registers it. That file is Batch 12's untracked in-progress work, not this batch. Nothing committed; reasons files unstaged, unchanged, still verified. Commit once Batch 12 registers the token or its file clears di-lint; then Batch 14 follows)
 
 - Recommended executor: CLI lane antigravity (Google)
 - Execution mode: sequential
@@ -566,7 +614,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 5
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 13.1: Compile reasons and confidence — PENDING
+### Task 13.1: Compile reasons and confidence — COMPLETE
 
 - File: CREATE `LR\reasons\compile-reasons.ts`, `LR\reasons\confidence.ts`, `LR\reasons\compile-reasons.spec.ts`, `LR\reasons\confidence.spec.ts`
 - Plan reference: implementation-plan.md:745; part-a:926 (Req 13.2-13.5)
@@ -579,7 +627,11 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/reasons/compile-reasons.spec.ts LR/reasons/confidence.spec.ts)`; wave-3 lane-routing check (wave table) before committing the wave's last lane-routing batch
 
-## Batch 14 (A10): Lane model listing adapter — PENDING
+## Batch 14 (A10): Lane model listing adapter — COMPLETE (commit 66f724fed, 2026-10-15: 9 files = adapter + spec, `register-shared-rpc-handlers.ts`, six `apps/*/src/di/**` guard files; degradation TOTAL 296 no FAIL; pre-commit hook passed; actual executor: CLI lane grok, xAI, session 01a13f88-8cdf-7f61-a5c5-4b905b2a95cb; report `reports/batch-14-report.md`; NOT ACCEPTED 2026-10-15 (TL-22), fix round on the same lane; fix report `reports/batch-14-fix-report.md` (opencode lane). Fix round VERIFIED 2026-10-15: `rpc-handlers/package.json` equals HEAD; adapter spec Jest 1 suite 11/11; `nx lint @ptah-extension/rpc-handlers` 0 errors (50 pre-existing warnings, none in the adapter files); prettier --write applied to `lane-model-listing.adapter.ts` and the three `apps/*/src/di/container.smoke.spec.ts` (format only), adapter spec re-run 11/11. Guard files in `apps/{ptah-cli,ptah-electron,ptah-extension-vscode}/src/di/` confirmed Batch 14 via `reports/batch-14-report.md:16-21`. Commit BLOCKED behind Batch 13 by the same di-lint failure on Batch 12's `decision-model.config.ts:117`; files unstaged)
+
+- TL-22 verify result (2026-10-15): adapter `lane-model-listing.adapter.ts` matches the Batch 5 port shape (`list(row, signal)`, `LaneModelEntry` provenance union) and PA-1 holds. `npx nx typecheck @ptah-extension/rpc-handlers` passed. Rule-8 guard specs: vscode 56/57, electron 50/52, cli 11/11; every container-smoke suite passed. The vscode and electron red cases are not this batch: the R-5 `agent:outcomeSignals` gap (422 expected / 421) and electron `state-storage-oversized-profile.bundle.spec.ts`, which needs a `dist/` worker artifact (builds are off-limits). Degradation pre-check: TOTAL 296, no FAIL.
+- Issue 1 (lint error): `libs/backend/rpc-handlers/package.json:21` `@nx/dependency-checks`: "@ptah-extension/lane-routing" is not used. Cause: not a stale graph. `libs/backend/lane-routing` has no `package.json`, so Nx has no npm package name for the project and the rule never counts the import against the declaration. The convention in rpc-handlers is that libs without a `package.json` are not declared. It already imports `cron-scheduler`, `harness-sync`, `memory-curator`, `persistence-sqlite`, `skill-synthesis`, `task-specs`, `session-organization`, `output-styles` and `messaging-gateway` with no entry. Fix: remove line 21 so the file matches `HEAD`. Do not add a `package.json` to lane-routing.
+- Issue 2 (test failure): `lane-model-listing.adapter.spec.ts` does not load (0 tests run). `adapter.ts:15` imports the `@ptah-extension/cli-agent-runtime` barrel at runtime, which pulls in `workspace-intelligence/src/ast/tree-sitter-parser.service.ts:11` (ESM, `createRequireEsmError`). Fix (spec only): add `jest.mock` factories before the imports, following `cli-model-list.service.spec.ts:3-8` and `chat/ptah-cli/chat-ptah-cli.service.spec.ts:21-25`. Mock `'@ptah-extension/cli-agent-runtime'` → `{ CLI_AGENT_RUNTIME_TOKENS: { SDK_PTAH_CLI_CONFIG_PERSISTENCE: Symbol.for('SdkPtahCliConfigPersistence') } }`. Mock `'@ptah-extension/auth-providers'` → `{ AUTH_PROVIDERS_TOKENS: { SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'), SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'), SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth') } }`, which `cli-model-list.service.ts` also needs. Keep the 11 listed cases, and make them pass.
 
 - Recommended executor: CLI lane Glm (Zhipu)
 - Execution mode: sequential
@@ -590,7 +642,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 5
 - Phase: P4 Decision-model settings | Phase review: code-logic + visual
 
-### Task 14.1: `LaneModelListing` adapter with Ptah CLI provider discovery — PENDING
+### Task 14.1: `LaneModelListing` adapter with Ptah CLI provider discovery — COMPLETE (TL-22 issues 1-2 fixed and verified)
 
 - File: CREATE `W\libs\backend\rpc-handlers\src\lib\services\lane-model-listing.adapter.ts` (+ spec); MODIFY `W\libs\backend\rpc-handlers\src\lib\register-shared-rpc-handlers.ts`
 - Plan reference: implementation-plan.md:746; part-a:934, §9 integration note
@@ -603,7 +655,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/rpc-handlers, <adapter spec>)`, then `npx nx typecheck @ptah-extension/rpc-handlers`, then rule-8 guard specs
 
-## Batch 15 (B4b): Journal, write pipeline, report holds — IN_PROGRESS
+## Batch 15 (B4b): Journal, write pipeline, report holds — IN_PROGRESS (PARTIAL FAILURE 2026-10-15, TL-14; first pass: CLI lane codex, OpenAI, session 01a13f88-52bf-7aa2-8ba7-766bcdb4f584, report `reports/batch-15-report.md`; fix round = Batches 34, 35, then Task 15.3; depends on 6, 34, 35; joint Mode 2 2026-10-15 NOT ACCEPTED on Task 15.3 (TL-23), nothing committed for 34/35/15)
 
 - Recommended executor: CLI lane codex (OpenAI)
 - Execution mode: sequential
@@ -611,10 +663,10 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Subagent reason: N/A
 - Review family: different from implementer — P2 reviewed by Anthropic
 - Rationale: highest-risk logic of the task (decisions #41, #45, #48, #51, #52); first slot of wave 3
-- Tasks: 2 | Depends on: Batch 6
+- Tasks: 3 (15.3 is the fix round) | Depends on: Batch 6; Task 15.3 also on Batches 34 and 35
 - Phase: P2 Outcome store core | Phase review: code-logic + code-style
 
-### Task 15.1: `KeyValueOutcomeJournal` — IN_PROGRESS
+### Task 15.1: `KeyValueOutcomeJournal` — IMPLEMENTED (verified on disk 2026-10-15: `LO\write\key-value-outcome-journal.ts` (+ spec); not yet checked by Nx/Jest; no change in the fix round)
 
 - File: CREATE `LO\write\key-value-outcome-journal.ts` (+ spec)
 - Plan reference: implementation-plan.md:738; SC-10 :383-650 (journal value incl. `heldRuns` with `holdExpiries`)
@@ -623,7 +675,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Validation notes: restart, delayed-open, bound, ordering, shutdown specs
 - Implementation details: pure serialization + bounded append/remove
 
-### Task 15.2: `OutcomeWritePipeline` with holds and backlog validation — IN_PROGRESS
+### Task 15.2: `OutcomeWritePipeline` with holds and backlog validation — FAILED (TL-14: required fixtures missing, atomicity and ack defects; superseded by Task 15.3)
 
 - Depends on: Task 15.1
 - File: CREATE `LO\write\outcome-write-pipeline.ts` (+ spec)
@@ -638,16 +690,141 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
   - replay-failure, restart, recovery, ack-crash, >1 000 pre-open and capacity specs
 - Implementation details: capacity = held reports (readable: unexpired table rows; else unexpired `holdExpiries`) + pending report holds; newest refused, never a held one
 
+### Task 15.3: Pipeline fix round on the Batch 34/35 store contract — IN_PROGRESS (NOT ACCEPTED 2026-10-15, joint Mode 2: `nx test lane-outcomes` 3 failed / 78 passed (9 suites, 3 failed); lint pass; typecheck pass; degradation TOTAL 296 no FAIL; report `reports/batch-15-3-report.md`; fix round 2 = issues TL-23 below, same codex lane family)
+
+- TL-23 fix round 2 (Task 15.3 owns all; Batch 34/35 files stay frozen):
+  - 1 (Blocking, FIFO). `LO\write\outcome-write-pipeline.ts:157-168` `accept()` appends straight to the journal while ops from `enqueue()` wait in `this.queue` until the next turn moves them (`:196-209`). A report submitted right after its stop/lane-completion is journaled ahead of its insert, is applied first, gets `missing`, and is dead-lettered `target-missing` (data loss). Failing: `outcome-write-pipeline.backlog.spec.ts:121-132` (reviseRounds 0), `outcome-write-pipeline.durability.spec.ts:174-192` (dead letters reversed). Fix: move the pending queue into the journal ahead of the op in the same `update` (capacity rule kept). The F1 fixture `durability.spec.ts:365-393` must also assert FIFO apply order, not only presence
+  - 2 (Serious, F7). Failing: `outcome-write-pipeline.spec.ts:111-128` (1 warn, expected 2). Store `holdReport` purges expired entries silently (`LO\store\in-memory-lane-outcome.store.ts:177`, `LO\store\sqlite-lane-outcome.store.ts:320-322`), so in production `applyReport` `:350` drops expired holds and budget-stop markers with no warn and the 60 s sweep never sees them. Fix in the pipeline: call `expireHeldReports(now)` and warn (shared helper with the sweep at `:218-243`, including the desktop `holdExpiries` drop) before `holdReport`. Fix the spec seeding so it does not purge (the unused `SeededStore.seed`, spec `:23-26`), and add a pipeline-path case: expired hold, then a new hold, gives one warn
+  - 3 (Serious, fixture missing). Budget stop (`durability.spec.ts:415-423`) covers only marker-before-insert. Add: flag after insert; replay no-op; orphan marker expires at 24 h with one `warn` `budget-stop-expired`
+  - 4 (Serious, fixture missing). Join atomicity (`durability.spec.ts:296-324`) never retries. Add: the retry joins exactly once (one row, receipts 704 and 705, `reviseRounds` 1, no holds, journal empty)
+  - 5 (Serious, fixture weaker). Backlog (d) (`backlog.spec.ts:110-119`) runs without storage or availability. Plan:592-593: `isOpen = false`, journal `[L1]`, one entry appended; on open with no stop it is a held report; with S(y) applied it joins
+  - 6 (Serious, fixture weaker). Held review base (`backlog.spec.ts:134-149`): add `heldRuns` lists `subagent:z` after the hold, deliverables verdict, one receipt per `reportId`, and no `subagent:z` in `heldRuns` after the join (plan:595-601)
+  - Recorded, not in this round: Moderate, `flush()` `:187-190` keeps spinning `setImmediate` after `dispose()` returns at the deadline on a never-resolving store, and the race timer `:375` is never cleared (for the P2 review). Minor, `src/index.ts` does not export `HeldEntryKind`. Minor, `submit` `:138` returns `applied` in VS Code queue mode even when the apply was deferred
+
+- Depends on: Batch 34, Batch 35 (the executor reads both on disk before it starts)
+- Files (exactly these six, nothing else):
+  - MODIFY `LO\write\outcome-write-pipeline.ts`
+  - MODIFY `LO\write\outcome-write-pipeline.spec.ts` (direct mode, holds, join, budget stop, dead letter, VS Code, shutdown)
+  - CREATE `LO\write\outcome-write-pipeline.backlog.spec.ts` (R3-1, R4-1, R5-1, R6-1 fixtures)
+  - CREATE `LO\write\outcome-write-pipeline.durability.spec.ts` (journal, replay, crash and capacity fixtures)
+  - CREATE `LO\write\pipeline.test-support.ts` (fake `IStateStorage` with injectable `update` rejection, fake availability with `isOpen`/`onDidOpen`, and a fault-injecting store wrapper over `InMemoryLaneOutcomeStore` that throws `{ code: 'SQLITE_BUSY' | 'SQLITE_IOERR' }` on chosen calls)
+  - MODIFY `W\libs\backend\lane-outcomes\src\index.ts` (export the Batch 34/35 types and `reportEffectOf`/payload schemas; drop the removed `OutcomeStoreAvailability.listHeldReports`)
+- Unchanged: `LO\write\key-value-outcome-journal.ts` (+ spec), every `LO\store\*` file, `LO\lane-outcome.schema.ts`
+- Plan reference: implementation-plan.md SC-7 :323-366, SC-10 :420-567, required tests :572-643; decisions #40, #41, #45, #48, #51, #52
+- Fixes (each with a spec):
+  - F1 (Blocking). Rewrite the ack at `:223` as an edit of the **current** journal value. Remove only the acknowledged `seq`s, keep entries appended during the turn and the current `droppedAtCapacity`, and take `heldRuns` from the turn. Spec: a `submit` and an `enqueue` that arrive while a turn is applying are both still journaled and applied in FIFO order.
+  - F2. A `subagent-stop` op calls `store.insertStopWithHeldReports(row, now, reportEffectOf)`. Each `invalid` entry it returns goes to the dead-letter key with `reason: 'invalid-payload'` and one `warn`. The run's `heldRuns` entry is removed in the same turn's `update`. Delete the `takeHeldReports` loop.
+  - F3. Report ops call `store.applyReportWithReceipt(report, now, reportEffectOf)`. On `'missing'`, follow the apply-time residue rule (plan:546-550): a `subagent:` `deliverables` op becomes `holdReport` (when the held count is 500 or more, it is dead-lettered with `too-many-held-reports`). A `review` with a held `deliverables` is held. Anything else is dead-lettered with `target-missing`. `'duplicate'` is a no-op. `'invalid'` is dead-lettered as `invalid-payload`. Delete the separate `update` + `recordReceipt` calls.
+  - F4. Rebuild `heldRuns` from `store.listHeldReports(now)` in the first drain turn after `onDidOpen`, and at start when the store is already open (store wins, plan:510-515). Remove `OutcomeStoreAvailability.listHeldReports`.
+  - F5 (TL-16). A `budget-stop` op calls `store.markBudgetStopped(runId, now)`. Never write `failureClass`. Delete the `'timeout'` mapping.
+  - F6 (TL-17). The dead-letter key is idempotent by op key (`kind` + `runId`, or `kind` + `reportId`). An entry already among the kept 200 is not appended and `overflow` is not bumped. The write happens before the turn's ack.
+  - F7. The expiry sweep (at most once per 60 s) logs one `warn` per entry that `expireHeldReports` returns: `{ runId, reportId, kind, reason: 'held-report-expired' }`, or `'budget-stop-expired'` for a marker. On desktop it also drops those `holdExpiries` in the same turn's `update`.
+  - F8 (TL-20). Ops carry no precomputed verdict: `{ kind: 'deliverables' \| 'review'; report: HeldOutcomeReport }`. The payload is `DeliverablesPayloadSchema` or `ReviewPayloadSchema` (Batch 35). `submit` validates the payload first, and an invalid payload returns `{ ok: false, error: 'invalid report payload' }` with nothing appended. `holdReport` stores the payload unchanged (no `verdict` merged in, `:306`).
+  - F9. `dispose`: stop accepting first (`enqueue` is a no-op and `submit` returns `outcome pipeline closed`), then drain for at most 2 000 ms. Desktop/CLI: append the in-memory ops not yet acknowledged to the journal in one `update`. VS Code: one final attempt, then one `warn` with the count of unacknowledged ops. A store that never resolves still returns by the deadline.
+  - F10. The capacity `warn` fires on the first refusal, then once per 100. At start, one `warn` when `droppedAtCapacity > 0` or the dead-letter key has entries, with both counts.
+- Acceptance fixtures, all required (names may differ; each must map 1:1 in the report table):
+  - Backlog unknown id (a)-(e) exactly as plan:586-594, including "journal deep-equal before/after, `nextSeq` unchanged, `IStateStorage.update` not called, after `onDidOpen` only L1's row, no receipt, no held report"
+  - Dead-lettered target (plan:619-620)
+  - Held review across a store outage, base case plus variants (i)-(iv) (plan:595-607)
+  - Hold cap per report, base case of 500 plus variants (i)-(v) (plan:608-618)
+  - R6-1 and its 500-unexpired variant (Task 15.2 text above)
+  - SC-7 B4 hold fixtures (plan:349-366): report-before-stop on both target paths; review `revise` held behind deliverables gives `reviseRounds 1`; unknown `subagent:` review errors; concurrent same-slug, one held and one applied; expiry at 24 h with one `warn`, and the 501st hold refused; restart with holds (KV and SQLite stores)
+  - Delayed open and its two variants; report before open; ordering (plan:575-585, :621-622)
+  - Replay insert failure; restart during a failure streak; recovery after open; ack crash for L1 **and** for a `revise` report (`reviseRounds` stays 1); permanent failure; more than 1 000 pre-open (1 500 entries, at most 25 per turn, one rewrite per turn); capacity at 5 000 + 1 (`droppedAtCapacity` 1 after restart); VS Code ack (one rejected `update`, then the 250 ms retry in order; queue full at 1 000); shutdown with a 2 000 ms deadline and a never-resolving store (plan:622-645)
+  - Budget stop: before the stop insert, then the stop gives `budgetStopped: true` and `failureClass: null`; after the insert, the flag is applied; replay is a no-op; an orphan marker expires at 24 h with one `warn`
+  - Join atomicity: the store fails inside the stop join, so the row is absent, the holds are kept and there is no receipt; the retry joins exactly once
+  - F1 concurrent-append fixture; F6 dead-letter replay fixture (crash between the dead-letter write and the ack, so a replay leaves one entry)
+- Validation notes: rule 7, so first check the Batch 34/35 signatures on disk and cite `file:line`. Fake timers: `holdReport` purges with wall-clock `Date.now()` (TL note below), so pinned `now` values stay at or below wall-clock. The pipeline never deletes receipts. Report each fixture in a table with its spec name.
+
 ### Batch 15 verification
 
-- `npx nx test @ptah-extension/lane-outcomes --parallel=1`, then `npx nx lint @ptah-extension/lane-outcomes`
+- Joint Mode 2 with Batches 34 and 35 (TL-21): `npx nx test @ptah-extension/lane-outcomes --parallel=1`, then `npx nx lint @ptah-extension/lane-outcomes`, then `npx nx typecheck @ptah-extension/lane-outcomes`. Three commits in order (34, 35, 15) after all three pass
 - TL note from Batch 6: the held-report cap is global (plan:342-345, :538-545), so use the store's
   global `countHeldReports(nowMs)`; `holdReport` purges expired rows with `Date.now()`, so specs that
   pin `now` must use a value at or below wall-clock time. The pipeline must not delete receipts.
   KV `evict()` drops receipts whose run has no kept row; if the pipeline records a receipt before its
   row exists, report that to the team-leader rather than editing Batch 6 files silently
 
-## Batch 16 (A4b): Matrix store + local derivation — PENDING
+## Batch 34 (B4b-S1): Atomic store contract v2 — IN_PROGRESS (Batch 15 fix round, TL-14/TL-15/TL-16; joint Mode 2 2026-10-15: verified on disk, store specs pass, lint + typecheck pass; commit HELD by TL-21 until Task 15.3 is green; report `reports/batch-34-35-report.md`; actual executor: CLI lane codex, OpenAI)
+
+- Recommended executor: CLI lane codex (OpenAI), the same lane family as Batches 6 and 15, with a full brief
+- Execution mode: sequential (one interface and its three implementations)
+- Fallback order: grok -> antigravity -> subagent backend-developer (full brief every spawn)
+- Subagent reason: N/A
+- Review family: different from implementer — P2 reviewed by Anthropic
+- Rationale: the atomicity the pipeline needs must live in the store, because a better-sqlite3 transaction is synchronous and the KV `update` is per call
+- Tasks: 1 | Depends on: Batch 6 | Runs before Batch 35 and Task 15.3. The same lane may run Batch 35 right after this one
+- Phase: P2 Outcome store core | Phase review: code-logic + code-style (after Batch 20)
+
+### Task 34.1: Store port v2 and its three implementations — IMPLEMENTED
+
+- Files (exactly these five): MODIFY `LO\store\lane-outcome.store.ts`, `LO\store\in-memory-lane-outcome.store.ts`, `LO\store\key-value-lane-outcome.store.ts`, `LO\store\sqlite-lane-outcome.store.ts`, `LO\store\store.test-support.ts`
+- Plan reference: SC-7 :323-366 (join in the same transaction; KV: the same `update`); SC-10 idempotency table :432-443; receipts :439-443; 0054 DDL (`libs/backend/persistence-sqlite/src/lib/migrations/0054_lane_outcome_records.ts:38-92`); TL-15, TL-16, TL-20
+- Contract (`lane-outcome.store.ts`, exact names):
+  - `HeldEntryKind = 'deliverables' | 'review' | 'budget-stop'`. `HeldOutcomeReport.kind: HeldEntryKind`. `OutcomeReceipt.kind` stays `'deliverables' | 'review'`
+  - `LaneOutcomeRow extends LaneOutcomeRecord { readonly budgetStopped: boolean }`. `get`, `findLatestByAgent`, `listByLane` and `listByRoles` return `LaneOutcomeRow`
+  - `OutcomeReportEffect = { kind: 'deliverables'; verdict: LaneCompletionVerdict; declaredAt: number; taskKind?: OutcomeTaskKind; taskId?: string; routingSource?: OutcomeRoutingSource } | { kind: 'review'; verdict: 'approved' | 'rejected' | 'revise' }`
+  - `OutcomeEffectResolver = (row: LaneOutcomeRow, report: HeldOutcomeReport) => OutcomeReportEffect | null`. It is synchronous and pure, because it runs inside a better-sqlite3 transaction. `null` means the payload is invalid
+  - `insertStopWithHeldReports(row: LaneOutcomeRecord, nowMs: number, resolve: OutcomeEffectResolver): Promise<{ inserted: boolean; joined: readonly HeldOutcomeReport[]; invalid: readonly HeldOutcomeReport[]; budgetStopped: boolean }>`. One transaction (KV: one `update`). It runs insert-if-absent, then walks the run's unexpired held entries in `held_at` order. A `'budget-stop'` marker sets the flag. A report with a receipt is deleted. `resolve` returning null deletes the entry and lists it in `invalid`. Otherwise it applies the effect to the current row, writes the receipt (`appliedAt = nowMs`) and deletes the entry. A replay with nothing held is a no-op. A throw anywhere rolls everything back
+  - `applyReportWithReceipt(report: HeldOutcomeReport, nowMs: number, resolve: OutcomeEffectResolver): Promise<'applied' | 'duplicate' | 'missing' | 'invalid'>`. One transaction: receipt exists gives `duplicate`, no row gives `missing`, null gives `invalid` (no write in these three cases), otherwise effect + receipt. Effect rules: `deliverables` sets `verdict`, keeps the first `deliverablesDeclaredAt` (`existing ?? declaredAt`), and sets `taskKind`/`taskId`/`routingSource` only when given. `revise` does `reviseRounds + 1` (SQLite: `revise_rounds = revise_rounds + 1`). `approved`/`rejected` set `finalReview`
+  - `markBudgetStopped(runId: string, nowMs: number): Promise<'applied' | 'held' | 'duplicate'>`. A row exists: set the flag. No row: insert the marker `{ reportId: 'budget-stop:' + runId, kind: 'budget-stop', payload: '{}', heldAt: nowMs, expiresAt: nowMs + 86 400 000 }` if it is absent
+  - `listHeldReports(nowMs)`: non-destructive; unexpired entries of kind `deliverables`/`review` only, in `held_at` order
+  - `expireHeldReports(nowMs): Promise<readonly HeldOutcomeReport[]>`: deletes and returns the expired entries, markers included
+  - `countHeldReports` and `hasHeldDeliverables` exclude markers. `holdReport` refuses kind `'budget-stop'`
+  - Kept: `insertIfAbsent` (lane completion), `update` (failure-class fill, Batches 20/27), `get`, `findLatestByAgent`, `listByLane`, `listByRoles`, `hasReceipt`, `holdReport`, `isPersistent`. **Deleted**: `recordReceipt` and `takeHeldReports` (TL-15)
+- Implementations:
+  - In-memory: a `budgetStops: Set<string>`; rows are returned with `budgetStopped` computed from it
+  - KV: snapshot `{ rows, receipts, held, budgetStopped: string[] }` (`budgetStopped` defaults to `[]` on read); `HeldSchema.kind` is widened; `evict()` drops receipts **and** `budgetStopped` ids whose row is evicted; each new method is one `write()`
+  - SQLite: map `budget_stopped` to and from `budgetStopped`; static SQL only (no template interpolation); each new method is one `this.db.transaction`
+  - Test support: `heldReport()` payload checks gain `bytes: 1` (TL-20 check shape); `outcomeRow()` is unchanged
+- Do not edit `LO\lane-outcome.schema.ts`, `libs/shared/**` or `libs/backend/persistence-sqlite/**` (no migration: 0054 `kind TEXT NOT NULL` has no CHECK)
+- Validation notes: rule 7. First cite 0054 `budget_stopped` (`:52`) and the held-table DDL (`:84-91`), and confirm on disk that only lane-outcomes uses `LaneOutcomeStore` / `LaneOutcomeRecord`. The uncommitted `LO\write\outcome-write-pipeline.ts` will not compile against the new port until Task 15.3. That is expected (TL-21): do not edit it
+
+### Batch 34 verification
+
+- Joint Mode 2 with Batch 35 and Task 15.3 (TL-21). Executors run no Nx/Jest (decision #53)
+
+## Batch 35 (B4b-S2): Store contract specs and report effect — IN_PROGRESS (Batch 15 fix round; joint Mode 2 2026-10-15: verified on disk, `report-effect.spec` + three store specs pass, all Task 35.1 fixtures present; commit HELD by TL-21 until Task 15.3 is green; actual executor: CLI lane codex, OpenAI)
+
+- Recommended executor: CLI lane codex (OpenAI), the same spawn as Batch 34 when it fits, with a full brief
+- Execution mode: sequential
+- Fallback order: grok -> antigravity -> subagent backend-developer (full brief every spawn)
+- Subagent reason: N/A
+- Review family: different from implementer — P2 reviewed by Anthropic
+- Rationale: specs for the v2 port across all three stores, plus the one resolver that both atomic methods take
+- Tasks: 1 | Depends on: Batch 34
+- Phase: P2 Outcome store core | Phase review: code-logic + code-style (after Batch 20)
+
+### Task 35.1: Report-effect resolver and store v2 specs — IMPLEMENTED
+
+- Files (exactly these five): CREATE `LO\write\report-effect.ts` (+ `report-effect.spec.ts`); MODIFY `LO\store\in-memory-lane-outcome.store.spec.ts`, `LO\store\key-value-lane-outcome.store.spec.ts`, `LO\store\sqlite-lane-outcome.store.spec.ts`
+- `report-effect.ts` exports:
+  - `DeliverablesPayloadSchema`: strict; `checks` holds at most 20 entries of `{ exists: boolean, bytes: int >= 0, mtimeMs: number | null }`, plus optional `taskKind`, `taskId` and `routingSource` from the shared enums. No `paths` key
+  - `ReviewPayloadSchema`: strict `{ verdict: 'approved' | 'rejected' | 'revise' }`
+  - `deliverablesVerdictOf(checks, startedAt)`: the TL-20 rule, citing `lane-completion-notifier.service.ts:132-145`
+  - `reportEffectOf: OutcomeEffectResolver`. `deliverables` uses the verdict from the checks and `row.startedAt`, with `declaredAt = report.heldAt`. `review` uses the payload verdict. An invalid payload or JSON gives null, and it never throws
+- Specs:
+  - Verdict parity: no checks, all delivered, `bytes` 0, missing file, `mtimeMs` before `startedAt`, `mtimeMs` null, `startedAt` null
+  - An invalid payload or `paths` key gives null
+  - Per store (in-memory, KV, SQLite):
+    - Join applies deliverables then `revise` in `held_at` order and writes one receipt each
+    - A join replay is a no-op
+    - Join atomicity: the KV `update` rejects, or the SQLite resolver throws mid-walk, so there is no row, the holds are kept and there is no receipt
+    - `applyReportWithReceipt` returns `duplicate`, `missing` and `invalid` with no write
+    - `revise` applied twice under one `reportId` gives `reviseRounds` 1
+    - The budget-stop flag works both before the insert (marker) and after it
+    - Markers are excluded from `countHeldReports`, `hasHeldDeliverables` and `listHeldReports`
+    - `listHeldReports` is non-destructive
+    - `expireHeldReports` returns the expired entries, markers included
+  - KV only: restart keeps rows, receipts, holds, markers and flags; with more than 2 000 rows, the oldest are evicted with their receipts and flags (plan:642)
+  - Keep the existing R6-1 store cases (497 + 1)
+- Validation notes: rule 7. Read Batch 34 on disk first. The SQLite spec keeps the existing `better-sqlite3` `:memory:` setup of `sqlite-lane-outcome.store.spec.ts`, and adds a reopen-on-the-same-file case for restart with holds
+
+### Batch 35 verification
+
+- Joint Mode 2 with Batch 34 and Task 15.3 (TL-21)
+
+## Batch 16 (A4b): Matrix store + local derivation — IN_PROGRESS (actual executor: CLI lane grok, xAI — decision #66; report `reports/batch-16-report.md`. NOT ACCEPTED 2026-10-15 (TL-26): `capability-matrix.store.spec.ts` 3 of 14 fail — `:412`, `:471` and `:515` (Req 6.7 cases at `:393`, `:440`, `:492`) build `harness()` without an outcome reader, so the store correctly adds `outcomes-unavailable` (SC-2, as `:679` asserts), and the exact `toEqual`/`toHaveLength(21)` asserts fail. local-derivation.spec passes; eslint and prettier --check on the 4 files are clean. On disk and accepted: PA-2 (no platform-core helper; constructor `ptahHomeDir` with blank guard `capability-matrix.store.ts:166-170`); TL-10 (user-file second pass `nonUserSourceReasons` `:587-600` rejects seed/local and names family/model/task; view `sourceRef ?? null` `:510`); `isStale` reused from `seed-matrix.ts` (store `:26,:459`, derivation `:12,:272`); no stubs or TODO markers. Write path for the Mode 3 trace: `{ptahHomeDir}/routing/capability-matrix.json` — user file, Capability matrix v1 JSON, read once per `load`, written only on a missing file (ENOENT/FileNotFound/EntryNotFound*) with `EMPTY_CAPABILITY_MATRIX_TEXT` `{ "version": 1, "profiles": [] }`, never rewritten when present or invalid; template race with no exclusive create, recorded. `{ptahHomeDir}/routing/capability-matrix.view.json` — output only, pretty JSON + newline `{ version, profiles }` sorted by family then model (`*` first), value cells carry source, sourceRef|null, asOf, recomputed stale, sampleCount|null, optional note; written in `load` only when the canonical text changes; a failed write is logged and retried. Runtime reader: the store itself; host wiring and `ptahHomeDir` come from AB14. Barrel: the 19 export lines from the report (`CapabilityMatrixStore` ... `NO_OUTCOME_HISTORY_REASON`, `deriveLocalMatrix`, `AUTOMATIC_MATRIX_MODEL`; all names checked to exist) are added to `src/index.ts` by the team-leader in the Batch 16 commit (#74, TL-25))
 
 - Recommended executor: CLI lane antigravity (Google)
 - Execution mode: sequential
@@ -658,7 +835,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Tasks: 1 | Depends on: Batch 9
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 16.1: Capability matrix store and local derivation — PENDING
+### Task 16.1: Capability matrix store and local derivation — IN_PROGRESS
 
 - File: CREATE `LR\matrix\capability-matrix.store.ts`, `LR\matrix\local-derivation.ts`, `LR\matrix\capability-matrix.store.spec.ts`, `LR\matrix\local-derivation.spec.ts`
 - Plan reference: implementation-plan.md:749; part-a:927 (Req 6.4-6.8); SC-2 :143-167
@@ -671,7 +848,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 
 - `J(libs/backend/lane-routing, LR/matrix/capability-matrix.store.spec.ts LR/matrix/local-derivation.spec.ts)`
 
-## Batch 17 (A5b): Score, spread, rotation — PENDING
+## Batch 17 (A5b): Score, spread, rotation — IN_PROGRESS
 
 - Recommended executor: CLI lane Glm (Zhipu)
 - Execution mode: sequential
@@ -679,7 +856,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Subagent reason: N/A
 - Review family: different from implementer — P3 reviewed by OpenAI
 - Rationale: pure ranking + small rotation store
-- Tasks: 1 | Depends on: Batch 9, Batch 10
+- Tasks: 1 | Depends on: Batch 9, Batch 10, Batch 33
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
 ### Task 17.1: Score, spread band, rotation store — PENDING
@@ -688,7 +865,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:750; part-a:928, :231 (Req 7.1-7.6, B boundaries)
 - Pattern to follow: Batch 10
 - Quality requirements: band = eligible with `top - score <= B`; boundary specs at B
-- Validation notes: rule 9; write-path for rotation state recorded for the Mode 3 trace
+- Validation notes: rule 9; write-path for rotation state recorded for the Mode 3 trace. P1-C6: the rotation key's task kind is `OutcomeTaskKind` / `OUTCOME_TASK_KINDS` from `@ptah-extension/shared` (Batch 33 removes `ROTATION_TASK_KINDS`)
 - Implementation details: deterministic given inputs and rotation state
 
 ### Batch 17 verification
@@ -703,7 +880,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Subagent reason: N/A
 - Review family: different from implementer — P4 reviewed by OpenAI
 - Rationale: two files across shared + rpc-handlers; existing methods only
-- Tasks: 1 | Depends on: Batch 12, Batch 14
+- Tasks: 1 | Depends on: Batch 12, Batch 14, Batch 21 (decision #73: the handler injects `DECISION_MODEL_CONFIG`, which only the A8 factory in Batch 21 registers (D11, TL-24 notes); before that, di-lint would block every commit)
 - Phase: P4 Decision-model settings | Phase review: code-logic + visual
 
 ### Task 18.1: Decision-model fields on `agent:getConfig`/`agent:setConfig` — PENDING
@@ -760,7 +937,11 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:738; part-b:225-329 (§3, `computeAgentSignals` :286); SC-2 :143-167; SC-4 :181-215; SC-9 :375-382; SC-10 lifecycle ~:490
 - Pattern to follow: Batch 6 tokens; `register*Services(container, logger)` structural logger (SC-9)
 - Quality requirements: recorder calls the `LaneFailureClassifier` fire-and-forget once per newly inserted lane record with a null class (decision I4); `startLaneOutcomes` returns an awaited disposer (SC-10 flush); `agentSignals(slugs, 30)` per Req 9.1
-- Validation notes: PB-1 first (read the agent-sdk producer of `SubagentStopPayload`); fallback `subagentSessionId` as `run_id`
+- Validation notes: PB-1 first (read the agent-sdk producer of `SubagentStopPayload`); fallback `subagentSessionId` as `run_id`. P1-L5: build the subagent run id `subagent:${agentId}` in one helper (from `SUBAGENT_LANE_ID`), and do not inline it again. P1-L8: `telemetryJoin`, `skillsLoaded` and `sessionEvidenceClass` are read-time joins with no 0054 column, so never write them as stored.
+  - TL-16: `markSubagentBudgetStop(agentId)` enqueues `{ kind: 'budget-stop', runId: subagent:${agentId} }` and nothing else.
+  - TL-16: the reader derives the subagent failure class at read time from `LaneOutcomeRow.budgetStopped` (part-b:620-623): verdict `failed`/`no-deliverable` with `budgetStopped` gives `timeout`; telemetry `isError === true` gives `crash`; otherwise `null`. It never stores that class.
+  - TL-20: `declareSubagentDeliverables` builds a `DeliverablesPayloadSchema` payload (the `{ exists, bytes, mtimeMs }` checks) and passes no precomputed verdict.
+  - `startLaneOutcomes` uses the v2 store port (Batch 34). It does not pass a held-report reader to the pipeline.
 - Implementation details: no host root edits (AB14)
 
 ### Batch 20 verification
@@ -775,7 +956,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Subagent reason: plan row A8 — integration of five modules with a long fixture set and the lib's `register.ts`/index; needs interactive reading across all wave 3-4 outputs
 - Review family: different from implementer — P3 reviewed by OpenAI
 - Rationale: critical path; first slot of wave 5
-- Tasks: 1 | Depends on: Batch 16, Batch 17, Batch 11, Batch 12, Batch 13
+- Tasks: 1 | Depends on: Batch 16, Batch 17, Batch 11, Batch 12, Batch 13, Batch 33
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
 ### Task 21.1: `RouteDecideService`, pipeline, DI register, index — PENDING
@@ -784,8 +965,9 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:755; part-a:930 (Req 2.7, 3.1, 3.7, 4.1-4.6, 7.7-7.8, 11.2-11.5, 12.3-12.9)
 - Pattern to follow: Batches 9-17 modules
 - Quality requirements: a live `notFound` failure goes to `recheckAfterLiveNotFound`, never to `markUnsupported` directly (R3-2); `STRUCTURED_DECISION` optional
-- Validation notes: acceptance — probe stubbed `ready` keeps the row `ready`; stubbed `unsupported-endpoint` shows it
+- Validation notes: acceptance — probe stubbed `ready` keeps the row `ready`; stubbed `unsupported-endpoint` shows it. P1 logic m6: the index edit must export the contracts (`RouteDecideArgsSchema`, `RouteDecideResultSchema`), ports (`LaneModelListing`, `RouteCandidateSource`) and matrix types, because `vscode-lm-tools` and `rpc-handlers` import them through the barrel. Pin resolution relies on Batch 33's one-pin-per-phase rule (P1-C5)
 - Implementation details: register takes the host logger (SC-9)
+- D11 note (Batch 12, commit abf0d2b31): `DecisionModelConfig` is a plain class with no `@injectable`/`@inject` and a positional constructor `(workspace, secrets, storage, logger, structured?, seams?)` (`decision-model.config.ts:108-120`). `LR\di\register.ts` must register `DECISION_MODEL_CONFIG` with a `useFactory` that resolves `PLATFORM_TOKENS.WORKSPACE_PROVIDER`, `SECRET_STORAGE`, `STATE_STORAGE` (global), `LANE_ROUTING_TOKENS.LOGGER`, and `STRUCTURED_DECISION` only when `isRegistered(STRUCTURED_DECISION, true)`; precedent `auth-providers/src/lib/di/register.ts:223-226`. Add the Batch 12 exports listed in `reports/batch-12-report.md` (Index exports needed) to the index edit. FE-12a (TL-24): if this batch adds code to `decision-model.config.ts`, split the probe helpers first
 
 ### Batch 21 verification
 
@@ -847,7 +1029,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Subagent reason: N/A
 - Review family: different from implementer — P5 reviewed by Anthropic
 - Rationale: one lib; decision #23 items 1-3
-- Tasks: 1 | Depends on: Batch 4, Batch 20
+- Tasks: 1 | Depends on: Batch 4, Batch 20, Batch 32
 - Phase: P5 Outcome producers + Agents tab | Phase review: code-logic + code-style + visual
 
 ### Task 24.1: Trigger, recorder dedup by `runId`, candidate store, seam adapter — PENDING
@@ -856,7 +1038,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:748; part-b:408-468 (§6)
 - Pattern to follow: existing recorder/store specs
 - Quality requirements: recorder dedups by `runId` (finding 3); seam adapter implements `LO` seam port
-- Validation notes: PB-1, PB-3 first; rule 8 guard specs for the DI register edit
+- Validation notes: PB-1, PB-3 first; rule 8 guard specs for the DI register edit. The budget-stop listener relies on Batch 32's publish rule (P1-C1) and must call the `register()` unsubscribe on dispose. TL-16: the listener calls the Batch 20 recorder's `markSubagentBudgetStop` only. Persistence (the `budget_stopped` flag, or the marker before the insert) is already in lane-outcomes (Batches 34, 15), so Batch 24 adds no lane-outcomes store code. P1-L3: set the subagent `family` from the parent session's active provider where it is known, falling back to `claude` (`laneFamilyOf`); record the source in the report
 - Implementation details: `run_id` column from migration 0055
 
 ### Batch 24 verification
@@ -952,6 +1134,7 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:754; part-b:494-551 (§8); SC-7 :254-367
 - Pattern to follow: Batch 26 tool modules
 - Quality requirements: imports `OutcomeReportArgsSchema` from lane-outcomes (no second schema); `reportId` per call; held deliverables store stat facts only; `held`/`queued` results; no registration edits
+- TL-20 contract: the tool stats each path into `{ exists, bytes, mtimeMs }`, at most 20, never the path, and sends it through `DeliverablesPayloadSchema` (`LO\write\report-effect.ts`). The verdict is computed by lane-outcomes at apply time, so the tool does not compute it for persistence. It may still echo `sessionChildVerdictOf` for display
 - Validation notes: fixtures — repeated/concurrent same-run sequence by run tag and by `agentId`; report-before-stop; held review; R3-1 tool fixture: real pipeline over a fake connection (`isOpen = false`), journal `[L1]`, review for `L9` → error naming `L9`, journal unchanged, `InMemoryLaneOutcomeStore` has no row, receipt or hold after open; a `subagent:` deliverables report in the same state → `held`. IA-4 dev capture if feasible (optimisation only)
 - Implementation details: deliverable check via the helper exported by Batch 23 (PB-5)
 
@@ -1001,8 +1184,9 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 - Plan reference: implementation-plan.md:760; SC-3 :168-180; SC-10 shutdown; part-a §12; part-b:590-607 (§10)
 - Pattern to follow: `useToken` precedent `phase-2-libraries.ts:214` (vscode), `:302` (electron)
 - Quality requirements: `registerLaneOutcomeServices` before `registerCliAgentRuntimeServices`; `registerLaneRoutingServices` before `registerVsCodeLmToolsServices`; SC-3 aliases; `startLaneOutcomes` disposer awaited on host shutdown; PA-1/PA-2 fallbacks if those batches reported them
-- Validation notes: write-path trace inputs (matrix store path, decision-model mark key, outcome journal key) collected for Mode 3
+- Validation notes: write-path trace inputs (matrix store path, decision-model mark key, outcome journal key) collected for Mode 3. P1-L7: move the `SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY` assertions out of unrelated tests (Electron smoke `:327-328`, CLI builder helper `:426`) into a dedicated same-instance `it` in each file, mirroring `wire-runtime.spec.ts:312-318`. P1-L1: these smoke specs are Prettier-dirty; lint-staged formats them when this batch stages them
 - Implementation details: logger passed per root (SC-9)
+- D11 note (Batch 12): `DecisionModelConfig` is factory-built by Batch 21's `register.ts`, not decorator-injected, so di-lint does not see its dependencies. The smoke specs here must resolve `DECISION_MODEL_CONFIG` in each host to prove the factory's five tokens resolve (the logger and the three platform ports in every root; `STRUCTURED_DECISION` optional, absent before Batch 19 registers it). Write-path trace input: mark key `ptah.decisionModel.unsupported.v1`, global `STATE_STORAGE`
 
 ### Task 30.2: Guard specs and validate-deps — PENDING
 
@@ -1041,3 +1225,69 @@ A phase review is requested when every batch of the phase is COMPLETE; its diff 
 ### Batch 31 verification
 
 - Grep evidence in the report: no vendor-to-task tables; `ptah_route_decide` and `ptah_outcome_report` present at the named call sites. No Nx run.
+- P1 logic m1: the skill or tool text that describes the `ptah_agent_list` table names the new `Family` column.
+
+## Batch 32 (P1c): Correlation-signal guards in agent-sdk — COMPLETE (58916fc69)
+
+- Executor: CLI lane grok (xAI), decision #63. Report: `T\reports\batch-32-report.md`
+- Verified: Jest 2 suites / 115 tests pass; `nx typecheck` and `nx lint @ptah-extension/agent-sdk` pass (0 errors; the one warning on the changed files is the existing `max-lines` on `subagent-budget-monitor.ts`, 911 lines); degradation-audit agent-sdk 4 ok (baseline 4); di-lint OK
+- Phase review: carried by the P5 phase review (code-logic + code-style, Anthropic reviewer). Minor for that review: `runTagMissSessions` is never pruned (one string per parent session that missed a run tag, for the life of the process)
+
+- Recommended executor: CLI lane, backend TypeScript, non-Anthropic family (P5 is reviewed by Anthropic)
+- Execution mode: sequential
+- Fallback order: other non-Anthropic family, same capability -> same family, other provider/model -> subagent backend-developer (the P5 review then needs a non-Anthropic reviewer for this batch)
+- Subagent reason: N/A
+- Review family: different from implementer — reviewed in the P5 phase review (Anthropic)
+- Rationale: two source files and their specs in one lib; carries the only P1 Moderate that loses data (TL-12)
+- Tasks: 1 | Depends on: none; must be COMPLETE before Batch 24 starts
+- Phase: P5 Outcome producers + Agents tab | Phase review: code-logic + code-style + visual (this batch: code-logic + code-style)
+
+### Task 32.1: Publish every real budget stop; surface run-tag misses; type the registry port — COMPLETE
+
+- File: MODIFY `W\libs\backend\agent-sdk\src\lib\helpers\compaction\subagent-budget-monitor.ts` (+ `subagent-budget-monitor.spec.ts`), `W\libs\backend\agent-sdk\src\lib\helpers\post-tool-use-hook-handler.ts` (+ `post-tool-use-hook-handler.spec.ts`)
+- Plan reference: implementation-plan-part-b.md:377-407 (§5: the signal means "Ptah stopped this subagent", :379; the wording "invoked with a record", :383, is narrower than that purpose); `T\reviews\p1-code-logic-review.md` FM-1, FM-2; `T\reviews\p1-code-style-review.md` Moderate 6
+- Pattern to follow: `subagent-hook-handler.ts:67-68` (registry injected as `SubagentRegistryService`); the `degradation-audit: reported` warn at `post-tool-use-hook-handler.ts:121-122`
+- Quality requirements:
+  - (P1-C1) At `subagent-budget-monitor.ts:1000`, publish `notifyAll` once whenever the stop succeeded and `registryRecord?.agentId` is set, whether or not `prepared.record` exists. The payload has no record field. When the stop succeeded but no `agentId` exists, log `warn` naming `toolCallId` and do not publish.
+  - Keep the `stopFired` double-fire guard and the `onStopFailed` path unchanged.
+  - (P1-C2) `missing-agent-id` and `invalid-agent-id` log at `warn` at most once per parent session, with a counter or a Set. The not-an-Agent-tool reasons stay at `debug`.
+  - (P1-C3) Type the registry parameter as `Pick<SubagentRegistryService, 'get'>` through `import type` from `@ptah-extension/vscode-core`, dropping the `undefined` return.
+- Validation notes: no change to `SubagentBudgetStopPayload` or the registry class. Rule 8 does not apply because no DI registration changes. Logging carries no prompt or tool text (privacy rule in `lane-outcome.types.ts`)
+- Implementation details: add spec cases for (a) a record-less safety stop that publishes once, (b) a stop without an `agentId` that warns and does not publish, (c) a second trigger after a stop that publishes nothing, (d) two `missing-agent-id` misses in one session that warn once, (e) a non-Agent tool that logs at `debug` only
+
+### Batch 32 verification
+
+- `J(libs/backend/agent-sdk, libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.spec.ts libs/backend/agent-sdk/src/lib/helpers/post-tool-use-hook-handler.spec.ts)`, then `npx nx typecheck @ptah-extension/agent-sdk`, then `npx nx lint @ptah-extension/agent-sdk`; output tailed
+- Both specs are Prettier-dirty (P1-L1); lint-staged formats them at commit
+
+## Batch 33 (P1c): Route contract hardening — COMPLETE (commit 655de8cae, 2026-10-15; actual executor: subagent backend-developer, Anthropic — decision #70; report `reports/batch-33-report.md`; verified per decision #72 instead of the full target: named-spec Jest run (contracts, matrix incl. seed, ranking/hard-constraints, reasons/*, decision-model/*) — contracts.spec and the Batch 10/11/12/13 specs pass, 266/269 overall, the 3 failures all in the Batch 16 store spec; eslint 5 files exit 0; prettier --check clean; ptah_get_diagnostics 0 errors; di-lint OK (1838 sites, 798 tokens); degradation TOTAL 296 no FAIL; pre-commit hook passed. On disk: P1-C4 superRefine `route-decide-result.schema.ts:155-182`, ChosenExecutorSchema `:73-102`, AnswerSchema model-null `:204-216`, imported SCORE_MIN/MAX + MAX_DECISION_REQUESTS; P1-C5 `route-decide-args.schema.ts:24,31-32,41,47,54,87-103`; P1-C6 no `ROTATION_TASK_KINDS`/`RotationTaskKind` left in libs/ or apps/. B33-1 and B33-2 ACCEPTED: one-directional rules match the Req 2.3 text and every current producer sends null/false there; the P3 code-logic review may ask for the reverse direction. #74 barrel lines committed here: Batch 12 (`DecisionModelConfig`, seams/target types, decision-model types/schemas/constants, `StructuredDecisionCompleter`, `StructuredDecisionRequest`) and the Batch 9 types `CapabilityMatrix`, `MatrixCell`, `MatrixCellSource`, `MatrixProfile`. The 19 Batch 16 export lines are held for the Batch 16 commit so that 655de8cae exports nothing from untracked files (TL-25). Full lane-routing test/typecheck/lint still runs in the Batch 17 Mode 2 (#72))
+
+- Recommended executor: CLI lane, backend TypeScript and Zod, non-OpenAI family (P3 is reviewed by OpenAI)
+- Execution mode: sequential
+- Fallback order: other non-OpenAI family, same capability -> same family, other provider/model -> subagent backend-developer
+- Subagent reason: N/A
+- Review family: different from implementer — reviewed in the P3 phase review (codex, OpenAI)
+- Rationale: one lib, five files. These are the contract fixes that Batches 17 and 21 would otherwise build on (TL-12)
+- Tasks: 1 | Depends on: Batch 10, Batch 13 (their specs parse `UnavailableEntrySchema`); must be COMPLETE before Batches 17 and 21
+- Phase: P3 Routing engine | Phase review: code-logic + code-style
+
+### Task 33.1: Cross-field rules, bounded args, constants from one source — COMPLETE
+
+- File: MODIFY `LR\contracts\route-decide-result.schema.ts`, `LR\contracts\route-decide-args.schema.ts`, `LR\contracts\contracts.spec.ts`, `LR\routing-constants.ts`, `W\libs\backend\lane-routing\src\index.ts`
+- Plan reference: implementation-plan.md SC-6 (:240), R4j (:667); task-description Req 2.3, 2.5, 3.6; `T\reviews\p1-code-logic-review.md` FM-4, FM-5, m3, m4; `T\reviews\p1-code-style-review.md` Moderate 2, 3
+- Pattern to follow: `LR\matrix\matrix.schema.ts:36,41-47,85-99` (imports `SCORE_MIN`/`SCORE_MAX`; each schema ends with `satisfies z.ZodType<...>`); `PhaseSchema`/`PinSchema` naming
+- Quality requirements:
+  - (P1-C4) Add a `superRefine` on `UnavailableEntrySchema`:
+    - `source` is `'pin'` exactly when `exclusionReason` is `'pin-unavailable'`, and that reason names its `pinRule`
+    - `needsDisclosedFallback` is true for `reviewer-family`
+  - (P1-C4) A chosen `executor` of kind `lane` needs `cli` or `ptahCliId`, and kind `subagent` needs `role`. `Answer` rejects `{ value: null, source: 'model' }`.
+  - (P1-C4) Import `SCORE_MIN`, `SCORE_MAX` and `MAX_DECISION_REQUESTS` instead of the literals. Rename the private schemas with a `Schema` suffix. Add `satisfies` where a declared type exists.
+  - (P1-C5) Raise one issue at `['pins', i, 'phaseId']` for a second pin on the same phase. Bound the free strings (`pin.executor`, `pin.model`, `preferences.prefer[]`, `phases[].reviews[]`) with `.max(200)`. `request` is trimmed before `min(1)`.
+  - (P1-C6) Delete `ROTATION_TASK_KINDS` and `RotationTaskKind` from `routing-constants.ts` and from `index.ts`. The rotation-key doc refers to `OutcomeTaskKind` from `@ptah-extension/shared`.
+- Validation notes: before deleting, grep W for `ROTATION_TASK_KINDS` and `RotationTaskKind`; on 2026-10-15 only `routing-constants.ts` and `index.ts` used them. Do not edit `ranking/**`, `reasons/**` or `decision-model/**`. If an existing Batch 10 or 13 spec fixture violates a new cross-field rule, STOP and report it instead of loosening the rule. Public-API change: removing two exports with no consumers
+- Implementation details: in `contracts.spec.ts`, add one rejecting case per new rule and one accepting fixture per `exclusionReason`
+
+### Batch 33 verification
+
+- `npx nx test @ptah-extension/lane-routing --parallel=1` (this also runs the Batch 10 and 13 specs), then `npx nx typecheck @ptah-extension/lane-routing`, then `npx nx lint @ptah-extension/lane-routing`; output tailed
+- `routing-constants.ts`, `index.ts` and `contracts.spec.ts` are Prettier-dirty (P1-L1); lint-staged formats them at commit

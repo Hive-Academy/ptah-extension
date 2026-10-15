@@ -42,6 +42,12 @@ Approval `lane-review` unchanged. Roster unchanged. Limits: codex confirmed room
 opencode near limit (Go Monthly 91%, weekly 34%); antigravity reader failed; grok and Glm unknown.
 Spawnable lanes: codex, antigravity, opencode (near limit), grok, Glm.
 
+Refresh (2026-10-15 12:27 UTC, session 5): mode `enabled`, Approval `lane-review`. codex Weekly 8%, grok
+Weekly 15%, opencode Monthly 91% (near limit), antigravity out (HTTP 429, #54, reset about 2026-10-18).
+Confirmed limit 12:42 UTC: lane `pc-355b645d-35af-4974-84cf-9cf961ea0164` (Glm, Ollama Cloud, Zhipu family),
+cause HTTP 429 "reached your session usage limit" (Batch 32 resume output), reset unknown. Skip Glm for the
+rest of this session.
+
 ## Scope additions (2026-10-14)
 
 User request, same session:
