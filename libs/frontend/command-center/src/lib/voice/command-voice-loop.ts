@@ -18,10 +18,13 @@ import {
 } from './tts-playback-queue';
 
 export interface VoiceLoopOptions {
+  readonly sendTranscript?: (transcript: string) => Promise<boolean>;
   readonly captureFactories?: CaptureFactories;
   readonly audioFactory?: AudioElementFactory;
   /** The page resolves an ordinary question using its full prompt and question key. */
   readonly answerOrdinaryQuestion?: (transcript: string) => boolean;
+  /** Identifies the voice send so a page can correlate its terminal event. */
+  readonly onVoiceSend?: (turnToken: number) => void;
   /** Optional echo rejection override; browser AEC plus playback-mode VAD handles the default. */
   readonly isIndependentSpeech?: (samples: Float32Array) => boolean;
   readonly now?: () => number;
@@ -57,6 +60,8 @@ export class CommandVoiceLoop {
   private nextPlaybackId = 0;
   private nextReplyId = 0;
   private turnGeneration: number | null = null;
+  private nextVoiceTurnToken = 0;
+  private awaitingTurnToken: number | null = null;
   private awaitingBoundary = false;
   private sendTail: Promise<void> = Promise.resolve();
   private firstReplyAfterStart = true;
@@ -271,6 +276,7 @@ export class CommandVoiceLoop {
       this.playback.bargeIn();
       this.playbackEpoch++;
       this.playbackMarks.length = 0;
+      this.synthesisIds.length = 0;
       this.bargeInOnset = true;
       this.bargeInCandidateAt = null;
     }
@@ -381,10 +387,14 @@ export class CommandVoiceLoop {
         return;
       }
       try {
-        const sent = await this.coordinator.send(transcript);
+        const sent = await (this.options.sendTranscript?.(transcript) ??
+          this.coordinator.send(transcript));
         if (turnGeneration !== this.generation) return;
-        if (sent) this.awaitingBoundary = true;
-        else this.finishTurn();
+        if (sent) {
+          this.awaitingBoundary = true;
+          this.awaitingTurnToken = ++this.nextVoiceTurnToken;
+          this.options.onVoiceSend?.(this.awaitingTurnToken);
+        } else this.finishTurn();
       } finally {
         releaseSend();
       }
@@ -401,14 +411,16 @@ export class CommandVoiceLoop {
   }
 
   /** Called by the page after the assistant stream and its tool calls settle. */
-  public onTurnBoundary(assistantText: string): void {
+  public onTurnBoundary(assistantText: string, turnToken?: number): void {
     if (
       !this.active ||
+      (turnToken !== undefined && turnToken !== this.awaitingTurnToken) ||
       this.turnGeneration !== this.generation ||
       !this.awaitingBoundary
     )
       return;
     this.awaitingBoundary = false;
+    this.awaitingTurnToken = null;
     this.lastReply = assistantText;
     this.speak(assistantText, 'reply', this.currentReplyOrigin);
     this.currentReplyOrigin = null;

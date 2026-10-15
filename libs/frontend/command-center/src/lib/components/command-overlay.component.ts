@@ -94,13 +94,13 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
             }
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold">{{ node.label }}</p>
-              <p class="text-xs text-base-content/70">
+              <p class="text-xs text-base-content-muted">
                 Provider: {{ node.providerId || 'Unknown' }}
               </p>
-              <p class="text-xs text-base-content/70">
+              <p class="text-xs text-base-content-muted">
                 Parent: {{ parentLabel(node) }}
               </p>
-              <p class="text-xs text-base-content/70">
+              <p class="text-xs text-base-content-muted">
                 State: {{ node.state }}
               </p>
             </div>

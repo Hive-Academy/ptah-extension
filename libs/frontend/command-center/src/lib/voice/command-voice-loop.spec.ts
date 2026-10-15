@@ -7,6 +7,20 @@ describe('CommandVoiceLoop', () => {
   const frames = new Float32Array(128).fill(0.2);
   const silence = new Float32Array(128);
 
+  it('rejects a boundary carrying an older voice turn token', () => {
+    const { loop } = frameLoop();
+    loop['generation'] = 1;
+    loop['turnGeneration'] = 1;
+    loop['awaitingBoundary'] = true;
+    loop['awaitingTurnToken'] = 2;
+    loop['speak'] = jest.fn();
+    loop.onTurnBoundary('Older reply.', 1);
+    expect(loop['awaitingBoundary']).toBe(true);
+    expect(loop['lastReply']).toBe('');
+    loop.onTurnBoundary('Current reply.', 2);
+    expect(loop['lastReply']).toBe('Current reply.');
+  });
+
   function frameLoop(isIndependentSpeech?: () => boolean): {
     loop: CommandVoiceLoop;
     bargeIn: jest.SpyInstance;
@@ -384,6 +398,98 @@ describe('CommandVoiceLoop', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(loop.getLatencyMarks()).toEqual([
         { kind: 'cold-worker', ms: 150 },
+      ]);
+      expect(loop['playbackMarks']).toHaveLength(0);
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreate,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevoke,
+      });
+    }
+  });
+
+  it('clears queued synthesis ids on a four-chunk barge-in before a failed next reply', async () => {
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => 'blob:voice',
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: jest.fn(),
+    });
+    const oldSynths: Array<(value: object) => void> = [];
+    let synthCalls = 0;
+    const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
+      call: jest.fn().mockImplementation(() => {
+        synthCalls++;
+        if (synthCalls <= 2)
+          return new Promise<object>((resolve) => oldSynths.push(resolve));
+        return Promise.resolve(
+          synthCalls === 3
+            ? { success: false }
+            : {
+                success: true,
+                data: { ok: true, audioBase64: 'AA==', mimeType: 'audio/wav' },
+              },
+        );
+      }),
+    });
+    const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      voiceState: () => 'speaking',
+      setVoiceState: jest.fn(),
+      updateLevels: jest.fn(),
+      setToast: jest.fn(),
+    });
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.create(null) as CommandCenterSessionCoordinator,
+      rpc,
+      {
+        now: () => 250,
+        audioFactory: () => ({
+          play: async () => undefined,
+          stop: jest.fn(),
+          onEnded: jest.fn(),
+        }),
+      },
+    );
+    try {
+      loop['active'] = true;
+      loop['speak'](
+        'First old sentence. Second old sentence. Third old sentence. Fourth old sentence.',
+        'reply',
+      );
+      expect(loop['playbackMarks']).toHaveLength(4);
+      Object.defineProperty(loop['playback'], 'isPlaying', {
+        configurable: true,
+        get: () => true,
+      });
+      loop['onFrame'](frames, 0);
+      loop['onFrame'](frames, 301);
+      loop['onFrame'](frames, 552);
+      expect(loop['synthesisIds']).toHaveLength(0);
+      Object.defineProperty(loop['playback'], 'isPlaying', {
+        configurable: true,
+        get: () => false,
+      });
+      loop['speak']('First new sentence. Second new sentence.', 'reply', {
+        endedAt: 100,
+        barged: true,
+      });
+      for (const resolve of oldSynths)
+        resolve({
+          success: true,
+          data: { ok: true, audioBase64: 'AA==', mimeType: 'audio/wav' },
+        });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(loop.getLatencyMarks()).toEqual([
+        { kind: 'post-barge-in', ms: 150 },
       ]);
       expect(loop['playbackMarks']).toHaveLength(0);
     } finally {

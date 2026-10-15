@@ -58,7 +58,7 @@ import type { ProjectionResult } from '../model/work-projection';
                 <span class="block truncate text-sm font-semibold">{{
                   node.label
                 }}</span>
-                <span class="block text-xs text-base-content/70"
+                <span class="block text-xs text-base-content-muted"
                   >Provider: {{ node.providerId || 'Unknown' }} · Parent:
                   {{ parentLabel(node) }} · State: {{ node.state }}</span
                 >

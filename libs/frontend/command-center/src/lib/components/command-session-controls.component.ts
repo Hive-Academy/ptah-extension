@@ -64,7 +64,7 @@ import type { CommandSessionStatus } from '../model/command-center.store';
           Send
         </button>
       </form>
-      <p class="mt-2 text-xs text-base-content/70">
+      <p class="mt-2 text-xs text-base-content-muted">
         To start a Tribunal, say an explicit move word: Council, Forge, Race,
         Relay, or Crucible. Ambiguous speech goes to Ptah chat.
       </p>

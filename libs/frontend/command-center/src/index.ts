@@ -1,2 +1,2 @@
-export * from './lib/model/command-center.store';
-export * from './lib/model/session-coordinator';
+// Model classes are internal to the Command Center page.
+export { CommandCenterPageComponent } from './lib/components/command-center-page.component';
