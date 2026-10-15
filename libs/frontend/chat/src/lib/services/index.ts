@@ -114,3 +114,8 @@ export {
   type TabRequests,
 } from './session-agents/session-agent-roster.service';
 export { ownedBySession } from './session-agents/owned-by-session';
+export * from './session-inspector';
+export {
+  sessionBranch,
+  type SessionGitState,
+} from './session-git-stats/session-git-stats.store';

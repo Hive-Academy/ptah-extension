@@ -4,6 +4,7 @@ import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import { MESSAGE_TYPES, type GitInfoResult } from '@ptah-extension/shared';
 import {
   SessionGitStatsStore,
+  sessionBranch,
   sessionWorkingRoot,
 } from './session-git-stats.store';
 
@@ -140,6 +141,7 @@ describe(SessionGitStatsStore.name, () => {
       additions: 3,
       deletions: 6,
       partial: true,
+      branch: null,
     });
   });
 
@@ -159,6 +161,33 @@ describe(SessionGitStatsStore.name, () => {
     const first = store.stateFor('/a');
     push('/a', data);
     expect(store.stateFor('/a')).toBe(first);
+  });
+
+  it('keeps the branch in the known state and publishes a checkout alone', () => {
+    store.track('/a', 'one');
+    const branch = (name: string) =>
+      ({ branch: name, upstream: null, ahead: 0, behind: 0 }) as const;
+    push('/a', info([], { branch: branch('main') }));
+    const first = store.stateFor('/a');
+    expect(first).toEqual({
+      kind: 'known',
+      additions: 0,
+      deletions: 0,
+      partial: false,
+      branch: 'main',
+    });
+    push('/a', info([], { branch: branch('feat/x') }));
+    expect(store.stateFor('/a')).not.toBe(first);
+    expect(sessionBranch(null, store.stateFor('/a'))).toBe('feat/x');
+    expect(
+      sessionBranch(
+        { agentOrigin: { branch: 'child' } } as Parameters<
+          typeof sessionBranch
+        >[0],
+        store.stateFor('/a'),
+      ),
+    ).toBe('child');
+    expect(sessionBranch(null, { kind: 'none' })).toBeNull();
   });
 
   it('replaces old counts after failure and unavailable, then recovers on push and turn end', async () => {
@@ -201,6 +230,7 @@ describe(SessionGitStatsStore.name, () => {
       additions: 7,
       deletions: 0,
       partial: false,
+      branch: null,
     });
     turn('session', MESSAGE_TYPES.SESSION_TURN_FAILED);
     await tick();
@@ -216,6 +246,7 @@ describe(SessionGitStatsStore.name, () => {
       additions: 0,
       deletions: 0,
       partial: false,
+      branch: null,
     });
     push(
       '/a',
@@ -266,6 +297,7 @@ describe(SessionGitStatsStore.name, () => {
       additions: 5,
       deletions: 0,
       partial: false,
+      branch: null,
     });
     expect(call).toHaveBeenCalledTimes(1);
   });
