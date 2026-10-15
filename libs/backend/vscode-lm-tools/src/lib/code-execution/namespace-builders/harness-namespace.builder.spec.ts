@@ -536,6 +536,7 @@ describe('buildHarnessNamespace — proposeConfig', () => {
       { name: 'X' },
       false,
       undefined,
+      'D:/ws',
     );
     expect(order).toEqual(['save', 'broadcast']);
     expect(broadcast).toHaveBeenCalledWith(
@@ -573,6 +574,7 @@ describe('buildHarnessNamespace — proposeConfig', () => {
       { name: 'inbound' },
       false,
       'T1',
+      'D:/ws',
     );
     expect(order).toEqual(['capture', 'save']);
     latestTurn = 'T3';
@@ -623,8 +625,38 @@ describe('buildHarnessNamespace — proposeConfig', () => {
       { name: 'X' },
       false,
       undefined,
+      'D:/ws',
     );
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs once and uses the provider fallback when no caller root resolves', async () => {
+    const { deps, saveProposal, logger } = makeDeps({
+      policyWorkspaceRoot: undefined,
+    });
+    const namespace = buildHarnessNamespace(deps);
+    await namespace.proposeConfig({ name: 'First' });
+    await namespace.proposeConfig({ name: 'Second' });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('active workspace'),
+    );
+    expect(saveProposal).toHaveBeenNthCalledWith(
+      1,
+      'sdk-1',
+      { name: 'First' },
+      false,
+      undefined,
+      undefined,
+    );
+    expect(saveProposal).toHaveBeenNthCalledWith(
+      2,
+      'sdk-1',
+      { name: 'Second' },
+      false,
+      undefined,
+      undefined,
+    );
   });
 });
 

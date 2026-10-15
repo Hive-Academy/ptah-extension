@@ -299,11 +299,21 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
         { name: 'X' },
         false,
         capture.turnStartedAt,
+        pinnedRoot,
       );
-      await deps.saveProposal('sdk-7', { name: 'Y' }, true, undefined);
+      await deps.saveProposal(
+        'sdk-7',
+        { name: 'Y' },
+        true,
+        undefined,
+        pinnedRoot,
+      );
       capture.release();
     });
-    expect(captureProposingTurnStartedAt).toHaveBeenCalledWith('sdk-7');
+    expect(captureProposingTurnStartedAt).toHaveBeenCalledWith(
+      'sdk-7',
+      PLATFORM_ROOT,
+    );
     expect(release).toHaveBeenCalledTimes(1);
     expect(save).toHaveBeenNthCalledWith(
       1,
@@ -311,6 +321,7 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
       { name: 'X' },
       false,
       '2026-10-15T08:00:00Z',
+      PLATFORM_ROOT,
     );
     expect(save).toHaveBeenNthCalledWith(
       2,
@@ -318,6 +329,7 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
       { name: 'Y' },
       true,
       undefined,
+      PLATFORM_ROOT,
     );
     expect(resolve).toHaveBeenCalledTimes(3);
     expect(resolve).toHaveBeenCalledWith(
@@ -348,24 +360,46 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
     ).toThrow(/store is unavailable/);
   });
 
-  it('leaves attribution absent when the pinned caller workspace differs from the store root', () => {
-    const captureProposingTurnStartedAt = jest.fn();
+  it('passes the pinned caller root through capture and save across an active workspace switch', async () => {
+    const captureProposingTurnStartedAt = jest.fn().mockReturnValue({
+      turnStartedAt: '2026-10-15T08:00:00Z',
+      release: jest.fn(),
+    });
+    const save = jest.fn().mockResolvedValue({ sessionId: 'sdk-7' });
     const container = {
       isRegistered: jest.fn().mockReturnValue(true),
-      resolve: jest.fn().mockReturnValue({ captureProposingTurnStartedAt }),
+      resolve: jest
+        .fn()
+        .mockReturnValue({ captureProposingTurnStartedAt, save }),
     };
-    const builder = buildTestBuilder(
-      makeRawWorkspaceProvider(),
-      makeSessionManager(),
-    );
+    const provider = makeRawWorkspaceProvider();
+    const builder = buildTestBuilder(provider, makeSessionManager());
     Object.assign(builder, { pluginLoader: {}, container });
     builder.build();
     const deps = (
       namespaceBuilders.buildHarnessNamespace as jest.Mock
     ).mock.calls.at(-1)?.[0];
     const capture = deps.getProposingTurnStartedAt('sdk-7', SESSION_ROOT);
-    expect(capture.turnStartedAt).toBeUndefined();
-    expect(captureProposingTurnStartedAt).not.toHaveBeenCalled();
+    expect(capture.turnStartedAt).toBe('2026-10-15T08:00:00Z');
+    (provider.getWorkspaceRoot as jest.Mock).mockReturnValue('D:/switched');
+    await deps.saveProposal(
+      'sdk-7',
+      { name: 'Pinned' },
+      false,
+      capture.turnStartedAt,
+      SESSION_ROOT,
+    );
+    expect(captureProposingTurnStartedAt).toHaveBeenCalledWith(
+      'sdk-7',
+      SESSION_ROOT,
+    );
+    expect(save).toHaveBeenCalledWith(
+      'sdk-7',
+      { name: 'Pinned' },
+      false,
+      '2026-10-15T08:00:00Z',
+      SESSION_ROOT,
+    );
     capture.release();
   });
 });

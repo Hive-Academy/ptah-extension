@@ -874,12 +874,7 @@ export class PtahAPIBuilder {
           getPolicyWorkspaceRoot: () => this.resolveSessionWorkspaceRoot(),
           getCallerSdkSessionId: () => this.resolveCallerSdkSessionId(),
           getProposingTurnStartedAt: (sessionId, workspaceRoot) => {
-            // The store's capture contract resolves its own provider root.
-            // Never attribute a session-root call to a different active root.
-            if (
-              !workspaceRoot ||
-              workspaceRoot !== this.workspaceProvider.getWorkspaceRoot()
-            ) {
+            if (!workspaceRoot) {
               return { release: () => undefined };
             }
             const token = PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE;
@@ -890,9 +885,15 @@ export class PtahAPIBuilder {
             }
             return this.container
               .resolve<IHarnessProposalStore>(token)
-              .captureProposingTurnStartedAt(sessionId);
+              .captureProposingTurnStartedAt(sessionId, workspaceRoot);
           },
-          saveProposal: (sessionId, update, complete, turnStartedAt) => {
+          saveProposal: (
+            sessionId,
+            update,
+            complete,
+            turnStartedAt,
+            workspaceRoot,
+          ) => {
             const token = PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE;
             if (!this.container?.isRegistered(token, true)) {
               throw new Error(
@@ -901,7 +902,7 @@ export class PtahAPIBuilder {
             }
             return this.container
               .resolve<IHarnessProposalStore>(token)
-              .save(sessionId, update, complete, turnStartedAt);
+              .save(sessionId, update, complete, turnStartedAt, workspaceRoot);
           },
           broadcast: (type, payload) => {
             if (!webviewManager) {

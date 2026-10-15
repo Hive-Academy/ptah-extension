@@ -2,8 +2,11 @@ import type { HarnessConfig, HarnessProposal } from '@ptah-extension/shared';
 
 /** Durable harness proposals keyed by the real SDK session id. */
 export interface IHarnessProposalStore {
-  /** Freeze an unambiguous SDK turn before the proposing tool awaits storage. */
-  captureProposingTurnStartedAt(sessionId: string): {
+  /** Freeze an unambiguous SDK turn in the caller's pinned workspace. */
+  captureProposingTurnStartedAt(
+    sessionId: string,
+    workspaceRoot?: string,
+  ): {
     readonly turnStartedAt?: string;
     /** Release the retained invocation when its save settles. */
     release(): void;
@@ -14,6 +17,7 @@ export interface IHarnessProposalStore {
     update: Partial<HarnessConfig>,
     complete: boolean,
     turnStartedAt?: string,
+    workspaceRoot?: string,
   ): Promise<HarnessProposal>;
 
   get(sessionId: string): Promise<HarnessProposal | null>;

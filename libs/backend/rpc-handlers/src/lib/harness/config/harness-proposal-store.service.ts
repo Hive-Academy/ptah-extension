@@ -60,7 +60,7 @@ function compareRevisions(
 
 @injectable()
 /**
- * Stores proposals under the workspace provider's root, merging each update.
+ * Stores proposals under the pinned caller root when supplied, merging each update.
  * Rejects with HarnessProposalWorkspaceError (HARNESS_PROPOSAL_NO_WORKSPACE),
  * ZodError for an invalid session id, FileLockTimeoutError from
  * @ptah-extension/harness-sync on contention, or a file system error.
@@ -74,12 +74,15 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     private readonly turnAttribution?: HarnessProposalTurnAttributionService,
   ) {}
 
-  captureProposingTurnStartedAt(sessionId: string): {
+  captureProposingTurnStartedAt(
+    sessionId: string,
+    workspaceRoot?: string,
+  ): {
     readonly turnStartedAt?: string;
     release(): void;
   } {
     sessionId = HarnessSessionIdSchema.parse(sessionId);
-    const root = this.requireRoot();
+    const root = this.requireRoot(workspaceRoot);
     return (
       this.turnAttribution?.capture(sessionId, root) ?? {
         release: () => undefined,
@@ -92,9 +95,10 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     update: Partial<HarnessConfig>,
     complete: boolean,
     turnStartedAt?: string,
+    workspaceRoot?: string,
   ): Promise<HarnessProposal> {
     sessionId = HarnessSessionIdSchema.parse(sessionId);
-    const root = this.requireRoot();
+    const root = this.requireRoot(workspaceRoot);
     const directory = this.directory(root);
     const file = this.file(directory, sessionId);
     return serializeByKey(file, async () => {
@@ -154,7 +158,21 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     return this.read(this.file(directory, sessionId), root, sessionId);
   }
 
-  private requireRoot(): string {
+  private requireRoot(workspaceRoot?: string): string {
+    if (workspaceRoot !== undefined) {
+      if (
+        !workspaceRoot ||
+        !path.isAbsolute(workspaceRoot) ||
+        path.normalize(workspaceRoot) !== workspaceRoot ||
+        workspaceRoot.trim() !== workspaceRoot ||
+        workspaceRoot.includes('\0')
+      ) {
+        throw new Error(
+          'Harness proposal workspace root must be a normalized absolute path.',
+        );
+      }
+      return workspaceRoot;
+    }
     const root = this.workspaceProvider.getWorkspaceRoot();
     if (!root) throw new HarnessProposalWorkspaceError();
     return root;

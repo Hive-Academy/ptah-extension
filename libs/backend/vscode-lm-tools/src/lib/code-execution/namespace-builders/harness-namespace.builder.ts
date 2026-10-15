@@ -398,6 +398,7 @@ export interface HarnessNamespaceDependencies {
     update: Partial<HarnessConfig>,
     complete: boolean,
     turnStartedAt?: string,
+    workspaceRoot?: string,
   ) => Promise<HarnessProposal>;
   broadcast: (type: string, payload: unknown) => void;
   logger: {
@@ -522,6 +523,7 @@ export function buildHarnessNamespace(
     broadcast,
     logger,
   } = deps;
+  let warnedMissingCallerRoot = false;
 
   return {
     async searchSkills(
@@ -1107,7 +1109,13 @@ export function buildHarnessNamespace(
           'Harness proposal could not be saved: no SDK session is resolved. Retry after the session starts.',
         );
       }
-      const workspaceRoot = getPolicyWorkspaceRoot();
+      const workspaceRoot = getPolicyWorkspaceRoot() || undefined;
+      if (!workspaceRoot && !warnedMissingCallerRoot) {
+        warnedMissingCallerRoot = true;
+        logger.warn(
+          '[Harness] No caller workspace root resolved; proposal storage uses the active workspace.',
+        );
+      }
       const capture = getProposingTurnStartedAt(sessionId, workspaceRoot);
       const turnStartedAt = capture.turnStartedAt;
       try {
@@ -1116,6 +1124,7 @@ export function buildHarnessNamespace(
           validatedUpdate,
           isConfigComplete ?? false,
           turnStartedAt,
+          workspaceRoot,
         );
         const revision = proposal.revisions?.find(
           (item) => item.updatedAt === proposal.updatedAt,

@@ -154,6 +154,65 @@ describe('HarnessProposalStore', () => {
     expect(fileFor('one')).not.toBe(fileFor('two'));
   });
 
+  it('persists under the pinned caller root when the active provider root differs', async () => {
+    const callerRoot = path.join(root, 'caller');
+    const getWorkspaceRoot = jest.fn((): string | undefined => {
+      throw new Error('Active provider root must not be read');
+    });
+    const pinnedStore = new HarnessProposalStore(
+      logger as unknown as Logger,
+      { getWorkspaceRoot: () => getWorkspaceRoot() } as IWorkspaceProvider,
+    );
+    const capture = pinnedStore.captureProposingTurnStartedAt(
+      'one',
+      callerRoot,
+    );
+    const saved = await pinnedStore.save(
+      'one',
+      { name: 'Caller' },
+      false,
+      capture.turnStartedAt,
+      callerRoot,
+    );
+    capture.release();
+    expect(getWorkspaceRoot).not.toHaveBeenCalled();
+    expect(saved.workspaceRoot).toBe(callerRoot);
+    expect(
+      JSON.parse(
+        await fs.readFile(
+          path.join(
+            callerRoot,
+            '.ptah',
+            'harness',
+            'proposals',
+            path.basename(fileFor('one')),
+          ),
+          'utf8',
+        ),
+      ),
+    ).toEqual(saved);
+    await expect(fs.access(fileFor('one'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it.each([
+    '',
+    'relative/workspace',
+    '  ',
+    `${path.sep}tmp${path.sep}..${path.sep}workspace`,
+  ])('rejects an invalid pinned root %j before writing', async (callerRoot) => {
+    expect(() =>
+      store.captureProposingTurnStartedAt('one', callerRoot),
+    ).toThrow(/normalized absolute path/);
+    await expect(
+      store.save('one', {}, false, undefined, callerRoot),
+    ).rejects.toThrow(/normalized absolute path/);
+    await expect(fs.access(fileFor('one'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
   it('reads a proposal using a new store instance', async () => {
     const saved = await store.save('one', { name: 'Persisted' }, false);
     const restarted = new HarnessProposalStore(
