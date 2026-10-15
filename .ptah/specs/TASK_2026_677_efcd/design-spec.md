@@ -5,8 +5,7 @@ are answered in place, see "Revision round 1" at the end). Visual source of trut
 Reference targets: `reference/01-clean-chat-turns.png`, `reference/02-session-shell-with-inspector.png`.
 Design system applied: the app's own Anubis system (DaisyUI themes `anubis` dark and `anubis-light`, semantic surfaces, `text-state-*`
 ink tokens, `--bcm` muted text, Inter / JetBrains Mono). No new colour, font or radius is introduced; two small token additions are
-proposed in section 1.6 and are marked `[lane-proposed]`. Theme scope: contrast is measured for `anubis` and `anubis-light` only; every other
-theme-picker theme is a T4 follow-up (section 8.2). Intentional departures from the reference images are listed in section 2.2.
+proposed in section 1.6 and are marked `[lane-proposed]`. Theme scope: contrast is measured for all 34 theme-picker themes (the two anubis themes with their own tokens, the 32 stock themes with a generated per-theme token block; section 8.2, D24). Intentional departures from the reference images are listed in section 2.2.
 
 How to read values: every value names its source. `T:` = Tailwind utility or colour already in
 `apps/ptah-extension-webview/tailwind.config.js`; `S:` = custom property in `apps/ptah-extension-webview/src/styles.css`;
@@ -108,6 +107,7 @@ Timers and counts use `tabular-nums` so the live clock does not jitter.
 | Todo done | `check` inside a 14 px filled box | 10, stroke 3.5 | `text-base-100` on `bg-state-done` |
 | Git error | `triangle-alert` (`TriangleAlert`) | 14 | `text-state-err` |
 | Empty agents | `bot` | 16 | muted |
+| TASK section: task glyph, document, opens outside the chat (4.6, Delta 1) | `folder-kanban` (`FolderKanban`), `file-text` (`FileText`), `external-link` (`ExternalLink`) | 14 / 12 / 12 | muted (document links use `--ptah-link`) |
 
 Lucide export verification (finding 8, DONE by the orchestrator 2026-10-15 against `D:\projects\ptah-extension\node_modules\lucide-angular` 1.0.0,
 `icons/lucide-icons.d.ts`): `PanelLeft`, `PanelRight`, `GitBranch`, `ShieldAlert`, `LoaderCircle`, `TriangleAlert` are canonical exports. The designer
@@ -178,7 +178,7 @@ Intentional departures (each is a product requirement, not drift):
 | --- | --- | --- | --- | --- |
 | P1 | Codex (and every other vendored CLI) uses its provider mark | generic `>_` for every CLI lane | `ptah-provider-mark` with `Terminal` fallback (Decision D5) | user rule "ptah-provider-mark CLI icons"; Gemini keeps `>_` exactly as in the reference |
 | P2 | `Review` / `Answer` button on a waiting row | text-only `Needs permission: npx nx lint chat` line | outline button, 28 px high (4.2, 4.5) | the line must be actionable; routing in 4.5 |
-| P3 | User-turn branch / rewind strip and timestamp (hover or focus reveal) | none | 3.10 | parity B-14, B-15, B-16 |
+| P3 | User-turn branch / rewind strip below the bubble (today's hover reveal, unchanged; the time and `You` stay visible at rest above the bubble, as today) | none | 3.10 | parity B-14, B-15, B-16 (Delta 1, items 2-3) |
 | P4 | `6 tools · 3 files` meta at the right end of the disclosure row, and the activity panel behind `Show activity` | bare `Worked for 4m 12s ›`; the activity button shows nothing | 3.2, 3.11 | parity B-4, B-8, B-11, B-12 |
 | P5 | No `Prototype · example data` chip, no host chrome strip (avatar, Chat, Share) | present in the screenshot | absent | these belong to the mock-up, not to the product |
 
@@ -269,7 +269,9 @@ these two buttons.
 `flex items-center gap-2 mt-3.5 text-xs` with `role="status" aria-live="polite"`: 8 px `bg-state-run` dot with a pulsing 2 px ring
 (`::after inset -4 px`, 1.6 s `--ptah-ease-soft`, scale .6 -> 1.25, opacity .55 -> 0), `Orchestrating` (base-content), `·`, timer (muted,
 tabular). Timer is `aria-hidden`; screen readers hear only the static label (no per-second announcements). Verb comes from the orchestrator
-state ("Orchestrating", "Waiting for you" when any agent is waiting).
+state ("Orchestrating"), and is bound to the same session needs-you aggregate as the header chip (section 9, G1) in EVERY state, including the historical reference
+state of the prototype: when the aggregate has one or more open requests the verb is `Waiting for you` (not "any agent is waiting" from a separate source), and it returns to
+`Orchestrating` when the aggregate reaches 0. The header `N needs you` chip and this verb can therefore never disagree. (Round 2, review finding 6.)
 
 ### 3.8 View mode `full` | `compact` (what the retained toggle changes; PM-1, parity A-1..A-6)
 
@@ -283,9 +285,14 @@ disclosure preference. It never hides a capability and never swaps the transcrip
 | Completed turn | log collapsed, `Worked for` row (3.2/3.9), answer, chips, action row | identical |
 | Final answer | full text | identical (never truncated or summarised) |
 | Agent chips, action row, live line | as 3.5-3.7 | identical |
-| Inspector (section 4) | opens docked at >= 960 px shell width | closed at every width until the toggle opens it (the `N needs you` header chip and the toggle dot stay) |
+| Inspector (section 4) | INITIAL default: open and docked at >= 960 px shell width (the dock is closable) | INITIAL default: closed at every width (the `N needs you` header chip and the toggle dot stay) |
 | Vertical rhythm | user to assistant 20, assistant to user 28, answer paragraph gap 12 | 12 / 20 / 8; disclosure row 28 px tall |
 | User turns, attachments, branch / rewind, compaction disclosure (3.10), banners C-1..C-17, stats strip, compaction markers, composer, render window, older-history loading | as specified | identical |
+
+Inspector open state (decision D23, round 2): the rows above (`full`: open and docked at >= 960 px; `compact`: closed) are INITIAL defaults only. A manual `Show` / `Hide` of the
+inspector is kept per tab, in memory (not persisted), across switches between tabs, so returning to a tab restores whatever the user last chose there. Changing that tab's view
+mode resets the choice to the new mode's default. In `full` mode the dock is closable (the `Close session details` control exists docked as well as in the overlay). A reload or
+a new tab starts again from the mode default.
 
 The toggle: the existing controls in the tab item (A-3) and the Rail focus header (A-4) are unchanged (`aria-pressed` reflects the mode). Switching is
 instant in place: same DOM and scroll anchor (the topmost visible turn stays put), no stagger replay, no remount. The choice survives a reload (A-2).
@@ -301,12 +308,12 @@ assistant message up to the next user message.
 | Quantity | Rule |
 | --- | --- |
 | Start `S` | `timestamp` of the turn's first user message, excluding a compaction-continuation message (B-18) and excluding messages without a finite timestamp. Inbound peer messages count (they start work) |
-| End `E` (settled turn) | the maximum over the turn's assistant messages of `timestamp + duration`; every term needs a finite `duration`, else `E` is not derivable |
+| End `E` (settled turn) | `E = max` over the turn's assistant messages of `timestamp + duration` ONLY (decision D22, round 2); every term needs a finite `duration`, else `E` is not derivable. Nothing else enters `E`: no persisted CLI or lane completion time, and no agent runtime after the last assistant message. Frontend-only and identical after a reload |
 | Settled label | derivable (`S`, `E` finite and `E - S >= 1000 ms`): `Worked for {m}m {ss}s` (`{s}s` under 1 min, `{h}h {mm}m` from 1 h). Otherwise the bare `Worked` (no number, never `0s`) |
 | Live label (streaming, or any agent owned by the turn running) | `Working · {now - S}`, ticking each second (`tabular-nums`, `aria-hidden`). It needs only `S`, so it is also correct after a reload mid-turn. No finite `S`: `Working` with the pulse dot and no timer |
 | Settle | when streaming ends and no owned agent runs, the label is recomputed from the durable fields above. No in-memory frozen value is kept, so the label is identical before and after a reload or tab switch (task-description criterion 8). If the live timer showed more than the durable value, the label drops to the durable value; if `E` is not derivable it becomes `Worked` |
 | Zero-activity turn (no tool call, no agent) | no disclosure row at all (3.1 row 3), so no label |
-| Still-running agents after the final message | the row stays `Working · {now - S}` (3.1 row 2). The settled label then measures the orchestrator's own timeline only: delegated runs that outlive the last assistant event are not added, and each chip shows its own `done · {duration}` instead. Architect check `[verify]`: extend `E` with a CLI lane completion time only if `MonitoredAgent` persists one across reload; sub-agent records have no times and are not added |
+| Still-running agents after the final message | the row stays `Working · {now - S}` (3.1 row 2). The settled label then measures the orchestrator's own timeline only: delegated runs that outlive the last assistant event are excluded by decision, and each chip shows its own `done · {duration}` instead. A CLI or lane completion time is never added to `E`, even if some record persists one |
 | Interrupted or stopped turn | same rule (`E` = last assistant event); no new copy |
 | Restored history | works when the loader maps message timestamps and durations `[verify]`; if a field is missing the label is `Worked` |
 | Expanding or collapsing a turn | never changes the label |
@@ -315,22 +322,26 @@ assistant message up to the next user message.
 
 `<article aria-label="You">`: bubble per the reference (right-aligned, 12 px radius, `surface-2`), plus, all kept from today's bubble:
 
-- Sender and time (B-16): a `<time datetime>` (formatTime output, `title` = full date and time) with `You` or the peer label, rendered in the action strip below
-  (`text-[11px] text-base-content-muted tabular-nums`, 6.06:1 dark / 6.03:1 light on surface-0). An inbound peer message shows its peer label above the
-  bubble at rest (always visible, never hover-gated) together with today's "self-reported and unverified" warning (B-17), icon `triangle-alert` 12 and
-  `text-state-need` (6.61 / 5.83 on surface-0).
+- Sender and time (B-16; Delta 1 item 2, user decision: NOT hover-gated, exactly as today): the `<time datetime>` (today's `formatTime` output, `title` = full date and time) with
+  `You` (or the peer label) stays in the header line ABOVE the bubble, visible at rest in every state, unchanged from `message-bubble.component.html` (`chat-header`, `text-xs
+  text-base-content-muted`, time `opacity-60`). It is NOT moved into the action strip below and is not part of any reveal. `text-[11px] text-base-content-muted tabular-nums` on
+  surface-0 measures 6.06:1 dark / 6.03:1 light; if the implementation keeps today's `opacity-60` on the time, the opacity-reduced pair must be re-measured by the frontend developer
+  (not asserted here). An inbound peer message shows its peer label in the same header line at rest together with today's "self-reported and unverified" warning (B-17), icon
+  `triangle-alert` 12 and `text-state-need` (6.61 / 5.83 on surface-0).
 - Attachments (B-19, B-20): inside the bubble under the text, `mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]`: `paperclip` 12 muted, the existing
   file badges (`badge badge-sm`, `bg-surface-3 text-base-content`, 12.52 / 13.35, `title` = full path, file-type icon from `getFileIcon`), then `image` 12 plus
   today's `imageCountLabel()` text.
 - Compaction continuation (B-18): the existing disclosure ("Continued from previous conversation (compacted)") inside the bubble, same button recipe as 3.2
   at 12 px, `aria-expanded`, same copy as today (the prototype's `Continued from a compacted conversation` is illustrative; production keeps today's string), preceded by the
   retained compaction marker (C-8) as a `role="separator"` divider (prototype `.cs-divider`).
-- Action strip (B-14, B-15): under the bubble, `flex items-center justify-end gap-0.5 mt-1`: time/sender, then two 28 px icon buttons (recipe of 3.6, 14 px
-  icons): `git-branch`, aria-label `Branch conversation from this message`, `title` `Branch conversation from here`; `undo-2`, aria-label `Rewind file changes
+- Action strip (B-14, B-15; Delta 1 item 3): under the bubble, `flex items-center justify-end gap-0.5 mt-1`: two 28 px icon buttons (recipe of 3.6, 14 px
+  icons; the time/sender are NOT in this strip, see B-16 above): `git-branch`, aria-label `Branch conversation from this message`, `title` `Branch conversation from here`; `undo-2`, aria-label `Rewind file changes
   to this message`, `title` `Rewind file changes to here`. Rewind keeps today's inactive behaviour: `disabled` + `aria-disabled`, `opacity-40`, aria-label
   `Rewind unavailable — session is not active`, `title` `Rewind is only available during an active conversation`.
-  Reveal: `opacity-0` at rest, `opacity-100` on `article:hover` and `article:focus-within`, always visible under `(hover: none)`; 120 ms
-  `--ptah-ease-soft`. The buttons stay in the tab order (focus reveals them). They emit today's `branchRequested` / `rewindRequested`; the C-10 banners
+  Reveal (user decision, Delta 1 item 3: today's behaviour, NOT changed): `opacity-0` at rest, `opacity-100` on hover of the message group and of the strip itself (today's
+  `chat-footer ... opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200`, `message-bubble.component.html`). The earlier proposal to add a
+  focus reveal (`:focus-within`) and an always-visible `(hover: none)` rule is WITHDRAWN: no focus-within rule, no `(hover: none)` override, no new transition timing. The buttons
+  stay native, in the tab order and unchanged in behaviour; whatever today does for a keyboard user stays as is (a pre-existing gap, out of scope). They emit today's `branchRequested` / `rewindRequested`; the C-10 banners
   report their result unchanged. The strip is not a stagger item.
 
 ### 3.11 Activity panel (parity B-8, B-11, B-12; with the count meta of 3.2 for B-4; departure P4)
@@ -339,8 +350,17 @@ Opened by the `Show activity` button (3.6), below the action row: `<dl id aria-l
 border-surface-border bg-surface-1 px-3 py-2.5 text-xs`; each item is `<dt>` label `text-[11px] text-base-content-muted` under `<dd>` value `font-medium tabular-nums` (DOM order
 dt, dd; visual reverse via `flex-col-reverse`), items in this order and each present only when known (never `0` or a placeholder): `Duration` (the label value of 3.9),
 `Tokens` (`18.2k in · 3.1k out`), `Cost` (`$0.42`), `Tool calls`, `Files changed`. Formatting reuses today's `ptah-token-badge` / `ptah-cost-badge` formatters (plain text).
-Values are summed over the turn's assistant messages; the transcript renders one assistant message per user prompt today, so for a turn with several messages the per-message
-split is not shown `[verify]`. The panel is closed by default, available only on completed turns (the action row is hidden while open), and hidden entirely when every item is
+Single-message turn (the transcript renders one assistant message per user prompt today): `Tokens`, `Cost`, `Tool calls` and `Files changed` are that message's values;
+`Duration` stays the turn elapsed value of 3.9, and a separate `Message duration` item (that message's own `duration`, today's B-12 badge value and format) follows it
+when known, because turn elapsed and message duration can differ (gate-1 r2 finding 1, decision row 20). Turn with MORE THAN ONE assistant
+message (round 2, review finding 5): the panel keeps each message's own labelled metrics and shows the aggregate as a summary. Structure: the summary `<dl>` above comes first
+and is labelled `All messages` (a `<dt>` heading line, `text-[11px] text-base-content-muted`); under it one `<section aria-label="Message {n} of {N}">` per assistant message
+in transcript order, each a `<dl>` of the same item recipe holding that message's own `Duration` (its `duration`), `Tokens`, `Cost` (and `Tool calls` / `Files changed` when the
+message owns them), with a `Message {n}` `<h4>` line (`text-[11px] font-medium`) and, when known, the message `<time>` (formatTime); the rows are separated by
+`border-t border-surface-border pt-2 mt-2`. Items unknown for a message are omitted for that message only; the summary sums only the known values and states the number
+of messages it covers when that differs from `N` (`Tokens · 2 of 3 messages`). So no per-message cost, token or duration datum is lost by the move behind `Show activity` (B-8/B-11/B-12 stay at message granularity). Architect check `[verify]`: the data shape (`tokenUsage`, `cost`,
+`duration` on each assistant message, as read by today's badges) holds for every message of a turn after a reload, so the per-message rows can be built from persisted
+fields. The panel is closed by default, available only on completed turns (the action row is hidden while open), and hidden entirely when every item is
 unknown. Base-content on surface-1: 14.01 dark / 14.41 light; muted on surface-1: 5.71 / 5.46. Prototype: `.cs-activity` (`#act1`, `#act2`).
 
 ---
@@ -348,7 +368,7 @@ unknown. Base-content on surface-1: 14.01 dark / 14.41 light; muted on surface-1
 ## 4. Inspector "This session"
 
 `<aside id="inspector" aria-label="This session">` 336 px, column: header 48 px (`px-4 pr-3`, title 13/600 `<h2>`, close `x` button) then a scrolling body
-with four `section`s separated by `border-b border-surface-border` (each `p-4`; AGENTS `pt-3.5 pb-1.5` with row-level horizontal padding).
+with five `section`s in this order: Orchestrator card, AGENTS, TASK (new, 4.6, Delta 1 item 1), TODOS, GIT. TASK sits directly above TODOS. Sections are separated by `border-b border-surface-border` (each `p-4`; AGENTS `pt-3.5 pb-1.5` with row-level horizontal padding).
 
 ### 4.1 Orchestrator card
 
@@ -435,12 +455,12 @@ aria-label `Retry reading git status`, shows `loader-circle` and `aria-busy` whi
 
 Request kinds, identity and where they appear (field names are `[verify]` for the architect):
 
-| Kind | Source today | Identity `requestKey` | Row it appears on | Button |
+| Kind | Source today | Identity `requestId` (the name `canvas-needs-you-queue.ts:57-110` already uses) | Row it appears on | Button |
 | --- | --- | --- | --- | --- |
-| Session permission | `chatStore.unmatchedPermissions()` (C-15), filtered by `targetsTab` (A-13) | the request's `id` | Orchestrator card (its state reads `needs you`) | `Review` |
-| CLI-lane permission | `MonitoredAgent.permissionQueue` (`agent-monitor.store.ts:394-442`) | the request's `id` (the same request seen in both lists counts once, 9.1) | that lane's AGENTS row | `Review` |
-| Sub-agent permission | session permission matched to the sub-agent by its tool-use id; unmatched falls back to the Orchestrator card | the request's `id` | the sub-agent row, else Orchestrator | `Review` |
-| AskUserQuestion | `resolvedQuestionRequests()` (C-16) | `AskUserQuestionRequest.id` | the owning lane row when it has a `laneKey`, else Orchestrator | `Answer` |
+| Session permission | `chatStore.unmatchedPermissions()` (C-15), filtered by `targetsTab` (A-13) | `requestId` = `PermissionRequest.id` | Orchestrator card (its state reads `needs you`) | `Review` |
+| CLI-lane permission | `MonitoredAgent.permissionQueue` (`agent-monitor.store.ts:394-442`) | `requestId` = the queue entry's `requestId` (the same request seen in both lists counts once, 9.1) | that lane's AGENTS row | `Review` |
+| Sub-agent permission | session permission matched to the sub-agent by its tool-use id; unmatched falls back to the Orchestrator card | `requestId` = `PermissionRequest.id` | the sub-agent row, else Orchestrator | `Review` |
+| AskUserQuestion | `resolvedQuestionRequests()` (C-16) | `requestId` = `AskUserQuestionRequest.id` | the owning lane row when it has a `laneKey`, else Orchestrator | `Answer` |
 
 `Review` (any permission, any host) expands the request panel inline under the row: `region` with `aria-label="Permission request from {name}"`,
 `mx-4 mt-2 rounded-md border border-surface-border bg-surface-1 p-3`, content: requester line (`{name} · {kind}`, `text-xs`), the full tool and command (`font-mono
@@ -449,16 +469,26 @@ text-[11px]`, wraps, never truncated), `Allow` and `Deny` buttons (`h-7 min-w-[5
 link (`inline-flex h-6 items-center text-xs font-medium` in `--ptah-link`, today's `openRequest`, A-11; not offered where no lane surface exists, i.e. the Electron single chat view). Responses use today's handlers unchanged: session permissions
 through `handlePermissionResponse` (C-15), lane permissions through `AgentPermissionResponder` / `PermissionHandlerService` exactly as the compact callout's `respond`
 does (A-10). That path already works in the chat host, so the panel IS the Electron fallback until T1-07 mounts a native lane-permission surface; where a host also
-mounts a native surface (C-15 badge, lane tile), a response given on either one resolves the request on both because they share the `requestKey`.
+mounts a native surface (C-15 badge, lane tile), a response given on either one resolves the request on both because they share the `requestId`.
 
 `Answer` does not re-implement the question UI. It scrolls the existing question card (C-16) into view in the main thread and focuses its first option; a lane-owned
-question first opens that lane (A-9 `openLane`). At overlay width the sheet closes first and focus goes to the card (the one exception to the return-to-toggle rule, 8.3
-path 7). If the card is not mounted within 1 s the line shows the error state below.
+question does NOT open its lane first in any host (Delta 1 item 6, orchestrator decision: on `host=rail` opening the lane replaces the thread and would hide the very card the
+user is answering; the card of the session is the target). At overlay width the sheet closes first and focus goes to the card (the one exception to the return-to-toggle rule, 8.3
+path 7). The lane stays reachable through the row button and `Open lane` as before. Card missing (round 2, review finding 3): the request is NOT dropped and stays counted. If the C-16 card is not mounted when `Answer` runs (after the lane open, if any, and a 1 s wait),
+the row shows a row-level error in the request region of that row: `triangle-alert` + `Could not find the question in the conversation` (`text-state-err`, `role="alert"`) + `Retry`
+(same 24 px recipe as the send-failure `Retry`). Focus goes to that row's `Answer` button, or to the error region when the sheet was an overlay and is still open; never `body`. `Retry` runs `Answer` again
+for the same `requestId`; success removes the error and moves focus to the card's first option. The rule is identical in every host and applies to Electron and to Rail / VS Code routing alike
+(the card of that session is the target in both). The prototype models it with `?fail=card` (the card is absent from the thread). The "after the lane open, if any" wording of the card-missing rule above no longer applies: `Answer` never opens a lane first; the 1 s wait starts at the `Answer` activation.
+
+`Open lane` and selecting an agent row (round 2, review finding 1) are one behaviour with one routing, in every host that has a lane surface: (1) activate that lane (today's `openLane`, A-9), so the
+main area shows the lane's view (prototype: a mock lane view whose title is the heading `h2#laneTitle` with `tabindex="-1"` and the lane name; the header keeps the session `h1`, Delta 1 item 5); (2) close the inspector through the single close routine
+`closeInsp(laneTitle)` when it is an overlay sheet (a docked inspector stays open); (3) move focus to the lane title heading (h2); (4) only then announce `Opened the {name} lane`. A host without a lane surface
+(`host=electron`, the single chat view) does NOT render `Open lane`; there, selecting an agent row only sets `aria-current` and leaves the inline request panel as the working surface, and no "opened" announcement is made.
 
 | Host (prototype `host=`) | `Review` (permission) | `Answer` (question) |
 | --- | --- | --- |
 | Electron single chat view (`host=electron`; no native lane-permission surface yet, T1-07) | inline request panel, the only surface: lane requests are answered in place with `Allow` / `Deny`; no `Open lane` link is offered because there is no lane surface to open | focus the C-16 card of that session |
-| Electron Rail panes and VS Code webview (`host=rail`) | inline request panel plus the `Open lane` link; the C-15 badge and the lane tile stay visible and stay in sync through `requestKey` | focus the C-16 card (open the lane first for a lane-owned question) |
+| Electron Rail panes and VS Code webview (`host=rail`) | inline request panel plus the `Open lane` link; the C-15 badge and the lane tile stay visible and stay in sync through `requestId` | focus the C-16 card directly, including for a lane-owned question (the lane is NOT opened first: it would hide the card in the thread; Delta 1 item 6) |
 
 Several requests: each row lists its pending requests oldest first, one panel open per row (opening another closes the first; focus moves to the opened panel's
 region); rows with requests sort first (4.2); the header `N needs you` counts every unique request (9.1). More than one request on a row shows `+N more` (expanded:
@@ -470,12 +500,14 @@ Prototype states (query string on `prototype/index.html`; screenshots are prefix
 | --- | --- | --- |
 | `ask=lane` | single lane permission row: `Needs permission: {command}` + `Review` | none |
 | `ask=lane-open` | the `Review` panel open (idle) with `Allow`, `Deny`, `Open lane` | focus enters the panel region |
-| `ask=question` | question row `Asked you: {first 60 chars}` + `Answer`, and the question card in the thread | `Answer` moves focus to the card's first option |
+| `ask=question` | question row `Asked you: {first 60 chars}` + `Answer`, and the question card in the thread (also when the question is lane-owned: `host=rail` does not open the lane first) | `Answer` moves focus to the card's first option |
+| `ask=question&fail=card` | the same row with the question card absent from the thread; `Answer` shows the row-level error and `Retry`; the request stays counted | focus on the row's `Answer` button (or the error region while the overlay is open); the live region announces `Could not find the question. It is still waiting.` |
+| `open-lane` (`select` and `Open lane`, `host=rail`) | the mock lane view replaces the thread; at overlay width the sheet is closed | focus on the lane title heading (h2, `h2#laneTitle`, `tabindex="-1"`), then `Opened the {name} lane` |
 | `ask=multi` | 5 simultaneous requests across rows, with `+N more` | none; `aria-expanded` on `+N more` |
 | `requests-more-open` (`narrow-400-multi-more-open` at 400 px) | `+N more` expanded | focus stays on the `+N more` button |
-| sending (transient, no screenshot) | after `Allow`, `Deny` or `Retry`: panel `aria-busy="true"`, both buttons `disabled`; a second activation for the same `requestKey` is ignored | focus stays put |
+| sending (transient, no screenshot) | after `Allow`, `Deny` or `Retry`: panel `aria-busy="true"`, both buttons `disabled`; a second activation for the same `requestId` is ignored | focus stays put |
 | success (no screenshot: the request disappears) | the request is removed, the row status, the `N needs you` count and the header dot update | focus moves to the next pending request's button on this row or the next row, else to the lane row's main button; the single polite live region announces the outcome and the remaining count (`Allowed {command}. 2 requests need you.`) |
-| `request-error-retry` (`fail=1`) | `triangle-alert` + `Could not send your response` (`text-state-err`, `role="alert"`) + `Retry` (`inline-flex h-6 min-w-[42px] items-center justify-center px-2 text-xs font-medium`, 24 px high); the request stays pending and counted; `Retry` re-sends the same decision for the same `requestKey` | focus moves to the panel region (never `body`); the live region announces `Could not send your answer ... The request is still waiting.` |
+| `request-error-retry` (`fail=1`) | `triangle-alert` + `Could not send your response` (`text-state-err`, `role="alert"`) + `Retry` (`inline-flex h-6 min-w-[42px] items-center justify-center px-2 text-xs font-medium`, 24 px high); the request stays pending and counted; `Retry` re-sends the same decision for the same `requestId` | focus moves to the panel region (never `body`); the live region announces `Could not send your answer ... The request is still waiting.` |
 | `request-closed-elsewhere` | the request was resolved elsewhere, timed out or its lane ended: `This request is no longer pending. It was answered elsewhere or the lane ended.` (`role="status"`) + `Close` button; no error; the count decrements | `Close` returns focus to the row's main button and announces `Closed.` |
 | `request-electron-fallback` | `host=electron`: lane requests answered in place, no `Open lane` link | as success |
 | `narrow-400-overlay-focus` | the inspector as an overlay sheet at a 400 px shell, opened by keyboard, focus on `Close session details`, background inert | per 8.3 |
@@ -485,6 +517,84 @@ Prototype states (query string on `prototype/index.html`; screenshots are prefix
 Nothing here leaves a waiting request without a working action: the permission panel works in every host, and `Answer` reports its own failure with a retry.
 
 ---
+
+### 4.6 TASK (new section, Delta 1 item 1; user scope add, decisions rows 21 and 22)
+
+Shows the session's linked PRIMARY task and the documents in its task folder, so the user can jump from the conversation to the spec it is executing. It sits between AGENTS and
+TODOS (TODOS, fed by `TodoWrite` through `parseTodoList`, is unchanged and stays below). Frontend only (decisions row 21); no new backend call or stored field.
+
+Data (all existing, `[verify]` by the architect): the session-to-task link is the session organization record (`taskIds`, with per-link `role` `primary | related`, `rpc-session.types.ts`,
+`session:linkTask`; a session has at most one primary); the task is read with `tasks:get` (`TasksGetResult.task: TaskSpecDetail | null`: `id`, `title`, `status`, `artifacts: string[]` =
+the filenames present in the folder); the section refreshes on the `tasks:changed` push (`TasksChangedNotification`: `workspaceRoot`, `reason`, optional `folderNames`).
+
+Anatomy (inspector body width 304 px inside `p-4`; same section-header recipe as TODOS; `<section aria-labelledby>` whose heading text is `TASK`):
+
+```
+TASK                                                                   (header: label only, 11 px/600 tracking as TODOS)
+[folder-kanban 14]  TASK_2026_677_efcd                                  line 1: ID, font-mono text-[11px] text-base-content-muted, break-all (never truncated)
+Clean session view and inspector                                         line 2: title 13/600 leading-[1.35], line-clamp-2, title attribute = full title
+( In Progress )   Stage: Design                                          line 3: status pill + derived stage (text-xs muted)
+-----------------------------------------------------------------
+Documents                                                                line 4: label text-[11px] muted
+[file-text] task.md                                       [external-link]  artifact rows (ul), h-6, link ink
+[file-text] task-description.md                           [external-link]
+...
++3 more documents                                                        text button, h-6
++2 related tasks                                                         text button, h-6
+```
+
+- Status pill: text is `TASK_STATUS_LABELS[status]` verbatim (`Backlog`, `In Progress`, `In Review`, `Blocked`, `Done`, `Cancelled`; `libs/frontend/tasks-ui/src/lib/task-presentation.ts:27`). Colour
+  semantics follow the board's `TASK_STATUS_BADGE` mapping (info, warning, error, success, ghost, neutral) but are drawn with the project's measured status inks, not the daisyUI fill:
+  `in_progress` `text-state-run`, `in_review` `text-state-need`, `blocked` `text-state-err`, `done` `text-state-done`, `backlog` and `cancelled` `text-base-content-muted`. Shape
+  `inline-flex h-5 items-center rounded-full border border-current/55 px-2 text-[11px] font-medium`, transparent fill (rule R2: no tinted fills), never on surface-3 (rule R1). The word
+  is always present, so colour is never the only signal. Measured pairs (section 8.2, no new pair is introduced): run / need / err / done ink on surface-0 5.04 / 6.61 / 4.92 / 5.62 dark and
+  6.07 / 5.83 / 6.12 / 5.71 light; muted on surface-0 6.06 dark / 6.03 light; ID (muted) the same; artifact link ink `--ptah-link` on surface-0 8.81 dark / 6.28 light. Decision D29 records why
+  the daisyUI `badge-*` fills are not reused as is.
+- Stage (the user's "current phase, if derivable"): the task has no phase field, so the value is DERIVED from which documents exist, taking the furthest present step of the ladder
+  Requirements (`task-description.md`) < Design (`design-spec.md`, `visual-design-specification.md`, `design-handoff.md`) < Plan (`implementation-plan.md`) < Build (`batches.md` or `tasks.md`) <
+  Review (`code-style-review.md`, `code-logic-review.md`, `visual-review.md`) < Test (`test-report.md`). The row is omitted when none of these exist (a task with only `task.md` shows no Stage).
+  `title` = `Derived from the documents in the task folder`. It is a hint, not a state machine; the architect owns where the ladder lives (a presentation helper next to `task-presentation.ts`).
+- Documents (artifact links): a `<ul aria-label="Task documents">` of the files that EXIST in `task.artifacts`, plus `task.md` (the carrier), never a file that is absent. Order: `task.md`, then the
+  recognised documents in the shared `DOC_FILES` order, then review and judge files, then `handoff-N.md` ascending by N, then any remaining `*.md` alphabetically. Each `<li>` holds one
+  native `<button type="button">`: `flex h-6 w-full min-w-6 items-center gap-1.5 rounded-sm px-1.5 text-left font-mono text-xs` in `--ptah-link`, `hover:underline underline-offset-2`, leading
+  `file-text` 12 muted, filename (truncates with `title` = filename), trailing `external-link` 12 muted (always visible; it says the file leaves the chat). aria-label `Open {filename}`.
+  At most 6 rows at rest; more files sit behind a `+N more documents` text button (`inline-flex h-6 min-w-6 items-center px-1.5 text-xs font-medium text-base-content`, `aria-expanded`,
+  aria-label `Show {N} more documents`), expanded in place.
+- Open action (requirement; the architect verifies the exact path): a click opens the file the way the git sidebar opens files, that is through the same editor-open request the git UI uses
+  for a workspace file (`editor:openFile` is the call the git-ui `open-in` code refers to, `libs/frontend/git-ui/src/lib/open-in/open-in-button.component.ts`), with the absolute path
+  `{workspaceRoot}/.ptah/specs/{folderName}/{file}` (`SPEC_ROOT` in `task-spec.contract.ts`). `tasks:getArtifact` is NOT the open path: it reads only the closed `DocFile` set and
+  returns markdown text, so it cannot serve `handoff-N.md`, `task.md` or judge files. If a host has no editor-open request, the architect chooses and records the fallback; this spec does
+  not invent one. Failure: a row-level message under the list, `role="alert"`, `triangle-alert` 14 + `Could not open {filename}` (`text-state-err`, `text-xs`) + `Retry` (24 px recipe of
+  4.4), focus stays on the row button. No success toast.
+- Several linked tasks: the lead is the `primary` link; with no primary, the first related link in stored order leads (`[verify]` order). The other linked tasks are `related` and sit behind a
+  `+N related tasks` text button (24 px, `aria-expanded`, aria-label `Show {N} related tasks`). Expanded, each is a non-interactive `<li>` with ID (mono 11), title (13, truncate, `title`) and
+  status pill; related tasks show no document links, and the row is deliberately NOT a button because no destination for it was decided. Reversible (D30).
+- Live: the section re-reads `tasks:get` when `tasks:changed` arrives with `folderNames` containing the lead task's `folderName`, or with no `folderNames`, debounced 300 ms (`[verify]`).
+  A refresh keeps the current content on screen (no skeleton, no `aria-busy`); status, title, stage and the file list update in place. No announcement (the live-region budget of 8.1 is
+  unchanged: status changes in the inspector never announce). A task whose status changes while the section is visible simply shows the new pill; there is no animation beyond the
+  120 ms colour transition, removed under `prefers-reduced-motion`. Architect `[verify]`: `TasksStoreService.handleMessage` only refreshes while the Tasks board surface is open
+  (`surfaceOpen`, `tasks-store.service.ts:1121-1140`), so the inspector needs its own consumer of the `tasks:changed` message type (or a store hook that does not require the board),
+  decided without importing the board.
+- States (aggregate status per 9.1):
+  - No linked task (decision D27): the section is NOT rendered. Not even a heading. While the session organization record has not resolved the section is also not rendered and nothing
+    is announced.
+  - Loading (link known, `tasks:get` pending): `aria-busy="true"` on the section, skeleton `h-3 w-40` (ID), `h-4 w-56` (title), `h-5 w-24` (pill), two `h-6` bars; no text.
+  - Ready: as above.
+  - Partial (`task` loaded but `artifacts` empty or absent): ID, title and status show; under Documents the muted line `No documents yet` (`text-xs`, `role="status"`).
+  - Task not found (`tasks:get` returns `task: null`, e.g. the folder was deleted or excluded): ID row from the link, muted line `Task folder not found`; no Retry (it is not an error), no links.
+  - Error (RPC failed): ID row from the link when known, then `triangle-alert` 14 + `Could not load the task` (`text-state-err`, `role="alert"`) + `Retry` (24 px, aria-label
+    `Retry loading task`, `loader-circle` and `aria-busy` while retrying; the message stays until a read succeeds).
+- Accessibility: a real list (`ul > li`) for documents and for related tasks; every control is a native `button` (so it gets the ring of 8.4, gold-strong in light); targets are >= 24 x 24
+  (`h-6 min-w-6`, 2.5.8); the ID is selectable text; no hover-only information; the section adds no live region. Tab order inside the section: document buttons top to bottom, `+N more
+  documents`, `+N related tasks`, `Retry loading task` / `Retry` when present.
+- Icons (confirmed present in `lucide-angular` 1.0.0 `icons/lucide-icons.d.ts`, `aria-hidden="true"`): `FolderKanban` (`folder-kanban`) task glyph, `FileText` (`file-text`) document, `ExternalLink`
+  (`external-link`) opens outside the chat, plus the existing `TriangleAlert` and `LoaderCircle`.
+- Bundle (the inspector is a lazy `@defer` block): the TASK section may reuse only the presentation helpers and types of tasks-ui (`TASK_STATUS_LABELS`, the status to ink mapping,
+  `WORKFLOW_ARTIFACTS` / `DOC_FILES` ordering, `TaskSpecDetail` as a type). It must NOT import the Tasks board, `TasksStoreService`, or any tasks-ui component into the chat or canvas
+  graph. If the library barrel would drag those in, the architect exposes the presentation helpers through a narrower entry point; the choice is the architect's and is checked against the
+  initial-bundle budget (the 629 follow-up deferred Rail details for the same reason).
+- Prototype vocabulary (for the prototype designer; query string on `prototype/index.html`): `task=none` (section absent), `task=loading`, `task=ready`, `task=multi` (primary plus `+2 related
+  tasks`, expanded variant), `task=partial`, `task=missing`, `task=error` (with Retry), `task=open-fail` (document open error), `task=live` (status changes from In Progress to In Review in place, no announcement).
 
 ## 5. Header
 
@@ -576,7 +686,7 @@ Content appears instantly. Verified in the prototype: with the reduce toggle the
 | 2 | Inspector toggle | `Show session details` / `Hide session details` (aria-pressed, aria-controls) |
 | 3.. | Per turn, document order: disclosure button (aria-expanded), each chip, `Copy message`, `Show activity` | chip: `{name}, {kind}, {status}. Open lane` |
 | next | Composer: `Attach files or add context`, `Approval mode: ...`, `Model and effort: ...`, `Dictate`, `Send message` (textarea is first, before the buttons) | as listed |
-| last | Inspector (when open): `Close session details`, then, per row, the row button, `Review ...` / `Answer ...`, `+N more`, and (when a request panel is open) `Allow`, `Deny`, `Open lane`; then `Show N more todos`, `Review changes`, `Retry reading git status` | row: `{name}, {kind}, {status} {duration}. {activity}` |
+| last | Inspector (when open): `Close session details`, then, per row, the row button, `Review ...` / `Answer ...`, `+N more`, and (when a request panel is open) `Allow`, `Deny`, `Open lane`; then the TASK controls (each document button, `Show N more documents`, `Show N related tasks`, `Retry loading task`, `Retry` for a failed open; only when the section is rendered); then `Show N more todos`, `Review changes`, `Retry reading git status` | row: `{name}, {kind}, {status} {duration}. {activity}` |
 
 DOM order is main region then inspector, so a keyboard user reaches the composer before the inspector. `F6` is not introduced. Overlay-mode focus behaviour is specified in 8.3.
 
@@ -624,11 +734,112 @@ Source values are the real theme values (tailwind.config.js, styles.css). Rerun 
 Criteria applied: WCAG 2.2 SC 1.4.3 (text 4.5:1), 1.4.11 (UI components and meaningful graphics 3:1), 2.4.7 and 2.4.11 (focus visible), 2.5.8 (target size 24 px).
 The project states no stricter standard; `base-content-muted.spec.ts` already enforces 4.5:1 for `--bcm` on surfaces 1-3 across all 34 themes.
 
-Theme scope (finding 7): every number in this section is measured for `anubis` (dark) and `anubis-light` ONLY, and this spec claims nothing wider. Other theme-picker
-themes inherit `--state-ink-*` only when they define it; otherwise the `text-state-*` utilities fall back to the daisyUI semantic colours (`--in`, `--wa`, `--er`, `--su`),
-which are not contrast-tuned for text. Follow-up T4 (not this task): run `contrast-check.mjs` for at least one dark and one light third-party theme, record the pairs in a table,
-and either define `--state-ink-*` for the failing themes or change the utility fallback. Until then the design is safe by construction on any theme in one respect only:
-colour is never the only signal (every status is a word, icons accompany permission and error lines, todo state has a prefix), and `--bcm` text is already enforced everywhere.
+Theme scope (review finding 2, decision D24, round 2): this surface is available in ALL 34 themes of the picker (`DAISYUI_THEMES`, `libs/frontend/core/src/lib/services/theme.service.ts:67-102`); it is not restricted to the two anubis themes.
+Measured, not assumed: before this round the status inks of the 32 stock themes fell back to daisyUI `--in`, `--wa`, `--er`, `--su` and the accent (`--ptah-link`, focus ring) to `--s`; **23 of 32** stock themes had at least one
+status text below 4.5:1 on surfaces 0-2 with that fallback (lowest 1.01:1, `acid` need). The fix is a project-token fallback, below.
+
+Token source and fallback (every value traceable):
+
+| Token | Anubis themes | The 32 stock themes |
+| --- | --- | --- |
+| `--state-ink-run / need / err / done` | defined in `tailwind.config.js` (`anubis` lines 111-115, `anubis-light` 185-189), unchanged | NEW, one `[data-theme='x'] { ... }` block per theme in `styles.css`, next to the existing 32 `--bcm` blocks (same pattern; `base-content-muted.spec.ts` reads those). Values are generated, see Method and the block below |
+| `--state-ink-idle` | defined | unchanged: falls back to `oklch(var(--bc))` (`tailwind.config.js:36`), which is base-content and passes by definition |
+| `--ptah-accent-ink` (NEW; accent text and the focus ring) | not used: `--ptah-link` keeps gold / gold-strong and the ring keeps `--s` / `--ptah-gold-strong` (8.4) | same block; `--ptah-link: var(--ptah-accent-ink)` and the ring override (`outline-color: var(--ptah-accent-ink)`, same selectors as the `anubis-light` rule at `styles.css:704-709`, scoped `:where([data-theme]:not([data-theme^='anubis']))`) |
+| Checkbox outline alpha `--ptah-check-edge` (NEW) | 55% of base-content (measured 5.05 dark / 3.68 light, prototype unchanged) | 70% of base-content (the 55% value gave 2.54 on `aqua` and 2.70 on `valentine`; 70% is the smallest 5% step that reaches 3.1 on surfaces 0-2 for all 32) |
+| Utility fallback (a future theme with no block) | n/a | the Tailwind colour entries keep `oklch(var(--in))` etc. as the last resort; the guard test below makes a missing block a failing test, not a silent regression |
+
+Method (`prototype/assets/contrast-check.mjs`, run `node contrast-check.mjs themes`; `emit` prints the CSS block; `anubis` prints the original anubis audit). Theme colours are read at run time from the repo:
+the name list from `theme.service.ts`, anubis from `tailwind.config.js`, the 32 stock themes from `node_modules/daisyui/src/theming/themes.js` (the file the plugin compiles), `--bcm` from `styles.css`. Defaults follow
+`daisyui/src/theming/functions.js` exactly as `base-content-muted.spec.ts` does (missing `base-200` = `base-100` darkened 7%, `base-300` = 7% below `base-200` or 14% below `base-100`, missing `base-content` = 80% toward black or white, missing
+`info/success/warning/error` = `72.06% 0.191 231.6`, `64.8% 0.150 160`, `84.71% 0.199 83.87`, `71.76% 0.221 22.18`). For each generated ink the script keeps the hue; if the daisyUI colour already clears the target on every surface it sits on, it is kept as is; otherwise OKLCH lightness is moved
+away from the surfaces (up on dark themes, down on light) in 0.005 steps with chroma held as high as the sRGB gamut allows, then rounded to hex and re-measured. Targets: text 4.5 + 0.1 margin on surfaces 0-2 (status words are never placed on surface 3, rule R1),
+accent text 4.5 + 0.1 and the focus ring on surfaces 0-3, checkbox outline 3 + 0.1 on surfaces 0-2. A flat `color-mix` toward base-content was tried and rejected: it also passes, but at the 2-4 percent weights the mid-tone themes need it rotates the hue (warning turned teal, error turned magenta). Of the generated inks 10 to 12 of 32 per slot
+needed no change; the largest lightness shift of any slot is 0.425 OKLCH L (accent) and 0.41 (need).
+
+Result: **34 of 34 themes pass; 0 fail.** Columns: lowest status-text contrast over run / need / err / done on surfaces 0-2 today (the daisyUI fallback; for anubis, its own tokens) and with the generated tokens; accent text and focus ring (lowest over surfaces 0-2 and 0-3) today -> with the token;
+checkbox outline (lowest on surfaces 0-2); `--bcm` muted text (lowest on surfaces 0-3, already enforced at 4.5 by `base-content-muted.spec.ts`); verdict at text >= 4.5, UI >= 3.
+
+| Theme | Mode | Tokens | Status text, today | Status text, with tokens | Accent text, today -> token | Focus ring, today -> token | Check outline | Muted text | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| anubis | dark | own | 4.60 | 4.60 | 8.24 / 8.24 | 7.43 / 7.43 | 5.05 | 5.11 | PASS |
+| anubis-light | light | own | 5.10 | 5.10 | 5.61 / 5.61 | 5.26 / 5.26 | 3.68 | 5.06 | PASS |
+| light | light | generated | 1.49 | 4.61 | 3.03 / 5.11 | 2.76 / 4.65 | 5.24 | 5.09 | PASS |
+| dark | dark | generated | 5.15 | 5.14 | 5.63 / 5.63 | 5.63 / 5.63 | 4.18 | 5.00 | PASS |
+| cupcake | light | generated | 1.39 | 4.61 | 1.70 / 4.99 | 1.59 / 4.68 | 5.85 | 5.06 | PASS |
+| bumblebee | light | generated | 1.35 | 4.61 | 1.62 / 5.66 | 1.34 / 4.69 | 6.08 | 5.17 | PASS |
+| emerald | light | generated | 1.35 | 4.61 | 3.14 / 5.64 | 2.60 / 4.67 | 4.08 | 5.17 | PASS |
+| corporate | light | generated | 1.35 | 4.61 | 2.59 / 5.57 | 2.15 / 4.62 | 5.76 | 5.16 | PASS |
+| synthwave | dark | generated | 7.25 | 7.25 | 9.18 / 9.18 | 9.18 / 9.18 | 8.54 | 5.97 | PASS |
+| retro | light | generated | 2.24 | 4.62 | 1.25 / 5.28 | 1.12 / 4.70 | 4.80 | 5.11 | PASS |
+| cyberpunk | light | generated | 1.17 | 4.62 | 1.05 / 5.57 | 1.05 / 4.63 | 5.78 | 5.15 | PASS |
+| valentine | light | generated | 1.98 | 4.62 | 1.80 / 5.57 | 1.49 / 4.63 | 3.74 | 5.16 | PASS |
+| halloween | dark | generated | 3.12 | 4.68 | 2.00 / 4.68 | 2.00 / 4.68 | 5.70 | 5.00 | PASS |
+| garden | light | generated | 1.10 | 4.61 | 4.51 / 5.59 | 3.75 / 4.65 | 5.90 | 5.16 | PASS |
+| forest | dark | generated | 6.03 | 6.03 | 7.33 / 7.33 | 7.33 / 7.33 | 6.02 | 5.00 | PASS |
+| aqua | dark | generated | 1.24 | 4.61 | 1.60 / 4.62 | 1.60 / 4.62 | 3.17 | 4.73 | PASS |
+| lofi | light | generated | 1.13 | 4.60 | 15.67 / 15.67 | 14.19 / 14.19 | 8.09 | 7.45 | PASS |
+| pastel | light | generated | 1.59 | 4.65 | 1.40 / 6.26 | 1.04 / 4.67 | 6.57 | 5.26 | PASS |
+| fantasy | light | generated | 1.35 | 4.61 | 3.94 / 5.69 | 3.26 / 4.71 | 5.00 | 5.17 | PASS |
+| wireframe | light | generated | 2.20 | 4.60 | 1.71 / 5.34 | 1.49 / 4.66 | 6.25 | 5.13 | PASS |
+| black | dark | generated | 2.14 | 4.61 | 1.55 / 5.55 | 1.31 / 4.71 | 6.69 | 5.18 | PASS |
+| luxury | dark | generated | 6.66 | 6.66 | 1.21 / 5.79 | 1.04 / 4.61 | 4.61 | 5.24 | PASS |
+| dracula | dark | generated | 4.53 | 4.63 | 5.90 / 5.90 | 5.90 / 5.90 | 7.34 | 5.40 | PASS |
+| cmyk | light | generated | 2.18 | 4.61 | 2.98 / 5.59 | 2.47 / 4.64 | 6.08 | 5.17 | PASS |
+| autumn | light | generated | 1.91 | 4.63 | 2.89 / 5.57 | 2.40 / 4.62 | 5.84 | 5.17 | PASS |
+| business | dark | generated | 2.71 | 4.65 | 4.90 / 4.90 | 4.90 / 4.90 | 5.73 | 5.00 | PASS |
+| acid | light | generated | 1.01 | 4.63 | 2.18 / 5.60 | 1.81 / 4.64 | 6.00 | 5.17 | PASS |
+| lemonade | light | generated | 1.18 | 4.61 | 1.54 / 5.56 | 1.28 / 4.61 | 6.02 | 5.17 | PASS |
+| night | dark | generated | 6.44 | 6.44 | 5.98 / 5.98 | 5.98 / 5.98 | 5.94 | 5.00 | PASS |
+| coffee | dark | generated | 7.99 | 7.99 | 1.54 / 4.70 | 1.54 / 4.70 | 4.13 | 5.00 | PASS |
+| winter | light | generated | 1.29 | 4.62 | 8.18 / 8.18 | 7.35 / 7.35 | 3.71 | 5.09 | PASS |
+| dim | dark | generated | 7.43 | 7.43 | 5.26 / 5.26 | 5.26 / 5.26 | 4.71 | 5.00 | PASS |
+| nord | light | generated | 1.28 | 4.63 | 2.21 / 5.07 | 2.02 / 4.64 | 4.44 | 5.08 | PASS |
+| sunset | dark | generated | 10.77 | 10.77 | 6.52 / 6.52 | 6.52 / 6.52 | 4.82 | 5.00 | PASS |
+
+The `Done` glyph (base-100 on the done ink, UI >= 3) is 4.61:1 or higher in every theme (lowest: `aqua`).
+Not measurable from repository data: none. All 34 themes resolve from the three sources above. Two stated approximations: (1) inputs are sRGB-clamped before OKLCH mixing, so a wide-gamut daisyUI colour (some stock `oklch()` values exceed sRGB) is measured as its clamped value;
+the 0.1 margin covers the difference; (2) the surface-1 and surface-3 mixes use the same `color-mix(in oklch)` model as the anubis audit. A browser render of one dark and one light stock theme is still the visual reviewer's job; the numbers are not a substitute.
+Colour remains never the only signal (every status is a word, permission and error lines carry icons, todos carry a prefix); the generated inks make the words readable, they do not replace the words.
+
+Guard (acceptance, for the implementer): extend `state-ink-contrast.spec.ts` so `themes` is every `DAISYUI_THEMES` name, each must define `--state-ink-run/need/err/done` (own theme object or the generated block in `styles.css`), and the same pairs this audit measures (4.5 on surfaces 100/200 and the surface-1 mix; 3 for the ring and
+check outline). That spec currently covers only the anubis pair at 3:1 and would not catch a regression in the other 32.
+
+Generated block (paste into `styles.css` after the `--bcm` blocks; re-run `node contrast-check.mjs emit` if a theme changes):
+
+```css
+[data-theme='light'] { --state-ink-run: #0074a5; --state-ink-need: #8d6700; --state-ink-err: #d0273b; --state-ink-done: #007d50; --ptah-accent-ink: #be009c; }
+[data-theme='dark'] { --state-ink-run: #00b5ff; --state-ink-need: #ffbe00; --state-ink-err: #ff5861; --state-ink-done: #00a96e; --ptah-accent-ink: #ff52d9; }
+[data-theme='cupcake'] { --state-ink-run: #006f9e; --state-ink-need: #876300; --state-ink-err: #ca1f37; --state-ink-done: #00784c; --ptah-accent-ink: #944d69; }
+[data-theme='bumblebee'] { --state-ink-run: #006e9c; --state-ink-need: #846000; --state-ink-err: #c91c35; --state-ink-done: #00764b; --ptah-accent-ink: #7f4f00; }
+[data-theme='emerald'] { --state-ink-run: #006e9c; --state-ink-need: #846000; --state-ink-err: #c91c35; --state-ink-done: #00764b; --ptah-accent-ink: #0850cc; }
+[data-theme='corporate'] { --state-ink-run: #006e9c; --state-ink-need: #846000; --state-ink-err: #c91c35; --state-ink-done: #00764b; --ptah-accent-ink: #465c79; }
+[data-theme='synthwave'] { --state-ink-run: #53c0f3; --state-ink-need: #eace6c; --state-ink-err: #ec8c78; --state-ink-done: #71ead2; --ptah-accent-ink: #58c7f3; }
+[data-theme='retro'] { --state-ink-run: #1451d8; --state-ink-need: #8e4b00; --state-ink-err: #bb0e16; --state-ink-done: #006b2c; --ptah-accent-ink: #395c49; }
+[data-theme='cyberpunk'] { --state-ink-run: #00638e; --state-ink-need: #775700; --state-ink-err: #bc012b; --state-ink-done: #006b43; --ptah-accent-ink: #005a63; }
+[data-theme='valentine'] { --state-ink-run: #124fd6; --state-ink-need: #8c4a00; --state-ink-err: #b4181a; --state-ink-done: #006b2c; --ptah-accent-ink: #5a3e9c; }
+[data-theme='halloween'] { --state-ink-run: #4b85ff; --state-ink-need: #d97706; --state-ink-err: #f35248; --state-ink-done: #16a34a; --ptah-accent-ink: #b362ff; }
+[data-theme='garden'] { --state-ink-run: #005f88; --state-ink-need: #725300; --state-ink-err: #b50029; --state-ink-done: #006741; --ptah-accent-ink: #7e3354; }
+[data-theme='forest'] { --state-ink-run: #00b5ff; --state-ink-need: #ffbe00; --state-ink-err: #ff5861; --state-ink-done: #00a96e; --ptah-accent-ink: #1db88e; }
+[data-theme='aqua'] { --state-ink-run: #c9dcff; --state-ink-need: #ffd3b2; --state-ink-err: #ffd1cb; --state-ink-done: #7af396; --ptah-accent-ink: #ebd1ff; }
+[data-theme='lofi'] { --state-ink-run: #007984; --state-ink-need: #8b6700; --state-ink-err: #b34d41; --state-ink-done: #007d58; --ptah-accent-ink: #1a1919; }
+[data-theme='pastel'] { --state-ink-run: #0078ab; --state-ink-need: #926b00; --state-ink-err: #d52d3f; --state-ink-done: #008253; --ptah-accent-ink: #785459; }
+[data-theme='fantasy'] { --state-ink-run: #006e9c; --state-ink-need: #846000; --state-ink-err: #c91c35; --state-ink-done: #00764b; --ptah-accent-ink: #005c9b; }
+[data-theme='wireframe'] { --state-ink-run: #0000ff; --state-ink-need: #6f6e1d; --state-ink-err: #d70000; --state-ink-done: #007d00; --ptah-accent-ink: #616161; }
+[data-theme='black'] { --state-ink-run: #4078ff; --state-ink-need: #ffff00; --state-ink-err: #ff0000; --state-ink-done: #259321; --ptah-accent-ink: #8d8d8d; }
+[data-theme='luxury'] { --state-ink-run: #66c6ff; --state-ink-need: #e2d562; --state-ink-err: #ff6f6f; --state-ink-done: #87d039; --ptah-accent-ink: #7c93ba; }
+[data-theme='dracula'] { --state-ink-run: #8be9fd; --state-ink-need: #f1fa8c; --state-ink-err: #ff5958; --state-ink-done: #50fa7b; --ptah-accent-ink: #bd93f9; }
+[data-theme='cmyk'] { --state-ink-run: #007186; --state-ink-need: #a44e00; --state-ink-err: #ca1814; --state-ink-done: #823290; --ptah-accent-ink: #b2005e; }
+[data-theme='autumn'] { --state-ink-run: #006974; --state-ink-need: #924b00; --state-ink-err: #c00010; --state-ink-done: #196958; --ptah-accent-ink: #a21b25; }
+[data-theme='business'] { --state-ink-run: #0091d5; --state-ink-need: #dbae59; --state-ink-err: #d96657; --state-ink-done: #6bb187; --ptah-accent-ink: #7c909a; }
+[data-theme='acid'] { --state-ink-run: #0060c4; --state-ink-need: #716400; --state-ink-err: #cb0000; --state-ink-done: #00733b; --ptah-accent-ink: #943d00; }
+[data-theme='lemonade'] { --state-ink-run: #456a78; --state-ink-need: #696546; --state-ink-err: #805c59; --state-ink-done: #4c6b58; --ptah-accent-ink: #5b5c00; }
+[data-theme='night'] { --state-ink-run: #0ca5e9; --state-ink-need: #f4bf50; --state-ink-err: #fb7085; --state-ink-done: #2dd4bf; --ptah-accent-ink: #818cf8; }
+[data-theme='coffee'] { --state-ink-run: #8dcac1; --state-ink-need: #ffd25f; --state-ink-err: #fc9581; --state-ink-done: #9db787; --ptah-accent-ink: #6f898a; }
+[data-theme='winter'] { --state-ink-run: #1e7a8c; --state-ink-need: #806b52; --state-ink-err: #aa5658; --state-ink-done: #297b7d; --ptah-accent-ink: #463aa2; }
+[data-theme='dim'] { --state-ink-run: #28ebff; --state-ink-need: #efd057; --state-ink-err: #ffae9b; --state-ink-done: #62efbd; --ptah-accent-ink: #ff7d5c; }
+[data-theme='nord'] { --state-ink-run: #7f5c79; --state-ink-need: #806322; --state-ink-err: #a44953; --state-ink-done: #566e40; --ptah-accent-ink: #466481; }
+[data-theme='sunset'] { --state-ink-run: #89e0eb; --state-ink-need: #f1c891; --state-ink-err: #ffbbbd; --state-ink-done: #addfad; --ptah-accent-ink: #fd6f9c; }
+```
 
 ### 8.3 Overlay focus behaviour (shell width < 960 px: sheet at 640-959 px, full-width sheet below, including the 400 px sidebar; review finding 4)
 
@@ -639,7 +850,7 @@ Docked mode (>= 960 px) is a plain `<aside aria-label="This session">` with no t
 | Default | closed on load and on every session switch; the inspector never opens itself and never takes focus |
 | Open (toggle by keyboard or pointer) | (1) remember the opener (`document.activeElement`, normally the header toggle); (2) set `inert` on the whole main region (header, thread, composer, in one wrapper) so nothing behind the sheet is focusable, clickable or read; (3) the sheet gets `role="dialog" aria-modal="true" aria-label="This session"` instead of the landmark role and the toggle gets `aria-pressed="true"`; (4) focus moves to `Close session details` immediately (it does not wait for the 220 ms slide); (5) the scrim is `aria-hidden` and pointer-only |
 | While open | Tab and Shift+Tab cycle inside the sheet (a keydown handler wraps last to first and first to last; `inert` alone would still let focus reach browser UI); `Esc` closes the innermost layer first (an open request panel, then the sheet); a pointer click on the scrim closes |
-| Resize across 960 px while open | to docked: remove `inert`, `role="dialog"` and `aria-modal`, keep focus where it is; to overlay: the sheet closes (path 6) |
+| Resize across 960 px while open | to docked: remove `inert`, `role="dialog"` and `aria-modal`, keep focus where it is; to overlay (docked inspector open, shell becomes narrower than 960 px): the sheet is closed by `closeInsp()` (path 6) and does not reopen on its own; the width-band transition is detected, not every resize event |
 
 Focus return, every close path (focus is always set programmatically, because a pointer click on the scrim or a removed element would otherwise drop it to `body`):
 
@@ -648,15 +859,19 @@ Focus return, every close path (focus is always set programmatically, because a 
 | 1 | `Esc` | the opener |
 | 2 | `Close session details` button | the opener |
 | 3 | scrim click (the scrim covers the whole shell except the sheet, including the header, so the inert toggle is never the click target) | the opener |
-| 4 | select an agent row (opens that lane in the main area; at overlay width the sheet closes) | the opened lane's title `<h1 tabindex="-1">` |
-| 5 | `Open lane` in a request panel | same as 4 |
-| 6 | automatic close (session switch, tab closed, resize to overlay) | the opener when it is still connected and visible, else the session title `<h1 tabindex="-1">` |
-| 7 | `Answer` (4.5) | the first option of the question card in the thread |
+| 4 | select an agent row (4.5: activates the lane view; at overlay width the sheet closes through `closeInsp(laneTitle)`) | the opened lane's title heading (h2, `h2#laneTitle`, `tabindex="-1"`) |
+| 5 | `Open lane` in a request panel (same routing as 4; not rendered where the host has no lane surface) | same as 4 |
+| 6 | automatic close (session switch, tab closed, resize from docked to overlay) | the opener when it is still connected and visible, else the session title `<h1 tabindex="-1">` |
+| 7 | `Answer` (4.5) | the first option of the question card in the thread; if the card is missing, the row's `Answer` button or the error region (4.5) |
+
+Every path above is one function, `closeInsp(target)`: it removes `inert`, restores the dialog semantics, and sets focus to `target` (the opener by default). Paths 4-7 pass their own target. Session switch and resize-to-overlay
+are triggered by the shell (a `ResizeObserver` that detects the 960 px band change; the session-switch handler) and call it with no target, which selects the fallback chain of path 6. Keyboard acceptance checks at a 400 px shell:
+paths 1-5 and 7 by key, plus resize from a docked width to 400 px and a session switch while the sheet is open (focus lands on the opener or the session title in both).
 
 Never `body`. `tabindex="-1"` focus targets carry the full ring utility set of 8.4. With `prefers-reduced-motion` the slide is instant; behaviour is otherwise identical.
 
 Keyboard-order acceptance check (sheet open at a 400 px shell): `Close session details`, then each row button top to bottom with its `Review` / `Answer`, `+N more`,
-`Allow`, `Deny`, `Open lane` when present, `Show N more todos`, `Review changes`, `Retry reading git status` when present, then wrap to `Close`. None of the sidebar toggle,
+`Allow`, `Deny`, `Open lane` when present, the TASK controls when present (4.6), `Show N more todos`, `Review changes`, `Retry reading git status` when present, then wrap to `Close`. None of the sidebar toggle,
 inspector toggle, chips, transcript controls or composer may receive focus while the sheet is open. Tab from the last control wraps; Shift+Tab from `Close` reaches the last
 control. Prototype state `narrow-400-overlay-focus` demonstrates entry, inert, wrap, and return on paths 1, 2, 3 and 7 (its `capture.mjs checks` run); paths 4-6 (row select, `Open lane`, automatic close) are implementation acceptance items.
 
@@ -694,6 +909,10 @@ control. Prototype state `narrow-400-overlay-focus` demonstrates entry, inert, w
 | Permission and question requests | session list (C-15), `MonitoredAgent.permissionQueue`, `resolvedQuestionRequests()` (C-16) | answered in place by the inspector's request panel using today's handlers (4.5); the Electron single chat view needs no new surface for this. A native lane-permission surface (T1-07) is optional afterwards |
 | `Worked for` duration | message `timestamp` and `duration` | derived client-side by 3.9; `[verify]` that completed assistant messages carry a finite `duration` live and after restore, else the label is `Worked` |
 | `N needs you` | the unique-request count of 9.1 | derived in one place |
+| TASK section (Delta 1): linked task id and role | session organization record `taskIds` / link `role` (`rpc-session.types.ts`, `session:linkTask`) | `[verify]` how the webview reads the record for the active session and whether a change of links pushes; frontend only |
+| TASK section: title, status, documents | `tasks:get` -> `TasksGetResult.task` (`id`, `title`, `status`, `artifacts: string[]`); labels from `TASK_STATUS_LABELS` | no `phase` field exists: Stage is derived from `artifacts` (4.6). `null` task = folder not found. No new RPC |
+| TASK section: live refresh | `tasks:changed` push (`TasksChangedNotification`) | `TasksStoreService` ignores the push unless the board is open; the inspector needs its own consumer (4.6, architect) |
+| TASK section: open a document | editor-open request used by the git sidebar (`editor:openFile`) on `{workspaceRoot}/.ptah/specs/{folderName}/{file}` | `[verify]` exact RPC, absolute-path rules and per-host availability; `tasks:getArtifact` is not the open path |
 
 ### 9.1 Inspector aggregate: one session-scoped contract (review finding 3)
 
@@ -702,7 +921,7 @@ state, AGENTS, the live-line verb and the `N needs you` count all read it, and n
 
 Inputs (existing): `TabState` (`status`, `sessionStats`, `liveModelStats`, `agentOrigin`, `messages`, `streamingState`), `AgentMonitorStore` (`sessionSubagentsForSession`,
 `agentsOwnedBySession`, `MonitoredAgent.permissionQueue`), `BackgroundAgentStore.agentsForSession`, `chatStore.unmatchedPermissions()`, `resolvedQuestionRequests()`,
-`SessionGitStatsStore.stateFor(root)`, `parseTodoList` / `summarizeTodos`.
+`SessionGitStatsStore.stateFor(root)`, `parseTodoList` / `summarizeTodos`, and (Delta 1) the session organization record's `taskIds` plus `tasks:get` for the lead task (read through a task-detail reader that does not import the Tasks board, 4.6).
 
 Each section returns `status: loading | ready | partial | unknown | error` plus its fields. Presentation per status (prototype `body=loading|partial|error|empty`):
 
@@ -712,16 +931,17 @@ Each section returns `status: loading | ready | partial | unknown | error` plus 
 | Agents | rows (4.2), `active` = running + waiting + queued, `finished` = done + failed + stopped | 3 skeleton rows, `aria-busy="true"` | no lanes: empty state, meta `none yet` | `partial` when a restored session lacks stored durations or activity lines: meta adds a `partial` marker (`title` `Restored session: some durations and activity are not stored`); each row hides the fields it lacks |
 | Requests | unique requests, per-row queues, `N` | no chip and no dot until the stores have hydrated; never an "all clear" message while loading | n/a | request send failure: row-level error with `Retry` (4.5) |
 | Todos | items, counts, active title | skeleton rows | `parseTodoList` failed and no counts: meta `unknown` and the note `Could not read the todo list for this session. It may be stored in an older format.` (`role="status"`) | counts only: `2 of 5` plus `Todo details unavailable` |
+| Task (Delta 1, 4.6; between Agents and Todos) | lead task (primary, else first related), `id`, `title`, `status`, derived `stage`, `documents[]`, `related[]` | link known and `tasks:get` pending: skeleton, `aria-busy="true"`; link not yet resolved: section not rendered, nothing announced | no linked task: section not rendered (no heading, no row); `task: null`: `Task folder not found` (no Retry) | partial (no documents): `No documents yet`; error: `Could not load the task` + `Retry loading task` (`role="alert"`); document open failure: row-level `Could not open {file}` + `Retry`. A refresh from `tasks:changed` keeps content on screen and announces nothing |
 | Git | branch, additions, deletions, partial flag | skeleton row | not a repo: `Not a git repository` | error: `Could not read git status` + `Retry reading git status`; ahead / behind never drawn |
 
-De-duplication of "needs you": every request has one identity, `requestKey` = the request `id` (`PermissionRequest.id`, `AskUserQuestionRequest.id`; if a source lacks an id, fall back to
-`{source}:{ownerKey}:{kind}:{hash of tool name and input}`) `[verify]`. The session permission list and each lane's `permissionQueue` are merged by `requestKey`, so the same request seen in
-both counts once; a lane that is waiting on a question counts through that question only; two distinct requests from one lane count twice. `N` = unique open `requestKey`s + the number of lanes
+De-duplication of "needs you": every request has one identity, `requestId`, the name the real queue already uses (`libs/frontend/canvas/src/lib/canvas-needs-you-queue.ts:57-110`, `NeedsYouItem.requestId`): `PermissionRequest.id` and `AskUserQuestionRequest.id` for session items, the `requestId` field of each lane `permissionQueue` entry for lane items. The queue's own `key` (`perm:{id}`, `q:{id}`, `lane:{agentId}:{requestId}`) is source-scoped and is NOT the dedup key; the aggregate dedups on `requestId`. If a source lacks one, fall back to
+`{source}:{ownerKey}:{kind}:{hash of tool name and input}` `[verify]`. The session permission list and each lane's `permissionQueue` are merged by `requestId`, so the same request seen in
+both counts once; a lane that is waiting on a question counts through that question only; two distinct requests from one lane count twice. `N` = unique open `requestId`s + the number of lanes
 whose status is `waiting` with no resolvable request (so a waiting lane is never silently dropped and never counted twice). Responses and `Closed` states (4.5) remove the key everywhere at once.
 
 Acceptance gates (explicit dependencies, none hidden): G1 no backend change ships with this task. G2 the todo list and counts come from the same `parseTodoList` result; the count-only fallback is
 reachable. G3 the `↑ ↓` pair stays hidden until `ahead` and `behind` exist on a per-session source (needs its own recorded decision). G4 the unique-request count is computed once (9.1) and the
-header chip, toggle dot, orchestrator state and AGENTS order agree in the prototype states `ask=multi` and `ask=question`. G5 the `[verify]` items (request `id` fields, `MonitoredAgent` completion time,
+header chip, toggle dot, orchestrator state and AGENTS order agree in the prototype states `ask=multi` and `ask=question`. G5 the `[verify]` items (request identity: `requestId` as in `canvas-needs-you-queue.ts:97-106` for lanes and `id` surfaced as `requestId` for session items; the aggregate adopts that name, not a new `id`/`requestId`, `MonitoredAgent` completion time,
 `duration` on completed messages, restored-history timestamps, per-lane activity from `segments`) are checked by the architect before the plan is final.
 
 ---
@@ -751,11 +971,23 @@ header chip, toggle dot, orchestrator state and AGENTS order agree in the protot
 | D19 | The five PM `remove-proposed` rows (B-4, B-8, B-11, B-14, B-15) are kept at a new location, so the design proposes no removal (12.2, 12.3) | drop them for a cleaner turn | PM-5 default is keep or move; removal is user-reserved; each has a place that leaves the reference look intact | yes |
 | D20 | Ahead / behind hidden until a per-session source exists (4.4, 9.1) | draw `↑0 ↓0`; add a backend call | decisions.md row 9: `GitStatusService` is workspace-wide; a placeholder would read as real data | yes |
 | D21 | Thread scroller uses `scrollbar-gutter: stable both-edges` (2.2) | `stable`; overlay scrollbar | the one-edge gutter shifted the thread 6 px left of the composer centre | yes |
+| D22 | Turn duration end `E` = max over the turn's assistant messages of `timestamp + duration` ONLY (3.9) | also add a persisted CLI / lane completion time; also add agent runtime after the last assistant message | orchestrator decision (task-description review finding 2): frontend-only, no dependence on `MonitoredAgent` persistence, identical after reload; delegated runs show their own `done · {duration}` on their chips | yes |
+| D23 | Inspector `full` (open docked at >= 960 px) and `compact` (closed) are INITIAL defaults only; a manual Show / Hide is kept per tab in memory across tab switches; changing the view mode resets it to that mode's default; the `full` dock is closable (3.8, 4, 8.3) | mode always forces the state; persist the manual choice | orchestrator decision (task-description review finding 4): the user's last explicit choice must survive navigation, the mode stays a preference; in-memory because nothing in the task persists inspector state | yes |
+| D24 | The surface is supported in ALL 34 picker themes through a generated per-theme token fallback (`--state-ink-*`, `--ptah-accent-ink`, `--ptah-check-edge`), not a scope restriction to the anubis themes (8.2) | restrict the surface to anubis; one `color-mix` formula for all themes | orchestrator decision (round 2, review finding 2) from evidence: 23 of 32 stock themes failed 4.5:1 for status text with the daisyUI fallback; a flat mix rotates hues; the measured per-theme block passes 34 of 34 (8.2) | yes |
+| D25 | A turn with more than one assistant message lists each message's labelled tokens / cost / duration in the activity panel plus an aggregate summary (3.11) | aggregate only (a per-message loss); per-message always | review finding 5: B-8/B-11/B-12 are per-message data, the move behind `Show activity` must not lose granularity; data shape stays an architect `[verify]` | yes |
+| D26 | One lane-open routing for `select` and `Open lane` through `closeInsp(laneTitle)`; a missing question card is a row-level error with `Retry` that keeps the request; resize docked-to-overlay and session switch close the sheet through the same routine; the live verb reads the needs-you aggregate in every state; the request identity is `requestId` (3.7, 4.5, 8.3, 9.1) | inert `Open lane`; throw on a missing card; leave the sheet open on resize; a separate `id` / `requestKey` name | review findings 1, 3, 4, 6 and the real queue (`canvas-needs-you-queue.ts:57-110`) | yes |
+| D27 | No linked task: the TASK section is not rendered (no heading, no row); it also stays absent while the link is unresolved (4.6, 9.1) | a permanent quiet `No task linked` row; a section with an empty state like TODOS | TODOS is always shown because every orchestrated session produces a plan; a task link is optional metadata that most sessions never have, and the inspector has no link action (frontend-only scope), so a permanent row would be noise with no next step. Cost: the section pops in when a link appears (no animation beyond the 120 ms fade) | yes |
+| D28 | Documents open in the editor through the git sidebar's editor-open request, not through `tasks:getArtifact` (4.6) | render the markdown in place with `tasks:getArtifact`; open through a new RPC | user decision (rows 21): "opened the same way the git sidebar opens files"; `getArtifact` serves only the closed `DocFile` set and returns text, so it cannot serve `task.md`, `handoff-N.md` or judge files. Exact RPC and host availability are an architect `[verify]` | yes |
+| D29 | The status pill reuses `TASK_STATUS_LABELS` verbatim and the board's colour semantics, drawn as transparent outline pills in the measured `--state-ink-*` tokens, not as the daisyUI `badge-*` fills (4.6) | reuse `TASK_STATUS_BADGE` classes as is | rule R2 (tinted fills fail 4.5:1, section 8.2) and the 34-theme token fallback (D24) were measured; daisyUI auto-generated `badge-*` content colours were not, and are not defined in the prototype tokens. Visual consistency with the board stays at word and hue level. Reversible if the user prefers identical fills (then the architect must measure 34 themes) | yes |
+| D30 | Related tasks are listed behind `+N related tasks` as non-interactive rows without documents; only the lead task offers document links (4.6) | related rows open that task; each related task shows its own documents | the user decision defines links for the session's primary task only; a destination for a related row would be an invented behaviour | yes |
+| D31 | Stage is shown as `Stage`, derived from the documents present (no phase field exists); omitted when nothing can be derived (4.6) | label it `Phase`; show nothing; add a stored phase field | "current phase if derivable"; the task carrier has no phase field and no backend work is allowed (row 21); the label `Stage` and the `title` text state that it is derived, so it does not pose as workflow state | yes |
+| D32 | Delta 1 item 6: `Answer` never opens a lane first; on `host=rail` a lane-owned question focuses the question card of the session directly (4.5) | open the lane, then focus the card | orchestrator decision: opening the lane replaces the thread and hides the card being answered | yes |
+| D33 | Delta 1 items 2, 3, 5: B-16 stays visible at rest above the bubble as today; B-14 / B-15 keep today's hover reveal with no focus reveal and no `(hover: none)` rule; lane title is `h2#laneTitle` (3.10, 4.5, 8.3, 12) | hover-only time; added focus reveal; a lane `h1` | user decision (decisions row 23) for B-16 and B-14 / B-15; the header already holds the session `h1`, so a second `h1` would break the heading outline | yes |
 
 ## 11. Lane-introduced constraints
 
-Only items marked `[lane-proposed]` need Gate 1.7 acceptance: `--ptah-link` token (1.6), optional `surface-border-strong` Tailwind colour (1.6), rules R1 (status words never on surface-3)
-and R2 (no tinted status fills) in 8.2, the stagger caps (D14). Added in revision round 1, all `[lane-proposed]`: the density meaning of `compact` view mode (3.8, D16), the inline request panel
+Delta 1 adds no `[lane-proposed]` token or rule: the TASK section reuses measured tokens and rules R1 / R2 (4.6, D29); the user-approved scope add is recorded in decisions.md rows 21-23. Only items marked `[lane-proposed]` need Gate 1.7 acceptance: `--ptah-link` token (1.6), optional `surface-border-strong` Tailwind colour (1.6), rules R1 (status words never on surface-3)
+and R2 (no tinted status fills) in 8.2, the stagger caps (D14). Added in revision round 2, all `[lane-proposed]`: the generated per-theme tokens `--state-ink-*` for the 32 stock themes, `--ptah-accent-ink` and `--ptah-check-edge` (8.2, D24), and the per-tab in-memory inspector open state (3.8, D23). Added in revision round 1, all `[lane-proposed]`: the density meaning of `compact` view mode (3.8, D16), the inline request panel
 and its routing (4.5, D18), the symmetric scrollbar gutter and composer geometry (2.2, D21), the overlay focus contract (8.3), the ring-utility rule for programmatic focus targets (8.4). No existing
 project component is banned; every kept capability of section 12 keeps its component (`ptah-token-badge`, `ptah-cost-badge`, `ptah-copy-button`, tray, banners).
 
@@ -799,9 +1031,10 @@ the retained surfaces.
 | B-11 | Per-message token and cost badges | move (was remove-proposed) | `Tokens` and `Cost` in the activity panel (per turn; one assistant message per turn today) | 3.11 |
 | B-12 | Per-message duration badge | move | the label and `Duration` in the activity panel | 3.9, 3.11 |
 | B-13 | Streaming quotes while waiting | keep | inside the open work log, muted, while streaming with no output yet; the architect places it, never in the answer area | 3.1 |
-| B-14 | Branch conversation from a user message | keep (was remove-proposed) | hover / focus-reveal icon button under the user bubble, same icon, label and event | 3.10 |
-| B-15 | Rewind file changes to a user message | keep (was remove-proposed) | same strip; disabled with today's title when the session is not active | 3.10 |
-| B-16 | User message time and sender | keep | `<time>` and `You` or peer label in the strip; peer label visible at rest | 3.10 |
+| B-14 | Branch conversation from a user message | keep (was remove-proposed) | icon button under the user bubble, same icon, label and event; today's hover reveal unchanged (no focus reveal added; Delta 1 item 3, user decision) | 3.10 |
+| B-15 | Rewind file changes to a user message | keep (was remove-proposed) | same strip; disabled with today's title when the session is not active; same unchanged reveal | 3.10 |
+| B-16 | User message time and sender | keep, unchanged | `<time>` and `You` (or peer label) stay in the header line above the bubble, visible at rest exactly as today; NOT hover-gated, NOT moved (Delta 1 item 2, user decision) | 3.10 |
+| T-1 (new, Delta 1) | Inspector TASK section: linked primary task, status, artifacts | new capability (user scope add, decisions row 21) | inspector section between AGENTS and TODOS; no existing surface changes; TODOS unchanged | 4.6, 9.1 |
 | B-17 | Inbound peer styling and "self-reported and unverified" warning | keep | always visible, `triangle-alert` in need ink | 3.10 |
 | B-18 | Compaction continuation disclosure | keep | disclosure inside the user bubble after a compaction divider | 3.10 |
 | B-19 | File attachment names | keep | badges inside the bubble under the text | 3.10 |
@@ -824,7 +1057,7 @@ the retained surfaces.
 | C-12 | Session budget banner | keep | unchanged | not touched |
 | C-13 | Auth-required banner | keep | unchanged | not touched |
 | C-14 | Voice-provider error toast | keep | unchanged | not touched |
-| C-15 | Session permission badge | keep | unchanged; the same requests also surface as inspector rows and in `N needs you`, resolved through the shared `requestKey` | 4.5, 9.1 |
+| C-15 | Session permission badge | keep | unchanged; the same requests also surface as inspector rows and in `N needs you`, resolved through the shared `requestId` | 4.5, 9.1 |
 | C-16 | AskUserQuestion cards | keep | unchanged; `Answer` in the inspector focuses the card | 4.5 |
 | C-17 | Queued content indicator | keep | unchanged | not touched |
 | C-18 | Composer controls | keep | re-skinned composer with workspace / branch hints and approval and model chips | 6 |
@@ -847,14 +1080,14 @@ the retained surfaces.
 | B-4 tool and file counts | right-end meta of the disclosure row (3.2), part of the accessible name | yes when the turn has tools or files | same data, same source (`messageSummary()`) |
 | B-8 collapsed cost badge | `Cost` in the activity panel (3.11) | one click (`Show activity`) | cost is shown, per turn, with the same formatter |
 | B-11 per-message tokens and cost | `Tokens` and `Cost` in the activity panel (3.11) | one click | same values; a turn is one assistant message today; several messages are summed `[verify]` |
-| B-14 branch conversation | icon button under the user bubble (3.10) | on hover or focus (today's behaviour is hover reveal; focus is added) | same icon, label, event and banner |
-| B-15 rewind | icon button next to branch (3.10) | on hover or focus | same icon, label, disabled rule and event |
+| B-14 branch conversation | icon button under the user bubble (3.10) | on hover, exactly as today (no focus reveal added; user decision, Delta 1 item 3) | same icon, label, event and banner |
+| B-15 rewind | icon button next to branch (3.10) | on hover, exactly as today | same icon, label, disabled rule and event |
 
 ### 12.3 Proposed removals (user decision)
 
-None. This design removes no capability; the PM's five proposed removals are all kept at the locations in 12.2, so no approval is needed to proceed. The user can still veto the
-visibility changes or choose to remove any of the following, which stay in the product until the user says so (default keep): B-4 count meta, B-8 / B-11 / B-12 activity panel
-contents, B-14 branch, B-15 rewind. The only change in how often a capability is seen: B-8, B-11 and B-12 move from always-visible badges to one click behind `Show activity`.
+None. This design removes no capability; the PM's five proposed removals are all kept at the locations in 12.2, so no approval is needed to proceed. Visibility changes were decided by the user (decisions row 23, Delta 1): APPROVED, B-8 / B-11 / B-12 move from always-visible badges to one click behind `Show activity`; NOT approved and therefore
+unchanged from today, B-16 time and `You` (visible at rest) and B-14 / B-15 reveal (today's hover reveal, no focus reveal added). The visibility-change list is now exactly B-8, B-11, B-12 (B-16, B-14 and B-15 are off it).
+B-4 count meta, B-14 branch and B-15 rewind stay in the product until the user says otherwise.
 
 ## 13. Prototype index
 
@@ -879,3 +1112,39 @@ Gate 1.7 revise round 1 of 2, text of this spec. `design-spec-review.md` (codex)
 | 8 Minor: icon availability | Lucide verification recorded: `PanelLeft`, `PanelRight`, `GitBranch`, `ShieldAlert`, `LoaderCircle`, `TriangleAlert` canonical in lucide-angular 1.0.0 (orchestrator); `Undo2`, `Paperclip`, `Image`, `Check` re-checked by the designer; Gemini fallback restated | 1.5 |
 | Gate 1 finding 1 (`task-description-review.md`): view-mode toggle has no defined result | `full` vs `compact` table: live log, `Worked for`, answer, chips, inspector default, rhythm, all other features identical; toggle behaviour, persistence, migration; D16 | 3.8, D16 |
 | Gate 1 finding 2: duration persistence vs missing source | Start, end, settle, live, reload, zero-activity, running-agents, interrupted and restored-history rules from `message.timestamp` and `message.duration`; fallback label `Worked`; durable-only so the label is identical after reload; `[verify]` items; D17 | 3.9, 9, D17 |
+
+## Revision round 2
+
+Gate 1.7 revise round 2 of 2 (final), text of this spec. `design-spec-review-r1.md` (codex) findings, then two orchestrator decisions from the task-description review. The prototype designer implements the behaviour in
+`index.html` / `app.js`; this spec states exactly what it must do. Contrast data: `node prototype/assets/contrast-check.mjs themes` (exit 0, 34 of 34 pass).
+
+| Finding | What changed | Section |
+| --- | --- | --- |
+| 1 Serious: `select` and `Open lane` are inert | One routing for both: activate a concrete lane view, close the overlay through `closeInsp(laneTitle)`, focus the lane title, announce afterwards; hosts without a lane surface omit `Open lane` and use the inline panel; keyboard checks at 400 px for paths 1-5, 7, resize and session switch | 4.5, 8.3, D26 |
+| 2 Serious: other themes have no contrast guarantee | Surface kept in ALL 34 themes: generated per-theme `--state-ink-*`, `--ptah-accent-ink` (link text and focus ring) and `--ptah-check-edge`; `contrast-check.mjs` measures every theme (23 of 32 stock themes failed the old fallback; 34 of 34 pass with the tokens); token source, method, full table, generated CSS block and a guard-test requirement recorded; no theme unmeasurable | 8.2, 11, D24 |
+| 3 Moderate: missing question card throws | Absent-card state: request retained and counted, row-level error `Could not find the question in the conversation` + `Retry`, focus to the row's `Answer` (or the error region), same in Electron and Rail / VS Code; prototype state `ask=question&fail=card` | 4.5, D26 |
+| 4 Moderate: resize closure and focus return | Docked-to-overlay width-band transition and session switch call the one `closeInsp()` with the fallback chain (opener, else session title); not every resize event | 8.3, D26 |
+| 5 Moderate: multi-message activity granularity | More than one assistant message: each message's labelled tokens / cost / duration kept in the panel plus the aggregate as a summary (`All messages`); `[verify]` for the data shape stays an architect check | 3.11, D25 |
+| 6 Minor: live line disagrees with the aggregate | The live verb is bound to the needs-you aggregate in every state (`Waiting for you` when N > 0), including the historical reference state | 3.7, D26 |
+| Review note: request key | The aggregate adopts the real queue's `requestId` (`canvas-needs-you-queue.ts:57-110`); gate G5 and the identity column updated; the queue's source-scoped `key` is not the dedup key | 4.5, 9.1, D26 |
+| Orchestrator decision 1 (task-description review finding 2): turn duration end | `E = max(timestamp + duration)` over assistant messages only; a persisted CLI / lane completion time is not included (sentence removed); agent runtime after the last assistant message excluded; frontend-only, identical after reload | 3.9, D22 |
+| Orchestrator decision 2 (task-description review finding 4): inspector open state | `full` (open, docked at >= 960 px) and `compact` (closed) are initial defaults only; manual Show / Hide kept per tab in memory across tab switches; a view-mode change resets to that mode's default; the `full` dock is closable | 3.8, D23 |
+
+Proposed removals (user decision): none.
+
+## Delta 1 (user scope + decisions)
+
+Source: decisions.md rows 21-23 (user, 2026-10-15) and one orchestrator decision (item 6). Text edits were made in place; this table maps each item to what changed and where. New decisions are D27-D33 in section 10.
+
+| # | Item | Change | Section |
+| --- | --- | --- | --- |
+| 1 | NEW inspector section TASK (user scope add) | New section 4.6 between AGENTS and TODOS: lead task ID (mono), title, status pill (labels from `TASK_STATUS_LABELS`, measured ink tokens), derived Stage, list of existing documents that open in the editor like the git sidebar's files, `+N more documents`, `+N related tasks`. States: no link (section not rendered, D27), loading, partial, task not found, error with Retry, open failure, several tasks, live status change on `tasks:changed` without announcement. A11y: `ul > li`, native buttons, 24 px targets, focus ring 8.4, no new live region. Bundle: only tasks-ui presentation helpers and types; the board and `TasksStoreService` stay out of the chat graph. Inspector now has five sections. TODOS unchanged | 4 (intro), 4.6, 1.5 (icons), 8.1 (tab order), 8.3 (keyboard-order check), 9 (data table), 9.1 (inputs, aggregate row), 10 (D27-D31), 12.1 (new row T-1) |
+| 2 | B-16 user-turn time and `You` | User did NOT approve hover-only: they stay in the header line above the bubble, visible at rest exactly as today. Removed from the action strip and from every visibility-change list | 3.10, 2.2 (P3), 12.1 (B-16), 12.3 |
+| 3 | B-14 / B-15 Branch and Rewind | User did NOT approve the focus reveal: today's hover reveal (`opacity-0 group-hover:opacity-100 hover:opacity-100`) is kept; the proposed `:focus-within` reveal and the `(hover: none)` always-visible rule are withdrawn | 3.10, 2.2 (P3), 12.1 (B-14, B-15), 12.2, 12.3 |
+| 4 | B-8 / B-11 / B-12 behind `Show activity` | User APPROVED: no change. The visibility-change list is now exactly B-8, B-11, B-12 | 3.11, 12.2, 12.3 |
+| 5 | Lane title focus target | The lane title is `h2#laneTitle` (`tabindex="-1"`); the header keeps the session `h1`. Focus table wording is now "lane title heading (h2)" in the close-path table and the prototype state table | 4.5, 8.3 (path 4), 4.5 state table (`open-lane`) |
+| 6 | `Answer` on `host=rail` | A lane-owned question focuses the question card directly; the lane is not opened first (it would hide the card in the thread). The card-missing rule drops its "after the lane open" wording | 4.5 (Answer paragraph, host table, `ask=question` row), D32 |
+
+Parity effects: B-14, B-15 and B-16 decisions in 12.1 now read unchanged-behaviour; row T-1 is added as a new capability (user scope), nothing is removed. Proposed removals (user decision): none.
+
+Open for the architect (`[verify]`, none blocks the design): the session organization read path for `taskIds` and whether link changes push; the exact editor-open RPC and its availability per host (Electron single view, Rail, VS Code); an inspector-side consumer of `tasks:changed` that does not need the board open; where the Stage ladder lives; the opacity-reduced contrast of the user-turn time if today's `opacity-60` is kept; the tasks-ui entry point that exposes presentation helpers without the board.

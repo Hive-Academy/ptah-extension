@@ -1,9 +1,11 @@
 /* Prototype behaviour only. Mock data, no network. State lives in the query string so every screenshot is a URL.
-   Params: theme=dark|light  t1=collapsed|expanded  t2=ref|streaming|answered|done  insp=open|closed
+   Params (round 2: fail=card is an alias of qcard=missing): theme=dark|light  t1=collapsed|expanded  t2=ref|streaming|answered|done  insp=open|closed
            body=full|partial|empty|loading|error  width=wide|sidebar  ask=lane|lane-open|multi|question|none
            host=electron|rail  parity=0|1  fail=1  bare=1  reduce=1  replay=0|1  sel=1
    Round 1 additions: request routing (Review / Answer / +N more, success / error / closed), overlay focus
-   management (entry, inert background, trap, return on every close path), partial / unknown section states. */
+   management (entry, inert background, trap, return on every close path), partial / unknown section states.
+   Round 2 additions: lane=<id> (lane view in the main area), qcard=present|missing (question-card failure + Retry),
+   automatic close on docked->overlay resize and on session switch, live line bound to the shared needs-you count. */
 (function () {
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
@@ -12,10 +14,12 @@
   var state = {
     theme: P.get('theme') === 'light' ? 'light' : 'dark',
     t1: P.get('t1') || 'collapsed', t2: P.get('t2') || 'ref', insp: P.get('insp') || 'open',
-    body: P.get('body') || 'full', width: P.get('width') || 'wide',
-    ask: P.get('ask') || 'lane', host: P.get('host') || 'rail', parity: P.get('parity') || '0'
+    body: P.get('body') || 'full', task: P.get('task') || 'linked', width: P.get('width') || 'wide',
+    ask: P.get('ask') || 'lane', host: P.get('host') || 'rail', parity: P.get('parity') || '0',
+    lane: P.get('host') === 'electron' ? '' : (P.get('lane') || ''), qcard: (P.get('qcard') === 'missing' || P.get('fail') === 'card') ? 'missing' : 'present'
   };
-  var ui = { open: null, more: {}, usage: true, panel: {}, last: {}, selected: P.get('sel') === '1' ? 'arch' : null, fail: P.get('fail') === '1' };
+  var qCardEl = $('#qCard');
+  var ui = { taskMore: false, taskDocs: false, taskOpenErr: null, taskLive: false, taskBusy: false, open: null, more: {}, usage: true, panel: {}, last: {}, selected: P.get('sel') === '1' ? 'arch' : null, fail: P.get('fail') === '1', qerr: {}, opener: null };
 
   /* ---------------- mock data ---------------- */
   var AG = [
@@ -94,9 +98,12 @@
     var ctl = 'panel-' + r.key.replace(/:/g, '-');
     if (r.kind === 'question') {
       var t = r.text.length > 60 ? r.text.slice(0, 60) + '…' : r.text;
+      var qe = ui.qerr[r.key], qid = r.key.replace(/:/g, '-');
       return '<div class="req">' + icon('message-circle-question-mark', 'ico--12') +
         '<span class="txt"><b>Asked you:</b> ' + esc(t) + '</span>' +
-        '<button type="button" class="btn-sm" data-act="answer" data-key="' + r.key + '" aria-label="Answer question from ' + esc(who) + ': ' + esc(r.text) + '">Answer</button></div>';
+        '<button type="button" class="btn-sm" data-act="answer" data-key="' + r.key + '"' + (qe === 'err' ? ' aria-describedby="qerr-' + qid + '"' : '') + ' aria-label="Answer question from ' + esc(who) + ': ' + esc(r.text) + '">Answer</button></div>' +
+        (qe === 'wait' ? '<p class="req-msg" role="status">Opening the question...</p>' : '') +
+        (qe === 'err' ? '<p class="req-msg req-msg--err" id="qerr-' + qid + '" role="alert" tabindex="-1">' + icon('triangle-alert', 'ico--12') + '<span>Could not find the question in the conversation. The request is still waiting.</span><button type="button" class="link-btn" data-act="retry-answer" data-key="' + r.key + '">Retry</button></p>' : '');
     }
     var short = r.cmd.length > 60 ? r.cmd.slice(0, 60) + '…' : r.cmd;
     return '<div class="req">' + icon('shield-alert', 'ico--12') +
@@ -177,6 +184,67 @@
     });
     return h + '</ul></section>';
   }
+
+  /* ---------------- TASK section (design-spec 4.6, decisions D27-D33). Param: task=linked|multi|live|loading|error|partial|notfound|openfail|none ---------------- */
+  var TASK_LABEL = { backlog: 'Backlog', in_progress: 'In Progress', in_review: 'In Review', blocked: 'Blocked', done: 'Done', cancelled: 'Cancelled' };
+  var TASK_INK = { backlog: 'muted', in_progress: 's-run', in_review: 's-need', blocked: 's-err', done: 's-done', cancelled: 'muted' };
+  var STAGE_LADDER = [['Requirements', ['task-description.md']], ['Design', ['design-spec.md', 'visual-design-specification.md', 'design-handoff.md']], ['Plan', ['implementation-plan.md']],
+    ['Build', ['batches.md', 'tasks.md']], ['Review', ['code-style-review.md', 'code-logic-review.md', 'visual-review.md']], ['Test', ['test-report.md']]];
+  function taskStage(files) { var s = ''; STAGE_LADDER.forEach(function (st) { if (st[1].some(function (f) { return files.indexOf(f) >= 0; })) s = st[0]; }); return s; } /* furthest present step; '' = not derivable -> row omitted (D31) */
+  var TASKS = {
+    lead: { id: 'TASK_2026_677_efcd', title: 'Clean session view', status: 'in_progress',
+      files: ['task.md', 'task-description.md', 'design-spec.md', 'parity-inventory.md', 'decisions.md', 'design-spec-review-r1.md', 'task-description-review-r1.md', 'handoff-1.md', 'handoff-2.md'] },
+    related: [{ id: 'TASK_2026_671_a3f1', title: 'Canvas board rail details', status: 'in_review' }, { id: 'TASK_2026_664_09bc', title: 'Queue persistence', status: 'done' }]
+  };
+  var DOCS_AT_REST = 6;
+  function tpill(s) { return '<span class="task-pill ' + TASK_INK[s] + '">' + TASK_LABEL[s] + '</span>'; }
+  function taskSec(inner, extra) { return '<section class="insp-sec st-r" style="--i:7" aria-labelledby="taskH" id="taskSec"' + (extra || '') + '><div class="sec-head"><h3 class="sec-label" id="taskH">Task</h3></div>' + inner + '</section>'; }
+  function taskIdRow(id) { return '<div class="task-id">' + icon('folder-kanban') + '<code>' + id + '</code></div>'; }
+  function taskHTML() {
+    var m = state.task;
+    if (m === 'none') return ''; /* D27: no linked task (or link unresolved) -> section not rendered at all */
+    var L = TASKS.lead;
+    if (m === 'loading') return taskSec('<div role="status" aria-label="Loading task"><div class="sk" style="height:12px;width:160px;margin-bottom:8px"></div><div class="sk" style="height:16px;width:224px;margin-bottom:8px"></div><div class="sk" style="height:20px;width:96px;margin-bottom:12px"></div><div class="sk" style="height:24px;margin-bottom:4px"></div><div class="sk" style="height:24px"></div></div>', ' aria-busy="true"');
+    if (m === 'error') return taskSec(taskIdRow(L.id) + '<div class="err-row" role="alert">' + icon('triangle-alert') + '<span>Could not load the task</span><button type="button" class="retry" data-act="task-retry" aria-label="Retry loading task"' + (ui.taskBusy ? ' aria-busy="true"' : '') + '>' + (ui.taskBusy ? icon('loader-circle', 'ico--12 spin') : '') + 'Retry</button></div>');
+    if (m === 'notfound') return taskSec(taskIdRow(L.id) + '<p class="task-muted">Task folder not found</p>');
+    var status = (m === 'live' && ui.taskLive) ? 'in_review' : L.status;
+    var files = m === 'partial' ? [] : L.files, stage = taskStage(files);
+    var h = taskIdRow(L.id) + '<h4 class="task-title" id="taskTitle" tabindex="-1" title="' + esc(L.title) + '">' + esc(L.title) + '</h4>';
+    h += '<div class="task-line3"><span id="taskStat">' + tpill(status) + '</span>' + (stage ? '<span class="task-stage" title="Derived from the documents in the task folder">Stage: ' + stage + '</span>' : '') + '</div>';
+    h += '<p class="task-doclabel">Documents</p>';
+    if (m === 'partial') h += '<p class="task-muted" role="status">No documents yet</p>';
+    else {
+      var shown = ui.taskDocs ? files : files.slice(0, DOCS_AT_REST), extra = files.length - DOCS_AT_REST;
+      h += '<ul class="task-files" aria-label="Task documents">';
+      shown.forEach(function (f) { h += '<li><button type="button" class="task-file" data-act="task-open" data-file="' + f + '" aria-label="Open ' + f + '">' + icon('file-text', 'ico--12') + '<span class="task-file__n" title="' + f + '">' + f + '</span>' + icon('external-link', 'ico--12 task-file__x') + '</button></li>'; });
+      h += '</ul>';
+      if (extra > 0) h += '<button type="button" class="task-more" data-act="task-more" aria-expanded="' + !!ui.taskDocs + '" aria-label="' + (ui.taskDocs ? 'Show fewer documents' : 'Show ' + extra + ' more documents') + '">' + (ui.taskDocs ? 'Show fewer documents' : '+' + extra + ' more documents') + '</button>';
+    }
+    if (m === 'multi') {
+      var n = TASKS.related.length;
+      h += '<button type="button" class="task-more" data-act="task-rel" aria-expanded="' + !!ui.taskMore + '" aria-controls="taskOthers" aria-label="' + (ui.taskMore ? 'Hide related tasks' : 'Show ' + n + ' related tasks') + '">' + (ui.taskMore ? 'Hide related tasks' : '+' + n + ' related tasks') + '</button>';
+      h += '<ul class="task-others" id="taskOthers"' + (ui.taskMore ? '' : ' hidden') + ' aria-label="Related tasks">';
+      TASKS.related.forEach(function (o) { h += '<li class="task-other"><code>' + o.id + '</code><div class="task-other__t"><span class="task-other__n" title="' + esc(o.title) + '">' + esc(o.title) + '</span>' + tpill(o.status) + '</div></li>'; }); /* non-interactive on purpose (D30) */
+      h += '</ul>';
+    }
+    if (ui.taskOpenErr) h += '<div class="err-row task-openerr" role="alert">' + icon('triangle-alert') + '<span>Could not open ' + ui.taskOpenErr + '</span><button type="button" class="retry" data-act="task-open-retry">Retry</button></div>';
+    return taskSec(h);
+  }
+  function taskRetry() {
+    ui.taskBusy = true; renderInspector('.retry');
+    setTimeout(function () { ui.taskBusy = false; state.task = 'linked'; renderInspector('#taskTitle'); sync(); }, 700);
+  }
+  function taskFlip() { /* mock of the tasks:changed push: the pill updates in place after 2 s, silently (D32: no announcement, no animation) */
+    clearTimeout(taskFlip.t); ui.taskLive = false;
+    if (state.task !== 'live') return;
+    taskFlip.t = setTimeout(function () { ui.taskLive = true; var s = $('#taskStat'); if (s) s.innerHTML = tpill('in_review'); }, 2000);
+  }
+  function taskProtoHint(name) { /* PROTOTYPE DEVICE ONLY: the product shows no toast (4.6); the editor opens the file */
+    var old = $('#taskToast'); if (old) old.remove();
+    var d = document.createElement('div'); d.id = 'taskToast'; d.className = 'proto-out task-proto-hint'; d.setAttribute('aria-hidden', 'true');
+    d.textContent = 'Prototype only: the editor opens ' + name + ' here. The product shows nothing in the chat (no toast, no announcement).';
+    document.body.appendChild(d); clearTimeout(taskProtoHint.t); taskProtoHint.t = setTimeout(function () { d.remove(); }, 3200);
+  }
   function gitHTML(mode) {
     var head = function (link) { return '<div class="sec-head"><h3 class="sec-label" id="gitH">Git</h3>' + (link ? '<a href="#" class="link-gold" id="reviewLink">Review changes</a>' : '') + '</div>'; };
     if (mode === 'error') return '<section class="insp-sec st-r" style="--i:9" aria-labelledby="gitH" id="gitSec">' + head(false) + '<div class="err-row" role="alert">' + icon('triangle-alert') + '<span>Could not read git status</span><button type="button" class="link-btn" id="retryGit" data-act="retry-git">Retry</button></div></section>';
@@ -193,7 +261,7 @@
     var body = $('#inspBody'), b = state.body, keep = body.scrollTop, html = '';
     if (b === 'full' || b === 'error' || b === 'partial') {
       var p = b === 'partial';
-      html = orchHTML(p) + agentsHTML(p) + todosHTML(p) + gitHTML(b === 'error' ? 'error' : p ? 'partial' : 'full');
+      html = orchHTML(p) + agentsHTML(p) + taskHTML() + todosHTML(p) + gitHTML(b === 'error' ? 'error' : p ? 'partial' : 'full');
     } else if (b === 'empty') {
       html = '<section class="insp-sec" aria-label="Orchestrator">' + EMPTY.orch + '</section><section class="insp-sec insp-sec--agents" aria-labelledby="agentsH">' + EMPTY.agents + '</section><section class="insp-sec">' + EMPTY.todos + '</section><section class="insp-sec">' + EMPTY.git + '</section>';
     } else {
@@ -212,19 +280,42 @@
     $('#needDot').hidden = !(state.insp === 'closed' && n > 0);
     var q = reqs.filter(function (r) { return r.kind === 'question' && !r.closed; })[0];
     var card = $('#qCard');
-    card.hidden = !q || !live() || isDone();
-    if (q) { $('#qTitle').textContent = ownerName(q.owner) + ' asks'; $('#qText').textContent = q.text; }
-    $('#liveLabel').textContent = (n > 0 && state.t2 !== 'ref') ? 'Waiting for you' : 'Orchestrating';
+    if (card) card.hidden = !q || !live() || isDone();
+    if (q && card) { $('#qTitle').textContent = ownerName(q.owner) + ' asks'; $('#qText').textContent = q.text; }
+    $('#liveLabel').textContent = n > 0 ? 'Waiting for you' : 'Orchestrating'; // same aggregate as the header count, in every state
   }
   function renderChips() {
     $$('.chip[data-agent]').forEach(function (c) {
       var a = AG.filter(function (x) { return x.id === c.dataset.agent; })[0]; if (!a) return;
       var s = statusOf(a), st = $('.st', c);
       st.textContent = s; st.className = 'st ' + WORD[s];
-      c.setAttribute('aria-label', a.name + ', ' + (a.kind === 'Background' ? 'background command' : a.kind === 'CLI lane' ? 'CLI lane' : 'sub-agent') + ', ' + s + '. Open lane');
+      c.setAttribute('aria-label', a.name + ', ' + (a.kind === 'Background' ? 'background command' : a.kind === 'CLI lane' ? 'CLI lane' : 'sub-agent') + ', ' + s + (state.host === 'electron' ? '.' : '. Open lane'));
     });
   }
-  function renderAll(focusSel) { renderInspector(focusSel); renderNeeds(); renderChips(); }
+  /* ---------------- lane view (main area) ---------------- */
+  var LANE_LOG = {
+    fe: [['Read', 'session-context.token.ts'], ['Edit', 'session-context.token.ts'], ['Read', 'chat-view.component.ts']],
+    codex: [['Bash', 'npx nx test chat --parallel=1'], ['Edit', 'chat-view.component.spec.ts']],
+    gemini: [['Bash', 'npx nx lint chat'], ['Read', 'libs/frontend/chat/eslint.config.mjs']],
+    bg: [['Bash', 'npx nx test chat --parallel=1']],
+    arch: [['Read', 'design-spec.md'], ['Write', 'implementation-plan.md']]
+  };
+  function agentById(id) { return AG.filter(function (a) { return a.id === id; })[0]; }
+  function renderLane() {
+    var a = agentById(state.lane), on = !!a && state.host !== 'electron';
+    main.dataset.view = on ? 'lane' : 'session';
+    $('#laneView').hidden = !on;
+    if (!on) return;
+    var s = statusOf(a), pend = active(a.id)[0];
+    $('#laneTitle').textContent = a.name;
+    $('#laneKind').textContent = a.kind;
+    $('#laneStat').innerHTML = '<span class="w ' + WORD[s] + '">' + s + '</span>' + (a.dur ? ' <span class="muted tnum">· ' + a.dur + '</span>' : '');
+    var h = '<p class="lane-note">Mock transcript. The product reuses the existing lane view here.</p>';
+    (LANE_LOG[a.id] || []).forEach(function (l) { h += '<div class="lane-line">' + icon('terminal', 'ico--12') + '<span class="who">' + l[0] + '</span><code>' + esc(l[1]) + '</code></div>'; });
+    if (pend) h += '<div class="lane-wait" role="status">' + icon('shield-alert', 'ico--12') + '<span><b>Needs permission:</b> <code>' + esc(pend.cmd || pend.text) + '</code>. Answer it in This session.</span></div>';
+    $('#laneBody').innerHTML = h;
+  }
+  function renderAll(focusSel) { renderInspector(focusSel); renderNeeds(); renderChips(); renderLane(); }
 
   /* ---------------- theme, turns, motion ---------------- */
   function sync() {
@@ -302,7 +393,9 @@
     applyModal();
     renderNeeds();
   }
+  function visible(el) { return !!el && el.isConnected && el.getClientRects().length > 0 && !el.closest('[hidden]'); }
   function openInsp() {
+    ui.opener = (document.activeElement && document.activeElement !== document.body) ? document.activeElement : toggle;
     state.insp = 'open'; setInsp(); sync();
     if (overlayNow()) requestAnimationFrame(function () { $('#inspClose').focus(); }); // focus entry
   }
@@ -310,6 +403,62 @@
     // Every close path (Esc, close button, scrim, action) lands here; focus never stays on a hidden element.
     ui.open = null; state.insp = 'closed'; renderInspector(); setInsp(); sync();
     (returnTo || toggle).focus();
+  }
+  // Automatic closes (resize into overlay width, session switch) use the same routine as every other path. Focus goes to the
+  // opener when it is still connected and visible, else to the session title (spec 8.3 path 6). A session switch always
+  // lands on the title because the old opener belongs to the previous session.
+  function autoClose(reason) {
+    if (state.insp !== 'open') return false;
+    closeInsp(reason === 'resize' && visible(ui.opener) ? ui.opener : $('#sessTitle'));
+    return true;
+  }
+  var band = null;
+  function bandCheck() {
+    var ov = shell.clientWidth < 960;
+    if (band === null) { band = ov; applyModal(); return; }
+    var toOverlay = ov && !band; band = ov;
+    if (toOverlay && autoClose('resize')) return;
+    applyModal();
+  }
+  function switchSession() {
+    ui.open = null; ui.more = {}; ui.panel = {}; ui.qerr = {}; ui.selected = null; state.lane = '';
+    autoClose('switch'); renderAll(); replay(); sync();
+  }
+  function openLane(id) {
+    var a = agentById(id); if (!a || state.host === 'electron') return;
+    state.lane = id; ui.selected = id; ui.open = null; renderLane();
+    var title = $('#laneTitle');
+    if (overlayNow()) closeInsp(title); // common close routine; focus lands on the lane title
+    else { renderAll(); title.focus(); sync(); }
+    raf().then(function () { if (document.activeElement === title) announce('Opened the ' + a.name + ' lane.'); });
+  }
+  function leaveLane() { state.lane = ''; renderAll(); $('#sessTitle').focus(); sync(); }
+  function answerFlow(key) {
+    var r = reqByKey(key); if (!r) return;
+    var t0 = Date.now(), btn = '[data-act="answer"][data-key="' + key + '"]';
+    function done(card) {
+      if (!card) {
+        ui.qerr[key] = 'err'; renderAll(btn); // request and count stay; focus returns to that row's Answer button (described by the error)
+        return;
+      }
+      delete ui.qerr[key];
+      if (state.lane) { state.lane = ''; renderLane(); }
+      var first = $('input', card);
+      if (overlayNow()) { ui.open = null; state.insp = 'closed'; renderAll(); setInsp(); sync(); } else renderAll();
+      card.scrollIntoView({ block: 'nearest' }); (first || card).focus();
+    }
+    if ($('#qCard')) { done($('#qCard')); return; }
+    ui.qerr[key] = 'wait'; renderAll(btn);
+    (function poll() {
+      var c = $('#qCard');
+      if (c || Date.now() - t0 >= 1000) done(c); else setTimeout(poll, 100);
+    })();
+  }
+  function applyQCard() {
+    var has = !!$('#qCard');
+    if (state.qcard === 'missing' && has) qCardEl.remove();
+    else if (state.qcard !== 'missing' && !has) main.insertBefore(qCardEl, $('.cs-composer-wrap'));
+    renderNeeds();
   }
   function focusables(root) {
     return $$('a[href],button:not([disabled]),input:not([disabled]),textarea,select,[tabindex]:not([tabindex="-1"])', root).filter(function (el) {
@@ -348,8 +497,10 @@
       if (kv[0] === 't2') { setT2(); renderAll(); var s2 = $('#scroll'); s2.scrollTo({ top: s2.scrollHeight, behavior: 'smooth' }); }
       if (kv[0] === 'insp') setInsp();
       if (kv[0] === 'body') renderAll();
+      if (kv[0] === 'task') { ui.taskMore = false; ui.taskDocs = false; ui.taskBusy = false; ui.taskOpenErr = null; ui.taskOpenFixed = false; renderInspector(); taskFlip(); }
       if (kv[0] === 'width') setWidth();
-      if (kv[0] === 'host') renderAll();
+      if (kv[0] === 'host' || kv[0] === 'lane') { if (state.host === 'electron') state.lane = ''; renderAll(); }
+      if (kv[0] === 'qcard') applyQCard();
       if (kv[0] === 'parity') { setParity(); renderAll(); }
       if (kv[0] === 'ask') {
         reqs = mkReqs(state.ask); ui.panel = {}; ui.more = {}; ui.open = state.ask === 'lane-open' ? 'lane:gemini:r1' : null;
@@ -360,7 +511,18 @@
     var a = e.target.closest('[data-act]');
     if (a) {
       var act = a.dataset.act, key = a.dataset.key;
-      if (act === 'select') { ui.selected = a.dataset.agent; $$('#agentList .agent').forEach(function (o) { o.removeAttribute('aria-current'); }); a.closest('.agent').setAttribute('aria-current', 'true'); return; }
+      if (act === 'task-open') { var fn = a.dataset.file; if (state.task === 'openfail' && !ui.taskOpenFixed) { ui.taskOpenErr = fn; renderInspector('[data-file="' + fn + '"]'); } else taskProtoHint(fn); return; }
+      if (act === 'task-open-retry') { var ff = ui.taskOpenErr; ui.taskOpenFixed = true; ui.taskOpenErr = null; renderInspector('[data-file="' + ff + '"]'); taskProtoHint(ff); return; }
+      if (act === 'task-more') { ui.taskDocs = !ui.taskDocs; renderInspector('[data-act=task-more]'); return; }
+      if (act === 'task-rel') { ui.taskMore = !ui.taskMore; renderInspector('[data-act=task-rel]'); return; }
+      if (act === 'task-retry') { taskRetry(); return; }
+      if (act === 'select') {
+        if (state.host === 'rail') { openLane(a.dataset.agent); return; }
+        // Electron single chat view: no lane surface, so a row only marks the selection
+        ui.selected = a.dataset.agent; $$('#agentList .agent').forEach(function (o) { o.removeAttribute('aria-current'); }); a.closest('.agent').setAttribute('aria-current', 'true'); return;
+      }
+      if (act === 'lane-back') { leaveLane(); return; }
+      if (act === 'retry-answer') { delete ui.qerr[key]; answerFlow(key); return; }
       if (act === 'review') {
         if (ui.open === key) { ui.open = null; renderAll('[data-act="review"][data-key="' + key + '"]'); }
         else { ui.open = key; renderAll(); var pn = $('#panel-' + key.replace(/:/g, '-')); if (pn) pn.focus(); }
@@ -374,16 +536,13 @@
         renderAll(own === 'orch' ? '.orch-top' : rowMain(own)); announce('Closed.'); return;
       }
       if (act === 'more') { ui.more[a.dataset.owner] = !ui.more[a.dataset.owner]; renderAll('[data-act="more"][data-owner="' + a.dataset.owner + '"]'); return; }
-      if (act === 'open-lane') { ui.selected = a.dataset.owner; ui.open = null; renderAll(rowMain(a.dataset.owner)); announce('Opened the ' + ownerName(a.dataset.owner) + ' lane.'); return; }
+      if (act === 'open-lane') { openLane(a.dataset.owner); return; }
       if (act === 'usage') { ui.usage = !ui.usage; renderAll('[data-act="usage"]'); return; }
       if (act === 'retry-git') { state.body = 'full'; renderAll(); sync(); return; }
-      if (act === 'answer') {
-        var qc = $('#qCard'), first = $('input', qc);
-        if (overlayNow()) { ui.open = null; state.insp = 'closed'; renderInspector(); setInsp(); sync(); }
-        qc.scrollIntoView({ block: 'nearest' }); (first || qc).focus();
-        return;
-      }
+      if (act === 'answer') { answerFlow(key); return; }
     }
+    var chip = e.target.closest('.chip[data-agent]');
+    if (chip) { if (state.host === 'rail') openLane(chip.dataset.agent); return; }
     var w = e.target.closest('.cs-worked');
     if (w && !w.closest('.cs-turn--cont')) { var turn = w.closest('.cs-turn'); setOpen(turn, turn.dataset.open !== 'true'); return; }
     var d = e.target.closest('.disc-btn:not([data-act]), .act-toggle, .log-item > .log-tool, .cs-turn--cont .cs-worked');
@@ -402,7 +561,8 @@
       if (qr) { reqs = reqs.filter(function (r) { return r !== qr; }); renderAll(); var n2 = needCount(); announce('Answer sent to ' + ownerName(qr.owner) + '. ' + (n2 === 0 ? 'Nothing needs you.' : n2 + ' still need you.')); $('#composer-input').focus(); }
       return;
     }
-    if (e.target.closest('#replay')) { replay(); return; }
+    if (e.target.closest('#replay')) { switchSession(); return; }
+    if (e.target.closest('#qRestore')) { state.qcard = 'present'; applyQCard(); sync(); announce('Question card mounted.'); return; }
     if (e.target.closest('#failToggle')) { ui.fail = !ui.fail; e.target.closest('#failToggle').setAttribute('aria-pressed', String(ui.fail)); return; }
     if (e.target.closest('#laneEnds')) {
       reqs.forEach(function (r) { if (ui.open === r.key) r.closed = true; });
@@ -430,7 +590,7 @@
       else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
     }
   });
-  if (window.ResizeObserver) new ResizeObserver(function () { applyModal(); }).observe(shell);
+  if (window.ResizeObserver) new ResizeObserver(bandCheck).observe(shell);
 
   /* ---------------- in-page focus-path check (button "Check focus paths") ---------------- */
   function raf() { return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); }); }
@@ -471,7 +631,9 @@
   if (P.get('reduce') === '1') { document.body.dataset.reduce = 'true'; $('#reduce').setAttribute('aria-pressed', 'true'); }
   if (ui.fail) $('#failToggle').setAttribute('aria-pressed', 'true');
   if (state.ask === 'lane-open') ui.open = 'lane:gemini:r1';
+  if (state.qcard === 'missing') qCardEl.remove();
   setTheme(); setT1(); setT2(); setParity(); shell.dataset.width = state.width; renderAll(); setInsp(); sync();
+  taskFlip();
   var sc = $('#scroll'); sc.scrollTop = sc.scrollHeight; // pin to the newest content like the product
   if (P.get('replay') !== '0') replay(); else shell.classList.remove('is-entering');
 })();

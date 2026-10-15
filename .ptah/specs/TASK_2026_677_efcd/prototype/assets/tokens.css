@@ -98,3 +98,6 @@
   --surface-border: color-mix(in oklch, oklch(var(--bc)) 14%, transparent);
   --surface-border-strong: color-mix(in oklch, oklch(var(--bc)) 22%, transparent);
 }
+
+/* Round 2: the 32 stock themes get generated --state-ink-*, --ptah-accent-ink and --ptah-check-edge blocks in styles.css (design-spec.md 8.2, D24).
+   They are not needed by the prototype, which renders anubis and anubis-light only. Source: `node contrast-check.mjs emit`. */
