@@ -14,6 +14,12 @@ export type {
   OutcomeEffectResolver,
   OutcomeReportEffect,
 } from './lib/store/lane-outcome.store';
+export {
+  DeliverablesPayloadSchema,
+  ReviewPayloadSchema,
+  reportEffectOf,
+  deliverablesVerdictOf,
+} from './lib/write/report-effect';
 export { SqliteLaneOutcomeStore } from './lib/store/sqlite-lane-outcome.store';
 export { InMemoryLaneOutcomeStore } from './lib/store/in-memory-lane-outcome.store';
 export {
