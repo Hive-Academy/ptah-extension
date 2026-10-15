@@ -187,6 +187,9 @@
       "@ptah-extension/declarative-dashboard": [
         "./libs/frontend/declarative-dashboard/src/index.ts"
       ],
+      "@ptah-extension/command-center": [
+        "./libs/frontend/command-center/src/index.ts"
+      ],
       "@ptah-extension/mcp-apps-page": [
         "./libs/frontend/mcp-apps-page/src/index.ts"
       ],

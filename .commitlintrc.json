@@ -74,6 +74,7 @@
         "markdown",
         "git-ui",
         "chat",
+        "command-center",
         "chat-state",
         "chat-streaming",
         "chat-routing",
