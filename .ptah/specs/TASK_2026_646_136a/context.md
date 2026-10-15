@@ -37,6 +37,11 @@ Approval: lane-review.
 | grok | cli | installed | unknown (API key, no plan) |
 | Glm | ptah-cli | available (Ollama Cloud, pc-355b645d-35af-4974-84cf-9cf961ea0164) | unknown (no windows reported) |
 
+Refresh (2026-10-15, session 3, user request "mode enabled, Approval: lane-review"): mode `enabled`,
+Approval `lane-review` unchanged. Roster unchanged. Limits: codex confirmed room (Weekly 0%);
+opencode near limit (Go Monthly 91%, weekly 34%); antigravity reader failed; grok and Glm unknown.
+Spawnable lanes: codex, antigravity, opencode (near limit), grok, Glm.
+
 ## Scope additions (2026-10-14)
 
 User request, same session:
