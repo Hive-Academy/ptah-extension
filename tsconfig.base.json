@@ -33,6 +33,9 @@
       "@ptah-extension/tribunal-panel/phase": [
         "./libs/frontend/tribunal-panel/src/phase.ts"
       ],
+      "@ptah-extension/tribunal-panel/discovery": [
+        "./libs/frontend/tribunal-panel/src/discovery.ts"
+      ],
       "@ptah-extension/tribunal-panel": [
         "./libs/frontend/tribunal-panel/src/index.ts"
       ],
