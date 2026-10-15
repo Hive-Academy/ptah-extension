@@ -5,29 +5,36 @@ import {
   computed,
   signal,
   inject,
+  DestroyRef,
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat';
 import { SessionId } from '@ptah-extension/shared';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import type { TabState } from '@ptah-extension/chat-types';
+import {
+  runningSessionKeys,
+  MAX_RUNNING_SESSIONS,
+  RUNNING_CAP_MESSAGE,
+} from './canvas-running-cap';
 import {
   DEFAULT_TILE_WIDTH,
   MAX_CANVAS_TILES,
-  TILE_SPANS,
-  projectPreset,
   reconcileIntent,
   retainTilesInLogicalRows,
   sameWidth,
-  type CanvasLayoutPreset,
   type TileIntent,
-  type TileSpan,
 } from './canvas-layout-intent';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
+import {
+  DEFAULT_BOARD_STATE,
+  type CanvasBoardState,
+  type CanvasRailDensity,
+} from './canvas-board-mode';
 
 /**
  * A canvas tile is stored as intent only — where it sits in reading order, how
  * wide it wants to be and whether it starts a row. Concrete `x`/`y`/`w`/`h`
- * are derived by `CanvasLayoutService` on every layout pass and never stored,
- * so a container resize re-flows the grid without destroying the arrangement
- * the user chose.
+ * are transient projection details and never stored.
  */
 export type CanvasTile = TileIntent;
 
@@ -65,8 +72,7 @@ const IMPLICIT_WORKSPACE_PATH = '';
  *
  * Manages the set of tiles visible in the Orchestra Canvas panel. Each tile
  * corresponds to a tab in TabManagerService. Only tile *intent* (order, width
- * and row breaks) is tracked here — `CanvasLayoutService` derives grid
- * coordinates from it. Focus state updates the global active tab so message
+ * and row breaks) is tracked here. Focus state updates the global active tab so message
  * sending routes to the correct session. Layout focus is a separate, transient
  * per-workspace overlay that renders one tile full width without touching
  * intent. Storage is delegated to `CanvasLayoutPersistenceService`.
@@ -80,19 +86,26 @@ const IMPLICIT_WORKSPACE_PATH = '';
 export class CanvasStore {
   private readonly tabManager = inject(TabManagerService);
   private readonly persistence = inject(CanvasLayoutPersistenceService);
+  private readonly agentMonitor = inject(AgentMonitorStore);
+  private readonly destroyRef = inject(DestroyRef);
+  private hiddenStatusInterval: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    this.destroyRef.onDestroy(() => this.stopHiddenStatusInterval());
+  }
 
   /**
    * Maximum number of tiles the orchestra canvas allows simultaneously.
    *
-   * Caps the layout at a 3x3 grid — `CanvasLayoutService` clamps derived
-   * columns at 3, and Gridstack's column packing stays readable up to nine
-   * tiles before tiles get too small to host a usable chat surface.
+   * The tile bound is MAX_CANVAS_TILES (20) for persistence and the Rail board.
+   * The separate running limit is MAX_RUNNING_SESSIONS in canvas-running-cap.ts.
    */
   static readonly MAX_TILES = MAX_CANVAS_TILES;
 
   private readonly _workspaceTiles = signal<
     ReadonlyMap<string, readonly CanvasTile[]>
   >(new Map());
+  private readonly _workspaceBoard = signal<ReadonlyMap<string, CanvasBoardState>>(new Map());
   private readonly _workspaceFocusedTabId = signal<
     ReadonlyMap<string, string | null>
   >(new Map());
@@ -103,7 +116,6 @@ export class CanvasStore {
   private readonly _workspaceRevisions = signal<ReadonlyMap<string, number>>(
     new Map(),
   );
-  private readonly _layoutLocked = signal(false);
   private readonly _hydratedPaths = new Set<string>();
 
   /** Insertion-ordered mounted workspaces (stable for `@for` track path). */
@@ -119,19 +131,16 @@ export class CanvasStore {
 
   readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
   readonly workspacePaths = this._workspacePaths.asReadonly();
-  /**
-   * Panel-wide lock: no layout intent or projection changes while true. The
-   * one exception is tab-owned view mode: a compact/full toggle is owned by
-   * `TabManagerService`, not by this store, so the workspace grid may still
-   * apply the authoritative geometry reflow a view change implies.
-   */
-  readonly layoutLocked = this._layoutLocked.asReadonly();
 
   readonly tiles = computed<readonly CanvasTile[]>(() => {
     const path = this._activeWorkspacePath();
     return path !== null
       ? (this._workspaceTiles().get(path) ?? EMPTY_TILES)
       : EMPTY_TILES;
+  });
+  readonly activeBoard = computed(() => {
+    const path = this._activeWorkspacePath();
+    return path === null ? DEFAULT_BOARD_STATE : this.boardFor(path);
   });
   readonly focusedTabId = computed<string | null>(() => {
     const path = this._activeWorkspacePath();
@@ -143,6 +152,82 @@ export class CanvasStore {
   readonly canAddTile = computed(
     () => this.tiles().length < CanvasStore.MAX_TILES,
   );
+  private readonly hiddenStatusTick = signal(0);
+  private readonly runningSnapshot = computed(() => {
+    this.hiddenStatusTick();
+    // Running sessions in hidden workspaces still count toward the canvas cap.
+    const activeTabs = this.tabManager.tabs();
+    const activePath =
+      this.tabManager.activeWorkspacePath$() ?? IMPLICIT_WORKSPACE_PATH;
+    const byId = new Map<string, TabState>();
+    let hiddenRunning = false;
+    for (const [path, tiles] of this._workspaceTiles()) {
+      const workspaceTabs =
+        path === activePath
+          ? activeTabs
+          : this.tabManager.getWorkspaceTabs(path);
+      for (const tile of tiles) {
+        const tab = workspaceTabs.find((t) => t.id === tile.tabId);
+        if (tab) {
+          byId.set(tab.id, tab);
+          if (
+            path !== activePath &&
+            (tab.status === 'streaming' || tab.status === 'resuming')
+          ) {
+            hiddenRunning = true;
+          }
+        }
+      }
+    }
+    const canvasTabs = [...byId.values()];
+    const keys = runningSessionKeys(
+      canvasTabs,
+      (key) =>
+        canvasTabs.some(
+          (tab) =>
+            (tab.claudeSessionId ?? tab.id) === key &&
+            (tab.status === 'streaming' || tab.status === 'resuming'),
+        ),
+      this.agentMonitor.agents(),
+      [...this.agentMonitor.subagents().values()],
+    );
+    // Hidden workspace tabs are not signals, so a hidden turn that ends never
+    // re-runs this. Poll only while the cap is reached because of them. This
+    // lives here, not in an effect: the store can be created inside a reactive
+    // context, where an effect cannot be created.
+    if (keys.size >= MAX_RUNNING_SESSIONS && hiddenRunning) {
+      this.hiddenStatusInterval ??= setInterval(() => {
+        this.hiddenStatusTick.update((tick) => tick + 1);
+        this.runningSnapshot();
+      }, 1000);
+    } else {
+      this.stopHiddenStatusInterval();
+    }
+    return { count: keys.size, keys, canvasTabs };
+  });
+  readonly runningSessionCount = computed(() => this.runningSnapshot().count);
+  readonly canStartRunningSession = computed(
+    () => this.runningSessionCount() < MAX_RUNNING_SESSIONS,
+  );
+
+  /** Whether this tile's session already occupies a running slot. */
+  isSessionRunning(tabId: string): boolean {
+    const { canvasTabs, keys } = this.runningSnapshot();
+    const tab = canvasTabs.find((candidate) => candidate.id === tabId);
+    return tab ? keys.has(tab.claudeSessionId ?? tab.id) : false;
+  }
+
+  startBlockReason(tabId: string): string | null {
+    return !this.canStartRunningSession() && !this.isSessionRunning(tabId)
+      ? RUNNING_CAP_MESSAGE
+      : null;
+  }
+
+  private stopHiddenStatusInterval(): void {
+    if (this.hiddenStatusInterval === null) return;
+    clearInterval(this.hiddenStatusInterval);
+    this.hiddenStatusInterval = null;
+  }
 
   /**
    * Reactive tile list for an arbitrary workspace path — used by each hidden
@@ -159,6 +244,29 @@ export class CanvasStore {
     return sig;
   }
 
+  boardFor(path: string): CanvasBoardState {
+    return this._workspaceBoard().get(path) ?? DEFAULT_BOARD_STATE;
+  }
+
+  setRailCollapsed(path: string, collapsed: boolean): void {
+    this.updateBoard(path, { railCollapsed: collapsed });
+  }
+
+  setRailDensity(path: string, density: CanvasRailDensity): void {
+    this.updateBoard(path, { railDensity: density });
+  }
+
+  setRailScrollTop(path: string, px: number): void {
+    this.updateBoard(path, { railScrollTop: Number.isFinite(px) ? Math.max(0, Math.round(px)) : 0 });
+  }
+
+  private updateBoard(path: string, change: Partial<CanvasBoardState>): void {
+    const current = this.boardFor(path);
+    if (Object.entries(change).every(([key, value]) => current[key as keyof CanvasBoardState] === value)) return;
+    setIn(this._workspaceBoard, path, { ...current, ...change });
+    this.schedulePersist(path);
+  }
+
   workspaceRevision(path: string): number {
     return this._workspaceRevisions().get(path) ?? 0;
   }
@@ -168,8 +276,8 @@ export class CanvasStore {
     return this._workspaceLayoutFocus().get(path) ?? null;
   }
 
-  setLayoutLocked(locked: boolean): void {
-    this._layoutLocked.set(locked);
+  focusedTabIdFor(path: string): string | null {
+    return this._workspaceFocusedTabId().get(path) ?? null;
   }
 
   /**
@@ -282,8 +390,8 @@ export class CanvasStore {
     expectedRevision: number,
     projected: readonly CanvasTile[],
   ): boolean {
-    if (this._layoutLocked()) return false;
-    if (this.workspaceRevision(workspacePath) !== expectedRevision) return false;
+    if (this.workspaceRevision(workspacePath) !== expectedRevision)
+      return false;
     const current = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
     if (!sameIdsExactly(current, projected)) return false;
     const normalized = projected.map((tile, order) => ({
@@ -297,61 +405,15 @@ export class CanvasStore {
   }
 
   /**
-   * Atomically commit a snapped resize to the workspace captured at gesture
-   * start. Only the dragged tile's width changes; neighbours, order and breaks
-   * are untouched. Stale revisions, unknown ids and invalid spans are refused.
-   */
-  commitResizeSpan(
-    workspacePath: string,
-    expectedRevision: number,
-    tabId: string,
-    span: TileSpan,
-  ): boolean {
-    if (this.workspaceRevision(workspacePath) !== expectedRevision) return false;
-    return this.setTileSpan(workspacePath, tabId, span);
-  }
-
-  /** Set one tile's named span. Returns false when locked or invalid. */
-  setTileSpan(workspacePath: string, tabId: string, span: TileSpan): boolean {
-    if (this._layoutLocked() || !TILE_SPANS.includes(span)) return false;
-    const width = { kind: 'span', span } as const;
-    return this.updateTile(workspacePath, tabId, (tile) =>
-      sameWidth(tile.width, width) ? tile : { ...tile, width },
-    );
-  }
-
-  /** Start a new logical row before a tile, or join it to the previous row. */
-  toggleRowBreak(workspacePath: string, tabId: string): boolean {
-    if (this._layoutLocked()) return false;
-    const first = sortByOrder(this._workspaceTiles().get(workspacePath) ?? [])[0];
-    if (first?.tabId === tabId) return false;
-    return this.updateTile(workspacePath, tabId, (tile) => ({
-      ...tile,
-      rowBreakBefore: !tile.rowBreakBefore,
-    }));
-  }
-
-  /**
    * Enter or exit transient layout focus for a tile. Never changes stored
    * intent, so exiting reproduces the exact prior layout.
    */
   toggleLayoutFocus(workspacePath: string, tabId: string): boolean {
-    if (this._layoutLocked()) return false;
     const tiles = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
     if (!tiles.some((tile) => tile.tabId === tabId)) return false;
-    const next = this.layoutFocusTabIdFor(workspacePath) === tabId ? null : tabId;
+    const next =
+      this.layoutFocusTabIdFor(workspacePath) === tabId ? null : tabId;
     setIn(this._workspaceLayoutFocus, workspacePath, next);
-    return true;
-  }
-
-  /** Rewrite the active workspace's intent to a preset in one revision. */
-  applyPreset(preset: CanvasLayoutPreset): boolean {
-    const path = this._activeWorkspacePath();
-    if (this._layoutLocked() || path === null) return false;
-    const current = this._workspaceTiles().get(path) ?? EMPTY_TILES;
-    if (current.length < 2) return false;
-    const next = projectPreset(current, preset, this.focusedTabId());
-    if (!sameIntent(current, next)) this.setWorkspaceTiles(path, next);
     return true;
   }
 
@@ -396,11 +458,13 @@ export class CanvasStore {
         prev === IMPLICIT_WORKSPACE_PATH &&
         path !== IMPLICIT_WORKSPACE_PATH &&
         !this._workspaceTiles().has(path) &&
-        (this._workspaceTiles().get(IMPLICIT_WORKSPACE_PATH)?.length ?? 0) > 0
+        ((this._workspaceTiles().get(IMPLICIT_WORKSPACE_PATH)?.length ?? 0) > 0 ||
+          this._workspaceBoard().has(IMPLICIT_WORKSPACE_PATH))
       ) {
         // First real workspace after bootstrap: carry implicit tiles over so
         // tiles created before any path arrived aren't orphaned.
         moveIn(this._workspaceTiles, IMPLICIT_WORKSPACE_PATH, path);
+        moveIn(this._workspaceBoard, IMPLICIT_WORKSPACE_PATH, path);
         moveIn(this._workspaceFocusedTabId, IMPLICIT_WORKSPACE_PATH, path);
         moveIn(this._workspaceLayoutFocus, IMPLICIT_WORKSPACE_PATH, path);
         moveIn(this._workspaceRevisions, IMPLICIT_WORKSPACE_PATH, path);
@@ -410,6 +474,7 @@ export class CanvasStore {
         path !== IMPLICIT_WORKSPACE_PATH
       ) {
         deleteIn(this._workspaceTiles, IMPLICIT_WORKSPACE_PATH);
+        deleteIn(this._workspaceBoard, IMPLICIT_WORKSPACE_PATH);
         deleteIn(this._workspaceFocusedTabId, IMPLICIT_WORKSPACE_PATH);
         deleteIn(this._workspaceLayoutFocus, IMPLICIT_WORKSPACE_PATH);
         deleteIn(this._workspaceRevisions, IMPLICIT_WORKSPACE_PATH);
@@ -432,6 +497,7 @@ export class CanvasStore {
       (tiles.some((tile) => tile.tabId === activeTabId) ? activeTabId : null);
 
     setIn(this._workspaceTiles, path, tiles);
+    setIn(this._workspaceBoard, path, loaded.board ?? this._workspaceBoard().get(path) ?? DEFAULT_BOARD_STATE);
     setIn(this._workspaceFocusedTabId, path, focused);
     const layoutFocus = this.layoutFocusTabIdFor(path);
     if (
@@ -444,10 +510,7 @@ export class CanvasStore {
       setIn(this._workspaceRevisions, path, 0);
     }
     this.persistence.markHydrated(path, loaded.writable);
-    if (
-      loaded.needsWrite ||
-      !sameIntent(loaded.tiles ?? EMPTY_TILES, tiles)
-    ) {
+    if (loaded.needsWrite || !sameIntent(loaded.tiles ?? EMPTY_TILES, tiles)) {
       this.schedulePersist(path);
     }
   }
@@ -477,6 +540,7 @@ export class CanvasStore {
    */
   removeWorkspaceTileState(workspacePath: string): void {
     deleteIn(this._workspaceTiles, workspacePath);
+    deleteIn(this._workspaceBoard, workspacePath);
     deleteIn(this._workspaceFocusedTabId, workspacePath);
     deleteIn(this._workspaceLayoutFocus, workspacePath);
     deleteIn(this._workspaceRevisions, workspacePath);
@@ -520,25 +584,6 @@ export class CanvasStore {
     if (updated !== current) this.setWorkspaceTiles(path, updated);
   }
 
-  /** Transform one tile of a workspace; false when the tile is unknown. */
-  private updateTile(
-    workspacePath: string,
-    tabId: string,
-    fn: (tile: CanvasTile) => CanvasTile,
-  ): boolean {
-    const current = this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES;
-    const index = current.findIndex((tile) => tile.tabId === tabId);
-    if (index === -1) return false;
-    const updated = fn(current[index]);
-    if (updated !== current[index]) {
-      this.setWorkspaceTiles(
-        workspacePath,
-        current.map((tile, i) => (i === index ? updated : tile)),
-      );
-    }
-    return true;
-  }
-
   private setWorkspaceTiles(
     workspacePath: string,
     tiles: readonly CanvasTile[],
@@ -559,7 +604,10 @@ export class CanvasStore {
   private schedulePersist(workspacePath: string): void {
     this.persistence.schedule(
       workspacePath,
-      () => this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES,
+      () => ({
+        tiles: this._workspaceTiles().get(workspacePath) ?? EMPTY_TILES,
+        board: this.boardFor(workspacePath),
+      }),
     );
   }
 

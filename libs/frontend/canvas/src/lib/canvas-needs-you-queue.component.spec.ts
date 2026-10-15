@@ -1,0 +1,281 @@
+import { signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import type {
+  PermissionRequest,
+  AskUserQuestionRequest,
+} from '@ptah-extension/shared';
+import {
+  PermissionHandlerService,
+  AgentMonitorStore,
+  type MonitoredAgent,
+} from '@ptah-extension/chat-streaming';
+import {
+  AgentPermissionResponder,
+  TabManagerService,
+} from '@ptah-extension/chat';
+import { CanvasStore } from './canvas.store';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
+import { CanvasNeedsYouQueueComponent } from './canvas-needs-you-queue.component';
+
+describe('CanvasNeedsYouQueueComponent', () => {
+  const permissions = signal<PermissionRequest[]>([]);
+  const questions = signal<AskUserQuestionRequest[]>([]);
+  const revision = signal(0);
+  const agents = signal<MonitoredAgent[]>([]);
+  const tiles = signal([{ tabId: 'a' }, { tabId: 'b' }]);
+  const tabs = signal([
+    { id: 'a', claudeSessionId: 's1', title: 'Alpha' },
+    { id: 'b', claudeSessionId: 's2', title: 'Beta' },
+  ]);
+  const respondSession = jest.fn();
+  const respondLane = jest.fn();
+  const focusTile = jest.fn();
+  const openDetail = jest.fn();
+  const request = (id: string, tabId: string): PermissionRequest => ({
+    id,
+    tabId,
+    toolName: 'Write',
+    toolInput: {},
+    description: 'Edit',
+    timestamp: 1,
+    timeoutAt: 0,
+  });
+
+  beforeEach(() => {
+    permissions.set([]);
+    questions.set([]);
+    revision.set(0);
+    agents.set([]);
+    respondSession.mockClear();
+    respondLane.mockReset().mockReturnValue(true);
+    focusTile.mockClear();
+    openDetail.mockClear();
+    TestBed.configureTestingModule({
+      imports: [CanvasNeedsYouQueueComponent],
+      providers: [
+        {
+          provide: PermissionHandlerService,
+          useValue: {
+            permissionRequests: permissions,
+            questionRequests: questions,
+            routingTargetRevision: revision,
+            targetTabsFor: () => [],
+            questionTargetTabsFor: () => [],
+          },
+        },
+        {
+          provide: AgentMonitorStore,
+          useValue: { pendingPermissions: agents },
+        },
+        {
+          provide: AgentPermissionResponder,
+          useValue: { respondSession, respondLane },
+        },
+        { provide: CanvasStore, useValue: { tiles, focusTile } },
+        { provide: TabManagerService, useValue: { tabs } },
+      ],
+    });
+  });
+
+  it('answers one of two sessions while keeping the other card', () => {
+    permissions.set([request('one', 'a'), request('two', 'b')]);
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('2 need you');
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    const allow = fixture.nativeElement.querySelectorAll(
+      'button.btn-success',
+    ) as NodeListOf<HTMLButtonElement>;
+    allow[0].click();
+    expect(respondSession).toHaveBeenCalledWith(permissions()[0], 'allow', 'a');
+    permissions.set([permissions()[1]]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Beta');
+    expect(fixture.nativeElement.textContent).not.toContain('Alpha');
+    expect(fixture.nativeElement.textContent).toContain('1 need you');
+  });
+
+  it('closes from an outside pointer or Escape and removes document listeners on close', () => {
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(false);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(false);
+  });
+
+  it('consumes Escape, keeps detail open, and returns focus to the trigger', async () => {
+    const detailTabId = signal<string | null>('a');
+    TestBed.overrideComponent(CanvasNeedsYouQueueComponent, {
+      add: { providers: [{ provide: CanvasDetailService, useValue: { detailTabId } }] },
+    });
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+    document.dispatchEvent(event);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(fixture.componentInstance.open()).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(detailTabId()).toBe('a');
+    expect(document.activeElement).toBe(fixture.nativeElement.querySelector('button[trigger]'));
+  });
+
+  it('closes after the last request is answered', () => {
+    permissions.set([request('one', 'a')]);
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('button.btn-success') as HTMLButtonElement).click();
+    permissions.set([]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(false);
+  });
+
+  it('removes a request answered elsewhere and opens a question session', () => {
+    permissions.set([request('one', 'a')]);
+    questions.set([
+      {
+        id: 'q',
+        toolName: 'AskUserQuestion',
+        questions: [],
+        tabId: 'b',
+        timestamp: 2,
+        timeoutAt: 0,
+      },
+    ]);
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    permissions.set([]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('li').length).toBe(1);
+    expect(
+      fixture.nativeElement.querySelectorAll('button.btn-success').length,
+    ).toBe(0);
+    (
+      fixture.nativeElement.querySelector('li button') as HTMLButtonElement
+    ).click();
+    expect(focusTile).toHaveBeenCalledWith('b');
+    expect(fixture.componentInstance.open()).toBe(false);
+  });
+
+  it('shows All clear when no requests remain', () => {
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('All clear');
+  });
+
+  it('opens a lane request in detail and closes the queue', () => {
+    agents.set([
+      {
+        agentId: 'agent',
+        parentSessionId: 's2',
+        displayName: 'Codex',
+        permissionQueue: [
+          {
+            requestId: 'lane-request',
+            toolName: 'bash',
+            description: 'Run',
+            timestamp: 1,
+          },
+        ],
+      } as MonitoredAgent,
+    ]);
+    TestBed.overrideComponent(CanvasNeedsYouQueueComponent, {
+      add: {
+        providers: [
+          { provide: CanvasDetailService, useValue: { open: openDetail } },
+        ],
+      },
+    });
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    (
+      fixture.nativeElement.querySelector(
+        'button.btn-ghost',
+      ) as HTMLButtonElement
+    ).click();
+    expect(openDetail).toHaveBeenCalledWith('b', 'cli:agent');
+    expect(fixture.componentInstance.open()).toBe(false);
+    expect(focusTile).not.toHaveBeenCalled();
+  });
+
+  it('denies a lane using its request id and clears its answered state when removed', () => {
+    agents.set([
+      {
+        agentId: 'agent',
+        parentSessionId: 's2',
+        displayName: 'Codex',
+        permissionQueue: [
+          {
+            requestId: 'lane-request',
+            toolName: 'bash',
+            description: 'Run',
+            timestamp: 1,
+          },
+        ],
+      } as MonitoredAgent,
+    ]);
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    (
+      fixture.nativeElement.querySelector(
+        'button.btn-error',
+      ) as HTMLButtonElement
+    ).click();
+    expect(respondLane).toHaveBeenCalledWith('agent', 'lane-request', 'deny');
+    expect(
+      fixture.componentInstance.answering().has('lane:agent:lane-request'),
+    ).toBe(true);
+    agents.set([]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.answering().size).toBe(0);
+  });
+
+  it('re-enables a re-emitted lane request that was already answered', () => {
+    agents.set([
+      {
+        agentId: 'agent',
+        parentSessionId: 's2',
+        displayName: 'Codex',
+        permissionQueue: [
+          {
+            requestId: 'replayed',
+            toolName: 'bash',
+            description: 'Run',
+            timestamp: 1,
+          },
+        ],
+      } as MonitoredAgent,
+    ]);
+    respondLane.mockReturnValue(false);
+    const fixture = TestBed.createComponent(CanvasNeedsYouQueueComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    const allow = fixture.nativeElement.querySelector(
+      'button.btn-success',
+    ) as HTMLButtonElement;
+    allow.click();
+    fixture.detectChanges();
+    expect(respondLane).toHaveBeenCalledWith('agent', 'replayed', 'allow');
+    expect(fixture.componentInstance.answering().size).toBe(0);
+    expect(allow.disabled).toBe(false);
+    expect(
+      (
+        fixture.nativeElement.querySelector(
+          'button.btn-error',
+        ) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+});

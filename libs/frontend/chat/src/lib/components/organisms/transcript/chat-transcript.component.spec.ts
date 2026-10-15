@@ -17,6 +17,9 @@ import {
   ChangeDetectionStrategy,
   signal,
   computed,
+  inject,
+  input,
+  output,
   WritableSignal,
 } from '@angular/core';
 
@@ -60,12 +63,21 @@ import {
   TranscriptRenderWindow,
 } from './transcript-render-window';
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
-import { SESSION_FOCUSED } from '../../../tokens/session-context.token';
+import {
+  SESSION_CARD_ACTIONS,
+  SESSION_CONTEXT,
+  SESSION_FOCUSED,
+  type SessionCardActions,
+} from '../../../tokens/session-context.token';
 import { STREAM_PRESENTATION_RECORDS_ENABLED } from '../../../services/stream-presentation-store.service';
-import type {
-  ExecutionChatMessage,
-  ExecutionNode,
+import {
+  createExecutionNode,
+  type ExecutionChatMessage,
+  type ExecutionNode,
+  type PermissionRequest,
 } from '@ptah-extension/shared';
+import { SubagentTileComponent } from '../execution/subagent-tile.component';
+import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 import {
   configureTranscriptTestBed,
   FakeIntersectionObserver,
@@ -997,5 +1009,512 @@ describe('ChatTranscriptComponent — one buildTree per published tab snapshot',
     for (const call of buildTreeMock.mock.calls as unknown[][]) {
       expect(call[1]).toBe('tab-tab-1');
     }
+  });
+});
+
+// --- Single chat sub-agent full view (TASK_2026_629 R9n, parity row 103) ---
+
+@Component({
+  selector: 'ptah-single-chat-subagent-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class SubagentViewStub {
+  readonly node = input.required<ExecutionNode>();
+  readonly isStreaming = input<boolean>(false);
+  readonly back = output<void>();
+}
+
+/** Pending permissions by tool call id, read by the real tiles below. */
+const PENDING_PERMISSIONS = new Map<string, PermissionRequest>();
+
+/** Renders the REAL sub-agent tile for every agent node of the message. */
+@Component({
+  selector: 'ptah-message-bubble',
+  standalone: true,
+  imports: [SubagentTileComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: `
+    @for (agent of agents(); track agent.id) {
+      <ptah-subagent-tile [node]="agent" [getPermissionForTool]="lookup" />
+    }
+  `,
+})
+class TileBubbleStub extends TranscriptMessageBubbleStub {
+  protected readonly lookup = (toolCallId: string): PermissionRequest | null =>
+    PENDING_PERMISSIONS.get(toolCallId) ?? null;
+
+  protected agents(): ExecutionNode[] {
+    const found: ExecutionNode[] = [];
+    const walk = (node: ExecutionNode): void => {
+      if (node.type === 'agent') found.push(node);
+      else node.children.forEach(walk);
+    };
+    if (this.message?.streamingState) walk(this.message.streamingState);
+    return found;
+  }
+}
+
+/** Injects the card tokens exactly as CompactSessionCardComponent does. */
+@Component({
+  selector: 'ptah-card-probe',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class CompactCardProbe {
+  readonly cardActions = inject(SESSION_CARD_ACTIONS, { optional: true });
+  readonly sessionContext = inject(SESSION_CONTEXT, { optional: true });
+  /** compact-session-card.component.ts: strict when either is injected. */
+  readonly strict = Boolean(this.cardActions || this.sessionContext);
+}
+
+/** ChatView's shape: compact card and composer are SIBLINGS of the transcript. */
+@Component({
+  standalone: true,
+  imports: [ChatTranscriptComponent, CompactCardProbe],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <ptah-card-probe />
+    <ptah-chat-transcript tabId="tab-1" [active]="true" />
+    <textarea data-testid="composer-draft"></textarea>
+  `,
+})
+class SingleChatHost {}
+
+/**
+ * Same shape for the real-tile case. A separate class because a host's
+ * compiled template keeps the transcript definition of its first compile, so
+ * a later import override would not reach a host already used.
+ */
+@Component({
+  standalone: true,
+  imports: [ChatTranscriptComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<ptah-chat-transcript tabId="tab-1" [active]="true" />`,
+})
+class SingleChatTileHost {}
+
+const railActions = {
+  openLane: jest.fn(),
+  openSession: jest.fn(),
+} satisfies SessionCardActions;
+
+/** A Rail-like host that provides its own card actions. */
+@Component({
+  standalone: true,
+  imports: [ChatTranscriptComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [{ provide: SESSION_CARD_ACTIONS, useValue: railActions }],
+  template: `<ptah-chat-transcript tabId="tab-1" [active]="true" />`,
+})
+class RailHost {}
+
+/** A host that switches the rendered tab and hides it, like a Rail detail. */
+@Component({
+  standalone: true,
+  imports: [ChatTranscriptComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<ptah-chat-transcript [tabId]="tabId()" [active]="active()" />`,
+})
+class SwitchingHost {
+  readonly tabId = signal('tab-1');
+  readonly active = signal(true);
+}
+
+function agentTree(agentChildren: readonly ExecutionNode[]): ExecutionNode {
+  return createExecutionNode({
+    id: 'm1-tree',
+    type: 'message',
+    status: 'streaming',
+    children: [
+      createExecutionNode({
+        id: 'task-1',
+        type: 'tool',
+        status: 'streaming',
+        toolName: 'Task',
+        toolCallId: 'agent-1',
+        children: [
+          createExecutionNode({
+            id: 'agent-node-1',
+            type: 'agent',
+            status: 'streaming',
+            toolCallId: 'agent-1',
+            agentType: 'reviewer',
+            children: [...agentChildren],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+function toolNode(toolCallId: string): ExecutionNode {
+  return createExecutionNode({
+    id: `node-${toolCallId}`,
+    type: 'tool',
+    status: 'pending',
+    toolName: 'Bash',
+    toolCallId,
+  });
+}
+
+function mountHost<T>(host: new () => T): ComponentFixture<T> {
+  const fixture = TestBed.createComponent(host);
+  fixture.detectChanges();
+  return fixture;
+}
+
+describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
+  let rafSpy: jest.SpyInstance;
+  let messagesSig: WritableSignal<readonly ExecutionChatMessage[]>;
+  let sessionSig: WritableSignal<string | null>;
+
+  function configure(options: { realTiles?: boolean } = {}): void {
+    messagesSig = signal<readonly ExecutionChatMessage[]>([
+      makeMessage('u1', 'user', 1),
+      makeMessage('m1', 'assistant', 2, agentTree([toolNode('tool-a')])),
+    ]);
+    sessionSig = signal<string | null>('session-1');
+    const tabs = computed(() => [
+      {
+        id: 'tab-1',
+        claudeSessionId: sessionSig(),
+        status: 'loaded',
+        messages: messagesSig(),
+        streamingState: null,
+      },
+      {
+        id: 'tab-2',
+        claudeSessionId: 'session-2',
+        status: 'loaded',
+        messages: [makeMessage('u9', 'user', 9)],
+        streamingState: null,
+      },
+    ]);
+    configureTranscriptTestBed({ tabs, buildTree: jest.fn(() => []) });
+    TestBed.overrideComponent(ChatTranscriptComponent, {
+      remove: {
+        imports: [
+          SingleChatSubagentViewComponent,
+          ...(options.realTiles ? [TranscriptMessageBubbleStub] : []),
+        ],
+      },
+      add: {
+        imports: [
+          SubagentViewStub,
+          ...(options.realTiles ? [TileBubbleStub] : []),
+        ],
+      },
+    });
+  }
+
+  function transcriptOf<T>(fixture: ComponentFixture<T>) {
+    const element = fixture.debugElement.query(
+      By.directive(ChatTranscriptComponent),
+    );
+    const scroller = element.query(
+      By.css('[data-testid="chat-transcript-scroller"]'),
+    );
+    return {
+      component: element.componentInstance as ChatTranscriptComponent,
+      scroller: scroller.nativeElement as HTMLElement,
+      /** What any descendant (a tile) resolves for SESSION_CARD_ACTIONS. */
+      descendantActions: () => scroller.injector.get(SESSION_CARD_ACTIONS, null),
+      view: (): SubagentViewStub | null =>
+        (element.query(By.directive(SubagentViewStub))?.componentInstance as
+          | SubagentViewStub
+          | undefined) ?? null,
+      notice: () =>
+        (
+          element.nativeElement.querySelector(
+            '[data-testid="subagent-notice"]',
+          ) as HTMLElement
+        ).textContent?.trim(),
+    };
+  }
+
+  beforeEach(() => {
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      });
+  });
+
+  afterEach(() => {
+    rafSpy.mockRestore();
+    PENDING_PERMISSIONS.clear();
+    railActions.openLane.mockReset();
+    railActions.openSession.mockReset();
+    TestBed.resetTestingModule();
+  });
+
+  it('opts every main-transcript bubble into agent tile mode', () => {
+    configure();
+    const fixture = mountHost(SingleChatHost);
+    const bubbles = fixture.debugElement
+      .queryAll(By.directive(TranscriptMessageBubbleStub))
+      .map((b) => b.componentInstance as TranscriptMessageBubbleStub);
+    expect(bubbles.length).toBe(2);
+    expect(bubbles.every((bubble) => bubble.agentTileMode === true)).toBe(
+      true,
+    );
+  });
+
+  it('tile -> live full view in place -> Back restores scroll, focus and the draft', () => {
+    configure();
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    Object.defineProperty(t.scroller, 'scrollHeight', { value: 1000 });
+    Object.defineProperty(t.scroller, 'clientHeight', { value: 200 });
+    t.scroller.scrollTop = 800;
+    t.component.onScroll();
+    t.scroller.scrollTop = 300;
+    t.component.onScroll();
+
+    const draft: HTMLTextAreaElement = fixture.nativeElement.querySelector(
+      '[data-testid="composer-draft"]',
+    );
+    draft.value = 'half-written prompt';
+    draft.focus();
+
+    t.descendantActions()?.openLane('sub:agent-1');
+    fixture.detectChanges();
+
+    const view = t.view();
+    expect(view?.node().id).toBe('agent-node-1');
+    expect(t.scroller.hasAttribute('inert')).toBe(true);
+
+    // Live: the tree grows while the view is open; the same view follows it.
+    messagesSig.set([
+      makeMessage('u1', 'user', 1),
+      makeMessage(
+        'm1',
+        'assistant',
+        2,
+        agentTree([toolNode('tool-a'), toolNode('tool-b')]),
+      ),
+    ]);
+    fixture.detectChanges();
+    expect(t.view()).toBe(view);
+    expect(view?.node().children.map((child) => child.toolCallId)).toEqual([
+      'tool-a',
+      'tool-b',
+    ]);
+
+    // Something moved the covered transcript while the view was open.
+    t.scroller.scrollTop = 0;
+    view?.back.emit();
+    fixture.detectChanges();
+
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+    expect(t.scroller.scrollTop).toBe(300);
+    expect(document.activeElement).toBe(draft);
+    expect(draft.value).toBe('half-written prompt');
+    // The transcript itself was never torn down.
+    expect(transcriptOf(fixture).component).toBe(t.component);
+  });
+
+  it('a pinned transcript returns to the bottom on Back', () => {
+    configure();
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    Object.defineProperty(t.scroller, 'scrollHeight', { value: 1000 });
+    Object.defineProperty(t.scroller, 'clientHeight', { value: 200 });
+
+    t.descendantActions()?.openLane('sub:agent-1');
+    fixture.detectChanges();
+    t.scroller.scrollTop = 0;
+    t.view()?.back.emit();
+    fixture.detectChanges();
+
+    expect(t.scroller.scrollTop).toBe(1000);
+  });
+
+  it('keeps the transcript and announces when a lane cannot be opened here', () => {
+    configure();
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+
+    t.descendantActions()?.openLane('sub:not-in-this-tab');
+    t.descendantActions()?.openLane('cli:agent-1');
+    fixture.detectChanges();
+
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+    expect(t.notice()).toBe(
+      'This agent is not available in this conversation.',
+    );
+  });
+
+  it('an agent gone from the open conversation closes the view, restores the transcript and announces', () => {
+    configure();
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('bg:agent-1');
+    fixture.detectChanges();
+    expect(t.view()?.node().id).toBe('agent-node-1');
+    expect(t.scroller.hasAttribute('inert')).toBe(true);
+
+    messagesSig.set([makeMessage('u1', 'user', 1)]);
+    fixture.detectChanges();
+
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+    expect(t.notice()).toBe(
+      'This agent is no longer available in this conversation.',
+    );
+    // Closed for good: the agent coming back does not reopen the view.
+    messagesSig.set([
+      makeMessage('u1', 'user', 1),
+      makeMessage('m1', 'assistant', 2, agentTree([toolNode('tool-a')])),
+    ]);
+    fixture.detectChanges();
+    expect(t.view()).toBeNull();
+  });
+
+  it('a session switch while open closes the view without a stale restore', () => {
+    configure();
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('sub:agent-1');
+    fixture.detectChanges();
+    expect(t.view()).not.toBeNull();
+
+    // The tab now holds another session; even a tree that still carries the
+    // same tool call id belongs to it, not to the agent that was open.
+    sessionSig.set('session-other');
+    fixture.detectChanges();
+
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+    expect(t.notice()).toBe('');
+  });
+
+  it('a conversation that receives its first session id keeps the view open', () => {
+    configure();
+    sessionSig.set(null);
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('sub:agent-1');
+    fixture.detectChanges();
+
+    sessionSig.set('session-1');
+    fixture.detectChanges();
+    expect(t.view()?.node().id).toBe('agent-node-1');
+
+    // From then on, a change is a switch.
+    sessionSig.set('session-other');
+    fixture.detectChanges();
+    expect(t.view()).toBeNull();
+  });
+
+  it('a tab switch while open closes the view and leaves the transcript usable', () => {
+    configure();
+    const fixture = mountHost(SwitchingHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('sub:agent-1');
+    fixture.detectChanges();
+    expect(t.view()).not.toBeNull();
+
+    fixture.componentInstance.tabId.set('tab-2');
+    fixture.detectChanges();
+
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+    // Back on the first tab, the agent is not reopened.
+    fixture.componentInstance.tabId.set('tab-1');
+    fixture.detectChanges();
+    expect(t.view()).toBeNull();
+  });
+
+  it('a hidden transcript keeps the frozen view and re-checks on reactivation', () => {
+    configure();
+    const fixture = mountHost(SwitchingHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('sub:agent-1');
+    fixture.detectChanges();
+
+    fixture.componentInstance.active.set(false);
+    fixture.detectChanges();
+    messagesSig.set([makeMessage('u1', 'user', 1)]);
+    fixture.detectChanges();
+    expect(t.view()?.node().id).toBe('agent-node-1');
+
+    fixture.componentInstance.active.set(true);
+    fixture.detectChanges();
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+    expect(t.notice()).toBe(
+      'This agent is no longer available in this conversation.',
+    );
+  });
+
+  it('main-panel compact card stays tolerant: the handler is scoped to the transcript', () => {
+    configure();
+    const fixture = mountHost(SingleChatHost);
+    const probe = fixture.debugElement.query(By.directive(CompactCardProbe))
+      .componentInstance as CompactCardProbe;
+
+    expect(probe.cardActions).toBeNull();
+    expect(probe.sessionContext).toBeNull();
+    expect(probe.strict).toBe(false);
+    // ...while the transcript's own descendants get the local handler.
+    expect(transcriptOf(fixture).descendantActions()).not.toBeNull();
+  });
+
+  it('parent provider wins: a Rail host receives the lane and no in-place view opens', () => {
+    configure({ realTiles: true });
+    const fixture = mountHost(RailHost);
+    const t = transcriptOf(fixture);
+
+    expect(t.descendantActions()).toBe(railActions);
+    const open: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="subagent-open"]',
+    );
+    open.click();
+    fixture.detectChanges();
+
+    expect(railActions.openLane).toHaveBeenCalledWith('sub:agent-1');
+    expect(t.view()).toBeNull();
+  });
+
+  it('a pending descendant permission in tile mode is answerable: the badge opens the full agent (R9g finding 3)', () => {
+    configure({ realTiles: true });
+    messagesSig.set([
+      makeMessage('u1', 'user', 1),
+      makeMessage('m1', 'assistant', 2, agentTree([toolNode('tool-p')])),
+    ]);
+    PENDING_PERMISSIONS.set('tool-p', {
+      id: 'perm-1',
+      toolUseId: 'tool-p',
+    } as unknown as PermissionRequest);
+    const fixture = mountHost(SingleChatTileHost);
+    const t = transcriptOf(fixture);
+
+    const badge: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="subagent-permission"]',
+    );
+    expect(badge).not.toBeNull();
+    expect(badge.disabled).toBe(false);
+    badge.focus();
+    badge.click();
+    fixture.detectChanges();
+
+    // The full view holds the tool that waits for approval; its card and
+    // answer path are covered in single-chat-subagent-view.component.spec.
+    const node = t.view()?.node();
+    expect(node?.toolCallId).toBe('agent-1');
+    expect(node?.children.map((child) => child.toolCallId)).toEqual([
+      'tool-p',
+    ]);
+
+    t.view()?.back.emit();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(badge);
   });
 });

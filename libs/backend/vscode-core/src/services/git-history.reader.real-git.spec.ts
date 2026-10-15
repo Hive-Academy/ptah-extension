@@ -107,6 +107,10 @@ function subjects(result: GitLogResult): string[] {
 }
 
 describe('GitHistoryReader against real git', () => {
+  // Real git, up to ~15 spawns per test (clone + fetch in the origin cases):
+  // the 5 s default is too tight on Windows CI runners.
+  jest.setTimeout(30_000);
+
   let service: GitInfoService;
 
   beforeEach(() => {

@@ -220,5 +220,110 @@ describe('FloatingUIService', () => {
 
       expect(autoUpdateCleanup).toHaveBeenCalledTimes(1);
     });
+
+    it('installs no auto-update when the host is destroyed while a position is pending', async () => {
+      const pending = deferredPosition();
+      const request = service.position(reference, floating);
+
+      fixture.destroy();
+      pending.resolve({ x: 5, y: 6 });
+      await request;
+
+      expect(mockedAutoUpdate).not.toHaveBeenCalled();
+      expect(floating.style.left).toBe('');
+    });
   });
+
+  describe('pending request ownership', () => {
+    it('normal path installs auto-update once and cleanup stops it', async () => {
+      mockedCompute.mockResolvedValueOnce({ x: 1, y: 2 });
+
+      await service.position(reference, floating);
+      expect(mockedAutoUpdate).toHaveBeenCalledTimes(1);
+      expect(floating.style.left).toBe('1px');
+
+      service.cleanup();
+      expect(autoUpdateCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('late result after cleanup installs no autoUpdate', async () => {
+      const pending = deferredPosition();
+      const request = service.position(reference, floating);
+
+      service.cleanup();
+      pending.resolve({ x: 70, y: 80 });
+      await request;
+
+      expect(mockedAutoUpdate).not.toHaveBeenCalled();
+      expect(floating.style.left).toBe('');
+      expect(floating.style.top).toBe('');
+    });
+
+    it('late result of an older request does not replace the newer request cleanup handle', async () => {
+      const older = deferredPosition();
+      const newer = deferredPosition();
+      const newerCleanup = jest.fn();
+      mockedAutoUpdate.mockReturnValueOnce(newerCleanup);
+
+      const olderRequest = service.position(reference, floating);
+      const newerRequest = service.position(reference, floating);
+      newer.resolve({ x: 20, y: 30 });
+      await newerRequest;
+      older.resolve({ x: 99, y: 99 });
+      await olderRequest;
+
+      expect(mockedAutoUpdate).toHaveBeenCalledTimes(1);
+      expect(floating.style.left).toBe('20px');
+      service.cleanup();
+      expect(newerCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('older request resolving first installs nothing; the newer one owns the only auto-update', async () => {
+      const older = deferredPosition();
+      const newer = deferredPosition();
+      const newerCleanup = jest.fn();
+      mockedAutoUpdate.mockReturnValueOnce(newerCleanup);
+
+      const olderRequest = service.position(reference, floating);
+      const newerRequest = service.position(reference, floating);
+      older.resolve({ x: 99, y: 99 });
+      await olderRequest;
+      expect(mockedAutoUpdate).not.toHaveBeenCalled();
+      expect(floating.style.left).toBe('');
+
+      newer.resolve({ x: 20, y: 30 });
+      await newerRequest;
+      expect(mockedAutoUpdate).toHaveBeenCalledTimes(1);
+      expect(floating.style.left).toBe('20px');
+      service.cleanup();
+      expect(newerCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('an auto-update tick that settles after cleanup writes nothing', async () => {
+      mockedCompute.mockResolvedValueOnce({ x: 10, y: 20 });
+      await service.position(reference, floating);
+      const tick = deferredPosition();
+      const updateCallback = mockedAutoUpdate.mock
+        .calls[0][2] as () => Promise<void>;
+
+      const update = updateCallback();
+      service.cleanup();
+      tick.resolve({ x: 50, y: 60 });
+      await update;
+
+      expect(floating.style.left).toBe('10px');
+      expect(floating.style.top).toBe('20px');
+    });
+  });
+
+  /** Queues one computePosition result that the test settles explicitly. */
+  function deferredPosition(): {
+    resolve: (point: { x: number; y: number }) => void;
+  } {
+    let resolve: (point: { x: number; y: number }) => void = () => undefined;
+    mockedCompute.mockReturnValueOnce(
+      new Promise<{ x: number; y: number }>((r) => (resolve = r)),
+    );
+    return { resolve: (point) => resolve(point) };
+  }
 });

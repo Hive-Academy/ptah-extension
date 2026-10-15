@@ -36,6 +36,7 @@ export { ActivityTickerComponent } from './lib/molecules/activity-ticker/activit
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
 export {
   BackgroundAgentStripComponent,
+  formatAgentElapsed,
   type BackgroundAgentStripEntry,
   type BackgroundAgentStripStatus,
   type BackgroundAgentSteerRequest,
@@ -46,7 +47,30 @@ export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
 export { CompactSessionActivityComponent } from './lib/molecules/compact-session/compact-session-activity.component';
+export {
+  parseTodoList,
+  summarizeTodos,
+  sameGitState,
+  todoTitle,
+  gitTitle,
+  type CompactTodoState,
+  type CompactGitState,
+} from './lib/molecules/compact-session/compact-session-metrics';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
+export { CompactRailCardComponent } from './lib/molecules/compact-session/compact-rail-card.component';
+export { COMPACT_RAIL_CARD_HEIGHT } from './lib/molecules/compact-session/compact-lane.types';
+export type {
+  CompactCallout,
+  CompactErrorCallout,
+  CompactLaneKind,
+  CompactLaneRow,
+  CompactLaneStatus,
+  CompactLaneSummary,
+  CompactPermissionCallout,
+  CompactQuestionCallout,
+  CompactRailDensity,
+  CompactRailState,
+} from './lib/molecules/compact-session/compact-lane.types';
 export {
   summarizeFinalized,
   summarizeLive,

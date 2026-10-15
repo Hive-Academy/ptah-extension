@@ -10,13 +10,7 @@ export const SESSION_CONTEXT = new InjectionToken<Signal<string | null>>(
   'SESSION_CONTEXT',
 );
 
-/**
- * Optional injection token that hides the per-session "Agents" right sidebar
- * (toggle tab + monitor panel) when a ChatViewComponent is embedded in a
- * surface that already surfaces its sub-agents elsewhere — e.g. the Tribunal
- * conductor, whose panelists render as their own tiles. Absent/false → the
- * sidebar shows as normal.
- */
+/** Hides the VS Code Agents sidebar when the host shows agents elsewhere. */
 export const HIDE_AGENT_SIDEBAR = new InjectionToken<boolean>(
   'HIDE_AGENT_SIDEBAR',
 );
@@ -41,4 +35,34 @@ export const SESSION_VISIBLE = new InjectionToken<Signal<boolean>>(
  */
 export const SESSION_FOCUSED = new InjectionToken<Signal<boolean>>(
   'SESSION_FOCUSED',
+);
+
+/**
+ * Optional signal supplied by canvas tiles to force a compact card without
+ * changing the tab's stored view mode. Absent means the host does not force
+ * card mode; the user's selected view mode still applies.
+ */
+export const SESSION_FORCED_CARD = new InjectionToken<Signal<boolean>>(
+  'SESSION_FORCED_CARD',
+);
+
+/** Optional composer guard. Null allows the next turn or queued message. */
+export type SessionStartGuard = () => string | null;
+export const SESSION_START_GUARD = new InjectionToken<SessionStartGuard>(
+  'SESSION_START_GUARD',
+);
+
+/** Optional actions supplied by a canvas tile to the compact session card. */
+export interface SessionCardActions {
+  openLane(laneKey: string): void;
+  openSession(): void;
+}
+
+export const SESSION_CARD_ACTIONS = new InjectionToken<SessionCardActions>(
+  'SESSION_CARD_ACTIONS',
+);
+
+/** Opts a contextual Rail host into four-tab transcript retention. */
+export const RAIL_TRANSCRIPT_RETENTION = new InjectionToken<boolean>(
+  'RAIL_TRANSCRIPT_RETENTION',
 );

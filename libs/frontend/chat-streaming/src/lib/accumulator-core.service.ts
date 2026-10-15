@@ -572,6 +572,7 @@ export class StreamingAccumulatorCore {
         deduplication.cleanupSession(event.sessionId);
 
         const fresh = createEmptyStreamingState();
+        fresh.latestTodoWrite = state.latestTodoWrite;
         ctx.onStateChanged?.(fresh);
         return {
           stateMutated: true,

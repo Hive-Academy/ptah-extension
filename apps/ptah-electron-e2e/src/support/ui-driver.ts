@@ -430,10 +430,11 @@ export class UiDriver {
   }
 
   /**
-   * Ensure the canvas has a single open tile with a visible chat input. Reuses
-   * an existing tile when one is already present (so this never inflates the
-   * tile count); otherwise creates one from the empty-state CTA (or the FAB when
-   * tiles exist). Assumes the canvas grid is already visible.
+   * Ensure the Rail board has a focused session with a visible chat input.
+   * Reuses an existing session when one is already present (so this never
+   * inflates the session count); otherwise creates one from the New session
+   * anchor, which the canvas dock renders for the empty board and the Rail
+   * alike. Assumes the canvas is already visible.
    */
   private async ensureCanvasChatTile(): Promise<void> {
     const input = this.page.locator(
@@ -448,15 +449,10 @@ export class UiDriver {
       return;
     }
 
-    const fab = this.page.locator('[title="Add new session tile"]').first();
-    if (await fab.isVisible().catch(() => false)) {
-      await fab.click();
-    } else {
-      await this.page
-        .getByRole('button', { name: 'Create new session' })
-        .first()
-        .click();
-    }
+    await this.page
+      .locator('[data-testid="canvas-new-session-anchor"]')
+      .first()
+      .click();
     await this.page
       .getByRole('button', { name: 'Create', exact: true })
       .click();
@@ -482,6 +478,38 @@ export class UiDriver {
       return this.page.locator('ptah-review-shell');
     }
     return this.page.locator('body');
+  }
+
+  /**
+   * The Rail board's panes (`<section data-pane-side>`), or one pane by its
+   * side id. One pane while a single session is focused, two after "Open
+   * beside". `left` and `right` are stable host ids, not visual positions: Swap
+   * panes only changes the CSS order, and a session's pane is not always `left`.
+   */
+  public canvasPanes(side?: 'left' | 'right'): Locator {
+    return this.page.locator(
+      `ptah-canvas-rail-board:visible [data-testid="rail-pane-container"] > [data-pane-side${side ? `="${side}"` : ''}]`,
+    );
+  }
+
+  /**
+   * Open a Rail card's session beside the focused one ("Open beside") while a
+   * single pane is shown. The invoked session takes the opposite pane and
+   * becomes the active one; the focused session stays in its pane. Returns the
+   * two panes by their stable side ids. The caller awaits the second pane.
+   */
+  public async openRailCardBeside(
+    card: Locator,
+  ): Promise<{ opened: Locator; kept: Locator }> {
+    const keptSide = (await this.canvasPanes()
+      .first()
+      .getAttribute('data-pane-side')) as 'left' | 'right';
+    await card.getByRole('button', { name: 'Session actions' }).click();
+    await this.page.getByRole('menuitem', { name: 'Open beside' }).click();
+    return {
+      opened: this.canvasPanes(keptSide === 'left' ? 'right' : 'left'),
+      kept: this.canvasPanes(keptSide),
+    };
   }
 
   /** The Electron dock body: git header, conflict banner and the review tabs. */

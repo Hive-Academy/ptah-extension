@@ -114,6 +114,32 @@ describe('DisplayDockState', () => {
       expect(store.tab(TAB_A)).toMatchObject({ open: false, pinned: false });
     });
 
+    it('closes only the current tab and retains the other tab pin, section and width', () => {
+      store.open(TAB_A);
+      store.setPinned(TAB_A, true);
+      store.selectTab(TAB_A, 'agents');
+      store.setWidth(TAB_A, 420);
+      store.open(TAB_B);
+      store.setPinned(TAB_B, true);
+      store.selectTab(TAB_B, 'agents');
+      store.setWidth(TAB_B, 500);
+
+      store.close(TAB_A);
+
+      expect(store.tab(TAB_A)).toMatchObject({
+        open: false,
+        pinned: false,
+        activeTab: 'agents',
+        widthPx: 420,
+      });
+      expect(store.tab(TAB_B)).toMatchObject({
+        open: true,
+        pinned: true,
+        activeTab: 'agents',
+        widthPx: 500,
+      });
+    });
+
     it('opens on a surface or a turn summary from a chip', () => {
       store.selectTab(TAB_A, 'agents');
       store.openSurface(TAB_A, 'id:stats');
@@ -396,16 +422,20 @@ describe('DisplayDockState', () => {
         ]),
       );
       expect(store.summaryFor(TAB_A)).toBe(second);
+      expect(store.summaryKeyFor(TAB_A)).toBe('u2');
 
       store.openSummary(TAB_A, 'u1');
       expect(store.summaryFor(TAB_A)).toBe(first);
+      expect(store.summaryKeyFor(TAB_A)).toBe('u1');
 
       store.setSummaries(TAB_A, new Map([['u2', second]]));
       expect(store.tab(TAB_A).summaryTurnKey).toBeNull();
       expect(store.summaryFor(TAB_A)).toBe(second);
+      expect(store.summaryKeyFor(TAB_A)).toBe('u2');
 
       store.setSummaries(TAB_A, new Map());
       expect(store.summaryFor(TAB_A)).toBeNull();
+      expect(store.summaryKeyFor(TAB_A)).toBeNull();
       expect(store.tab(TAB_A).selection).toBeNull();
       expect(store.summaryFor(TAB_B)).toBeNull();
     });

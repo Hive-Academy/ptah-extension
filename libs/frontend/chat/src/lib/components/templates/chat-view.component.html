@@ -1,7 +1,7 @@
 <div class="flex h-full w-full relative">
   <!-- Main chat content -->
   <div class="flex-1 flex flex-col min-w-0 relative">
-    @if (isCompactViewMode(resolvedViewMode()) && resolvedActiveTab()) {
+    @if (showCompactCard() && resolvedActiveTab()) {
       <!-- ============================================================ -->
       <!-- COMPACT VIEW: Condensed session card with activity feed      -->
       <!-- ============================================================ -->
@@ -79,6 +79,7 @@
       <div class="flex-1 flex flex-col min-h-0 relative">
         @for (tabId of transcriptTabIds(); track tabId) {
           <ptah-chat-transcript
+            [attr.data-tab-id]="tabId"
             [tabId]="tabId"
             [active]="tabId === resolvedTabId() && mainPanelShowing()"
             [isSessionActive]="resolvedSessionIsActive()"
@@ -247,15 +248,13 @@
     }
   </div>
 
-  @if (dockEnabled) {
-    <!-- Electron: one right-side dock with Displays | Agents tabs (R1.3). The
-         toggle hides while the dock is an overlay, as the monitor's did. -->
+  @if (dockEnabled && !(_forcedCard?.() ?? false)) {
+    <!-- Electron display dock. The toggle hides while the dock is an overlay. -->
     @if (!isOverlay() || !panelOpen()) {
       <ptah-sidebar-tab
         label="Display"
         side="right"
         [isOpen]="panelOpen()"
-        [badgeType]="agentBadgeType()"
         [newCount]="panelTab().newCount"
         size="sm"
         (toggled)="toggleAgentPanel()"
@@ -293,15 +292,11 @@
         [tabId]="panelKey()"
         [isOverlay]="isOverlay()"
         [widthPx]="dockWidth()"
-        [agents]="sessionAgents()"
-        [sessionId]="resolvedSessionId()"
         [focusRequest]="dockFocusRequest()"
         (closed)="closeAgentPanel()"
       />
     } @error {
-      <!-- The dock chunk failed: say so, and keep the Agents capability by
-           falling back to the eager monitor the dock replaced (decision #109).
-           The dock never renders in this branch, so there is one monitor. -->
+      <!-- The dock chunk failed: show the load error. -->
       @if (panelOpen()) {
         <p
           class="flex-shrink-0 self-start px-3 py-2 text-xs text-error"
@@ -310,16 +305,9 @@
         >
           Display panel failed to load
         </p>
-        <ptah-agent-monitor-panel
-          [embeddedAgents]="sessionAgents()"
-          [embeddedOpen]="panelOpen()"
-          [sessionId]="resolvedSessionId()"
-          [isOverlay]="isOverlay()"
-          (closed)="closeAgentPanel()"
-        />
       }
     }
-  } @else if (!hideAgentSidebar) {
+  } @else if (!hideAgentSidebar && !(_forcedCard?.() ?? false)) {
     <!-- Agents vertical toggle tab (per-session). In overlay mode, hide when open to give chat 100% width. -->
     @if (!isOverlay() || !panelOpen()) {
       <ptah-sidebar-tab

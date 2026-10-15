@@ -113,13 +113,13 @@ test.describe('Failed chat:start leaves the tab idle (TASK_2026_360)', () => {
     expect(promptOf(firstStart)).toBe(FIRST_MARKER);
 
     // The failure really was the AUTH_REQUIRED structural path: only
-    // `handleAuthRequired` raises this banner. Scoped to the canvas tile
+    // `handleAuthRequired` raises this banner. Scoped to the focused pane
     // because the banner reads GLOBAL `AuthStateService` state, so every
     // mounted `ptah-chat-view` renders one — including the shell's own
     // non-canvas instance, which is never visible in Electron.
     await expect(
       page
-        .locator('[data-testid="canvas-tile"] ptah-auth-required-banner')
+        .locator('ptah-canvas-focus-area ptah-auth-required-banner')
         .first(),
     ).toBeVisible();
 

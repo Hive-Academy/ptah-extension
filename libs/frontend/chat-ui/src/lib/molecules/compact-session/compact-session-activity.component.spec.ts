@@ -12,6 +12,13 @@ import type {
   CompactSemanticMark,
   CompactSessionSummary,
 } from './compact-session-summary';
+import type {
+  CompactCallout,
+  CompactLaneRow,
+  CompactLaneStatus,
+  CompactLaneSummary,
+  CompactPermissionCallout,
+} from './compact-lane.types';
 
 jest.mock('ngx-markdown', () => {
   @Component({
@@ -128,7 +135,7 @@ describe(CompactSessionActivityComponent.name, () => {
     const emitted = jest.fn();
     fixture.componentInstance.openFullView.subscribe(emitted);
 
-    fixture.nativeElement
+    (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[data-zone="recap"] button')
       ?.click();
     expect(emitted).toHaveBeenCalledTimes(1);
@@ -1081,5 +1088,332 @@ describe(CompactSessionActivityComponent.name, () => {
       fixture.nativeElement.querySelector('[data-testid="cs-split-handle"]'),
     ).not.toBeNull();
     expect(body.classList.contains('cs-no-handle')).toBe(false);
+  });
+});
+
+describe(`${CompactSessionActivityComponent.name} board layout`, () => {
+  const NOW = 1_000_000;
+
+  function lane(overrides: Partial<CompactLaneRow> = {}): CompactLaneRow {
+    return {
+      id: 'cli:a1',
+      name: 'codex',
+      kind: 'cli',
+      status: 'running',
+      startedAt: NOW - 65_000,
+      endedAt: null,
+      ...overrides,
+    };
+  }
+
+  function laneSummary(
+    rows: readonly CompactLaneRow[],
+    moreCount = 0,
+    counts: Partial<Record<CompactLaneStatus, number>> = {},
+  ): CompactLaneSummary {
+    return {
+      rows,
+      moreCount,
+      total: rows.length + moreCount,
+      counts: {
+        waiting: 0,
+        error: 0,
+        running: 0,
+        done: 0,
+        stopped: 0,
+        ...counts,
+      },
+    };
+  }
+
+  const permission: CompactPermissionCallout = {
+    kind: 'permission',
+    source: 'cli',
+    requestId: 'req-1',
+    agentId: 'a1',
+    tabId: 'tab-1',
+    text: 'codex asks to run npm test',
+  };
+
+  function renderBoard(
+    inputs: {
+      lanes?: CompactLaneSummary | null;
+      callout?: CompactCallout;
+      branch?: string | null;
+      elapsed?: number | null;
+      metricsModel?: string | null;
+      todos?: import('./compact-session-metrics').CompactTodoState | null;
+      gitStats?: import('./compact-session-metrics').CompactGitState | null;
+    } = {},
+  ) {
+    const fixture = TestBed.createComponent(CompactSessionActivityComponent);
+    const base = summary();
+    fixture.componentRef.setInput(
+      'summary',
+      summary({
+        metrics: {
+          ...base.metrics,
+          model:
+            inputs.metricsModel === undefined ? 'sonnet' : inputs.metricsModel,
+        },
+      }),
+    );
+    fixture.componentRef.setInput(
+      'lanes',
+      inputs.lanes === undefined ? laneSummary([]) : inputs.lanes,
+    );
+    fixture.componentRef.setInput('callout', inputs.callout ?? null);
+    fixture.componentRef.setInput('now', NOW);
+    fixture.componentRef.setInput('branch', inputs.branch ?? null);
+    fixture.componentRef.setInput('elapsed', inputs.elapsed ?? null);
+    fixture.componentRef.setInput('todos', inputs.todos ?? null);
+    fixture.componentRef.setInput('gitStats', inputs.gitStats ?? null);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const zone = (root: HTMLElement, name: string) =>
+    root.querySelector<HTMLElement>(`[data-zone="${name}"]`);
+  const subLineParts = (root: HTMLElement) =>
+    [...(zone(root, 'sub')?.querySelectorAll('span') ?? [])].map((el) =>
+      el.textContent?.trim(),
+    );
+  const laneButtons = (root: HTMLElement) => [
+    ...root.querySelectorAll<HTMLButtonElement>(
+      '[data-zone="lanes"] [data-lane-id]',
+    ),
+  ];
+  const buttonByText = (root: HTMLElement, text: string) =>
+    [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === text,
+    );
+
+  beforeEach(() =>
+    TestBed.configureTestingModule({
+      imports: [CompactSessionActivityComponent],
+    }),
+  );
+
+  it('orders the zones header, sub line, Now, Lanes, metrics', () => {
+    const root = renderBoard().nativeElement as HTMLElement;
+
+    expect(
+      [...root.querySelectorAll('[data-zone]')].map((el) =>
+        el.getAttribute('data-zone'),
+      ),
+    ).toEqual(['status', 'sub', 'now', 'lanes', 'metrics']);
+    expect(root.querySelector('section')?.classList).toContain('cs-board');
+    expect(zone(root, 'now')?.textContent).toContain('Which path?');
+  });
+
+  it('keeps the four-zone body when no lane data is given', () => {
+    const root = renderBoard({ lanes: null }).nativeElement as HTMLElement;
+
+    expect(zone(root, 'sub')).toBeNull();
+    expect(zone(root, 'lanes')).toBeNull();
+    expect(zone(root, 'now')).toBeNull();
+    expect(root.querySelector('section')?.classList).not.toContain('cs-board');
+  });
+
+  it('shows placeholders when a zone has no data', () => {
+    const root = renderBoard({ metricsModel: null })
+      .nativeElement as HTMLElement;
+
+    expect(subLineParts(root)).toEqual(['—', '·', '—', '·', '—']);
+    expect(
+      root.querySelector('[data-testid="cs-lanes-summary"]')?.textContent,
+    ).toContain('No lanes');
+    expect(
+      root.querySelector('[data-testid="cs-lanes-placeholder"]')?.textContent,
+    ).toContain('—');
+    expect(root.querySelector('[data-testid="cs-lanes-more"]')).toBeNull();
+  });
+
+  it('keeps fixed todo, context, and git slots with state titles', () => {
+    const fixture = renderBoard({
+      todos: { kind: 'none' },
+      gitStats: { kind: 'none' },
+    });
+    const metrics = zone(fixture.nativeElement as HTMLElement, 'metrics');
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
+    ).toBe('Todos not reported by this session');
+    expect(
+      metrics?.querySelector('[aria-label="Context usage"]')?.textContent,
+    ).toContain('—');
+    expect(
+      metrics
+        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.getAttribute('title'),
+    ).toBe('Git changes unknown');
+    fixture.componentRef.setInput('todos', { kind: 'unknown' });
+    fixture.componentRef.setInput('gitStats', {
+      kind: 'unknown',
+      reason: 'failed',
+    });
+    fixture.detectChanges();
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
+    ).toBe('Todos unknown');
+    expect(
+      metrics
+        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.getAttribute('title'),
+    ).toBe('Could not read git status');
+  });
+
+  it('renders known todos, progress, git counts, and the partial marker', () => {
+    const fixture = renderBoard({
+      todos: { kind: 'known', done: 2, total: 3, active: 'Writing tests' },
+      gitStats: { kind: 'known', additions: 12, deletions: 4, partial: true },
+    });
+    const metrics = zone(fixture.nativeElement as HTMLElement, 'metrics');
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.textContent,
+    ).toContain('2/3');
+    expect(metrics?.querySelector('progress')?.getAttribute('value')).toBe('2');
+    expect(
+      metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
+    ).toBe('Writing tests');
+    expect(
+      metrics?.querySelector('[aria-label="Lines added and removed"]')
+        ?.textContent,
+    ).toContain('+12 −4+');
+    expect(
+      metrics
+        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.getAttribute('title'),
+    ).toBe('Some files could not be counted');
+  });
+
+  it('shows branch, model and elapsed on the sub line', () => {
+    const root = renderBoard({ branch: 'feat/board', elapsed: 125_000 })
+      .nativeElement as HTMLElement;
+
+    expect(subLineParts(root)).toEqual([
+      'feat/board',
+      '·',
+      'sonnet',
+      '·',
+      '2m 05s',
+    ]);
+    expect(zone(root, 'sub')?.className).toContain('text-[11px]');
+    expect(
+      zone(root, 'sub')?.querySelector('[title="Model"]')?.className,
+    ).toContain('text-secondary');
+    expect(root.querySelectorAll('[title="sonnet"]')).toHaveLength(0);
+    expect(zone(root, 'metrics')?.textContent).not.toContain('sonnet');
+  });
+
+  it('replaces the lane rows with a permission callout and keeps the summary line', () => {
+    const fixture = renderBoard({
+      lanes: laneSummary([lane()], 2, { running: 3 }),
+      callout: permission,
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    const allowed = jest.fn();
+    const denied = jest.fn();
+    fixture.componentInstance.allow.subscribe(allowed);
+    fixture.componentInstance.deny.subscribe(denied);
+
+    expect(laneButtons(root)).toHaveLength(0);
+    expect(root.querySelector('[data-testid="cs-lanes-more"]')).toBeNull();
+    expect(
+      root.querySelector('[data-testid="cs-lanes-summary"]')?.textContent,
+    ).toContain('3 running');
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
+    ).toContain('codex asks to run npm test');
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.className,
+    ).toContain('h-20');
+
+    buttonByText(root, 'Allow')?.click();
+    buttonByText(root, 'Deny')?.click();
+
+    expect(allowed).toHaveBeenCalledWith(permission);
+    expect(denied).toHaveBeenCalledWith(permission);
+  });
+
+  it('shows question text and remaining count and emits Answer', () => {
+    const fixture = renderBoard({
+      callout: { kind: 'question', text: 'Choose a target?', moreCount: 2 },
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    const answered = jest.fn();
+    fixture.componentInstance.answer.subscribe(answered);
+
+    expect(
+      root.querySelector('[data-testid="cs-callout-question"]')?.textContent,
+    ).toContain('Choose a target?');
+    expect(
+      root.querySelector('[data-testid="cs-callout-question"]')?.textContent,
+    ).toContain('+2 more');
+    expect(
+      root.querySelector('[data-testid="cs-callout-question"]')?.className,
+    ).toContain('h-20');
+    buttonByText(root, 'Answer')?.click();
+    expect(answered).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Open on a permission and emits the selected request', () => {
+    const request: CompactPermissionCallout = { ...permission, moreCount: 1 };
+    const fixture = renderBoard({ callout: request });
+    const root = fixture.nativeElement as HTMLElement;
+    const opened = jest.fn();
+    fixture.componentInstance.openRequest.subscribe(opened);
+
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
+    ).toContain('+1 more');
+    buttonByText(root, 'Open')?.click();
+    expect(opened).toHaveBeenCalledWith(request);
+  });
+
+  it('shows an error callout with Show output, and Retry only when a retry exists', () => {
+    const fixture = renderBoard({
+      lanes: laneSummary([lane()], 0, { running: 1 }),
+      callout: { kind: 'error', text: 'Model overloaded', canRetry: false },
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    const shown = jest.fn();
+    const retried = jest.fn();
+    fixture.componentInstance.showOutput.subscribe(shown);
+    fixture.componentInstance.retry.subscribe(retried);
+
+    expect(laneButtons(root)).toHaveLength(0);
+    expect(
+      root.querySelector('[data-testid="cs-callout-error"]')?.textContent,
+    ).toContain('Model overloaded');
+    expect(buttonByText(root, 'Retry')).toBeUndefined();
+
+    buttonByText(root, 'Show output')?.click();
+    expect(shown).toHaveBeenCalledTimes(1);
+
+    fixture.componentRef.setInput('callout', {
+      kind: 'error',
+      text: 'Model overloaded',
+      canRetry: true,
+    });
+    fixture.detectChanges();
+    buttonByText(root, 'Retry')?.click();
+    expect(retried).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the lane rows when the callout clears', () => {
+    const fixture = renderBoard({
+      lanes: laneSummary([lane()], 0, { running: 1 }),
+      callout: permission,
+    });
+    const root = fixture.nativeElement as HTMLElement;
+    expect(laneButtons(root)).toHaveLength(0);
+
+    fixture.componentRef.setInput('callout', null);
+    fixture.detectChanges();
+
+    expect(laneButtons(root)).toHaveLength(1);
+    expect(
+      root.querySelector('[data-testid="cs-callout-permission"]'),
+    ).toBeNull();
   });
 });

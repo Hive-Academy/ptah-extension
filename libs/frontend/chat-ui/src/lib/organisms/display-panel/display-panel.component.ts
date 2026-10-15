@@ -223,6 +223,7 @@ function idSafe(key: string): string {
               @if (summary(); as model) {
                 <ptah-turn-summary
                   [summary]="model"
+                  [turnKey]="summaryTurnKey()"
                   [actionError]="actionError()"
                   (openFile)="openFile.emit($event)"
                   (review)="review.emit()"
@@ -259,6 +260,8 @@ export class DisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   /** The selected turn's host-built summary, or `null` when there is none. */
   readonly summary = input<TurnSummaryModel | null>(null);
+  /** The summary source's id of the turn `summary` describes. */
+  readonly summaryTurnKey = input('');
   /** The store's selected strip key (`DISPLAY_PANEL_SUMMARY_KEY` or a surface key). */
   readonly selectedKey = input<string | null>(null);
   /** Pinned: a new or updated surface moves neither scroll nor focus (R1.6). */

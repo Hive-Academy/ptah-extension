@@ -4,6 +4,7 @@ import {
   Input,
   NgModule,
   input,
+  output,
   signal,
   type Provider,
   type WritableSignal,
@@ -85,7 +86,12 @@ import { ChangeSetActionsService } from '../../../services/change-set/change-set
 import { ChatStore } from '../../../services/chat.store';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { StreamPresentationStore } from '../../../services/stream-presentation-store.service';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  HIDE_AGENT_SIDEBAR,
+  SESSION_CARD_ACTIONS,
+  SESSION_CONTEXT,
+} from '../../../tokens/session-context.token';
+import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
 import { ChatTranscriptComponent } from './chat-transcript.component';
 import {
@@ -233,6 +239,19 @@ class DisplaySurfaceSyncStub {
   readonly tabId = input.required<string>();
   readonly candidates = input.required<readonly DisplayCandidate[]>();
   readonly snapshots = input<DisplayTurnSnapshots>(new Map());
+}
+
+/** Stands in for the in-place sub-agent view (its own spec covers it). */
+@Component({
+  selector: 'ptah-single-chat-subagent-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '',
+})
+class SubagentViewStub {
+  readonly node = input.required<ExecutionNode>();
+  readonly isStreaming = input<boolean>(false);
+  readonly back = output<void>();
 }
 
 // --- Harness ----------------------------------------------------------------
@@ -776,6 +795,98 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       expect(second.tabId()).toBe('tab-2');
       expect(first.turnIndexOf('u1')).toBe(0);
       expect(first.turnIndexOf('t2-u1')).toBeNull();
+    });
+  });
+
+  describe('single chat view keeps the protected display dock (decision 77, R9n)', () => {
+    const statsFence = (files: number): string =>
+      `\`\`\`ptah-ui display stats\ntitle Stats\nstats\n  Files | ${files}\n\`\`\`\n`;
+
+    it('a fenced display opens and updates in place while a sub-agent is open in place', async () => {
+      const tabs = signal([
+        tab(TAB, [
+          makeTranscriptMessage('u1', 'user', 100),
+          assistant('a1', 110, [
+            textNode('a1-text', statsFence(2)),
+            taskWithAgent('t1'),
+          ]),
+        ]),
+      ]);
+      configure({
+        tabs,
+        realSync: true,
+        loader: () => Promise.resolve(RECAP),
+        providers: [
+          {
+            provide: AgentMonitorStore,
+            useValue: {
+              subagents: signal(new Map()),
+              agentsOwnedBySession: () => [],
+            },
+          },
+        ],
+      });
+      TestBed.overrideComponent(ChatTranscriptComponent, {
+        remove: { imports: [SingleChatSubagentViewComponent] },
+        add: { imports: [SubagentViewStub] },
+      });
+      const dock = TestBed.inject(DisplayDockState);
+      const fixture = mount(TAB);
+      await settle(fixture);
+
+      const opened = dock.tab(TAB).surfaces;
+      expect(opened).toHaveLength(1);
+      expect(opened[0]).toMatchObject({
+        key: 'id:stats',
+        displayId: 'stats',
+        fenceKey: displayFenceKey('a1', 'a1-text', 0),
+      });
+
+      // The single chat view never hides the dock (decision 77d) ...
+      const scroller = fixture.debugElement.query(
+        By.css('[data-testid="chat-transcript-scroller"]'),
+      );
+      expect(scroller.injector.get(HIDE_AGENT_SIDEBAR, null)).toBeNull();
+      // ... and a sub-agent opened in place leaves the display sync mounted.
+      scroller.injector.get(SESSION_CARD_ACTIONS).openLane('sub:t1');
+      await settle(fixture);
+      expect(
+        fixture.debugElement.query(By.directive(SubagentViewStub)),
+      ).not.toBeNull();
+
+      tabs.set([
+        tab(TAB, [
+          makeTranscriptMessage('u1', 'user', 100),
+          assistant('a1', 110, [
+            textNode('a1-text', statsFence(2)),
+            taskWithAgent('t1'),
+          ]),
+          makeTranscriptMessage('u2', 'user', 200),
+          assistant('a2', 210, [textNode('a2-text', statsFence(5))]),
+        ]),
+      ]);
+      await settle(fixture);
+
+      const updated = dock.tab(TAB).surfaces;
+      expect(updated).toHaveLength(1);
+      expect(updated[0]).toMatchObject({
+        key: 'id:stats',
+        displayId: 'stats',
+        turnKey: 'u2',
+        fenceKey: displayFenceKey('a2', 'a2-text', 0),
+        createdSeq: opened[0].createdSeq,
+      });
+      expect(updated[0].updatedSeq).toBeGreaterThan(opened[0].updatedSeq);
+      expect(
+        dock.fenceStatus(TAB, displayFenceKey('a2', 'a2-text', 0))?.kind,
+      ).toBe('applied');
+      expect(
+        fixture.debugElement.query(By.directive(DisplaySurfaceSyncComponent)),
+      ).not.toBeNull();
+      // Growth in the same conversation keeps the agent open (R9n fix round).
+      expect(
+        fixture.debugElement.query(By.directive(SubagentViewStub)),
+      ).not.toBeNull();
     });
   });
 

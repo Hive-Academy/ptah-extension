@@ -422,9 +422,13 @@ export class PermissionHandlerService {
    *
    * Removes request from pending list and sends response to backend.
    *
+   * `tabId` is the tab the answer was given for (canvas header, card or lane
+   * view answer for a tab that is often not the active one). It is published
+   * as `decidingTabId` on `decisionPulse`; when omitted, the active tab is used.
+   *
    * Extracted from chat.store.ts:1344-1364
    */
-  handlePermissionResponse(response: PermissionResponse): void {
+  handlePermissionResponse(response: PermissionResponse, tabId?: string): void {
     if (response.decision === 'deny') {
       const originalRequest = this._permissionRequests().find(
         (r) => r.id === response.id,
@@ -434,7 +438,11 @@ export class PermissionHandlerService {
         originalRequest.agentToolCallId !== UNKNOWN_AGENT_TOOL_CALL_ID
           ? originalRequest.agentToolCallId
           : UNKNOWN_AGENT_TOOL_CALL_ID;
-      const bucket = this.hardDenyBucketFor(response.id, originalRequest);
+      const bucket = this.hardDenyBucketFor(
+        response.id,
+        originalRequest,
+        tabId,
+      );
       const ids = this._hardDenyToolUseIds.get(bucket) ?? new Set<string>();
       ids.add(denyId);
       this._hardDenyToolUseIds.set(bucket, ids);
@@ -442,7 +450,7 @@ export class PermissionHandlerService {
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
     );
-    const decidingTabId = this.tabManager.activeTabId() ?? null;
+    const decidingTabId = tabId ?? this.tabManager.activeTabId() ?? null;
     this._decisionSeq += 1;
     this._decisionPulse.set({
       seq: this._decisionSeq,
@@ -467,11 +475,13 @@ export class PermissionHandlerService {
   private hardDenyBucketFor(
     promptId: string,
     request: PermissionRequest | undefined,
+    decidingTabId?: string,
   ): string {
     if (request?.sessionId) return request.sessionId;
     const tabId =
       request?.tabId ??
       this._promptTargetTabs.get(promptId)?.[0] ??
+      decidingTabId ??
       this.tabManager.activeTabId() ??
       '';
     const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;

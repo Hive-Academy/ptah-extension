@@ -17,11 +17,12 @@ import {
   RETAINED_TRANSCRIPT_CAP,
   TranscriptRetentionService,
 } from './transcript-retention.service';
-import { SESSION_CONTEXT } from '../tokens/session-context.token';
+import { RAIL_TRANSCRIPT_RETENTION, SESSION_CONTEXT } from '../tokens/session-context.token';
 
 interface Harness {
   service: TranscriptRetentionService;
   activeTabId: ReturnType<typeof signal<string | null>>;
+  contextTabId: ReturnType<typeof signal<string | null>>;
   emitClosedTab: (event: ClosedTabEvent) => void;
   removedWorkspace$: ReturnType<
     typeof signal<{ path: string; seq: number } | null>
@@ -30,8 +31,9 @@ interface Harness {
   clearForTabMock: jest.Mock;
 }
 
-function makeHarness(opts: { tileMode?: boolean } = {}): Harness {
+function makeHarness(opts: { tileMode?: boolean; rail?: boolean } = {}): Harness {
   const activeTabId = signal<string | null>(null);
+  const contextTabId = signal<string | null>(opts.rail ? null : 'tile-tab');
   const closedTab = signal<ClosedTabEvent | null>(null);
   const removedWorkspace$ = signal<{ path: string; seq: number } | null>(null);
   // Default: every id resolves (nothing pruned by the removed-workspace effect).
@@ -61,12 +63,8 @@ function makeHarness(opts: { tileMode?: boolean } = {}): Harness {
         provide: ExecutionTreeBuilderService,
         useValue: { clearForTab: clearForTabMock },
       },
-      {
-        provide: SESSION_CONTEXT,
-        useValue: opts.tileMode
-          ? signal<string | null>('tile-tab').asReadonly()
-          : null,
-      },
+      { provide: SESSION_CONTEXT, useValue: opts.tileMode || opts.rail ? contextTabId.asReadonly() : null },
+      { provide: RAIL_TRANSCRIPT_RETENTION, useValue: opts.rail ?? false },
     ],
   });
 
@@ -74,6 +72,7 @@ function makeHarness(opts: { tileMode?: boolean } = {}): Harness {
   return {
     service,
     activeTabId,
+    contextTabId,
     emitClosedTab: (event) => {
       closedTab.set(event);
       for (const listener of [...listeners]) listener(event);
@@ -250,4 +249,71 @@ describe('TranscriptRetentionService', () => {
     expect(h.service.retainedTabIds()).toEqual([]);
     expect(h.clearForTabMock).not.toHaveBeenCalled();
   });
+
+  it('Rail opt-in retains four contextual tabs and evicts the fifth least recently used tab', () => {
+    const h = makeHarness({ rail: true });
+    h.activeTabId.set('global-tab');
+    for (let i = 1; i <= 4; i++) {
+      h.contextTabId.set(`rail-${i}`);
+      TestBed.tick();
+    }
+    expect(h.service.retainedTabIds()).toEqual(['rail-1', 'rail-2', 'rail-3', 'rail-4']);
+    h.contextTabId.set('rail-5');
+    TestBed.tick();
+    expect(h.service.retainedTabIds()).toEqual(['rail-2', 'rail-3', 'rail-4', 'rail-5']);
+    expect(h.service.retainedTabIds()).not.toContain('global-tab');
+    expect(h.clearForTabMock).toHaveBeenCalledWith('rail-1');
+  });
+
+  it('keeps a shared tree cache until the last retainer releases its tab', () => {
+    const h = makeHarness();
+    h.service.touch('shared');
+    const other = TestBed.runInInjectionContext(() => new TranscriptRetentionService());
+    other.touch('shared');
+    h.service.dispose('shared');
+    expect(h.clearForTabMock).not.toHaveBeenCalledWith('shared');
+    other.dispose('shared');
+    expect(h.clearForTabMock).toHaveBeenCalledTimes(1);
+    expect(h.clearForTabMock).toHaveBeenCalledWith('shared');
+  });
+
+  it('no coordinator -> unchanged behaviour', () => {
+    const h = makeHarness({ rail: true });
+    for (const id of ['A', 'B', 'C', 'D', 'E']) h.service.touch(id);
+    expect(h.service.retainedTabIds()).toEqual(['B', 'C', 'D', 'E']);
+    expect(h.clearForTabMock).toHaveBeenCalledWith('A');
+  });
+
+  it('main panel destroy leaves its retained tree cache intact', () => {
+    const h = makeHarness();
+    h.service.touch('main-tab');
+    TestBed.resetTestingModule();
+    expect(h.clearForTabMock).not.toHaveBeenCalled();
+  });
+
+  it('Rail host destroy releases its retained tree cache owners', () => {
+    const h = makeHarness({ rail: true });
+    h.service.touch('rail-tab');
+    TestBed.resetTestingModule();
+    expect(h.clearForTabMock).toHaveBeenCalledWith('rail-tab');
+    expect(h.clearForTabMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Rail close and workspace removal release retained tabs', () => {
+    const h = makeHarness({ rail: true });
+    h.contextTabId.set('closed');
+    TestBed.tick();
+    h.emitClosedTab({ tabId: 'closed', sessionId: null, kind: 'close' });
+    expect(h.service.retainedTabIds()).toEqual([]);
+    h.contextTabId.set('removed');
+    TestBed.tick();
+    h.contextTabId.set(null);
+    h.findMock.mockImplementation(() => null);
+    h.removedWorkspace$.set({ path: '/removed', seq: 1 });
+    TestBed.tick();
+    expect(h.service.retainedTabIds()).toEqual([]);
+    expect(h.clearForTabMock).toHaveBeenCalledWith('closed');
+    expect(h.clearForTabMock).toHaveBeenCalledWith('removed');
+  });
+
 });

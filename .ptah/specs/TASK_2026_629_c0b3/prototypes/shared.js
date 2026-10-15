@@ -167,7 +167,11 @@
   const STATE_RANK = { needs: 0, error: 1, running: 2, done: 3 };
 
   function createStore({ count = 6 } = {}) {
-    const sessions = SEEDS.slice(0, count).map(makeSession);
+    // Counts above SEEDS.length wrap around with a numbered title (prototype-only, up to 12).
+    const sessions = Array.from({ length: count }, (_, i) => {
+      const seed = SEEDS[i % SEEDS.length];
+      return makeSession(i < SEEDS.length ? seed : { ...seed, title: `${seed.title} (${Math.floor(i / SEEDS.length) + 1})` }, i);
+    });
     const byId = new Map(sessions.map((s) => [s.id, s]));
     const rawSubs = new Set();
     const sampleSubs = new Set();

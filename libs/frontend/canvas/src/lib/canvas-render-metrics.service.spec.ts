@@ -6,10 +6,10 @@ describe('CanvasRenderMetricsService', () => {
     TestBed.configureTestingModule({ providers: [CanvasRenderMetricsService] });
     const metrics = TestBed.inject(CanvasRenderMetricsService);
     const version = metrics.version();
-    metrics.increment('gridUpdates', 2);
-    metrics.increment('gridUpdates', Number.MAX_SAFE_INTEGER);
-    metrics.increment('gridUpdates', Number.NaN);
-    expect(metrics.snapshot().gridUpdates).toBe(Number.MAX_SAFE_INTEGER);
+    metrics.increment('applyChecks', 2);
+    metrics.increment('applyChecks', Number.MAX_SAFE_INTEGER);
+    metrics.increment('applyChecks', Number.NaN);
+    expect(metrics.snapshot().applyChecks).toBe(Number.MAX_SAFE_INTEGER);
     expect(metrics.version()).toBeGreaterThan(version);
   });
 
@@ -21,5 +21,13 @@ describe('CanvasRenderMetricsService', () => {
     expect(metrics.snapshot().layoutComputations).toBe(1);
     metrics.publish();
     expect(metrics.version()).toBe(1);
+  });
+
+  it.each(['focusSwaps', 'liveViewMounts', 'railShifts'] as const)('saturates %s', (key) => {
+    TestBed.configureTestingModule({ providers: [CanvasRenderMetricsService] });
+    const metrics = TestBed.inject(CanvasRenderMetricsService);
+    metrics.increment(key, Number.MAX_SAFE_INTEGER);
+    metrics.increment(key);
+    expect(metrics.snapshot()[key]).toBe(Number.MAX_SAFE_INTEGER);
   });
 });

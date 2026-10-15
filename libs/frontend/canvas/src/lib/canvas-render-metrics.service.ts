@@ -5,11 +5,15 @@ export interface CanvasRenderMetrics {
   readonly layoutComputations: number;
   readonly applyChecks: number;
   readonly applyPasses: number;
-  readonly gridUpdates: number;
+  readonly releasedNodes: number;
+  readonly geometryDrift: number;
   readonly changeCallbacks: number;
   readonly acceptedGestures: number;
   readonly rejectedGestures: number;
   readonly cancelledGestures: number;
+  readonly focusSwaps: number;
+  readonly liveViewMounts: number;
+  readonly railShifts: number;
 }
 
 type CanvasRenderMetric = keyof CanvasRenderMetrics;
@@ -19,11 +23,15 @@ const EMPTY_METRICS: CanvasRenderMetrics = {
   layoutComputations: 0,
   applyChecks: 0,
   applyPasses: 0,
-  gridUpdates: 0,
+  releasedNodes: 0,
+  geometryDrift: 0,
   changeCallbacks: 0,
   acceptedGestures: 0,
   rejectedGestures: 0,
   cancelledGestures: 0,
+  focusSwaps: 0,
+  liveViewMounts: 0,
+  railShifts: 0,
 };
 
 /** Canvas-local bounded diagnostic counters; no transcript/session data. */
@@ -37,11 +45,7 @@ export class CanvasRenderMetricsService {
     return this.counters;
   }
 
-  increment(
-    metric: CanvasRenderMetric,
-    amount = 1,
-    publish = true,
-  ): void {
+  increment(metric: CanvasRenderMetric, amount = 1, publish = true): void {
     if (!Number.isFinite(amount) || amount <= 0) return;
     this.counters = {
       ...this.counters,

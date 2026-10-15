@@ -51,6 +51,14 @@ const customThemes: ThemeSource = TAILWIND_CONFIG.daisyui.themes.find(
   (entry: unknown) => typeof entry === 'object' && entry !== null,
 );
 
+it('keeps the anubis idle ink readable on its dark surfaces', () => {
+  const anubis = customThemes['anubis'] as unknown as ThemeSource;
+  for (const surface of ['base-100', 'base-200']) {
+    expect(wcagContrast(anubis['--state-ink-idle'], anubis[surface]))
+      .toBeGreaterThanOrEqual(AA_NORMAL);
+  }
+});
+
 /**
  * `--bcm` declarations for the 32 deferred themes, parsed out of styles.css.
  * Matches `[data-theme='name'] { --bcm: <value>; }`.

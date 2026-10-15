@@ -458,12 +458,12 @@ export async function prepareCanvasWithSessions(
   }
 }
 
-/** Waits for a tile carrying `marker`'s own tool-output bubble to render. */
+/** Waits for the focused Rail pane to render `marker`'s own tool-output bubble. */
 export async function waitForTileMarker(
   page: Page,
   marker: string,
 ): Promise<void> {
-  const tiles = page.locator('[data-testid="canvas-tile"]');
+  const tiles = page.locator('ptah-canvas-focus-area');
   await expect(
     tiles
       .filter({ hasText: marker })

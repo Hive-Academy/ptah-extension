@@ -62,6 +62,17 @@ export interface NodeMaps {
  * Stores all streaming events as flat list with lookup maps for performance.
  */
 export interface StreamingState {
+  /**
+   * Latest top-level TodoWrite, retained even when its start event is evicted.
+   * `input` is the write's input once known (on its start, or parsed from the
+   * input accumulator on its result or eviction), so eviction and compaction
+   * cannot drop the latest list.
+   */
+  latestTodoWrite?: {
+    readonly toolCallId: string;
+    readonly timestamp: number;
+    readonly input?: Readonly<Record<string, unknown>>;
+  };
   /** All streaming events indexed by event ID */
   events: Map<string, FlatStreamEventUnion>;
 
@@ -247,6 +258,7 @@ export function setStreamingEventCapped(
   state: StreamingState,
   event: FlatStreamEventUnion,
 ): void {
+  recordLatestTodoWrite(state, event);
   bumpRevisions(state, event.messageId);
   if (STRUCTURAL_EVENT_TYPES.has(event.eventType)) {
     markStructuralChange(state);
@@ -286,6 +298,62 @@ export function setStreamingEventCapped(
     }
   }
   state.events.set(event.id, event);
+}
+
+/**
+ * Track the latest top-level TodoWrite. A newer start replaces the marker (and
+ * its input); its result keeps the now-complete streamed input on the marker.
+ */
+function recordLatestTodoWrite(
+  state: StreamingState,
+  event: FlatStreamEventUnion,
+): void {
+  const marker = state.latestTodoWrite;
+  if (
+    event.eventType === 'tool_start' &&
+    event.toolName === 'TodoWrite' &&
+    !event.parentToolUseId &&
+    event.timestamp >= (marker?.timestamp ?? -Infinity)
+  ) {
+    const startInput =
+      event.toolInput && Object.keys(event.toolInput).length > 0
+        ? event.toolInput
+        : undefined;
+    state.latestTodoWrite = {
+      toolCallId: event.toolCallId,
+      timestamp: event.timestamp,
+      input:
+        startInput ??
+        (marker?.toolCallId === event.toolCallId ? marker.input : undefined),
+    };
+    return;
+  }
+  if (
+    event.eventType === 'tool_result' &&
+    event.toolCallId === marker?.toolCallId
+  ) {
+    retainLatestTodoInput(state);
+  }
+}
+
+/** Copy the latest TodoWrite's streamed input onto its marker, once it parses. */
+function retainLatestTodoInput(state: StreamingState): void {
+  const marker = state.latestTodoWrite;
+  if (!marker || marker.input) return;
+  const raw = state.toolInputAccumulators.get(`${marker.toolCallId}-input`);
+  if (!raw) return;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      state.latestTodoWrite = {
+        ...marker,
+        input: value as Record<string, unknown>,
+      };
+    }
+  } catch {
+    // degradation-audit: optional-capability - an input that does not parse
+    // is not kept; the todo summary then reports unknown, never a stale list.
+  }
 }
 
 /**
@@ -408,6 +476,9 @@ function cascadeCleanForEvictedEvent(
     if (ids) {
       const remaining = ids.filter((id) => id !== evicted.id);
       if (remaining.length === 0) {
+        if (toolCallId === state.latestTodoWrite?.toolCallId) {
+          retainLatestTodoInput(state);
+        }
         state.toolCallMap.delete(toolCallId);
         state.toolInputAccumulators.delete(`${toolCallId}-input`);
       } else {
@@ -430,10 +501,7 @@ function cascadeCleanForEvictedEvent(
  * 'full' = standard chat view with full message list and input
  * 'compact' = condensed card view with activity feed and mini input
  *
- * A compact tile's height is not part of the mode: it lives in
- * {@link TabState.compactHeightUnits}, so the header toggle can stay binary
- * (full <-> compact) and still return to the last compact height. Tabs saved
- * with the retired `'compact-tall'` mode are migrated on restore
+ * Tabs saved with the retired `'compact-tall'` mode are migrated on restore
  * (`sanitizeRestoredTab` in chat-state, TASK_2026_583).
  */
 export type TabViewMode = 'full' | 'compact';
@@ -446,9 +514,6 @@ export type TabViewMode = 'full' | 'compact';
  * compact card at all, `tab-item` draws the tab affordance, `conductor-tile`
  * reads it for the tribunal, and canvas projects geometry from it. `chat-types`
  * is the one lib all four may import.
- *
- * Height is deliberately NOT derived here: grid units are canvas's concern and
- * mean nothing to the card. Canvas clamps `compactHeightUnits` on read.
  */
 export function isCompactViewMode(mode: TabViewMode | undefined): boolean {
   return mode === 'compact';
@@ -717,13 +782,6 @@ export interface TabState {
   viewMode?: TabViewMode;
 
   /**
-   * Compact tile height in canvas grid rows. Opaque to chat; canvas clamps it
-   * on read. Absent means the canvas default. Kept when the tab returns to
-   * full so the next switch to compact restores the same height.
-   */
-  compactHeightUnits?: number;
-
-  /**
    * Number of context compactions that occurred during this session.
    * Incremented on each compaction_complete event.
    */
@@ -768,6 +826,9 @@ export interface TabState {
    *   The safety-net is SKIPPED.
    */
   lastTerminalReason?: SdkTerminalReason | null;
+
+  /** Advances once per newly stamped terminal reason; never decreases; meaningful only per tab. */
+  terminalFailureSeq?: number;
 
   /**
    * Revision of the last backend `turn_state` event applied to this tab

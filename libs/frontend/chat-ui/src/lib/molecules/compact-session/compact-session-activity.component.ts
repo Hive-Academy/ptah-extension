@@ -15,6 +15,10 @@ import {
 import { LucideAngularModule, CheckCircle, XCircle } from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { CompactSessionStatsComponent } from './compact-session-stats.component';
+import {
+  CompactSessionLanesComponent,
+  formatBoardDuration,
+} from './compact-session-lanes.component';
 import { stripMarkdownToPlainText } from './compact-plain-text';
 import {
   feedKindLabel,
@@ -28,12 +32,23 @@ import {
   type SplitHandleOrientation,
 } from '../../atoms/split-handle.component';
 import { ToolIconComponent } from '../../atoms/tool-icon.component';
+import { CompactSessionCalloutComponent } from './compact-session-callout.component';
+import type {
+  CompactGitState,
+  CompactTodoState,
+} from './compact-session-metrics';
+import { todoTitle, gitTitle } from './compact-session-metrics';
 import type {
   CompactSemanticMark,
   CompactSemanticMarkKind,
   CompactSessionSummary,
   CompactSummaryStatusTone,
 } from './compact-session-summary';
+import type {
+  CompactCallout,
+  CompactLaneSummary,
+  CompactPermissionCallout,
+} from './compact-lane.types';
 
 export type FeedFilter = 'all' | 'error' | 'warn';
 
@@ -75,10 +90,12 @@ const FALLBACK_RECAP_HEIGHT = 180;
   standalone: true,
   imports: [
     CompactSessionStatsComponent,
+    CompactSessionLanesComponent,
     LucideAngularModule,
     MarkdownBlockComponent,
     SplitHandleComponent,
     ToolIconComponent,
+    CompactSessionCalloutComponent,
   ],
   host: {
     class: 'block h-full min-h-0 overflow-hidden',
@@ -329,11 +346,31 @@ const FALLBACK_RECAP_HEIGHT = 180;
         border-left: 2px solid oklch(var(--bc) / 0.2);
         font-style: italic;
       }
+
+      /* Board layout: header, sub line, Now, Lanes, metrics. The sub line and
+         the Lanes zone have fixed heights, so each zone starts at the same
+         offset on every card of the same size. */
+      .cs-board {
+        grid-template-rows: auto 1.625rem 2rem minmax(7.5rem, 1fr) auto;
+      }
+      .cs-zone-label {
+        display: inline-block;
+        width: 40px;
+        flex: none;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .cs-lanes {
+        min-height: 7.5rem;
+      }
     `,
   ],
   template: `
     <section
       class="grid h-full min-h-0 grid-rows-[auto_1fr_auto] overflow-hidden"
+      [class.cs-board]="boardLayout()"
       aria-label="Compact session status"
       data-testid="compact-session-summary"
     >
@@ -380,322 +417,487 @@ const FALLBACK_RECAP_HEIGHT = 180;
         </span>
       </div>
 
-      <div class="cs-body-host min-h-0 overflow-hidden" #bodyHost>
+      @if (boardLayout()) {
         <div
-          class="cs-body h-full min-h-0"
-          [class.cs-no-handle]="!handleVisible()"
-          [style.--cs-recap-w]="recapWidthStyle()"
-          [style.--cs-recap-h]="recapHeightStyle()"
+          class="flex min-w-0 items-center gap-1.5 border-b border-base-content/10 px-3 font-mono text-[11px] text-base-content-muted"
+          data-zone="sub"
         >
+          <span class="truncate" title="Branch">{{ branch() ?? '—' }}</span>
+          <span aria-hidden="true">·</span>
+          <span class="truncate text-secondary" title="Model">{{
+            summary().metrics.model ?? '—'
+          }}</span>
+          <span aria-hidden="true">·</span>
+          <span class="shrink-0 tabular-nums" title="Elapsed">{{
+            sessionElapsedLabel()
+          }}</span>
+        </div>
+      }
+
+      @if (boardLayout()) {
+        <div
+          class="flex min-w-0 items-center gap-2 overflow-hidden px-3 text-xs text-base-content-muted"
+          data-zone="now"
+        >
+          <span class="cs-zone-label">Now</span>
+          <span class="truncate" [title]="nowActivity()">{{
+            nowActivity()
+          }}</span>
+        </div>
+      } @else {
+        <div class="cs-body-host min-h-0 overflow-hidden" #bodyHost>
           <div
-            #recapPane
-            class="cs-recap-pane bg-base-200/20 p-3"
-            data-zone="recap"
+            class="cs-body h-full min-h-0"
+            [class.cs-no-handle]="!handleVisible()"
+            [style.--cs-recap-w]="recapWidthStyle()"
+            [style.--cs-recap-h]="recapHeightStyle()"
           >
             <div
-              class="flex shrink-0 items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
+              #recapPane
+              class="cs-recap-pane bg-base-200/20 p-3"
+              data-zone="recap"
             >
-              <span>Assistant recap</span>
-              <span
-                class="shrink-0 rounded border px-1.5 py-px font-mono text-[9px] font-bold uppercase"
-                [class.border-primary/30]="summary().status.tone === 'live'"
-                [class.bg-primary/10]="summary().status.tone === 'live'"
-                [class.text-primary]="summary().status.tone === 'live'"
-                [class.border-success/30]="summary().status.tone === 'success'"
-                [class.bg-success/10]="summary().status.tone === 'success'"
-                [class.text-success]="summary().status.tone === 'success'"
-                [class.border-warning/30]="summary().status.tone === 'warning'"
-                [class.bg-warning/10]="summary().status.tone === 'warning'"
-                [class.text-warning]="summary().status.tone === 'warning'"
-                [class.border-error/30]="summary().status.tone === 'error'"
-                [class.bg-error/10]="summary().status.tone === 'error'"
-                [class.text-error]="summary().status.tone === 'error'"
-                [class.border-base-content/20]="
-                  summary().status.tone === 'idle'
-                "
-                [class.bg-base-content/5]="summary().status.tone === 'idle'"
-                [class.text-base-content-muted]="
-                  summary().status.tone === 'idle'
-                "
-              >
-                {{ outcomeTag() }}
-              </span>
-            </div>
-
-            <div class="cs-recap-scroll my-2 pr-1">
-              @if (summary().content.format === 'markdown') {
-                <div class="cs-recap-md">
-                  <ptah-markdown-block [content]="summary().content.text" />
-                </div>
-              } @else if (summary().content.format === 'snippet') {
-                <pre
-                  class="cs-recap-snippet font-mono text-[11px] leading-snug text-error"
-                  data-testid="cs-recap-snippet"
-                  >{{ summary().content.text }}</pre>
-              } @else {
-                <p
-                  class="whitespace-pre-line text-xs leading-relaxed"
-                  [class.text-error]="summary().content.kind === 'error'"
-                  [class.text-base-content]="summary().content.kind !== 'error'"
-                >
-                  {{ summary().content.text }}
-                </p>
-              }
-              @if (summary().content.additionalPromptCount > 0) {
-                <span
-                  class="mt-1 inline-block text-[11px] font-semibold text-warning"
-                >
-                  +{{ summary().content.additionalPromptCount }} more
-                </span>
-              }
-            </div>
-
-            <div class="flex shrink-0 flex-col gap-2 pt-1">
               <div
-                class="cs-agent-context rounded border border-base-content/10 bg-base-300/20 p-2 font-mono text-[10px] text-base-content-muted"
+                class="flex shrink-0 items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
               >
-                <div>
-                  Agent:
-                  <span class="font-semibold text-base-content">{{
-                    activeAgentName()
-                  }}</span>
-                </div>
-                <div>
-                  Events:
-                  <span class="font-semibold text-base-content">{{
-                    feedCounts().all
-                  }}</span>
-                </div>
-                @if (lastErrorLabel(); as lastError) {
-                  <div class="truncate text-error" [title]="lastError">
-                    Last error: {{ lastError }}
+                <span>Assistant recap</span>
+                <span
+                  class="shrink-0 rounded border px-1.5 py-px font-mono text-[9px] font-bold uppercase"
+                  [class.border-primary/30]="summary().status.tone === 'live'"
+                  [class.bg-primary/10]="summary().status.tone === 'live'"
+                  [class.text-primary]="summary().status.tone === 'live'"
+                  [class.border-success/30]="
+                    summary().status.tone === 'success'
+                  "
+                  [class.bg-success/10]="summary().status.tone === 'success'"
+                  [class.text-success]="summary().status.tone === 'success'"
+                  [class.border-warning/30]="
+                    summary().status.tone === 'warning'
+                  "
+                  [class.bg-warning/10]="summary().status.tone === 'warning'"
+                  [class.text-warning]="summary().status.tone === 'warning'"
+                  [class.border-error/30]="summary().status.tone === 'error'"
+                  [class.bg-error/10]="summary().status.tone === 'error'"
+                  [class.text-error]="summary().status.tone === 'error'"
+                  [class.border-base-content/20]="
+                    summary().status.tone === 'idle'
+                  "
+                  [class.bg-base-content/5]="summary().status.tone === 'idle'"
+                  [class.text-base-content-muted]="
+                    summary().status.tone === 'idle'
+                  "
+                >
+                  {{ outcomeTag() }}
+                </span>
+              </div>
+
+              <div class="cs-recap-scroll my-2 pr-1">
+                @if (summary().content.format === 'markdown') {
+                  <div class="cs-recap-md">
+                    <ptah-markdown-block [content]="summary().content.text" />
                   </div>
+                } @else if (summary().content.format === 'snippet') {
+                  <pre
+                    class="cs-recap-snippet font-mono text-[11px] leading-snug text-error"
+                    data-testid="cs-recap-snippet"
+                    >{{ summary().content.text }}</pre>
+                } @else {
+                  <p
+                    class="whitespace-pre-line text-xs leading-relaxed"
+                    [class.text-error]="summary().content.kind === 'error'"
+                    [class.text-base-content]="
+                      summary().content.kind !== 'error'
+                    "
+                  >
+                    {{ summary().content.text }}
+                  </p>
+                }
+                @if (summary().content.additionalPromptCount > 0) {
+                  <span
+                    class="mt-1 inline-block text-[11px] font-semibold text-warning"
+                  >
+                    +{{ summary().content.additionalPromptCount }} more
+                  </span>
                 }
               </div>
-              @if (summary().content.actionable) {
-                <button
-                  type="button"
-                  class="btn btn-primary btn-xs w-full"
-                  (click)="openFullView.emit()"
-                >
-                  Open full view
-                </button>
-              }
-            </div>
-          </div>
 
-          @if (handleVisible()) {
-            <ptah-split-handle
-              data-testid="cs-split-handle"
-              [orientation]="handleOrientation()"
-              [size]="handleSize()"
-              [min]="handleMin()"
-              [max]="handleMax()"
-              [label]="splitHandleLabel()"
-              (sizeChange)="onSplitSizeChange($event)"
-              (sizeReset)="onSplitReset()"
-            />
-          }
-
-          <div class="cs-feed-pane" data-zone="feed">
-            <div
-              class="flex shrink-0 items-center justify-between border-b border-base-content/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
-            >
-              <span>Teletype wire stream</span>
-              <span class="cs-feed-counter"
-                >{{ summary().marks.length }} EVENTS</span
-              >
-              <div
-                class="cs-filter-chips items-center gap-1 font-mono text-[10px]"
-              >
-                <button
-                  type="button"
-                  class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
-                  [class.bg-base-300]="activeFilter() === 'all'"
-                  [class.text-base-content]="activeFilter() === 'all'"
-                  [class.font-bold]="activeFilter() === 'all'"
-                  [class.text-base-content-muted]="activeFilter() !== 'all'"
-                  [class.hover:text-base-content]="activeFilter() !== 'all'"
-                  [attr.aria-pressed]="activeFilter() === 'all'"
-                  (click)="setFilter('all')"
+              <div class="flex shrink-0 flex-col gap-2 pt-1">
+                <div
+                  class="cs-agent-context rounded border border-base-content/10 bg-base-300/20 p-2 font-mono text-[10px] text-base-content-muted"
                 >
-                  ALL ({{ feedCounts().all }})
-                </button>
-                <span class="text-base-content-muted" aria-hidden="true"
-                  >&bull;</span
-                >
-                <button
-                  type="button"
-                  class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
-                  [class.bg-error/20]="activeFilter() === 'error'"
-                  [class.text-error]="
-                    activeFilter() === 'error' || feedCounts().error > 0
-                  "
-                  [class.font-bold]="activeFilter() === 'error'"
-                  [class.text-base-content-muted]="
-                    activeFilter() !== 'error' && feedCounts().error === 0
-                  "
-                  [attr.aria-pressed]="activeFilter() === 'error'"
-                  (click)="setFilter('error')"
-                >
-                  ERR ({{ feedCounts().error }})
-                </button>
-                <span class="text-base-content-muted" aria-hidden="true"
-                  >&bull;</span
-                >
-                <button
-                  type="button"
-                  class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
-                  [class.bg-warning/20]="activeFilter() === 'warn'"
-                  [class.text-warning]="
-                    activeFilter() === 'warn' || feedCounts().warn > 0
-                  "
-                  [class.font-bold]="activeFilter() === 'warn'"
-                  [class.text-base-content-muted]="
-                    activeFilter() !== 'warn' && feedCounts().warn === 0
-                  "
-                  [attr.aria-pressed]="activeFilter() === 'warn'"
-                  (click)="setFilter('warn')"
-                >
-                  WARN ({{ feedCounts().warn }})
-                </button>
-              </div>
-            </div>
-
-            <ul
-              #feedList
-              class="min-h-0 flex-1 overflow-y-auto"
-              role="list"
-              aria-label="Session activity feed"
-            >
-              @for (row of feedRows(); track row.mark.id) {
-                <li
-                  class="flex flex-col border-l-2 border-transparent transition-colors hover:bg-base-content/5"
-                  [class.border-error]="row.mark.tone === 'error'"
-                  [class.bg-error/5]="row.mark.tone === 'error'"
-                  [class.border-warning]="row.mark.tone === 'warning'"
-                  [class.bg-warning/5]="row.mark.tone === 'warning'"
-                  [class.border-primary]="row.mark.tone === 'live'"
-                  [class.bg-primary/5]="row.mark.tone === 'live'"
-                  role="listitem"
-                >
-                  <div
-                    class="cs-row-line flex items-center gap-2 rounded px-2.5 py-1 font-mono text-[11px] leading-snug outline-none focus-visible:bg-primary/10"
-                    [class.cursor-pointer]="row.detail !== null"
-                    [attr.role]="row.detail !== null ? 'button' : null"
-                    [attr.tabindex]="row.detail !== null ? 0 : null"
-                    [attr.aria-expanded]="
-                      row.detail !== null
-                        ? activeExpandedMarkId() === row.mark.id
-                        : null
-                    "
-                    [attr.aria-controls]="
-                      row.detail !== null ? row.mark.id + '-detail' : null
-                    "
-                    [attr.title]="row.title"
-                    (click)="toggleExpanded(row)"
-                    (keydown)="onRowKeydown($event, row)"
-                  >
-                    <span
-                      class="w-[50px] shrink-0 text-[10px] tabular-nums text-base-content-muted"
-                    >
-                      {{ formatWireTime(row.mark.timestamp) }}
-                    </span>
-                    @if (row.tool; as tool) {
-                      <ptah-tool-icon
-                        class="inline-flex shrink-0"
-                        aria-hidden="true"
-                        [toolName]="tool.name"
-                      />
-                      <span
-                        [class]="tool.badgeClass"
-                        data-testid="cs-tool-badge"
-                      >
-                        <span class="truncate">{{ tool.displayName }}</span>
-                      </span>
-                    } @else {
-                      <span [class]="wireBadgeClass(row.mark)">
-                        <span aria-hidden="true">{{
-                          toneGlyph(row.mark.tone)
-                        }}</span>
-                        {{ kindLabel(row.mark.kind) }}
-                      </span>
-                    }
-                    <span class="min-w-0 flex-1 truncate">
-                      {{ row.text }}
-                      @if (newestLiveMarkId() === row.mark.id) {
-                        <span class="blinking-cursor" aria-hidden="true"></span>
-                      }
-                    </span>
-                    @if (
-                      row.tool &&
-                      (row.mark.tone === 'success' || row.mark.tone === 'error')
-                    ) {
-                      <lucide-angular
-                        [img]="row.mark.tone === 'success' ? CheckIcon : XIcon"
-                        class="h-3 w-3 shrink-0"
-                        [class.text-success]="row.mark.tone === 'success'"
-                        [class.text-error]="row.mark.tone === 'error'"
-                        aria-hidden="true"
-                      />
-                    }
+                  <div>
+                    Agent:
+                    <span class="font-semibold text-base-content">{{
+                      activeAgentName()
+                    }}</span>
                   </div>
-                  @if (
-                    row.detail !== null &&
-                    activeExpandedMarkId() === row.mark.id
-                  ) {
-                    <div
-                      class="cs-row-detail mb-1 ml-2.5 mr-2.5 rounded border border-base-content/10 bg-base-content/5 px-2 py-1.5 font-mono text-[10px] leading-normal text-base-content-muted"
-                      [attr.id]="row.mark.id + '-detail'"
-                    >
-                      {{ row.detail }}
+                  <div>
+                    Events:
+                    <span class="font-semibold text-base-content">{{
+                      feedCounts().all
+                    }}</span>
+                  </div>
+                  @if (lastErrorLabel(); as lastError) {
+                    <div class="truncate text-error" [title]="lastError">
+                      Last error: {{ lastError }}
                     </div>
                   }
-                </li>
-              } @empty {
-                <li
-                  class="px-3 py-2 font-mono text-[10px] text-base-content-muted"
-                  role="listitem"
-                >
-                  No matching events
-                </li>
-              }
-            </ul>
-
-            <div
-              class="cs-terminal-footer shrink-0 items-center justify-between border-t border-dashed border-base-content/15 bg-base-300/20 px-3 py-1.5 font-mono text-[10px] text-base-content-muted"
-            >
-              <div class="flex items-center gap-1 truncate">
-                <span class="font-semibold text-primary">ptah</span>:<span
-                  class="text-info"
-                  >{{ summary().status.workspaceLabel }}</span
-                >$
-                <span class="font-medium text-base-content">{{
-                  terminalPromptStatus()
-                }}</span>
-                @if (summary().status.tone === 'live') {
-                  <span class="blinking-cursor" aria-hidden="true"></span>
+                </div>
+                @if (summary().content.actionable) {
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-xs w-full"
+                    (click)="openFullView.emit()"
+                  >
+                    Open full view
+                  </button>
                 }
               </div>
-              <span class="shrink-0 text-[10px] tabular-nums"
-                >{{ summary().marks.length }} events</span
+            </div>
+
+            @if (handleVisible()) {
+              <ptah-split-handle
+                data-testid="cs-split-handle"
+                [orientation]="handleOrientation()"
+                [size]="handleSize()"
+                [min]="handleMin()"
+                [max]="handleMax()"
+                [label]="splitHandleLabel()"
+                (sizeChange)="onSplitSizeChange($event)"
+                (sizeReset)="onSplitReset()"
+              />
+            }
+
+            <div class="cs-feed-pane" data-zone="feed">
+              <div
+                class="flex shrink-0 items-center justify-between border-b border-base-content/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-base-content-muted"
               >
+                <span>Teletype wire stream</span>
+                <span class="cs-feed-counter"
+                  >{{ summary().marks.length }} EVENTS</span
+                >
+                <div
+                  class="cs-filter-chips items-center gap-1 font-mono text-[10px]"
+                >
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
+                    [class.bg-base-300]="activeFilter() === 'all'"
+                    [class.text-base-content]="activeFilter() === 'all'"
+                    [class.font-bold]="activeFilter() === 'all'"
+                    [class.text-base-content-muted]="activeFilter() !== 'all'"
+                    [class.hover:text-base-content]="activeFilter() !== 'all'"
+                    [attr.aria-pressed]="activeFilter() === 'all'"
+                    (click)="setFilter('all')"
+                  >
+                    ALL ({{ feedCounts().all }})
+                  </button>
+                  <span class="text-base-content-muted" aria-hidden="true"
+                    >&bull;</span
+                  >
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
+                    [class.bg-error/20]="activeFilter() === 'error'"
+                    [class.text-error]="
+                      activeFilter() === 'error' || feedCounts().error > 0
+                    "
+                    [class.font-bold]="activeFilter() === 'error'"
+                    [class.text-base-content-muted]="
+                      activeFilter() !== 'error' && feedCounts().error === 0
+                    "
+                    [attr.aria-pressed]="activeFilter() === 'error'"
+                    (click)="setFilter('error')"
+                  >
+                    ERR ({{ feedCounts().error }})
+                  </button>
+                  <span class="text-base-content-muted" aria-hidden="true"
+                    >&bull;</span
+                  >
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded px-1.5 py-0.5 transition-colors"
+                    [class.bg-warning/20]="activeFilter() === 'warn'"
+                    [class.text-warning]="
+                      activeFilter() === 'warn' || feedCounts().warn > 0
+                    "
+                    [class.font-bold]="activeFilter() === 'warn'"
+                    [class.text-base-content-muted]="
+                      activeFilter() !== 'warn' && feedCounts().warn === 0
+                    "
+                    [attr.aria-pressed]="activeFilter() === 'warn'"
+                    (click)="setFilter('warn')"
+                  >
+                    WARN ({{ feedCounts().warn }})
+                  </button>
+                </div>
+              </div>
+
+              <ul
+                #feedList
+                class="min-h-0 flex-1 overflow-y-auto"
+                role="list"
+                aria-label="Session activity feed"
+              >
+                @for (row of feedRows(); track row.mark.id) {
+                  <li
+                    class="flex flex-col border-l-2 border-transparent transition-colors hover:bg-base-content/5"
+                    [class.border-error]="row.mark.tone === 'error'"
+                    [class.bg-error/5]="row.mark.tone === 'error'"
+                    [class.border-warning]="row.mark.tone === 'warning'"
+                    [class.bg-warning/5]="row.mark.tone === 'warning'"
+                    [class.border-primary]="row.mark.tone === 'live'"
+                    [class.bg-primary/5]="row.mark.tone === 'live'"
+                    role="listitem"
+                  >
+                    <div
+                      class="cs-row-line flex items-center gap-2 rounded px-2.5 py-1 font-mono text-[11px] leading-snug outline-none focus-visible:bg-primary/10"
+                      [class.cursor-pointer]="row.detail !== null"
+                      [attr.role]="row.detail !== null ? 'button' : null"
+                      [attr.tabindex]="row.detail !== null ? 0 : null"
+                      [attr.aria-expanded]="
+                        row.detail !== null
+                          ? activeExpandedMarkId() === row.mark.id
+                          : null
+                      "
+                      [attr.aria-controls]="
+                        row.detail !== null ? row.mark.id + '-detail' : null
+                      "
+                      [attr.title]="row.title"
+                      (click)="toggleExpanded(row)"
+                      (keydown)="onRowKeydown($event, row)"
+                    >
+                      <span
+                        class="w-[50px] shrink-0 text-[10px] tabular-nums text-base-content-muted"
+                      >
+                        {{ formatWireTime(row.mark.timestamp) }}
+                      </span>
+                      @if (row.tool; as tool) {
+                        <ptah-tool-icon
+                          class="inline-flex shrink-0"
+                          aria-hidden="true"
+                          [toolName]="tool.name"
+                        />
+                        <span
+                          [class]="tool.badgeClass"
+                          data-testid="cs-tool-badge"
+                        >
+                          <span class="truncate">{{ tool.displayName }}</span>
+                        </span>
+                      } @else {
+                        <span [class]="wireBadgeClass(row.mark)">
+                          <span aria-hidden="true">{{
+                            toneGlyph(row.mark.tone)
+                          }}</span>
+                          {{ kindLabel(row.mark.kind) }}
+                        </span>
+                      }
+                      <span class="min-w-0 flex-1 truncate">
+                        {{ row.text }}
+                        @if (newestLiveMarkId() === row.mark.id) {
+                          <span
+                            class="blinking-cursor"
+                            aria-hidden="true"
+                          ></span>
+                        }
+                      </span>
+                      @if (
+                        row.tool &&
+                        (row.mark.tone === 'success' ||
+                          row.mark.tone === 'error')
+                      ) {
+                        <lucide-angular
+                          [img]="
+                            row.mark.tone === 'success' ? CheckIcon : XIcon
+                          "
+                          class="h-3 w-3 shrink-0"
+                          [class.text-success]="row.mark.tone === 'success'"
+                          [class.text-error]="row.mark.tone === 'error'"
+                          aria-hidden="true"
+                        />
+                      }
+                    </div>
+                    @if (
+                      row.detail !== null &&
+                      activeExpandedMarkId() === row.mark.id
+                    ) {
+                      <div
+                        class="cs-row-detail mb-1 ml-2.5 mr-2.5 rounded border border-base-content/10 bg-base-content/5 px-2 py-1.5 font-mono text-[10px] leading-normal text-base-content-muted"
+                        [attr.id]="row.mark.id + '-detail'"
+                      >
+                        {{ row.detail }}
+                      </div>
+                    }
+                  </li>
+                } @empty {
+                  <li
+                    class="px-3 py-2 font-mono text-[10px] text-base-content-muted"
+                    role="listitem"
+                  >
+                    No matching events
+                  </li>
+                }
+              </ul>
+
+              <div
+                class="cs-terminal-footer shrink-0 items-center justify-between border-t border-dashed border-base-content/15 bg-base-300/20 px-3 py-1.5 font-mono text-[10px] text-base-content-muted"
+              >
+                <div class="flex items-center gap-1 truncate">
+                  <span class="font-semibold text-primary">ptah</span>:<span
+                    class="text-info"
+                    >{{ summary().status.workspaceLabel }}</span
+                  >$
+                  <span class="font-medium text-base-content">{{
+                    terminalPromptStatus()
+                  }}</span>
+                  @if (summary().status.tone === 'live') {
+                    <span class="blinking-cursor" aria-hidden="true"></span>
+                  }
+                </div>
+                <span class="shrink-0 text-[10px] tabular-nums"
+                  >{{ summary().marks.length }} events</span
+                >
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      }
 
-      <ptah-compact-session-stats
+      @if (lanes(); as laneData) {
+        <div
+          class="cs-lanes flex min-w-0 flex-col gap-0.5 overflow-hidden border-t border-base-content/10 px-3 py-1"
+          data-zone="lanes"
+        >
+          <ptah-compact-session-lanes
+            [lanes]="laneData"
+            [now]="now()"
+            [showRows]="callout() === null"
+            (laneSelected)="laneSelected.emit($event)"
+          />
+
+          @if (callout()) {
+            <ptah-compact-session-callout
+              [callout]="callout()"
+              (allow)="allow.emit($event)"
+              (deny)="deny.emit($event)"
+              (answer)="answer.emit()"
+              (openRequest)="openRequest.emit($event)"
+              (retry)="retry.emit()"
+              (showOutput)="showOutput.emit()"
+            />
+          }
+        </div>
+      }
+
+      <div
         data-zone="metrics"
-        [metrics]="summary().metrics"
-      />
+        class="flex min-w-0 items-center overflow-hidden"
+      >
+        <ptah-compact-session-stats
+          class="min-w-0 flex-1"
+          [metrics]="boardLayout() ? boardMetrics() : summary().metrics"
+        />
+        @if (boardLayout()) {
+          @let todo = todos();
+          @let git = gitStats();
+          <span
+            class="flex shrink-0 items-center gap-1 font-mono text-[10px]"
+            aria-label="Todos"
+            [title]="todoTitle(todo)"
+          >
+            @if (todo?.kind === 'known') {
+              <span>☑ {{ todo.done }}/{{ todo.total }}</span>
+              <progress
+                class="progress progress-success w-8"
+                [value]="todo.done"
+                [max]="todo.total"
+                aria-label="Todos"
+              ></progress>
+            } @else {
+              <span>—</span>
+            }
+          </span>
+          <span
+            class="shrink-0 px-2 font-mono text-[10px] text-base-content-muted"
+            aria-label="Context usage"
+            [title]="
+              contextPercent() === null ? 'Context unknown' : 'Context usage'
+            "
+            >Context
+            {{
+              contextPercent() === null ? '—' : roundedContextPercent() + '%'
+            }}</span
+          >
+          <span
+            class="shrink-0 pr-3 font-mono text-[10px]"
+            aria-label="Lines added and removed"
+            [title]="gitTitle(git)"
+          >
+            @if (git?.kind === 'known') {
+              <span class="text-success">+{{ git.additions }}</span>
+              <span class="text-error"> −{{ git.deletions }}</span>
+              @if (git.partial) {
+                <span>+</span>
+              }
+            } @else {
+              —
+            }
+          </span>
+        }
+      </div>
     </section>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactSessionActivityComponent {
+  readonly todoTitle = todoTitle;
+  readonly gitTitle = gitTitle;
   readonly summary = input.required<CompactSessionSummary>();
   readonly openFullView = output<void>();
+
+  /**
+   * Lane data for the board layout. `null` keeps the original four-zone body;
+   * a value (even with no lanes) adds the sub line and the Lanes zone.
+   */
+  readonly lanes = input<CompactLaneSummary | null>(null);
+  /** A callout replaces the lane rows; the lane summary line stays. */
+  readonly callout = input<CompactCallout>(null);
+  /** Clock (ms since epoch) for lane elapsed times; 0 means no clock. */
+  readonly now = input<number>(0);
+  readonly branch = input<string | null>(null);
+  /** Session elapsed time in ms; `null` shows the placeholder. */
+  readonly elapsed = input<number | null>(null);
+  readonly contextPercent = input<number | null>(null);
+  readonly todos = input<CompactTodoState | null>(null);
+  readonly gitStats = input<CompactGitState | null>(null);
+  readonly roundedContextPercent = computed(() =>
+    Math.round(this.contextPercent() ?? 0),
+  );
+
+  readonly allow = output<CompactPermissionCallout>();
+  readonly deny = output<CompactPermissionCallout>();
+  readonly answer = output<void>();
+  readonly openRequest = output<CompactPermissionCallout>();
+  readonly showOutput = output<void>();
+  readonly retry = output<void>();
+  /** Emits the lane key (`CompactLaneRow.id`) of the selected row. */
+  readonly laneSelected = output<string>();
+
+  readonly boardLayout = computed(() => this.lanes() !== null);
+  readonly boardMetrics = computed(() => ({
+    ...this.summary().metrics,
+    model: null,
+  }));
+
+  readonly nowActivity = computed(
+    () => stripMarkdownToPlainText(this.summary().content.text) || '—',
+  );
+
+  readonly sessionElapsedLabel = computed(() => {
+    const elapsed = this.elapsed();
+    return elapsed === null ? '\u2014' : formatBoardDuration(elapsed);
+  });
+
   protected readonly CheckIcon = CheckCircle;
   protected readonly XIcon = XCircle;
 
@@ -947,9 +1149,14 @@ export class CompactSessionActivityComponent {
 
   private setupFeedScrollListener(element: HTMLElement | undefined): void {
     if (!element || element === this.feedScrollElement) return;
-    this.feedScrollElement?.removeEventListener('scroll', this.feedScrollHandler);
+    this.feedScrollElement?.removeEventListener(
+      'scroll',
+      this.feedScrollHandler,
+    );
     this.ngZone.runOutsideAngular(() => {
-      element.addEventListener('scroll', this.feedScrollHandler, { passive: true });
+      element.addEventListener('scroll', this.feedScrollHandler, {
+        passive: true,
+      });
     });
     this.feedScrollElement = element;
   }
