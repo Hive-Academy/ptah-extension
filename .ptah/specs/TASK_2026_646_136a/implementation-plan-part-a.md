@@ -259,26 +259,47 @@ Paths are relative to the worktree root
     Integration note (Gate 2 revision 1 finding 6, Req 1.5): a recent version does not prove the route
     exists, so the Ollama probe has a second step, a route capability check. When the version passes, the
     probe sends `POST {base}/v1/systemone` with the body `{}`. That body names no model and no input, so it
-    cannot start inference. Both steps share the one 1500 ms budget. Result mapping:
-    - HTTP 404 or 405 whose body is not a JSON object with an `error` field (Go's router answers
-      `404 page not found` as plain text) → `unsupported-endpoint`, detail
-      `endpoint does not serve /v1/systemone`.
-    - Any other HTTP answer (400 or 422 for the empty body, or 2xx) → `ready`. This includes a JSON 404
-      such as model-not-found, because it shows the route exists.
-    - Network error or timeout → `unreachable`.
-    The version check still runs first, so an old Ollama reports its version in `detail` and the POST is
-    skipped.
-    Live calls feed the same state. The System One client (below) marks a failure `routeMissing: true`
-    when a call gets the same non-JSON 404/405. The pipeline (§6, A8) then calls
-    `DecisionModelStatus.markUnsupported(baseUrl)`. That status stays in the status cache until the
-    selection or base URL changes or a later probe passes, so the row shows `unsupported-endpoint` even when
-    an earlier probe passed. The Req 12.7 cause of that call stays `provider-error`.
+    cannot start inference. Both steps share the one 1500 ms budget.
+    Route discriminator (Gate 2 revision 2 finding 3; replaces revision 1's "any JSON 404/405 → ready").
+    A 404/405 alone cannot tell a missing route from a route-level "not found", and a body with an
+    `error` field may come from the server's generic not-found handler. So, in parallel with the
+    System One POST, the probe sends the same `POST` with the same `{}` body to a control path that no
+    server serves, `{base}/v1/systemone-ptah-probe-absent`. The control's answer is that server's
+    generic missing-route answer. Normalisation for comparison: HTTP status, plus the body with every
+    occurrence of the request path replaced by `<path>` (some servers echo the path), and parsed as JSON
+    when it parses (compared by value) or else trimmed text. Result mapping:
+    - System One answer is 2xx, 400 or 422 and differs from the control's normalised answer → `ready`.
+      These are the route-specific shapes: a decision result, or a validation error for the empty body.
+    - System One answer is 404 or 405 and differs from the control's normalised answer (for example
+      `{"error":"model is required"}` against a control `404 page not found`) → `ready`, detail
+      `route answered <status>`.
+    - System One answer equals the control's normalised answer, whatever its status or body (for example
+      both `404 {"error":"not found"}`, or both `404 page not found`) → `unsupported-endpoint`, detail
+      `endpoint does not serve /v1/systemone`. An ambiguous answer is unsupported until a route-specific
+      answer is observed.
+    - Any other status (401/403, 5xx) → the existing mapping (`auth`, `provider-error`); it does not
+      count as route evidence.
+    - The control request fails (network error or timeout) while the System One request answered 404/405
+      → `unsupported-endpoint` (ambiguous, so unsupported). Network error or timeout of the System One
+      request → `unreachable`.
+    The version check still runs first, so an old Ollama reports its version in `detail` and neither POST
+    is sent.
+    Live calls feed the same state, and the result is persisted. The System One client (below) marks a
+    live failure `routeMissing: true` when a call gets HTTP 404 or 405 (a live call names a model and an
+    input, so a 404/405 there means the route, or the named model on it, cannot serve the call); the
+    detail carries the body's `error` text cut to 200 characters, so a model-not-found answer is visible
+    in the row. The pipeline (§6, A8) then calls `DecisionModelStatus.markUnsupported(baseUrl, detail)`.
+    `DecisionModelStatus` persists that mark through `PLATFORM_TOKENS.STATE_STORAGE` under
+    `ptah.decisionModel.unsupported.v1` as `{ selection, baseUrl, detail, at }` and reloads it at start,
+    so the row shows `unsupported-endpoint` after a restart too. The mark is cleared when the selection or
+    base URL changes, or when a later probe returns `ready` by the discriminator above. The Req 12.7 cause
+    of that call stays `provider-error`.
   - `LR/decision-model/system-one.client.ts`: raw `fetch` POST to `{base}/v1/systemone` (Ollama base
     from `provider.ollama.baseUrl`, default `http://127.0.0.1:11434`; Jev base
     `https://api.typesafe.ai`), `Authorization: Bearer` for Jev only, `AbortSignal.timeout(3000)`,
     body size checked before send, response validated with Zod, HTTP 401/403 → `auth`, network error
-    → `unreachable`, other non-2xx → `provider-error` (with `routeMissing: true` for a non-JSON 404/405,
-    finding 6), schema failure → `bad-output`. No retries.
+    → `unreachable`, other non-2xx → `provider-error` (with `routeMissing: true` for any 404/405, Gate 2
+    revision 2 finding 3), schema failure → `bad-output`. No retries.
   - `LR/decision-model/structured-decision.port.ts`: `StructuredDecisionCompleter` interface; the
     pipeline renders each question as an enum property of one JSON schema and maps the answer to
     the same `DecisionAnswer` shape with `confidence: null` (Req 1.8). Any model-supplied text field
@@ -295,11 +316,19 @@ Paths are relative to the worktree root
   limit); config spec with in-memory ports (unset sends nothing — Req 1.3). Probe spec (finding 6,
   Req 1.5), stub `fetch`: `/api/version` answers `0.40.0` and `POST /v1/systemone` answers 404
   `404 page not found` (text/plain) → `unsupported-endpoint` with the route detail; same version with
-  400 JSON → `ready`; JSON 404 `{"error":"model not found"}` → `ready`; version `0.34.2` → unsupported with
-  the version detail and no POST sent; POST past the shared 1500 ms budget (fake timers) → `unreachable`.
-  Client spec: plain-text 404 → `provider-error` with `routeMissing: true`; JSON 404 → `routeMissing`
-  absent. Status spec: `markUnsupported(base)` after a passing probe → `unsupported-endpoint` until the base
-  URL changes. Pipeline spec (A8): a live call with `routeMissing` → `markUnsupported` called once.
+  400 JSON → `ready`; version `0.34.2` → unsupported with the version detail and no POST sent; POST past
+  the shared 1500 ms budget (fake timers) → `unreachable`. Gate 2 revision 2 (finding 3), each with
+  version `0.40.0`: System One and control both `404 {"error":"not found"}` → `unsupported-endpoint`;
+  both `404 {"error":"path /v1/systemone not found"}` and `…/v1/systemone-ptah-probe-absent…` (path echoed)
+  → `unsupported-endpoint`; System One `400 {"error":"model is required"}` (route-specific validation
+  error) with control `404 page not found` → `ready`; System One `404 {"error":"model \"\" not found"}`
+  with control `404 {"error":"not found"}` → `ready`; both `200 {}` (catch-all proxy) →
+  `unsupported-endpoint`; System One 404 with a control that times out → `unsupported-endpoint`.
+  Client spec: plain-text 404 and JSON 404 → `provider-error` with `routeMissing: true` and the `error`
+  text in the detail. Status spec: `markUnsupported(base, detail)` after a passing probe →
+  `unsupported-endpoint`; a new status instance over the same fake `IStateStorage` (restart) still shows
+  it; a base URL change or a later `ready` probe clears it. Pipeline spec (A8): a live call answering 404
+  → `markUnsupported` called once and the row shows `unsupported-endpoint`.
 - Files: CREATE `LR/decision-model/{decision-model.types.ts,decision-model.config.ts,system-one.client.ts,system-one.schema.ts,structured-decision.port.ts,decision-payload.ts}`
   plus specs.
 
@@ -505,14 +534,16 @@ Paths are relative to the worktree root
   kinds. Report subagent deliverables and review verdicts per Req 8.7 using pass B's tool/contract
   (resolved by implementation-plan.md R3):
   - Lane spawns pass `taskKind` and `routingSource` from the Gate 0.1 row.
-  - After each subagent run, read the `agentId` from that run's Agent tool result (integration note, Gate 2
-    revision 1 finding 4; integrated SC-7 target rules) and call `ptah_outcome_report` with
-    `kind:'deliverables'` and `target:{agentId:<that id>}`, plus paths, `taskKind`, `taskId` and
-    `routingSource`. Keep the returned `runId` with that run in the skill's own notes. Do this for every run,
-    including a second run of the same agent and runs that ran at the same time; never use the slug when the
-    `agentId` is known.
-  - Only when the tool result shows no `agentId`, use `target:{subagent:<slug>}`. If the tool answers
-    "ambiguous", do not guess: record the run as unreported in the task notes and continue.
+  - After each subagent run, take that run's target from its Agent tool result (integration note, Gate 2
+    revision 2 finding 2; integrated SC-7 target rules), in this order: the Ptah run tag line
+    `ptah-run: runId=subagent:<agentId>` → `target:{runId:'subagent:<agentId>'}`; else the SDK's
+    `agentId: <id>` line → `target:{agentId:<id>}`. Call `ptah_outcome_report` with `kind:'deliverables'`,
+    that target, the paths, `taskKind`, `taskId` and `routingSource`. Keep the run id with that run in the
+    skill's own notes (for a background run, keep it from the launch result and report when the run's
+    completion notice arrives). Do this once for every run, including a second run of the same agent and runs
+    that ran at the same time. A `held` or `queued` answer counts as reported; Ptah joins it when the run's
+    stop is recorded, so do not repeat the call.
+  - When the result shows neither line, Ptah holds no record for that run; make no report for it.
   - After each review verdict, call `ptah_outcome_report` with `kind:'review'` and `target:{runId}` (the
     `runId` kept for the reviewed run), or `{agentId}` for a lane run.
   - When the tool is not listed, skip silently.

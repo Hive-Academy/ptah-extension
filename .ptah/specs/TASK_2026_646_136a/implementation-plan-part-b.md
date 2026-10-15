@@ -212,7 +212,9 @@ export interface AgentOutcomeSignals {
 - Integration points: Component 3 (SQLite store), Component 6 (`run_id` writer and seam reader).
 - Failure behaviour: the runner applies each version once (`0037:39-44`). A failed migration fails the DB open as for
   every other migration; the outcome store then reports `persistent: false` (Component 3), and lane and
-  subagent ops wait in the bounded SC-10 journal until a later start opens the DB (integration note).
+  subagent ops wait in the bounded SC-10 journal until a later start opens the DB (integration note). Gate 2
+  revision 2: 0054 also creates `lane_outcome_report_receipts` (SC-10 keys) and `lane_outcome_held_reports`
+  (SC-7 report hold), each with static SQL and its index.
 - Quality requirements: static SQL only (ESLint `no-template-curly-in-migration`).
 - Verification seam: one spec per migration in the `0037_*.spec.ts` style (applies on an in-memory DB, asserts
   columns and the index query plan); `npx nx test persistence-sqlite --parallel=1`.
@@ -228,7 +230,9 @@ export interface AgentOutcomeSignals {
     every recorder write goes through the pipeline. `InMemoryLaneOutcomeStore` is the test double only.
   - `LaneOutcomeStore` interface with `SqliteLaneOutcomeStore` and `InMemoryLaneOutcomeStore`, selected lazily as in
     `task-specs/src/lib/di/register.ts:78-86`. Operations: `insertIfAbsent(row)`, `update(runId, patch)`,
-    `get(runId)`, `findLatestByAgent(agentId)`, `findOpenSubagentRuns(slug, sinceMs)`, `listByLane(laneId, sinceMs)`,
+    `get(runId)`, `findLatestByAgent(agentId)`, `listByLane(laneId, sinceMs)` (Gate 2 revision 2: `findOpenSubagentRuns`
+    is removed with the slug target; `holdReport`, `takeHeldReports(runId)`, `expireHeldReports(nowMs)` and
+    `hasReceipt(reportId)` are added, integrated SC-7 and SC-10),
     `listByRoles(slugs, sinceMs)`. `isPersistent(): boolean` (`true` only for SQLite with `isOpen`,
     `sqlite-connection.service.ts:450`).
   - `LaneOutcomeRecorder` (write side, every method never throws, logs and returns):
@@ -298,8 +302,10 @@ export interface SkillTelemetrySeam {
   and registered under a lib-owned token. There is no `vscode-core` import. Must NOT import skill-synthesis, cli-agent-runtime, or any Thoth lib (VS Code is Thoth-free).
 - Integration points: notifier (Component 4), skill-synthesis adapter (Component 6), RPC handler (Component 7), MCP
   report tool (Component 8), pass A routing (reads `LANE_OUTCOME_TOKENS.READER`).
-- Failure behaviour (integration note: SC-10 governs queueing, journal, retry and shutdown): DB not yet open →
-  fire-and-forget ops journaled and replayed on open; store throw → one `warn` log (ids only); lane
+- Failure behaviour (integration note: SC-10 governs queueing, journal, retry and shutdown; Gate 2 revision 2:
+  per-op acknowledgement, permanent/transient failure classes with backoff retry, backlog mode, 5 000-entry
+  journal that refuses the newest op with a durable counter, receipts and held reports per integrated SC-7
+  and SC-10): DB not yet open → ops journaled and applied in order on open; store throw → one `warn` log (ids only); lane
   completion unaffected (Req 5.9); seam unbound (VS Code) → subagent records `telemetryJoin: 'unavailable'`,
   metrics null, `skillsLoaded: null`; seam throws → same as unbound for that read, logged. Partial records are
   impossible: one INSERT per record; later facts are `UPDATE` patches on an existing `run_id`.
@@ -389,6 +395,15 @@ export interface SkillTelemetrySeam {
 - Files: CREATE `libs/backend/agent-sdk/src/lib/helpers/subagent-budget-stop-callback-registry.ts` (+ spec);
   MODIFY `libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts` (+ spec), MODIFY
   `libs/backend/agent-sdk/src/lib/di/register.ts`, the agent-sdk tokens file and `libs/backend/agent-sdk/src/index.ts`.
+- Integration note (Gate 2 revision 2 finding 2): this batch also adds the Ptah run tag of integrated SC-7.
+  CREATE `libs/backend/agent-sdk/src/lib/helpers/subagent-run-tag.ts` (+ spec; pure function, tag grammar
+  `ptah-run: runId=subagent:<agentId>`); MODIFY `libs/backend/agent-sdk/src/lib/helpers/post-tool-use-hook-handler.ts`
+  (+ spec): the constructor gains a last, optional parameter `@inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+  subagentRegistry?` (the token `subagent-hook-handler.ts:67` already injects; optional like the two notice
+  queues at `post-tool-use-hook-handler.ts:68-73`, because specs construct the handler with two arguments,
+  e.g. `post-tool-use-hook-handler.spec.ts:47` and `hook-session-resolver.spec.ts:93`). Without it the tag
+  comes from `tool_response.agentId` only. `createHooks` appends the tag to `additionalContext` for a
+  main-thread `Agent`/`Task` result. The hook still never throws. Fixtures: integrated SC-7 "Tag path".
 
 ### 6. Kept skill-synthesis stores, fixed in place (decision #23 items 1-3)
 
@@ -487,8 +502,8 @@ type OutcomeTarget =
   | { runId: string }                 // exact
   | { agentId: string }               // integration note (finding 4): subagent `subagent:${agentId}` first, then the
                                       // newest lane record of that agent; full rules in integrated SC-7
-  | { subagent: string };             // fallback only; open = no deliverables declared (deliverables) or no final
-                                      // review (review); >1 → error "ambiguous", nothing written (SC-7)
+                                      // Gate 2 revision 2: the `{ subagent }` slug form is removed; the skill
+                                      // uses the Ptah run tag `{ runId }` first (integrated SC-7, decision #41)
 type OutcomeReportArgs =
   | { kind: 'deliverables'; target: OutcomeTarget; paths: string[] /* ≤ 20, workspace-relative */;
       taskKind?: OutcomeTaskKind; taskId?: string; routingSource?: OutcomeRoutingSource }
@@ -500,6 +515,9 @@ type OutcomeReportArgs =
   export), and calls `declareSubagentDeliverables`; paths are not stored (Req 5.8). `review`: `revise` increments
   `revise_rounds`; `approved`/`rejected` set `final_review`. Result echoes `{ runId, verdict | finalReview,
   reviseRounds }` so the agent can use `runId` later. Unknown target → MCP error naming it, nothing written (Req 5.6).
+  Integration note (Gate 2 revision 2 finding 2): a `subagent:` target with no row yet is held, not an error
+  (`{ recorded: 'held', runId }`); the tool mints a `reportId` per call and, for a held deliverables report,
+  stores only the path stat facts. Rules and fixtures: integrated SC-7 "Report hold" and "Acceptance fixtures".
 - Verified contracts and entry points (S, runtime survey §6): `MCPToolDefinition`
   (`mcp-core/types/mcp-protocol.types.ts:115-148`); builder example `agent-wait.tool.ts:36,72-123`; listing
   `protocol-dispatcher.ts:494-602`; dispatch `switch (name)` `:1037` in the current worktree (the handler's
@@ -520,9 +538,10 @@ type OutcomeReportArgs =
   either report (concurrent case). Report B, then A, each by `{agentId}` → each record gets its own verdict.
   Then a third run C of the same slug stops; report it by `{agentId}` → C written, A and B untouched. Review
   A `revise` then `approved`, and B `rejected`, each by the echoed `runId` → A has `reviseRounds 1` and
-  `approved`, B has `rejected`, C is not reviewed. Slug fallback: with A and B declared and C undeclared,
-  `{subagent}` resolves to C; with two undeclared runs it returns "ambiguous" and writes nothing; `{agentId}`
-  of an unknown run → `{ recorded: false }`. `npx nx test vscode-lm-tools --parallel=1`.
+  `approved`, B has `rejected`, C is not reviewed. Gate 2 revision 2 (finding 2): the slug-fallback cases are
+  removed with the slug form; the same sequence also runs by the Ptah run tag `{ runId }`, and the
+  report-before-stop, held-review, expiry and restart cases of integrated SC-7 "Acceptance fixtures" are added.
+  `npx nx test vscode-lm-tools --parallel=1`.
 - Files: CREATE `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tools/outcome-report.tool.ts`
   (+ spec; folder per the `agent-wait.tool.ts` location), importing `OutcomeReportArgsSchema` from
   lane-outcomes (integration SC-7: no second schema file). That is batch B10a. The edits to
@@ -623,7 +642,7 @@ type OutcomeReportArgs =
 | Window W (9.1, :625) | 30 days, fixed in the RPC handler and returned as `windowDays`; the card labels "last 30 days". Matches context.md:144-146 (about 30 days of records before evidence-driven patches). |
 | Where outcome records live, and VS Code persistence (:626-627) | New table `lane_outcome_records` in the existing SQLite DB (migration 0054), owned by new lib `lane-outcomes`. VS Code has no SQLite (`phase-2-libraries.ts:85-92`): in-memory store, `persistent: false`, records lost on restart. The Library is desktop-only (`skills-synthesis-rpc.handlers.ts:2285`), so the Agents tab is unaffected. Integration note: superseded by integrated SC-10, VS Code persists through `IStateStorage` (globalState). |
 | Subagent run join key (5.4, :628) | `run_id = SubagentStopPayload.agentId`, written on the telemetry row by migration 0055 + `onSubagentStop`; outcome `runId = subagent:${agentId}`. Exactly one row → `matched`; 0 → `unmatched`; > 1 → `ambiguous`; no seam → `unavailable`. Assumption A1. |
-| Lane run id and review attachment (5.6) | `runId = ${agentId}:${completedAt}` (the notifier dedup key). The completion envelope is not changed (out of scope), so the report tool also accepts `agentId` (newest run) and `subagent` slug (single open run). |
+| Lane run id and review attachment (5.6) | `runId = ${agentId}:${completedAt}` (the notifier dedup key). The completion envelope is not changed (out of scope), so the report tool also accepts `agentId` (newest run). Integration note (Gate 2 revision 2): the `subagent` slug form is removed; subagent runs are targeted by the Ptah run tag `runId` (integrated SC-7, decision #41). |
 | Failure class sources (10.1-10.2) | Lanes: deterministic precedence in Component 4. Subagents: `budget_stopped` → `timeout`, telemetry `is_error` → `crash`, else null. No decision-model call in pass B; Req 10.3 (decision-model classification) is pass A's pipeline and may only fill a null class. |
 | Durable subagent handoff records as failure class (decision #24) | Adopted as the `budget_stopped` signal (Component 5) mapped to `timeout`; see D6. |
 | `skillsLoaded` (context.md:119-120) | Read-time through the seam for subagents; `null` for lanes (rival CLIs report no Skill events to Ptah) and wherever capture is unproven (A3). Never `[]` for unknown. |
@@ -743,7 +762,7 @@ there, not here. New-skill suggestions are deleted by that task; this task adds 
 | D7 | W = 30 days | 7; 90; configurable | context.md:144-146 ("about 30 days of outcome records") | yes |
 | D8 | Agents-tab signals count records whose `role` equals the slug, both subagent and lane executors | subagents only | a lane spawned with a role file runs that agent definition; A4 guards it | yes |
 | D9 | No retention/pruning in this task | prune after N days | one small row per run; no requirement; avoids a timer | yes |
-| D10 | Write channel for Req 5.5/5.6 = one MCP tool `ptah_outcome_report` accepting `runId`, `agentId` or `subagent` slug | change the completion envelope to carry `runId` | envelope content is out of scope (task-description.md:96-98) | yes |
+| D10 | Write channel for Req 5.5/5.6 = one MCP tool `ptah_outcome_report` accepting `runId` or `agentId` (Gate 2 revision 2: slug form removed, decision #41) | change the completion envelope to carry `runId` | envelope content is out of scope (task-description.md:96-98) | yes |
 | D11 | `succeeded: true` left as is | fix here | context.md:142-143 assigns it to 662; the record does not read it | n/a |
 | D12 | No `CHECK` constraints on enum columns; Zod at the write edge | CHECK in SQL | `0034_skill_session_verdicts.ts:29` (CHECK cannot be widened) | yes |
 
