@@ -174,7 +174,9 @@ export class ConductorTileComponent implements OnInit, OnDestroy {
 
   protected readonly isCompactMode = computed(() => {
     const tabId = this.tribunalState.correlationId();
-    return tabId ? isCompactViewMode(this.tabManager.getTabViewMode(tabId)) : false;
+    return tabId
+      ? isCompactViewMode(this.tabManager.getTabViewMode(tabId))
+      : false;
   });
 
   private readonly _freezeEffort = effect(() => {
@@ -207,6 +209,15 @@ export class ConductorTileComponent implements OnInit, OnDestroy {
     });
   });
 
+  private readonly visibleRegistration = effect((onCleanup) => {
+    const tabId = this.tribunalState.correlationId();
+    if (!tabId) return;
+    untracked(() => this.tabManager.registerVisibleTab(tabId));
+    onCleanup(() =>
+      untracked(() => this.tabManager.unregisterVisibleTab(tabId)),
+    );
+  });
+
   ngOnInit(): void {
     const tabIdSignal = computed<string | null>(() =>
       this.tribunalState.correlationId(),
@@ -223,18 +234,9 @@ export class ConductorTileComponent implements OnInit, OnDestroy {
         this.parentEnvInjector,
       ),
     );
-
-    const tabId = this.tribunalState.correlationId();
-    if (tabId) {
-      this.tabManager.registerVisibleTab(tabId);
-    }
   }
 
   ngOnDestroy(): void {
-    const tabId = this.tribunalState.correlationId();
-    if (tabId) {
-      this.tabManager.unregisterVisibleTab(tabId);
-    }
     this.childInjector()?.destroy();
   }
 
