@@ -184,6 +184,21 @@ describe('HarnessWorkflowService', () => {
     expect(rpc.call).not.toHaveBeenCalled();
   });
 
+  it('exposes every session of the bound conversation in order', async () => {
+    expect(service.sessionIds()).toEqual([]);
+    await service.startWorkflow('configure-harness', 'configure');
+    const surfaceId = service.surfaceId();
+    expect(surfaceId).not.toBeNull();
+    const convId = binding.conversationForSurface(surfaceId!);
+    expect(convId).not.toBeNull();
+    registry.appendSession(convId!, REAL_SESSION);
+    const nextSession =
+      'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd' as ClaudeSessionId;
+    registry.appendSession(convId!, nextSession);
+    expect(service.sessionIds()).toEqual([REAL_SESSION, nextSession]);
+    expect(service.sessionId()).toBe(nextSession);
+  });
+
   it('sendMessage resolves the head session and issues chat:continue with surfaceMode', async () => {
     await service.startWorkflow('configure-harness', 'configure');
     const surfaceId = surfaceRegistry.surfaces()[0];

@@ -52,7 +52,7 @@ describe('HarnessWorkflowRequestService', () => {
   });
 
   it('requests a new workflow and waits for navigation', async () => {
-    expect(await service.requestAndNavigate(payload)).toBe(true);
+    expect(await service.requestAndNavigate(payload)).toBe('landed');
     expect(appState.requestHarnessWorkflow).toHaveBeenCalledWith(payload);
     expect(router.navigateToSurface).toHaveBeenCalledWith('harness-builder');
   });
@@ -60,7 +60,7 @@ describe('HarnessWorkflowRequestService', () => {
   it('resumes an active workflow in the same mode without requesting another', async () => {
     active.set(true);
     mode.set('new-project');
-    expect(await service.requestAndNavigate(payload)).toBe(true);
+    expect(await service.requestAndNavigate(payload)).toBe('landed');
     expect(workflow.abortAndDispose).not.toHaveBeenCalled();
     expect(appState.requestHarnessWorkflow).not.toHaveBeenCalled();
     expect(router.navigateToSurface).toHaveBeenCalledWith('harness-builder');
@@ -69,7 +69,7 @@ describe('HarnessWorkflowRequestService', () => {
   it('aborts and resets a workflow in the other mode before replacing it', async () => {
     active.set(true);
     mode.set('configure-harness');
-    expect(await service.requestAndNavigate(payload)).toBe(true);
+    expect(await service.requestAndNavigate(payload)).toBe('landed');
     expect(workflow.abortAndDispose).toHaveBeenCalledTimes(1);
     expect(state.reset).toHaveBeenCalledTimes(1);
     expect(appState.requestHarnessWorkflow).toHaveBeenCalledWith(payload);
@@ -78,10 +78,35 @@ describe('HarnessWorkflowRequestService', () => {
     );
   });
 
-  it('clears the pending request and returns false when navigation fails', async () => {
+  it('clears the pending request and reports failed navigation', async () => {
     router.navigateToSurface.mockResolvedValueOnce('failed');
-    expect(await service.requestAndNavigate(payload)).toBe(false);
+    expect(await service.requestAndNavigate(payload)).toBe('failed');
     const request = appState.requestHarnessWorkflow.mock.calls[0][0];
     expect(appState.clearHarnessWorkflowRequest).toHaveBeenCalledWith(request);
+  });
+
+  it('treats already-there as landed', async () => {
+    router.navigateToSurface.mockResolvedValueOnce('already-there');
+    expect(await service.requestAndNavigate(payload)).toBe('landed');
+    expect(appState.clearHarnessWorkflowRequest).not.toHaveBeenCalled();
+  });
+
+  it('clears the pending request without reporting failure when superseded', async () => {
+    router.navigateToSurface.mockResolvedValueOnce('cancelled');
+    expect(await service.requestAndNavigate(payload)).toBe('cancelled');
+    expect(appState.clearHarnessWorkflowRequest).toHaveBeenCalledWith(payload);
+  });
+
+  it('preserves abort failure and leaves the active workflow untouched', async () => {
+    active.set(true);
+    mode.set('configure-harness');
+    const cause = new Error('abort failed');
+    workflow.abortAndDispose.mockRejectedValueOnce(cause);
+    await expect(service.requestAndNavigate(payload)).rejects.toThrow(
+      'Could not stop the workflow already running, so the new one was not started: abort failed',
+    );
+    expect(state.reset).not.toHaveBeenCalled();
+    expect(appState.requestHarnessWorkflow).not.toHaveBeenCalled();
+    expect(router.navigateToSurface).not.toHaveBeenCalled();
   });
 });

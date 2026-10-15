@@ -94,7 +94,9 @@ describe('SetupHubComponent — New Project intake', () => {
           },
         })),
     };
-    workflowRequest = { requestAndNavigate: jest.fn().mockResolvedValue(true) };
+    workflowRequest = {
+      requestAndNavigate: jest.fn().mockResolvedValue('landed'),
+    };
     workflow = {
       isActive: signal(false),
       isProcessing: signal(false),
@@ -316,11 +318,13 @@ describe('SetupHubComponent — New Project intake', () => {
   });
 
   it('keeps the modal open until the request and navigation finish', async () => {
-    let finishNavigation: (landed: boolean) => void = () => {
+    let finishNavigation: (
+      outcome: 'landed' | 'cancelled' | 'failed',
+    ) => void = () => {
       throw new Error('Navigation was not started');
     };
     workflowRequest.requestAndNavigate.mockReturnValueOnce(
-      new Promise<boolean>((resolve) => {
+      new Promise<'landed' | 'cancelled' | 'failed'>((resolve) => {
         finishNavigation = resolve;
       }),
     );
@@ -330,14 +334,14 @@ describe('SetupHubComponent — New Project intake', () => {
     await Promise.resolve();
     fixture.detectChanges();
     expect(el('new-project-intake')).not.toBeNull();
-    finishNavigation(true);
+    finishNavigation('landed');
     await fixture.whenStable();
     fixture.detectChanges();
     expect(el('new-project-intake')).toBeNull();
   });
 
   it('keeps the modal open and reports navigation failure', async () => {
-    workflowRequest.requestAndNavigate.mockResolvedValueOnce(false);
+    workflowRequest.requestAndNavigate.mockResolvedValueOnce('failed');
     click('new-project-start');
     typeWhat('A scheduling tool');
     click('intake-start');
@@ -345,6 +349,19 @@ describe('SetupHubComponent — New Project intake', () => {
     fixture.detectChanges();
     expect(el('new-project-intake')).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain('could not be opened');
+  });
+
+  it('keeps the modal open without an error when navigation is superseded', async () => {
+    workflowRequest.requestAndNavigate.mockResolvedValueOnce('cancelled');
+    click('new-project-start');
+    typeWhat('A scheduling tool');
+    click('intake-start');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(el('new-project-intake')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'could not be opened',
+    );
   });
 
   it('keeps the modal open and shows the reason when the start fails', async () => {

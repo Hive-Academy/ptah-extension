@@ -179,6 +179,15 @@ export class HarnessWorkflowService {
     return record.sessions[record.sessions.length - 1];
   });
 
+  /** Sessions of the bound conversation in creation order. */
+  readonly sessionIds = computed<readonly ClaudeSessionId[]>(() => {
+    const surfaceId = this._surfaceId();
+    if (!surfaceId) return [];
+    const convId = this.tabSessionBinding.conversationForSurface(surfaceId);
+    if (!convId) return [];
+    return this.conversationRegistry.getRecord(convId)?.sessions ?? [];
+  });
+
   /**
    * Cost / token / context-fill totals for this workflow's session, or null
    * before the first turn completes.

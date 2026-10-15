@@ -1446,18 +1446,18 @@ export class SetupHubComponent implements OnInit {
         this._intakeError.set(result.error ?? 'Failed to start new project');
         return;
       }
-      const navigated = await this.workflowRequest.requestAndNavigate({
+      const outcome = await this.workflowRequest.requestAndNavigate({
         mode: 'new-project',
         seedPrompt: result.seedPrompt,
         intake: result.intake,
       });
-      if (!navigated) {
+      if (outcome === 'failed') {
         this._intakeError.set(
           'The harness builder could not be opened. Try starting it again.',
         );
         return;
       }
-      this._showIntake.set(false);
+      if (outcome === 'landed') this._showIntake.set(false);
     } catch (err: unknown) {
       this._intakeError.set(
         err instanceof Error ? err.message : 'Failed to start new project',
