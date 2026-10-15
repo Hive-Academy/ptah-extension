@@ -73,6 +73,8 @@ export {
 export {
   COMMAND_CENTER_PERSONA,
   COMMAND_CENTER_TRIBUNAL_REQUEST_TAG,
+  TRIBUNAL_ROSTER_PROPOSAL_TAG,
+  TRIBUNAL_ROSTER_PROPOSAL_EXAMPLE,
   commandCenterPersonaFor,
 } from './lib/command-center-persona';
 export {

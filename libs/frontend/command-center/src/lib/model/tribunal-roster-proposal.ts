@@ -1,4 +1,5 @@
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import { TRIBUNAL_ROSTER_PROPOSAL_TAG } from '@ptah-extension/chat-state';
 import {
   CRUCIBLE_ROLES,
   MAX_CRUCIBLE_ROUND_CAP,
@@ -9,7 +10,6 @@ import {
 import { z } from 'zod';
 
 const AT_LIMIT_STATE = 'AT LIMIT';
-export const TRIBUNAL_ROSTER_PROPOSAL_TAG = 'TRIBUNAL_ROSTER_PROPOSAL';
 const token = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:#-]{0,79}$/);
 const lane = z.object({
   laneId: token,

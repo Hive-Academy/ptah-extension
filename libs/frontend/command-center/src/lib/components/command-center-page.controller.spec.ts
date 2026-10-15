@@ -39,7 +39,7 @@ describe('CommandCenterPageController', () => {
       questions: {
         question: string;
         header: string;
-        options: [];
+        options: { label: string; description: string }[];
         multiSelect: false;
       }[];
     }[]
@@ -463,6 +463,82 @@ describe('CommandCenterPageController', () => {
     expect(coordinator.answerQuestion).toHaveBeenCalledWith({
       id: 'q1',
       answers: { 'Which branch should I use?': 'main' },
+    });
+  });
+
+  it('declines an untagged Tribunal choice and rejects click and spoken approval', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('Council review');
+    questionRequests.set([
+      {
+        id: 'q-untagged',
+        tabId: 'root-tab',
+        questions: [
+          {
+            question: 'Approve the Tribunal roster?',
+            header: 'Tribunal',
+            options: [
+              { label: 'Decline', description: '' },
+              { label: 'Confirm', description: '' },
+            ],
+            multiSelect: false,
+          },
+        ],
+      },
+    ]);
+    TestBed.tick();
+    expect(page.ordinaryQuestion()).toBeNull();
+    expect(page.ordinaryChoices()).not.toContain('Confirm');
+    expect(transport.answer).toHaveBeenCalledWith(
+      'q-untagged',
+      'Approve the Tribunal roster?',
+      'Decline',
+    );
+    expect(page.store.toast()?.message).toContain('Invalid Tribunal proposal');
+    expect(page.answerOrdinaryQuestion('q-untagged', 'Confirm')).toBe(false);
+    expect(page.voice['options'].answerOrdinaryQuestion?.('confirm')).toBe(
+      false,
+    );
+    expect(page.voice['options'].answerOrdinaryQuestion?.('yes')).toBe(false);
+    expect(coordinator.answerQuestion).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        answers: expect.objectContaining({
+          'Approve the Tribunal roster?':
+            expect.stringMatching(/^(confirm|yes)/i),
+        }),
+      }),
+    );
+  });
+
+  it('filters affirmative choices and answers on an ordinary Confirm question', () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    questionRequests.set([
+      {
+        id: 'q-choice',
+        tabId: 'root-tab',
+        questions: [
+          {
+            question: 'Proceed?',
+            header: 'Choice',
+            multiSelect: false,
+            options: [
+              { label: 'Decline', description: '' },
+              { label: 'Confirm now', description: '' },
+            ],
+          },
+        ],
+      },
+    ]);
+    TestBed.tick();
+    expect(page.ordinaryChoices()).toEqual(['Decline']);
+    for (const answer of ['Confirm', 'yes', 'Approve', 'go ahead']) {
+      expect(page.answerOrdinaryQuestion('q-choice', answer)).toBe(false);
+    }
+    expect(page.answerOrdinaryQuestion('q-choice', 'Decline')).toBe(true);
+    expect(coordinator.answerQuestion).toHaveBeenCalledTimes(1);
+    expect(coordinator.answerQuestion).toHaveBeenCalledWith({
+      id: 'q-choice',
+      answers: { 'Proceed?': 'Decline' },
     });
   });
 

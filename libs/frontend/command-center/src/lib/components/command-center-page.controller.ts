@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import {
   COMMAND_CENTER_TRIBUNAL_REQUEST_TAG,
+  TRIBUNAL_ROSTER_PROPOSAL_TAG,
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { ChatStore } from '@ptah-extension/chat';
@@ -23,10 +24,7 @@ import { computeAgesMs, projectOwnedWork } from '../model/work-projection';
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
 import { TRIBUNAL_MOVES } from '@ptah-extension/tribunal-panel/phase';
 import { TribunalRunCoordinator } from '../model/tribunal-run-coordinator';
-import {
-  TRIBUNAL_ROSTER_PROPOSAL_TAG,
-  type TribunalRosterProposal,
-} from '../model/tribunal-roster-proposal';
+import { type TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 
@@ -79,6 +77,28 @@ export class CommandCenterPageController {
   private readonly armedTurns: { token: number; minPulseSeq: number }[] = [];
   private deliveredPulseSeq = 0;
   private readonly spokenRequestIds = new Set<string>();
+  private readonly invalidRosterQuestionIds = new Set<string>();
+  private readonly invalidRosterQuestion = computed(() => {
+    const expected = this.expectedRequest();
+    if (!expected || expected.rootSessionId !== this.store.sessionId())
+      return null;
+    const tabId = this.store.markedTabId();
+    return (
+      this.chat
+        .questionRequests()
+        .find(
+          (request) =>
+            request.tabId === tabId &&
+            !!request.questions[0] &&
+            !request.questions[0].question.includes(
+              `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
+            ) &&
+            request.questions[0].options.some((option) =>
+              /confirm/i.test(option.label),
+            ),
+        ) ?? null
+    );
+  });
   public readonly ordinaryQuestion = computed(() => {
     const tabId = this.store.markedTabId();
     const sessionId = this.store.sessionId();
@@ -91,16 +111,21 @@ export class CommandCenterPageController {
             !!request.questions[0] &&
             !request.questions[0].question.includes(
               `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
-            ),
+            ) &&
+            request.id !== this.invalidRosterQuestion()?.id,
         ) ?? null
     );
   });
-  public readonly ordinaryChoices = computed(
-    () =>
-      this.ordinaryQuestion()?.questions[0]?.options.map(
-        (option) => option.label,
-      ) ?? [],
-  );
+  public readonly ordinaryChoices = computed(() => {
+    const options = this.ordinaryQuestion()?.questions[0]?.options ?? [];
+    const hasConfirm = options.some((option) => /confirm/i.test(option.label));
+    return options
+      .filter(
+        (option) =>
+          !hasConfirm || !/^(confirm|yes|approve|go ahead)/i.test(option.label),
+      )
+      .map((option) => option.label);
+  });
   public readonly permissionRequest = computed(() => {
     const tabId = this.store.markedTabId();
     const sessionId = this.store.sessionId();
@@ -186,6 +211,24 @@ export class CommandCenterPageController {
   );
 
   public constructor() {
+    effect(() => {
+      const request = this.invalidRosterQuestion();
+      const question = request?.questions[0];
+      if (
+        !request ||
+        !question ||
+        this.invalidRosterQuestionIds.has(request.id)
+      )
+        return;
+      this.invalidRosterQuestionIds.add(request.id);
+      this.tribunalTransport.answer(request.id, question.question, 'Decline');
+      this.store.setToast({
+        message: 'Invalid Tribunal proposal. It was declined.',
+        tone: 'error',
+      });
+      this.voice.onRosterProposal('Invalid Tribunal proposal.', false);
+      this.voice.onRosterResolved();
+    });
     effect(() =>
       this.store.setTheme(this.theme?.isDarkMode() ? 'dark' : 'light'),
     );
@@ -361,6 +404,11 @@ export class CommandCenterPageController {
     const request = this.ordinaryQuestion();
     const question = request?.questions[0];
     if (!request || !question || request.id !== id) return false;
+    if (
+      question.options.some((option) => /confirm/i.test(option.label)) &&
+      /^(confirm|yes|approve|go ahead)/i.test(answer.trim())
+    )
+      return false;
     this.coordinator.answerQuestion({
       id,
       answers: { [question.question]: answer },
