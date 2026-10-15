@@ -64,7 +64,10 @@ import {
   registerPlatformCliServices,
 } from '@ptah-extension/platform-cli';
 
-import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import {
+  EXPECTED_RESOLVABLE,
+  LANE_MODEL_LISTING_TOKEN,
+} from './expected-resolvable';
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -195,6 +198,38 @@ describe('CLI DI — shared RPC handler resolution', () => {
       instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
+  });
+});
+
+/** Stubs the lane-listing constructor deps this container does not bind. */
+function registerLaneModelListingFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(TOKENS.CLI_DETECTION_SERVICE)) {
+    c.register(TOKENS.CLI_DETECTION_SERVICE, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS, { useValue: {} });
+  }
+  const persistence = CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE;
+  if (!c.isRegistered(persistence)) {
+    c.register(persistence, { useValue: {} });
+  }
+}
+
+describe('CLI DI — lane model listing', () => {
+  it('resolves LANE_MODEL_LISTING as one singleton', () => {
+    const c = buildMinimalContainer();
+    registerLaneModelListingFixtures(c);
+
+    const first: unknown = c.resolve(LANE_MODEL_LISTING_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(LANE_MODEL_LISTING_TOKEN)).toBe(first);
   });
 });
 
@@ -423,7 +458,9 @@ describe('CLI DI — session organization recorder binding (TASK_2026_580 R-TL11
     });
 
     registerSdkServices(c, logger);
-    expect(c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY)).toBeDefined();
+    expect(
+      c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY),
+    ).toBeDefined();
     if (withCliAgentRuntime) {
       registerCliAgentRuntimeServices(c, logger);
       for (const token of [

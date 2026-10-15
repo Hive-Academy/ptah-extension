@@ -63,7 +63,10 @@ import {
 } from '@ptah-extension/rpc-handlers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
-import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import {
+  EXPECTED_RESOLVABLE,
+  LANE_MODEL_LISTING_TOKEN,
+} from './expected-resolvable';
 import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
@@ -237,6 +240,38 @@ describe('Electron DI — shared RPC handler resolution', () => {
   });
 });
 
+/** Stubs the lane-listing constructor deps this container does not bind. */
+function registerLaneModelListingFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(TOKENS.CLI_DETECTION_SERVICE)) {
+    c.register(TOKENS.CLI_DETECTION_SERVICE, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS, { useValue: {} });
+  }
+  const persistence = CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE;
+  if (!c.isRegistered(persistence)) {
+    c.register(persistence, { useValue: {} });
+  }
+}
+
+describe('Electron DI — lane model listing', () => {
+  it('resolves LANE_MODEL_LISTING as one singleton', () => {
+    const c = buildMinimalContainer();
+    registerLaneModelListingFixtures(c);
+
+    const first: unknown = c.resolve(LANE_MODEL_LISTING_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(LANE_MODEL_LISTING_TOKEN)).toBe(first);
+  });
+});
+
 describe('Electron DI — trusted host kind', () => {
   it('resolves HOST_KIND as electron after phase 1 registration', () => {
     const c = buildMinimalContainer();
@@ -324,7 +359,9 @@ describe('Electron DI — SDK process spawner (plan Assumption 1)', () => {
     registerSdkServices(c, logger);
 
     const spawner = c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER);
-    const budgetStops = c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY);
+    const budgetStops = c.resolve(
+      SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+    );
     expect(budgetStops).toBeDefined();
 
     expect(spawner).toBeDefined();

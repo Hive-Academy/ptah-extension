@@ -42,7 +42,10 @@ import {
 } from '@ptah-extension/rpc-handlers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
-import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import {
+  EXPECTED_RESOLVABLE,
+  LANE_MODEL_LISTING_TOKEN,
+} from './expected-resolvable';
 import {
   EXPECTED_ABSENT_CAPABILITIES,
   EXPECTED_ABSENT_HANDLERS,
@@ -178,9 +181,12 @@ function buildMinimalContainer(): DependencyContainer {
   // graph is covered by auth-providers' registration regression test.
   c.registerInstance(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {});
   c.registerInstance(SDK_TOKENS.SDK_AGENT_ADAPTER, {});
-  c.register<Pick<AuthRpcHandlers, 'invalidateAuthStatusCache'>>(AuthRpcHandlers, {
-    useValue: { invalidateAuthStatusCache: jest.fn() },
-  });
+  c.register<Pick<AuthRpcHandlers, 'invalidateAuthStatusCache'>>(
+    AuthRpcHandlers,
+    {
+      useValue: { invalidateAuthStatusCache: jest.fn() },
+    },
+  );
 
   registerSharedRpcHandlers(c);
   return c;
@@ -203,6 +209,38 @@ describe('VS Code DI — shared RPC handler resolution', () => {
       instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
+  });
+});
+
+/** Stubs the lane-listing constructor deps this container does not bind. */
+function registerLaneModelListingFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(TOKENS.CLI_DETECTION_SERVICE)) {
+    c.register(TOKENS.CLI_DETECTION_SERVICE, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS, { useValue: {} });
+  }
+  const persistence = Symbol.for('SdkPtahCliConfigPersistence');
+  if (!c.isRegistered(persistence)) {
+    c.register(persistence, { useValue: {} });
+  }
+}
+
+describe('VS Code DI — lane model listing', () => {
+  it('resolves LANE_MODEL_LISTING as one singleton', () => {
+    const c = buildMinimalContainer();
+    registerLaneModelListingFixtures(c);
+
+    const first: unknown = c.resolve(LANE_MODEL_LISTING_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(LANE_MODEL_LISTING_TOKEN)).toBe(first);
   });
 });
 

@@ -21,8 +21,10 @@ import {
   GitChangeSetRpcHandlers,
   PlanLimitsBroadcaster,
 } from './handlers';
+import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CliModelListService } from './services/cli-model-list.service';
+import { LaneModelListingAdapter } from './services/lane-model-listing.adapter';
 import { PlanLimitsSnapshotService } from './services/plan-limits-snapshot.service';
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorder.service';
@@ -40,7 +42,10 @@ import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
  * WORKSPACE_PROVIDER, SENTRY_SERVICE, PLATFORM_COMMANDS,
  * SDK_ENHANCED_PROMPTS_SERVICE, LICENSE_SERVICE, SAVE_DIALOG_PROVIDER,
  * WORKSPACE_STATE_STORAGE and PLATFORM_TOKENS.DI_CONTAINER) have been
- * registered.
+ * registered. The lane model listing adapter also needs
+ * AUTH_SECRETS_SERVICE, AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS and
+ * CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE. Every host
+ * registers those before this function runs.
  *
  * Note: this does NOT eagerly resolve the two listeners. Both require
  * `TOKENS.WEBVIEW_MANAGER`, which is registered at different points in each
@@ -53,6 +58,10 @@ export function registerSharedRpcHandlers(
   container: DependencyContainer,
 ): void {
   container.registerSingleton(CliModelListService);
+  container.registerSingleton(
+    LANE_ROUTING_TOKENS.LANE_MODEL_LISTING,
+    LaneModelListingAdapter,
+  );
   container.registerSingleton(SetupRpcHandlers);
   container.registerSingleton(WizardGenerationRpcHandlers);
   container.registerSingleton(EnhancedPromptsRpcHandlers);
