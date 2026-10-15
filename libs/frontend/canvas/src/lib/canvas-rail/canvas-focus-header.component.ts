@@ -17,6 +17,7 @@ import {
 } from '@ptah-extension/chat';
 import type { CompactRailState } from '@ptah-extension/chat-ui';
 import type { TabViewMode } from '@ptah-extension/chat-types';
+import { CanvasLayoutService } from '../canvas-layout.service';
 
 @Component({
   selector: 'ptah-canvas-focus-header',
@@ -163,7 +164,7 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
           {{ viewMode() === 'full' ? 'Compact' : 'Full' }}
         }
       </button>
-      @if (splitDisplayed()) {
+      @if (splitDisplayed() || compactDetails()) {
         <button
           type="button"
           class="btn btn-ghost btn-xs"
@@ -247,6 +248,7 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
 })
 export class CanvasFocusHeaderComponent implements DoCheck {
   private readonly tabs = inject(TabManagerService);
+  private readonly layout = inject(CanvasLayoutService, { optional: true });
   readonly workflow = computed(
     () => this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab.workflow,
   );
@@ -259,6 +261,10 @@ export class CanvasFocusHeaderComponent implements DoCheck {
   readonly running = input(false);
   readonly viewMode = input<TabViewMode>('full');
   readonly band = input<'xl' | 'lg' | 'md' | 'sm'>('lg');
+  readonly compactDetails = computed(() => {
+    const width = this.layout?.containerWidth() ?? 0;
+    return width > 0 && width < 400;
+  });
   /** Two panes are shown: the header offers Details and the split actions. */
   readonly splitDisplayed = input(false);
   /** The split Details overlay is open on this pane (drives `aria-expanded`). */

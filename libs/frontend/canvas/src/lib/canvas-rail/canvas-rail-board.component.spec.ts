@@ -11,8 +11,9 @@ import {
 } from '@angular/core';
 import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorComponent, TabManagerService } from '@ptah-extension/chat';
+import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
   type CompactRailDensity,
@@ -168,12 +169,17 @@ class FocusStub {
   readonly detailsRequested = output<'left' | 'right'>();
 }
 @Component({
-  selector: 'ptah-canvas-session-details',
+  selector: 'ptah-session-inspector',
   standalone: true,
-  template: '<div>Details</div>',
+  template: '<button type="button" data-inspector-close aria-label="Close session details" (click)="closeRequested.emit()">Close</button>',
 })
-class DetailsStub {
+class InspectorStub {
   readonly tabId = input.required<string>();
+  readonly presentation = input('embedded');
+  readonly hasLaneSurface = input(false);
+  readonly stats = input<unknown>(null);
+  readonly laneRequested = output<string>();
+  readonly closeRequested = output<void>();
 }
 
 /** Session details load in a lazy `@defer (on idle)` chunk; render them now. */
@@ -345,15 +351,18 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: CanvasStore, useValue: store },
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
         { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
+        { provide: PlanLimitsStore, useValue: { snapshot: () => null } },
+        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [] } },
         {
           provide: CanvasDetailService,
           useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
         },
-        ...(realFocus ? [{ provide: ChatStore, useValue: {} }] : []),
+        { provide: ChatStore, useValue: {} },
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
           provide: TabManagerService,
           useValue: {
+            activeTabId: () => focused(),
             findTabByIdAcrossWorkspaces: (id: string) => ({
               tab: { title: id },
             }),
@@ -366,7 +375,7 @@ describe('CanvasRailBoardComponent rendering', () => {
         imports: [
           RailStub,
           realFocus ? CanvasFocusAreaComponent : FocusStub,
-          DetailsStub,
+          InspectorStub,
           ProjectSetupStub,
         ],
       },
@@ -463,11 +472,11 @@ describe('CanvasRailBoardComponent rendering', () => {
     const { fixture } = mount(true, 2);
     const aside = fixture.nativeElement.querySelector('aside:not([data-dock])');
     expect(aside).not.toBeNull();
-    expect(fixture.debugElement.query(By.directive(DetailsStub))).toBeNull();
+    expect(fixture.debugElement.query(By.directive(InspectorStub))).toBeNull();
     expect(aside?.textContent).toContain('Session details');
     await completeDeferBlocks(fixture);
     expect(fixture.nativeElement.querySelector('aside:not([data-dock])')).toBe(aside);
-    expect(fixture.debugElement.query(By.directive(DetailsStub))).not.toBeNull();
+    expect(fixture.debugElement.query(By.directive(InspectorStub))).not.toBeNull();
   });
 
   it('synchronizes pane, rail and Details after external removal of the focused tile', async () => {
@@ -480,7 +489,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     await completeDeferBlocks(fixture);
     const pane = fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
     const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
-    const details = fixture.debugElement.query(By.directive(DetailsStub)).componentInstance as DetailsStub;
+    const details = fixture.debugElement.query(By.directive(InspectorStub)).componentInstance as InspectorStub;
     expect(focused()).toBe('c');
     expect(pane.focusedTabId()).toBe('c');
     expect(rail.focusedTabId()).toBe(pane.focusedTabId());
@@ -1533,7 +1542,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(document.activeElement).toBe(rail[0]);
   });
 
-  it('stacked Tab handler skips hidden elements, leaves open overlays alone and is inert in the default order', () => {
+  it('stacked Tab handler skips hidden elements, leaves open overlays alone and is inert in the default order', async () => {
     const { fixture } = mount(true, 3);
     const instance = fixture.componentInstance;
     instance.openBeside('b');
@@ -1552,6 +1561,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     hidden.remove();
     stubOf(fixture, 'right').detailsRequested.emit('right');
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     const dialogButton = right.querySelector<HTMLElement>('[role="dialog"] button') as HTMLElement;
     expect(dialogButton).not.toBeNull();
     expect(tab(dialogButton).defaultPrevented).toBe(false);

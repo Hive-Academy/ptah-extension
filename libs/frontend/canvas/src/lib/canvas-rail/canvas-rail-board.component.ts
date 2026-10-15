@@ -13,9 +13,9 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
+import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorComponent, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
-import type { CompactRailState } from '@ptah-extension/chat-ui';
+import { StatsTileExpansionState, type CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { railWidthBand } from '../canvas-board-mode';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
@@ -23,9 +23,6 @@ import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
-// Deferred (`@defer` only, never a value here): its own declaration, and no
-// eager file imports it, so the compiler and esbuild move it to a lazy chunk.
-import { CanvasSessionDetailsComponent } from '../canvas-detail/canvas-session-details.component';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
 import {
@@ -60,11 +57,11 @@ function isTabbable(element: HTMLElement): boolean {
   imports: [
     CanvasRailComponent,
     CanvasFocusAreaComponent,
-    CanvasSessionDetailsComponent,
+    SessionInspectorComponent,
     ProjectSetupCardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [RailTranscriptRetentionCoordinator],
+  providers: [RailTranscriptRetentionCoordinator, InspectorShellController, StatsTileExpansionState],
   host: {
     class: 'block h-full min-h-0',
     '[style.display]': 'visible() ? null : "none"',
@@ -76,8 +73,9 @@ function isTabbable(element: HTMLElement): boolean {
   },
   template: `
     @if (visible()) {
-      <div class="flex h-full min-h-0 min-w-0">
+      <div class="relative flex h-full min-h-0 min-w-0">
         <ptah-canvas-rail
+          [attr.inert]="compactSheetOpen() ? '' : null"
           [tiles]="orderedTiles()"
           [states]="railStates()"
           [focusedTabId]="focusedId()"
@@ -149,7 +147,7 @@ function isTabbable(element: HTMLElement): boolean {
             </div>
           </section>
         } @else {
-          <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" data-testid="rail-pane-container">
+          <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
                 <section class="relative overflow-y-auto" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
@@ -175,11 +173,10 @@ function isTabbable(element: HTMLElement): boolean {
                     (swapPanesRequested)="swapPanes()"
                     (detailsRequested)="openSplitDetails($event)"
                   />
-                  @if (splitDisplayed() && detailsOpen() && activeSide() === side) {
+                  @if (splitDisplayed() && detailsOpen() && activeSide() === side && !compactSheet()) {
                     <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" (keydown.escape)="closeSplitDetails($event)">
-                      <button type="button" class="btn btn-ghost btn-sm" aria-label="Close details" (click)="closeSplitDetails()">Close details</button>
                       @defer (on idle) {
-                        <ptah-canvas-session-details [tabId]="id" />
+                        <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" (closeRequested)="closeSplitDetails()" />
                       } @placeholder {
                         <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
                       }
@@ -190,25 +187,21 @@ function isTabbable(element: HTMLElement): boolean {
             }
           </div>
         }
-        @if (!splitDisplayed() && band() === 'sm') {
+        @if (!splitDisplayed() && band() === 'sm' && !compactSheet()) {
           @if (detailsOpen()) {
             <aside
               class="flex h-full w-[288px] shrink-0 flex-col border-l border-base-content/10 bg-base-100"
             >
-              <button
-                type="button"
-                class="btn btn-ghost btn-sm"
-                aria-label="Close details"
-                aria-expanded="true"
-                (click)="toggleDetails()"
-              >
-                Close details
-              </button>
               @if (focusedId(); as id) {
                 @defer (on idle) {
-                  <ptah-canvas-session-details
+                  <ptah-session-inspector
                     class="min-h-0 flex-1 overflow-auto"
                     [tabId]="id"
+                    presentation="embedded"
+                    [hasLaneSurface]="true"
+                    [stats]="stats.inputs()"
+                    (laneRequested)="detail.selectLaneFor(id, $event)"
+                    (closeRequested)="toggleDetails()"
                   />
                 } @placeholder {
                   <div class="min-h-0 flex-1 p-4 text-sm font-semibold" aria-hidden="true">
@@ -228,21 +221,32 @@ function isTabbable(element: HTMLElement): boolean {
               i
             </button>
           }
-        } @else if (!splitDisplayed()) {
+        } @else if (!splitDisplayed() && !compactSheet()) {
           <aside
-            class="h-full shrink-0 overflow-auto border-l border-base-content/10 bg-base-100"
+            class="h-full shrink-0 overflow-auto border-l border-base-content/10 bg-base-100 [&_[data-inspector-close]]:hidden"
             [class.w-[360px]]="band() === 'xl'"
             [class.w-[320px]]="band() === 'lg'"
             [class.w-[296px]]="band() === 'md'"
           >
             @if (focusedId(); as id) {
               @defer (on idle) {
-                <ptah-canvas-session-details [tabId]="id" />
+                <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
               } @placeholder {
                 <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
               }
             }
           </aside>
+        }
+        @if (compactSheetOpen()) {
+          @if (focusedId(); as id) {
+            <div class="absolute inset-0 z-30 bg-base-100" (keydown.escape)="closeCompactSheet($event)" (keydown)="onSheetKeydown($event)">
+              @defer (on idle) {
+                <ptah-session-inspector [tabId]="id" presentation="sheet" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" (closeRequested)="closeCompactSheet()" />
+              } @placeholder {
+                <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
+              }
+            </div>
+          }
         }
       </div>
       <div class="sr-only" aria-live="polite">{{ announcement() }}</div>
@@ -268,6 +272,8 @@ export class CanvasRailBoardComponent {
   );
   readonly holdTabId = signal<string | null>(null);
   readonly detailsOpen = signal(false);
+  readonly compactSheet = computed(() => this.layout.containerWidth() > 0 && this.layout.containerWidth() < 400);
+  readonly compactSheetOpen = computed(() => this.compactSheet() && this.detailsOpen());
   readonly activeSide = signal<'left' | 'right'>('left');
   readonly otherTabId = signal<string | null>(null);
   readonly visualOrder = signal<readonly ('left' | 'right')[]>(['left', 'right']);
@@ -306,6 +312,16 @@ export class CanvasRailBoardComponent {
     return (
       tiles.find((tile) => tile.tabId === id)?.tabId ?? tiles[0]?.tabId ?? null
     );
+  });
+  readonly focusedTab = computed(() => {
+    const id = this.focusedId();
+    return id ? this.tabs.findTabByIdAcrossWorkspaces(id)?.tab ?? null : null;
+  });
+  readonly stats = injectSessionStatsSource({
+    tab: this.focusedTab,
+    sessionId: () => this.focusedTab()?.claudeSessionId ?? null,
+    budget: () => this.focusedTab()?.sessionBudget ?? null,
+    available: () => this.focusedTab() !== null,
   });
   readonly band = computed(() => railWidthBand(this.layout.containerWidth()));
   readonly newSessionBlockReason = computed(() =>
@@ -639,13 +655,13 @@ export class CanvasRailBoardComponent {
     this.restoreHeaderFocus();
   }
 
-  /** Header Details control (split only): the overlay opens on the invoking pane, made active. */
+  /** Header Details control opens the active pane's overlay or compact sheet. */
   openSplitDetails(side: 'left' | 'right'): void {
-    if (!this.splitDisplayed()) return;
+    if (!this.splitDisplayed() && !this.compactSheet()) return;
     this.activatePane(side);
     this.detailsFocusReturn = true;
     this.detailsOpen.set(true);
-    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"] [aria-label="Close details"]')?.focus(), { injector: this.injector });
+    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"] [data-inspector-close]')?.focus(), { injector: this.injector });
   }
 
   closeSplitDetails(event?: Event): void {
@@ -662,6 +678,29 @@ export class CanvasRailBoardComponent {
         (card?.querySelector<HTMLElement>('.rc-select, .rail-collapsed') ?? this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [role="tab"][aria-selected="true"]`))?.focus();
       }
     }, { injector: this.injector });
+  }
+
+  closeCompactSheet(event?: Event): void {
+    event?.stopPropagation();
+    this.detailsOpen.set(false);
+    this.detailsFocusReturn = false;
+    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>(`[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`)?.focus(), { injector: this.injector });
+  }
+
+  onSheetKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Tab') return;
+    const sheet = this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"]');
+    if (!sheet) return;
+    const items = [...sheet.querySelectorAll<HTMLElement>(TABBABLE)].filter(isTabbable);
+    if (!items.length) { event.preventDefault(); return; }
+    const active = sheet.ownerDocument.activeElement;
+    if (event.shiftKey && active === items[0]) {
+      event.preventDefault();
+      items[items.length - 1].focus();
+    } else if (!event.shiftKey && active === items[items.length - 1]) {
+      event.preventDefault();
+      items[0].focus();
+    }
   }
 
   move(id: string, direction: -1 | 1): void {
