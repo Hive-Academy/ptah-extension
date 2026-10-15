@@ -256,11 +256,29 @@ Paths are relative to the worktree root
     Status probe: Ollama `GET {base}/api/version`, requires ≥ 0.35.0 (0.40.0 when the model id starts
     with `laya`), 1500 ms timeout; Jev: credential present/absent only (no paid call); structured:
     the port's `isReady(providerId)`.
+    Integration note (Gate 2 revision 1 finding 6, Req 1.5): a recent version does not prove the route
+    exists, so the Ollama probe has a second step, a route capability check. When the version passes, the
+    probe sends `POST {base}/v1/systemone` with the body `{}`. That body names no model and no input, so it
+    cannot start inference. Both steps share the one 1500 ms budget. Result mapping:
+    - HTTP 404 or 405 whose body is not a JSON object with an `error` field (Go's router answers
+      `404 page not found` as plain text) → `unsupported-endpoint`, detail
+      `endpoint does not serve /v1/systemone`.
+    - Any other HTTP answer (400 or 422 for the empty body, or 2xx) → `ready`. This includes a JSON 404
+      such as model-not-found, because it shows the route exists.
+    - Network error or timeout → `unreachable`.
+    The version check still runs first, so an old Ollama reports its version in `detail` and the POST is
+    skipped.
+    Live calls feed the same state. The System One client (below) marks a failure `routeMissing: true`
+    when a call gets the same non-JSON 404/405. The pipeline (§6, A8) then calls
+    `DecisionModelStatus.markUnsupported(baseUrl)`. That status stays in the status cache until the
+    selection or base URL changes or a later probe passes, so the row shows `unsupported-endpoint` even when
+    an earlier probe passed. The Req 12.7 cause of that call stays `provider-error`.
   - `LR/decision-model/system-one.client.ts`: raw `fetch` POST to `{base}/v1/systemone` (Ollama base
     from `provider.ollama.baseUrl`, default `http://127.0.0.1:11434`; Jev base
     `https://api.typesafe.ai`), `Authorization: Bearer` for Jev only, `AbortSignal.timeout(3000)`,
     body size checked before send, response validated with Zod, HTTP 401/403 → `auth`, network error
-    → `unreachable`, other non-2xx → `provider-error`, schema failure → `bad-output`. No retries.
+    → `unreachable`, other non-2xx → `provider-error` (with `routeMissing: true` for a non-JSON 404/405,
+    finding 6), schema failure → `bad-output`. No retries.
   - `LR/decision-model/structured-decision.port.ts`: `StructuredDecisionCompleter` interface; the
     pipeline renders each question as an enum property of one JSON schema and maps the answer to
     the same `DecisionAnswer` shape with `confidence: null` (Req 1.8). Any model-supplied text field
@@ -274,7 +292,14 @@ Paths are relative to the worktree root
   limit state, score) and aggregated outcome figures; a spec pins the field set (NFR Security).
   The key is redacted from logs.
 - Verification seam: client spec with a stub `fetch` (status codes, timeout via fake timers, size
-  limit); config spec with in-memory ports (unset sends nothing — Req 1.3).
+  limit); config spec with in-memory ports (unset sends nothing — Req 1.3). Probe spec (finding 6,
+  Req 1.5), stub `fetch`: `/api/version` answers `0.40.0` and `POST /v1/systemone` answers 404
+  `404 page not found` (text/plain) → `unsupported-endpoint` with the route detail; same version with
+  400 JSON → `ready`; JSON 404 `{"error":"model not found"}` → `ready`; version `0.34.2` → unsupported with
+  the version detail and no POST sent; POST past the shared 1500 ms budget (fake timers) → `unreachable`.
+  Client spec: plain-text 404 → `provider-error` with `routeMissing: true`; JSON 404 → `routeMissing`
+  absent. Status spec: `markUnsupported(base)` after a passing probe → `unsupported-endpoint` until the base
+  URL changes. Pipeline spec (A8): a live call with `routeMissing` → `markUnsupported` called once.
 - Files: CREATE `LR/decision-model/{decision-model.types.ts,decision-model.config.ts,system-one.client.ts,system-one.schema.ts,structured-decision.port.ts,decision-payload.ts}`
   plus specs.
 
@@ -363,14 +388,42 @@ Paths are relative to the worktree root
   `LaneModelListing.list(rows, signal)`: CLI rows from `CliModelListService.listAll()` +
   `listForClassification()` (`reported` when not `isFallback`, else `fallback`); Ptah CLI rows from
   `PtahCliConfigPersistence.loadConfigs()` → `selectedModel` (`configured`) and `tierMappings`
-  values (`tier`); provider discovery for Ptah CLI is out of reach without a new call and is
-  omitted (documented: `configured`/`tier` cover the ids the lane will accept). Registered in
-  `register-shared-rpc-handlers.ts` next to :55 under `LANE_ROUTING_TOKENS.LANE_MODEL_LISTING`.
+  values (`tier`), plus the provider's model discovery (integration note, Gate 2 revision 1 finding 2,
+  replaces "omitted"):
+  - Source: the same call `provider:listModels` makes. `ProviderModelsService.fetchModels(providerId,
+    apiKey, false)` (`libs/backend/auth-providers/src/lib/provider-models.service.ts:279-287`, returns
+    `{ models: ProviderModelInfo[]; totalCount; isStatic }`), injected with
+    `@inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)`, and the key from
+    `IAuthSecretsService.getProviderKey(providerId)` (`@inject(TOKENS.AUTH_SECRETS_SERVICE)`). Both
+    injections already exist in this lib (`handlers/provider-rpc.handlers.ts:133-136`). The adapter
+    applies the handler's guard: no key and a purely dynamic provider → skip discovery
+    (`provider-rpc.handlers.ts:600-612`). It never calls the RPC method itself.
+  - Provenance: discovery ids get `reported` when `isStatic === false` (a live provider answer) and
+    `fallback` when `isStatic === true` (Ptah's shipped list for that provider).
+  - Merge, in this order, unique by id: `selectedModel` (`configured`), then `tierMappings` values
+    (`tier`), then discovery ids not already present. A discovered id that equals a configured or tier
+    id keeps the configured or tier provenance, so the user's choice is never relabelled.
+  - Timeout isolation: the configured and tier entries are built first, with no I/O. Discovery is
+    raced against the row's `signal` (the service's per-row 2000 ms race, part A §6). When the signal
+    aborts, or discovery throws or returns nothing, the adapter returns the configured and tier entries
+    alone and logs one `debug` (`{ ptahCliId, providerId, reason }`). One slow provider affects only its
+    own row, because the service races each row separately. Two Ptah CLI rows on the same provider
+    share one in-flight discovery promise per `list` burst (keyed by `providerId`, released when it
+    settles), so the provider is asked once.
+  Registered in `register-shared-rpc-handlers.ts` next to :55 under `LANE_ROUTING_TOKENS.LANE_MODEL_LISTING`.
 - Verified contracts: `cli-model-list.service.ts:31-50`; registration `register-shared-rpc-handlers.ts:55`;
   Ptah CLI config fields runtime survey §5.
 - Failure behaviour: throws are caught per row by the service's race; the adapter itself returns
   what it has.
-- Verification seam: adapter spec with fake `CliModelListService` and config persistence.
+- Verification seam: adapter spec with fake `CliModelListService`, config persistence,
+  `ProviderModelsService` and `IAuthSecretsService`. Required cases (finding 2): live discovery
+  (`isStatic: false`) → discovered ids tagged `reported`, configured id `configured`, tier ids `tier`,
+  no duplicate ids; static discovery (`isStatic: true`) → `fallback`; a discovered id equal to
+  `selectedModel` stays `configured`; discovery that never resolves with the signal aborted at 2000 ms
+  (fake timers) → the row still returns its configured and tier entries, and a CLI row listed in the
+  same call returns its full list unaffected; discovery throws → configured and tier only, one debug
+  log; no key for a purely dynamic provider → `fetchModels` not called; two rows on one provider →
+  `fetchModels` called once.
 - Files: CREATE `libs/backend/rpc-handlers/src/lib/services/lane-model-listing.adapter.ts` (+ spec);
   MODIFY `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`.
 
@@ -452,10 +505,16 @@ Paths are relative to the worktree root
   kinds. Report subagent deliverables and review verdicts per Req 8.7 using pass B's tool/contract
   (resolved by implementation-plan.md R3):
   - Lane spawns pass `taskKind` and `routingSource` from the Gate 0.1 row.
-  - After each subagent run, call `ptah_outcome_report` with `kind:'deliverables'` and
-    `target:{subagent:<slug>}`, plus paths, `taskKind`, `taskId` and `routingSource`. Keep the returned `runId`.
-  - After each review verdict, call `ptah_outcome_report` with `kind:'review'` and `target:{runId}`, or
-    `{agentId}` for a lane run.
+  - After each subagent run, read the `agentId` from that run's Agent tool result (integration note, Gate 2
+    revision 1 finding 4; integrated SC-7 target rules) and call `ptah_outcome_report` with
+    `kind:'deliverables'` and `target:{agentId:<that id>}`, plus paths, `taskKind`, `taskId` and
+    `routingSource`. Keep the returned `runId` with that run in the skill's own notes. Do this for every run,
+    including a second run of the same agent and runs that ran at the same time; never use the slug when the
+    `agentId` is known.
+  - Only when the tool result shows no `agentId`, use `target:{subagent:<slug>}`. If the tool answers
+    "ambiguous", do not guess: record the run as unreported in the task notes and continue.
+  - After each review verdict, call `ptah_outcome_report` with `kind:'review'` and `target:{runId}` (the
+    `runId` kept for the reviewed run), or `{agentId}` for a lane run.
   - When the tool is not listed, skip silently.
 - Assumption A5: the plugin asset copy is the source the harness syncs to `.claude/`, `.agents/`,
   `.github/`. Check: grep the harness sync for `assets/plugins/ptah-core/skills`.

@@ -1,6 +1,6 @@
 # Implementation Plan - TASK_2026_646_136a (integrated)
 
-Status: integration pass. `implementation-plan-part-a.md` (routing) and `implementation-plan-part-b.md`
+Status: integration pass, revised after Gate 2 review round 1 (see § Revision log). `implementation-plan-part-a.md` (routing) and `implementation-plan-part-b.md`
 (evaluation loop) are normative sections of this plan. Where this file and a part disagree, this file wins.
 Both parts carry short "Integration note" markers where this pass changed them.
 
@@ -114,6 +114,7 @@ export interface LaneOutcomeRecord {
   readonly routingSource: OutcomeRoutingSource;
   readonly reviseRounds: number;
   readonly finalReview: OutcomeFinalReview | null;
+  readonly deliverablesDeclaredAt: number | null; // set by the first `deliverables` report (finding 4)
   readonly telemetryJoin: OutcomeTelemetryJoin;
   readonly skillsLoaded: readonly string[] | null;   // null = unknown, never [] for unknown
   readonly sessionEvidenceClass: string | null;
@@ -147,8 +148,9 @@ export interface LaneOutcomeReader {
   /** Records of one lane with endedAt >= window.sinceMs, newest first. Never rejects: store failure → [] + log.
    *  Unknown laneId → []. Target latency 200 ms; routing races it inside its 2000 ms gather deadline. */
   recentOutcomes(laneId: string, window: { readonly sinceMs: number }): Promise<readonly LaneOutcomeSummary[]>;
-  /** false in VS Code (in-memory store) or when the DB is not open → routing adds the Req 4.5 "no outcome
-   *  history" reason and uses seed/neutral scores. */
+  /** true when the active durable store is readable (SQLite open in desktop/CLI, the IStateStorage-backed
+   *  store in VS Code; SC-10). false only while the desktop/CLI DB is not yet open or no store is registered
+   *  → routing adds the Req 4.5 "no outcome history" reason and uses seed/neutral scores. */
   isPersistent(): boolean;
 }
 ```
@@ -174,7 +176,7 @@ container.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, { useToken: LANE_ROUT
 ```
 
 Each root does this in all three hosts, after both `register*Services` calls. In VS Code `READER` resolves
-the in-memory store, so routing reads `isPersistent() === false`.
+the `IStateStorage`-backed store (SC-10), so routing reads `isPersistent() === true` there too.
 
 ### SC-4 Failure-classifier port (outcomes → routing, Req 10.3 / 12.5)
 
@@ -275,6 +277,29 @@ export const OutcomeReportArgsSchema = z.discriminatedUnion('kind', [
 ]);
 ```
 
+Target resolution (Gate 2 revision 1 finding 4; replaces part B §8's slug rule):
+
+- `{ runId }`: exact record, or an error naming the id.
+- `{ agentId }`: first the subagent record `subagent:${agentId}`, then the newest lane record of that
+  `agentId`. If both exist, the tool returns an "ambiguous" error and writes nothing. This is the form the
+  skill uses for every subagent report. The id comes from the Agent tool result: the SDK's `AgentOutput`
+  carries `agentId` (`node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:100-102`, and `:156` for
+  async launches). The SubagentStop hook passes the same run's id as `agent_id`, which the hook handler copies
+  into `SubagentStopPayload.agentId` (`libs/backend/agent-sdk/src/lib/helpers/subagent-hook-handler.ts:520-524`).
+  That id is the run key (`subagent:${agentId}`, SC-1). Each run has its own `agentId`, so repeated and
+  concurrent runs of one slug never compete for a report. Assumption IA-4 covers the check that the parent
+  model sees the id in the tool result text.
+- `{ subagent: slug }` (fallback only): candidates are the slug's subagent records from the last 24 h.
+  For `deliverables`, a candidate is a record with `deliverablesDeclaredAt === null`; for `review`, a record
+  with `finalReview === null`. Exactly one candidate → write. Zero → error "no open run for <slug>".
+  More than one → error "ambiguous: <n> open runs of <slug>; pass agentId", and nothing is written.
+- Order: the SubagentStop insert is enqueued when the subagent stops, before its tool result reaches the
+  parent. The report is a `submit` op, which SC-10 applies after every earlier op, so the record exists.
+  If it still does not exist, the tool returns `{ recorded: false, reason: 'no run for agentId <id> yet' }`.
+  This is not an error, and the skill does not retry.
+- `deliverables` sets `verdict` and `deliverablesDeclaredAt`. A second `deliverables` report for the same
+  run replaces the verdict (the latest declaration wins) and keeps the first `deliverablesDeclaredAt`.
+
 ### SC-8 RPC surface
 
 | Method | Owner | Params / result | Guard status |
@@ -289,6 +314,96 @@ Neither new lib imports `vscode-core`. `platform-core` has no logger token (veri
 (`debug/info/warn/error(message, meta?)`), takes the host logger as a parameter of its `register*Services`
 function, and registers it under a token the lib owns. The vscode-core `Logger` satisfies the interface
 structurally. This replaces part B §3's "take `TOKENS.LOGGER` from `vscode-core`" and matches part A §2.
+
+### SC-10 Outcome write pipeline and durable storage in every host (batch B4; findings 1 and 5)
+
+This supersedes part B's "in-memory store in VS Code" and "writes before the DB opens are dropped". There is
+one write pipeline for every host. No recorder method writes to a store on the caller's stack.
+
+Evidence:
+
+- Every host already binds the host-neutral `IStateStorage` port under `PLATFORM_TOKENS.STATE_STORAGE`
+  (`libs/backend/platform-core/src/di/tokens.ts:16`). VS Code binds `VscodeStateStorage(context.globalState)`
+  (`libs/backend/platform-vscode/src/registration.ts:63-65`), which is durable across restarts. The CLI binds
+  `CliStateStorage(userDataPath, 'global-state.json')` (`libs/backend/platform-cli/src/registration.ts:68-70`),
+  and Electron binds `ElectronStateStorage` (`libs/backend/platform-electron/src/registration.ts:115-117`). The
+  port is `get / update / keys` (`libs/backend/platform-core/src/interfaces/state-storage.interface.ts`).
+- The SQLite connection exposes `isOpen` and `onDidOpen` (`sqlite-connection.service.ts:450`, `:479-486`). It
+  has no open-failure event (verified by grep), so a DB that never opens looks the same as one that opens late.
+
+Storage, chosen once in `registerLaneOutcomeServices` (lazy factory, same as `task-specs/.../register.ts:78-86`):
+
+| Host | Primary store | Journal |
+| --- | --- | --- |
+| Desktop, CLI (`PERSISTENCE_TOKENS.SQLITE_CONNECTION` registered) | `SqliteLaneOutcomeStore` (`lane_outcome_records`, migration 0054) | `KeyValueOutcomeJournal` over `PLATFORM_TOKENS.STATE_STORAGE`, key `ptah.laneOutcomes.journal.v1` |
+| VS Code (no SQLite connection, `phase-2-libraries.ts:85-92`) | `KeyValueLaneOutcomeStore` over `PLATFORM_TOKENS.STATE_STORAGE`, key `ptah.laneOutcomes.records.v1` | none (the primary is always ready) |
+| Neither token registered (tests only) | `InMemoryLaneOutcomeStore`, `isPersistent() === false` | none |
+
+`InMemoryLaneOutcomeStore` stays as the test double and the last-resort fallback. No production host selects it.
+
+`KeyValueLaneOutcomeStore` keeps one JSON array of `LaneOutcomeRow` (the SC-1 row, no text fields, Req 5.8).
+It is bounded: rows with `endedAt` older than 90 days (the SC-2 routing window) are evicted on every write,
+then the oldest beyond 2 000 rows. Evictions are logged at `debug` with a count. Each drain batch does one
+`update(key, rows)`, never one per op. Reads filter the in-memory copy with the same rules as the SQLite queries.
+`isPersistent()` returns `true`.
+
+`OutcomeWritePipeline` (new, `lane-outcomes/src/lib/write/outcome-write-pipeline.ts`):
+
+- `enqueue(op): void` is synchronous and O(1). It never validates, never touches a store and never throws. It
+  is the only thing `recordLaneCompletion`, `recordSubagentStop` and `markSubagentBudgetStop` do. Zod row
+  validation runs inside the drain.
+- `submit(op): Promise<OutcomeWriteResult>` is for validated ops: `declareSubagentDeliverables` and
+  `attachReview`. It resolves after every earlier op has been applied, so a report never overtakes the insert
+  of its own run.
+- Ordering: one FIFO, one consumer, ops applied strictly in enqueue order. The drain is scheduled with
+  `setImmediate`, never on the caller's stack. It applies at most 25 ops per turn, then yields with another
+  `setImmediate`, so a slow synchronous better-sqlite3 write holds the event loop for one bounded batch at most.
+- Deduplication: lane ops are `insertIfAbsent` by `run_id` (the notifier's dedup key). Subagent stop ops are
+  `insertIfAbsent` by `subagent:${agentId}`. Budget stops are an upsert of `budget_stopped = 1`. All three are
+  idempotent, so a replay after a crash cannot double-count. `attachReview`'s `revise_rounds + 1` is the only
+  non-idempotent op. It is a validated op and is never journaled or replayed.
+- Bound: at most 1 000 ops in memory. When the queue is full, an incoming fire-and-forget op is dropped with one
+  `warn` (`{ runId, reason: 'queue-full' }`), and a validated op resolves `{ ok: false, error: 'outcome store
+  busy' }`.
+- Store not ready (desktop/CLI DB not open yet): fire-and-forget ops are appended to the journal, which is
+  durable through `IStateStorage`. The journal holds at most 1 000 ops and drops the oldest with a `warn`.
+  Validated ops resolve `{ ok: false, error: 'outcome store not open yet' }`, and the tool shows that text.
+  On `onDidOpen`, and at start when `isOpen` is already true, the pipeline replays the journal in order into
+  SQLite and then clears it. Because the journal is durable, a run that ends before the DB opens, or in a
+  process that exits before the DB ever opens, is replayed at the next start that opens the DB.
+- Failure isolation: a store throw on one op is logged (`warn`, ids only) and does not stop the drain. An
+  idempotent op that fails with `SQLITE_BUSY` is retried once after 250 ms. Other failures are not retried,
+  and a validated op resolves `{ ok: false, error }`.
+- Shutdown: the `startLaneOutcomes` disposer stops `enqueue`, then drains for at most 2 000 ms. Fire-and-forget
+  ops that remain go to the journal (desktop/CLI) or are written in one final `update` (VS Code). Anything still
+  unwritten after that is counted in one `warn`. The disposer is awaited on the host shutdown path (AB14).
+
+Effect on part B: §3's `LaneOutcomeRecorder` methods return as soon as `enqueue` returns. §4's notifier call
+site stays where it is (after `buildSignal`, before the parent checks, so refusals are recorded), and it is
+now a synchronous enqueue with no store I/O. §3's "write dropped when the DB is not open" no longer applies.
+
+Required tests (B4 unless noted):
+
+- Restart, VS Code shape: a `KeyValueLaneOutcomeStore` over a fake `IStateStorage`. Write 3 records, build a
+  new store and pipeline over the same storage object, and `recentOutcomes` returns the 3 records.
+- Restart, desktop shape: the SQLite-backed spec (0037 test helper) writes records, closes the connection,
+  reopens it on the same file, and reads them back.
+- Delayed open: SQLite connection fake with `isOpen = false`. Enqueue 2 lane completions and 1 subagent stop.
+  Assert the journal holds 3 ops and the store has 0 rows. Fire `onDidOpen`, and the store has 3 rows and the
+  journal is empty. Variant: build a new pipeline over the same journal storage (process restart before
+  open), open it, and the same 3 rows appear. Variant: replay twice and there are still 3 rows (idempotent).
+- Validated op before open resolves `{ ok: false }` naming "not open yet" and writes nothing.
+- Ordering: `declareSubagentDeliverables` submitted right after `recordSubagentStop` for the same run applies
+  after the insert.
+- Bound: queue full → the next fire-and-forget op is dropped with one warn; KV store over 2 000 rows → oldest
+  evicted.
+- Shutdown: disposer flushes pending ops within 2 000 ms; a store that never resolves → the disposer still
+  returns by the deadline, and the remaining ops are journaled.
+- Signal path (B5, notifier spec, real `OutcomeWritePipeline` over a fake store, Jest fake timers): a store
+  whose write takes 5 s, and a store that throws. In both cases the parent receives the completion signal
+  without advancing the 5 s timer, `signal()` never awaits the store, and the throwing case logs one warn.
+  A third case: `enqueue` itself is replaced by a throwing stub, and the signal is still delivered (the
+  notifier keeps its `try/catch`).
 
 ## Reconciliation log
 
@@ -315,7 +430,7 @@ structurally. This replaces part B §3's "take `TOKENS.LOGGER` from `vscode-core
 
 | Req / AC | Batches |
 | --- | --- |
-| 1.1-1.8 decision-model setting | A6a (client), A6b (1.3-1.5 settings, probe), A11 (config RPC), A12 (row UI, 1.4 disclosure), A13 (1.2 structured output, 1.8 confidence null) |
+| 1.1-1.8 decision-model setting | A6a (client, `routeMissing` on non-JSON 404), A6b (1.3-1.5 settings; probe = version + `POST /v1/systemone` capability check; spec: version 0.40.0 with a plain-text 404 → `unsupported-endpoint`), A8 (live `routeMissing` → `markUnsupported`), A11 (config RPC), A12 (row UI, 1.4 disclosure), A13 (1.2 structured output, 1.8 confidence null) |
 | 2.1 any host, HTTP and stdio | A9a, AB9, AB14 |
 | 2.2-2.3, 2.5 args/result contract, field-named errors | A3, A9a |
 | 2.4 stored preference | A5b, A8 |
@@ -326,23 +441,23 @@ structurally. This replaces part B §3's "take `TOKENS.LOGGER` from `vscode-core
 | 5.1 one record per deduped completion | B5 |
 | 5.2 record fields | AB1, B4, B5; task kind/routing source via SC-6 (AB1, A1b, B5, A15) |
 | 5.3 lane tokens/cost null | B5 |
-| 5.4 subagent one-to-one join | B2 (0055), B4, B6 |
-| 5.5 declared deliverables | B5 (helper export), B10a, AB9, A15 |
+| 5.4 subagent one-to-one join | B2 (0055), B4, B6 (recorder dedup by exact `runId` for subagent events; two runs in one 2 s bucket end-to-end spec) |
+| 5.5 declared deliverables | B5 (helper export), B2 (`deliverables_declared_at`), B4 + B10a (SC-7 `agentId` target and slug fallback, repeated/concurrent sequence specs), AB9, A15 (report by `agentId`) |
 | 5.6 review attach | B4, B10a, AB9, A15 |
-| 5.7 persists, routing reads | B2, B4, A4b, AB14 (alias) |
+| 5.7 persists, routing reads | B2, B4 (SC-10: SQLite, VS Code `IStateStorage` store, pre-open journal; restart and delayed-open fixtures), A4b, AB14 (alias, disposer awaited on shutdown) |
 | 5.8 no text | B4 (row schema), SC-4 input shape (A16, B4) |
-| 5.9 write failure non-blocking | B5 |
+| 5.9 write failure non-blocking | B4 (SC-10 pipeline: async drain, bound, failure isolation), B5 (notifier signal-path specs with delayed and throwing stores) |
 | 6.1-6.3 seed matrix | A4 |
 | 6.4-6.8 user edits, local derivation, view file | A4b |
 | 6.9 no vendor-to-task tables | A15 |
 | 7.1-7.6 spread | A5b |
 | 7.7-7.8 | A8 |
 | 8.1-8.6 skill at Pre-flight/Gate 0.1 | A15 |
-| 8.7 outcome reports | A15 (call sites R3), needs AB9 |
+| 8.7 outcome reports | A15 (call sites R3; every subagent report by the Agent result's `agentId`, review by the kept `runId`), B10a (sequence spec), needs AB9 |
 | 9.1-9.5 Agents-tab signals (9.4 scorecard kept; decision #13 replacement) | B4 (`computeAgentSignals`), B7, B8 |
 | 10.1-10.2 failure class | B5 (lanes), B3 + B4 (subagents) |
 | 10.3 decision-model classification | A16, B4 (hook), AB14 (alias) |
-| 11.1-11.5 model discovery | A10, A8 (11.2-11.5 deadlines) |
+| 11.1-11.5 model discovery | A10 (11.1 incl. Ptah CLI provider discovery via `ProviderModelsService.fetchModels`, provenance and timeout-isolation specs), A8 (11.2-11.5 deadlines) |
 | 12.1-12.9 pipeline and budget | A8, A6a (size limit); 12.5 classification budget A16 |
 | 13.1-13.5 reasons/confidence | A7, A8 |
 | NFR Performance / Token cost | A8, A16 |
@@ -374,33 +489,33 @@ in-process.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | AB1 | Shared contracts | CREATE `libs/shared/src/lib/utils/lane-family.ts` (+ spec), `libs/shared/src/lib/types/lane-outcome.types.ts` (SC-1, SC-2, SC-4), `libs/shared/src/lib/types/rpc/rpc-lane-outcome.types.ts`; MODIFY `agent-process.types.ts` (`CliDetectionResult.family?`, SC-6 fields), `rpc.types.ts` (method + capability map), shared barrel (A §1 shared part + B §1) | `@ptah-extension/shared` | none | `npx nx test @ptah-extension/shared --parallel=1` (includes `host-source-registry.contract.spec.ts`), then `npx nx typecheck @ptah-extension/shared` | yes | CLI lane | Shipping (small) |
 | A2 | lane-routing scaffold | A §2 files. Tokens include `LANE_OUTCOME_READER` and `FAILURE_CLASSIFIER`; local logger interface (SC-9); MODIFY `tsconfig.base.json` | `@ptah-extension/lane-routing` | none | `npx nx test @ptah-extension/lane-routing --parallel=1` + `npx nx lint @ptah-extension/lane-routing` | yes (only wave-1 batch touching `tsconfig.base.json`) | CLI lane | Shipping |
-| B2 | Migrations 0054, 0055 | B §2 | `@ptah-extension/persistence-sqlite` | none | `npx nx test @ptah-extension/persistence-sqlite --parallel=1` | yes | CLI lane | Shipping |
+| B2 | Migrations 0054, 0055 | B §2; 0054 gains `deliverables_declared_at INTEGER` (SC-1, finding 4) | `@ptah-extension/persistence-sqlite` | none | `npx nx test @ptah-extension/persistence-sqlite --parallel=1` | yes | CLI lane | Shipping |
 | B3 | Subagent budget-stop registry | B §5 | `@ptah-extension/agent-sdk` | none | `J(libs/backend/agent-sdk, <budget-stop registry spec, monitor spec>)` + `npx nx typecheck @ptah-extension/agent-sdk` | yes | CLI lane | Shipping |
 | A3 | Route contracts and ports | A3 row minus `lane-outcome-reader.port.ts` (type comes from shared, SC-2); `ChosenEntry.taskKind` (SC-6); task kinds from `OUTCOME_TASK_KINDS` | `@ptah-extension/lane-routing` | AB1, A2 | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | CLI lane | Shipping |
-| B4 | lane-outcomes lib | B §3, plus SC-2 split (`LaneOutcomeQueries`), SC-4 recorder hook, SC-7 schema, SC-9 logger; MODIFY `tsconfig.base.json` | `@ptah-extension/lane-outcomes` | AB1, B2, B3 | `npx nx test @ptah-extension/lane-outcomes --parallel=1` + `npx nx lint @ptah-extension/lane-outcomes` | yes (only wave-2 batch touching `tsconfig.base.json`) | CLI lane (largest; one lane) | Shipping |
+| B4 | lane-outcomes lib | B §3, plus SC-2 split (`LaneOutcomeQueries`), SC-4 recorder hook, SC-7 schema, SC-9 logger; MODIFY `tsconfig.base.json`; SC-10 write pipeline, `KeyValueLaneOutcomeStore`, `KeyValueOutcomeJournal` (restart, delayed-open, bound, ordering and shutdown specs); SC-7 target resolution (`agentId` first, slug fallback by `deliverablesDeclaredAt`) | `@ptah-extension/lane-outcomes` | AB1, B2, B3 | `npx nx test @ptah-extension/lane-outcomes --parallel=1` + `npx nx lint @ptah-extension/lane-outcomes` | yes (only wave-2 batch touching `tsconfig.base.json`) | CLI lane (largest; one lane) | Shipping |
 | B8 | Library Agents-tab signals | B §9 | `@ptah-extension/skill-synthesis-ui` | AB1 | `npx nx test @ptah-extension/skill-synthesis-ui --parallel=1` | yes | CLI lane (frontend) | Shipping |
 | A1b | Row `family` + spawn routing fields | MODIFY `namespace-builders/agent-namespace.builder.ts`, `mcp-core/mcp-response-formatter.ts` (+ spec), `mcp-core/agent-spawn-args.schema.ts` (+ spec) (SC-6), and the spawn-args → `SpawnAgentRequest` mapping site (IA-1) | `@ptah-extension/vscode-lm-tools` | AB1 | `J(libs/backend/vscode-lm-tools, <formatter, agent-namespace, spawn-args specs>)` + `npx nx typecheck @ptah-extension/vscode-lm-tools` | yes, unless IA-1 puts the mapping in `protocol-dispatcher.ts`; in that case the mapping moves to AB9 | CLI lane | Shipping |
 | A4 | Matrix data | A4 row | `@ptah-extension/lane-routing` | A3 | `J(libs/backend/lane-routing, <A4 specs>)` | yes (LR/matrix types) | CLI lane | Shipping |
 | A5a | Hard constraints | A5a row | `@ptah-extension/lane-routing` | A3 | `J(..., <A5a specs>)` | yes (LR/ranking constraints) | CLI lane | Shipping |
-| A6a | System One wire + payload | A6a row | `@ptah-extension/lane-routing` | A3 | `J(..., <A6a specs>)` | yes (LR/decision-model wire) | CLI lane | Shipping |
-| A6b | Decision-model settings | A6b row | `@ptah-extension/lane-routing` | A3 | `J(..., <A6b specs>)` | yes (LR/decision-model settings files) | CLI lane | Shipping |
+| A6a | System One wire + payload | A6a row; client marks a non-JSON 404/405 `routeMissing: true` (finding 6) | `@ptah-extension/lane-routing` | A3 | `J(..., <A6a specs>)` | yes (LR/decision-model wire) | CLI lane | Shipping |
+| A6b | Decision-model settings | A6b row; probe adds the `POST /v1/systemone` capability check and `markUnsupported(base)` (finding 6) | `@ptah-extension/lane-routing` | A3 | `J(..., <A6b specs>)` | yes (LR/decision-model settings files) | CLI lane | Shipping |
 | A7 | Reasons and confidence | A7 row | `@ptah-extension/lane-routing` | A3 | `J(..., <A7 specs>)` | yes (LR/reasons) | CLI lane | Shipping |
-| A10 | Lane model listing adapter | A10 row | `@ptah-extension/rpc-handlers` | A3 | `J(libs/backend/rpc-handlers, <adapter spec>)` + `npx nx typecheck @ptah-extension/rpc-handlers` | yes (only wave-3 batch touching `register-shared-rpc-handlers.ts`) | CLI lane | Shipping |
-| B5 | Lane write point, failure class, spawn-field copy | B §4, plus SC-5 family, SC-6 APM copy and notifier mapping, SC-4 input fields | `@ptah-extension/cli-agent-runtime` | AB1, B4 | `J(libs/backend/cli-agent-runtime, <classifier, auth, notifier specs>)` + `npx nx typecheck @ptah-extension/cli-agent-runtime` | yes | CLI lane | Shipping |
-| B6 | Kept skill-synthesis stores (#23) | B §6 | `@ptah-extension/skill-synthesis` | B2, B4 | `npx nx test @ptah-extension/skill-synthesis --parallel=1` | yes | CLI lane | Shipping |
+| A10 | Lane model listing adapter | A10 row, plus Ptah CLI provider discovery (part A §9 integration note, finding 2) | `@ptah-extension/rpc-handlers` | A3 | `J(libs/backend/rpc-handlers, <adapter spec>)` + `npx nx typecheck @ptah-extension/rpc-handlers` | yes (only wave-3 batch touching `register-shared-rpc-handlers.ts`) | CLI lane | Shipping |
+| B5 | Lane write point, failure class, spawn-field copy | B §4, plus SC-5 family, SC-6 APM copy and notifier mapping, SC-4 input fields; notifier call is an SC-10 enqueue; signal-path specs with a 5 s store write and a throwing store (findings 1, 5) | `@ptah-extension/cli-agent-runtime` | AB1, B4 | `J(libs/backend/cli-agent-runtime, <classifier, auth, notifier specs>)` + `npx nx typecheck @ptah-extension/cli-agent-runtime` | yes | CLI lane | Shipping |
+| B6 | Kept skill-synthesis stores (#23) | B §6, incl. recorder dedup by `runId` (finding 3) | `@ptah-extension/skill-synthesis` | B2, B4 | `npx nx test @ptah-extension/skill-synthesis --parallel=1` | yes | CLI lane | Shipping |
 | A4b | Matrix store + local derivation | A4b row; reads SC-2 (`isPersistent`, `SUBAGENT_LANE_ID`, `LANE_DEFAULT_MODEL`) | `@ptah-extension/lane-routing` | A4 | `J(..., <A4b specs>)` | yes (LR/matrix store files) | CLI lane | Shipping |
 | A5b | Score, spread, rotation | A5b row | `@ptah-extension/lane-routing` | A4, A5a | `J(..., <A5b specs>)` | yes (LR/ranking score/spread files) | CLI lane | Shipping |
 | A11 | Decision-model config RPC | A11 row | `@ptah-extension/shared`, `@ptah-extension/rpc-handlers` | A6b, A10 | `J(libs/backend/rpc-handlers, <decision-model spec>)`, then `npx nx typecheck @ptah-extension/shared`, one at a time | yes (`agent-rpc.handlers.ts`, `rpc-agents.types.ts`) | CLI lane | Shipping |
 | A13 | Structured-output adapter | A13 row | `@ptah-extension/agent-sdk` | A6b, B3 (same DI files) | `J(libs/backend/agent-sdk, <adapter spec>)` | yes | CLI lane | Shipping |
 | B7 | `agent:outcomeSignals` handler | B §7 minus the app guard specs (moved to AB14); keeps `rpc-allowlist.spec.ts` | `@ptah-extension/rpc-handlers` | AB1, B4, A10 (same registration file) | `J(libs/backend/rpc-handlers, <outcome handler spec, rpc-allowlist.spec.ts>)` | yes (new handler + `register-shared-rpc-handlers.ts`; A11 touches neither) | CLI lane | Shipping |
-| B10a | Report tool module | CREATE `mcp-core/tools/outcome-report.tool.ts` (+ spec), importing SC-7 from lane-outcomes; no edits to registration files | `@ptah-extension/vscode-lm-tools` | B4, B5 | `J(libs/backend/vscode-lm-tools, <outcome-report spec>)` | yes | CLI lane | Shipping |
-| A8 | Route decide pipeline | A8 row (LR service, pipeline, `register.ts`, index) | `@ptah-extension/lane-routing` | A4b, A5b, A6a, A6b, A7 | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | in-process subagent (five modules, long fixture set) | Shipping |
+| B10a | Report tool module | CREATE `mcp-core/tools/outcome-report.tool.ts` (+ spec), importing SC-7 from lane-outcomes; no edits to registration files; SC-7 target rules and the repeated/concurrent same-slug sequence spec (finding 4) | `@ptah-extension/vscode-lm-tools` | B4, B5 | `J(libs/backend/vscode-lm-tools, <outcome-report spec>)` | yes | CLI lane | Shipping |
+| A8 | Route decide pipeline | A8 row (LR service, pipeline, `register.ts`, index); forwards a live `routeMissing` failure to `markUnsupported` (finding 6) | `@ptah-extension/lane-routing` | A4b, A5b, A6a, A6b, A7 | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | in-process subagent (five modules, long fixture set) | Shipping |
 | A12 | Decision model settings row | A12 row; check TASK_2026_658 overlap first | `@ptah-extension/chat` | A11 | `J(libs/frontend/chat, <changed specs>)` | yes | CLI lane (frontend) | Shipping |
 | A9a | Route tool modules | CREATE `mcp-core/route-tools.ts`, `route-tool-handlers.ts`, `namespace-builders/route-namespace.builder.ts` and their specs (A §8); no edits to registration files | `@ptah-extension/vscode-lm-tools` | A8 | `J(libs/backend/vscode-lm-tools, <route specs, namespace spec>)` | yes | CLI lane | Shipping |
 | A16 | Decision-model failure classifier | CREATE `LR/failure-class/decision-model-failure-classifier.ts` (+ spec: unset → zero requests; fake client counts exactly 1; below threshold → null; outside five → null; payload field set pinned); MODIFY `LR/di/register.ts` (+ spec), `src/index.ts` (SC-4) | `@ptah-extension/lane-routing` | A8 (`answer-validation.ts`, register file) | `npx nx test @ptah-extension/lane-routing --parallel=1` | yes | CLI lane | Shipping |
-| AB9 | MCP registration for both tools | MODIFY `protocol-dispatcher.ts` (route tool always-on after `buildSessionHandoffTool()`; report tool deferred; two `case`s), `tool-result-budget.ts`, `ptah-api-builder.service.ts`, the `PtahAPI` type file, `mcp-http/http-mcp-server.service.ts`, `mcp-stdio/{tool-builders.ts,agent-tool.dispatcher.ts,index.ts}`, `ptah-system-prompt.constant.ts` (two rows); update the tool-name registry specs (A §8 + B §8) | `@ptah-extension/vscode-lm-tools` | A9a, B10a, A1b | `npx nx test @ptah-extension/vscode-lm-tools --parallel=1` | yes | in-process (nine shared files, both tools) | Shipping |
-| AB14 | Host wiring and guard specs | MODIFY the three roots (`apps/ptah-extension-vscode/src/di/phase-2-libraries.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts`, `libs/backend/cli-engine/src/lib/container.ts`): `registerLaneOutcomeServices` before `registerCliAgentRuntimeServices`, `registerLaneRoutingServices` before `registerVsCodeLmToolsServices`, the SC-3 aliases, `startLaneOutcomes` with its disposer; `expected-resolvable.ts`; three `container.smoke.spec.ts` (vscode, electron, `apps/ptah-cli/src/di/`); `rpc-surface.spec.ts`; Electron `surface-composition.spec.ts`; validate-deps allowlist only if the pre-push gate flags a new lib (A §12 + B §10) | `ptah-extension-vscode`, `ptah-electron`, `ptah-cli`, `@ptah-extension/cli-engine` | A8, A10, A13, A16, AB9, B4, B5, B6, B7 | one at a time: `J(apps/ptah-extension-vscode, src/di)`, then `npx nx test ptah-electron --parallel=1`, then `npx nx test @ptah-extension/cli-engine --parallel=1`, then `npx nx test ptah-cli --parallel=1` | yes | in-process | Shipping |
-| A15 | Orchestration skill integration | A §13 files; Req 8.7 call sites from R3; spawn passes `taskKind`/`routingSource` (`agent-lanes/SKILL.md`) | none (docs) | AB9 (tool names and args final) | grep for vendor-to-task tables (Req 6.9) and for both tool names, recorded in the batch report | yes (assets only) | CLI lane | Docs |
+| AB9 | MCP registration for both tools | MODIFY `protocol-dispatcher.ts` (route tool always-on after `buildSessionHandoffTool()`; report tool deferred; two `case`s), `tool-result-budget.ts`, `ptah-api-builder.service.ts`, the `PtahAPI` type file, `mcp-http/http-mcp-server.service.ts`, `mcp-stdio/{tool-builders.ts,agent-tool.dispatcher.ts,index.ts}`, `ptah-system-prompt.constant.ts` (two rows); update the tool-name registry specs (A §8 + B §8); dispatch `switch (name)` is at `protocol-dispatcher.ts:1037` (finding 7) | `@ptah-extension/vscode-lm-tools` | A9a, B10a, A1b | `npx nx test @ptah-extension/vscode-lm-tools --parallel=1` | yes | in-process (nine shared files, both tools) | Shipping |
+| AB14 | Host wiring and guard specs | MODIFY the three roots (`apps/ptah-extension-vscode/src/di/phase-2-libraries.ts`, `apps/ptah-electron/src/di/phase-2-libraries.ts`, `libs/backend/cli-engine/src/lib/container.ts`): `registerLaneOutcomeServices` before `registerCliAgentRuntimeServices`, `registerLaneRoutingServices` before `registerVsCodeLmToolsServices`, the SC-3 aliases, `startLaneOutcomes` with its disposer; `expected-resolvable.ts`; three `container.smoke.spec.ts` (vscode, electron, `apps/ptah-cli/src/di/`); `rpc-surface.spec.ts`; Electron `surface-composition.spec.ts`; validate-deps allowlist only if the pre-push gate flags a new lib (A §12 + B §10); the `startLaneOutcomes` disposer is awaited on host shutdown (SC-10 flush); the VS Code smoke spec resolves `KeyValueLaneOutcomeStore` over `PLATFORM_TOKENS.STATE_STORAGE` | `ptah-extension-vscode`, `ptah-electron`, `ptah-cli`, `@ptah-extension/cli-engine` | A8, A10, A13, A16, AB9, B4, B5, B6, B7 | one at a time: `J(apps/ptah-extension-vscode, src/di)`, then `npx nx test ptah-electron --parallel=1`, then `npx nx test @ptah-extension/cli-engine --parallel=1`, then `npx nx test ptah-cli --parallel=1` | yes | in-process | Shipping |
+| A15 | Orchestration skill integration | A §13 files; Req 8.7 call sites from R3; spawn passes `taskKind`/`routingSource` (`agent-lanes/SKILL.md`); every subagent report uses the Agent result `agentId`, reviews use the kept `runId` (SC-7, IA-4) | none (docs) | AB9 (tool names and args final) | grep for vendor-to-task tables (Req 6.9) and for both tool names, recorded in the batch report | yes (assets only) | CLI lane | Docs |
 
 ## Parallel waves
 
@@ -442,6 +557,7 @@ The batch that owns an assumption resolves it before writing code and records th
 | PB-8 | B §3 inline | No platform-core logger token | **Verified** by this pass (grep of `platform-core/src`); SC-9 applies | closed |
 | IA-1 | new | The spawn-args → `SpawnAgentRequest` mapping (where `role`/`effort` are copied today) lives outside `protocol-dispatcher.ts` | grep `effort` along the `ptah_agent_spawn` path in vscode-lm-tools | A1b; if it is in the dispatcher, move that line to AB9 |
 | IA-2 | new | For ptah-cli lanes, `AgentProcessInfo.quotaOwner.providerId` equals the row's `providerId`, so the family on records matches the family on routing rows | compare `quotaOwner` assignment in APM with `CliDetectionResult.providerId` source | B5; if they differ, carry `providerId` on `AgentProcessInfo` at spawn |
+| IA-4 | rev 1 | The orchestrating model sees the subagent's `agentId` in the Agent tool result text, and it equals the SubagentStop `agent_id` (SDK type `AgentOutput.agentId`, `sdk-tools.d.ts:100-102`) | B10a: one capture in a dev session, comparing the Agent tool result text with the `[SubagentHookHandler] SubagentStop received` debug line (`subagent-hook-handler.ts:420`) | A15 and B10a; if the id is not visible, the skill uses the `{subagent}` fallback, ambiguity is reported, never guessed, and the batch report records the gap |
 | IA-3 | new | tsyringe `useToken` aliases resolve correctly when the consumer checks `isRegistered(token, true)` | AB14 smoke spec resolves `LANE_ROUTING_TOKENS.LANE_OUTCOME_READER` and `LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER` in each host | AB14 |
 
 ## Handoff to TASK_2026_662_3eea
@@ -458,9 +574,29 @@ Part B § Handoff to TASK_2026_662_3eea is the normative keep-list. This pass ad
 - The orchestration skill text from A15 calls `ptah_outcome_report`. If 662 edits that skill, it keeps the
   three Req 8.7 call sites (R3).
 
+## Revision log (Gate 2 round 1)
+
+Source: `implementation-plan-review-round1.md` (codex, REVISE). Decisions #12, #13, #18 (as amended by #22) and
+#19 are unchanged.
+
+| Finding | Fix | Files / sections changed | Test or fixture added |
+| --- | --- | --- | --- |
+| 1 (Serious) Req 5.7: VS Code in-memory store; pre-open writes dropped | Durable storage in every host. Desktop/CLI use SQLite. VS Code uses `KeyValueLaneOutcomeStore` over the existing `PLATFORM_TOKENS.STATE_STORAGE` (globalState), bounded to 90 days / 2 000 rows. Ops that arrive before the desktop/CLI DB opens go to a durable `IStateStorage` journal and are replayed in order on `onDidOpen`; replay is idempotent. Decision #34 | this file: new SC-10; SC-2 `isPersistent` comment; SC-3 note; coverage 5.7; B4, AB14 rows. Part B: evidence rows 46-47, architecture decision, §3 responsibilities/failure/files, §10 verification, integration state, resolution row, D2 | B4: VS Code-shape restart (new store over the same `IStateStorage`), SQLite reopen restart, delayed open (journal → replay on `onDidOpen`), restart before open, double replay, validated op before open; AB14: VS Code smoke resolves the KV store |
+| 2 (Serious) Req 11.1: Ptah CLI provider discovery omitted | The A10 adapter adds `ProviderModelsService.fetchModels` (the source behind `provider:listModels`) for Ptah CLI rows, merges after `configured` and `tier`, tags `reported`/`fallback`, races discovery per row, and shares one in-flight call per provider. Decision #35 | Part A §9 (responsibilities, verification); this file: coverage 11.1, A10 row | A10: provenance (live, static, configured id kept), timeout isolation (abort at 2000 ms leaves configured/tier and does not affect a CLI row), discovery throw, no key, one call per provider |
+| 3 (Serious) Req 5.4: recorder 2 s bucket merges same-slug runs | Subagent events with a `runId` dedup by `subagent-run:${runId}`; every other event keeps the existing key. Decision #36 | Part B §6 (responsibilities, verification); this file: coverage 5.4, B6 row | B6: recorder spec (two runs in one bucket → two writes; same run twice → one; tool-use unchanged); end-to-end trigger → recorder → store → seam with two runs 500 ms apart |
+| 4 (Serious) Req 5.5, 8.7: slug target ambiguous after repeated runs | The skill reports each subagent run by the Agent tool result's `agentId` (the SubagentStop `agent_id` and the run key) and each review by the echoed `runId`. The `{subagent}` slug form is a fallback whose open set uses the new `deliverablesDeclaredAt`. Ambiguity is an error, never a guess. Decision #37, assumption IA-4 | this file: SC-1 field, SC-7 target resolution, coverage 5.5/8.7, B2, B4, B10a, A15 rows, IA-4. Part A §13 skill text. Part B §2 (0054 column), §8 target comment and verification | B10a: sequence spec (two concurrent runs of one slug reported in reverse order, a third repeated run, review rounds per `runId`, slug fallback and ambiguity) |
+| 5 (Serious) Req 5.9: sync SQLite write on the completion path | Recorder writes are an O(1) enqueue into the SC-10 pipeline (`setImmediate` drain, at most 25 ops per turn, 1 000-op bound, failure isolation, one `SQLITE_BUSY` retry for idempotent ops, 2 000 ms shutdown flush to the journal). This is the same pipeline as finding 1, not a second one. Decision #34 | this file: SC-10; coverage 5.9; B4, B5, AB14 rows. Part B §4 quality and verification | B5: notifier with a 5 s store write and a throwing store delivers the signal without awaiting the store; B4: ordering, queue bound, shutdown deadline |
+| 6 (Serious) Req 1.5: probe checks only `/api/version` | The Ollama probe adds `POST /v1/systemone` with `{}` as a route capability check (a non-JSON 404/405 means `unsupported-endpoint`). A live call with the same answer sets `routeMissing`, and A8 calls `markUnsupported(base)`. Decision #38 | Part A §5 (probe, client, verification); this file: coverage 1.1-1.8, A6a, A6b, A8 rows | A6b: version 0.40.0 + plain-text 404 → `unsupported-endpoint`; JSON 404 and 400 → `ready`; old version skips the POST; timeout → `unreachable`. A6a: `routeMissing` flag. A8: `markUnsupported` forwarding |
+| 7 (Moderate) stale dispatcher anchor | `switch (name)` is cited at `protocol-dispatcher.ts:1037`; `:1029` is where the handler's parameters begin | Part B §8 verified contracts; this file: AB9 row | none (anchor only) |
+
+No batch was added or split, and no file moved between batches, so the Parallel waves table is unchanged and
+still file-disjoint. The new files (SC-10 store, journal, pipeline) are all inside `libs/backend/lane-outcomes`,
+which only B4 owns.
+
 ## Decisions
 
-Integration decisions only. Each one is also recorded in `decisions.md` as rows 26-33.
+Integration decisions only. Each one is also recorded in `decisions.md` as rows 26-33. Gate 2 revision 1
+decisions are rows 34-38 there (see the revision log).
 
 | # | Decision | Options | Evidence | Reversible |
 | --- | --- | --- | --- | --- |

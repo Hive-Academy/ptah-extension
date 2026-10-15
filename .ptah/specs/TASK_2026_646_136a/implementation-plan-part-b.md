@@ -43,8 +43,8 @@ All paths relative to the worktree root. "V" = opened this pass; "S" = taken fro
 | `skill_session_verdicts` keyed by `session_id`, `evidence_class` CHECK (V) | `0034_skill_session_verdicts.ts:71-88` | Read-only for this task (no new writer); seam reads the evidence class for a run's own session when a row exists |
 | Migrations: static SQL, nullable `ALTER ADD COLUMN`, append-only registry, last version 53 (V) | `migrations/0037_skill_invocation_session_join.ts:32-47`; `migrations/index.ts:84`, `:133`, `:388-391` | New migrations are 0054 and 0055 |
 | Lazy SQLite-or-in-memory store selection by `isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)` (V) | `libs/backend/task-specs/src/lib/di/register.ts:78-86` | Same pattern for the outcome store |
-| VS Code host registers no SQLite connection; Thoth-free invariant is lint-enforced (V) | `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:85-92`, `:107-108` | VS Code: in-memory outcome store (lost on restart, says so); the skill-synthesis adapter is never bound there |
-| SQLite connection exposes `db`, `isOpen`, `onDidOpen` (V) | `libs/backend/persistence-sqlite/src/lib/sqlite-connection.service.ts:362`, `:450`, `:479` | Writes before the DB opens are dropped and logged, never queued forever, never thrown |
+| VS Code host registers no SQLite connection; Thoth-free invariant is lint-enforced (V) | `apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:85-92`, `:107-108` | VS Code: durable `KeyValueLaneOutcomeStore` over `PLATFORM_TOKENS.STATE_STORAGE` (integration note: integrated SC-10 replaces the in-memory store); the skill-synthesis adapter is never bound there |
+| SQLite connection exposes `db`, `isOpen`, `onDidOpen` (V) | `libs/backend/persistence-sqlite/src/lib/sqlite-connection.service.ts:362`, `:450`, `:479` | Writes before the DB opens go to a bounded durable journal and are replayed on `onDidOpen` (integration note: integrated SC-10 replaces "dropped") |
 | Library is desktop-only (V) | `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:2285` | Agents-tab signals only need to render where the Library renders |
 | Durable subagent handoff record when the budget monitor stops a subagent; monitor resolves `agentId` from its registry (V) | `libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-handoff-record.ts:1-36`; `subagent-budget-monitor.ts:36`, `:518` | A budget stop is observable in agent-sdk by subagent `agentId` → subagent failure class source |
 | `agent:` prefix already allowed (V) | `libs/backend/vscode-core/src/messaging/rpc-handler.ts:44`, `:66` | New webview method `agent:outcomeSignals` needs no prefix change |
@@ -55,7 +55,7 @@ All paths relative to the worktree root. "V" = opened this pass; "S" = taken fro
 ## Architecture decision
 
 - Chosen approach: one new host-neutral backend lib, `libs/backend/lane-outcomes`, owns the outcome record: its
-  store (SQLite in desktop and CLI, in-memory in VS Code), its recorder (write side), its reader (read side, the port
+  store (SQLite in desktop and CLI, `IStateStorage`-backed in VS Code; integrated SC-10), its recorder (write side), its reader (read side, the port
   pass A consumes) and the read seam port to the kept skill-synthesis stores. The seam is an interface + `Symbol.for`
   token declared in `lane-outcomes`; its only adapter lives in `libs/backend/skill-synthesis` and is bound only in
   Thoth hosts. Subagent tokens, cost, duration, spec verdict, session evidence and `skillsLoaded` are joined at READ
@@ -197,7 +197,8 @@ export interface AgentOutcomeSignals {
     model TEXT NOT NULL, role TEXT, task_kind TEXT, task_id TEXT, verdict TEXT NOT NULL, failure_class TEXT,
     budget_stopped INTEGER NOT NULL DEFAULT 0, started_at INTEGER, ended_at INTEGER NOT NULL, duration_ms INTEGER,
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, routing_source TEXT NOT NULL DEFAULT 'not-routed',
-    revise_rounds INTEGER NOT NULL DEFAULT 0, final_review TEXT, subagent_session_id TEXT, parent_session_id TEXT,
+    revise_rounds INTEGER NOT NULL DEFAULT 0, final_review TEXT, deliverables_declared_at INTEGER (integration note:
+    finding 4, SC-1 `deliverablesDeclaredAt`), subagent_session_id TEXT, parent_session_id TEXT,
     workspace_root TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL`; indexes
     `(lane_id, ended_at DESC)`, `(role, ended_at DESC)`, `(agent_id, ended_at DESC)`. No `CHECK` on enum columns:
     SQLite cannot widen a CHECK without a rebuild (`0034_skill_session_verdicts.ts:29`); enums are validated by Zod
@@ -210,7 +211,8 @@ export interface AgentOutcomeSignals {
 - Dependencies: none.
 - Integration points: Component 3 (SQLite store), Component 6 (`run_id` writer and seam reader).
 - Failure behaviour: the runner applies each version once (`0037:39-44`). A failed migration fails the DB open as for
-  every other migration; the outcome store then reports `persistent: false` (Component 3).
+  every other migration; the outcome store then reports `persistent: false` (Component 3), and lane and
+  subagent ops wait in the bounded SC-10 journal until a later start opens the DB (integration note).
 - Quality requirements: static SQL only (ESLint `no-template-curly-in-migration`).
 - Verification seam: one spec per migration in the `0037_*.spec.ts` style (applies on an in-memory DB, asserts
   columns and the index query plan); `npx nx test persistence-sqlite --parallel=1`.
@@ -222,6 +224,8 @@ export interface AgentOutcomeSignals {
 
 - Purpose: own the outcome record end to end, host-neutral.
 - Responsibilities:
+  - Integration note (SC-10): add `KeyValueLaneOutcomeStore`, `KeyValueOutcomeJournal` and `OutcomeWritePipeline`;
+    every recorder write goes through the pipeline. `InMemoryLaneOutcomeStore` is the test double only.
   - `LaneOutcomeStore` interface with `SqliteLaneOutcomeStore` and `InMemoryLaneOutcomeStore`, selected lazily as in
     `task-specs/src/lib/di/register.ts:78-86`. Operations: `insertIfAbsent(row)`, `update(runId, patch)`,
     `get(runId)`, `findLatestByAgent(agentId)`, `findOpenSubagentRuns(slug, sinceMs)`, `listByLane(laneId, sinceMs)`,
@@ -294,7 +298,8 @@ export interface SkillTelemetrySeam {
   and registered under a lib-owned token. There is no `vscode-core` import. Must NOT import skill-synthesis, cli-agent-runtime, or any Thoth lib (VS Code is Thoth-free).
 - Integration points: notifier (Component 4), skill-synthesis adapter (Component 6), RPC handler (Component 7), MCP
   report tool (Component 8), pass A routing (reads `LANE_OUTCOME_TOKENS.READER`).
-- Failure behaviour: store unavailable or DB not yet open → write dropped with one `warn` log (ids only), lane
+- Failure behaviour (integration note: SC-10 governs queueing, journal, retry and shutdown): DB not yet open →
+  fire-and-forget ops journaled and replayed on open; store throw → one `warn` log (ids only); lane
   completion unaffected (Req 5.9); seam unbound (VS Code) → subagent records `telemetryJoin: 'unavailable'`,
   metrics null, `skillsLoaded: null`; seam throws → same as unbound for that read, logged. Partial records are
   impossible: one INSERT per record; later facts are `UPDATE` patches on an existing `run_id`.
@@ -309,6 +314,8 @@ export interface SkillTelemetrySeam {
 - Files: CREATE `libs/backend/lane-outcomes/` (`project.json` with tags `scope:extension`, `type:feature`;
   `tsconfig*.json`, `jest.config.ts`, `src/index.ts`), `src/lib/store/lane-outcome.store.ts`,
   `src/lib/store/sqlite-lane-outcome.store.ts`, `src/lib/store/in-memory-lane-outcome.store.ts`,
+  `src/lib/store/key-value-lane-outcome.store.ts`, `src/lib/write/key-value-outcome-journal.ts`,
+  `src/lib/write/outcome-write-pipeline.ts` (SC-10, each with a spec),
   `src/lib/lane-outcome-recorder.service.ts`, `src/lib/lane-outcome-reader.service.ts`,
   `src/lib/skill-telemetry-seam.port.ts`, `src/lib/agent-signals.ts`, `src/lib/subagent-join.ts`,
   `src/lib/lane-outcome.schema.ts`, `src/lib/di/tokens.ts`, `src/lib/di/register.ts`, `src/lib/di/start.ts`, with
@@ -349,10 +356,11 @@ export interface SkillTelemetrySeam {
 - Integration points: Component 3 recorder; pass A adds `taskKind`/`routingSource` to the spawn record.
 - Failure behaviour: recorder absent or throwing → logged once per completion, the signal path continues unchanged
   (Req 5.9). Refused deliveries are recorded too (write point is before the refusals).
-- Quality requirements: no extra I/O on the completion path except the recorder call (synchronous enqueue; the
-  SQLite write is sync better-sqlite3 and bounded to one row).
+- Quality requirements: no store I/O on the completion path. The recorder call is a synchronous O(1) enqueue;
+  the better-sqlite3 write runs later in the SC-10 drain (`setImmediate`, at most 25 ops per turn).
 - Verification seam: notifier spec with a fake recorder: N completions + 1 duplicate → N `recordLaneCompletion`
-  calls; recorder that throws → signal still delivered. Classifier table spec covering every row of the
+  calls; recorder that throws → signal still delivered; SC-10 signal-path cases (5 s store write, throwing
+  store) → signal delivered without awaiting the store. Classifier table spec covering every row of the
   precedence list. `npx nx test cli-agent-runtime --parallel=1`.
 - Files: CREATE `libs/backend/cli-agent-runtime/src/lib/limits/lane-failure-class.ts` (+ spec), CREATE
   `libs/backend/cli-agent-runtime/src/lib/limits/lane-auth-classifier.ts` (+ spec); MODIFY
@@ -391,6 +399,15 @@ export interface SkillTelemetrySeam {
     (`skill-trigger.service.ts:506-514`), through `RecordSkillEventInput` (`skill-invocation-recorder.ts:35-46`) to
     `recordSkillEvent`, which adds `run_id` to its fixed column list (`skill-candidate.store.ts:1194-1218`). The
     Task PostToolUse branch (`:587-601`) writes `run_id = NULL`, so it can never make a join ambiguous.
+  - Recorder dedup (integration note, Gate 2 revision 1 finding 3): today the in-memory dedup key is
+    `${slug}|${sessionId}|${floor(invokedAt / 2000)}` (`skill-invocation-recorder.ts:39-43`, `DEDUP_BUCKET_MS`
+    `:8`), and the store has no unique constraint on the event table, so this key is the only dedup. It would
+    collapse two runs of one agent in one session that stop within the same 2 s bucket into one row. New rule:
+    when `source === 'subagent'` and `runId` is non-blank, the key is `subagent-run:${runId}`, so distinct runs
+    are never merged and a repeated stop for the same run is still dropped. Every other case (Skill tool-use,
+    prompt-expansion, and a subagent event with no `runId`) keeps the existing bucket key unchanged. The
+    `DEDUP_CAP` eviction (`:9`, `:71-76`) applies to both key forms. The 0055 index stays non-unique; the seam
+    still reports `ambiguous` if two rows ever share a `run_id`.
   - Telemetry independence: already true (`:501-505`, `:571`, `:588`, `:668` read only the telemetry flag;
     `:992-998`; paused boot starts the trigger `boot-thoth-runtime.ts:480-482`). Pin it with a regression spec:
     master switch `false` + telemetry flag `true` → Skill, prompt-expansion and subagent events are recorded.
@@ -421,7 +438,14 @@ export interface SkillTelemetrySeam {
 - Verification seam: trigger spec (master off → harvest still runs on stop; turn-complete flag off → harvest still
   runs; rate limiter exhausted → harvest still runs; `runId` reaches the recorder for subagent stops only); store spec
   (run_id written; null for tool-use); adapter spec on an in-memory DB with two same-slug runs in one session
-  (Req 5.4 fixture lives here and in Component 3). `npx nx test skill-synthesis --parallel=1`.
+  (Req 5.4 fixture lives here and in Component 3). Recorder spec (finding 3): two subagent events, same slug and
+  session, `invokedAt` 500 ms apart (same 2 s bucket), distinct `runId` → two store calls; same `runId` twice →
+  one; two tool-use events in one bucket → one (existing behaviour kept); subagent event with no `runId` → bucket
+  key. End-to-end spec (finding 3, Req 5.4): `SkillTriggerService.onSubagentStop` called twice with the same
+  `agentType` and `parentSessionId`, timestamps 500 ms apart, distinct `agentId` and distinct transcript metrics,
+  through the real recorder and the real store on the test DB, then the seam adapter → two
+  `skill_invocation_events` rows, each `run_id` `matched` with its own tokens, and the token sum equals the two
+  inputs. `npx nx test skill-synthesis --parallel=1`.
 - Files: MODIFY `libs/backend/skill-synthesis/src/lib/triggers/skill-trigger.service.ts` (+ spec),
   `libs/backend/skill-synthesis/src/lib/skill-invocation-recorder.ts` (+ spec),
   `libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts` (+ spec), the skill-synthesis DI register file;
@@ -461,9 +485,10 @@ export interface SkillTelemetrySeam {
 ```ts
 type OutcomeTarget =
   | { runId: string }                 // exact
-  | { agentId: string }               // lane: newest record of that agent (a resumed lane's latest run)
-  | { subagent: string };             // slug: the single open (no final review) subagent run of that slug in the
-                                      // last 24 h; 0 → error "no open run for <slug>", >1 → error "ambiguous: pass runId"
+  | { agentId: string }               // integration note (finding 4): subagent `subagent:${agentId}` first, then the
+                                      // newest lane record of that agent; full rules in integrated SC-7
+  | { subagent: string };             // fallback only; open = no deliverables declared (deliverables) or no final
+                                      // review (review); >1 → error "ambiguous", nothing written (SC-7)
 type OutcomeReportArgs =
   | { kind: 'deliverables'; target: OutcomeTarget; paths: string[] /* ≤ 20, workspace-relative */;
       taskKind?: OutcomeTaskKind; taskId?: string; routingSource?: OutcomeRoutingSource }
@@ -477,7 +502,8 @@ type OutcomeReportArgs =
   reviseRounds }` so the agent can use `runId` later. Unknown target → MCP error naming it, nothing written (Req 5.6).
 - Verified contracts and entry points (S, runtime survey §6): `MCPToolDefinition`
   (`mcp-core/types/mcp-protocol.types.ts:115-148`); builder example `agent-wait.tool.ts:36,72-123`; listing
-  `protocol-dispatcher.ts:494-602`; dispatch `switch` `:1029`; deps `ProtocolHandlerDependencies` `:291-317`
+  `protocol-dispatcher.ts:494-602`; dispatch `switch (name)` `:1037` in the current worktree (the handler's
+  parameters begin at `:1029`; integration note, Gate 2 revision 1 finding 7); deps `ProtocolHandlerDependencies` `:291-317`
   passed from `http-mcp-server.service.ts:389-405`; stdio `mcp-stdio/tool-builders.ts:92-126` and
   `agent-tool.dispatcher.ts:284-301`; system-prompt table `ptah-system-prompt.constant.ts:224-234`. Decision #24:
   dispatcher lines after `:524` shift +8.
@@ -489,7 +515,14 @@ type OutcomeReportArgs =
   (not an error: orchestration must continue). Store write failure → same shape, logged.
 - Quality requirements: deferred (not eager) tool; result is a small JSON object (budget default).
 - Verification seam: runner spec with a fake recorder and fake file system (target resolution, unknown id,
-  ambiguous slug, path escape rejected, verdict rules). `npx nx test vscode-lm-tools --parallel=1`.
+  ambiguous slug, path escape rejected, verdict rules). Sequence spec (finding 4, Req 5.5, 8.7), on the real
+  recorder and `InMemoryLaneOutcomeStore`: runs A and B of the same slug in one session, both stopped before
+  either report (concurrent case). Report B, then A, each by `{agentId}` → each record gets its own verdict.
+  Then a third run C of the same slug stops; report it by `{agentId}` → C written, A and B untouched. Review
+  A `revise` then `approved`, and B `rejected`, each by the echoed `runId` → A has `reviseRounds 1` and
+  `approved`, B has `rejected`, C is not reviewed. Slug fallback: with A and B declared and C undeclared,
+  `{subagent}` resolves to C; with two undeclared runs it returns "ambiguous" and writes nothing; `{agentId}`
+  of an unknown run → `{ recorded: false }`. `npx nx test vscode-lm-tools --parallel=1`.
 - Files: CREATE `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tools/outcome-report.tool.ts`
   (+ spec; folder per the `agent-wait.tool.ts` location), importing `OutcomeReportArgsSchema` from
   lane-outcomes (integration SC-7: no second schema file). That is batch B10a. The edits to
@@ -547,8 +580,8 @@ type OutcomeReportArgs =
 - Verified contracts and entry points: S anchors above; the pattern rule in the architect brief (phased roots).
 - Dependencies: apps → lane-outcomes.
 - Failure behaviour: registration cannot fail at runtime (lazy factories); start failure is logged and non-fatal.
-- Verification seam: the smoke specs resolve the four tokens in each host; VS Code resolves the in-memory store and
-  no seam. `npx nx test ptah-extension-vscode --parallel=1`, `npx nx test ptah-electron --parallel=1`,
+- Verification seam: the smoke specs resolve the four tokens in each host; VS Code resolves the
+  `KeyValueLaneOutcomeStore` (SC-10) and no seam. `npx nx test ptah-extension-vscode --parallel=1`, `npx nx test ptah-electron --parallel=1`,
   `npx nx test cli-engine --parallel=1`, one at a time.
 - Files: MODIFY the three composition-root files above, `expected-resolvable.ts`, and the smoke specs under
   `apps/ptah-extension-vscode/src/di/`, `apps/ptah-electron/src/di/`, `apps/ptah-cli/src/di/`.
@@ -571,7 +604,8 @@ type OutcomeReportArgs =
   (Req 10.1 allows null when undetermined).
 - State or persistence: `lane_outcome_records` in the shared Thoth SQLite DB (desktop, CLI), owned by
   `lane-outcomes`; lifetime unbounded (one small row per run; retention is a follow-up, see Decisions D9). VS Code:
-  in-memory, per process, `persistent: false` surfaced to pass A (NFR compatibility) and to the RPC.
+  `IStateStorage` (globalState) key `ptah.laneOutcomes.records.v1`, bounded to 90 days / 2 000 rows,
+  `persistent: true` (integrated SC-10).
   `skill_invocation_events.run_id` owned by skill-synthesis; read-only access through the seam.
 - External boundaries: MCP tool args (Zod strict; paths confined to the workspace; ≤ 20 paths); RPC params (Zod
   strict; ≤ 500 slugs); write-edge row schema. All SQL parameterised. Logs carry ids, never text (Req 5.8).
@@ -587,7 +621,7 @@ type OutcomeReportArgs =
 | Item (task-description.md) | Resolution |
 | --- | --- |
 | Window W (9.1, :625) | 30 days, fixed in the RPC handler and returned as `windowDays`; the card labels "last 30 days". Matches context.md:144-146 (about 30 days of records before evidence-driven patches). |
-| Where outcome records live, and VS Code persistence (:626-627) | New table `lane_outcome_records` in the existing SQLite DB (migration 0054), owned by new lib `lane-outcomes`. VS Code has no SQLite (`phase-2-libraries.ts:85-92`): in-memory store, `persistent: false`, records lost on restart. The Library is desktop-only (`skills-synthesis-rpc.handlers.ts:2285`), so the Agents tab is unaffected. |
+| Where outcome records live, and VS Code persistence (:626-627) | New table `lane_outcome_records` in the existing SQLite DB (migration 0054), owned by new lib `lane-outcomes`. VS Code has no SQLite (`phase-2-libraries.ts:85-92`): in-memory store, `persistent: false`, records lost on restart. The Library is desktop-only (`skills-synthesis-rpc.handlers.ts:2285`), so the Agents tab is unaffected. Integration note: superseded by integrated SC-10, VS Code persists through `IStateStorage` (globalState). |
 | Subagent run join key (5.4, :628) | `run_id = SubagentStopPayload.agentId`, written on the telemetry row by migration 0055 + `onSubagentStop`; outcome `runId = subagent:${agentId}`. Exactly one row → `matched`; 0 → `unmatched`; > 1 → `ambiguous`; no seam → `unavailable`. Assumption A1. |
 | Lane run id and review attachment (5.6) | `runId = ${agentId}:${completedAt}` (the notifier dedup key). The completion envelope is not changed (out of scope), so the report tool also accepts `agentId` (newest run) and `subagent` slug (single open run). |
 | Failure class sources (10.1-10.2) | Lanes: deterministic precedence in Component 4. Subagents: `budget_stopped` → `timeout`, telemetry `is_error` → `crash`, else null. No decision-model call in pass B; Req 10.3 (decision-model classification) is pass A's pipeline and may only fill a null class. |
@@ -701,7 +735,7 @@ there, not here. New-skill suggestions are deleted by that task; this task adds 
 | # | Decision | Options | Evidence | Reversible |
 | --- | --- | --- | --- | --- |
 | D1 | New lib `libs/backend/lane-outcomes` (`scope:extension`, `type:feature`) owns the record | inside cli-agent-runtime; inside skill-synthesis store | VS Code Thoth-free (`phase-2-libraries.ts:85-92`); feature→feature legal (`eslint.config.mjs:407-415`); 662 trims skill-synthesis | yes |
-| D2 | SQLite in desktop/CLI, in-memory in VS Code, chosen lazily | SQLite only; no VS Code support | `task-specs/.../register.ts:78-86` precedent; NFR "host without persistence still routes" | yes |
+| D2 | SQLite in desktop/CLI, in-memory in VS Code, chosen lazily (superseded by integrated SC-10 and decision #34: `IStateStorage`-backed store in VS Code, durable journal before the DB opens) | SQLite only; no VS Code support | `task-specs/.../register.ts:78-86` precedent; NFR "host without persistence still routes" | yes |
 | D3 | Subagent join key `run_id = agentId`, new nullable column | session + time window; `subagentSessionId` | Req 5.4 two-run fixture; payload fields `subagent-stop-callback-registry.ts:8-16`; A1 fallback named | yes (migration additive) |
 | D4 | Subagent metrics, spec verdict, evidence and `skillsLoaded` joined at read time, never copied | copy at SubagentStop | metrics extraction is async (`skill-trigger.service.ts:711-739`); harvester reconciles later; keeps 662's deletions off this code | yes |
 | D5 | Lane failure class = deterministic precedence; `stopped` → null; auth by a conservative table-driven matcher | decision model; treat `stopped` as crash | Req 10.2; `AgentStatus` `agent-process.types.ts:43-44`; quota classifier precedent `:2391-2410` | yes |
