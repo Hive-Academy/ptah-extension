@@ -637,7 +637,8 @@ Acceptance criteria:
    same way the git sidebar opens a file today, in the VS Code webview and in the Electron app; the architect names
    the exact host call in `implementation-plan.md`. When opening fails, the system shall show an inline error on that
    link and keep the section usable.
-6. When the session has no linked task, the system shall show `No task linked to this session` and no links.
+6. When the session has no linked task, the system shall render no TASK section at all: no heading, no empty-state
+   message and no links (user decision row 44, D27).
 7. When the linked task's organization entry is marked `missing: true`, or `tasks:get` returns `task: null`, the
    system shall show the task ID with `Task folder not found` and no artifact links.
 8. When the task data is loading, the system shall show a skeleton row with `aria-busy="true"` in the section.
@@ -849,7 +850,7 @@ Acceptance criteria:
 | Derived data (todos, activity, durations) shown as if complete | MEDIUM | MEDIUM | Unknown/partial states of requirements 1.6, 5.5, 7.2, 8.3, 10.5, 11.2 are review gates |
 | Restored history lacks `timestamp` or `duration`, so every restored turn reads `Worked` | MEDIUM | LOW | Architect verifies assumptions A1 and A3 (requirement 1; A2 is settled) and records the outcome in `implementation-plan.md` before batching; the fallback is specified, so the result is a known outcome, not a defect |
 | `compact` density differs from `full` in more than density (a feature appears in one mode only) | LOW | MEDIUM | Visual reviewer checks requirement 16.3 and 16.6 in both modes, dark and light |
-| Most ad-hoc sessions have no linked task, so the TASK section is usually an empty state that takes inspector space | HIGH | LOW | Designer sizes the no-task state (17.6) as one compact line (design-spec delta); visual reviewer checks it in `full` and `compact`, dark and light |
+| Most ad-hoc sessions have no linked task, so an empty TASK section would take inspector space | HIGH | LOW | The TASK section renders nothing when no task is linked (17.6, user decision row 44, D27); visual reviewer checks the absent section in `full` and `compact`, dark and light |
 | The `.ptah/specs` watcher emits one `tasks:changed` per debounce window, so an agent writing a spec folder floods the inspector with re-reads | HIGH | MEDIUM | Architect filters pushes by workspace and `folderNames` and coalesces in-flight re-reads (17.13, 17.14); code-logic reviewer checks both criteria |
 | The inspector depends on `TasksStoreService`, which drops pushes with no board open (`tasks-store.service.ts:1121-1128`) and pulls the board store into the chat bundle | MEDIUM | HIGH | Architect specifies the push subscription and data read for the inspector without that store (17.11, NFR Performance); code-style reviewer checks the chat/chat-ui import graph |
 | No phase source exists in `TaskSpecDetail`, so a "phase" is invented | MEDIUM | LOW | Architect records the derivation or its absence in `implementation-plan.md`; 17.3 omits the phase when none can be derived |

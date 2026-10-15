@@ -58,31 +58,45 @@ unchanged by A2 (parity A-4 keep; design-spec.md:303, :1121). Part B touches its
 Evidence: easings already on `:host` (`chat-view.component.css:71-74`); `ptahFadeIn` keyframe and the
 reduced-motion block for `banner-enter`/`fade-enter` exist (`:105-112`, `:139-147`); the file already uses
 `:host ::ng-deep` (`:62`), so reaching child-component classes from chat-view CSS has precedent. Transcript slots are
-`.chat-msg-slot` wrappers in `chat-transcript.component.html:35-42`; `resolvedTabId` exists
+`.chat-msg-slot` wrappers in `chat-transcript.component.html:35-42`; a slot mounts its `ptah-message-bubble` only
+inside the render window (`:43-46`), so only mounted bubbles are in the DOM. The turn items of design-spec §7.1 row 2
+(user bubble, disclosure row, answer, chip row, action row) all render inside `message-bubble.component.html`, which
+A1-3 rewrites (plan-part-a1-turn.md:108-142). `hostEl` is already injected (`chat-view.component.ts:274`);
+`resolvedTabId` exists
 (`chat-view.component.ts:809`); `resolvedSessionId` is `claudeSessionId`, which goes null -> id when a new
 session gets its first id (`:798-807`), so it must NOT be the trigger.
 
 - Trigger (TS, chat-view): an `effect` on `resolvedTabId()`; when it changes to a non-null value that differs from
   the last seen id, call `playEnter()`. View-mode switches do not change the tab id, so the stagger does not replay
   (req 15.7). Not keyed on `resolvedSessionId`.
-- `playEnter()`: on the HOST element (`inject(ElementRef)` of `ptah-chat-view`, so Part B's root `<div>` attributes
-  are untouched): `classList.remove('is-entering')`, read `offsetWidth` (reflow), `classList.add('is-entering')`,
-  `clearTimeout` of the previous timer, `setTimeout(remove, 1000)`. Release: `DestroyRef.onDestroy(clearTimeout)`.
-  One timer per chat-view instance (not per item).
+- `playEnter()` runs in `afterNextRender` (scheduled from the effect with the component injector) so the new tab's
+  bubbles are in the DOM. On the HOST element (`hostEl`, so Part B's root `<div>` attributes are untouched):
+  1. Index pass (once per switch, not per item over time): `hostEl.nativeElement.querySelectorAll('.st-t')` returns
+     the mounted turn items in DOM order; set `el.style.setProperty('--i', String(Math.min(k + 1, 8)))` for item
+     `k` (0-based). Every item gets a value; items 8 and later all get `8` (the shared capped delay), so long threads
+     still animate every item and never cascade past 360 ms.
+  2. `classList.remove('is-entering')`, read `offsetWidth` (reflow), `classList.add('is-entering')`, `clearTimeout`
+     of the previous timer, `setTimeout(remove, 1000)`. Release: `DestroyRef.onDestroy(clearTimeout)`.
+  One timer and one DOM query per chat-view instance per switch; no observer, no per-item timer. A bubble that mounts
+  while `is-entering` is still set (render window, late history) has no inline `--i` and takes the CSS fallback
+  `var(--i, 8)` (capped delay); it still animates.
 - CSS (chat-view.component.css), only `opacity`/`transform`:
   - `:host(.is-entering) .st-f` -> `ptahFadeIn 200ms var(--ptah-ease-soft) backwards`; the header gets `st-f` with
     delay 0, the composer wrapper (`chat-view.component.html` around `<ptah-chat-input />`, `:246`) gets `st-f` with
     `--d:120ms`.
-  - New keyframe `ptahStaggerUp` (opacity 0 -> 1, translateY(6px) -> 0) on
-    `:host(.is-entering) ::ng-deep .chat-msg-slot:nth-last-child(-n+8)`, 260 ms, `backwards`,
-    delay `calc(var(--i) * 45ms)` where `--i` is set by 8 `:nth-last-child(k)` rules (k=8 -> i=1 ... k=1 -> i=8).
-    Earlier slots get no animation. See Decision A2-3 (unit = transcript slot, no A1 template edits).
+  - New keyframe `ptahStaggerUp` (opacity 0 -> 1, translateY(6px) -> 0) on `:host(.is-entering) ::ng-deep .st-t`,
+    260 ms, `var(--ptah-ease-soft)`, `backwards`, delay `calc(min(var(--i, 8), 8) * 45ms)` (45 ... 360 ms). The
+    `.st-t` hook is a class only, put by A1-3 on the five item elements in `message-bubble.component.html`: the user
+    branch `<article aria-label="You">`, the `ptah-turn-disclosure-row` host, the `.cs-answer` div, the
+    `ptah-turn-agent-chips` host, the action-row wrapper. No ancestor of an item (slot, bubble host, assistant
+    `<article>`) animates, so opacity never compounds. A1 sets no `--i` and no index logic; chat-view owns both.
+    See Decision A2-3.
   - New keyframe `ptahStaggerLeft` (opacity 0 -> 1, translateX(8px) -> 0) on `:host(.is-entering) ::ng-deep .st-r`,
     260 ms, `backwards`, delay `calc(80ms + min(var(--i), 6) * 36ms)`. Part B puts `class="st-r"` and
     `style="--i:n"` on inspector header (0), orchestrator card (1), AGENTS (2), each agent row (3..), TODOS, GIT
     (contract note for B). Inspector toggle-open uses B's single 220 ms slide-in, no stagger.
   - Reduced motion (§7.3): `@media (prefers-reduced-motion: reduce) { :host(.is-entering) .st-f,
-    :host(.is-entering) ::ng-deep .chat-msg-slot, :host(.is-entering) ::ng-deep .st-r { animation: none !important;
+    :host(.is-entering) ::ng-deep .st-t, :host(.is-entering) ::ng-deep .st-r { animation: none !important;
     animation-delay: 0ms !important; } }` (global `styles.css` zeroes durations but not delays - design-spec.md:774).
     Live pulse, spinner and caret stop rules belong to A1 (turn) and C (dock).
 - Worst case: 8 * 45 + 260 = 620 ms (req 13.1); restart via class removal + reflow leaves no element mid-animation
@@ -138,7 +152,8 @@ images"` `:296`), `<ptah-model-selector>` `:332`, `<ptah-effort-selector>` `:334
 | `libs/frontend/chat/src/lib/services/session-git-stats/session-git-stats.store.ts` | MODIFY (owner: B, see A2-4) | `known` state gains `branch: string | null` from `result.branch.branch` (`rpc-git.types.ts:97-99, :134-136`) in `toState` (`:55-70`); add exported pure `sessionBranch(tab, gitState)` = `tab.agentOrigin?.branch ?? (gitState.kind === 'known' ? gitState.branch : null)`. |
 
 Not touched by A2: `canvas-focus-header.component.ts` (Rail header, A-4 keep), app-shell, tab-bar, tab-item,
-canvas-rail-card, canvas-detail-transcript, `chat-transcript.component.html` (stagger is CSS-only from chat-view).
+canvas-rail-card, canvas-detail-transcript, `chat-transcript.component.html`, `message-bubble.component.html` (the
+`.st-t` item hooks are A1-3's; A2 owns the index pass, keyframes and trigger in chat-view).
 
 ## Header <-> inspector binding contract
 
@@ -242,7 +257,7 @@ the focus fallback for B's `closeInsp`); the inspector stays deferred (B, D-10).
 | --- | --- | --- | --- | --- |
 | A2-1 | Header has NO sidebar toggle (departure from §5 item 1) | (a) omit; (b) output wired into app-shell | Sidebar state is a private signal of app-shell (`app-shell.component.ts:245-246, :498-499`); app-shell is off-limits (decisions.md row 35); `ptah-sidebar-tab` already toggles it (`app-shell.component.html:540-545`) | yes: add an output + one app-shell binding later |
 | A2-2 | §5 header renders in `chat-view` only where the inspector is hosted (`hostsInspector()`: main panel); Rail keeps `canvas-focus-header` | shared header across hosts; header in every chat-view | Rail/Tribunal tiles already have their own header (`canvas-focus-header.component.ts:36-82`; `conductor-tile.component.ts:218-221`); shared component would carry Rail-only controls and collide with 648's badge (row 34-35) | yes |
-| A2-3 | Stagger unit for the thread = transcript slot (`.chat-msg-slot`, last 8 via `:nth-last-child`), not each block of a turn | per-block `--i` in A1 templates | Keeps A1/transcript templates untouched; meets 620 ms bound and cap (req 13.1); bottom-anchored thread shows the last slots | yes: per-block classes later |
+| A2-3 | Stagger unit = each turn item (user bubble, disclosure row, answer, chip row, action row) in DOM order, class hook `.st-t` set by A1-3, `--i = min(k+1, 8)` written by one chat-view index pass per switch; items past the 8th share the 360 ms delay | (a) whole `.chat-msg-slot`, last 8 via `:nth-last-child` (Gate 2 REJECTED D-A2-2: skips earlier turns and per-item order); (b) A1 computes a running `--i` in templates (couples A1 to motion, needs a cross-bubble counter) | design-spec §7.1 row 2 and req 13.1; A1 adds only a class; one DOM query per switch, no per-item timer | yes: drop the class or the pass |
 | A2-4 | Branch = `tab.agentOrigin.branch` else the git store's last known branch for the session root; the header/composer never start git tracking | header calls `track()`; git-ui `GitStatusService` | Only `agentOrigin.branch` carries a branch today (D-7, `canvas-session-details.component.ts:124`); `GitInfoResult.branch` is fetched but dropped in `toState` (`session-git-stats.store.ts:55-70`); chat must not import git-ui (no import in chat src; `workspace-coordinator.service.spec.ts:913`); B keeps git tracking in the deferred GIT section | yes |
 | A2-5 | Model + effort stay two existing controls in one chip group; effort label hidden < 640 px, control kept | single merged `{model} · {effort}` popover | C-18 keeps both controls (`chat-input.component.ts:332-337`); merging popovers is new UI not required for parity | yes |
 | A2-6 | Stagger trigger keyed on `resolvedTabId`, class on the host element | key on `resolvedSessionId`; class on B's root div | `resolvedSessionId` flips null -> id on first send (`chat-view.component.ts:798-807`); host class avoids editing B-owned root attributes | yes |
@@ -260,9 +275,8 @@ the focus fallback for B's `closeInsp`); the inspector stays deferred (B, D-10).
 - O4: §6 says Send "becomes the existing Stop control" while streaming; today Send stays enabled to queue during
   streaming (`chat-input.component.ts:400`). Keep both (Stop left of Send) unless the orchestrator confirms queueing
   may be hidden while streaming - capability question, not decided here.
-- O5: Verify `.chat-msg-slot` elements are the trailing children of their container (no sentinel after them),
-  otherwise `:nth-last-child` offsets shift; fall back to `:nth-last-child of .chat-msg-slot` selector syntax
-  (Chromium 111+).
+- O5: superseded by A2-3 (no `:nth-last-child`). Verify instead that the five `.st-t` hooks exist after A1-3 and
+  that no `.st-t` element is nested inside another `.st-t` (compounding opacity).
 - O6: Electron grid mode (`app-shell.component.html:553`): confirm which component hosts `chat-view` per tile and that
   it provides `SESSION_CONTEXT` (else the main-host header would appear per tile).
 - O7: The `[sessionHeaderChip]`/`[sessionHeaderAction]` re-projection through chat-view is non-deferred (header is

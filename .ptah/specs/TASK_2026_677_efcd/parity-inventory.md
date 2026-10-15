@@ -72,6 +72,7 @@ keep passing; "postponed (T2)" where no spec exists or the existing spec does no
 | B-22 | Inline agent bubble outside the main transcript | `execution-node.component.ts:167-340` (`ptah-inline-agent-bubble`) | `AgentMonitorStore` | keep | Unchanged (lanes, canvas tiles) | postponed (T2) (T2-08) |
 | B-23 | Render window and streaming boundary in the transcript | `C/organisms/transcript/chat-transcript.component.html:35-68` | `streamingBoundary`, render window | keep | Transcript of clean turns | `chat-transcript.component.spec.ts`, `chat-transcript.display.spec.ts`, `chat-transcript.replay-mount.spec.ts`, `chat-transcript.replay-motion.spec.ts`, `chat-transcript.ptah-ui.spec.ts`, `chat-transcript.change-set.spec.ts` |
 | B-24 | Load older history | `C/templates/chat-view.component.html:86-89` (`olderHistoryRequested`) | older-history RPC | keep | Transcript of clean turns | `chat-transcript.older-history.spec.ts` |
+| B-25 | Assistant avatar, `Claude` sender label and per-message time line | `message-bubble.component.html:22-31` (header: `Claude` + `<time>`); avatar just above it (`:4-20`, per plan-part-a1-turn.md:137) | `message().timestamp` | remove (USER approved, row 45) | Time reachable as the `Worked for` turn duration; activity panel per-message breakdown for N > 1 | none (testing postponed) |
 
 ## C. Chat-view surfaces
 
