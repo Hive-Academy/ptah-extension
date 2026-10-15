@@ -65,7 +65,12 @@ User rules: Claude (orchestrator + Claude sub-agents) builds the frontend; CLI l
    review → team-leader MODE 1 update of batches.md (new/changed batches). MUST land before Wave 4 (B-4) and Wave 5 (CV-1).
 3. **Wave 2 (C-2, A1-1, A1-4)** is marked IN_PROGRESS in batches.md but NOT started (no executor ran). It does not
    touch delta 3 files; it can start in parallel with the delta 3 revise round.
-4. TASK_2026_648 not merged; check before W3 (C-3 edits canvas-lane-view) and W5.
+4. TASK_2026_648 PR is OPEN: https://github.com/Hive-Academy/ptah-extension/pull/733 (base main, not merged; 7 commits
+   ad74df866..e0e3f2756; content = the row 55 overlap list, no file kept out; 648 D9 records our answer). PR #732 merged
+   into main at 14:11 UTC (merge commit 4eef18165), so main has moved past c57a9a1e7. The 648/652 session will message
+   the 677 session when #733 merges. Check `gh pr view 733 --json state,mergedAt` before W3 (C-3 edits
+   canvas-lane-view) and W5 (CV-1); rebase onto main after it merges (rows 55, plan §7.4 H1-H3). After the rebase,
+   re-check that the node_modules junction target (main checkout) still matches the worktree package.json/lock.
 
 ## 4. Decisions to know (decisions.md rows 1-57)
 
