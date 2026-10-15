@@ -71,11 +71,13 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
     const values = z.record(z.string(), z.unknown()).parse(raw);
     const record: Record<string, unknown> = {};
     for (const [key, column] of columns) record[key] = values[column];
-    record.telemetryJoin = 'not-applicable';
-    record.skillsLoaded = null;
-    record.sessionEvidenceClass = null;
     return {
-      ...LaneOutcomeRowSchema.parse(record),
+      ...LaneOutcomeRowSchema.parse({
+        ...record,
+        telemetryJoin: 'not-applicable',
+        skillsLoaded: null,
+        sessionEvidenceClass: null,
+      }),
       budgetStopped: values['budget_stopped'] === 1,
     };
   }

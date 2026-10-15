@@ -65,6 +65,8 @@ export interface TrackedAgent {
    * itself from one that exited without a word (TASK_2026_515).
    */
   reportsDelivered: number;
+  /** Authentication wording from the failed turn's bounded output. */
+  authMatched?: boolean;
   /**
    * Set only by {@link AgentProcessManager.restoreAgents}: this record was
    * rebuilt from persisted session state, not from a run this host supervised.

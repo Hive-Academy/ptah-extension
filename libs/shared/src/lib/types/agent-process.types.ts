@@ -146,6 +146,8 @@ export interface AgentProcessInfo {
   readonly ptahCliName?: string;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
+  /** Provider configured for this Ptah CLI lane at spawn; stable even before quota owner discovery. */
+  readonly providerId?: string;
   /** When set, this agent is a resumed version of the given previous agent.
    *  Frontend uses this to replace the old card instead of creating a new one. */
   readonly resumedFromAgentId?: string;

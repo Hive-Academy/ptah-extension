@@ -19,6 +19,7 @@ import {
   LaneCompletionNotifier,
   buildSessionChildCompletionEnvelope,
   sessionChildVerdictOf,
+  checkLaneDeliverable,
 } from './lane-completion-notifier.service';
 import type {
   SessionChildCompletionSubject,
@@ -69,6 +70,7 @@ interface Harness {
   stat: jest.Mock;
   isSessionActive: jest.Mock;
   sendMessageToSession: jest.Mock<Promise<void>, [string, string, unknown]>;
+  recordLaneCompletion: jest.Mock;
   /** The single envelope body delivered, or `undefined` when none was. */
   envelope(): string | undefined;
 }
@@ -83,6 +85,7 @@ function createHarness(
     withAdapter?: boolean;
     sendImpl?: () => Promise<void>;
     statThrows?: boolean;
+    storeWrite?: () => Promise<void>;
   } = {},
 ): Harness {
   // Keys are resolved the same way the notifier resolves a declared path, so
@@ -114,18 +117,131 @@ function createHarness(
       ? null
       : ({ isSessionActive, sendMessageToSession } as never);
 
+  const recordLaneCompletion = jest.fn(() => {
+    if (options.storeWrite)
+      void options.storeWrite().catch((error: unknown) => {
+        logger.warn('Outcome store write failed', {
+          code: error instanceof Error ? error.name : 'UNKNOWN',
+        });
+      });
+  });
   return {
-    notifier: new LaneCompletionNotifier(logger, fileSystem, adapter),
+    notifier: new LaneCompletionNotifier(logger, fileSystem, adapter, () => ({
+      recordLaneCompletion,
+    })),
     logger,
     exists,
     stat,
     isSessionActive,
     sendMessageToSession,
+    recordLaneCompletion,
     envelope: () => sendMessageToSession.mock.calls[0]?.[1],
   };
 }
 
 describe('LaneCompletionNotifier.signal', () => {
+  it('enqueues once before parent refusal and copies spawn facts', async () => {
+    const h = createHarness();
+    const info = createInfo({
+      parentSessionId: undefined,
+      role: 'reviewer',
+      taskKind: 'review',
+      routingSource: 'ranking',
+    });
+    await h.notifier.signal(info);
+    await h.notifier.signal(info);
+    expect(h.recordLaneCompletion).toHaveBeenCalledTimes(1);
+    expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: `${AGENT_ID}:${COMPLETED_AT}`,
+        role: 'reviewer',
+        taskKind: 'review',
+        routingSource: 'ranking',
+        family: 'codex',
+        provider: null,
+        model: 'lane-default',
+      }),
+    );
+  });
+  it('uses the Ptah CLI spawn provider when no quota owner was discovered', async () => {
+    const h = createHarness();
+    await h.notifier.signal(
+      createInfo({
+        cli: 'ptah-cli',
+        ptahCliId: 'agent-config',
+        providerId: 'z-ai',
+      }),
+    );
+    expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        laneId: 'agent-config',
+        family: 'z-ai',
+        provider: 'z-ai',
+      }),
+    );
+  });
+
+  it('signals without waiting for a five-second store write', async () => {
+    jest.useFakeTimers();
+    const storeWrite = jest.fn(
+      () =>
+        new Promise<void>((resolveWrite) => {
+          setTimeout(resolveWrite, 5_000);
+        }),
+    );
+    const h = createHarness({ storeWrite });
+    const delivery = await h.notifier.signal(createInfo());
+    expect(delivery.delivered).toBe(true);
+    expect(storeWrite).toHaveBeenCalledTimes(1);
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
+  it('signals when the store throws', async () => {
+    const h = createHarness({
+      storeWrite: async () => {
+        throw new Error('store unavailable');
+      },
+    });
+    const delivery = await h.notifier.signal(createInfo());
+    expect(delivery.delivered).toBe(true);
+    expect(h.recordLaneCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies the exported disk check', async () => {
+    const files = {
+      exists: jest.fn(async () => true),
+      stat: jest.fn(async () => ({
+        size: 2,
+        mtime: Date.parse(STARTED_AT) - 1,
+      })),
+    };
+    const check = await checkLaneDeliverable(
+      files as unknown as IFileSystemProvider,
+      { deliverables: ['report.md'], workingDirectory: '/ws', id: AGENT_ID },
+      'report.md',
+      Date.parse(STARTED_AT),
+      jest.fn(),
+    );
+    expect(check).toEqual({
+      path: p('/ws/report.md'),
+      exists: true,
+      bytes: 2,
+      writtenAfterSpawn: false,
+    });
+  });
+  it('signals when enqueue throws synchronously', async () => {
+    const h = createHarness();
+    h.recordLaneCompletion.mockImplementation(() => {
+      throw new Error('queue unavailable');
+    });
+    const delivery = await h.notifier.signal(createInfo());
+    expect(delivery.delivered).toBe(true);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[LaneCompletionNotifier] Outcome enqueue failed',
+      expect.objectContaining({ runId: `${AGENT_ID}:${COMPLETED_AT}` }),
+    );
+  });
   describe('normal completion', () => {
     it('delivers one turn to the parent session with the peer origin', async () => {
       const h = createHarness({ files: { '/ws/tf/report.md': 42 } });

@@ -95,6 +95,8 @@ export interface CliCommandOptions {
  * AgentProcessManager uses this instead of ChildProcess when present.
  */
 export interface SdkHandle {
+  /** Provider configured for a Ptah CLI handle at spawn. */
+  readonly providerId?: string;
   /** Abort controller to cancel the SDK operation */
   readonly abort: AbortController;
   /** Promise that resolves when SDK execution completes. Resolves with exit code (0=success, 1=error). */
