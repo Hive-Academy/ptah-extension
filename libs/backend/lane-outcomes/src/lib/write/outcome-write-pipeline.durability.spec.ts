@@ -22,6 +22,88 @@ import {
 } from './pipeline.test-support';
 
 describe('OutcomeWritePipeline durability', () => {
+  it('drains only the journal snapshot when enqueue runs during an insert', async () => {
+    const storage = new MemoryState();
+    const store = new InMemoryLaneOutcomeStore();
+    const availability = new Availability();
+    availability.open = true;
+    const pipeline = new OutcomeWritePipeline(
+      store,
+      testLogger(),
+      storage,
+      availability,
+    );
+    const insert = store.insertIfAbsent.bind(store);
+    jest.spyOn(store, 'insertIfAbsent').mockImplementation(async (row) => {
+      if (row.runId === 'lane:first') {
+        for (const id of ['lane:second', 'lane:third', 'lane:fourth'])
+          pipeline.enqueue({ kind: 'lane-completion', row: outcomeRow(id) });
+      }
+      return insert(row);
+    });
+
+    pipeline.enqueue({
+      kind: 'lane-completion',
+      row: outcomeRow('lane:first'),
+    });
+    await drainTurns(pipeline, 4);
+
+    for (const id of ['lane:first', 'lane:second', 'lane:third', 'lane:fourth'])
+      expect(await store.get(id)).not.toBeNull();
+    expect(
+      storage.get<{ entries: unknown[] }>(OUTCOME_REJECTED_KEY)?.entries ?? [],
+    ).toEqual([]);
+    await pipeline.dispose();
+  });
+
+  it('rejects a non-actionable journal head and applies the following op', async () => {
+    const storage = new MemoryState();
+    const store = new InMemoryLaneOutcomeStore();
+    const availability = new Availability();
+    const logger = testLogger();
+    const pipeline = new OutcomeWritePipeline(
+      store,
+      logger,
+      storage,
+      availability,
+    );
+    const journal = pipeline['journal'];
+    expect(journal).not.toBeNull();
+    await journal?.update((value) => ({
+      ...value,
+      nextSeq: 3,
+      entries: [
+        { seq: 1, op: null as never },
+        {
+          seq: 2,
+          op: {
+            kind: 'lane-completion',
+            row: outcomeRow('lane:after-invalid'),
+          },
+        },
+      ],
+    }));
+    availability.reopen();
+    await drainTurns(pipeline, 3);
+    expect(await store.get('lane:after-invalid')).not.toBeNull();
+    expect(journal?.snapshot().entries).toEqual([]);
+    expect(
+      storage.get<{
+        entries: { kind: string; runId: string; reason: string }[];
+      }>(OUTCOME_REJECTED_KEY)?.entries,
+    ).toContainEqual({
+      kind: 'invalid-op',
+      runId: 'journal:1',
+      reason: 'ZOD_VALIDATION',
+    });
+    expect(logger.warn).toHaveBeenCalledWith('Outcome write rejected', {
+      runId: 'journal:1',
+      reportId: undefined,
+      reason: 'ZOD_VALIDATION',
+    });
+    await pipeline.dispose();
+  });
+
   it('keeps three completions journaled until delayed open and drains in order', async () => {
     const storage = new MemoryState();
     const store = new InMemoryLaneOutcomeStore();

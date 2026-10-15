@@ -23,6 +23,7 @@ import {
   reportEffectOf,
   ReviewPayloadSchema,
 } from './report-effect';
+import { OutcomeWriteOpSchema } from './outcome-write-op.schema';
 import {
   KeyValueOutcomeJournal,
   appendEntries,
@@ -42,6 +43,9 @@ export type OutcomeWriteOp =
       readonly report: HeldOutcomeReport;
     };
 
+type RejectableOp =
+  OutcomeWriteOp | { readonly kind: 'invalid-op'; readonly runId: string };
+
 export type OutcomeWriteResult =
   | {
       readonly ok: true;
@@ -56,7 +60,7 @@ export interface OutcomeStoreAvailability {
 }
 
 interface RejectedEntry {
-  readonly kind: OutcomeWriteOp['kind'];
+  readonly kind: RejectableOp['kind'];
   readonly runId: string;
   readonly reportId?: string;
   readonly reason: string;
@@ -75,6 +79,7 @@ const RejectedValueSchema = z.object({
         'budget-stop',
         'deliverables',
         'review',
+        'invalid-op',
       ]),
       runId: z.string(),
       reportId: z.string().optional(),
@@ -108,7 +113,7 @@ function validPayload(
   }
 }
 
-function runIdOf(op: OutcomeWriteOp): string {
+function runIdOf(op: RejectableOp): string {
   return 'row' in op
     ? op.row.runId
     : 'report' in op
@@ -117,7 +122,7 @@ function runIdOf(op: OutcomeWriteOp): string {
 }
 
 function isReport(
-  op: OutcomeWriteOp,
+  op: RejectableOp,
 ): op is Extract<OutcomeWriteOp, { kind: 'deliverables' | 'review' }> {
   return op.kind === 'deliverables' || op.kind === 'review';
 }
@@ -165,7 +170,11 @@ export class OutcomeWritePipeline {
     private readonly onLaneRecordInserted?: (row: LaneOutcomeRecord) => void,
   ) {
     this.journal = storage
-      ? new KeyValueOutcomeJournal<OutcomeWriteOp>(storage)
+      ? new KeyValueOutcomeJournal<OutcomeWriteOp>(
+          storage,
+          Date.now(),
+          OutcomeWriteOpSchema,
+        )
       : null;
     this.openListener = availability?.onDidOpen?.(() => {
       this.needsRebuild = true;
@@ -414,10 +423,23 @@ export class OutcomeWritePipeline {
       const start = this.journal?.snapshot() ?? null;
       let next: JournalValue<OutcomeWriteOp> | null = start;
       while (processed < DRAIN_BATCH) {
-        const op =
-          next?.entries[processed]?.op ??
-          (next ? undefined : this.queue[processed]);
-        if (!op) break;
+        const entry = next?.entries[processed];
+        if (next ? entry === undefined : this.queue[processed] === undefined)
+          break;
+        const candidate: unknown = next ? entry?.op : this.queue[processed];
+        const parsed = OutcomeWriteOpSchema.safeParse(candidate);
+        if (!parsed.success) {
+          await this.reject(
+            {
+              kind: 'invalid-op',
+              runId: entry ? `journal:${entry.seq}` : `queue:${processed}`,
+            },
+            'ZOD_VALIDATION',
+          );
+          processed++;
+          continue;
+        }
+        const op = parsed.data;
         try {
           const held = await this.apply(op);
           if (next) next = this.advanceIndex(next, op, held);
@@ -648,7 +670,7 @@ export class OutcomeWritePipeline {
     return false;
   }
 
-  private async reject(op: OutcomeWriteOp, reason: string): Promise<void> {
+  private async reject(op: RejectableOp, reason: string): Promise<void> {
     if (!this.storage) {
       this.logger.warn('Outcome write rejected', {
         runId: runIdOf(op),

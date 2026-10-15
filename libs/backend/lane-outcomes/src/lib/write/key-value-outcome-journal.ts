@@ -28,10 +28,7 @@ const HeldRunSchema = z.object({
   expiresAt: z.number().finite(),
   holdExpiries: z.array(z.number().finite()),
 });
-const EntrySchema = z.object({
-  seq: z.number().int().positive(),
-  op: z.unknown(),
-});
+const EntryHeaderSchema = z.object({ seq: z.number().int().positive() });
 
 function validItems<T>(items: readonly unknown[], schema: z.ZodType<T>): T[] {
   return items.flatMap((item) => {
@@ -76,6 +73,7 @@ export class KeyValueOutcomeJournal<T> {
   constructor(
     private readonly storage: IStateStorage,
     nowMs = Date.now(),
+    opSchema: z.ZodType<T> = z.custom<T>(),
   ) {
     const saved = storage.get<unknown>(OUTCOME_JOURNAL_KEY);
     if (saved === undefined) {
@@ -104,10 +102,10 @@ export class KeyValueOutcomeJournal<T> {
       this.droppedOnRead = 1;
       return;
     }
-    const entries = validItems(envelope.entries, EntrySchema).map((entry) => ({
-      seq: entry.seq,
-      op: entry.op as T,
-    }));
+    const entries = validItems(
+      envelope.entries,
+      EntryHeaderSchema.extend({ op: opSchema }),
+    );
     const heldRuns = validItems(envelope.heldRuns, HeldRunSchema);
     this.droppedOnRead =
       envelope.entries.length -

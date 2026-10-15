@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 45 | Batches: 36 | Complete: 24/36 | Phases accepted: P1 | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE, Anthropic re-review pending (TL-40)
+Total tasks: 46 | Batches: 37 | Complete: 25/37 | Phases accepted: P1 | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3 (commit pending); Anthropic code-logic re-review of the 36b commit pending
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -170,6 +170,11 @@ Edge cases:
 | TL-39 | Batch 36 goes over the 6-file cap: 10 production files, 4 of them comment-only (`di/start.ts`, `di/tokens.ts`, `src/index.ts`, and the port JSDoc), plus 9 spec and support files. It runs as one sequential lane | split into 2-3 fix batches | Lean rule 4 allows one fix round per phase. All files are in one project (`@ptah-extension/lane-outcomes`) with one verification set, and `outcome-write-pipeline.ts` and `key-value-outcome-journal.ts` are shared by Tasks 36.1 and 36.2. If the lane times out, split at Tasks 36.1-36.3 / 36.4 | yes |
 | TL-40 | Fix executor is CLI lane codex (OpenAI), with fallback grok (xAI) then Glm (Zhipu), never an Anthropic subagent. The re-review uses the Anthropic family: code-logic-reviewer and code-style-reviewer subagents, scoped to the Batch 36 commit, writing `T\reviews\p2-fix-code-logic-review.md` and `T\reviews\p2-fix-code-style-review.md` | same-family re-review; a re-review of the full P2 diff | Orchestrator instruction. The implementer and reviewer families differ, and the lean rule limits the re-review to the fixes | yes |
 | TL-41 | Batch 36 runs alongside Batch 21 (A8). The two are file-disjoint: Batch 36 touches only `libs/backend/lane-outcomes/**`, and Batch 21 touches only `libs/backend/lane-routing/**` (Task 21.1 File list). Neither touches `libs/shared`. Following decision #53, the executor runs no Nx, Jest or project `tsc`; the team-leader runs the Batch 36 checks in Mode 2, never at the same time as a Batch 21 check (rule 5) | run Batch 36 after Batch 21 | Task 21.1 file list (this file); `.ptah/specs/TASK_2026_646_136a/decisions.md` #53 | yes |
+| TL-42 | Batch 36b Mode 2 round 1: NOT ACCEPTED, not committed. The S-1 fix works (journal drops invalid ops on read; a null head is rejected and the next op applies), but it adds a regression in `drain` (`outcome-write-pipeline.ts:449-451`). In journal mode the loop no longer stops when the start snapshot runs out of entries while `this.queue` holds ops that `enqueue` added during an `await` in that drain. `candidate` is then `undefined`, Zod fails, and a phantom `invalid-op` / `queue:N` entry goes to the rejected ledger with a warn, once per such queue slot (up to `DRAIN_BATCH`). No row is lost (the queue items are journaled next turn), but the ledger (cap 200) fills with false rejects that can push out real ones. On 8cd5cc212 the loop broke there (`next ? undefined : queue[i]`) | commit and leave it to the re-review; commit and file a later task | TL probe spec (written, run, deleted; not committed): journal mode, `enqueue` x3 during the first `insertIfAbsent`, 4 drain turns. All 4 rows applied; rejected ledger = `[{invalid-op, queue:1}, {invalid-op, queue:2}]`. A known regression in the function this batch fixes goes back before commit; the fix is one condition | yes |
+| TL-43 | `outcome-write-pipeline.ts` max-lines: `nx lint` reports 716 counted lines against 700 at `:745` (the executor's 711 was before formatting). Batch 36 at 8cd5cc212 lint-passed with no max-lines warning, so 36b pushed the file over. Rejected, not accepted with a split task: the fix round brings the file back to at most 700 by moving `ReportSchema` and `OutcomeWriteOpSchema` (with the `RejectableOp` type if useful) into a sibling `write/outcome-write-op.schema.ts`. No baseline or rule change. `OutcomeWriteOp` stays exported from its current module, so `src/index.ts` does not change | accept with a named split task (LT); raise the limit | `npx nx lint @ptah-extension/lane-outcomes`: 1 warning `745:1 File has too many lines (716). Maximum allowed is 700`; Batch 36 Mode 2 record "lint (no max-lines)"; file size is a hard limit for new code | yes |
+| TL-44 | M-1 and M-2 of `reviews/p2-fix-code-logic-review.md` become later tasks LT-P2-15 and LT-P2-16 in carry-over P2c (orchestrator decision #83). Neither can lose data today | fix in 36b | decisions.md #83; review `:87-115` | yes |
+| TL-45 | Batch 36b executor: a fresh CLI lane codex (OpenAI) round with the TL-42/TL-43 issues only, since the implementer and the planned re-reviewer (Anthropic) stay different families. The executor runs prettier, eslint on the changed files, degradation pre-check and di-lint; the team-leader runs nx test, typecheck and lint in Mode 2 | grok lane (busy with Batch 21) | decision #82, #83; TL-40 | yes |
+| TL-46 | Batch 36b round 2 NOT ACCEPTED: TL-42 and TL-43 are correct on disk, but moving the schemas also removed `import { LaneOutcomeRowSchema } from '../lane-outcome.schema'` while `outcome-write-pipeline.ts:606` still calls `LaneOutcomeRowSchema.parse`. TS2304 fails typecheck and 4 test suites cannot run. Round 3 restores that one import only (695 counted lines, still under 700), and the executor runs a scoped `tsc`/Jest on the lib before reporting, since ESLint does not catch undefined names | widen round 3 scope | `nx typecheck` and `nx test @ptah-extension/lane-outcomes`, 2026-10-15 | yes |
 
 ## Waves and in-flight order (max 3 executors at once; phase reviews take a slot)
 
@@ -189,7 +194,7 @@ Edge cases:
 | Phase | Batches | Implementer families | Phase review | Reviewer (family) |
 | --- | --- | --- | --- | --- |
 | P1 Foundations — ACCEPTED 2026-10-15 | 1, 2, 3, 4, 5, 7 | xAI, Zhipu, OpenAI (actual; Google planned, not used) | code-logic + code-style (new shared contracts, new lib public API) | Claude code-logic-reviewer + code-style-reviewer (Anthropic): `T\reviews\p1-code-logic-review.md` APPROVED 7/10, `T\reviews\p1-code-style-review.md` APPROVED 7/10. Weaker evidence: orchestrator commit `566fa772c` is same-family (Anthropic) as its reviewers |
-| P2 Outcome store core — REVISE 2026-10-15, fix round open | 6, 15, 34, 35, 20; fix batch 36 | OpenAI (fix: OpenAI codex, fallback xAI/Zhipu) | code-logic + code-style (new lib public API); one re-review scoped to the Batch 36 commit (TL-40) | Claude subagents (Anthropic): `T\reviews\p2-code-logic-review.md` REVISE 6/10, `T\reviews\p2-code-style-review.md` REVISE 6/10; re-review `T\reviews\p2-fix-code-logic-review.md` + `T\reviews\p2-fix-code-style-review.md` |
+| P2 Outcome store core — REVISE 2026-10-15, fix round open | 6, 15, 34, 35, 20; fix batch 36; S-1 follow-up 36b (decision #83) | OpenAI (fix: OpenAI codex, fallback xAI/Zhipu) | code-logic + code-style (new lib public API); one re-review scoped to the Batch 36 commit (TL-40) | Claude subagents (Anthropic): `T\reviews\p2-code-logic-review.md` REVISE 6/10, `T\reviews\p2-code-style-review.md` REVISE 6/10; re-review `T\reviews\p2-fix-code-logic-review.md` + `T\reviews\p2-fix-code-style-review.md` |
 | P3 Routing engine | 9, 10, 11, 12, 13, 16, 17, 21, 27, 33 | Google, Zhipu, xAI, Anthropic | code-logic + code-style (lane-routing public API) | codex lane (OpenAI) |
 | P4 Decision-model settings | 14, 18, 19, 22 | Zhipu, xAI, Google | code-logic + visual (A12 renders) | codex lane (OpenAI); visual-reviewer subagent |
 | P5 Outcome producers + Agents tab | 8, 23, 24, 25, 28, 32 | Google, OpenAI, xAI, Zhipu | code-logic + code-style (new RPC method, new MCP tool module) + visual (B8) | Claude subagents (Anthropic); visual-reviewer subagent |
@@ -263,6 +268,8 @@ be Anthropic.
 | LT-P2-12 | Three stores, three hand-written specs, no contract runner (style M4); spec DDL is hand-copied instead of built from `MIGRATIONS` (style M7) | Moderate, test hygiene | Later task **P2c** |
 | LT-P2-13 | `KeyValueLaneOutcomeStore extends InMemoryLaneOutcomeStore` (style M5) | Moderate, design | Later task **P2c**: delegate instead of inheriting |
 | LT-P2-14 | `workspaceRoot` contradicts the shared file's privacy header, and the fields are optional while the recorder always sets them (style M8) | Moderate, contract legibility | Later task **P2c**. It touches `libs/shared` `lane-outcome.types.ts` |
+| LT-P2-15 | Queue order is not kept when `drain` and `accept` fail together (p2-fix logic M-1; `outcome-write-pipeline.ts` drain move-to-journal vs `accept` splice; `key-value-outcome-journal.ts` `update`). Ops are kept, only their order inverts | Moderate, ordering (no loss) | Later task **P2c** (decision #83, TL-44) |
+| LT-P2-16 | Ops owned by an in-flight `drain` (spliced from `this.queue`, journal write not finished) are invisible to the `submit` `pending` scan (p2-fix logic M-2) | Moderate, a report can be refused as `not found` in that window; no host caller yet | Later task **P2c**, before Batch 30 wires the host (decision #83, TL-44) |
 | P2-m | Logic Minors: KV eviction drops receipts (dismissed); `holdReport` uses `Date.now()`; SQLite and KV `telemetryJoin` parity; queue mode reports `applied`; stale `heldRuns` ack; `structuredClone` cost in `snapshot()`; `reportId` retry not idempotent for `revise`; `taskId` unbounded in the row schema; `workspaceRoot: ''` drops a subagent record; `start.ts` skips `dispose` if an unsubscribe throws; `isRegistered` order for the classifier and seam; runtime `executorKind: 'subagent'` on a lane op. Style Minors 1-7: `start` registers silently; value import of `SqliteConnectionService`; `findLatestByAgent`/`hasReceipt`/`specVerdictSource` have no caller; error-name helper repeated 4 times; hand-written `checks` type; duplicated telemetry fallback; Prettier miss in `eslint.config.mjs` | Minor | Recorded, not fixed. Batch 36 removes the literal-`5000` Minor as part of P2-F2. The `eslint.config.mjs` Prettier miss is formatted by lint-staged if that file is ever staged |
 
 ---
@@ -1504,7 +1511,7 @@ Implementer: grok lane (`T\reports\batch-17-report.md`). Verified on disk, not f
 - `npx nx test @ptah-extension/lane-routing --parallel=1` (this also runs the Batch 10 and 13 specs), then `npx nx typecheck @ptah-extension/lane-routing`, then `npx nx lint @ptah-extension/lane-routing`; output tailed
 - `routing-constants.ts`, `index.ts` and `contracts.spec.ts` are Prettier-dirty (P1-L1); lint-staged formats them at commit
 
-## Batch 36 (P2f): P2 fix round — COMPLETE (commit pending, 2026-10-15; Mode 2: 18 lane-outcomes files verified on disk; nx test 13 suites / 116 tests, typecheck, lint (no max-lines) pass; prettier, eslint, degradation-audit TOTAL 296 no FAIL, di-lint OK; pipeline grep clean; tokens/start/index diffs comment-only; actual executor: CLI lane codex, OpenAI; re-review pending, Anthropic, TL-40)
+## Batch 36 (P2f): P2 fix round — COMPLETE (commit 8cd5cc212, 2026-10-15; Mode 2: 18 lane-outcomes files verified on disk; nx test 13 suites / 116 tests, typecheck, lint (no max-lines) pass; prettier, eslint, degradation-audit TOTAL 296 no FAIL, di-lint OK; pipeline grep clean; tokens/start/index diffs comment-only; actual executor: CLI lane codex, OpenAI; re-review pending, Anthropic, TL-40)
 
 - Recommended executor: CLI lane codex (OpenAI), implementation, TypeScript, concurrency-sensitive
   code. Report: `T\reports\batch-36-report.md` (declare it as the lane's `deliverables`)
@@ -1725,3 +1732,81 @@ Implementer: grok lane (`T\reports\batch-17-report.md`). Verified on disk, not f
 - Output: `T\reviews\p2-fix-code-logic-review.md` and `T\reviews\p2-fix-code-style-review.md`, each
   with a verdict of APPROVED or REVISE. With both APPROVED, P2 is accepted. A REVISE at this point
   goes back to the orchestrator; there is no second fix round.
+
+## Batch 36b (P2f2): S-1 follow-up — IN_PROGRESS (Mode 2 round 1, 2026-10-15: NOT ACCEPTED, not committed; TL-42 drain regression, TL-43 max-lines; actual executor round 1: CLI lane codex, OpenAI, report `T\reports\batch-36b-report.md`; Mode 2 round 2, 2026-10-15: NOT ACCEPTED, not committed; TL-46 missing import, TS2304; executor CLI lane codex, OpenAI, report `T\reports\batch-36b-round2-report.md`; round 3 TL-46 fix by the orchestrator, decision #84) — COMPLETE (commit pending, 2026-10-15; Mode 2 round 3: TL-46 import at `outcome-write-pipeline.ts:15`, used at `:607`; nx test 13 suites / 119 tests, lint (no max-lines) pass; typecheck passed after the fix (orchestrator, #84); prettier on the 5 files, degradation-audit TOTAL 296 no FAIL, di-lint OK; Anthropic code-logic re-review pending, `T\reviews\p2-fix2-code-logic-review.md`)
+
+- Recommended executor: CLI lane codex (OpenAI), implementation, TypeScript (TL-45)
+- Execution mode: sequential
+- Fallback order: other family same capability (grok xAI, after Batch 21 frees it; then Glm
+  Zhipu) -> same family other provider/model -> subagent (never Anthropic: the re-review is
+  Anthropic)
+- Subagent reason: N/A
+- Review family: different from implementer (Anthropic code-logic-reviewer)
+- Rationale: one bounded follow-up to Batch 36 for re-review finding S-1 only (decision #83);
+  one lib, one verification set
+- Tasks: 1 | Depends on: 36 (8cd5cc212)
+- Phase: P2 | Phase review: one Anthropic code-logic re-review scoped to the 36b commit,
+  deliverable `T\reviews\p2-fix2-code-logic-review.md`, verdict APPROVED or REVISE. Style already
+  APPROVED (`T\reviews\p2-fix-code-style-review.md`); its Moderates are P2c later tasks
+
+### Task 36b.1: Close S-1 (malformed journal op; drain zero-progress hot loop) — COMPLETE
+
+- Files: `D:\projects\ptah-extension\.claude-worktrees\decision-model-routing\libs\backend\lane-outcomes\src\lib\write\key-value-outcome-journal.ts`,
+  `...\write\outcome-write-pipeline.ts`, `...\write\key-value-outcome-journal.spec.ts`,
+  `...\write\outcome-write-pipeline.durability.spec.ts`; round 2 adds
+  `...\write\outcome-write-op.schema.ts` (TL-43)
+- Plan reference: `T\reviews\p2-fix-code-logic-review.md:67-86` (S-1); decisions.md #83
+- Quality requirements: the journal validates each op's structure on read (invalid entries
+  dropped and counted in `droppedOnRead`); `drain` treats a non-actionable head as a permanent
+  reject, so there is no zero-progress reschedule; both new specs fail on 8cd5cc212
+- Round 1 verified on disk (accepted parts, keep them):
+  - `key-value-outcome-journal.ts:31,73-77,105-108`: `EntryHeaderSchema.extend({ op: opSchema })`;
+    the `op: z.unknown()` hole is gone; the pipeline passes `OutcomeWriteOpSchema`
+    (`outcome-write-pipeline.ts:52-67,196-200`)
+  - `outcome-write-pipeline.ts:452-463`: an invalid head becomes `invalid-op` / `journal:<seq>`,
+    reason `ZOD_VALIDATION`, `processed++`, and the next op runs; the warn carries ids and code
+  - The specs are real: `key-value-outcome-journal.spec.ts:29-51` (null, missing and primitive
+    op dropped, 3 counted) and `outcome-write-pipeline.durability.spec.ts:25-71` (null head,
+    following completion applied, journal empty, ledger and warn)
+  - `nx test @ptah-extension/lane-outcomes`: 13 suites / 118 tests pass
+- Round 2 must fix (TL-42, TL-43), nothing else:
+  1. `outcome-write-pipeline.ts:449-451`: in journal mode (`next !== null`) the loop must break
+     when `next.entries[processed]` is undefined, whatever `this.queue` holds; in queue mode it
+     breaks when `this.queue[processed]` is undefined. Queue items appended during a drain are
+     never parsed or rejected by that drain. Add a durability spec: journal mode, three
+     `enqueue` calls made during the first `insertIfAbsent`, then drain turns; assert every row
+     is applied and the rejected ledger is empty (this spec fails on round 1)
+  2. Bring `outcome-write-pipeline.ts` to at most 700 lines as counted by the lint rule by
+     moving `ReportSchema` and `OutcomeWriteOpSchema` (and `RejectableOp` if it helps) to
+     `write/outcome-write-op.schema.ts`. `OutcomeWriteOp` stays exported from
+     `outcome-write-pipeline.ts`; `src/index.ts` does not change; no baseline or rule change
+- Round 2 verified on disk (accepted parts, keep them):
+  - TL-42: `outcome-write-pipeline.ts:425-427` breaks on `next.entries[processed] === undefined`
+    in journal mode and on `this.queue[processed] === undefined` in queue mode; invalid-head
+    reject kept at `:428-440`. New spec `outcome-write-pipeline.durability.spec.ts:25-57`
+  - TL-43: `write/outcome-write-op.schema.ts` holds `ReportSchema` and `OutcomeWriteOpSchema`;
+    `OutcomeWriteOp` still exported from the pipeline; `src/index.ts` unchanged; 737 physical
+    lines (694 counted, per the executor's eslint run)
+  - Round 1 journal validation and both round 1 specs unchanged
+- Round 3 must fix (TL-46), nothing else:
+  1. `outcome-write-pipeline.ts`: restore `import { LaneOutcomeRowSchema } from
+     '../lane-outcome.schema';` (removed in round 2; still used at `:606`). Fails now with
+     `TS2304: Cannot find name 'LaneOutcomeRowSchema'` in `nx typecheck`, and 4 suites
+     (`outcome-write-pipeline.spec.ts`, `.backlog.spec.ts`, `.durability.spec.ts`,
+     `lane-outcome-recorder.service.spec.ts`) fail to run
+  2. Before reporting, the executor runs
+     `npx tsc -p libs/backend/lane-outcomes/tsconfig.lib.json --noEmit` (or the lib's spec
+     tsconfig) and Jest on the three pipeline specs with `--coverage=false --maxWorkers=2`,
+     plus prettier and eslint on the changed file
+- Validation notes: no new `catch` without a degradation-audit marker (TOTAL stays 296, no
+  FAIL); no index export change; no casts or suppressions
+
+### Batch 36b verification
+
+- On disk: the four files plus `outcome-write-op.schema.ts`; journal op validation; drain break
+  rule (TL-42); the three specs real
+- `NX_NO_CLOUD=true npx nx test @ptah-extension/lane-outcomes --parallel=1`, then `typecheck`,
+  then `lint` (no max-lines warning); prettier `--check` on changed files; degradation pre-check
+  TOTAL 296 no FAIL; di-lint OK; output tailed; one heavy check at a time
+- Stage only the 36b files under `libs/backend/lane-outcomes/src/lib/write/` and this task's
+  docs. Batch 21 files under `libs/backend/lane-routing/**` stay unstaged

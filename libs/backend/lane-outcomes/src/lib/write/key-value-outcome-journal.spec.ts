@@ -1,4 +1,5 @@
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { z } from 'zod';
 import {
   appendEntries,
   KeyValueOutcomeJournal,
@@ -25,6 +26,30 @@ class MemoryState implements IStateStorage {
 }
 
 describe('KeyValueOutcomeJournal', () => {
+  it('drops malformed operation shapes while keeping valid entries', async () => {
+    const storage = new MemoryState();
+    await storage.update(OUTCOME_JOURNAL_KEY, {
+      nextSeq: 5,
+      entries: [
+        { seq: 1, op: null },
+        { seq: 2 },
+        { seq: 3, op: 5 },
+        { seq: 4, op: { kind: 'budget-stop', runId: 'subagent:valid' } },
+      ],
+      droppedAtCapacity: 0,
+      heldRuns: [],
+    });
+    const journal = new KeyValueOutcomeJournal(
+      storage,
+      Date.now(),
+      z.object({ kind: z.literal('budget-stop'), runId: z.string().min(1) }),
+    );
+    expect(journal.droppedOnRead).toBe(3);
+    expect(journal.snapshot().entries).toEqual([
+      { seq: 4, op: { kind: 'budget-stop', runId: 'subagent:valid' } },
+    ]);
+  });
+
   it('numbers accepted entries and counts every capacity refusal', () => {
     const value = {
       nextSeq: 8,
