@@ -42,6 +42,9 @@ import {
   formatSkillsForPrompt,
 } from '@ptah-extension/agent-sdk';
 import { readFileSync } from 'fs';
+import { join, resolve } from 'path';
+import { createMockFileSystemProvider } from '@ptah-extension/platform-core/testing';
+import { computeWorkspaceFingerprint } from './analysis-fingerprint';
 
 const SdkStreamProcessorMock = SdkStreamProcessor as jest.MockedClass<
   typeof SdkStreamProcessor
@@ -1664,6 +1667,43 @@ x
   describe('readPhaseContextForRole + analysisDir branch (lines 353-357, 817-899)', () => {
     beforeEach(() => {
       readFileSyncMock.mockReset();
+    });
+
+    it('keeps fresh phase context after the first generated agent creates .claude', async () => {
+      const rootPath = resolve('/workspace/project');
+      const analysisDir = join(rootPath, '.ptah', 'analysis', 'project');
+      const fs = createMockFileSystemProvider();
+      await fs.writeFile(join(rootPath, 'package.json'), '{"name":"project"}');
+      const original = await computeWorkspaceFingerprint(rootPath, fs);
+      mockFreshness.getStatus.mockImplementation(async () => ({
+        state:
+          (await computeWorkspaceFingerprint(rootPath, fs)).digest ===
+          original.digest
+            ? 'fresh'
+            : 'stale',
+        analysisDir,
+      }));
+      readFileSyncMock.mockReturnValue('# Phase evidence');
+      const template = {
+        ...baseTemplate,
+        name: 'docs-writer',
+        content: '<!-- LLM:S -->\nx\n<!-- /LLM:S -->',
+      };
+      const context = { ...mockContext, rootPath, analysisDir };
+
+      await service.generateContent(template, context);
+      await fs.createDirectory(join(rootPath, '.claude', 'agents'));
+      await fs.writeFile(
+        join(rootPath, '.claude', 'agents', 'first.md'),
+        'agent',
+      );
+      await service.generateContent(template, context);
+
+      expect(mockFreshness.getStatus).toHaveBeenCalledTimes(2);
+      const secondPrompt = mockInternalQueryService.execute.mock.calls[1][0]
+        .prompt as string;
+      expect(secondPrompt).toContain('# Phase evidence');
+      expect(secondPrompt).toContain('## Project Profile');
     });
 
     it.each(['stale', 'missing'])(

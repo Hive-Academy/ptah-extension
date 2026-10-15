@@ -38,6 +38,16 @@ const ROOT_METADATA_FILES = new Set([
 ]);
 const EXCLUDED_TOP_LEVEL_NAMES = new Set([
   '.ptah',
+  '.claude',
+  '.codex',
+  '.github',
+  '.cursor',
+  '.opencode',
+  '.agents',
+  '.vscode',
+  '.gitignore',
+  '.mcp.json',
+  'opencode.json',
   '.git',
   'node_modules',
   'vendor',
