@@ -27,7 +27,15 @@ import {
   type HarnessPluginConfigReader,
 } from '@ptah-extension/harness-sync';
 import { registerPluginMarketplaceServices } from '@ptah-extension/plugin-marketplace';
-import { registerLaneRoutingServices } from '@ptah-extension/lane-routing';
+import {
+  LANE_ROUTING_TOKENS,
+  registerLaneRoutingServices,
+} from '@ptah-extension/lane-routing';
+import {
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+  startLaneOutcomes,
+} from '@ptah-extension/lane-outcomes';
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -121,6 +129,13 @@ export function registerPhase2Libraries(
   // Before vscode-lm-tools and registerRpcSurface. AgentRpcHandlers injects
   // DECISION_MODEL_CONFIG, and this is the only registration of that token.
   registerLaneRoutingServices(container, logger);
+  registerLaneOutcomeServices(container, logger);
+  container.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+    useToken: LANE_OUTCOME_TOKENS.READER,
+  });
+  container.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+    useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+  });
   registerVsCodeLmToolsServices(container, logger);
   // The caller-workspace port (TASK_2026_364): lets AgentProcessManager scope
   // spawns and status reads to the calling MCP request's workspace without
@@ -218,6 +233,16 @@ export function registerPhase2Libraries(
     useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
   });
   registerCliAgentRuntimeServices(container, logger);
+  try {
+    const disposeLaneOutcomes = startLaneOutcomes(container, logger);
+    container.register(Symbol.for('PtahLaneOutcomesDisposer'), {
+      useValue: disposeLaneOutcomes,
+    });
+  } catch (error: unknown) {
+    logger.warn('[DI] Lane outcomes start failed (non-fatal)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
     { useClass: VscodeCopilotAuthService },

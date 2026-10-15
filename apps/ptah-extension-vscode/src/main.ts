@@ -199,6 +199,17 @@ export async function deactivate(): Promise<void> {
   // instead of merely starting it (TASK_2026_324 finding 3).
   await flushSessionMetadataStores();
 
+  const laneOutcomesDisposer = Symbol.for('PtahLaneOutcomesDisposer');
+  if (DIContainer.isRegistered(laneOutcomesDisposer)) {
+    try {
+      await DIContainer.resolve<() => Promise<void>>(laneOutcomesDisposer)();
+    } catch (error: unknown) {
+      logger.warn('Lane outcomes dispose failed (non-fatal)', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   // The run-check tree kill started beside the reap; it is bounded by its own
   // budget and never rejects, so awaiting it last costs only what remains of it.
   await checksKilled;

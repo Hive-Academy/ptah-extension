@@ -12,6 +12,7 @@ import {
   killRunningChecks,
   runningCheckPids,
 } from '@ptah-extension/vscode-lm-tools';
+import { ElectronDIContainer } from '../di/container';
 import { createEmptyBootRefs } from './boot-coordinator';
 import type { BootRefs } from './boot-coordinator';
 import {
@@ -23,6 +24,12 @@ import {
 jest.mock('@ptah-extension/vscode-lm-tools', () => ({
   killRunningChecks: jest.fn(async () => undefined),
   runningCheckPids: jest.fn(() => []),
+}));
+jest.mock('../di/container', () => ({
+  ElectronDIContainer: {
+    isRegistered: jest.fn(() => false),
+    resolve: jest.fn(),
+  },
 }));
 
 const kill = jest.mocked(killRunningChecks);
@@ -67,6 +74,11 @@ describe('will-quit — the run-check kill', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     kill.mockReset().mockResolvedValue(undefined);
     pids.mockReset().mockReturnValue([]);
+    jest
+      .mocked(ElectronDIContainer.isRegistered)
+      .mockReset()
+      .mockReturnValue(false);
+    jest.mocked(ElectronDIContainer.resolve).mockReset();
   });
 
   afterEach(() => {
@@ -133,5 +145,29 @@ describe('will-quit — the run-check kill', () => {
     expect(handleWillQuit(deps)).toBe(true);
     expect(deps.deferQuit).not.toHaveBeenCalled();
     expect(order).toEqual(['sqliteConnection', 'diagnostics']);
+  });
+
+  it('awaits lane outcomes before SQLite closes and re-issues quit', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    jest.mocked(ElectronDIContainer.isRegistered).mockReturnValue(true);
+    jest.mocked(ElectronDIContainer.resolve).mockReturnValue(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+          order.push('lane outcomes');
+        }),
+    );
+    const deps = quitDeps(minimalRefs(order));
+
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['lane outcomes']);
+    expect(deps.quit).not.toHaveBeenCalled();
+
+    finish();
+    await flushMicrotasks();
+    expect(order).toEqual(['lane outcomes', 'sqliteConnection', 'diagnostics']);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
   });
 });

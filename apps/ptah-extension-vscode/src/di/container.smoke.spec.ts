@@ -36,6 +36,11 @@ import {
   LANE_ROUTING_TOKENS,
   registerLaneRoutingServices,
 } from '@ptah-extension/lane-routing';
+import {
+  KeyValueLaneOutcomeStore,
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+} from '@ptah-extension/lane-outcomes';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
@@ -360,6 +365,63 @@ describe('VS Code DI — decision model config (TL-59)', () => {
 
     const handlers = c.resolve(AgentRpcHandlers);
     expect(handlers).toBeInstanceOf(AgentRpcHandlers);
+  });
+});
+
+describe('VS Code DI — lane outcomes', () => {
+  it('registers outcomes once before CLI runtime and aliases after both libraries', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const routing = source.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const outcomes = source.indexOf(
+      'registerLaneOutcomeServices(container, logger);',
+    );
+    const runtime = source.indexOf(
+      'registerCliAgentRuntimeServices(container, logger);',
+    );
+    const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
+    const classifier = source.indexOf(
+      'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
+    );
+    expect(source.match(/registerLaneOutcomeServices\(/g)).toHaveLength(1);
+    expect(routing).toBeGreaterThan(-1);
+    expect(outcomes).toBeGreaterThan(routing);
+    expect(outcomes).toBeLessThan(runtime);
+    expect(reader).toBeGreaterThan(outcomes);
+    expect(classifier).toBeGreaterThan(outcomes);
+  });
+
+  it('resolves both aliases and the durable VS Code store', () => {
+    const c = buildMinimalContainer();
+    const state = {
+      get: jest.fn(() => undefined),
+      update: jest.fn(async () => undefined),
+      keys: jest.fn(() => []),
+    };
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, { useValue: state });
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    registerLaneRoutingServices(c, logger);
+    registerLaneOutcomeServices(c, logger);
+    c.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+      useToken: LANE_OUTCOME_TOKENS.READER,
+    });
+    c.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+      useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+    });
+    expect(c.resolve(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER)).toBe(
+      c.resolve(LANE_OUTCOME_TOKENS.READER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
+      c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.STORE)).toBeInstanceOf(
+      KeyValueLaneOutcomeStore,
+    );
+    expect(state.get).toHaveBeenCalled();
   });
 });
 

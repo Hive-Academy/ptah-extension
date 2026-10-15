@@ -268,7 +268,7 @@ describe('shutdownHostRuntime', () => {
       await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
 
       // Every step was attempted — one failure does not skip the next.
-      expect(container.resolve).toHaveBeenCalledTimes(3);
+      expect(container.resolve).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -301,6 +301,26 @@ describe('shutdownHostRuntime', () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it('awaits lane outcomes and continues shutdown after a disposal failure', async () => {
+    const token = Symbol.for('PtahLaneOutcomesDisposer');
+    const order: string[] = [];
+    const container = {
+      isRegistered: jest.fn((candidate: symbol) => candidate === token),
+      resolve: jest.fn(() => async () => {
+        order.push('lane outcomes');
+        throw new Error('journal drain failed');
+      }),
+    } as unknown as DependencyContainer;
+
+    await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
+    expect(order).toEqual(['lane outcomes']);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'lane outcomes disposal failed: journal drain failed',
+      ),
+    );
   });
 
   describe('individual halves', () => {

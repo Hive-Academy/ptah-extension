@@ -43,7 +43,10 @@ import {
   type PostToolUseCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
-import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import {
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+} from '@ptah-extension/lane-outcomes';
 import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
@@ -394,6 +397,60 @@ describe('Electron DI — decision model config (TL-59)', () => {
   });
 });
 
+describe('Electron DI — lane outcomes', () => {
+  it('registers outcomes once before CLI runtime and aliases after both libraries', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const routing = source.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const outcomes = source.indexOf(
+      'registerLaneOutcomeServices(container, logger);',
+    );
+    const runtime = source.indexOf(
+      'registerCliAgentRuntimeServices(container, logger);',
+    );
+    const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
+    const classifier = source.indexOf(
+      'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
+    );
+    expect(source.match(/registerLaneOutcomeServices\(/g)).toHaveLength(1);
+    expect(routing).toBeGreaterThan(-1);
+    expect(outcomes).toBeGreaterThan(routing);
+    expect(outcomes).toBeLessThan(runtime);
+    expect(reader).toBeGreaterThan(outcomes);
+    expect(classifier).toBeGreaterThan(outcomes);
+  });
+
+  it('resolves both aliases', () => {
+    const c = buildMinimalContainer();
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    registerLaneRoutingServices(c, logger);
+    registerLaneOutcomeServices(c, logger);
+    c.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+      useToken: LANE_OUTCOME_TOKENS.READER,
+    });
+    c.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+      useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+    });
+    expect(c.resolve(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER)).toBe(
+      c.resolve(LANE_OUTCOME_TOKENS.READER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
+      c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
+    );
+  });
+});
+
 describe('Electron DI — trusted host kind', () => {
   it('resolves HOST_KIND as electron after phase 1 registration', () => {
     const c = buildMinimalContainer();
@@ -481,15 +538,24 @@ describe('Electron DI — SDK process spawner (plan Assumption 1)', () => {
     registerSdkServices(c, logger);
 
     const spawner = c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER);
-    const budgetStops = c.resolve(
-      SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
-    );
-    expect(budgetStops).toBeDefined();
 
     expect(spawner).toBeDefined();
     expect(typeof (spawner as { spawnProcess: unknown }).spawnProcess).toBe(
       'function',
     );
+  });
+});
+
+describe('Electron DI — SDK budget-stop registry', () => {
+  it('resolves the same registry instance on repeated requests', () => {
+    const c = buildMinimalContainer();
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    const first = c.resolve(
+      SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+    );
+    expect(
+      c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY),
+    ).toBe(first);
   });
 });
 

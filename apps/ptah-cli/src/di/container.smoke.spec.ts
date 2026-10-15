@@ -34,6 +34,10 @@ import {
   LANE_ROUTING_TOKENS,
   registerLaneRoutingServices,
 } from '@ptah-extension/lane-routing';
+import {
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+} from '@ptah-extension/lane-outcomes';
 import { createMockOutputChannel } from '@ptah-extension/platform-core/testing';
 import {
   SDK_TOKENS,
@@ -41,7 +45,6 @@ import {
   type PostToolUseCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
-import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
@@ -320,6 +323,101 @@ function registerAgentHandlerFixtures(c: DependencyContainer): void {
   registerLaneModelListingFixtures(c);
 }
 
+describe('CLI DI — SDK budget-stop registry', () => {
+  it('resolves the same registry instance on repeated requests', () => {
+    const c = buildMinimalContainer();
+    // `registerSdkServices` eagerly builds ConfigWatcher, which subscribes.
+    c.register(TOKENS.CONFIG_MANAGER, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        set: jest.fn(async () => undefined),
+        watch: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+      useValue: {
+        get: jest.fn(async () => undefined),
+        store: jest.fn(async () => undefined),
+        delete: jest.fn(async () => undefined),
+        onDidChange: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    const first = c.resolve(
+      SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+    );
+    expect(
+      c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY),
+    ).toBe(first);
+  });
+});
+
+describe('CLI DI — lane outcomes', () => {
+  it('registers outcomes once before CLI runtime and aliases after both libraries', () => {
+    const setup = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../libs/backend/cli-engine/src/lib/container.ts',
+      ),
+      'utf8',
+    );
+    const wiring = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../libs/backend/cli-engine/src/lib/lane-outcomes-wiring.ts',
+      ),
+      'utf8',
+    );
+    const routing = setup.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const outcomes = setup.indexOf('wireLaneOutcomes(container, logger);');
+    const runtime = setup.indexOf(
+      'registerCliAgentRuntimeServices(container, logger);',
+    );
+    const register = wiring.indexOf(
+      'registerLaneOutcomeServices(container, logger);',
+    );
+    const reader = wiring.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
+    const classifier = wiring.indexOf(
+      'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
+    );
+    expect(wiring.match(/registerLaneOutcomeServices\(/g)).toHaveLength(1);
+    expect(routing).toBeGreaterThan(-1);
+    expect(outcomes).toBeGreaterThan(routing);
+    expect(outcomes).toBeLessThan(runtime);
+    expect(register).toBeGreaterThan(-1);
+    expect(reader).toBeGreaterThan(register);
+    expect(classifier).toBeGreaterThan(register);
+  });
+
+  it('resolves both aliases', () => {
+    const c = buildMinimalContainer();
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    registerLaneRoutingServices(c, logger);
+    registerLaneOutcomeServices(c, logger);
+    c.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+      useToken: LANE_OUTCOME_TOKENS.READER,
+    });
+    c.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+      useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+    });
+    expect(c.resolve(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER)).toBe(
+      c.resolve(LANE_OUTCOME_TOKENS.READER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
+      c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
+    );
+  });
+});
+
 describe('CLI DI — decision model config (TL-59)', () => {
   it('registers lane routing once, before vscode-lm-tools and the RPC surface', () => {
     const setup = fs.readFileSync(
@@ -589,9 +687,6 @@ describe('CLI DI — session organization recorder binding (TASK_2026_580 R-TL11
     });
 
     registerSdkServices(c, logger);
-    expect(
-      c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY),
-    ).toBeDefined();
     if (withCliAgentRuntime) {
       registerCliAgentRuntimeServices(c, logger);
       for (const token of [

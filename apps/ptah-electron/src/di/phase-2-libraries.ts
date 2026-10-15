@@ -54,7 +54,15 @@ import {
   registerCliAgentRuntimeServices,
   createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
-import { registerLaneRoutingServices } from '@ptah-extension/lane-routing';
+import {
+  LANE_ROUTING_TOKENS,
+  registerLaneRoutingServices,
+} from '@ptah-extension/lane-routing';
+import {
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+  startLaneOutcomes,
+} from '@ptah-extension/lane-outcomes';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
@@ -306,6 +314,13 @@ export function registerPhase2Libraries(
   // Before phase 3 registerVsCodeLmToolsServices and wire-runtime
   // registerRpcSurface. AgentRpcHandlers injects DECISION_MODEL_CONFIG.
   registerLaneRoutingServices(container, logger);
+  registerLaneOutcomeServices(container, logger);
+  container.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+    useToken: LANE_OUTCOME_TOKENS.READER,
+  });
+  container.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+    useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+  });
   registerCliAgentRuntimeServices(container, logger);
 
   wireAgentAdapterAliases(container);
@@ -405,6 +420,16 @@ export function registerPhase2Libraries(
         error: error instanceof Error ? error.message : String(error),
       },
     );
+  }
+  try {
+    const disposeLaneOutcomes = startLaneOutcomes(container, logger);
+    container.register(Symbol.for('PtahLaneOutcomesDisposer'), {
+      useValue: disposeLaneOutcomes,
+    });
+  } catch (error: unknown) {
+    logger.warn('[Electron DI] Lane outcomes start failed (non-fatal)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);

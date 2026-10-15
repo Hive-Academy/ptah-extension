@@ -2,7 +2,10 @@ import {
   killRunningChecks,
   runningCheckPids,
 } from '@ptah-extension/vscode-lm-tools';
+import { ElectronDIContainer } from '../di/container';
 import type { BootRefs } from './boot-coordinator';
+
+const LANE_OUTCOMES_DISPOSER = Symbol.for('PtahLaneOutcomesDisposer');
 
 /**
  * The `will-quit` sequence, extracted from `main.ts` (TASK_2026_331 B1.T6).
@@ -236,8 +239,7 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
  * The tail of the LIFO chain: `SQLite close` and everything after it.
  *
  * Nothing in here may run before {@link stopMessagingGateway} has SETTLED —
- * `SQLite close` is the first statement and the gateway's drain writes to the
- * database it closes.
+ * The lane-outcomes drain and gateway writes finish before `SQLite close`.
  *
  * **Diagnostics is LAST**, mirroring its position as the FIRST thing armed in
  * the pre-window phase. Beyond LIFO correctness this keeps lag warnings coming
@@ -252,6 +254,18 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
  */
 async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   const { refs } = deps;
+
+  if (ElectronDIContainer.isRegistered(LANE_OUTCOMES_DISPOSER)) {
+    await withBudget(
+      'Lane outcomes dispose',
+      () =>
+        ElectronDIContainer.resolve<() => Promise<void>>(
+          LANE_OUTCOMES_DISPOSER,
+        )(),
+      2000,
+      'quitting with pending outcome writes.',
+    );
+  }
 
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
@@ -407,6 +421,7 @@ async function withBudget(
  */
 export function requiresDeferredDisposal(refs: BootRefs): boolean {
   return (
+    ElectronDIContainer.isRegistered(LANE_OUTCOMES_DISPOSER) ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
     runningCheckPids().length > 0

@@ -154,5 +154,17 @@ export async function shutdownHostRuntime(
 ): Promise<void> {
   await shutdownAgentProcesses(container);
   await shutdownPtahCliProxies(container);
+  if (container) {
+    try {
+      const token = Symbol.for('PtahLaneOutcomesDisposer');
+      if (container.isRegistered?.(token)) {
+        await container.resolve<() => Promise<void>>(token)();
+      }
+    } catch (error: unknown) {
+      process.stderr.write(
+        `[ptah] lane outcomes disposal failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
+  }
   await shutdownWorkspaceWatcher(container);
 }
