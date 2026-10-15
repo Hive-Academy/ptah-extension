@@ -64,6 +64,10 @@ describe('CommandCenterPageComponent', () => {
     ),
     recordWriteFailure,
     latestReply: signal<string | null>(null),
+    voiceErrorKind: signal(null),
+    rosterTimedOut: signal(false),
+    ordinaryQuestion: signal(null),
+    ordinaryChoices: signal<readonly string[]>([]),
     coordinator: { newCommandCenter: jest.fn(), sendStatusTurn: jest.fn() },
     open: jest.fn(async () => 'root-tab'),
     exit: jest.fn(async () => undefined),
@@ -75,6 +79,8 @@ describe('CommandCenterPageComponent', () => {
     stopVoice: jest.fn(),
     toggleMuteVoice: jest.fn(),
     retrySpeech: jest.fn(),
+    interruptSpeech: jest.fn(),
+    openVoiceSettings: jest.fn(),
     sendCommand: jest.fn(),
   };
 

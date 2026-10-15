@@ -72,6 +72,7 @@ export {
 } from './lib/session-identity';
 export {
   COMMAND_CENTER_PERSONA,
+  COMMAND_CENTER_TRIBUNAL_REQUEST_TAG,
   commandCenterPersonaFor,
 } from './lib/command-center-persona';
 export {

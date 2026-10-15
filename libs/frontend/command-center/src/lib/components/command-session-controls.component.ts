@@ -20,15 +20,6 @@ import type { CommandSessionStatus } from '../model/command-center.store';
         <span class="mr-auto text-sm font-semibold"
           >Command Center · {{ sessionStatus() }}</span
         >
-        @if (canResume()) {
-          <button
-            type="button"
-            class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-            (click)="resumeSession.emit()"
-          >
-            Resume latest session
-          </button>
-        }
         <button
           type="button"
           class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
@@ -73,10 +64,8 @@ import type { CommandSessionStatus } from '../model/command-center.store';
 })
 export class CommandSessionControlsComponent {
   public readonly sessionStatus = input.required<CommandSessionStatus>();
-  public readonly canResume = input(false);
   public readonly draft = signal('');
   public readonly commandSubmit = output<string>();
-  public readonly resumeSession = output<void>();
   public readonly newSession = output<void>();
   public readonly requestStatus = output<void>();
 

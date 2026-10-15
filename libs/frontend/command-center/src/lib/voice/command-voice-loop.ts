@@ -18,13 +18,14 @@ import {
 } from './tts-playback-queue';
 
 export interface VoiceLoopOptions {
-  readonly sendTranscript?: (transcript: string) => Promise<boolean>;
+  readonly sendTranscript: (transcript: string) => Promise<boolean>;
   readonly captureFactories?: CaptureFactories;
   readonly audioFactory?: AudioElementFactory;
   /** The page resolves an ordinary question using its full prompt and question key. */
   readonly answerOrdinaryQuestion?: (transcript: string) => boolean;
   /** Identifies the voice send so a page can correlate its terminal event. */
   readonly onVoiceSend?: (turnToken: number) => void;
+  readonly onTurnsAbandoned?: () => void;
   /** Optional echo rejection override; browser AEC plus playback-mode VAD handles the default. */
   readonly isIndependentSpeech?: (samples: Float32Array) => boolean;
   readonly now?: () => number;
@@ -81,7 +82,7 @@ export class CommandVoiceLoop {
     private readonly store: CommandCenterStore,
     private readonly coordinator: CommandCenterSessionCoordinator,
     private readonly rpc: ClaudeRpcService,
-    private readonly options: VoiceLoopOptions = {},
+    private readonly options: VoiceLoopOptions,
   ) {
     this.playback = new TtsPlaybackQueue(
       async (text) => {
@@ -137,6 +138,7 @@ export class CommandVoiceLoop {
           message:
             'Speech playback failed. Text is still available; retry voice when ready.',
           tone: 'error',
+          action: 'retry-speech',
         }),
     );
   }
@@ -388,8 +390,7 @@ export class CommandVoiceLoop {
         return;
       }
       try {
-        const sent = await (this.options.sendTranscript?.(transcript) ??
-          this.coordinator.send(transcript));
+        const sent = await this.options.sendTranscript(transcript);
         if (turnGeneration !== this.generation) return;
         if (sent) {
           this.awaitingBoundary = true;
@@ -411,23 +412,27 @@ export class CommandVoiceLoop {
     }
   }
 
-  /** Called by the page after the assistant stream and its tool calls settle. */
   public armTypedTurn(): void {
     if (!this.active) return;
-    if (this.awaitingBoundary) {
+    if (this.busy || this.awaitingBoundary) {
       this.queuedTypedTurns++;
       return;
     }
+    this.beginAwaitingTurn();
+  }
+
+  private beginAwaitingTurn(): void {
     this.turnGeneration = this.generation;
     this.awaitingBoundary = true;
     this.awaitingTurnToken = ++this.nextVoiceTurnToken;
     this.options.onVoiceSend?.(this.awaitingTurnToken);
   }
 
-  public onTurnBoundary(assistantText: string, turnToken?: number): void {
+  /** Called by the page after the assistant stream and its tool calls settle. */
+  public onTurnBoundary(assistantText: string, turnToken: number): void {
     if (
       !this.active ||
-      (turnToken !== undefined && turnToken !== this.awaitingTurnToken) ||
+      turnToken !== this.awaitingTurnToken ||
       this.turnGeneration !== this.generation ||
       !this.awaitingBoundary
     )
@@ -439,10 +444,20 @@ export class CommandVoiceLoop {
     this.currentReplyOrigin = null;
     for (const update of this.narrator.drain()) this.speak(update, 'status');
     this.finishTurn();
-    if (this.active && this.queuedTypedTurns > 0) {
-      this.queuedTypedTurns--;
-      this.armTypedTurn();
-    }
+  }
+
+  public abandonTurn(turnToken: number): void {
+    if (turnToken !== this.awaitingTurnToken) return;
+    this.awaitingTurnToken = null;
+    this.finishTurn();
+  }
+
+  public interruptSpeech(): void {
+    this.playback.bargeIn();
+    this.playbackEpoch++;
+    this.playbackMarks.length = 0;
+    this.synthesisIds.length = 0;
+    if (!this.busy) this.store.setVoiceState('listening');
   }
 
   public onProjection(root: string): void {
@@ -460,6 +475,10 @@ export class CommandVoiceLoop {
 
   public onRosterResolved(): void {
     this.pendingRoster = false;
+  }
+
+  public setRosterPending(pending: boolean): void {
+    this.pendingRoster = pending;
   }
 
   public retrySpeech(): void {
@@ -489,6 +508,11 @@ export class CommandVoiceLoop {
     this.turnGeneration = null;
     this.awaitingBoundary = false;
     this.currentReplyOrigin = null;
+    if (this.queuedTypedTurns > 0) {
+      this.queuedTypedTurns--;
+      this.beginAwaitingTurn();
+      return;
+    }
     if (this.queuedClip && this.active && !this.muted) {
       const { clip, origin } = this.queuedClip;
       this.queuedClip = null;
@@ -506,6 +530,7 @@ export class CommandVoiceLoop {
 
   public async mute(): Promise<void> {
     this.generation++;
+    this.options.onTurnsAbandoned?.();
     this.muted = true;
     this.active = false;
     this.busy = false;
@@ -514,6 +539,8 @@ export class CommandVoiceLoop {
     this.synthesisIds.length = 0;
     this.turnGeneration = null;
     this.awaitingBoundary = false;
+    this.awaitingTurnToken = null;
+    this.queuedTypedTurns = 0;
     this.currentReplyOrigin = null;
     this.currentUtteranceOrigin = null;
     this.bargeInCandidateAt = null;
@@ -537,6 +564,7 @@ export class CommandVoiceLoop {
 
   private async release(): Promise<void> {
     this.generation++;
+    this.options.onTurnsAbandoned?.();
     this.active = false;
     this.busy = false;
     this.queuedClip = null;
@@ -544,6 +572,7 @@ export class CommandVoiceLoop {
     this.synthesisIds.length = 0;
     this.turnGeneration = null;
     this.awaitingBoundary = false;
+    this.awaitingTurnToken = null;
     this.queuedTypedTurns = 0;
     this.currentReplyOrigin = null;
     this.currentUtteranceOrigin = null;

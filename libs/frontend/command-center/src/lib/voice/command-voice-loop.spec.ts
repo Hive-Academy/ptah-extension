@@ -61,6 +61,54 @@ describe('CommandVoiceLoop', () => {
     expect(loop['lastReply']).toBe('Typed reply');
   });
 
+  it('queues typed input during transcription and arms it after the voice reply', () => {
+    const { loop } = frameLoop();
+    const armed: number[] = [];
+    Object.assign(loop['options'], {
+      onVoiceSend: (token: number) => armed.push(token),
+    });
+    loop['active'] = true;
+    loop['busy'] = true;
+    loop['turnGeneration'] = loop['generation'];
+    loop.armTypedTurn();
+    expect(loop['queuedTypedTurns']).toBe(1);
+    expect(armed).toEqual([]);
+    loop['awaitingBoundary'] = true;
+    loop['awaitingTurnToken'] = 1;
+    loop['nextVoiceTurnToken'] = 1;
+    loop['speak'] = jest.fn();
+    loop.onTurnBoundary('Voice reply', 1);
+    expect(armed).toEqual([2]);
+    loop.onTurnBoundary('Typed reply', 2);
+    expect(loop['lastReply']).toBe('Typed reply');
+  });
+
+  it('clears a queued typed turn on mute and does not arm it on restart', async () => {
+    const { loop } = frameLoop();
+    Object.assign(loop['coordinator'], { mute: jest.fn() });
+    const armed = jest.fn();
+    Object.assign(loop['options'], { onVoiceSend: armed });
+    loop['active'] = true;
+    loop['busy'] = true;
+    loop.armTypedTurn();
+    await loop.mute();
+    expect(loop['queuedTypedTurns']).toBe(0);
+    loop['active'] = true;
+    loop['muted'] = false;
+    loop['finishTurn']();
+    expect(armed).not.toHaveBeenCalled();
+  });
+
+  it('only guards speech as a roster while the roster card is shown', () => {
+    const { loop } = frameLoop();
+    loop.onRosterProposal('Roster', true);
+    expect(loop['pendingRoster']).toBe(true);
+    loop.setRosterPending(false);
+    expect(loop['pendingRoster']).toBe(false);
+    loop.setRosterPending(true);
+    expect(loop['pendingRoster']).toBe(true);
+  });
+
   function frameLoop(isIndependentSpeech?: () => boolean): {
     loop: CommandVoiceLoop;
     bargeIn: jest.SpyInstance;
@@ -75,7 +123,7 @@ describe('CommandVoiceLoop', () => {
       store,
       Object.create(null) as CommandCenterSessionCoordinator,
       Object.create(null) as ClaudeRpcService,
-      { isIndependentSpeech },
+      { isIndependentSpeech, sendTranscript: async () => true },
     );
     loop['active'] = true;
     Object.defineProperty(loop['playback'], 'isPlaying', {
@@ -136,7 +184,10 @@ describe('CommandVoiceLoop', () => {
       }),
       Object.create(null) as CommandCenterSessionCoordinator,
       Object.assign(Object.create(null) as ClaudeRpcService, rpc),
-      { captureFactories: { getUserMedia, audioContext: jest.fn() } },
+      {
+        captureFactories: { getUserMedia, audioContext: jest.fn() },
+        sendTranscript: async () => true,
+      },
     );
     await expect(loop.start()).resolves.toBe(false);
     expect(setProvider).toHaveBeenCalledWith({
@@ -163,6 +214,7 @@ describe('CommandVoiceLoop', () => {
       Object.assign(Object.create(null) as ClaudeRpcService, {
         call: jest.fn(),
       }),
+      { sendTranscript: coordinator.send },
     );
     loop.onPendingPrompt('Permission is waiting on the page.');
     expect(coordinator.send).not.toHaveBeenCalled();
@@ -190,7 +242,7 @@ describe('CommandVoiceLoop', () => {
         send,
       }),
       rpc,
-      { answerOrdinaryQuestion },
+      { answerOrdinaryQuestion, sendTranscript: send },
     );
     loop.onRosterProposal('Confirm the roster.', true);
     loop['active'] = true;
@@ -248,6 +300,7 @@ describe('CommandVoiceLoop', () => {
         ),
       });
       const loop = new CommandVoiceLoop(store, coordinator, rpc, {
+        sendTranscript: coordinator.send,
         now: () => now,
         audioFactory: () => ({
           play: () => Promise.resolve(),
@@ -272,7 +325,7 @@ describe('CommandVoiceLoop', () => {
           loop['currentUtteranceOrigin'] = { endedAt: now, barged: true };
         await loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
         now += 400;
-        loop.onTurnBoundary('A spoken reply.');
+        loop.onTurnBoundary('A spoken reply.', loop['awaitingTurnToken'] ?? 0);
         await new Promise((resolve) => setTimeout(resolve, 0));
         endings.shift()?.();
       };
@@ -323,7 +376,9 @@ describe('CommandVoiceLoop', () => {
         data: { ok: true, transcript: 'command' },
       }),
     });
-    const loop = new CommandVoiceLoop(store, coordinator, rpc);
+    const loop = new CommandVoiceLoop(store, coordinator, rpc, {
+      sendTranscript: send,
+    });
     const clip = { audioBase64: 'AA==', mimeType: 'audio/wav' } as const;
     loop['active'] = true;
     const first = loop['onClip'](clip);
@@ -333,7 +388,7 @@ describe('CommandVoiceLoop', () => {
     loop['muted'] = false;
     const second = loop['onClip'](clip);
     await Promise.resolve();
-    loop.onTurnBoundary('Old reply.');
+    loop.onTurnBoundary('Old reply.', 1);
     expect(send).toHaveBeenCalledTimes(1);
     expect(loop['busy']).toBe(true);
     resolveOld(true);
@@ -341,7 +396,7 @@ describe('CommandVoiceLoop', () => {
     await second;
     expect(send).toHaveBeenCalledTimes(2);
     expect(loop['busy']).toBe(true);
-    loop.onTurnBoundary('New reply.');
+    loop.onTurnBoundary('New reply.', loop['awaitingTurnToken'] ?? 0);
     expect(loop['busy']).toBe(false);
     expect(setVoiceState).not.toHaveBeenCalledWith('idle');
   });
@@ -372,6 +427,7 @@ describe('CommandVoiceLoop', () => {
           data: { ok: true, transcript: 'command' },
         }),
       }),
+      { sendTranscript: send },
     );
     loop['active'] = true;
     const turn = loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
@@ -421,6 +477,7 @@ describe('CommandVoiceLoop', () => {
       Object.create(null) as CommandCenterSessionCoordinator,
       rpc,
       {
+        sendTranscript: async () => true,
         now: () => 250,
         audioFactory: () => ({
           play: async () => undefined,
@@ -491,6 +548,7 @@ describe('CommandVoiceLoop', () => {
       Object.create(null) as CommandCenterSessionCoordinator,
       rpc,
       {
+        sendTranscript: async () => true,
         now: () => 250,
         audioFactory: () => ({
           play: async () => undefined,

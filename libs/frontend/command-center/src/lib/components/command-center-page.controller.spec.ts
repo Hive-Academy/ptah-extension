@@ -152,6 +152,27 @@ describe('CommandCenterPageController', () => {
     expect(exit).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['muteVoice', 'stopVoice', 'exit'] as const)(
+    'clears armed turns on %s',
+    async (action) => {
+      page.voice['options'].onVoiceSend?.(1);
+      expect(page['armedTurns']).toHaveLength(1);
+      jest
+        .spyOn(
+          page.voice,
+          action === 'muteVoice'
+            ? 'mute'
+            : action === 'stopVoice'
+              ? 'stop'
+              : 'exit',
+        )
+        .mockResolvedValue(undefined);
+      await page[action]();
+      expect(page['armedTurns']).toHaveLength(0);
+      expect(page['voiceTurnToken']()).toBeNull();
+    },
+  );
+
   it('provides timestamp ages in explicit status context', () => {
     page.store.setSession('tab', 'session', '/workspace');
     page.store.setProjection(
@@ -230,6 +251,45 @@ describe('CommandCenterPageController', () => {
     expect(boundary).toHaveBeenCalledTimes(1);
     expect(boundary).toHaveBeenCalledWith('Typed reply', 1);
     expect(page.voice['lastReply']).toBe('Typed reply');
+  });
+
+  it('abandons a failed pulse so the next typed reply uses its own token', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.voice['active'] = true;
+    page.voice['speak'] = jest.fn();
+    page.voice['turnGeneration'] = page.voice['generation'];
+    page.voice['awaitingBoundary'] = true;
+    page.voice['awaitingTurnToken'] = 1;
+    page.voice['nextVoiceTurnToken'] = 1;
+    page.voice['options'].onVoiceSend?.(1);
+    const pulse = (
+      seq: number,
+      classification: TerminalTurnPulse['classification'],
+      lastAssistantMessage: string | null,
+    ): TerminalTurnPulse => ({
+      seq,
+      tabId: 'root-tab',
+      sessionId: 'session',
+      workspacePath: '/workspace',
+      revision: seq,
+      phase: 'idle',
+      terminalReason: 'completed',
+      lastAssistantMessage,
+      classification,
+      title: 'Command Center',
+      occurredAt: Date.now(),
+    });
+    lastTerminalPulseByTab.set(
+      new Map([['root-tab', pulse(1, 'error', null)]]),
+    );
+    TestBed.tick();
+    expect(page['armedTurns']).toHaveLength(0);
+    expect(await page.sendCommand('Next turn')).toBe(true);
+    lastTerminalPulseByTab.set(
+      new Map([['root-tab', pulse(2, 'success', 'Next reply')]]),
+    );
+    TestBed.tick();
+    expect(page.voice['lastReply']).toBe('Next reply');
   });
 
   it('does not deliver a typed pulse boundary while voice is inactive', async () => {
@@ -494,6 +554,8 @@ describe('CommandCenterPageController', () => {
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
       )?.[1] ?? '';
     offer(roster(nonce));
+    expect(page['rosterTimeout']).toBeNull();
+    expect(page.voice['pendingRoster']).toBe(false);
     expect(page.store.pendingInput()).toMatchObject({
       id: 'permission-1',
       kind: 'approval',
@@ -502,6 +564,8 @@ describe('CommandCenterPageController', () => {
     expect(page.answerPermission('permission-1', 'Approve')).toBe(true);
     permissionRequests.set([]);
     TestBed.tick();
+    expect(page['rosterTimeout']).not.toBeNull();
+    expect(page.voice['pendingRoster']).toBe(true);
     expect(page.store.pendingInput()).toMatchObject({
       id: 'q-roster',
       kind: 'question',

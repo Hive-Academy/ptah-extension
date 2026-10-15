@@ -125,11 +125,11 @@ export class CommandOverlayComponent {
   public readonly hoveredNodeId = input<string | null>(null);
   public readonly selectedId = input<string | null>(null);
   public readonly reducedMotion = input(false);
-  public readonly pinNode = output<string>();
-  public readonly unpinNode = output<string>();
   public readonly focusWorkListRow = output<string>();
-  public readonly activeNodeId = signal<string | null>(null);
-  public readonly pinnedNodeId = signal<string | null>(null);
+  private readonly _activeNodeId = signal<string | null>(null);
+  public readonly activeNodeId = this._activeNodeId.asReadonly();
+  private readonly _pinnedNodeId = signal<string | null>(null);
+  public readonly pinnedNodeId = this._pinnedNodeId.asReadonly();
   public readonly activeNode = computed(
     () =>
       this.projection().nodes.find((node) => node.id === this.activeNodeId()) ??
@@ -262,16 +262,19 @@ export class CommandOverlayComponent {
 
   public pin(id: string): void {
     this.clearTimers();
-    const previous = this.pinnedNodeId();
-    if (previous && previous !== id) this.unpinNode.emit(previous);
     this.selectedBeforePin = this.selectedId();
-    this.pinnedNodeId.set(id);
+    this._pinnedNodeId.set(id);
     this.activate(id);
-    this.pinNode.emit(id);
   }
 
   public closePinned(): void {
     this.unpin(true);
+  }
+
+  public closeCard(): void {
+    this.clearTimers();
+    this._pinnedNodeId.set(null);
+    this.close();
   }
 
   public onEscape(event: Event): void {
@@ -285,8 +288,7 @@ export class CommandOverlayComponent {
     if (!id) return;
     const card = this.cardRef()?.nativeElement;
     const focusInCard = !!card && card.contains(document.activeElement);
-    this.pinnedNodeId.set(null);
-    this.unpinNode.emit(id);
+    this._pinnedNodeId.set(null);
     this.close();
     if (restoreFocus && focusInCard) {
       const trigger = this.findLabel(id);
@@ -345,13 +347,13 @@ export class CommandOverlayComponent {
   private activate(id: string): void {
     if (this.activeNodeId() !== id) {
       this.positioner.stop();
-      this.activeNodeId.set(id);
+      this._activeNodeId.set(id);
     }
   }
 
   private close(): void {
     this.clearTimers();
-    this.activeNodeId.set(null);
+    this._activeNodeId.set(null);
     this.positioner.stop();
   }
 

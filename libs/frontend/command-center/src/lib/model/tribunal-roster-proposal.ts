@@ -9,6 +9,7 @@ import {
 import { z } from 'zod';
 
 const AT_LIMIT_STATE = 'AT LIMIT';
+export const TRIBUNAL_ROSTER_PROPOSAL_TAG = 'TRIBUNAL_ROSTER_PROPOSAL';
 const token = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:#-]{0,79}$/);
 const lane = z.object({
   laneId: token,
@@ -103,10 +104,9 @@ export function parseRosterProposal(
   availability: ProposalAvailability,
 ): TribunalRosterProposal | null {
   if (typeof payload !== 'string') return null;
-  const match =
-    /^<TRIBUNAL_ROSTER_PROPOSAL>\s*([\s\S]*?)\s*<\/TRIBUNAL_ROSTER_PROPOSAL>$/.exec(
-      payload.trim(),
-    );
+  const match = new RegExp(
+    `^<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>\\s*([\\s\\S]*?)\\s*<\\/${TRIBUNAL_ROSTER_PROPOSAL_TAG}>$`,
+  ).exec(payload.trim());
   if (!match || match[1].length > 8192) return null;
   let data: unknown;
   try {

@@ -3,6 +3,8 @@ import {
   Component,
   computed,
   effect,
+  ElementRef,
+  inject,
   input,
   output,
   signal,
@@ -73,11 +75,21 @@ import type { ProjectionResult } from '../model/work-projection';
   `,
 })
 export class CommandWorkListComponent {
+  private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
   public readonly projection = input.required<ProjectionResult>();
   public readonly selectedId = input<string | null>(null);
   public readonly selection = output<string>();
   public readonly announcement = signal('');
   public readonly activeIndex = signal(0);
+  public focusRow(index: number): void {
+    if (index < 0 || index >= this.projection().nodes.length) return;
+    this.activeIndex.set(index);
+    const rows =
+      this.element.nativeElement.querySelectorAll<HTMLButtonElement>(
+        'ul button',
+      );
+    rows[index]?.focus();
+  }
   public readonly clampedActiveIndex = computed(() => {
     const count = this.projection().nodes.length;
     return count ? Math.min(Math.max(this.activeIndex(), 0), count - 1) : -1;

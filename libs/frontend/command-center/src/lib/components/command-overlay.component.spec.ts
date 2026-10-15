@@ -125,13 +125,8 @@ describe('CommandOverlayComponent', () => {
 
   it('pins by click and Enter, survives hover leave, and unpins on close, Escape, selection, and destroy', () => {
     const { component, fixture, labels } = setup();
-    const pin = jest.fn();
-    const unpin = jest.fn();
-    component.pinNode.subscribe(pin);
-    component.unpinNode.subscribe(unpin);
     labels[0].click();
     fixture.detectChanges();
-    expect(pin).toHaveBeenCalledWith('a');
     component.onLabelLeave('a');
     advance(COMMAND_OVERLAY_CLOSE_DELAY_MS + 1);
     expect(component.pinnedNodeId()).toBe('a');
@@ -139,7 +134,6 @@ describe('CommandOverlayComponent', () => {
       .querySelector('[aria-label="Close node details"]')
       .click();
     fixture.detectChanges();
-    expect(unpin).toHaveBeenCalledWith('a');
     labels[0].dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
     );

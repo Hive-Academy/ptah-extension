@@ -1,5 +1,5 @@
 import {
-  AfterViewChecked,
+  afterEveryRender,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
@@ -102,7 +102,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         }
         @if (page.store.toast(); as toast) {
           <p role="status" class="rounded-lg p-2">{{ toast.message }}</p>
-          @if (toast.message.includes('Speech playback failed')) {
+          @if (toast.action === 'retry-speech') {
             <button
               type="button"
               class="btn btn-sm"
@@ -116,13 +116,19 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           [voiceState]="page.store.voiceState()"
           [provider]="page.store.provider()"
           [muted]="page.store.muted()"
+          [errorKind]="page.voiceErrorKind()"
+          [turnAbortable]="page.store.voiceState() === 'thinking'"
           (start)="page.startVoice()"
           (stop)="page.stopVoice()"
           (toggleMute)="page.toggleMuteVoice()"
+          (interrupt)="page.interruptSpeech()"
+          (openVoiceSettings)="page.openVoiceSettings()"
         />
         <ptah-command-pending-input
           [pending]="page.store.pendingInput()"
           [proposal]="page.shownProposal()"
+          [choices]="page.ordinaryChoices()"
+          [timedOut]="page.rosterTimedOut()"
           (confirm)="page.confirmProposal($event.proposalId)"
           (decline)="page.declineProposal($event)"
           (response)="
@@ -145,7 +151,6 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         />
         <ptah-command-session-controls
           [sessionStatus]="page.store.sessionStatus()"
-          (resumeSession)="page.open()"
           (newSession)="page.coordinator.newCommandCenter()"
           (requestStatus)="page.coordinator.sendStatusTurn('Status')"
           (commandSubmit)="page.sendCommand($event)"
@@ -154,7 +159,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
     </div>
   `,
 })
-export class CommandCenterPageComponent implements AfterViewChecked {
+export class CommandCenterPageComponent {
   public readonly page = inject(CommandCenterPageController);
   private readonly destroyRef = inject(DestroyRef);
   private readonly scene = viewChild(CommandSceneComponent);
@@ -168,13 +173,13 @@ export class CommandCenterPageComponent implements AfterViewChecked {
   public constructor() {
     void this.page.open();
     this.destroyRef.onDestroy(() => {
-      this.overlay()?.pinnedNodeId.set(null);
-      this.overlay()?.activeNodeId.set(null);
+      this.overlay()?.closeCard();
       void this.page.exit();
     });
+    afterEveryRender(() => this.measureOverlay());
   }
 
-  public ngAfterViewChecked(): void {
+  private measureOverlay(): void {
     const scene = this.scene();
     const overlay = this.overlay();
     if (!scene || !overlay) return;
@@ -195,10 +200,6 @@ export class CommandCenterPageComponent implements AfterViewChecked {
     const index =
       list?.projection().nodes.findIndex((node) => node.id === id) ?? -1;
     if (index < 0) return;
-    list?.activeIndex.set(index);
-    const row = document.querySelectorAll<HTMLElement>(
-      '[aria-label="All session work"] button',
-    )[index];
-    row?.focus();
+    list?.focusRow(index);
   }
 }

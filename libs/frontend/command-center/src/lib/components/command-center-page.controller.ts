@@ -1,7 +1,21 @@
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  DestroyRef,
+  Injectable,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
+import {
+  COMMAND_CENTER_TRIBUNAL_REQUEST_TAG,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import { ChatStore } from '@ptah-extension/chat';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  ThemeService,
+} from '@ptah-extension/core';
 import { CommandCenterStore } from '../model/command-center.store';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { buildStatusContext } from '../model/status-context';
@@ -9,7 +23,10 @@ import { computeAgesMs, projectOwnedWork } from '../model/work-projection';
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
 import { TRIBUNAL_MOVES } from '@ptah-extension/tribunal-panel/phase';
 import { TribunalRunCoordinator } from '../model/tribunal-run-coordinator';
-import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
+import {
+  TRIBUNAL_ROSTER_PROPOSAL_TAG,
+  type TribunalRosterProposal,
+} from '../model/tribunal-roster-proposal';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 
@@ -21,11 +38,24 @@ export class CommandCenterPageController {
   public readonly tabs = inject(TabManagerService);
   public readonly coordinator = inject(CommandCenterSessionCoordinator);
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly theme = inject(ThemeService, { optional: true });
+  private readonly appState = inject(AppStateManager, { optional: true });
+  private readonly destroyRef = inject(DestroyRef);
   private readonly chat = inject(ChatStore);
   private readonly tribunalTransport = inject(CommandCenterTribunalTransport);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
   public readonly tribunal = new TribunalRunCoordinator(this.tribunalTransport);
   public readonly pendingProposal = signal<TribunalRosterProposal | null>(null);
+  public readonly rosterTimedOut = signal(false);
+  public readonly voiceErrorKind = computed(() => {
+    const message = this.store.toast()?.message ?? '';
+    if (message.includes('Microphone')) return 'mic-denied' as const;
+    if (message.includes('Transcription')) return 'transcription' as const;
+    if (this.store.toast()?.action === 'retry-speech')
+      return 'playback' as const;
+    if (message.includes('Voice request failed')) return 'chat' as const;
+    return null;
+  });
   private readonly expectedRequest = signal<{
     nonce: string;
     rootSessionId: string;
@@ -60,11 +90,17 @@ export class CommandCenterPageController {
             (request.tabId === tabId || request.sessionId === sessionId) &&
             !!request.questions[0] &&
             !request.questions[0].question.includes(
-              '<TRIBUNAL_ROSTER_PROPOSAL>',
+              `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
             ),
         ) ?? null
     );
   });
+  public readonly ordinaryChoices = computed(
+    () =>
+      this.ordinaryQuestion()?.questions[0]?.options.map(
+        (option) => option.label,
+      ) ?? [],
+  );
   public readonly permissionRequest = computed(() => {
     const tabId = this.store.markedTabId();
     const sessionId = this.store.sessionId();
@@ -144,11 +180,24 @@ export class CommandCenterPageController {
         this.armedTurns.push({ token, minPulseSeq });
         this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
       },
+      onTurnsAbandoned: () => this.clearArmedTurns(),
       sendTranscript: (transcript) => this.sendCommand(transcript, 'voice'),
     },
   );
 
   public constructor() {
+    effect(() =>
+      this.store.setTheme(this.theme?.isDarkMode() ? 'dark' : 'light'),
+    );
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const update = () => this.store.setReducedMotion(motion.matches);
+      update();
+      motion.addEventListener('change', update);
+      this.destroyRef.onDestroy(() =>
+        motion.removeEventListener('change', update),
+      );
+    }
     this.coordinator.setStatusContextProvider(() =>
       buildStatusContext(
         this.store.nodes(),
@@ -172,7 +221,7 @@ export class CommandCenterPageController {
           (item) =>
             item.tabId === tabId &&
             !!item.questions[0]?.question.includes(
-              '<TRIBUNAL_ROSTER_PROPOSAL>',
+              `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
             ),
         );
       const question = request?.questions[0];
@@ -204,14 +253,20 @@ export class CommandCenterPageController {
         return;
       }
       this.pendingProposal.set(proposal);
-      this.clearRosterTimeout();
-      this.rosterTimeout = setTimeout(
-        () => this.timeoutProposal(proposal.proposalId),
-        120_000,
-      );
+      this.rosterTimedOut.set(false);
     });
     effect(() => {
       const shown = this.shownInput();
+      const proposal = this.pendingProposal();
+      const rosterShown =
+        !!proposal && shown?.id === this.handledRosterQuestionId;
+      this.voice.setRosterPending(rosterShown);
+      if (!rosterShown) this.clearRosterTimeout();
+      else if (this.rosterTimeout === null)
+        this.rosterTimeout = setTimeout(
+          () => this.timeoutProposal(proposal.proposalId),
+          120_000,
+        );
       this.store.setPendingInput(
         shown
           ? {
@@ -237,16 +292,16 @@ export class CommandCenterPageController {
       const pulse =
         candidate &&
         candidate.seq > (this.armedTurns[0]?.minPulseSeq ?? 0) &&
-        candidate.seq > this.deliveredPulseSeq &&
-        candidate.classification === 'success' &&
-        candidate.lastAssistantMessage
+        candidate.seq > this.deliveredPulseSeq
           ? candidate
           : null;
-      if (!pulse?.lastAssistantMessage) return;
+      if (!pulse) return;
       this.deliveredPulseSeq = pulse.seq;
       this.armedTurns.shift();
       this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
-      this.voice.onTurnBoundary(pulse.lastAssistantMessage, token);
+      if (pulse.classification === 'success' && pulse.lastAssistantMessage)
+        this.voice.onTurnBoundary(pulse.lastAssistantMessage, token);
+      else this.voice.abandonTurn(token);
     });
   }
 
@@ -283,13 +338,21 @@ export class CommandCenterPageController {
     return this.voice.start();
   }
   public muteVoice(): Promise<void> {
+    this.clearArmedTurns();
     return this.voice.mute();
   }
   public toggleMuteVoice(): Promise<void | boolean> {
     return this.store.muted() ? this.voice.start() : this.voice.mute();
   }
   public stopVoice(): Promise<void> {
+    this.clearArmedTurns();
     return this.voice.stop();
+  }
+  public interruptSpeech(): void {
+    this.voice.interruptSpeech();
+  }
+  public openVoiceSettings(): void {
+    this.appState?.setCurrentView('settings');
   }
   public retrySpeech(): void {
     this.voice.retrySpeech();
@@ -342,7 +405,7 @@ export class CommandCenterPageController {
     const nonce = crypto.randomUUID();
     this.expectedRequest.set({ nonce, rootSessionId });
     const sent = await this.coordinator.send(
-      `${content}\n\n<COMMAND_CENTER_TRIBUNAL_REQUEST>\n${JSON.stringify({ nonce, rootSessionId })}\n</COMMAND_CENTER_TRIBUNAL_REQUEST>`,
+      `${content}\n\n<${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>\n${JSON.stringify({ nonce, rootSessionId })}\n</${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>`,
     );
     if (sent && source === 'text') this.voice.armTypedTurn();
     return sent;
@@ -366,6 +429,11 @@ export class CommandCenterPageController {
   public timeoutProposal(id: string): void {
     if (this.pendingProposal()?.proposalId !== id) return;
     this.clearRosterTimeout();
+    this.rosterTimedOut.set(true);
+    this.store.setToast({
+      message: 'Tribunal proposal timed out. Request a new roster.',
+      tone: 'error',
+    });
     this.tribunal.timeout(id);
     this.pendingProposal.set(null);
     this.voice.onRosterResolved();
@@ -374,6 +442,7 @@ export class CommandCenterPageController {
     return this.voice.getLatencyMarks();
   }
   public exit(): Promise<void> {
+    this.clearArmedTurns();
     this.clearRosterTimeout();
     this.tribunal.pageExit();
     this.tribunalTransport.pageExit();
@@ -384,5 +453,9 @@ export class CommandCenterPageController {
   private clearRosterTimeout(): void {
     if (this.rosterTimeout !== null) clearTimeout(this.rosterTimeout);
     this.rosterTimeout = null;
+  }
+  private clearArmedTurns(): void {
+    this.armedTurns.length = 0;
+    this.voiceTurnToken.set(null);
   }
 }
