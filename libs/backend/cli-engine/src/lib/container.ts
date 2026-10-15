@@ -108,6 +108,7 @@ import {
   registerCliAgentRuntimeServices,
   createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
+import { registerLaneRoutingServices } from '@ptah-extension/lane-routing';
 import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   registerAgentGenerationServices,
@@ -733,6 +734,9 @@ export class CliDIContainer {
     container.register(HARNESS_PREFLIGHT_TOKEN, {
       useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
     });
+    // Before phase 4 registerVsCodeLmToolsServices and registerRpcSurface.
+    // AgentRpcHandlers injects DECISION_MODEL_CONFIG.
+    registerLaneRoutingServices(container, logger);
     registerCliAgentRuntimeServices(container, logger);
 
     wireAgentAdapterAliases(container);

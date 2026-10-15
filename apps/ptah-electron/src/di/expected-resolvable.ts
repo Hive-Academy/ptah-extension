@@ -41,3 +41,13 @@ export const LANE_MODEL_LISTING_TOKEN = Symbol.for(
 export const STRUCTURED_DECISION_TOKEN = Symbol.for(
   'LaneRoutingStructuredDecision',
 );
+
+/**
+ * Lib-owned config registered by `registerLaneRoutingServices` (Batch 30a).
+ * Same symbol as `LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG`. Kept out of
+ * `EXPECTED_RESOLVABLE` because that list is handler classes and the smoke
+ * title reads `.name`.
+ */
+export const DECISION_MODEL_CONFIG_TOKEN = Symbol.for(
+  'LaneRoutingDecisionModelConfig',
+);

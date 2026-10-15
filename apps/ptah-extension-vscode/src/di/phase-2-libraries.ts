@@ -27,6 +27,7 @@ import {
   type HarnessPluginConfigReader,
 } from '@ptah-extension/harness-sync';
 import { registerPluginMarketplaceServices } from '@ptah-extension/plugin-marketplace';
+import { registerLaneRoutingServices } from '@ptah-extension/lane-routing';
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
@@ -117,6 +118,9 @@ export function registerPhase2Libraries(
   // consent store as its allowlist source. Its own late `initialize()` runs
   // from plugin activation, next to `pluginLoader.initialize()`.
   registerPluginMarketplaceServices(container, logger);
+  // Before vscode-lm-tools and registerRpcSurface. AgentRpcHandlers injects
+  // DECISION_MODEL_CONFIG, and this is the only registration of that token.
+  registerLaneRoutingServices(container, logger);
   registerVsCodeLmToolsServices(container, logger);
   // The caller-workspace port (TASK_2026_364): lets AgentProcessManager scope
   // spawns and status reads to the calling MCP request's workspace without

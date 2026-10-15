@@ -31,6 +31,10 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  LANE_ROUTING_TOKENS,
+  registerLaneRoutingServices,
+} from '@ptah-extension/lane-routing';
 import { createMockOutputChannel } from '@ptah-extension/platform-core/testing';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
@@ -58,6 +62,7 @@ import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
+  AgentRpcHandlers,
   AuthRpcHandlers,
   LanePlanLimitsRpcHandlers,
   SetupRpcHandlers,
@@ -66,6 +71,7 @@ import {
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import {
+  DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
@@ -303,6 +309,88 @@ describe('Electron DI — structured decision', () => {
 
     expect(first).toBeDefined();
     expect(c.resolve(STRUCTURED_DECISION_TOKEN)).toBe(first);
+  });
+});
+
+/** Stubs AgentRpcHandlers deps this container does not bind. */
+function registerAgentHandlerFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(PLATFORM_TOKENS.STATE_STORAGE)) {
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)) {
+    c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+    c.register(PLATFORM_TOKENS.PLATFORM_INFO, { useValue: {} });
+  }
+  if (!c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
+    c.register(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY, {
+      useValue: {},
+    });
+  }
+  if (!c.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+    c.register(TOKENS.AGENT_PROCESS_MANAGER, { useValue: {} });
+  }
+  if (!c.isRegistered(SDK_TOKENS.SDK_SESSION_METADATA_STORE)) {
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: {} });
+  }
+  registerLaneModelListingFixtures(c);
+}
+
+describe('Electron DI — decision model config (TL-59)', () => {
+  it('registers lane routing once, before vscode-lm-tools and the RPC surface', () => {
+    const phase2 = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    expect(phase2.match(/registerLaneRoutingServices\(/g)).toHaveLength(1);
+    expect(phase2).toContain('registerLaneRoutingServices(container, logger);');
+
+    const di = fs.readFileSync(path.join(__dirname, 'container.ts'), 'utf8');
+    expect(di.indexOf('registerPhase2Libraries(root')).toBeLessThan(
+      di.indexOf('registerPhase3Storage(root'),
+    );
+    const phase3 = fs.readFileSync(
+      path.join(__dirname, 'phase-3-storage.ts'),
+      'utf8',
+    );
+    expect(
+      phase3.indexOf('registerVsCodeLmToolsServices(container, logger);'),
+    ).toBeGreaterThan(-1);
+
+    const main = fs.readFileSync(path.join(__dirname, '../main.ts'), 'utf8');
+    expect(main.indexOf('bootstrapElectron(')).toBeLessThan(
+      main.indexOf('wireRuntimePreWindow('),
+    );
+    const wire = fs.readFileSync(
+      path.join(__dirname, '../activation/wire-runtime.ts'),
+      'utf8',
+    );
+    expect(wire.indexOf('registerRpcSurface(')).toBeGreaterThan(-1);
+  });
+
+  it('resolves DECISION_MODEL_CONFIG and AgentRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CONFIG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    const config: unknown = c.resolve(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    expect(config).toBeDefined();
+    expect(c.resolve(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)).toBe(config);
+
+    const handlers = c.resolve(AgentRpcHandlers);
+    expect(handlers).toBeInstanceOf(AgentRpcHandlers);
   });
 });
 

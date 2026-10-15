@@ -30,6 +30,10 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  LANE_ROUTING_TOKENS,
+  registerLaneRoutingServices,
+} from '@ptah-extension/lane-routing';
 import { createMockOutputChannel } from '@ptah-extension/platform-core/testing';
 import {
   SDK_TOKENS,
@@ -56,6 +60,7 @@ import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
+  AgentRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
@@ -67,6 +72,7 @@ import {
 } from '@ptah-extension/platform-cli';
 
 import {
+  DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
@@ -280,6 +286,81 @@ describe('CLI DI — structured decision', () => {
 
     expect(first).toBeDefined();
     expect(c.resolve(STRUCTURED_DECISION_TOKEN)).toBe(first);
+  });
+});
+
+/** Stubs AgentRpcHandlers deps this container does not bind. */
+function registerAgentHandlerFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(PLATFORM_TOKENS.STATE_STORAGE)) {
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)) {
+    c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+    c.register(PLATFORM_TOKENS.PLATFORM_INFO, { useValue: {} });
+  }
+  if (!c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
+    c.register(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY, {
+      useValue: {},
+    });
+  }
+  if (!c.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+    c.register(TOKENS.AGENT_PROCESS_MANAGER, { useValue: {} });
+  }
+  if (!c.isRegistered(SDK_TOKENS.SDK_SESSION_METADATA_STORE)) {
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: {} });
+  }
+  registerLaneModelListingFixtures(c);
+}
+
+describe('CLI DI — decision model config (TL-59)', () => {
+  it('registers lane routing once, before vscode-lm-tools and the RPC surface', () => {
+    const setup = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../libs/backend/cli-engine/src/lib/container.ts',
+      ),
+      'utf8',
+    );
+    const lane = setup.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const lmTools = setup.indexOf(
+      'registerVsCodeLmToolsServices(container, logger);',
+    );
+    const rpc = setup.indexOf(
+      'registerRpcSurface(container, createCliRpcHostProfile(host));',
+    );
+
+    expect(setup.match(/registerLaneRoutingServices\(/g)).toHaveLength(1);
+    expect(lane).toBeGreaterThan(-1);
+    expect(lane).toBeLessThan(lmTools);
+    expect(lmTools).toBeLessThan(rpc);
+  });
+
+  it('resolves DECISION_MODEL_CONFIG and AgentRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CONFIG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    const config: unknown = c.resolve(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    expect(config).toBeDefined();
+    expect(c.resolve(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)).toBe(config);
+
+    const handlers = c.resolve(AgentRpcHandlers);
+    expect(handlers).toBeInstanceOf(AgentRpcHandlers);
   });
 });
 

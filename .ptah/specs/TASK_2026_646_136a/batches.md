@@ -1589,7 +1589,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - One at a time: `J(apps/ptah-extension-vscode, apps/ptah-extension-vscode/src/di)`, then `npx nx test ptah-electron --parallel=1`, then `npx nx test @ptah-extension/cli-engine --parallel=1`, then `npx nx test ptah-cli --parallel=1`
 - Batch 30a (TL-59) already added the `registerLaneRoutingServices` calls. Task 30.1 keeps the lane-outcomes registration, the SC-3 aliases and the shutdown disposer. It confirms the lane-routing call order (before `registerVsCodeLmToolsServices`) and does not add the calls a second time
 
-## Batch 30a (AB14-pre): Lane-routing host registration — PENDING (TL-59)
+## Batch 30a (AB14-pre): Lane-routing host registration — COMPLETE (TL-59; orchestrator Mode 2 2026-10-15, decision #90 precedent; actual executor: CLI lane grok, xAI; report `reports/batch-30a-report.md`; verified: container.smoke.spec VS Code 41/41, Electron 25/25, CLI 15/15; cli-engine rpc-surface.spec 11/12, the one fail is the known registry gap 422 vs 421 = `agent:outcomeSignals` until Batch 25; executor's degradation TOTAL 296 no FAIL, di-lint OK; also adds the sibling `DECISION_MODEL_CONFIG` constant to the Electron and CLI `expected-resolvable.ts`)
 
 - Recommended executor: subagent backend-developer (Anthropic, in-process)
 - Execution mode: sequential
