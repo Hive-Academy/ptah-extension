@@ -1,6 +1,6 @@
 # Batches - TASK_2026_677_efcd
 
-Total tasks: 18 implementation batches + 1 measurement step (BUILD-1) | Batches: 19 | Complete: 9/19
+Total tasks: 18 implementation batches + 1 measurement step (BUILD-1) | Batches: 19 | Complete: 12/19
 Waves: 8 (W1-W7 implementation, W8 measurement) | Phase: one phase "clean-session-view" (all batches)
 Delta 3 update (team-leader MODE 1 update, 2026-10-15): plan part D (`plan-part-d-stats.md`, Gate 2 delta APPROVED
 9/10, `implementation-plan-review-delta3-r1.md`) adds batch D-1 to W3 and amends B-4, A1-3, CV-1, CV-2, B-5 in
@@ -831,8 +831,13 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - File check: A2-2 (`chat-input.*`, `autopilot-popover.*`, `chat-ui/src/index.ts`), A1-2 (`molecules/turn/*`), B-4
   (`organisms/session-inspector/*`, `services/session-agents/session-agent-tray{,.service}.ts`,
   `background-agent-tray.component.ts`, `components/index.ts`, `chat/src/index.ts`). Disjoint.
+- W4 MODE 2 (session 8): combined-tree checks via check-run.mjs, header N=2 (chat, chat-ui) each: typecheck exit 0;
+  lint run 1 exit 1 (6 `no-duplicate-attributes` errors, all A1-2: `turn-activity-panel:160-161`,
+  `turn-agent-chips:109`, `turn-disclosure-row:50-51`; team-leader folded static `class` into `[class]`, row 79),
+  lint run 2 exit 0, typecheck re-run exit 0, test exit 0. No `enforce-module-boundaries` finding for chat ->
+  `tasks-ui/presentation`. Commits d389caab0 (A2-2), b5d707631 (A1-2), d5951a2f7 (B-4). C-3 stays HOLD (PR #733 open).
 
-## Batch A2-2: composer chips + autopilot trigger re-skin (chat, chat-ui) - IN_PROGRESS
+## Batch A2-2: composer chips + autopilot trigger re-skin (chat, chat-ui) - COMPLETE (d389caab0)
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A1-2, B-4)
@@ -843,7 +848,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: B-3, A1-1, D-1 (chat-ui barrel order C-1 -> A1-1 -> D-1 -> A2-2)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A2-2.1: composer top strip, bar order, send restyle; autopilot popover trigger re-skin - IN_PROGRESS
+### Task A2-2.1: composer top strip, bar order, send restyle; autopilot popover trigger re-skin - COMPLETE
 
 - Files:
   - MODIFY `F/chat/src/lib/components/molecules/chat-input/chat-input.component.ts` (+ `chat-input.component.spec.ts`)
@@ -876,7 +881,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch A1-2: turn molecules (chat) - IN_PROGRESS
+## Batch A1-2: turn molecules (chat) - COMPLETE (b5d707631)
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A2-2, B-4)
@@ -887,7 +892,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: A1-1, C-1, C-2 (chips take `SessionAgent`)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A1-2.1: create disclosure row, activity panel, live line, agent chips - IN_PROGRESS
+### Task A1-2.1: create disclosure row, activity panel, live line, agent chips - COMPLETE
 
 - Files:
   - CREATE `F/chat/src/lib/components/molecules/turn/turn-disclosure-row.component.ts`
@@ -922,7 +927,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch B-4: inspector component tree + task reader (chat) - IN_PROGRESS
+## Batch B-4: inspector component tree + task reader (chat) - COMPLETE (d5951a2f7)
 
 - Wave: W4 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A2-2, A1-2)
@@ -935,7 +940,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: B-2, B-3, C-1, C-2, D-1
 - Phase: clean-session-view | Phase review: as phase
 
-### Task B-4.1: create `ptah-session-inspector` and its sections, `SessionTaskReader` - IN_PROGRESS
+### Task B-4.1: create `ptah-session-inspector` and its sections, `SessionTaskReader` - COMPLETE
 
 - Files:
   - CREATE `F/chat/src/lib/components/organisms/session-inspector/session-inspector.component.ts`
@@ -1130,6 +1135,13 @@ lines you appended; confirmation that no spec file changed; anything you could n
   `hasLaneSurface`, tab-feed effect calling `onTabChanged()`, `openLaneFromInspector`, `focusQuestionCard`;
   `controller.attach(...)` in `afterNextRender` with lazy opener/title getters
 - Validation notes: no compact-card change here (CV-2 owns A-6 / A-16); `SESSION_CONTEXT` present -> no inspector
+- Answer-miss carry-over from B-4 (W4 MODE 2, decisions row 83): `SessionInspectorStore.reportAnswerMiss` does not
+  exist (B-3 never added it) and no inspector row renders a miss error. CV-1 owns plan-part-b-inspector.md:353-358 in
+  full: `focusQuestionCard` waits 1 s for the `[data-request-id]` card, else calls `reportAnswerMiss(requestId)`; ADD
+  that method to `F/chat/src/lib/services/session-inspector/session-inspector.store.ts` (a transient signal keyed by
+  `requestId`, cleared on `Retry` or success) and render the row error + `Retry` in
+  `F/chat/src/lib/components/organisms/session-inspector/inspector-request-panel.component.ts` (B-4 file, CV-1 may
+  extend it; no other W5 batch owns it). Confirm the exact store file name on disk first.
 - Delta 3 tasks (D3-8, D3-11): delete the strip block (`chat-view.component.html:35-51`) and the tray block (`:53-64`);
   drop `SessionStatsSummaryComponent` / `BackgroundAgentTrayComponent` imports (`chat-view.component.ts:34,39,231,235`),
   `showBackgroundStrip`, `traySessionId`, `resolvedSessionStats`, `resolvedLiveModelStats`, `resolvedCompactionCount`,
