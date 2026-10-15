@@ -70,6 +70,82 @@ describe('HarnessProposalStore', () => {
     expect(await store.get('one')).toEqual(saved);
   });
 
+  it('persists one exact revision per save with a unique write identity', async () => {
+    const first = await store.save('one', { name: 'First' }, false);
+    const second = await store.save('one', { name: 'Second' }, true);
+    expect(first.revisions).toHaveLength(1);
+    expect(second.revisions).toHaveLength(2);
+    expect(
+      second.revisions?.filter(
+        (revision) => revision.updatedAt === second.updatedAt,
+      ),
+    ).toHaveLength(1);
+    expect(second.revisions?.[1].configUpdates).toEqual({ name: 'Second' });
+    expect(JSON.parse(await fs.readFile(fileFor('one'), 'utf8'))).toEqual(
+      second,
+    );
+  });
+
+  it('a T1 revision persisted after T3 leaves unchosen fields on T3', async () => {
+    const t1 = '2026-10-15T10:00:00.000Z';
+    const t3 = '2026-10-15T10:03:00.000Z';
+    const firstSaved = await store.save('one', { name: 'T3' }, true, t3);
+    const late = await store.save(
+      'one',
+      { name: 'T1', prompt: { systemPrompt: 'From T1' } as never },
+      false,
+      t1,
+    );
+    expect(late.revisions?.map((revision) => revision.turnStartedAt)).toEqual([
+      t1,
+      t3,
+    ]);
+    expect(late.configUpdates).toEqual({
+      name: 'T3',
+      prompt: { systemPrompt: 'From T1' },
+    });
+    expect(late.isConfigComplete).toBe(true);
+    expect(
+      late.revisions?.find((revision) => revision.updatedAt === late.updatedAt)
+        ?.configUpdates.name,
+    ).toBe('T1');
+    expect(late.revisions?.[1].id).toBe(firstSaved.revisions?.[0].id);
+    expect(await store.get('one')).toEqual(late);
+  });
+
+  it('reads a merged-only legacy record as one unattributed revision', async () => {
+    const saved = await store.save('one', { name: 'Legacy' }, false);
+    const legacy = { ...saved };
+    delete legacy.revisions;
+    await fs.writeFile(fileFor('one'), JSON.stringify(legacy));
+    const loaded = await store.get('one');
+    expect(loaded?.revisions).toEqual([
+      {
+        id: `legacy:one:${saved.updatedAt}`,
+        configUpdates: { name: 'Legacy' },
+        isConfigComplete: false,
+        updatedAt: saved.updatedAt,
+      },
+    ]);
+    const next = await store.save(
+      'one',
+      { name: 'Attributed' },
+      true,
+      '2026-10-15T10:04:00.000Z',
+    );
+    expect(next.revisions).toHaveLength(2);
+    expect(next.revisions?.[0].turnStartedAt).toBeUndefined();
+    expect(next.configUpdates.name).toBe('Attributed');
+  });
+
+  it('keeps an unattributed late write before an attributed turn', async () => {
+    await store.save('one', { name: 'T3' }, true, '2026-10-15T10:03:00.000Z');
+    const late = await store.save('one', { name: 'Unknown' }, false);
+    expect(late.revisions?.[0].turnStartedAt).toBeUndefined();
+    expect(late.configUpdates.name).toBe('T3');
+    expect(late.isConfigComplete).toBe(true);
+  });
+
   it('isolates sessions in the same workspace', async () => {
     await store.save('one', { name: 'First' }, false);
     await store.save('two', { name: 'Second' }, true);

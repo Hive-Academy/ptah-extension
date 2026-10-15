@@ -528,10 +528,17 @@ export type HarnessStartNewProjectResult =
   | { success: false; error: string };
 
 /** harness:workflow-prompt — compose the seed prompt for an agent-driven harness workflow */
-export interface HarnessWorkflowPromptParams {
-  mode: 'configure-harness';
-  intent: string;
-}
+export type HarnessWorkflowPromptParams =
+  | {
+      mode: 'configure-harness';
+      intent: string;
+      contextOnly?: never;
+    }
+  | {
+      mode: 'configure-harness';
+      contextOnly: true;
+      intent?: never;
+    };
 export interface HarnessWorkflowPromptResponse {
   prompt: string;
 }

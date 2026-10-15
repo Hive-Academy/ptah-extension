@@ -28,6 +28,7 @@ import { HarnessWorkspaceContextService } from './workspace/harness-workspace-co
 import { HarnessPromptBuilderService } from './config/harness-prompt-builder.service';
 import { HarnessConfigStore } from './config/harness-config-store.service';
 import { HarnessProposalStore } from './config/harness-proposal-store.service';
+import { HarnessProposalTurnAttributionService } from './config/harness-proposal-turn-attribution.service';
 import { HarnessAgentFileWriterService } from './config/harness-agent-file-writer.service';
 import { HarnessFsService } from './io/harness-fs.service';
 import { HarnessMcpInstallService } from './io/harness-mcp-install.service';
@@ -57,6 +58,10 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HarnessPromptBuilderService,
   );
   container.registerSingleton(HARNESS_TOKENS.CONFIG_STORE, HarnessConfigStore);
+  container.registerSingleton(
+    HarnessProposalTurnAttributionService,
+    HarnessProposalTurnAttributionService,
+  );
   container.registerSingleton(
     PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
     HarnessProposalStore,

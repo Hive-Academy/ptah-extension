@@ -13,11 +13,13 @@ import {
   mergeHarnessConfigUpdates,
   type HarnessConfig,
   type HarnessProposal,
+  type HarnessProposalRevision,
 } from '@ptah-extension/shared';
 import {
   HarnessProposalSchema,
   HarnessSessionIdSchema,
 } from '@ptah-extension/shared/schemas';
+import { HarnessProposalTurnAttributionService } from './harness-proposal-turn-attribution.service';
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 // Far above the one-read, merge, temp-write and rename critical section.
@@ -43,6 +45,19 @@ function isErrno(error: unknown, code: string): boolean {
   );
 }
 
+function compareRevisions(
+  left: HarnessProposalRevision,
+  right: HarnessProposalRevision,
+): number {
+  // Unknown starts precede every known turn; write time cannot establish a turn.
+  if (!left.turnStartedAt && right.turnStartedAt) return -1;
+  if (left.turnStartedAt && !right.turnStartedAt) return 1;
+  const byTurn = (left.turnStartedAt ?? '').localeCompare(
+    right.turnStartedAt ?? '',
+  );
+  return byTurn || left.id.localeCompare(right.id);
+}
+
 @injectable()
 /**
  * Stores proposals under the workspace provider's root, merging each update.
@@ -55,12 +70,28 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(HarnessProposalTurnAttributionService, { isOptional: true })
+    private readonly turnAttribution?: HarnessProposalTurnAttributionService,
   ) {}
+
+  captureProposingTurnStartedAt(sessionId: string): {
+    readonly turnStartedAt?: string;
+    release(): void;
+  } {
+    sessionId = HarnessSessionIdSchema.parse(sessionId);
+    const root = this.requireRoot();
+    return (
+      this.turnAttribution?.capture(sessionId, root) ?? {
+        release: () => undefined,
+      }
+    );
+  }
 
   async save(
     sessionId: string,
     update: Partial<HarnessConfig>,
     complete: boolean,
+    turnStartedAt?: string,
   ): Promise<HarnessProposal> {
     sessionId = HarnessSessionIdSchema.parse(sessionId);
     const root = this.requireRoot();
@@ -73,16 +104,35 @@ export class HarnessProposalStore implements IHarnessProposalStore {
         `${file}.lock`,
         async () => {
           const current = await this.read(file, root, sessionId);
+          // Unique within this record so callers can identify the saved
+          // revision even when turn order places it before another revision.
+          const previousWrite = current ? Date.parse(current.updatedAt) : 0;
+          const updatedAt = new Date(
+            Math.max(Date.now(), previousWrite + 1),
+          ).toISOString();
+          const revision: HarnessProposalRevision = {
+            id: `${updatedAt}:${randomBytes(16).toString('hex')}`,
+            configUpdates: mergeHarnessConfigUpdates({}, update),
+            isConfigComplete: complete,
+            updatedAt,
+            ...(turnStartedAt === undefined ? {} : { turnStartedAt }),
+          };
+          const revisions = [...(current?.revisions ?? []), revision].sort(
+            compareRevisions,
+          );
+          const configUpdates = revisions.reduce<Partial<HarnessConfig>>(
+            (merged, item) =>
+              mergeHarnessConfigUpdates(merged, item.configUpdates),
+            {},
+          );
           const proposal: HarnessProposal = {
             version: 1,
             workspaceRoot: root,
             sessionId,
-            configUpdates: mergeHarnessConfigUpdates(
-              current?.configUpdates ?? {},
-              mergeHarnessConfigUpdates({}, update),
-            ),
-            isConfigComplete: complete,
-            updatedAt: new Date().toISOString(),
+            configUpdates,
+            isConfigComplete: revisions[revisions.length - 1].isConfigComplete,
+            updatedAt,
+            revisions,
           };
           const validated = HarnessProposalSchema.parse(proposal);
           await this.write(file, validated);

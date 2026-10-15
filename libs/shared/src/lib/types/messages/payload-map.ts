@@ -220,6 +220,8 @@ export interface HarnessConfigProposedPayload {
   readonly sessionId: string;
   readonly configUpdates: Partial<HarnessConfig>;
   readonly isConfigComplete?: boolean;
+  /** Exact saved revision, when sent by a revision-aware host. */
+  readonly revision?: import('../rpc/rpc-harness-proposal.types').HarnessProposalRevision;
 }
 
 /**
