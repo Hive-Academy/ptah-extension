@@ -435,7 +435,7 @@ export class CompactRailCardComponent implements DoCheck {
   );
   readonly selectName = computed(
     () =>
-      `${this.title()}, ${this.state()}${this.branch() ? ', branch ' + this.branch() : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}, in focus`,
+      `${this.title()}, ${this.state()}${this.branch() ? ', branch ' + this.branch() : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}${this.focused() ? ', in focus' : ''}`,
   );
   readonly laneCounts = computed(() => {
     const c = this.lanes().counts;

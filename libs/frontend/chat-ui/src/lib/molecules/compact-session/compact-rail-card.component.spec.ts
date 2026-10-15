@@ -235,6 +235,22 @@ describe(CompactRailCardComponent.name, () => {
     expect(host.classList.contains('rc-focused')).toBe(false);
   });
 
+  it('names only the focused card "in focus" on its select button', () => {
+    const f = render();
+    f.componentRef.setInput('state', 'done');
+    f.detectChanges();
+    const select = f.nativeElement.querySelector('.rc-select') as HTMLButtonElement;
+    expect(select.getAttribute('aria-label')).toBe('Session A, done');
+    expect(select.getAttribute('aria-current')).toBeNull();
+    f.componentRef.setInput('focused', true);
+    f.detectChanges();
+    expect(select.getAttribute('aria-label')).toBe('Session A, done, in focus');
+    expect(select.getAttribute('aria-current')).toBe('true');
+    f.componentRef.setInput('focused', false);
+    f.detectChanges();
+    expect(select.getAttribute('aria-label')).toBe('Session A, done');
+  });
+
   it('draws the keyboard ring of the invisible select button on the host', () => {
     const rules = cssRules();
     // opacity 0 on .rc-select hides any outline drawn on the button itself.

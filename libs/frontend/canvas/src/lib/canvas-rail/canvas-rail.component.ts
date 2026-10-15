@@ -107,7 +107,7 @@ const CHIP_STATES = [
           }
           <button
             type="button"
-            class="btn btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs min-h-6 min-w-6"
             data-testid="rail-collapse-toggle"
             [class.opacity-60]="autoCollapsed()"
             [attr.aria-label]="collapsed() ? 'Expand rail' : 'Collapse rail'"
@@ -175,9 +175,23 @@ const CHIP_STATES = [
         (scroll)="onScroll($event)"
       >
         @if (orderedTiles().length === 0) {
-          <p class="px-3 py-4 text-sm text-base-content-muted">
-            No sessions yet
-          </p>
+          @if (collapsed()) {
+            <!-- 56 px: the sentence cannot fit, so show a dash and keep the words for screen readers. -->
+            <p
+              class="py-4 text-center text-sm text-base-content-muted"
+              data-testid="rail-empty"
+            >
+              <span aria-hidden="true">—</span
+              ><span class="sr-only">No sessions yet</span>
+            </p>
+          } @else {
+            <p
+              class="px-3 py-4 text-sm text-base-content-muted"
+              data-testid="rail-empty"
+            >
+              No sessions yet
+            </p>
+          }
         }
         <ul
           role="list"

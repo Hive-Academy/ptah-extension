@@ -110,6 +110,28 @@ describe('CanvasRailComponent', () => {
     (fixture.nativeElement as HTMLElement).querySelector('footer button')!.dispatchEvent(new MouseEvent('click'));
     expect(emit).toHaveBeenCalledTimes(1);
   });
+  it('shows a compact zero state in the collapsed 56 px rail and keeps its words for screen readers', () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    const empty = () => host.querySelector('[data-testid="rail-empty"]') as HTMLElement;
+    expect(empty().textContent?.trim()).toBe('No sessions yet');
+    expect(empty().querySelector('.sr-only')).toBeNull();
+    fixture.componentRef.setInput('collapsed', true); fixture.detectChanges();
+    const visible = empty().querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(visible.textContent?.trim()).toBe('—');
+    expect(empty().querySelector('.sr-only')?.textContent?.trim()).toBe('No sessions yet');
+    expect(empty().classList).not.toContain('px-3');
+  });
+  it('gives the collapse toggle at least a 24 x 24 px target in both rail widths (WCAG 2.5.8)', () => {
+    const fixture = mount([tile('a', 1)]);
+    const host = fixture.nativeElement as HTMLElement;
+    const toggle = () => host.querySelector('[data-testid="rail-collapse-toggle"]') as HTMLButtonElement;
+    for (const collapsed of [false, true]) {
+      fixture.componentRef.setInput('collapsed', collapsed); fixture.detectChanges();
+      expect(toggle().classList).toContain('min-w-6');
+      expect(toggle().classList).toContain('min-h-6');
+    }
+  });
   it('moves DOM focus through collapsed cards with repeated ArrowDown and ArrowUp', () => {
     const fixture = mount([tile('a', 0), tile('b', 1), tile('c', 2)]);
     fixture.componentRef.setInput('collapsed', true);
