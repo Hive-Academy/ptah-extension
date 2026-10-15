@@ -11,5 +11,9 @@
  *
  * @module native/monogram-tile
  */
-export { MonogramTileComponent } from '../brand-mark/monogram-tile.component';
+export {
+  MonogramTileComponent,
+  monogramGlyph,
+  monogramTintClass,
+} from '../brand-mark/monogram-tile.component';
 export type { MarkTileSize } from '../brand-mark/monogram-tile.component';

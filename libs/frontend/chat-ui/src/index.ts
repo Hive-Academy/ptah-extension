@@ -157,3 +157,28 @@ export {
   toolStatusPresentation,
   type ToolStatusPresentation,
 } from './lib/utils/tool-status.utils';
+// Agent avatar vocabulary (TASK_2026_677 C1): one identity, one status word
+// set and one CLI-mark / role-icon table for the turn chips, the inspector
+// AGENTS rows and the agent dock.
+export { AgentAvatarComponent } from './lib/atoms/agent-avatar/agent-avatar.component';
+export {
+  AGENT_KIND_LABEL,
+  agentAccessibleLabel,
+  type AgentAvatarSize,
+  type AgentKind,
+  type AgentLabelParts,
+  type AgentStatusWord,
+} from './lib/atoms/agent-avatar/agent-avatar.types';
+export {
+  backgroundAgentStatusWord,
+  cliLaneStatusWord,
+  orchestratorStatusWord,
+  subagentStatusWord,
+} from './lib/atoms/agent-avatar/agent-status';
+export { formatAgentDuration } from './lib/atoms/agent-avatar/agent-duration';
+export {
+  CLI_PROVIDER_MARK_IDS,
+  cliMarkFor,
+  roleIconFor,
+  type CliMark,
+} from './lib/atoms/agent-avatar/agent-marks';
