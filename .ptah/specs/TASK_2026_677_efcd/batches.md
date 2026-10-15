@@ -1,11 +1,12 @@
 # Batches - TASK_2026_677_efcd
 
-Total tasks: 18 implementation batches + 1 measurement step (BUILD-1) | Batches: 19 | Complete: 12/19
+Total tasks: 18 implementation batches + 1 measurement step (BUILD-1) | Batches: 19 | Complete: 14/19
 Waves: 8 (W1-W7 implementation, W8 measurement) | Phase: one phase "clean-session-view" (all batches)
 Delta 3 update (team-leader MODE 1 update, 2026-10-15): plan part D (`plan-part-d-stats.md`, Gate 2 delta APPROVED
 9/10, `implementation-plan-review-delta3-r1.md`) adds batch D-1 to W3 and amends B-4, A1-3, CV-1, CV-2, B-5 in
 their waves. Waves 1-2 unchanged. W3 status: B-3, A2-1, D-1 = COMPLETE after fix round 1 (MODE 2 session 7,
-decisions.md rows 75-76; see "Wave 3 MODE 2 result"); W4 (A2-2, A1-2, B-4) = IN_PROGRESS; C-3 = HOLD
+decisions.md rows 75-76; see "Wave 3 MODE 2 result"); W4 (A2-2, A1-2, B-4) = COMPLETE; W5 (A1-3 3582cf696,
+CV-1 db7b896df) = COMPLETE (decisions rows 86-95); W6 (CV-2, B-5) next; C-3 = HOLD
 until PR #733 (TASK_2026_648) merges and this branch rebases (decisions.md rows 55, 58, 62).
 
 Root for every relative path: `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\`
@@ -1031,7 +1032,12 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - C-3 may join W5 if it did not run in W4 and PR #733 has merged and the branch is rebased (Wave rule exception).
   Decisions row 58 also prefers the rebase before CV-1; if #733 merged, rebase before W5 starts.
 
-## Batch A1-3: message bubble assistant branch + transcript (chat) - PENDING
+## Batch A1-3: message bubble assistant branch + transcript (chat) - COMPLETE (3582cf696)
+
+- MODE 2 (W5, session 9): combined-tree checks for chat (N=1) after one fix round. Typecheck and lint exit 0
+  (twice). Test run 1: 22 failed / 3911 passed, 4 suites. 21 were A1-3: `rootHasActivity`
+  (`turn-answer-split.utils.ts:49`) dereferenced a missing tree. 1 was CV-1. Fixed by one Claude frontend-developer
+  (decisions rows 86-87). Test run 2 exits 0. Keep-alive bubble stub hunks committed here (row 88).
 
 - Wave: W5 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with CV-1)
@@ -1042,7 +1048,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: A1-2, C-2, B-3
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A1-3.1: rewrite assistant branch of `message-bubble`; wire turn, roster and needs-you in `chat-transcript` - PENDING
+### Task A1-3.1: rewrite assistant branch of `message-bubble`; wire turn, roster and needs-you in `chat-transcript` - COMPLETE
 
 - Files:
   - MODIFY/REWRITE `F/chat/src/lib/components/organisms/message-bubble.component.ts`
@@ -1093,7 +1099,12 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch CV-1: chat-view shell + inspector host (chat, owner B) - PENDING
+## Batch CV-1: chat-view shell + inspector host (chat, owner B) - COMPLETE (db7b896df)
+
+- MODE 2 (W5, session 9): same combined-tree checks as A1-3. One failure ("formats times in the host zone",
+  `chat-view.component.spec.ts:1778` read the moved `_limitTime`), fixed in the same fix round (row 87). The
+  deviations are accepted (rows 89-90). `@ptah-extension/tasks-ui/presentation` resolves in chat Jest (row 91).
+  The tray spec renames are staged as delete + add pairs (row 92).
 
 - Wave: W5 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A1-3; first of the chat-view chain)
@@ -1105,7 +1116,7 @@ lines you appended; confirmation that no spec file changed; anything you could n
 - Tasks: 1 | Depends on: B-4 (and transitively D-1)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task CV-1.1: shell root, inert main column, deferred inspector aside, controller wiring - PENDING
+### Task CV-1.1: shell root, inert main column, deferred inspector aside, controller wiring - COMPLETE
 
 - Files:
   - MODIFY `F/chat/src/lib/components/templates/chat-view.component.html`
@@ -1135,6 +1146,28 @@ lines you appended; confirmation that no spec file changed; anything you could n
   `hasLaneSurface`, tab-feed effect calling `onTabChanged()`, `openLaneFromInspector`, `focusQuestionCard`;
   `controller.attach(...)` in `afterNextRender` with lazy opener/title getters
 - Validation notes: no compact-card change here (CV-2 owns A-6 / A-16); `SESSION_CONTEXT` present -> no inspector
+- Cross-task contract with TASK_2026_649 (decisions row 85): CREATE
+  `F/chat/src/lib/tokens/session-embed-chrome.token.ts` with EXACTLY this content (649 may add a byte-identical copy;
+  do not reformat it):
+  ```ts
+  import { InjectionToken } from '@angular/core';
+
+  /**
+   * How much session chrome a hosted chat view renders. `'bare'` hides the
+   * session header and the "This session" inspector, because the host page
+   * brings its own. Absent or `'full'` keeps the default chrome.
+   */
+  export type SessionEmbedChrome = 'full' | 'bare';
+
+  export const SESSION_EMBED_CHROME = new InjectionToken<SessionEmbedChrome>(
+    'SESSION_EMBED_CHROME',
+  );
+  ```
+  and append to `F/chat/src/index.ts`:
+  `export { SESSION_EMBED_CHROME, type SessionEmbedChrome } from './lib/tokens/session-embed-chrome.token';`.
+  Chat-view reads `inject(SESSION_EMBED_CHROME, { optional: true }) === 'bare'` once (a readonly field); when bare,
+  render no inspector, never auto-open it (D36 default-open is skipped) and attach no shell controller. Absent or
+  `'full'` = unchanged behaviour. CV-2 reuses the same field for the header (see CV-2 note).
 - Answer-miss carry-over from B-4 (W4 MODE 2, decisions row 83): `SessionInspectorStore.reportAnswerMiss` does not
   exist (B-3 never added it) and no inspector row renders a miss error. CV-1 owns plan-part-b-inspector.md:353-358 in
   full: `focusQuestionCard` waits 1 s for the `[data-request-id]` card, else calls `reportAnswerMiss(requestId)`; ADD
@@ -1240,6 +1273,9 @@ lines you appended; confirmation that no spec file changed; anything you could n
   - `node .ptah/tmp/check-run.mjs cv2-typecheck -- npx nx typecheck @ptah-extension/chat --parallel=1 --skip-nx-cache`
   - `node .ptah/tmp/check-run.mjs cv2-lint -- npx nx lint @ptah-extension/chat --parallel=1 --skip-nx-cache`
 - Commit: `feat(chat): batch CV-2 - session header, stagger, compact card retire`
+- Cross-task contract with TASK_2026_649 (decisions row 85): when chat-view's `SESSION_EMBED_CHROME` field (CV-1)
+  is `'bare'`, render no `ptah-session-header` (and no header-only chips or limit dot). Absent or `'full'` =
+  unchanged.
 - Executor notes (STRICT):
   - Parallel wave: run NO nx / jest checks yourself (decisions.md row 59); use `ptah_get_diagnostics` scoped to your
     changed files only. The team-leader MODE 2 runs the Scoped checks once on the combined tree. Any check that
@@ -1327,6 +1363,9 @@ lines you appended; confirmation that no spec file changed; anything you could n
   wave. Only a reported binding spawns a W7 executor.
 - Tasks: 1 | Depends on: CV-2, A1-3
 - Phase: clean-session-view | Phase review: as phase
+- A1-3 input (W5 MODE 2, decisions row 93): `reports/batch-A1-3.md:88-89` names NO chat-view binding. The
+  transcript reads `viewMode`, the roster and the needs-you count itself. So CV-3 takes the fast path: the team-leader
+  verifies the no-op in W6 MODE 2 after CV-2 commits and records `Commit: none (verified no-op)`.
 
 ### Task CV-3.1: apply chat-view bindings A1-3 reported, or confirm none are needed - PENDING
 
