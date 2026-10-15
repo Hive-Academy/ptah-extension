@@ -9,6 +9,10 @@ export type {
   LaneOutcomeStore,
   OutcomeReceipt,
   HeldOutcomeReport,
+  HeldEntryKind,
+  LaneOutcomeRow,
+  OutcomeEffectResolver,
+  OutcomeReportEffect,
 } from './lib/store/lane-outcome.store';
 export { SqliteLaneOutcomeStore } from './lib/store/sqlite-lane-outcome.store';
 export { InMemoryLaneOutcomeStore } from './lib/store/in-memory-lane-outcome.store';

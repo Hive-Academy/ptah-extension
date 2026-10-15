@@ -40,7 +40,9 @@ export function heldReport(
     reportId: `report-${i}`,
     runId: 'subagent:a',
     kind: 'deliverables',
-    payload: JSON.stringify({ checks: [{ exists: true, mtimeMs: nowMs }] }),
+    payload: JSON.stringify({
+      checks: [{ exists: true, bytes: 1, mtimeMs: nowMs }],
+    }),
     heldAt: nowMs - 1000,
     expiresAt: expired ? nowMs - 1 : nowMs + 1000,
   };
