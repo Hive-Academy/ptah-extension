@@ -26,3 +26,20 @@ export {
   KeyValueLaneOutcomeStore,
   LANE_OUTCOME_RECORDS_KEY,
 } from './lib/store/key-value-lane-outcome.store';
+export {
+  KeyValueOutcomeJournal,
+  OUTCOME_JOURNAL_KEY,
+  OUTCOME_REJECTED_KEY,
+  OUTCOME_JOURNAL_LIMIT,
+} from './lib/write/key-value-outcome-journal';
+export type {
+  HeldRunIndex,
+  JournalEntry,
+  JournalValue,
+} from './lib/write/key-value-outcome-journal';
+export { OutcomeWritePipeline } from './lib/write/outcome-write-pipeline';
+export type {
+  OutcomeWriteOp,
+  OutcomeWriteResult,
+  OutcomeStoreAvailability,
+} from './lib/write/outcome-write-pipeline';
