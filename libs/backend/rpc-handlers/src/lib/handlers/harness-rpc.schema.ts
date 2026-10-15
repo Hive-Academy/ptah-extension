@@ -192,6 +192,10 @@ export const HarnessRepairBlockedParamsSchema = z
  */
 export const HarnessGetSkillSelectionParamsSchema = z.object({});
 
+export const HarnessGetProposalParamsSchema = z
+  .object({ sessionId: z.string().trim().min(1).max(256) })
+  .strict();
+
 /**
  * One entry in the allowlist: a skill DIRECTORY name, keyed exactly as
  * `disabledSkillIds` is.

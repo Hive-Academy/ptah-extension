@@ -6,7 +6,11 @@ import {
 } from '@ptah-extension/chat-routing';
 import { SurfaceId } from '@ptah-extension/chat-state';
 import { AppStateManager } from '@ptah-extension/core';
-import type { HarnessInitializeResponse } from '@ptah-extension/shared';
+import { mergeHarnessConfigUpdates } from '@ptah-extension/shared';
+import type {
+  HarnessConfig,
+  HarnessInitializeResponse,
+} from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from './harness-builder-state.service';
 import { HarnessRpcService } from './harness-rpc.service';
 
@@ -452,6 +456,50 @@ describe('HarnessBuilderStateService', () => {
    * reveal it (TASK_2026_514).
    */
   describe('applyConfigUpdates — partial merges preserve siblings', () => {
+    it('matches the shared merge for additions, replacements, and skill removal', () => {
+      const previous: Partial<HarnessConfig> = {
+        name: 'Reviewer',
+        persona: { label: 'Reviewer', description: 'Review', goals: [] },
+        agents: {
+          enabledAgents: { reviewer: { enabled: true } },
+          harnessSubagents: [],
+        },
+        skills: {
+          selectedSkills: ['review', 'retired'],
+          selectedSkillRefs: [
+            { skillId: 'review', source: 'local' },
+            { skillId: 'retired', source: 'local' },
+          ],
+          createdSkills: [],
+        },
+      };
+      const update: Partial<HarnessConfig> = {
+        name: 'Builder',
+        persona: { label: 'Builder', description: 'Build', goals: [] },
+        agents: {
+          enabledAgents: {
+            reviewer: { enabled: false },
+            builder: { enabled: true },
+          },
+        },
+        skills: {
+          selectedSkills: ['review'],
+          selectedSkillRefs: [],
+          createdSkills: [],
+        },
+      };
+
+      service.applyConfigUpdates(previous);
+      service.applyConfigUpdates(update);
+
+      expect(service.config()).toEqual(
+        mergeHarnessConfigUpdates(previous, update),
+      );
+      expect(service.config().skills?.selectedSkillRefs).toEqual([
+        { skillId: 'review', source: 'local' },
+      ]);
+    });
+
     it('records the proposed harness name', () => {
       service.applyConfigUpdates({ name: 'Website manager' });
       expect(service.config().name).toBe('Website manager');

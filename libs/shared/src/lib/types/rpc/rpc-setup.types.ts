@@ -31,13 +31,75 @@ export interface SetupWizardLaunchResponse {
 export interface WizardDeepAnalyzeParams {
   /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
   model?: string;
-  /** Continue an unfinished version-3 analysis run. */
+  /** Continue an unfinished version-4 analysis run. */
   resume?: boolean;
 }
 
-/** All valid status values for a v3 multi-phase analysis step. */
+/** All valid status values for a v4 multi-phase analysis step. */
 export type MultiPhaseAnalysisPhaseStatus =
   'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+/** Digest of the bounded workspace metadata used to qualify analysis freshness. */
+export interface WorkspaceFingerprint {
+  algorithm: 'sha256-v1';
+  digest: string;
+  capturedAt: string;
+}
+
+/** Freshness status for the current workspace analysis. */
+export interface AnalysisStatus {
+  state: 'fresh' | 'stale' | 'missing';
+  reason:
+    | 'ok'
+    | 'no-analysis'
+    | 'legacy-v3'
+    | 'incomplete'
+    | 'expired'
+    | 'workspace-changed'
+    | 'output-mismatch'
+    | 'unreadable';
+  /** Workspace-relative analysis directory with `/` separators, or null when absent. */
+  analysisDir: string | null;
+  checkedAt: string;
+  analyzedAt: string | null;
+}
+
+export type WizardAnalysisStatusParams = Record<string, never>;
+export type WizardAnalysisStatusResponse = AnalysisStatus;
+
+export interface PhaseResultV4 {
+  status: MultiPhaseAnalysisPhaseStatus;
+  file: string;
+  durationMs: number;
+  attempt: number;
+  /** Real SDK session ID for this attempt; null until an SDK message supplies it. */
+  sessionId: string | null;
+  input: {
+    workspaceSha256: string;
+    promptSha256: string;
+    priorPhaseSha256: string | null;
+    model: string;
+  } | null;
+  verification: {
+    status: 'pending' | 'verified' | 'failed';
+    outputSha256: string | null;
+    checkedAt: string | null;
+  };
+  error?: string;
+}
+
+export interface MultiPhaseManifestV4 {
+  version: 4;
+  runId: string;
+  slug: string;
+  analyzedAt: string;
+  updatedAt: string;
+  lifecycle: 'running' | 'paused' | 'completed' | 'failed';
+  model: string;
+  totalDurationMs: number;
+  workspaceFingerprint: WorkspaceFingerprint;
+  phases: Record<string, PhaseResultV4>;
+}
 
 /**
  * Multi-phase analysis response from wizard:deep-analyze RPC method.
@@ -49,25 +111,27 @@ export interface MultiPhaseAnalysisResponse {
   /** Discriminator: always true for multi-phase responses */
   isMultiPhase: true;
   /** Manifest with phase statuses */
-  manifest: {
-    version: 3;
-    runId: string;
-    slug: string;
-    analyzedAt: string;
-    updatedAt: string;
-    lifecycle: 'running' | 'paused' | 'completed' | 'failed';
-    model: string;
-    totalDurationMs: number;
-    phases: Record<
-      string,
-      {
-        status: MultiPhaseAnalysisPhaseStatus;
-        file: string;
-        durationMs: number;
-        error?: string;
+  manifest:
+    | {
+        version: 3;
+        runId: string;
+        slug: string;
+        analyzedAt: string;
+        updatedAt: string;
+        lifecycle: 'running' | 'paused' | 'completed' | 'failed';
+        model: string;
+        totalDurationMs: number;
+        phases: Record<
+          string,
+          {
+            status: MultiPhaseAnalysisPhaseStatus;
+            file: string;
+            durationMs: number;
+            error?: string;
+          }
+        >;
       }
-    >;
-  };
+    | MultiPhaseManifestV4;
   /** Phase file contents (markdown) keyed by phase ID */
   phaseContents: Record<string, string>;
   /** Analysis directory path for downstream consumers (generation, enhanced prompts) */

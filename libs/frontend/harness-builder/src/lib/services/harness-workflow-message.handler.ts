@@ -1,30 +1,39 @@
-import { Injectable, inject } from '@angular/core';
-import {
-  AppStateManager,
-  SurfaceRouterService,
-  surfaceNavigationLanded,
-  type HarnessWorkflowRequest,
-  type MessageHandler,
-} from '@ptah-extension/core';
+import { Injectable, effect, inject } from '@angular/core';
+import { LoggingService, type MessageHandler } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
   type HarnessConfigProposedPayload,
   type HarnessOpenWorkflowPayload,
 } from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from './harness-builder-state.service';
+import { HarnessRpcService } from './harness-rpc.service';
+import { HarnessWorkflowRequestService } from './harness-workflow-request.service';
 import { HarnessWorkflowService } from './harness-workflow.service';
 
 @Injectable({ providedIn: 'root' })
 export class HarnessWorkflowMessageHandler implements MessageHandler {
-  private readonly appState = inject(AppStateManager);
-  private readonly surfaceRouter = inject(SurfaceRouterService);
+  private readonly logger = inject(LoggingService);
   private readonly state = inject(HarnessBuilderStateService);
   private readonly workflow = inject(HarnessWorkflowService);
+  private readonly harnessRpc = inject(HarnessRpcService);
+  private readonly requests = inject(HarnessWorkflowRequestService);
+  private currentSurface: string | null = null;
+  private knownSessions = new Set<string>();
+  private hydrationQueue: string[] = [];
+  private generation = 0;
+  private hydrationPending = false;
+  private buffered: HarnessConfigProposedPayload[] = [];
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
     MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
   ] as const;
+
+  constructor() {
+    effect(() =>
+      this.syncWorkflow(this.workflow.surfaceId(), this.workflow.sessionIds()),
+    );
+  }
 
   handleMessage(message: { type: string; payload?: unknown }): void {
     switch (message.type) {
@@ -43,110 +52,123 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
       !data ||
       (data.mode !== 'new-project' && data.mode !== 'configure-harness')
     ) {
-      console.warn(
-        '[HarnessWorkflowMessageHandler] HARNESS_OPEN_WORKFLOW with invalid payload — dropped',
+      this.logger.warn(
+        'HarnessWorkflowMessageHandler',
+        'Invalid workflow request',
       );
       this.workflow.setError(
         'The workspace sent a malformed workflow request, so it was ignored. Try starting it again.',
       );
       return;
     }
-    if (this.workflow.isActive()) {
-      // Only a request for the mode ALREADY running is a duplicate. Treating a
-      // cross-mode request as one discarded the user's New Project intake
-      // without a word whenever a Configure Harness run happened to be open.
-      if (this.workflow.mode() === data.mode) {
-        console.info(
-          '[HarnessWorkflowMessageHandler] Workflow already active in the same mode — resuming it instead of starting a second run',
-        );
-        this.navigateToBuilder();
-        return;
-      }
-      void this.replaceActiveWorkflow(data);
-      return;
-    }
-    this.requestAndNavigate(data);
-  }
-
-  /**
-   * Swap a running workflow for one in the other mode.
-   *
-   * The user has already confirmed the discard upstream (the Setup Hub asks
-   * before it sends this), so by the time it arrives the decision is made. Stop
-   * the agent first — disposing alone leaves it running with no surface to
-   * stream to — then clear the config the discarded run produced so the new
-   * workflow doesn't inherit it.
-   */
-  private async replaceActiveWorkflow(
-    data: HarnessOpenWorkflowPayload,
-  ): Promise<void> {
-    try {
-      await this.workflow.abortAndDispose();
-      this.state.reset();
-      this.requestAndNavigate(data);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown error stopping it';
-      console.error(
-        '[HarnessWorkflowMessageHandler] Failed to replace the active workflow:',
-        message,
-      );
-      this.workflow.setError(
-        `Could not stop the workflow already running, so the new one was not started: ${message}`,
-      );
-    }
-  }
-
-  private requestAndNavigate(data: HarnessOpenWorkflowPayload): void {
-    const request: HarnessWorkflowRequest = {
-      mode: data.mode,
-      ...(data.seedPrompt ? { seedPrompt: data.seedPrompt } : {}),
-      ...(data.intake ? { intake: data.intake } : {}),
-    };
-    this.appState.requestHarnessWorkflow(request);
-    this.navigateToBuilder(request);
-  }
-
-  /**
-   * Goes through `SurfaceRouterService` rather than
-   * `AppStateManager.setCurrentView` on purpose: this is a host push, not a
-   * click, so a navigation that does not land has to be reported rather than
-   * dropped. `navigateToSurface` never rejects, so the outcome is a value here
-   * and not an unhandled rejection.
-   *
-   * `surfaceNavigationLanded` is what makes the error honest. The most common
-   * way into this method is a resume for a workflow that is ALREADY displayed,
-   * and Angular's default `onSameUrlNavigation: 'ignore'` skips that
-   * navigation — which the old boolean reported as `false`, so the user got
-   * "The harness builder could not be opened" while looking straight at it
-   * (TASK_2026_524 revision 1, F3). `already-there` is a success. A `cancelled`
-   * result is also not reported: it means a newer navigation superseded this
-   * one, so the user asked for something else and an error would be about a
-   * request they had already replaced.
-   */
-  private navigateToBuilder(request?: HarnessWorkflowRequest): void {
-    void this.surfaceRouter
-      .navigateToSurface('harness-builder')
-      .then((result) => {
-        if (surfaceNavigationLanded(result)) return;
-        if (request) this.appState.clearHarnessWorkflowRequest(request);
-        if (result === 'cancelled') return;
-        console.error(
-          `[HarnessWorkflowMessageHandler] navigation to harness-builder did not complete: ${result}`,
+    void this.requests.requestAndNavigate(data).then(
+      (outcome) => {
+        if (outcome !== 'failed') return;
+        this.logger.error(
+          'HarnessWorkflowMessageHandler',
+          'Workflow navigation failed',
+          new Error('Navigation did not land'),
         );
         this.workflow.setError(
           'The harness builder could not be opened, so the workflow was not shown. Try starting it again.',
         );
-      });
+      },
+      (cause: unknown) => {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.logger.error(
+          'HarnessWorkflowMessageHandler',
+          'Workflow request failed',
+          error,
+        );
+        this.workflow.setError(error.message);
+      },
+    );
+  }
+
+  private syncWorkflow(
+    surfaceId: string | null,
+    sessionIds: readonly string[],
+  ): void {
+    if (surfaceId !== this.currentSurface) {
+      if (this.currentSurface) this.state.reset();
+      this.currentSurface = surfaceId;
+      this.knownSessions = new Set();
+      this.hydrationQueue = [];
+      this.buffered = [];
+      this.hydrationPending = false;
+      this.generation++;
+    }
+    if (!surfaceId) return;
+    for (const sessionId of sessionIds) {
+      if (this.knownSessions.has(sessionId)) continue;
+      this.knownSessions.add(sessionId);
+      this.hydrationQueue.push(sessionId);
+    }
+    if (this.hydrationQueue.length && !this.hydrationPending) {
+      this.hydrationPending = true;
+      void this.hydrate(this.generation);
+    }
+  }
+
+  private async hydrate(generation: number): Promise<void> {
+    while (this.hydrationQueue.length && generation === this.generation) {
+      const sessionId = this.hydrationQueue.shift();
+      if (!sessionId) continue;
+      try {
+        const { proposal } = await this.harnessRpc.getProposal(sessionId);
+        if (generation !== this.generation) return;
+        if (proposal && proposal.sessionId === sessionId) {
+          this.state.applyConfigUpdates(proposal.configUpdates);
+          if (proposal.isConfigComplete) this.state.setConfigComplete(true);
+        }
+      } catch (cause: unknown) {
+        if (generation !== this.generation) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.logger.error(
+          'HarnessWorkflowMessageHandler',
+          'Proposal hydration failed',
+          error,
+        );
+      }
+    }
+    if (generation !== this.generation) return;
+    this.hydrationPending = false;
+    const buffered = this.buffered;
+    this.buffered = [];
+    for (const event of buffered) {
+      try {
+        this.applyProposal(event);
+      } catch (cause: unknown) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.logger.error(
+          'HarnessWorkflowMessageHandler',
+          'Buffered proposal replay failed',
+          error,
+        );
+      }
+    }
   }
 
   private handleConfigProposed(payload: unknown): void {
-    if (this.workflow.mode() !== 'configure-harness') return;
+    const sessionIds = this.workflow.sessionIds();
+    this.syncWorkflow(this.workflow.surfaceId(), sessionIds);
+    if (!this.currentSurface || this.workflow.mode() !== 'configure-harness')
+      return;
     const data = payload as HarnessConfigProposedPayload | undefined;
     if (!data || !data.configUpdates) return;
-    this.state.applyConfigUpdates(data.configUpdates);
-    if (data.isConfigComplete) {
-      this.state.setConfigComplete(true);
+    if (!sessionIds.some((sessionId) => sessionId === data.sessionId)) {
+      this.logger.debug(
+        'HarnessWorkflowMessageHandler',
+        `Proposal ignored for unknown session ${data.sessionId}`,
+      );
+      return;
     }
+    if (this.hydrationPending) this.buffered.push(data);
+    else this.applyProposal(data);
+  }
+
+  private applyProposal(data: HarnessConfigProposedPayload): void {
+    this.state.applyConfigUpdates(data.configUpdates);
+    if (data.isConfigComplete) this.state.setConfigComplete(true);
   }
 }

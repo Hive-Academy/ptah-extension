@@ -118,6 +118,11 @@ export const AGENTIC_ANALYSIS_SERVICE = Symbol.for('AgenticAnalysisService');
  */
 export const ANALYSIS_STORAGE_SERVICE = Symbol.for('AnalysisStorageService');
 
+/** Read-only qualification of the latest workspace analysis. */
+export const ANALYSIS_FRESHNESS_SERVICE = Symbol.for(
+  'AnalysisFreshnessService',
+);
+
 /**
  * MultiPhaseAnalysisService - Multi-phase workspace analysis orchestrator
  * Responsibilities: Execute 4 LLM phases + 1 deterministic synthesis, write markdown outputs, manage manifests
@@ -182,6 +187,7 @@ export const AGENT_GENERATION_TOKENS = {
   WIZARD_WEBVIEW_LIFECYCLE,
   AGENTIC_ANALYSIS_SERVICE,
   ANALYSIS_STORAGE_SERVICE,
+  ANALYSIS_FRESHNESS_SERVICE,
   MULTI_PHASE_ANALYSIS_SERVICE,
   PROMPT_DESIGNER_AGENT,
   PROMPT_CACHE_SERVICE,
