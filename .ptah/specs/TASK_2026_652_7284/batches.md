@@ -1,6 +1,6 @@
 # Batches - TASK_2026_652_7284
 
-Total tasks: 56 | Batches: 23 | Complete: 20/23
+Total tasks: 56 plus fix Batches 24-25 | Batches: 25 | Complete: 25/25
 
 Execution order (D7-D9, user 2026-10-13): Batch 16 (Phase 1 fix) → Phase 1 re-review (fixes
 only) → Batch 9 (with Task 9.0, moved from 7.1; verified, its commit waits for Batch 17) →
@@ -621,13 +621,13 @@ Named follow-ups added by the re-review (outside this run's batches; Mode 3 list
 - HELD (D7, user 2026-10-13): does not start until TASK_2026_629 merges and the user confirms.
   The orchestrator asks the user first.
 
-### Task 6.1: RPC wrapper: typed handoff result and `getProposal` (F21) - PENDING
+### Task 6.1: RPC wrapper: typed handoff result and `getProposal` (F21) - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/services/harness-rpc.service.ts`
 - Pattern to follow: the existing `startNewProject` wrapper in the same file
 - Quality requirements: `startNewProject` returns the new union. Add `getProposal(sessionId): Promise<HarnessGetProposalResult>`.
 
-### Task 6.2: Extract `HarnessWorkflowRequestService` - PENDING
+### Task 6.2: Extract `HarnessWorkflowRequestService` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/services/harness-workflow-request.service.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/services/harness-workflow-request.service.spec.ts` (new)
@@ -636,7 +636,7 @@ Named follow-ups added by the re-review (outside this run's batches; Mode 3 list
 - Quality requirements: same-mode resume, cross-mode abort and replacement, `AppStateManager.requestHarnessWorkflow`, navigation. Navigation failure rolls back (clears) the request and reports failure to the caller. The spec covers all four paths. Do not edit `libs/frontend/core`.
 - Validation notes: R10. The relay copy is removed in Task 7.2.
 
-### Task 6.3: Setup Hub uses the returned handoff - PENDING
+### Task 6.3: Setup Hub uses the returned handoff - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/components/setup-hub.component.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/components/setup-hub.component.spec.ts`
@@ -665,7 +665,7 @@ Named follow-ups added by the re-review (outside this run's batches; Mode 3 list
 
 Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Task 9.0 (D8).
 
-### Task 7.2: Filter, hydrate and delegate the relay - PENDING
+### Task 7.2: Filter, hydrate and delegate the relay - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/services/harness-workflow-message.handler.ts`;
   reserve ownership, edited only if hydration cannot live in the handler:
@@ -674,7 +674,7 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 - Pattern to follow: the current switch at `harness-workflow-message.handler.ts:34-150`
 - Quality requirements: apply `HARNESS_CONFIG_PROPOSED` only when `payload.sessionId` equals `HarnessWorkflowService.sessionId()`. When that id becomes non-null or changes, call `getProposal` and apply the snapshot to fresh state. Buffer live events for that session while the call is in flight and replay them after (R4). A `getProposal` failure is logged and keeps live state. The `HARNESS_OPEN_WORKFLOW` case stays, and its body delegates to `HarnessWorkflowRequestService`. Delete the handler's own request/navigation code (R10). Report whether the reserve files were used.
 
-### Task 7.3: Handler spec - PENDING
+### Task 7.3: Handler spec - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/services/harness-workflow-message.handler.spec.ts`
 - Quality requirements: the legacy open-workflow event still navigates through the request service. A matching session applies. A non-matching session is ignored. Reload hydrates only the matching session before any new tool call. Live event during hydration arrives after the snapshot. Hydration failure is non-fatal.
@@ -697,7 +697,7 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 - Phase: 2F - Builder adapters (frontend), last batch of the phase | Phase review: code-logic
 - HELD (D7, user 2026-10-13): does not start until TASK_2026_629 merges and the user confirms.
 
-### Task 8.1: Replace the local merge with `mergeHarnessConfigUpdates` - PENDING
+### Task 8.1: Replace the local merge with `mergeHarnessConfigUpdates` - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/services/harness-builder-state.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/libs/frontend/harness-builder/src/lib/services/harness-builder-state.service.spec.ts`
@@ -1658,7 +1658,7 @@ showed no confirmed room). The orchestrator checked each finding against the cod
 | "Start over" now wipes builder state | Minor | Rejected. Pre-existing: `harness-builder-view.component.ts:761-762` called `state.reset()` before Batch 6 |
 | Hung `getProposal` delays live proposals | Minor | Recorded. Bounded by the RPC timeout; events are buffered, not lost |
 
-## Batch 24: Phase 2F fix - persisted session ids, unknown-session log, replay guard - COMPLETE (batch-24-report.md; 153 tests)
+## Batch 24: Phase 2F fix - persisted session ids, unknown-session log, replay guard - COMPLETE (commit 2775fbe6b; batch-24-report.md; 153 tests)
 
 - Executor: codex lane (frontend-developer role). Files: `harness-workflow.service.ts` and spec,
   `harness-workflow-message.handler.ts` and spec (all `libs/frontend/harness-builder`).
@@ -1666,13 +1666,31 @@ showed no confirmed room). The orchestrator checked each finding against the cod
   `npx nx run-many -t typecheck,lint -p @ptah-extension/harness-builder --parallel=1`, then
   `npx nx test @ptah-extension/harness-builder --parallel=1 --maxWorkers=2`.
 
+## Batch 25: Mode 3 fix - log the cause in degraded paths - COMPLETE (commit 3d2de3565)
+
+- Executor: codex lane (backend-developer role). FU-16 (`analysis-freshness.service.ts`), Phase 4
+  Finding 2 (`content-generation.service.ts`, `enhanced-prompts.service.ts`), Phase 4 N1
+  (`wizard-generation-rpc.handlers.ts`), plus their specs. Logging only; degradation-audit markers
+  kept, audit check passed (batch-25-report.md).
+- Verification: prettier; typecheck+lint for agent-generation and rpc-handlers; changed specs
+  158 + 66 passed.
+
 ---
 
 ## Phases
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
 Done: 1, 2B, 3, 4 (Phase 4 accepted 2026-10-14 after fix Batch 23 `4d5432f76` and the
-re-review). 629 merged (D13); 2F done (Batches 6-8, fix 24). Next: Mode 3.
+re-review). 629 merged (D13); 2F done (Batches 6-8, fix 24 `2775fbe6b`).
+
+Mode 3 (2026-10-15, team-leader): COMPLETE (orchestrator closed it after fix Batch 25
+`3d2de3565`; R11 screenshots skipped by user decision D14). The completion checks are done and recorded in
+`completion-report.md`. Every SHA resolves on HEAD `f778edd66`. Parity has 28 rows: 0 MISSING,
+5 planned moves or changes, and none without approval. The write-path trace is done. On HEAD
+after the `origin/main` merge, typecheck and test pass for shared, platform-core, agent-generation,
+rpc-handlers and vscode-lm-tools. Six task states in Batches 6-8 were corrected to COMPLETE (their
+batch commits and the Phase 2F acceptance were already recorded). The fix-now items ran
+as Batch 25 (D15). The R11 screenshots were skipped (D14); the PR lists the manual checks.
 
 | Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                                                      | Reviewer (roster)                                                                                  |
 | -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
