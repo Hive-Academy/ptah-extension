@@ -6,8 +6,8 @@ batches" (file lists, tests, check commands). Run order 1 -> 2 -> 3, then one co
 | Batch | Scope | State |
 | ----- | ----- | ----- |
 | 1 | Workflow metadata: `TabState.workflow`, `WorkflowSessionIndexService`, tab-manager facade, persistence | COMPLETE (573 chat-state tests) |
-| 2 | `SessionEmbedComponent` in chat; canvas detail transcript uses it; owner-aware visibility | IN PROGRESS |
-| 3 | `WorkflowTabLauncherService`; badges in tab bar, sidebar rows, rail card/header | PENDING |
+| 2 | `SessionEmbedComponent` in chat; canvas detail transcript uses it; owner-aware visibility | COMPLETE (chat 3940, canvas 371, chat-state 574) |
+| 3 | `WorkflowTabLauncherService`; badges in tab bar, sidebar rows, rail card/header (D5: focus-header badge as its own element; chat-view edit additive only) | PENDING |
 
 ## Notes
 

@@ -288,6 +288,7 @@ export class TabManagerService {
    * for all visible tiles, not just the active one.
    */
   private readonly _visibleTabIds = signal<ReadonlySet<string>>(new Set());
+  private readonly visibleTabOwners = new Map<string, number>();
 
   /**
    * Signal emitted when a pop-out panel needs to load a specific session.
@@ -3043,6 +3044,9 @@ export class TabManagerService {
    * active one.
    */
   registerVisibleTab(tabId: string): void {
+    const owners = this.visibleTabOwners.get(tabId) ?? 0;
+    this.visibleTabOwners.set(tabId, owners + 1);
+    if (owners > 0) return;
     this._visibleTabIds.update((set) => {
       if (set.has(tabId)) return set;
       return new Set([...set, tabId]);
@@ -3051,6 +3055,13 @@ export class TabManagerService {
 
   /** Drop a tab from the visible set when its surface unmounts. */
   unregisterVisibleTab(tabId: string): void {
+    const owners = this.visibleTabOwners.get(tabId);
+    if (owners === undefined) return;
+    if (owners > 1) {
+      this.visibleTabOwners.set(tabId, owners - 1);
+      return;
+    }
+    this.visibleTabOwners.delete(tabId);
     this._visibleTabIds.update((set) => {
       if (!set.has(tabId)) return set;
       const next = new Set(set);

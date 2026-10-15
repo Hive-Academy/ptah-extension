@@ -673,6 +673,20 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
     });
   });
 
+  describe('visible tab owners', () => {
+    it('keeps a tab visible until its last owner leaves', () => {
+      service.registerVisibleTab('shared');
+      service.registerVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(true);
+      service.unregisterVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(true);
+      service.unregisterVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(false);
+      service.unregisterVisibleTab('shared');
+      expect(service.visibleTabIds().has('shared')).toBe(false);
+    });
+  });
+
   describe('clearPendingSessionLoad', () => {
     it('clears the pending session load signal', () => {
       service.clearPendingSessionLoad();

@@ -151,6 +151,7 @@ export * from './organisms/agent-monitor-panel.component';
 export * from './organisms/background-agent-tray.component';
 export * from './organisms/workspace-sidebar.component';
 export * from './templates/chat-view.component';
+export * from './templates/session-embed.component';
 export * from './templates/app-shell.component';
 export * from './templates/electron-shell.component';
 export * from './templates/electron-welcome.component';
