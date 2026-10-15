@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 46 | Batches: 37 | Complete: 25/37 | Phases accepted: P1 | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3 (commit pending); Anthropic code-logic re-review of the 36b commit pending
+Total tasks: 46 | Batches: 37 | Complete: 26/37 | Phases accepted: P1 | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -175,6 +175,8 @@ Edge cases:
 | TL-44 | M-1 and M-2 of `reviews/p2-fix-code-logic-review.md` become later tasks LT-P2-15 and LT-P2-16 in carry-over P2c (orchestrator decision #83). Neither can lose data today | fix in 36b | decisions.md #83; review `:87-115` | yes |
 | TL-45 | Batch 36b executor: a fresh CLI lane codex (OpenAI) round with the TL-42/TL-43 issues only, since the implementer and the planned re-reviewer (Anthropic) stay different families. The executor runs prettier, eslint on the changed files, degradation pre-check and di-lint; the team-leader runs nx test, typecheck and lint in Mode 2 | grok lane (busy with Batch 21) | decision #82, #83; TL-40 | yes |
 | TL-46 | Batch 36b round 2 NOT ACCEPTED: TL-42 and TL-43 are correct on disk, but moving the schemas also removed `import { LaneOutcomeRowSchema } from '../lane-outcome.schema'` while `outcome-write-pipeline.ts:606` still calls `LaneOutcomeRowSchema.parse`. TS2304 fails typecheck and 4 test suites cannot run. Round 3 restores that one import only (695 counted lines, still under 700), and the executor runs a scoped `tsc`/Jest on the lib before reporting, since ESLint does not catch undefined names | widen round 3 scope | `nx typecheck` and `nx test @ptah-extension/lane-outcomes`, 2026-10-15 | yes |
+| TL-47 | Batch 21: `route-decide.gate.spec.ts` (792 physical lines) is accepted unsplit. The 700-line ceiling is the eslint `max-lines` rule, which ignores `**/*.spec.ts`; every Batch 21 source file is at most 433 lines. Recorded Minor: named later task FE-21a may split the gate spec by scenario group if it grows | split the spec before commit (NOT ACCEPTED) | `eslint.config.mjs:549-559` (`ignores: ['**/*.spec.ts', ...]`); `nx lint @ptah-extension/lane-routing` 0 warnings; Batch 21 named the spec file | yes |
+| TL-48 | Batch 21: team-leader ran `prettier --write` on `T\reports\batch-21-report.md` (docs only, the only file `prettier --check` flagged). Mechanical format, no content change; code files were already clean | leave it to the lint-staged hook | `npx prettier --check` on the 14 Batch 21 files + report, 2026-10-15 | yes |
 
 ## Waves and in-flight order (max 3 executors at once; phase reviews take a slot)
 
@@ -1167,7 +1169,21 @@ Implementer: grok lane (`T\reports\batch-17-report.md`). Verified on disk, not f
 - Commit dd021d709 `feat(lane-outcomes,shared): batch 20 - recorder, reader, signals and DI`, 21 files (1200+, 37-); body names the #78 schema fields and the pipeline on-insert callback. Pre-commit hook (format:write, `nx affected --target=lint`) and commitlint passed. Not pushed
 - Phase P2 (Batches 6, 34, 35, 15, 20) is now fully committed: the P2 code-logic + code-style review is due on the lane-outcomes and shared lane-outcome diff, `8fc9278e9^..dd021d709` scoped to `libs/backend/lane-outcomes/**` and `libs/shared/src/lib/types/lane-outcome.types.ts`. Carry-ins: the Batch 6 note (`:452`), the Batch 15 recorded Moderate/Minors (`:746`), TL-18, M20-1..M20-3
 
-## Batch 21 (A8): Route decide pipeline — PENDING
+## Batch 21 (A8): Route decide pipeline — COMPLETE (commit pending, 2026-10-15; Mode 2 round 1; actual executor: CLI lane grok, xAI (decision #82); report `T\reports\batch-21-report.md`; TL-47, TL-48)
+
+- Mode 2 (2026-10-15): 14 files verified on disk (service + 8 `pipeline/*.ts`, `di/register.ts` +
+  spec, gate + preflight specs, index). `nx test @ptah-extension/lane-routing` 16 suites / 365
+  tests pass; `nx lint` pass (no warnings); `nx typecheck` pass; `tsc -p tsconfig.lib.json
+  --noPropertyAccessFromIndexSignature` pass (agent-sdk strict consumer); degradation-audit
+  TOTAL 296, no FAIL; di-lint OK (1841 sites / 811 tokens); prettier clean on all code files.
+  Acceptance: `route-decide.gate.spec.ts:284-300` probe `ready` keeps `ready` with no
+  `markUnsupported`; `:302-316` shows `unsupported-endpoint` with mark after recheck;
+  `route-decide.service.ts:288` live notFound goes only to `recheckAfterLiveNotFound`;
+  `di/register.ts:83-97` D11 `useFactory`, `STRUCTURED_DECISION` via `isRegistered(token, true)`;
+  index exports contracts, ports, matrix types and Batch 12 names. Rule 9: imports only
+  `shared`, `platform-core` (+ `platform-core/testing` in specs), `tsyringe`, `zod`, `node:*`;
+  no lane-routing/lane-outcomes entry in any lib `package.json` (#79); no `@inject` (#73);
+  `decision-model.config.ts` untouched (FE-12a not triggered). Only lane-routing changed.
 
 - Recommended executor: subagent backend-developer (Anthropic, in-process)
 - Execution mode: sequential
@@ -1178,7 +1194,7 @@ Implementer: grok lane (`T\reports\batch-17-report.md`). Verified on disk, not f
 - Tasks: 1 | Depends on: Batch 16, Batch 17, Batch 11, Batch 12, Batch 13, Batch 33
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 21.1: `RouteDecideService`, pipeline, DI register, index — PENDING
+### Task 21.1: `RouteDecideService`, pipeline, DI register, index — COMPLETE
 
 - File: CREATE `LR\route-decide.service.ts`, `LR\pipeline\gather.ts`, `LR\pipeline\model-refine.ts`, `LR\pipeline\answer-validation.ts`, `LR\route-decide.gate.spec.ts`, `LR\route-decide.preflight.spec.ts`, `LR\di\register.ts` (+ `register.spec.ts`); MODIFY `W\libs\backend\lane-routing\src\index.ts`
 - Plan reference: implementation-plan.md:755; part-a:930 (Req 2.7, 3.1, 3.7, 4.1-4.6, 7.7-7.8, 11.2-11.5, 12.3-12.9)
@@ -1733,7 +1749,7 @@ Implementer: grok lane (`T\reports\batch-17-report.md`). Verified on disk, not f
   with a verdict of APPROVED or REVISE. With both APPROVED, P2 is accepted. A REVISE at this point
   goes back to the orchestrator; there is no second fix round.
 
-## Batch 36b (P2f2): S-1 follow-up — IN_PROGRESS (Mode 2 round 1, 2026-10-15: NOT ACCEPTED, not committed; TL-42 drain regression, TL-43 max-lines; actual executor round 1: CLI lane codex, OpenAI, report `T\reports\batch-36b-report.md`; Mode 2 round 2, 2026-10-15: NOT ACCEPTED, not committed; TL-46 missing import, TS2304; executor CLI lane codex, OpenAI, report `T\reports\batch-36b-round2-report.md`; round 3 TL-46 fix by the orchestrator, decision #84) — COMPLETE (commit pending, 2026-10-15; Mode 2 round 3: TL-46 import at `outcome-write-pipeline.ts:15`, used at `:607`; nx test 13 suites / 119 tests, lint (no max-lines) pass; typecheck passed after the fix (orchestrator, #84); prettier on the 5 files, degradation-audit TOTAL 296 no FAIL, di-lint OK; Anthropic code-logic re-review pending, `T\reviews\p2-fix2-code-logic-review.md`)
+## Batch 36b (P2f2): S-1 follow-up — COMPLETE (bfae43c3c) (Mode 2 round 1, 2026-10-15: NOT ACCEPTED, not committed; TL-42 drain regression, TL-43 max-lines; actual executor round 1: CLI lane codex, OpenAI, report `T\reports\batch-36b-report.md`; Mode 2 round 2, 2026-10-15: NOT ACCEPTED, not committed; TL-46 missing import, TS2304; executor CLI lane codex, OpenAI, report `T\reports\batch-36b-round2-report.md`; round 3 TL-46 fix by the orchestrator, decision #84) — COMPLETE (bfae43c3c, 2026-10-15; Mode 2 round 3: TL-46 import at `outcome-write-pipeline.ts:15`, used at `:607`; nx test 13 suites / 119 tests, lint (no max-lines) pass; typecheck passed after the fix (orchestrator, #84); prettier on the 5 files, degradation-audit TOTAL 296 no FAIL, di-lint OK; Anthropic code-logic re-review pending, `T\reviews\p2-fix2-code-logic-review.md`)
 
 - Recommended executor: CLI lane codex (OpenAI), implementation, TypeScript (TL-45)
 - Execution mode: sequential

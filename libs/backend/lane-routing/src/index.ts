@@ -136,3 +136,42 @@ export {
   type RotationState,
   type RotationWrite,
 } from './lib/ranking/rotation.store';
+export { registerLaneRoutingServices } from './lib/di/register';
+export {
+  RouteDecideService,
+  type RouteDecideDependencies,
+  type RouteDecideSeams,
+} from './lib/route-decide.service';
+export {
+  DEPTHS,
+  PHASE_KINDS,
+  RouteDecideArgsSchema,
+  type RouteDecideArgs,
+} from './lib/contracts/route-decide-args.schema';
+export {
+  EXCLUSION_RULES,
+  FALLBACK_CAUSES,
+  GateResultSchema,
+  PreflightResultSchema,
+  PROVENANCE,
+  RouteDecideResultSchema,
+  type ChosenEntry,
+  type GateResult,
+  type PreflightResult,
+  type RouteDecideResult,
+  type UnavailableEntry,
+} from './lib/contracts/route-decide-result.schema';
+export type {
+  LaneModelEntry,
+  LaneModelListing,
+} from './lib/lane-model-listing.port';
+export type { RouteCandidateSource } from './lib/route-candidate-source.port';
+export {
+  CAPABILITY_MATRIX_VERSION,
+  FAMILY_PROFILE_MODEL,
+  MATRIX_CELL_SOURCES,
+  type MatrixCells,
+  type MatrixProfileKey,
+  type UnknownMatrixCell,
+  type ValueMatrixCell,
+} from './lib/matrix/matrix.types';
