@@ -2,7 +2,12 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import { TabId, TabManagerService } from '@ptah-extension/chat-state';
-import { ExecutionTreeBuilderService, PermissionHandlerService, SessionManager, StreamingHandlerService } from '@ptah-extension/chat-streaming';
+import {
+  ExecutionTreeBuilderService,
+  PermissionHandlerService,
+  SessionManager,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { SessionHistoryReplayer } from './chat-store/session-history-replayer.service';
@@ -25,28 +30,67 @@ describe('ChatStore question deciding tab', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    const loader = { sessions: empty, hasMoreSessions: none, totalSessions: none, isLoadingMoreSessions: none, listQuery: none, organizationAvailable: none, resumableSubagents: empty };
-    const tabs = { activeTabId: () => '00000000-0000-4000-8000-000000000002', activeTab: none, activeTabSessionId: none, activeTabMessages: empty, activeTabStreamingState: none, activeTabStatus: none, activeTabHasLiveSession: none, activeTabSessionStats: none, activeTabLiveModelStats: none, activeTabCompactionCount: none, activeTabQueuedContent: none };
-    TestBed.configureTestingModule({ providers: [
-      ChatStore,
-      { provide: VSCodeService, useValue: {} },
-      { provide: SessionManager, useValue: {} },
-      { provide: TabManagerService, useValue: tabs },
-      { provide: StreamingHandlerService, useValue: {} },
-      { provide: SessionLoaderService, useValue: loader },
-      { provide: SessionHistoryReplayer, useValue: {} },
-      { provide: ConversationService, useValue: { isStopping: none, queueRestoreSignal: none } },
-      { provide: PermissionHandlerService, useValue: { permissionRequests: empty, unmatchedPermissions: empty, questionRequests: empty, handleQuestionResponse: answer } },
-      { provide: ExecutionTreeBuilderService, useValue: {} },
-      { provide: CompactionLifecycleService, useValue: {} },
-      { provide: MessageDispatchService, useValue: {} },
-      { provide: SessionStatsAggregatorService, useValue: {} },
-      { provide: ChatLifecycleService, useValue: { licenseStatus: none, bootstrap: jest.fn() } },
-      { provide: TurnEndHandlerService, useValue: {} },
-      { provide: StreamRouter, useValue: { cancelPendingQuestionOnOtherTabs: cancel } },
-      { provide: TaskPromptBridgeService, useValue: {} },
-      { provide: SessionOpenBridgeService, useValue: {} },
-    ] });
+    const loader = {
+      sessions: empty,
+      hasMoreSessions: none,
+      totalSessions: none,
+      isLoadingMoreSessions: none,
+      listQuery: none,
+      organizationAvailable: none,
+      resumableSubagents: empty,
+    };
+    const tabs = {
+      activeTabId: () => '00000000-0000-4000-8000-000000000002',
+      activeTab: none,
+      activeTabSessionId: none,
+      activeTabMessages: empty,
+      activeTabStreamingState: none,
+      activeTabStatus: none,
+      activeTabHasLiveSession: none,
+      activeTabSessionStats: none,
+      activeTabLiveModelStats: none,
+      activeTabCompactionCount: none,
+      activeTabQueuedContent: none,
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ChatStore,
+        { provide: VSCodeService, useValue: {} },
+        { provide: SessionManager, useValue: {} },
+        { provide: TabManagerService, useValue: tabs },
+        { provide: StreamingHandlerService, useValue: {} },
+        { provide: SessionLoaderService, useValue: loader },
+        { provide: SessionHistoryReplayer, useValue: {} },
+        {
+          provide: ConversationService,
+          useValue: { isStopping: none, queueRestoreSignal: none },
+        },
+        {
+          provide: PermissionHandlerService,
+          useValue: {
+            permissionRequests: empty,
+            unmatchedPermissions: empty,
+            questionRequests: empty,
+            handleQuestionResponse: answer,
+          },
+        },
+        { provide: ExecutionTreeBuilderService, useValue: {} },
+        { provide: CompactionLifecycleService, useValue: {} },
+        { provide: MessageDispatchService, useValue: {} },
+        { provide: SessionStatsAggregatorService, useValue: {} },
+        {
+          provide: ChatLifecycleService,
+          useValue: { licenseStatus: none, bootstrap: jest.fn() },
+        },
+        { provide: TurnEndHandlerService, useValue: {} },
+        {
+          provide: StreamRouter,
+          useValue: { cancelPendingQuestionOnOtherTabs: cancel },
+        },
+        { provide: TaskPromptBridgeService, useValue: {} },
+        { provide: SessionOpenBridgeService, useValue: {} },
+      ],
+    });
     store = TestBed.inject(ChatStore);
   });
 
@@ -54,10 +98,19 @@ describe('ChatStore question deciding tab', () => {
 
   it('uses the explicit tab when the active tab differs', () => {
     const response = { id: 'q', answers: {} };
-    store.handleQuestionResponse(response, '00000000-0000-4000-8000-000000000001');
+    store.handleQuestionResponse(
+      response,
+      '00000000-0000-4000-8000-000000000001',
+    );
     expect(answer).toHaveBeenCalledWith(response);
-    expect(cancel).toHaveBeenCalledWith('q', TabId.from('00000000-0000-4000-8000-000000000001'));
+    expect(cancel).toHaveBeenCalledWith(
+      'q',
+      TabId.from('00000000-0000-4000-8000-000000000001'),
+    );
     store.handleQuestionResponse(response);
-    expect(cancel).toHaveBeenLastCalledWith('q', TabId.from('00000000-0000-4000-8000-000000000002'));
+    expect(cancel).toHaveBeenLastCalledWith(
+      'q',
+      TabId.from('00000000-0000-4000-8000-000000000002'),
+    );
   });
 });

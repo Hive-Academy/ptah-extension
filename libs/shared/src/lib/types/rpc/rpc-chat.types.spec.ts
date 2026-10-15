@@ -20,18 +20,27 @@ import type { SessionId } from '../branded.types';
 describe('optional persona RPC fields', () => {
   it('accepts a per-tab persona and leaves it absent by default', () => {
     const sessionId = '11111111-1111-4111-8111-111111111111' as SessionId;
-    const continuing: ChatContinueParams = { sessionId, tabId: 'tab', prompt: 'hello' };
+    const continuing: ChatContinueParams = {
+      sessionId,
+      tabId: 'tab',
+      prompt: 'hello',
+    };
     const resuming: ChatResumeParams = { sessionId, tabId: 'tab' };
-    const rewinding: SessionRewindParams = { sessionId, userMessageId: 'message' };
+    const rewinding: SessionRewindParams = {
+      sessionId,
+      userMessageId: 'message',
+    };
     expect(continuing).not.toHaveProperty('systemPrompt');
     expect(resuming).not.toHaveProperty('systemPrompt');
     expect(rewinding).not.toHaveProperty('systemPrompt');
     continuing.systemPrompt = 'persona';
     resuming.systemPrompt = 'persona';
     rewinding.systemPrompt = 'persona';
-    expect([continuing.systemPrompt, resuming.systemPrompt, rewinding.systemPrompt]).toEqual([
-      'persona', 'persona', 'persona',
-    ]);
+    expect([
+      continuing.systemPrompt,
+      resuming.systemPrompt,
+      rewinding.systemPrompt,
+    ]).toEqual(['persona', 'persona', 'persona']);
   });
 });
 

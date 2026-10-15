@@ -17,26 +17,39 @@ describe('TabManagerService Command Center lifecycle', () => {
   beforeEach(() => {
     localStorage.clear();
     confirm = jest.fn().mockResolvedValue(true);
-    switchWorkspace = jest.fn().mockReturnValue({ tabs: [], activeTabId: null });
-    TestBed.configureTestingModule({ providers: [
-      TabManagerService,
-      { provide: ConfirmationDialogService, useValue: { confirm } },
-      { provide: MODEL_REFRESH_CONTROL, useValue: { refreshModels: jest.fn().mockResolvedValue(undefined) } },
-      { provide: TabWorkspacePartitionService, useValue: {
-        initialize: jest.fn(),
-        switchWorkspace,
-        activeWorkspacePath: '/workspace',
-        getStorageKeyForWorkspace: (path: string) => `tabs.${path}`,
-        registerSessionForWorkspace: jest.fn(),
-        unregisterSession: jest.fn(),
-        findTabByIdAcrossWorkspaces: (id: string, active: readonly TabState[]) => {
-          const tab = active.find((item) => item.id === id);
-          return tab ? { tab, workspacePath: '/workspace' } : null;
+    switchWorkspace = jest
+      .fn()
+      .mockReturnValue({ tabs: [], activeTabId: null });
+    TestBed.configureTestingModule({
+      providers: [
+        TabManagerService,
+        { provide: ConfirmationDialogService, useValue: { confirm } },
+        {
+          provide: MODEL_REFRESH_CONTROL,
+          useValue: { refreshModels: jest.fn().mockResolvedValue(undefined) },
         },
-        syncActiveWorkspaceState: jest.fn(),
-        updateBackgroundTab: jest.fn(),
-      } },
-    ] });
+        {
+          provide: TabWorkspacePartitionService,
+          useValue: {
+            initialize: jest.fn(),
+            switchWorkspace,
+            activeWorkspacePath: '/workspace',
+            getStorageKeyForWorkspace: (path: string) => `tabs.${path}`,
+            registerSessionForWorkspace: jest.fn(),
+            unregisterSession: jest.fn(),
+            findTabByIdAcrossWorkspaces: (
+              id: string,
+              active: readonly TabState[],
+            ) => {
+              const tab = active.find((item) => item.id === id);
+              return tab ? { tab, workspacePath: '/workspace' } : null;
+            },
+            syncActiveWorkspaceState: jest.fn(),
+            updateBackgroundTab: jest.fn(),
+          },
+        },
+      ],
+    });
     tabs = TestBed.inject(TabManagerService);
     records = TestBed.inject(CommandCenterRecordsService);
     lock = TestBed.inject(CommandCenterSendLockService);
@@ -49,15 +62,21 @@ describe('TabManagerService Command Center lifecycle', () => {
   it('marks and activates an ordinary tab, then rekeys the lock and records its resolved SDK ID', () => {
     const id = tabs.createCommandCenterTab('Command Center');
     expect(tabs.activeTabId()).toBe(id);
-    expect(tabs.tabs().find((tab) => tab.id === id)?.commandCenterOrigin).toEqual({
-      workspaceId: '/workspace', createdAt: expect.any(Number), version: 1,
+    expect(
+      tabs.tabs().find((tab) => tab.id === id)?.commandCenterOrigin,
+    ).toEqual({
+      workspaceId: '/workspace',
+      createdAt: expect.any(Number),
+      version: 1,
     });
     expect(records.readActiveTabId('/workspace')).toBe(id);
     lock.engage(id, null, 'voice');
     tabs.attachSession(id, '11111111-1111-4111-8111-111111111111');
     expect(lock.isHeld('11111111-1111-4111-8111-111111111111')).toBe(true);
     expect(records.readLastSession('/workspace')).toEqual({
-      sdkSessionId: '11111111-1111-4111-8111-111111111111', tabId: id, updatedAt: expect.any(Number),
+      sdkSessionId: '11111111-1111-4111-8111-111111111111',
+      tabId: id,
+      updatedAt: expect.any(Number),
     });
   });
 
@@ -78,7 +97,9 @@ describe('TabManagerService Command Center lifecycle', () => {
     expect(lock.isHeld(id)).toBe(false);
     expect(lock.isHeld('22222222-2222-4222-8222-222222222222')).toBe(false);
     expect(records.readActiveTabId('/workspace')).toBeUndefined();
-    expect(records.readLastSession('/workspace')?.sdkSessionId).toBe('22222222-2222-4222-8222-222222222222');
+    expect(records.readLastSession('/workspace')?.sdkSessionId).toBe(
+      '22222222-2222-4222-8222-222222222222',
+    );
   });
 
   it('keeps a different root locked when a marked tab closes', async () => {
@@ -105,14 +126,27 @@ describe('TabManagerService Command Center lifecycle', () => {
   it('surfaces a failed bind write and clears the notice on a successful write', () => {
     const id = tabs.createCommandCenterTab();
     const warning = jest.spyOn(console, 'warn').mockImplementation();
-    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('storage failure must stay private');
-    });
+    const setItem = jest
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new Error('storage failure must stay private');
+      });
     tabs.attachSession(id, '11111111-1111-4111-8111-111111111111');
-    expect(tabs.tabs().find((tab) => tab.id === id)?.claudeSessionId).toBe('11111111-1111-4111-8111-111111111111');
-    expect(tabs.commandCenterRecordWriteFailure()).toEqual({ workspacePath: '/workspace', record: 'lastSession' });
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('lastSession record write failed for workspace /workspace'));
-    expect(warning.mock.calls.flat().join(' ')).not.toContain('storage failure must stay private');
+    expect(tabs.tabs().find((tab) => tab.id === id)?.claudeSessionId).toBe(
+      '11111111-1111-4111-8111-111111111111',
+    );
+    expect(tabs.commandCenterRecordWriteFailure()).toEqual({
+      workspacePath: '/workspace',
+      record: 'lastSession',
+    });
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'lastSession record write failed for workspace /workspace',
+      ),
+    );
+    expect(warning.mock.calls.flat().join(' ')).not.toContain(
+      'storage failure must stay private',
+    );
     setItem.mockRestore();
     tabs.attachSession(id, '22222222-2222-4222-8222-222222222222');
     expect(tabs.commandCenterRecordWriteFailure()).toBeNull();
@@ -125,9 +159,18 @@ describe('TabManagerService Command Center lifecycle', () => {
     });
     const created = tabs.createCommandCenterTab();
     expect(tabs.activeTabId()).toBe(created);
-    expect(tabs.commandCenterRecordWriteFailure()).toEqual({ workspacePath: '/workspace', record: 'activeTabId' });
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('activeTabId record write failed for workspace /workspace'));
-    expect(warning.mock.calls.flat().join(' ')).not.toContain('storage failure must stay private');
+    expect(tabs.commandCenterRecordWriteFailure()).toEqual({
+      workspacePath: '/workspace',
+      record: 'activeTabId',
+    });
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'activeTabId record write failed for workspace /workspace',
+      ),
+    );
+    expect(warning.mock.calls.flat().join(' ')).not.toContain(
+      'storage failure must stay private',
+    );
   });
 
   it('surfaces a failed close write while the tab still closes', async () => {
@@ -139,16 +182,27 @@ describe('TabManagerService Command Center lifecycle', () => {
     });
     await tabs.closeTab(id);
     expect(tabs.tabs().some((tab) => tab.id === id)).toBe(false);
-    expect(tabs.commandCenterRecordWriteFailure()).toEqual({ workspacePath: '/workspace', record: 'activeTabId' });
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('activeTabId record write failed for workspace /workspace'));
-    expect(warning.mock.calls.flat().join(' ')).not.toContain('storage failure must stay private');
+    expect(tabs.commandCenterRecordWriteFailure()).toEqual({
+      workspacePath: '/workspace',
+      record: 'activeTabId',
+    });
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'activeTabId record write failed for workspace /workspace',
+      ),
+    );
+    expect(warning.mock.calls.flat().join(' ')).not.toContain(
+      'storage failure must stay private',
+    );
   });
 
   it('leaves an unmarked tab on the existing close path', async () => {
     const warning = jest.spyOn(console, 'warn').mockImplementation();
-    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('storage failure must stay private');
-    });
+    const setItem = jest
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new Error('storage failure must stay private');
+      });
     tabs.createCommandCenterTab();
     const failure = tabs.commandCenterRecordWriteFailure();
     const warningCount = warning.mock.calls.length;

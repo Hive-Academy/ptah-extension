@@ -1,18 +1,41 @@
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { BATCHES_FILE, LEGACY_BATCHES_FILE } from '@ptah-extension/shared';
 import { RELAY_DELIVERABLE } from './spec-documents';
-import { NO_PROGRESS, RELAY_ROLES, type CrucibleDefect, type CrucibleRound, type CrucibleTermination, type RelayPhase, type RelayPhaseStatus, type RelayRole, type TribunalMove, type TribunalProgress, type VendorLane } from '../types/tribunal-ui.types';
+import {
+  NO_PROGRESS,
+  RELAY_ROLES,
+  type CrucibleDefect,
+  type CrucibleRound,
+  type CrucibleTermination,
+  type RelayPhase,
+  type RelayPhaseStatus,
+  type RelayRole,
+  type TribunalMove,
+  type TribunalProgress,
+  type VendorLane,
+} from '../types/tribunal-ui.types';
 
-interface PhaseLane { readonly laneId: string | null; readonly agent: PhaseAgent | null; readonly reassignedFromLaneId?: string; }
+interface PhaseLane {
+  readonly laneId: string | null;
+  readonly agent: PhaseAgent | null;
+  readonly reassignedFromLaneId?: string;
+}
 
 export type PhaseAgent = Pick<MonitoredAgent, 'task' | 'status'>;
 
 export interface PhaseDerivationInput {
   readonly move: TribunalMove;
   readonly specTaskId: string | null;
-  readonly laneBindings: { readonly lanes: readonly VendorLane[]; readonly bound: ReadonlyMap<string, PhaseAgent | null> };
+  readonly laneBindings: {
+    readonly lanes: readonly VendorLane[];
+    readonly bound: ReadonlyMap<string, PhaseAgent | null>;
+  };
   readonly agents: readonly PhaseAgent[];
-  readonly artifacts: { readonly names: ReadonlySet<string>; readonly rounds?: readonly CrucibleRound[]; readonly roundCap?: number } | null;
+  readonly artifacts: {
+    readonly names: ReadonlySet<string>;
+    readonly rounds?: readonly CrucibleRound[];
+    readonly roundCap?: number;
+  } | null;
 }
 
 const RELAY_COMPLETION_NAMES: Record<RelayRole, readonly string[]> = {
@@ -45,21 +68,29 @@ const SEVERITY_ORDER: readonly CrucibleDefect['severity'][] = [
 const NO_SPEC_FOLDER_REASON =
   'No spec folder was allocated for this run, so phase progress cannot be read.';
 
-
 export function derivePhase(input: PhaseDerivationInput): TribunalProgress {
   switch (input.move) {
     case 'council':
     case 'forge':
-    case 'race': return NO_PROGRESS;
+    case 'race':
+      return NO_PROGRESS;
     case 'relay':
-    case 'crucible': break;
+    case 'crucible':
+      break;
   }
-  if (!input.specTaskId) return { kind: 'unavailable', reason: NO_SPEC_FOLDER_REASON };
-  if (!input.artifacts) return { kind: 'unavailable', reason: `Phase unavailable: artifacts for ${input.specTaskId} could not be read.` };
+  if (!input.specTaskId)
+    return { kind: 'unavailable', reason: NO_SPEC_FOLDER_REASON };
+  if (!input.artifacts)
+    return {
+      kind: 'unavailable',
+      reason: `Phase unavailable: artifacts for ${input.specTaskId} could not be read.`,
+    };
   if (input.move === 'relay') return deriveRelay(input, input.artifacts.names);
   const rounds = input.artifacts.rounds ?? [];
   const roundCap = input.artifacts.roundCap ?? 2;
-  const inFlight = Array.from(input.laneBindings.bound.values()).some((agent) => agent?.status === 'running');
+  const inFlight = Array.from(input.laneBindings.bound.values()).some(
+    (agent) => agent?.status === 'running',
+  );
   const last = rounds.length > 0 ? rounds[rounds.length - 1] : null;
   const previous = rounds.length > 1 ? rounds[rounds.length - 2] : null;
   const stopped = termination(last, previous, roundCap, inFlight);
@@ -70,15 +101,18 @@ export function derivePhase(input: PhaseDerivationInput): TribunalProgress {
     // A stopped loop is ON its last judged round — only an open loop can have
     // advanced to the next one.
     currentRound:
-    stopped === 'in-progress'
-      ? currentRound(last, roundCap, inFlight)
-      : (last?.round ?? 1),
+      stopped === 'in-progress'
+        ? currentRound(last, roundCap, inFlight)
+        : (last?.round ?? 1),
     rounds,
     termination: stopped,
   };
 }
 
-function deriveRelay(input: PhaseDerivationInput, artifacts: ReadonlySet<string>): TribunalProgress {
+function deriveRelay(
+  input: PhaseDerivationInput,
+  artifacts: ReadonlySet<string>,
+): TribunalProgress {
   const lanes = input.laneBindings.lanes;
   const bindings = input.laneBindings.bound;
   const reassignments = laneByRoleToken(input.agents);
@@ -133,10 +167,7 @@ function resolvePhaseLane(
   role: RelayRole,
   assignedLaneId: string | null,
   bindings: ReadonlyMap<string, PhaseAgent | null>,
-  reassignments: ReadonlyMap<
-    string,
-    { laneId: string; agent: PhaseAgent }
-  >,
+  reassignments: ReadonlyMap<string, { laneId: string; agent: PhaseAgent }>,
 ): PhaseLane {
   const tokenMatch = reassignments.get(role);
   if (tokenMatch && (!assignedLaneId || tokenMatch.laneId !== assignedLaneId)) {
@@ -147,9 +178,7 @@ function resolvePhaseLane(
     };
   }
 
-  const bound = assignedLaneId
-    ? (bindings.get(assignedLaneId) ?? null)
-    : null;
+  const bound = assignedLaneId ? (bindings.get(assignedLaneId) ?? null) : null;
   return {
     laneId: assignedLaneId ?? tokenMatch?.laneId ?? null,
     agent: bound ?? tokenMatch?.agent ?? null,
@@ -162,10 +191,9 @@ function resolvePhaseLane(
  * The LAST match wins: a re-spawn after a failure is the live attempt, and
  * showing the dead one would report a phase as failed while it is running.
  */
-function laneByRoleToken(agents: readonly PhaseAgent[]): ReadonlyMap<
-  string,
-  { laneId: string; agent: PhaseAgent }
-> {
+function laneByRoleToken(
+  agents: readonly PhaseAgent[],
+): ReadonlyMap<string, { laneId: string; agent: PhaseAgent }> {
   const found = new Map<string, { laneId: string; agent: PhaseAgent }>();
   for (const agent of agents) {
     const match = LANE_ROLE_TOKEN_RE.exec(agent.task);
@@ -174,7 +202,6 @@ function laneByRoleToken(agents: readonly PhaseAgent[]): ReadonlyMap<
   }
   return found;
 }
-
 
 function assignedLane(
   lanes: readonly VendorLane[],

@@ -25,13 +25,16 @@ export class CommandCenterSessionCoordinator {
   private readonly destroyRef = inject(DestroyRef);
   private readonly ownerToken = crypto.randomUUID();
   private opening: Promise<string | null> | null = null;
-  private statusContextProvider: (() => string | null) | null = () => buildStatusContext(this.store.nodes());
+  private statusContextProvider: (() => string | null) | null = () =>
+    buildStatusContext(this.store.nodes());
 
   public constructor() {
     this.destroyRef.onDestroy(() => this.releaseVoice());
   }
 
-  public setStatusContextProvider(provider: (() => string | null) | null): void {
+  public setStatusContextProvider(
+    provider: (() => string | null) | null,
+  ): void {
     this.statusContextProvider = provider;
   }
 
@@ -40,9 +43,11 @@ export class CommandCenterSessionCoordinator {
     const opening = this.openOrResumeInternal();
     this.opening = opening;
     // degradation-audit: reported — the caller receives the original promise and handles its rejection
-    void opening.finally(() => {
-      if (this.opening === opening) this.opening = null;
-    }).catch(() => undefined);
+    void opening
+      .finally(() => {
+        if (this.opening === opening) this.opening = null;
+      })
+      .catch(() => undefined);
     return opening;
   }
 
@@ -54,18 +59,30 @@ export class CommandCenterSessionCoordinator {
     }
     this.store.setSessionStatus('starting');
     const activeId = this.records.readActiveTabId(workspace);
-    const existing = activeId && this.tabs.tabs().find((tab) =>
-      tab.id === activeId && tab.commandCenterOrigin?.workspaceId === workspace &&
-      commandCenterPersonaFor(tab) !== undefined,
-    );
+    const existing =
+      activeId &&
+      this.tabs
+        .tabs()
+        .find(
+          (tab) =>
+            tab.id === activeId &&
+            tab.commandCenterOrigin?.workspaceId === workspace &&
+            commandCenterPersonaFor(tab) !== undefined,
+        );
     if (existing) {
       this.tabs.switchTab(existing.id);
-      this.store.setSession(existing.id, existing.claudeSessionId ?? null, workspace);
+      this.store.setSession(
+        existing.id,
+        existing.claudeSessionId ?? null,
+        workspace,
+      );
       this.store.setSessionStatus('running');
       return existing.id;
     }
     const last = this.records.readLastSession(workspace);
-    const exists = last ? await this.sessionExists(last.sdkSessionId, workspace) : false;
+    const exists = last
+      ? await this.sessionExists(last.sdkSessionId, workspace)
+      : false;
     if (exists === null) {
       this.fail('Could not check the previous Command Center session.');
       return null;
@@ -88,21 +105,34 @@ export class CommandCenterSessionCoordinator {
     return this.newCommandCenter();
   }
 
-  private async sessionExists(sessionId: string, workspace: string): Promise<boolean | null> {
+  private async sessionExists(
+    sessionId: string,
+    workspace: string,
+  ): Promise<boolean | null> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const result = await this.rpc.call('session:list', { workspacePath: workspace }, { signal: controller.signal });
+        const result = await this.rpc.call(
+          'session:list',
+          { workspacePath: workspace },
+          { signal: controller.signal },
+        );
         if (result.success) {
-          return result.data?.sessions.some((session) => session.id === sessionId) ?? false;
+          return (
+            result.data?.sessions.some((session) => session.id === sessionId) ??
+            false
+          );
         }
       } catch {
         // Only this read is retried; writes and sends must never be repeated.
       } finally {
         clearTimeout(timeout);
       }
-      if (attempt < 2) await new Promise<void>((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+      if (attempt < 2)
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, 150 * (attempt + 1)),
+        );
     }
     return null;
   }
@@ -141,13 +171,18 @@ export class CommandCenterSessionCoordinator {
 
   public async stop(): Promise<void> {
     const tabId = this.store.markedTabId();
-    const sessionId = (tabId && this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId) ?? this.store.sessionId();
+    const sessionId =
+      (tabId &&
+        this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId) ??
+      this.store.sessionId();
     this.releaseVoice();
     this.store.setVoiceState('stopped');
     this.store.setSessionStatus('stopped');
     if (!sessionId) return;
     try {
-      const result = await this.rpc.call('chat:abort', { sessionId: SessionId.from(sessionId) });
+      const result = await this.rpc.call('chat:abort', {
+        sessionId: SessionId.from(sessionId),
+      });
       if (!result.success) this.fail('Could not stop the session.');
     } catch {
       this.fail('Could not stop the session.');
@@ -155,15 +190,20 @@ export class CommandCenterSessionCoordinator {
   }
 
   public async send(content: string): Promise<boolean> {
-    const tabId = this.store.markedTabId() ?? await this.openOrResume();
+    const tabId = this.store.markedTabId() ?? (await this.openOrResume());
     if (!tabId) return false;
     try {
-      const result = await this.sender.send(content, { tabId, ownerToken: this.ownerToken });
+      const result = await this.sender.send(content, {
+        tabId,
+        ownerToken: this.ownerToken,
+      });
       if (!result.success) {
         this.fail('Could not send the Command Center message.');
         return false;
       }
-      const sessionId = this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId ?? null;
+      const sessionId =
+        this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId ??
+        null;
       this.store.setSession(tabId, sessionId, this.store.workspace());
       this.store.setSessionStatus('running');
       return true;
@@ -184,7 +224,9 @@ export class CommandCenterSessionCoordinator {
     return this.send(content);
   }
 
-  public answerQuestion(response: Parameters<ChatStore['handleQuestionResponse']>[0]): void {
+  public answerQuestion(
+    response: Parameters<ChatStore['handleQuestionResponse']>[0],
+  ): void {
     const tabId = this.store.markedTabId();
     if (tabId) this.chat.handleQuestionResponse(response, tabId);
   }

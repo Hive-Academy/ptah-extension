@@ -193,5 +193,4 @@ export class TribunalRunService {
       .join('; ');
     return `Tribunal ${this.moveLabel(move)} convened from the Tribunal panel. Lanes — ${roster}.`;
   }
-
 }

@@ -1,7 +1,10 @@
 import 'reflect-metadata';
 
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
-  ProjectType: {}, Framework: {}, MonorepoType: {}, FileType: {},
+  ProjectType: {},
+  Framework: {},
+  MonorepoType: {},
+  FileType: {},
 }));
 
 import type { SessionId } from '@ptah-extension/shared';
@@ -19,12 +22,25 @@ function service() {
   const subject = Object.assign(Object.create(ChatSessionService.prototype), {
     sdkAdapter: { isSessionActive, resumeSession },
     streamBroadcaster: { isStreaming, streamEventsToWebview: jest.fn() },
-    historyRead: { resolveSessionFolder: jest.fn().mockResolvedValue(workspacePath) },
-    sdkContext: { isMcpServerRunning: jest.fn().mockReturnValue(false), resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined) },
+    historyRead: {
+      resolveSessionFolder: jest.fn().mockResolvedValue(workspacePath),
+    },
+    sdkContext: {
+      isMcpServerRunning: jest.fn().mockReturnValue(false),
+      resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
+    },
     codeExecutionMcp: { getPort: jest.fn().mockReturnValue(0) },
-    modelSettings: { selectedModel: { get: jest.fn().mockReturnValue('default') } },
-    workspaceProviderProfileResolver: { resolveProviderProfileForWorkspace: jest.fn().mockResolvedValue(undefined) },
-    outputStyleActivation: { resolveSessionFields: jest.fn().mockResolvedValue({}) },
+    modelSettings: {
+      selectedModel: { get: jest.fn().mockReturnValue('default') },
+    },
+    workspaceProviderProfileResolver: {
+      resolveProviderProfileForWorkspace: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    },
+    outputStyleActivation: {
+      resolveSessionFields: jest.fn().mockResolvedValue({}),
+    },
     resolveWorkflowsDisabled: jest.fn().mockReturnValue(false),
     logger,
   }) as ChatSessionService;
@@ -36,8 +52,17 @@ describe('inactive SDK persona resume', () => {
     const { subject } = service();
     const autoResume = jest.fn().mockResolvedValue({ justResumed: true });
     Object.assign(subject, {
-      sessionMetadataStore: { get: jest.fn().mockResolvedValue({}), getCliSessionsForRestore: jest.fn().mockResolvedValue([]) },
-      historyRead: { readForResume: jest.fn().mockResolvedValue({ resolvedWorkspacePath: workspacePath, events: [], stats: null }) },
+      sessionMetadataStore: {
+        get: jest.fn().mockResolvedValue({}),
+        getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
+      },
+      historyRead: {
+        readForResume: jest.fn().mockResolvedValue({
+          resolvedWorkspacePath: workspacePath,
+          events: [],
+          stats: null,
+        }),
+      },
       subagentRegistry: {
         restoreResumableBySession: jest.fn().mockReturnValue(0),
         registerFromHistoryEvents: jest.fn().mockReturnValue(0),
@@ -48,32 +73,55 @@ describe('inactive SDK persona resume', () => {
     const params = { sessionId, tabId, systemPrompt: 'Persona text' };
     expect((await subject.resumeSession(params)).success).toBe(true);
     expect(autoResume).not.toHaveBeenCalled();
-    expect((await subject.resumeSession({ ...params, activate: true })).activated).toBe(true);
-    expect(autoResume).toHaveBeenCalledWith(sessionId, tabId, '', expect.objectContaining({
-      systemPrompt: 'Persona text',
-    }));
+    expect(
+      (await subject.resumeSession({ ...params, activate: true })).activated,
+    ).toBe(true);
+    expect(autoResume).toHaveBeenCalledWith(
+      sessionId,
+      tabId,
+      '',
+      expect.objectContaining({
+        systemPrompt: 'Persona text',
+      }),
+    );
   });
-  it.each([['with persona', 'Persona text'], ['ordinary chat', undefined]])(
-    'passes %s only on inactive resume', async (_label, systemPrompt) => {
-      const { subject, resumeSession, logger } = service();
-      await subject['autoResumeIfInactive'](sessionId, tabId, 'continue', {
-        sessionId, tabId, workspacePath, systemPrompt,
-      });
-      const config = resumeSession.mock.calls[0][1];
-      if (systemPrompt) expect(config.systemPrompt).toBe(systemPrompt);
-      else expect(config).not.toHaveProperty('systemPrompt');
-      expect(JSON.stringify(logger.info.mock.calls)).not.toContain('Persona text');
-    },
-  );
+  it.each([
+    ['with persona', 'Persona text'],
+    ['ordinary chat', undefined],
+  ])('passes %s only on inactive resume', async (_label, systemPrompt) => {
+    const { subject, resumeSession, logger } = service();
+    await subject['autoResumeIfInactive'](sessionId, tabId, 'continue', {
+      sessionId,
+      tabId,
+      workspacePath,
+      systemPrompt,
+    });
+    const config = resumeSession.mock.calls[0][1];
+    if (systemPrompt) expect(config.systemPrompt).toBe(systemPrompt);
+    else expect(config).not.toHaveProperty('systemPrompt');
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain(
+      'Persona text',
+    );
+  });
 
   it('forwards persona through rewind activation and ignores it for an active stream', async () => {
     const { subject, resumeSession, isSessionActive, isStreaming } = service();
-    await subject.ensureSessionActiveForRewind(sessionId, tabId, workspacePath, 'Persona text');
+    await subject.ensureSessionActiveForRewind(
+      sessionId,
+      tabId,
+      workspacePath,
+      'Persona text',
+    );
     expect(resumeSession.mock.calls[0][1].systemPrompt).toBe('Persona text');
     resumeSession.mockClear();
     isSessionActive.mockReturnValue(true);
     isStreaming.mockReturnValue(true);
-    await subject.ensureSessionActiveForRewind(sessionId, tabId, workspacePath, 'Persona text');
+    await subject.ensureSessionActiveForRewind(
+      sessionId,
+      tabId,
+      workspacePath,
+      'Persona text',
+    );
     expect(resumeSession).not.toHaveBeenCalled();
   });
 });

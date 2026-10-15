@@ -5,7 +5,10 @@ import {
   MessageId,
   type PermissionRequest,
 } from '@ptah-extension/shared';
-import { CommandCenterSendLockService, TabManagerService } from '@ptah-extension/chat-state';
+import {
+  CommandCenterSendLockService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   MessageSenderService,
   type SendOutcome,
@@ -183,11 +186,17 @@ export class MessageDispatchService {
         resolvedTabId != null && this.tabManager.isTabStreaming(resolvedTabId),
     });
 
-    if (isStreaming || (resolvedTabId != null && this.sendLock.isHeld(resolvedTabId, options?.ownerToken))) {
+    if (
+      isStreaming ||
+      (resolvedTabId != null &&
+        this.sendLock.isHeld(resolvedTabId, options?.ownerToken))
+    ) {
       // The message steers ITS tab's turn, so only that tab's pending prompts
       // are answered with it. The queue is global: denying every request would
       // reject another session's prompt with this tab's text as the reason.
-      for (const perm of isStreaming ? this.permissionHandler.permissionRequests() : []) {
+      for (const perm of isStreaming
+        ? this.permissionHandler.permissionRequests()
+        : []) {
         if (!this.isPermissionForTab(perm, resolvedTabId, dispatchTab)) {
           continue;
         }
@@ -222,7 +231,11 @@ export class MessageDispatchService {
    * @param tabId - Tab to send the queued message for
    * @param content - Message content to send
    */
-  async sendQueuedMessage(tabId: string, content: string, options?: { ownerToken?: string }): Promise<void> {
+  async sendQueuedMessage(
+    tabId: string,
+    content: string,
+    options?: { ownerToken?: string },
+  ): Promise<void> {
     if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
     let queuedOptions: SendMessageOptions | undefined;
     let queuedContent = content;

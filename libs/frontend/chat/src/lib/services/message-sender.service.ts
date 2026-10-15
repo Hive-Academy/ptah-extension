@@ -97,7 +97,9 @@ export class MessageSenderService {
   private readonly ultracode = inject(UltracodeStateService);
   private readonly sendLock = inject(CommandCenterSendLockService);
 
-  private isHeld(options?: SendMessageOptions & { ownerToken?: string }): boolean {
+  private isHeld(
+    options?: SendMessageOptions & { ownerToken?: string },
+  ): boolean {
     const tabId = options?.tabId ?? this.tabManager.activeTabId();
     return tabId != null && this.sendLock.isHeld(tabId, options?.ownerToken);
   }
@@ -326,7 +328,8 @@ export class MessageSenderService {
     content: string,
     options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
-    if (this.isHeld(options)) return { success: false, error: 'Message held by Command Center' };
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
@@ -377,7 +380,8 @@ export class MessageSenderService {
     content: string,
     options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
-    if (this.isHeld(options)) return { success: false, error: 'Message held by Command Center' };
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const files = options?.files;
     const images = options?.images;
     const effort = options?.effort;
@@ -407,7 +411,8 @@ export class MessageSenderService {
       const activeTab =
         this.tabManager.findTabByIdAcrossWorkspaces(activeTabId)?.tab ??
         this.tabManager.activeTab();
-      if (this.isHeld(options)) return { success: false, error: 'Message held by Command Center' };
+      if (this.isHeld(options))
+        return { success: false, error: 'Message held by Command Center' };
       const sessionId =
         this.headSessionForTab(activeTab?.id) ?? this.generateId();
       // Give THIS conversation a clean node-map slate — scoped to its own
@@ -534,7 +539,8 @@ export class MessageSenderService {
     sessionId: SessionId,
     options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
-    if (this.isHeld(options)) return { success: false, error: 'Message held by Command Center' };
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     const abortSignal = activeTabId
       ? this.wireAbortDispatch(activeTabId)
@@ -575,7 +581,8 @@ export class MessageSenderService {
     sessionId: SessionId,
     options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
-    if (this.isHeld(options)) return { success: false, error: 'Message held by Command Center' };
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     const abortSignal = activeTabId
       ? this.tabManager.getAbortSignal(activeTabId)
@@ -686,7 +693,8 @@ export class MessageSenderService {
       const activeTab =
         this.tabManager.findTabByIdAcrossWorkspaces(activeTabId)?.tab ??
         this.tabManager.activeTab();
-      if (this.isHeld(options)) return { success: false, error: 'Message held by Command Center' };
+      if (this.isHeld(options))
+        return { success: false, error: 'Message held by Command Center' };
       this.sessionManager.setStatus('resuming');
       this.tabManager.markResuming(activeTabId);
       const userMessage = createExecutionChatMessage({

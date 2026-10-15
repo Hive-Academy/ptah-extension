@@ -30,7 +30,10 @@ import {
   SessionLoaderService,
   type SessionListQuery,
 } from './chat-store/session-loader.service';
-import { SessionHistoryReplayer, type ReplayLiveSeed } from './chat-store/session-history-replayer.service';
+import {
+  SessionHistoryReplayer,
+  type ReplayLiveSeed,
+} from './chat-store/session-history-replayer.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
@@ -225,7 +228,11 @@ export class ChatStore {
   }
 
   /** Rebuild one tab from the canonical resume stream after a v2 tail overflow. */
-  async resyncStream(tabId: string, sessionId: string, liveSeed?: ReplayLiveSeed): Promise<void> {
+  async resyncStream(
+    tabId: string,
+    sessionId: string,
+    liveSeed?: ReplayLiveSeed,
+  ): Promise<void> {
     const parsedTabId = TabId.safeParse(tabId);
     const parsedSessionId = SessionId.safeParse(sessionId);
     if (!parsedTabId || !parsedSessionId) return;
@@ -497,8 +504,12 @@ export class ChatStore {
   }
 
   /** User answer to AskUserQuestion. */
-  handleQuestionResponse(response: AskUserQuestionResponse, decidingTabId?: string): void {
-    const decidingTabIdRaw = decidingTabId ?? this.tabManager.activeTabId() ?? null;
+  handleQuestionResponse(
+    response: AskUserQuestionResponse,
+    decidingTabId?: string,
+  ): void {
+    const decidingTabIdRaw =
+      decidingTabId ?? this.tabManager.activeTabId() ?? null;
     const parsedDecidingTabId = decidingTabIdRaw
       ? (TabId.safeParse(decidingTabIdRaw) ?? null)
       : null;

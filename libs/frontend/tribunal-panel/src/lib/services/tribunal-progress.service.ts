@@ -26,7 +26,8 @@ import {
  */
 const MAX_JUDGED_ROUND = 4;
 
-const NO_SPEC_FOLDER_REASON = 'No spec folder was allocated for this run, so phase progress cannot be read.';
+const NO_SPEC_FOLDER_REASON =
+  'No spec folder was allocated for this run, so phase progress cannot be read.';
 
 /** The outcome of reading the run's spec folder. No third, optimistic arm. */
 type SpecFolderRead =
@@ -223,9 +224,21 @@ export class TribunalProgressService {
    * Exhaustive over {@link TribunalMove} with NO `default:` — a sixth move must
    * state its own answer here rather than inheriting a plausible one.
    */
-  private async derive(move: TribunalMove, specTaskId: string | null): Promise<TribunalProgress> {
+  private async derive(
+    move: TribunalMove,
+    specTaskId: string | null,
+  ): Promise<TribunalProgress> {
     if (move === 'council' || move === 'forge' || move === 'race') {
-      return derivePhase({ move, specTaskId, laneBindings: { lanes: this.state.lanes(), bound: this.state.laneBindings() }, agents: [], artifacts: null });
+      return derivePhase({
+        move,
+        specTaskId,
+        laneBindings: {
+          lanes: this.state.lanes(),
+          bound: this.state.laneBindings(),
+        },
+        agents: [],
+        artifacts: null,
+      });
     }
     const folder = await this.readSpecFolder(specTaskId);
     if (folder.kind === 'unavailable') return folder;
@@ -235,15 +248,24 @@ export class TribunalProgressService {
         if (!folder.artifacts.has(roundJudgeFile(round))) continue;
         const read = await this.readJudgeReport(folder.taskId, round);
         if (read.kind === 'unavailable') return read;
-        if (read.content !== null) rounds.push(parseJudgeReport(round, read.content));
+        if (read.content !== null)
+          rounds.push(parseJudgeReport(round, read.content));
       }
     }
     const sessionId = this.state.tribunalSessionId();
     return derivePhase({
-      move, specTaskId,
-      laneBindings: { lanes: this.state.lanes(), bound: this.state.laneBindings() },
+      move,
+      specTaskId,
+      laneBindings: {
+        lanes: this.state.lanes(),
+        bound: this.state.laneBindings(),
+      },
       agents: sessionId ? this.agentMonitor.agentsForSession(sessionId) : [],
-      artifacts: { names: folder.artifacts, rounds, roundCap: this.state.roundCap() ?? DEFAULT_CRUCIBLE_ROUND_CAP },
+      artifacts: {
+        names: folder.artifacts,
+        rounds,
+        roundCap: this.state.roundCap() ?? DEFAULT_CRUCIBLE_ROUND_CAP,
+      },
     });
   }
 
@@ -338,7 +360,6 @@ export class TribunalProgressService {
     return workspaceRoot ? { workspaceRoot } : {};
   }
 }
-
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

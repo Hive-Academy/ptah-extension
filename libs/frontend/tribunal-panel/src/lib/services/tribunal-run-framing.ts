@@ -1,6 +1,13 @@
 import { RUBRIC_FILE, SPEC_ROOT, roundJudgeFile } from '@ptah-extension/shared';
 import { RELAY_DELIVERABLE } from './spec-documents';
-import { RELAY_ROLES, rolesForMove, type LaneRole, type RelayRole, type TribunalMove, type VendorLane } from '../types/tribunal-ui.types';
+import {
+  RELAY_ROLES,
+  rolesForMove,
+  type LaneRole,
+  type RelayRole,
+  type TribunalMove,
+  type VendorLane,
+} from '../types/tribunal-ui.types';
 
 const MOVE_PHRASE: Record<TribunalMove, string> = {
   council: 'Convene a Tribunal Council',
@@ -96,9 +103,16 @@ const ROUND_JUDGE_NAME_PATTERN = roundJudgeFile(1).replace('1', 'N');
 /** Crucible's default revise-round cap, and its maximum at launch (AC-3.2). */
 export const DEFAULT_CRUCIBLE_ROUND_CAP = 2;
 
-export type TribunalFramingContext = { readonly specTaskId: string | null; readonly roundCap: number | null; readonly rubric: string | null };
+export type TribunalFramingContext = {
+  readonly specTaskId: string | null;
+  readonly roundCap: number | null;
+  readonly rubric: string | null;
+};
 
-export function roundCapFor(spec: { readonly move: TribunalMove; readonly roundCap?: number }): number | null {
+export function roundCapFor(spec: {
+  readonly move: TribunalMove;
+  readonly roundCap?: number;
+}): number | null {
   if (spec.move !== 'crucible') return null;
   const requested = spec.roundCap ?? DEFAULT_CRUCIBLE_ROUND_CAP;
   return Math.min(Math.max(1, Math.trunc(requested)), 2);
@@ -109,7 +123,11 @@ export function laneTag(laneId: string, role?: LaneRole): string {
 }
 
 /** A launch instruction for an already approved run, appended to the existing persona. */
-export function buildApprovedRootFraming(move: TribunalMove, lanes: readonly VendorLane[], context: TribunalFramingContext): string {
+export function buildApprovedRootFraming(
+  move: TribunalMove,
+  lanes: readonly VendorLane[],
+  context: TribunalFramingContext,
+): string {
   return `${buildTribunalFraming(move, lanes, context)}
 
 Conduct this approved run, then return to your normal role.`;
@@ -221,7 +239,6 @@ function laneLine(
 function isRelayRole(role: LaneRole): role is RelayRole {
   return (RELAY_ROLES as readonly string[]).includes(role);
 }
-
 
 function spawnArgsFor(lane: VendorLane): string {
   const modelArg = lane.model ? `, model: "${lane.model}"` : '';

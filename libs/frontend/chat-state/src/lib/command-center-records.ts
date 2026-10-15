@@ -48,14 +48,19 @@ export class CommandCenterRecordsService {
     } catch {
       return empty;
     }
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return empty;
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+      return empty;
     const value = parsed as Record<string, unknown>;
     const lastSession = lastSessionSchema.safeParse(value['lastSession']);
     if (lastSession.success) empty.lastSession = lastSession.data;
     const activeTabId = nonEmpty.safeParse(value['activeTabId']);
     if (activeTabId.success) empty.activeTabId = activeTabId.data;
     const rawRuns = value['runs'];
-    if (rawRuns !== null && typeof rawRuns === 'object' && !Array.isArray(rawRuns)) {
+    if (
+      rawRuns !== null &&
+      typeof rawRuns === 'object' &&
+      !Array.isArray(rawRuns)
+    ) {
       for (const [rootTabId, rawManifest] of Object.entries(rawRuns)) {
         const manifest = manifestSchema.safeParse(rawManifest);
         if (manifest.success && manifest.data.rootTabId === rootTabId) {
@@ -71,6 +76,7 @@ export class CommandCenterRecordsService {
       localStorage.setItem(this.key(workspacePath), JSON.stringify(records));
       return true;
     } catch {
+      // degradation-audit: reported — false reaches TabManagerService.recordCommandCenterWrite, which warns and sets commandCenterRecordWriteFailure
       return false;
     }
   }
@@ -79,7 +85,10 @@ export class CommandCenterRecordsService {
     return this.read(workspacePath).lastSession;
   }
 
-  writeLastSession(workspacePath: string, value: CommandCenterLastSession): boolean {
+  writeLastSession(
+    workspacePath: string,
+    value: CommandCenterLastSession,
+  ): boolean {
     const validated = lastSessionSchema.safeParse(value);
     if (!validated.success) return false;
     const records = this.read(workspacePath);
@@ -100,11 +109,17 @@ export class CommandCenterRecordsService {
     return this.write(workspacePath, records);
   }
 
-  readRunManifest(workspacePath: string, rootTabId: string): CommandCenterRunManifest | undefined {
+  readRunManifest(
+    workspacePath: string,
+    rootTabId: string,
+  ): CommandCenterRunManifest | undefined {
     return this.read(workspacePath).runs[rootTabId];
   }
 
-  writeRunManifest(workspacePath: string, value: CommandCenterRunManifest): boolean {
+  writeRunManifest(
+    workspacePath: string,
+    value: CommandCenterRunManifest,
+  ): boolean {
     const validated = manifestSchema.safeParse(value);
     if (!validated.success) return false;
     const records = this.read(workspacePath);

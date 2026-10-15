@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
-import { CommandCenterRecordsService, type CommandCenterRunManifest } from './command-center-records';
+import {
+  CommandCenterRecordsService,
+  type CommandCenterRunManifest,
+} from './command-center-records';
 
 const manifest: CommandCenterRunManifest = {
   runId: 'b5fa2ef3-a71c-4e13-8f33-b861f65e7744',
@@ -22,9 +25,19 @@ describe('CommandCenterRecordsService', () => {
   });
 
   it('writes and reads workspace-scoped last session and active marker', () => {
-    expect(records.writeLastSession('/one', { sdkSessionId: 'sdk', tabId: 'root', updatedAt: 1 })).toBe(true);
+    expect(
+      records.writeLastSession('/one', {
+        sdkSessionId: 'sdk',
+        tabId: 'root',
+        updatedAt: 1,
+      }),
+    ).toBe(true);
     expect(records.setActiveTabId('/one', 'root')).toBe(true);
-    expect(records.readLastSession('/one')).toEqual({ sdkSessionId: 'sdk', tabId: 'root', updatedAt: 1 });
+    expect(records.readLastSession('/one')).toEqual({
+      sdkSessionId: 'sdk',
+      tabId: 'root',
+      updatedAt: 1,
+    });
     expect(records.readActiveTabId('/one')).toBe('root');
     expect(records.readLastSession('/two')).toBeUndefined();
     expect(records.readActiveTabId('/two')).toBeUndefined();
@@ -34,7 +47,11 @@ describe('CommandCenterRecordsService', () => {
   });
 
   it('keeps last session after closing its tab and removes the run independently', () => {
-    records.writeLastSession('/one', { sdkSessionId: 'sdk', tabId: 'root', updatedAt: 1 });
+    records.writeLastSession('/one', {
+      sdkSessionId: 'sdk',
+      tabId: 'root',
+      updatedAt: 1,
+    });
     records.writeRunManifest('/one', manifest);
     records.setActiveTabId('/one', null);
     records.removeRunManifest('/one', 'root');
@@ -47,11 +64,14 @@ describe('CommandCenterRecordsService', () => {
     expect(records.writeRunManifest('/one', manifest)).toBe(true);
     expect(records.readRunManifest('/one', 'root')).toEqual(manifest);
     const key = 'ptah.tabs.ws._2Fone.command-center';
-    localStorage.setItem(key, JSON.stringify({
-      lastSession: { sdkSessionId: 1, updatedAt: 'bad' },
-      activeTabId: 7,
-      runs: { root: { ...manifest, rounds: 'bad' }, other: manifest },
-    }));
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        lastSession: { sdkSessionId: 1, updatedAt: 'bad' },
+        activeTabId: 7,
+        runs: { root: { ...manifest, rounds: 'bad' }, other: manifest },
+      }),
+    );
     expect(records.readLastSession('/one')).toBeUndefined();
     expect(records.readActiveTabId('/one')).toBeUndefined();
     expect(records.readRunManifest('/one', 'root')).toBeUndefined();

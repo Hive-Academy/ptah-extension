@@ -997,10 +997,17 @@ export class TabManagerService {
     if (!workspacePath) throw new Error('An active workspace is required');
     const tabId = this.createTab(name);
     this.updateTabInternal(tabId, {
-      commandCenterOrigin: { workspaceId: workspacePath, createdAt: Date.now(), version: 1 },
+      commandCenterOrigin: {
+        workspaceId: workspacePath,
+        createdAt: Date.now(),
+        version: 1,
+      },
     });
-    this.recordCommandCenterWrite(workspacePath, 'activeTabId',
-      this.commandCenterRecords.setActiveTabId(workspacePath, tabId));
+    this.recordCommandCenterWrite(
+      workspacePath,
+      'activeTabId',
+      this.commandCenterRecords.setActiveTabId(workspacePath, tabId),
+    );
     return tabId;
   }
 
@@ -1372,11 +1379,18 @@ export class TabManagerService {
     const tabs = this._tabs();
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    if (validCommandCenterOrigin(tab.commandCenterOrigin) &&
-      this.commandCenterRecords.readActiveTabId(tab.commandCenterOrigin.workspaceId) === tabId) {
+    if (
+      validCommandCenterOrigin(tab.commandCenterOrigin) &&
+      this.commandCenterRecords.readActiveTabId(
+        tab.commandCenterOrigin.workspaceId,
+      ) === tabId
+    ) {
       const workspacePath = tab.commandCenterOrigin.workspaceId;
-      this.recordCommandCenterWrite(workspacePath, 'activeTabId',
-        this.commandCenterRecords.setActiveTabId(workspacePath, null));
+      this.recordCommandCenterWrite(
+        workspacePath,
+        'activeTabId',
+        this.commandCenterRecords.setActiveTabId(workspacePath, null),
+      );
     }
 
     // Abort any in-flight streaming RPC BEFORE tab state cleanup so the
@@ -1961,10 +1975,15 @@ export class TabManagerService {
     if (tab && validCommandCenterOrigin(tab.commandCenterOrigin)) {
       this.commandCenterSendLock.rekey(tabId, sessionId);
       const workspacePath = tab.commandCenterOrigin.workspaceId;
-      this.recordCommandCenterWrite(workspacePath, 'lastSession',
+      this.recordCommandCenterWrite(
+        workspacePath,
+        'lastSession',
         this.commandCenterRecords.writeLastSession(workspacePath, {
-          sdkSessionId: sessionId, tabId, updatedAt: Date.now(),
-        }));
+          sdkSessionId: sessionId,
+          tabId,
+          updatedAt: Date.now(),
+        }),
+      );
     }
   }
 

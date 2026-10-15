@@ -23,7 +23,12 @@ describe('CommandCenterStore', () => {
     store.setSession('tab-a', 'sdk-a', '/workspace');
     store.setSessionStatus('running');
     store.setVoiceState('listening');
-    store.setPendingInput({ id: 'q', kind: 'question', title: 'Choose', description: 'Pick one' });
+    store.setPendingInput({
+      id: 'q',
+      kind: 'question',
+      title: 'Choose',
+      description: 'Pick one',
+    });
     store.setProvider({ transcription: true, synthesis: false });
     store.setToast({ message: 'Ready', tone: 'info' });
     store.setTheme('light');
@@ -52,10 +57,34 @@ describe('CommandCenterStore', () => {
 
   it('copies projection snapshots and excludes unrelated work', () => {
     const nodes: CommandWorkNode[] = [
-      { id: 'child', parentId: 'root', label: 'Child', providerId: 'claude', state: 'queued' },
-      { id: 'other', parentId: null, label: 'Other', providerId: null, state: 'running' },
-      { id: 'root', parentId: null, label: 'Root', providerId: null, state: 'running' },
-      { id: 'grandchild', parentId: 'child', label: 'Grandchild', providerId: 'codex', state: 'awaiting input' },
+      {
+        id: 'child',
+        parentId: 'root',
+        label: 'Child',
+        providerId: 'claude',
+        state: 'queued',
+      },
+      {
+        id: 'other',
+        parentId: null,
+        label: 'Other',
+        providerId: null,
+        state: 'running',
+      },
+      {
+        id: 'root',
+        parentId: null,
+        label: 'Root',
+        providerId: null,
+        state: 'running',
+      },
+      {
+        id: 'grandchild',
+        parentId: 'child',
+        label: 'Grandchild',
+        providerId: 'codex',
+        state: 'awaiting input',
+      },
     ];
     const edges: CommandWorkEdge[] = [
       { fromId: 'root', toId: 'child' },
@@ -64,7 +93,11 @@ describe('CommandCenterStore', () => {
     store.setProjection('root', nodes, edges);
     const firstNodes = store.nodes();
     const firstEdges = store.edges();
-    expect(firstNodes.map((node) => node.id)).toEqual(['child', 'root', 'grandchild']);
+    expect(firstNodes.map((node) => node.id)).toEqual([
+      'child',
+      'root',
+      'grandchild',
+    ]);
     expect(firstEdges).toEqual([{ fromId: 'root', toId: 'child' }]);
     expect(firstNodes[0]).not.toBe(nodes[0]);
     expect(firstEdges[0]).not.toBe(edges[0]);
@@ -79,7 +112,12 @@ describe('CommandCenterStore', () => {
   });
 
   it('copies object inputs so later updates leave earlier snapshots intact', () => {
-    const input = { id: 'a', kind: 'approval' as const, title: 'Approve', description: 'Action' };
+    const input = {
+      id: 'a',
+      kind: 'approval' as const,
+      title: 'Approve',
+      description: 'Action',
+    };
     const provider = { transcription: true, synthesis: true };
     store.setPendingInput(input);
     store.setProvider(provider);
@@ -89,7 +127,12 @@ describe('CommandCenterStore', () => {
     provider.synthesis = false;
     store.setPendingInput({ ...input, id: 'b' });
     store.setProvider(provider);
-    expect(oldInput).toEqual({ id: 'a', kind: 'approval', title: 'Approve', description: 'Action' });
+    expect(oldInput).toEqual({
+      id: 'a',
+      kind: 'approval',
+      title: 'Approve',
+      description: 'Action',
+    });
     expect(oldProvider).toEqual({ transcription: true, synthesis: true });
   });
 

@@ -124,7 +124,7 @@ Edge cases:
 | D14 | Batch 8 keeps its local `rosterIsLaunchableLocally` copy (`tribunal-roster-proposal.ts:35-51`) for now; the Phase B style review decides between the copy and widening `@ptah-extension/tribunal-panel/phase` to export `rosterIsLaunchable`. A widening, if chosen, lands in B8F. | keep copy; widen the phase entry now | The phase entry was scoped narrow on purpose (B7, Decision D6); the copy mirrors `tribunal-roster-rules.ts:42-106` and can drift. This is a structure call that the style reviewer owns. | yes |
 | D14-R | D14 resolved by the Phase B style review (ruling 3): widen `@ptah-extension/tribunal-panel/phase` with `rosterIsLaunchable`, the two round-cap constants, the role and move values and their types (Batch 8FB), and delete the local copy (Batch 8FC). | keep copy | `code-style-review.md` S2, S3, ruling 3: the rule file is pure, `VendorLane` already accepts the parsed lanes, and the copy has already drifted. | yes |
 | D15 | Root cause of style S1 (unformatted files): **no git hook has ever run in this worktree**. `core.hooksPath` is the relative `.husky/_`, which git resolves per worktree. Husky created that folder only in the main checkout, and `node_modules` here is a symlink, so `prepare` never ran. B1-B8 skipped lint-staged (Prettier and lint), commitlint and pre-push. The team leader ran `npx husky` in the worktree on 2026-10-15. It wrote a self-ignored `.husky/_/` and set the shared `core.hooksPath` to the same `.husky/_` value. `npx commitlint --from main --to HEAD` passes for every existing commit. | leave hooks off and format by hand; restore hooks | `.husky/pre-commit`, `.lintstagedrc.mjs` (`nx format:write --files=…` then `nx affected --target=lint`); `ls .husky/_` was missing; `nx format:check --files=<file>` flags the file correctly, so the formatter itself works. Follow-up outside this task: every worktree created per `CLAUDE.md` has the same gap; recommend a separate chore so worktree setup runs `npx husky`. | yes (delete `.husky/_`) |
-| D16 | With hooks restored, every commit that stages TS runs `nx affected --target=lint` on about 80 projects, because this branch changes `libs/shared` (nx `parallel: 2`). That conflicts with the `CLAUDE.md` memory rule against workspace-wide checks. **Open question Q1 for the orchestrator.** Default until answered: keep the hook (never bypass it) and run each TS commit alone in the foreground with a long timeout and no other heavy check in flight. Docs-only commits run only `nx format:write`. | (a) keep hook, serialise commits (recommended); (b) user approves a one-off scoped lint arrangement; (c) bypass (refused) | `npx nx show projects --affected --withTarget=lint` lists about 80 projects; `nx.json:4` sets `parallel: 2`. | yes |
+| D16 | With hooks restored, every commit that stages TS runs `nx affected --target=lint` on about 80 projects, because this branch changes `libs/shared` (nx `parallel: 2`). That conflicts with the `CLAUDE.md` memory rule against workspace-wide checks. **Open question Q1 for the orchestrator** (answered (a), orchestrator default: D25). Default until answered: keep the hook (never bypass it) and run each TS commit alone in the foreground with a long timeout and no other heavy check in flight. Docs-only commits run only `nx format:write`. | (a) keep hook, serialise commits (recommended); (b) user approves a one-off scoped lint arrangement; (c) bypass (refused) | `npx nx show projects --affected --withTarget=lint` lists about 80 projects; `nx.json:4` sets `parallel: 2`. | yes |
 | D17 | 8F0 formats 41 files whole: 37 new, 3 modified that were Prettier-clean on `main`, and `chat.store.ts`. It excludes `session-loader.service.ts` and `chat-rpc.schema.spec.ts`. Two in-hunk drifts stay as recorded residue: `session-loader.service.ts:997` and `chat-rpc.schema.spec.ts:36-44`. | reformat everything; hand-wrap hunks in the dirty files | `main` check with `prettier --check --stdin-filepath`. `session-loader.service.ts` has 217 drift lines that predate this task, and lint-staged formats whole staged files, so staging it would rewrite unrelated code. `chat.store.ts` has about 8 drift lines that predate this task, and 8FD stages it anyway. `tab-manager.service.ts` and `message-sender.service.ts` were clean on `main`, contrary to the style review's assumption. | yes |
 | D18 | Logic S1 fix: a per-proposal state machine (`open` -> `answered` -> `launched`, or `declined`). The id is consumed only on launch or Decline. Failures after the D1 answer stay retryable and reuse the `specTaskId` and `runId`. The manifest is rolled back when the launch send fails. One fixed safe message goes through `transport.reportFailure`. Confirm-time availability re-check comes before the answer. | consume on confirm (today); always Decline on any failure | A1 items 1-3; review S1 fix text; Decision D1 (once the fixed text is delivered, the question is closed and a later Decline is impossible, so a retry handle is the only path to launch). | yes |
 | D19 | Logic S4: when another tab already owns the last-session SDK id, Command Center refuses (switches to that tab and shows a safe message) instead of adopting that tab. Logic S6: `newCommandCenter` stops voice (`idle`, lock released, meters zeroed) instead of re-engaging the lock on the new tab. | adopt the tab (needs a new chat-state mark-existing-tab API and lifecycle rules); carry voice to the new tab | No mark-existing API exists (`tab-manager.service.ts:995` only creates). The voice loop does not exist until B10, so carrying voice has no owner. Both choices keep one SDK id on one tab and one writer. | yes |
@@ -133,6 +133,7 @@ Edge cases:
 | D22 | "Flat Tribunal moves have no lanes or stage" is treated as Serious S7. Lane nodes get the new stable id prefix `lane:<runId>:<laneId>`, and a missing stage gets `phase:<runId>:stage`. | Moderate / later task | The review's data-flow item 10 and requirements row AC15 cite it as "S7", although its summary counts six Serious. AC15 is unmet and no later batch owns the projector. | yes |
 | D23 | `TASK/reports/phase-b.diff` (137 KB, generated) is not committed. Delete it after the 8F re-review returns. | commit it | Reproducible with `git diff fa97a6967^..2137ab904`; the re-review range is the 8F commits. | yes |
 | D24 | 8F runs in this order: 8F0 alone, then wave 1 in PARALLEL MODE (8FA, 8FB, 8FD; disjoint files and disjoint Nx projects; lanes run no nx or jest), then 8FC, then 8FE. The team leader checks and commits one batch at a time. Each lane stays at 6 files or fewer, in at most 2 projects, under 40 tool calls. | one 8F batch (about 20 files, 5 projects); fully sequential | Batch-size rule; orchestrator's parallel condition (file-disjoint and different projects); 8FC needs 8FA and 8FB; 8FC and 8FE share `command-center`. | yes |
+| D25 | Q1 (from D16) answered by the orchestrator as a default, not a user answer: option (a). Keep the restored pre-commit hook, never bypass it, and run every commit alone in the foreground with a long timeout and nothing else heavy in flight. Wave 1 lanes run no nx/jest, so a team-leader commit never overlaps a lane check. | (b) scoped-lint arrangement; (c) bypass | A hook bypass is user-reserved and was not requested (orchestrator message, Batch 8F0 Mode 2). The user can overturn this. | yes |
 
 ## Phases and reviews
 
@@ -1017,7 +1018,7 @@ Lane rules for this batch:
 - Suggested commit: `style: batch 8F0 - prettier on command center task files` (no scope; commitlint
   `scope-empty` is not enforced). Body: names Decision D15/D17 and lists the excluded files.
 
-### Task 8F0.1: Prettier on the 41 task files - IN_PROGRESS
+### Task 8F0.1: Prettier on the 41 task files - IMPLEMENTED
 
 - Files (all relative to the worktree root; the lane passes these exact paths, never a glob):
   `libs/backend/rpc-handlers/src/lib/chat/session/chat-session-persona-resume.spec.ts`,
@@ -1080,7 +1081,44 @@ Lane rules for this batch:
 
 - `prettier --check` on the 41 files passes; `git diff --name-only` lists exactly the 41 files; the diff carries
   no token changes beyond formatting (spot-check `git diff --word-diff` on 3 files).
-- The commit runs the restored pre-commit hook (Decision D16, Q1).
+- The commit runs the restored pre-commit hook (Decision D16, Q1 answered in D25).
+- Result (team-leader, Mode 2): executor orchestrator in-process (one Prettier command, no lane); report
+  `TASK/reports/batch-8F0-report.md`. 40 files changed, all in the list; the 41st
+  (`tribunal-progress.service.spec.ts`) was already clean. Spot-check: stripped-token compare of
+  `tribunal-run-coordinator.ts`, `tab-manager.service.ts`, `phase.ts` identical to `HEAD`;
+  `command-center.store.ts` differs only by Prettier joining the `CommandSessionStatus` union (leading `|`
+  dropped); `prettier --check` on 3 sampled files (incl. `chat.store.ts`, `tsconfig.base.json`) clean.
+  Excluded per D17: `session-loader.service.ts`, `chat-rpc.schema.spec.ts` (not staged).
+- Commit attempt 1 (team-leader, foreground, hook not bypassed): FAILED in the pre-commit hook.
+  lint-staged `nx format:write` changed nothing; `nx affected --target=lint` ran 80 projects (3m10s), 79 passed,
+  `degradation-audit:lint` failed: `libs/frontend/chat-state: 3 FAIL (baseline 2)`. The new site is
+  `libs/frontend/chat-state/src/lib/command-center-records.ts:78 [catch-return-sentinel]` (`write()`'s
+  `catch { return false; }`). It is NOT caused by formatting: the same catch is at `:73` on `HEAD` and dates from
+  Batch 2 (`619ec683b`), committed while no hook ran (D15). The audit scans the whole tree, so every TS commit
+  fails until it is fixed. Fix: Task 8F0.2. Nothing was committed; the index still holds the 42 staged paths.
+- Task 8F0.2 verified (team-leader, Mode 2): the marker is the first line of the `write()` catch body
+  (`command-center-records.ts:79`, `return false;` at `:80`); `prettier --check` on the file is clean; one direct
+  audit run (`check-degradation.ts --max-warnings=-1`, exit 0) prints `libs/frontend/chat-state: 2 ok (baseline 2)`,
+  `libs/backend/rpc-handlers: 1 ok (baseline 1)`, `libs/frontend/tribunal-panel: 1 ok (baseline 1)` and no FAIL line.
+
+### Task 8F0.2: Degradation-audit marker on the records write catch (carried from Batch 2) - IMPLEMENTED
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.ts`
+  (already in the 8F0 set; no other file)
+- Finding: `:78` `catch { return false; }` in `private write(...)` is a `catch-return-sentinel`
+  (`libs/frontend/chat-state` baseline is 2; this is the third). Never edit `tools/degradation-audit/baseline.json`.
+- Pattern to follow: Task 8.4 markers in `libs/frontend/command-center/src` and
+  `tools/degradation-audit/__fixtures__/suppressed-optional-capability.ts`.
+- Quality requirements: add, as the first comment line inside the catch body, exactly one marker with an em dash:
+  `// degradation-audit: reported — false reaches TabManagerService.recordCommandCenterWrite, which warns and sets commandCenterRecordWriteFailure`
+  (wrap is not allowed inside the marker line; keep it one line). The marker is true: every caller of
+  `writeLastSession`/`writeRunManifest` passes the boolean to `recordCommandCenterWrite`
+  (`tab-manager.service.ts:1014-1027`, warn plus failure signal). No behaviour change, no other edit.
+- Verification (team-leader): `npx prettier --check` on the file;
+  `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts --max-warnings=-1 2>&1 | grep chat-state`
+  must show `libs/frontend/chat-state: 2 ok (baseline 2)`; then re-stage the file and re-run the 8F0 commit alone in
+  the foreground with the hook.
+- Validation notes: 8FA rewrites the manifest half of this file next; it must keep this marker.
 
 ## Batch 8FA: chat-state manifest contract and close cleanup (TL-1, TL-2 schema, TL-3) - PENDING
 

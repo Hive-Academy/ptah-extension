@@ -1,11 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 
 export type CommandSessionStatus =
-  | 'idle'
-  | 'starting'
-  | 'running'
-  | 'stopped'
-  | 'error';
+  'idle' | 'starting' | 'running' | 'stopped' | 'error';
 
 export type CommandVoiceState =
   | 'idle'
@@ -161,14 +157,22 @@ export class CommandCenterStore {
     do {
       changed = false;
       for (const node of nodes) {
-        if (node.parentId !== null && included.has(node.parentId) && !included.has(node.id)) {
+        if (
+          node.parentId !== null &&
+          included.has(node.parentId) &&
+          !included.has(node.id)
+        ) {
           included.add(node.id);
           changed = true;
         }
       }
     } while (changed);
 
-    this._nodes.set(nodes.filter((node) => included.has(node.id)).map((node) => ({ ...node })));
+    this._nodes.set(
+      nodes
+        .filter((node) => included.has(node.id))
+        .map((node) => ({ ...node })),
+    );
     this._edges.set(
       edges
         .filter((edge) => included.has(edge.fromId) && included.has(edge.toId))
@@ -181,7 +185,9 @@ export class CommandCenterStore {
   }
 
   public select(id: string | null): void {
-    this._selectedId.set(id !== null && this._nodes().some((node) => node.id === id) ? id : null);
+    this._selectedId.set(
+      id !== null && this._nodes().some((node) => node.id === id) ? id : null,
+    );
   }
 
   public setPendingInput(input: CommandPendingInput | null): void {

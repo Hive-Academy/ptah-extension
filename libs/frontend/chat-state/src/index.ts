@@ -70,10 +70,16 @@ export {
   deriveSessionTitle,
   workspaceLabelFromPath,
 } from './lib/session-identity';
-export { COMMAND_CENTER_PERSONA, commandCenterPersonaFor } from './lib/command-center-persona';
+export {
+  COMMAND_CENTER_PERSONA,
+  commandCenterPersonaFor,
+} from './lib/command-center-persona';
 export {
   CommandCenterRecordsService,
   type CommandCenterLastSession,
   type CommandCenterRunManifest,
 } from './lib/command-center-records';
-export { CommandCenterSendLockService, type CommandCenterSendLockState } from './lib/command-center-send-lock.service';
+export {
+  CommandCenterSendLockService,
+  type CommandCenterSendLockState,
+} from './lib/command-center-send-lock.service';
