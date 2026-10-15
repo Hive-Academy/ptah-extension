@@ -14,6 +14,7 @@ import {
 export const CONFIRMED_DISCOVERY_ANSWER =
   'Recorded. End this turn now without starting any agent; launch instructions follow in a separate message.';
 export type ConfirmFailureReason =
+  | 'cancelled'
   | 'lanes-unavailable'
   | 'answer-undelivered'
   | 'discovery-failed'
@@ -25,6 +26,8 @@ export type ConfirmResult =
   | { ok: true }
   | { ok: false; reason: ConfirmFailureReason; retryable: boolean };
 export const CONFIRM_FAILURE_MESSAGES: Record<ConfirmFailureReason, string> = {
+  cancelled:
+    'Command Center closed before the run launched. Nothing was started.',
   'lanes-unavailable':
     'A selected lane is no longer available. Choose a new roster.',
   'answer-undelivered': 'The roster answer could not be delivered.',
@@ -59,7 +62,7 @@ type PendingBase = Readonly<Omit<ProposalReceiveContext, 'availability'>> & {
   readonly proposal: TribunalRosterProposal;
 };
 export interface PendingProposal extends PendingBase {
-  state: 'open' | 'answered' | 'launched' | 'declined';
+  state: 'open' | 'answered' | 'launched' | 'declined' | 'cancelled';
   specTaskId?: string;
   runId?: string;
 }
@@ -108,11 +111,16 @@ export class TribunalRunCoordinator {
   public timeout(proposalId: string): void {
     this.resolveDecline(proposalId);
   }
+  /** An answered proposal is cancelled; an in-flight confirm stops before its manifest write. */
   public pageExit(): void {
     for (const [id, entry] of this.pending) {
       if (entry.state === 'open' && !this.inFlight.has(id))
         this.resolveDecline(id);
-      else if (entry.state === 'answered') this.pending.delete(id);
+      else if (entry.state === 'answered') {
+        entry.state = 'cancelled';
+        this.pending.delete(id);
+        this.consumed.add(id);
+      }
     }
   }
 
@@ -161,8 +169,10 @@ export class TribunalRunCoordinator {
       await this.transport.discoveryComplete();
     } catch {
       // degradation-audit: reported — a failed discovery leaves the answered proposal available for retry
+      if (this.isCancelled(id, entry)) return this.cancel(entry);
       return this.failure('discovery-failed', true);
     }
+    if (this.isCancelled(id, entry)) return this.cancel(entry);
     const proposal = entry.proposal;
     if (
       proposal.rootSessionId !== entry.rootSdkId ||
@@ -181,8 +191,10 @@ export class TribunalRunCoordinator {
           (await this.transport.createTask(proposal)) ?? undefined;
       } catch {
         // degradation-audit: reported — task creation failed and the answered proposal remains retryable
+        if (this.isCancelled(id, entry)) return this.cancel(entry);
         return this.failure('task-create-failed', true);
       }
+      if (this.isCancelled(id, entry)) return this.cancel(entry);
       if (!entry.specTaskId) return this.failure('task-create-failed', true);
     }
     entry.runId ??= crypto.randomUUID();
@@ -229,7 +241,24 @@ export class TribunalRunCoordinator {
     } catch {
       // degradation-audit: reported — the rollback failed; the launch failure is still reported to the page
     }
-    return this.failure('launch-send-failed', true);
+    return this.isCancelled(id, entry)
+      ? this.failure('cancelled', false)
+      : this.failure('launch-send-failed', true);
+  }
+
+  private isCancelled(id: string, entry: PendingProposal): boolean {
+    return this.pending.get(id) !== entry;
+  }
+
+  private cancel(entry: PendingProposal): ConfirmResult {
+    if (entry.runId) {
+      try {
+        this.transport.removeManifest(entry.workspace, entry.runId);
+      } catch {
+        // degradation-audit: reported — cancellation is reported even if an earlier manifest cannot be removed
+      }
+    }
+    return this.failure('cancelled', false);
   }
 
   private failure(

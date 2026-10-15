@@ -90,6 +90,58 @@ describe('CommandCenterRecordsService', () => {
     expect(records.readRunManifests('/one', 'root')).toEqual([sibling, old]);
   });
 
+  it.each(['run-first', 'root-first'])(
+    'keeps the run-keyed body when stored %s',
+    (order) => {
+      const key = 'ptah.tabs.ws._2Fone.command-center';
+      const runBody = {
+        ...manifest,
+        startedAt: 200,
+        lanes: [{ laneId: 'new' }],
+      };
+      const rootBody = {
+        ...manifest,
+        startedAt: 100,
+        lanes: [{ laneId: 'old' }],
+      };
+      const entries =
+        order === 'run-first'
+          ? [
+              [manifest.runId, runBody],
+              [manifest.rootTabId, rootBody],
+            ]
+          : [
+              [manifest.rootTabId, rootBody],
+              [manifest.runId, runBody],
+            ];
+      localStorage.setItem(
+        key,
+        JSON.stringify({ runs: Object.fromEntries(entries) }),
+      );
+      expect(records.readRunManifests('/one', 'root')).toEqual([runBody]);
+      expect(records.writeRunManifest('/one', sibling)).toBe(true);
+      const stored = JSON.parse(localStorage.getItem(key) ?? '{}') as {
+        runs: Record<string, unknown>;
+      };
+      expect(stored.runs).toEqual({
+        [manifest.runId]: runBody,
+        [sibling.runId]: sibling,
+      });
+    },
+  );
+
+  it('keeps the newer of two root-keyed bodies for one run', () => {
+    const key = 'ptah.tabs.ws._2Fone.command-center';
+    const older = { ...manifest, startedAt: 100 };
+    const newer = { ...manifest, rootTabId: 'other', startedAt: 200 };
+    localStorage.setItem(
+      key,
+      JSON.stringify({ runs: { other: newer, root: older } }),
+    );
+    expect(records.readRunManifests('/one', 'other')).toEqual([newer]);
+    expect(records.readRunManifests('/one', 'root')).toEqual([]);
+  });
+
   it('drops corrupt and mismatched entries without losing valid runs', () => {
     const key = 'ptah.tabs.ws._2Fone.command-center';
     localStorage.setItem(

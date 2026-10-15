@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 16/28
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 17/28
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -1620,7 +1620,7 @@ Lane rules for this batch:
     independent review of the 8FG diff only. If that review finds defects, report them and stop; no further
     fix round in Phase B.
 
-## Batch 8FG: Phase B bounded correction - page exit cancels an in-flight confirm; deterministic manifest migration - IN_PROGRESS
+## Batch 8FG: Phase B bounded correction - page exit cancels an in-flight confirm; deterministic manifest migration - COMPLETE (commit: subject `fix(command-center,chat-state): batch 8FG - cancel confirm on page exit`; SHA added with the review verdict) - NEEDS REVIEW
 
 - Recommended executor: CLI lane (implementation; Angular feature/data-access TypeScript, async state machine and
   test design)
@@ -1646,7 +1646,7 @@ Lane rules for this batch:
   Minors (recorded only). Do not change `receive`, `decline`, `timeout`, the lanes-unavailable branch, or the
   existing `removeManifest`-after-failed-send behaviour except where Task 8FG.1 says so.
 
-### Task 8FG.1: Page exit cancels an in-flight confirm before any manifest write or launch send (re-review Serious) - IN_PROGRESS
+### Task 8FG.1: Page exit cancels an in-flight confirm before any manifest write or launch send (re-review Serious) - COMPLETE
 
 - File: `tribunal-run-coordinator.ts` and its spec.
 - Finding: `pageExit()` (about `:111-117`) deletes an `answered` entry from `pending`, but the in-flight
@@ -1695,7 +1695,7 @@ Lane rules for this batch:
 - Validation notes: A1 still holds (no affirmative token, no launch from timeout or auto-resolve). The new catch is
   the only new catch site; `libs/frontend/command-center` is at degradation-audit baseline 0.
 
-### Task 8FG.2: Deterministic migration when a run key and a root key hold the same run (re-review Moderate, D27) - IN_PROGRESS
+### Task 8FG.2: Deterministic migration when a run key and a root key hold the same run (re-review Moderate, D27) - COMPLETE
 
 - File: `command-center-records.ts` and its spec.
 - Finding: `read()` (about `:64-72`) writes `empty.runs[manifest.data.runId]` for each accepted stored key, so when
@@ -1718,6 +1718,28 @@ Lane rules for this batch:
   `read()` precedence rule on disk.
 - After commit: NEEDS REVIEW of the 8FG commit only (grok, resume session `01a14044-266f-7ab0-9875-f29af51b78ea`).
   APPROVED closes Phase B. Any defect is reported and Phase B stops there (no further fix round).
+- Result (team-leader, Mode 2): executor codex lane `c2787791`; report `TASK/reports/batch-8FG-report.md`. Exactly
+  the 4 listed files changed. On disk, `tribunal-run-coordinator.ts`: `'cancelled'` added to the state union,
+  `ConfirmFailureReason` and `CONFIRM_FAILURE_MESSAGES` (the specified text); `pageExit` sets an `answered` entry to
+  `'cancelled'`, deletes it from `pending` and consumes it (no turn, no Decline); `isCancelled(id, entry)` is
+  `pending.get(id) !== entry` and is checked after `discoveryComplete()` (resolve and reject) and after
+  `createTask()` (resolve, null and throw), all before `writeManifest`; nothing awaits between `writeManifest` and
+  `sendLaunchTurn`; `cancel(entry)` removes an earlier attempt's manifest when `runId` is set, then
+  `failure('cancelled', false)`; a failed or thrown send on a cancelled entry rolls back and returns `cancelled`
+  (not retryable); a send that succeeds stays `launched`. `command-center-records.ts` `read()`: a local `runKeyed`
+  map; a run-keyed entry replaces a root-keyed one in either order and is never replaced by one; between root-keyed
+  entries only a strictly greater `startedAt` replaces (a tie keeps the first). The 8F0.2 marker is intact (`:94`).
+  Specs: 6 new coordinator cases with deferred promises (`:279-394`), 2 new records cases (`:92-144`); no focused or
+  skipped specs.
+- Catch classification (`check-degradation.ts`): one new site, `cancel()`'s catch, whose body is only a valid
+  `reported` marker. It is not "truly empty" and returns no literal, so it is not flagged, and the marker is used.
+  The discovery and createTask catches keep their marker as the first body line; the added lines return method
+  calls, not literals. One direct audit run, exit 0: no `libs/frontend/command-center` line (0 sites, baseline 0),
+  `chat-state 2 ok (baseline 2)`, no orphaned or malformed marker.
+- Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/chat-state
+  @ptah-extension/command-center`, header 2 projects, all 6 tasks green.
+- Status: NEEDS REVIEW. One grok review of the 8FG commit only (diff `ea106f685..<8FG SHA>` in
+  `TASK/reports/phase-b-8fg.diff`, not committed), output `TASK/code-logic-review-phase-b-8fg.md`.
 
 ## Batch 9: Voice primitives (adapted from property-hub) - PENDING
 

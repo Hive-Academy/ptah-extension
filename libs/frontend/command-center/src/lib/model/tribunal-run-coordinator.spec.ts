@@ -60,6 +60,15 @@ const context = {
   nonce: 'n1',
   availability,
 };
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+};
 
 describe('TribunalRunCoordinator', () => {
   let transport: jest.Mocked<ProposalTransport>;
@@ -266,6 +275,122 @@ describe('TribunalRunCoordinator', () => {
     await coordinator.confirm('p1');
     coordinator.pageExit();
     expect(transport.answer).toHaveBeenCalledTimes(1);
+  });
+  it('cancels during discovery without writing or sending', async () => {
+    const discovery = deferred<void>();
+    transport.discoveryComplete.mockReturnValue(discovery.promise);
+    receive(coordinator);
+    const result = coordinator.confirm('p1');
+    coordinator.pageExit();
+    discovery.resolve(undefined);
+    expect(await result).toEqual({
+      ok: false,
+      reason: 'cancelled',
+      retryable: false,
+    });
+    expect(transport.writeManifest).not.toHaveBeenCalled();
+    expect(transport.sendLaunchTurn).not.toHaveBeenCalled();
+    expect(transport.answer).toHaveBeenCalledTimes(1);
+    expect(transport.reportFailure).toHaveBeenCalledTimes(1);
+    expect(transport.reportFailure).toHaveBeenCalledWith(
+      CONFIRM_FAILURE_MESSAGES.cancelled,
+    );
+  });
+  it('reports cancellation when discovery rejects after page exit', async () => {
+    const discovery = deferred<void>();
+    transport.discoveryComplete.mockReturnValue(discovery.promise);
+    receive(coordinator);
+    const result = coordinator.confirm('p1');
+    coordinator.pageExit();
+    discovery.reject(new Error('discovery failed'));
+    expect(await result).toEqual({
+      ok: false,
+      reason: 'cancelled',
+      retryable: false,
+    });
+    expect(transport.writeManifest).not.toHaveBeenCalled();
+    expect(transport.sendLaunchTurn).not.toHaveBeenCalled();
+    expect(transport.reportFailure).toHaveBeenCalledTimes(1);
+  });
+  it('cancels a Relay while task creation is pending', async () => {
+    const task = deferred<string | null>();
+    transport.createTask.mockReturnValue(task.promise);
+    receive(coordinator, relay);
+    const result = coordinator.confirm('p1');
+    await Promise.resolve();
+    expect(transport.createTask).toHaveBeenCalledTimes(1);
+    coordinator.pageExit();
+    task.resolve('TASK_1');
+    expect(await result).toEqual({
+      ok: false,
+      reason: 'cancelled',
+      retryable: false,
+    });
+    expect(transport.writeManifest).not.toHaveBeenCalled();
+    expect(transport.sendLaunchTurn).not.toHaveBeenCalled();
+  });
+  it('removes the earlier run after a retry is cancelled in discovery', async () => {
+    transport.sendLaunchTurn.mockResolvedValueOnce(false);
+    receive(coordinator);
+    expect(await coordinator.confirm('p1')).toEqual({
+      ok: false,
+      reason: 'launch-send-failed',
+      retryable: true,
+    });
+    const runId = transport.writeManifest.mock.calls[0][1].runId;
+    const discovery = deferred<void>();
+    transport.discoveryComplete.mockReturnValue(discovery.promise);
+    const retry = coordinator.confirm('p1');
+    coordinator.pageExit();
+    discovery.resolve(undefined);
+    expect(await retry).toEqual({
+      ok: false,
+      reason: 'cancelled',
+      retryable: false,
+    });
+    expect(transport.removeManifest).toHaveBeenCalledTimes(2);
+    expect(transport.removeManifest).toHaveBeenNthCalledWith(2, '/repo', runId);
+    expect(transport.writeManifest).toHaveBeenCalledTimes(1);
+  });
+  it('rolls back and consumes a cancelled send that returns false', async () => {
+    const send = deferred<boolean>();
+    transport.sendLaunchTurn.mockReturnValue(send.promise);
+    receive(coordinator);
+    const result = coordinator.confirm('p1');
+    await Promise.resolve();
+    expect(transport.sendLaunchTurn).toHaveBeenCalledTimes(1);
+    const runId = transport.writeManifest.mock.calls[0][1].runId;
+    coordinator.pageExit();
+    send.resolve(false);
+    expect(await result).toEqual({
+      ok: false,
+      reason: 'cancelled',
+      retryable: false,
+    });
+    expect(transport.removeManifest).toHaveBeenCalledWith('/repo', runId);
+    expect(transport.reportFailure).toHaveBeenCalledTimes(1);
+    expect(await coordinator.confirm('p1')).toEqual({
+      ok: false,
+      reason: 'not-launchable',
+      retryable: false,
+    });
+  });
+  it('keeps a successful send launched after page exit', async () => {
+    const send = deferred<boolean>();
+    transport.sendLaunchTurn.mockReturnValue(send.promise);
+    receive(coordinator);
+    const result = coordinator.confirm('p1');
+    await Promise.resolve();
+    expect(transport.sendLaunchTurn).toHaveBeenCalledTimes(1);
+    coordinator.pageExit();
+    send.resolve(true);
+    expect(await result).toEqual({ ok: true });
+    expect(transport.removeManifest).not.toHaveBeenCalled();
+    expect(await coordinator.confirm('p1')).toEqual({
+      ok: false,
+      reason: 'not-launchable',
+      retryable: false,
+    });
   });
   it('declines invalid and timed-out cards without launching', () => {
     expect(

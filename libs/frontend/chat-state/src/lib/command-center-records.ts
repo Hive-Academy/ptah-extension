@@ -61,6 +61,7 @@ export class CommandCenterRecordsService {
       typeof rawRuns === 'object' &&
       !Array.isArray(rawRuns)
     ) {
+      const runKeyed = new Map<string, boolean>();
       for (const [storedKey, rawManifest] of Object.entries(rawRuns)) {
         const manifest = manifestSchema.safeParse(rawManifest);
         if (
@@ -68,7 +69,17 @@ export class CommandCenterRecordsService {
           (storedKey === manifest.data.runId ||
             storedKey === manifest.data.rootTabId)
         ) {
-          empty.runs[manifest.data.runId] = manifest.data;
+          const { runId, startedAt } = manifest.data;
+          const isRunKeyed = storedKey === runId;
+          const previous = empty.runs[runId];
+          if (
+            !previous ||
+            (isRunKeyed && !runKeyed.get(runId)) ||
+            (!runKeyed.get(runId) && startedAt > previous.startedAt)
+          ) {
+            empty.runs[runId] = manifest.data;
+            runKeyed.set(runId, isRunKeyed);
+          }
         }
       }
     }
