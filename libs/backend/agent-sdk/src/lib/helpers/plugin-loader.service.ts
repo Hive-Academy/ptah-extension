@@ -255,7 +255,7 @@ const AVAILABLE_PLUGINS: ReadonlyArray<Omit<PluginInfo, 'source'>> = [
     description:
       'Core development tools including orchestration, behavior-preserving refactoring, code review, testing, and documentation agents',
     category: 'core-tools',
-    skillCount: 8,
+    skillCount: 11,
     commandCount: 5,
     isDefault: true,
     keywords: [
@@ -269,6 +269,7 @@ const AVAILABLE_PLUGINS: ReadonlyArray<Omit<PluginInfo, 'source'>> = [
       'cleanup',
       'solid',
       'duplication',
+      'handoff',
     ],
   },
   {

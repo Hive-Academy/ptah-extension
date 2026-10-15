@@ -210,6 +210,10 @@ export const ChatStreamSnapshotPayloadSchema = z
     toSequence: z.number().int().nonnegative(),
     events: z.array(z.unknown()).optional(),
     resyncRequired: z.literal(true).optional(),
+    liveSeed: z.array(z.unknown()).optional(),
+    liveSeedBlocks: z
+      .record(z.string().min(1), z.number().int().nonnegative())
+      .optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -229,6 +233,15 @@ export const ChatStreamSnapshotPayloadSchema = z
       ctx.addIssue({
         code: 'custom',
         message: 'snapshots without resyncRequired must include events',
+      });
+    }
+    if (
+      value.resyncRequired !== true &&
+      (value.liveSeed !== undefined || value.liveSeedBlocks !== undefined)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'live seed fields require resyncRequired',
       });
     }
   });

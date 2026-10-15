@@ -187,13 +187,12 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
 
     // The condition the bug needed: the canvas really is behind this dialog.
     // Without this the spec could pass in a layout where nothing overlaps and
-    // would stop guarding anything. The probe is the whole empty-state panel
-    // (it fills the canvas), not its heading: the heading's position moves
-    // with the panel's content and says nothing about the collision.
+    // would stop guarding anything. The Rail empty-board section fills the
+    // space behind the dialog; its heading confirms the expected state.
     await expect(
-      page.getByRole('heading', { name: 'Orchestra Canvas' }),
+      page.getByRole('heading', { name: 'No sessions on this board' }),
     ).toBeVisible();
-    const canvasPanel = page.locator('ptah-canvas-empty-state');
+    const canvasPanel = page.locator('[data-testid="canvas-rail-empty-board"]');
     const canvasBox = await canvasPanel.boundingBox();
     const boxBox = await dialog.locator('.modal-box').boundingBox();
     expect(canvasBox, 'the canvas panel has no painted box').not.toBeNull();

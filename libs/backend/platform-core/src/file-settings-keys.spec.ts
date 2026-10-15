@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
+  ADVANCED_SETTINGS,
   SCOPED_SETTING_KEYS,
   SESSION_BUDGET_SETTINGS,
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
@@ -1191,6 +1192,85 @@ describe('isFileBasedSettingKey', () => {
         );
         expect(store.get('sessionBudget.tightenWindowTokens')).toBeNull();
         expect(store.get('sessionBudget.tokens')).toBe(50_000_000);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('Settings advanced keys (TASK_2026_658)', () => {
+    /**
+     * The values these keys had as literals in FILE_BASED_SETTINGS_DEFAULTS
+     * before they were derived from the shared ADVANCED_SETTINGS table, plus
+     * the two harness keys, whose defaults equal the harness-sync constants
+     * (DEFAULT_PREFLIGHT_TIMEOUT_MS, DEFAULT_MANAGE_GITIGNORE). Named
+     * literally so a default changed in the shared table is a red test here.
+     */
+    const advancedDefaults: Record<string, unknown> = {
+      'compaction.toolOutputBudgetTokens': 2500,
+      'compaction.subagentHandoffTokens': 150000,
+      'compaction.rotationSuggestTokens': 300000,
+      'compaction.subagentStopWeightedTokens': 3000000,
+      'agentOrchestration.codexAutoCompactTokens': 120000,
+      'agentOrchestration.codexToolOutputTokenLimit': 2500,
+      'agentOrchestration.codexWebSearch': true,
+      'internalQuery.maxConcurrent': 3,
+      'internalQuery.maxConcurrentPerLane': 1,
+      'internalQuery.queueTimeoutMs': 60000,
+      'memory.symbolInjectionEnabled': true,
+      'memory.retention.processedDays': 7,
+      'memory.retention.stuckDays': 14,
+      'memory.retention.batchSize': 500,
+      'memory.lifecycle.archiveAfterDays': 30,
+      'memory.lifecycle.deleteAfterDays': 60,
+      'memory.lifecycle.maxPerWorkspace': 25000,
+      'skillSynthesis.retirement.dormantAfterDays': 30,
+      'skillSynthesis.retirement.retireAfterDormantDays': 30,
+      'skillSynthesis.replayValidation.minConfidence': 0.5,
+      'skillSynthesis.judgePanel.disagreementThreshold': 3,
+      'skillSynthesis.triggers.bootScanDelayMs': 300000,
+      'skillSynthesis.triggers.bootScanIdleBackoffMs': 300000,
+      'cron.maxConcurrentJobs': 3,
+      'cron.catchupWindowMs': 86400000,
+      'harness.preflightTimeoutMs': 1500,
+      'harness.manageGitignore': true,
+    };
+
+    it.each(Object.entries(advancedDefaults))(
+      'registers, routes and defaults %s to %s',
+      (key, expected) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    it('derives every default from the shared table, key for key', () => {
+      expect(ADVANCED_SETTINGS.map((setting) => setting.key).sort()).toEqual(
+        Object.keys(advancedDefaults).sort(),
+      );
+      for (const setting of ADVANCED_SETTINGS) {
+        expect(FILE_BASED_SETTINGS_KEYS.has(setting.key)).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[setting.key]).toBe(setting.default);
+      }
+    });
+
+    it('serves the derived defaults through the file store', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-advanced-keys-'));
+      try {
+        const store = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(store.get('cron.maxConcurrentJobs')).toBe(3);
+        expect(store.get('harness.preflightTimeoutMs')).toBe(1500);
+        expect(store.get('harness.manageGitignore')).toBe(true);
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }

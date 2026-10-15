@@ -48,11 +48,12 @@ import { test, expect } from '../support/fixtures';
  */
 
 const CHAT_CHUNK = 'chat:chunk';
-const TILE = '[data-testid="canvas-tile"]';
+// The Rail board's focused pane (the former "tile").
+const TILE = 'ptah-canvas-focus-area';
 /**
- * Scoped to the canvas tile on purpose. Electron mounts a second chat input
- * outside the canvas grid, so an unscoped test id matches two buttons and
- * Playwright's strict mode refuses it. The tile's own button is the one a user
+ * Scoped to the focused pane on purpose. Electron mounts a second chat input
+ * outside the canvas board, so an unscoped test id matches two buttons and
+ * Playwright's strict mode refuses it. The pane's own button is the one a user
  * on the Orchestra Canvas clicks.
  */
 const STOP_BUTTON = '[data-testid="chat-stop-btn"]';

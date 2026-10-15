@@ -20,7 +20,14 @@ import { MessageBubbleComponent } from '../message-bubble.component';
 import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SESSION_FOCUSED } from '../../../tokens/session-context.token';
+import { DOCUMENT } from '@angular/common';
+import {
+  SESSION_CARD_ACTIONS,
+  SESSION_FOCUSED,
+  type SessionCardActions,
+} from '../../../tokens/session-context.token';
+import { parseLaneKey } from '../../molecules/compact-session/compact-lane-rows';
+import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -148,6 +155,43 @@ interface TranscriptMessageSlot {
   readonly record: () => ExecutionChatMessage;
 }
 
+/** The sub-agent opened in place, resolved live from this tab's trees. */
+interface OpenSubagent {
+  readonly node: ExecutionNode;
+  readonly streaming: boolean;
+}
+
+/** What Back restores: the transcript scroll state and the opener's focus. */
+interface SubagentReturn {
+  readonly scrollTop: number;
+  readonly pinned: boolean;
+  readonly opener: HTMLElement | null;
+}
+
+/**
+ * The conversation an open sub-agent belongs to. A null session id is a
+ * conversation that has not been assigned one yet; the first id it gets is
+ * the same conversation, any later change is a switch.
+ */
+interface SubagentOwner {
+  readonly tabId: string;
+  sessionId: string | null;
+}
+
+/** The agent node spawned by tool call `toolCallId`, at any depth. */
+function findAgentNode(
+  node: ExecutionNode | null | undefined,
+  toolCallId: string,
+): ExecutionNode | null {
+  if (!node) return null;
+  if (node.type === 'agent' && node.toolCallId === toolCallId) return node;
+  for (const child of node.children) {
+    const found = findAgentNode(child, toolCallId);
+    if (found) return found;
+  }
+  return null;
+}
+
 /**
  * ChatTranscriptComponent - Per-tab message list (scroll container + `@for` +
  * streaming skeleton + empty state + scroll/pin/resize-observer logic).
@@ -178,6 +222,7 @@ interface TranscriptMessageSlot {
     TurnSummaryChipComponent,
     // Used only inside `@defer`, so the compiler loads it lazily.
     DisplaySurfaceSyncComponent,
+    SingleChatSubagentViewComponent,
   ],
   providers: [
     TranscriptRenderWindow,
@@ -190,6 +235,17 @@ interface TranscriptMessageSlot {
     {
       provide: PTAH_UI_HOST_SOURCES,
       useFactory: () => inject(ChatTranscriptComponent).display.hostSources,
+    },
+    // Sub-agent tiles (this transcript renders bubbles in tile mode) route
+    // through SESSION_CARD_ACTIONS. A host that provides it (the Rail) wins;
+    // otherwise the single chat view opens the agent in place. Provided here,
+    // on the transcript, so siblings such as ChatView's compact card never
+    // see it and keep their tolerant (non-strict) ownership rule.
+    {
+      provide: SESSION_CARD_ACTIONS,
+      useFactory: (): SessionCardActions =>
+        inject(SESSION_CARD_ACTIONS, { skipSelf: true, optional: true }) ??
+        inject(ChatTranscriptComponent).singleChatCardActions(),
     },
   ],
   templateUrl: './chat-transcript.component.html',
@@ -631,6 +687,153 @@ export class ChatTranscriptComponent {
 
   protected readonly ChangeSetErrorIcon = AlertTriangle;
 
+  private readonly document = inject(DOCUMENT);
+
+  /** Tool call id of the sub-agent opened in place; null shows the transcript. */
+  private readonly openSubagentId = signal<string | null>(null);
+  /** Polite announcement for a tile whose agent cannot be opened here. */
+  protected readonly subagentNotice = signal('');
+  private subagentReturn: SubagentReturn | null = null;
+  private subagentOwner: SubagentOwner | null = null;
+  /** Last resolution while active; same freeze rule as `vm`. */
+  private _frozenOpenSubagent: OpenSubagent | null = null;
+
+  /**
+   * The opened agent, re-resolved from the gated `vm` on every update, so the
+   * full view shows the live node (streaming, finalized, nested agents) and
+   * follows it from the streaming tree into its finalized message. Null once
+   * the agent is gone; the close effect in the constructor then leaves.
+   */
+  protected readonly openSubagent = computed<OpenSubagent | null>(() => {
+    const toolCallId = this.openSubagentId();
+    if (toolCallId === null) return null;
+    if (!this.workActive()) return this._frozenOpenSubagent;
+    const next = this.findSubagent(toolCallId);
+    this._frozenOpenSubagent = next;
+    return next;
+  });
+
+  /**
+   * Covers and inerts the transcript only while an agent is actually shown,
+   * so a vanished agent can never leave an inert transcript behind.
+   */
+  protected readonly subagentOpen = computed(
+    () => this.openSubagent() !== null,
+  );
+
+  /**
+   * SESSION_CARD_ACTIONS for the single chat view, built only when no host
+   * provides its own (see `providers`). Public for that provider factory.
+   */
+  singleChatCardActions(): SessionCardActions {
+    return {
+      openLane: (key) => this.openSubagentLane(key),
+      openSession: () => this.closeSubagent(),
+    };
+  }
+
+  /**
+   * Back (or the open agent vanished from this conversation): show the
+   * transcript again with its scroll position, and return focus to the opener
+   * when the closing view took focus with it.
+   */
+  protected closeSubagent(): void {
+    if (this.openSubagentId() === null) return;
+    const saved = this.subagentReturn;
+    this.discardSubagent();
+    if (saved) {
+      this.pinnedToBottom.set(saved.pinned);
+      this.savedScrollTop = saved.scrollTop;
+    }
+    this.restoreScrollOnActivation();
+    afterNextRender(
+      () => {
+        const active = this.document.activeElement;
+        const focusLost = active === null || active === this.document.body;
+        if (focusLost && saved?.opener?.isConnected) saved.opener.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
+  /**
+   * Leave without restoring: used when the conversation itself changed, so
+   * the saved scroll position and opener belong to the previous one.
+   */
+  private discardSubagent(): void {
+    this.subagentReturn = null;
+    this.subagentOwner = null;
+    this._frozenOpenSubagent = null;
+    this.openSubagentId.set(null);
+  }
+
+  private openSubagentLane(key: string): void {
+    const lane = parseLaneKey(key);
+    const target =
+      lane && lane.kind !== 'cli' ? this.findSubagent(lane.id) : null;
+    if (!lane || !target) {
+      // Never route to another session: keep the transcript, say why.
+      this.subagentNotice.set('This agent is not available in this conversation.');
+      return;
+    }
+    this.subagentNotice.set('');
+    if (this.openSubagentId() === null) {
+      const el = this.scrollElement ?? this.scrollContainer()?.nativeElement;
+      const active = this.document.activeElement;
+      this.subagentReturn = {
+        scrollTop: el?.scrollTop ?? this.savedScrollTop ?? 0,
+        pinned: this.pinnedToBottom(),
+        opener: active instanceof HTMLElement ? active : null,
+      };
+    }
+    this.subagentOwner = { tabId: this.tabId(), sessionId: this.sessionId() };
+    this._frozenOpenSubagent = target;
+    this.openSubagentId.set(lane.id);
+  }
+
+  /**
+   * Keeps the open agent tied to its conversation (codex-review-R9n finding
+   * 2). A tab or session switch drops it without restoring the previous
+   * conversation's scroll; an agent gone from an active, unchanged
+   * conversation closes like Back and is announced. A hidden transcript keeps
+   * its frozen view and re-checks on reactivation.
+   */
+  private syncOpenSubagent(
+    tabId: string,
+    sessionId: string | null,
+    resolved: OpenSubagent | null,
+  ): void {
+    const owner = this.subagentOwner;
+    if (this.openSubagentId() === null || !owner) return;
+    const switched =
+      owner.tabId !== tabId ||
+      (owner.sessionId !== null && owner.sessionId !== sessionId);
+    if (switched) {
+      this.discardSubagent();
+      return;
+    }
+    owner.sessionId = sessionId;
+    if (resolved === null && this.workActive()) {
+      this.subagentNotice.set(
+        'This agent is no longer available in this conversation.',
+      );
+      this.closeSubagent();
+    }
+  }
+
+  /** Newest message first: an opened agent is usually in a recent turn. */
+  private findSubagent(toolCallId: string): OpenSubagent | null {
+    const view = this.vm();
+    for (let index = view.slots.length - 1; index >= 0; index -= 1) {
+      const node = findAgentNode(
+        view.slots[index].record().streamingState,
+        toolCallId,
+      );
+      if (node) return { node, streaming: index >= view.streamingBoundary };
+    }
+    return null;
+  }
+
   /** The last failed action per card (by turn), shown inline under it. */
   private readonly changeSetErrors = signal<ReadonlyMap<string, string>>(
     new Map(),
@@ -714,6 +917,13 @@ export class ChatTranscriptComponent {
       if (sessionId) {
         untracked(() => void this.changeSetStore.ensureLoaded(sessionId));
       }
+    });
+    // An open sub-agent follows its conversation: see `syncOpenSubagent`.
+    effect(() => {
+      const tabId = this.tabId();
+      const sessionId = this.sessionId();
+      const resolved = this.openSubagent();
+      untracked(() => this.syncOpenSubagent(tabId, sessionId, resolved));
     });
     // The replayer clears its flag before SessionLoaderService's await
     // continuation marks the tab loaded. Hold the falling edge locally so a

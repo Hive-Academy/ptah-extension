@@ -51,6 +51,7 @@ import { By } from '@angular/platform-browser';
 import { createExecutionChatMessage } from '@ptah-extension/shared';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import { MessageBubbleComponent } from './message-bubble.component';
+import { ExecutionNodeComponent } from './execution/execution-node.component';
 import { VSCodeService } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
 
@@ -86,6 +87,18 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.componentRef.setInput('message', message);
     fixture.detectChanges();
   }
+
+  it('forwards the opt-in agent tile mode to the execution tree', () => {
+    setMessage(createExecutionChatMessage({
+      id: 'agent-message', role: 'assistant', rawContent: '',
+      streamingState: { id: 'root', type: 'message', status: 'complete', content: null,
+        children: [], isCollapsed: false },
+    }));
+    fixture.componentRef.setInput('agentTileMode', true);
+    fixture.detectChanges();
+    const tree = fixture.debugElement.query(By.directive(ExecutionNodeComponent));
+    expect(tree.componentInstance.agentTileMode()).toBe(true);
+  });
 
   it('renders branch + rewind buttons for user role messages', () => {
     setMessage(

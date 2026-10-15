@@ -22,6 +22,7 @@ import { SessionBudgetSettingsComponent } from './session-budget-settings.compon
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
 import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
+import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 
 /** Deep-link sections the Orchestration tab owns (plan Component 10). */
 export type OrchestrationSettingsFocusTarget =
@@ -50,7 +51,8 @@ const FOCUS =
  * deep link focuses the matrix table (`[data-testid="cli-matrix"]`); Batch 34 retired the old Ptah CLI instance manager,
  * whose capabilities live in the matrix, its add-instance and tier modals, and its popovers (D14). The session-budget
  * card (N7) comes after the roles `<details>`, below that fold content, so its deferred chunk and placeholder cannot
- * push the roles summary past the §1.2 fold.
+ * push the roles summary past the §1.2 fold. The advanced groups (context budgets, Codex agents, background query
+ * limits; TASK_2026_658) come last, in one viewport-deferred chunk.
  *
  * A deep link is consumed once applied (the section focused and, for a role, its popover open): `focusTargetConsumed`
  * lets Settings clear the target, so the same link raised again while on this tab applies again (Gate V 36, M-1).
@@ -66,6 +68,7 @@ const FOCUS =
     SubagentCacheTtlSettingComponent,
     SessionBudgetSettingsComponent,
     LaneGuardsSettingsComponent,
+    AdvancedSettingsGroupComponent,
     SurfaceSectionComponent,
   ],
   template: `
@@ -195,6 +198,20 @@ const FOCUS =
 
       <!-- Independent of the tall budget form: guards are small and should always be available. -->
       <ptah-lane-guards-settings />
+
+      <!-- Advanced orchestration values (TASK_2026_658): one chunk, loaded when scrolled into view. Below the session
+           budget and Lane guards, so the fold content and the always-available guards stay where they were; the
+           placeholder is one row. -->
+      @defer (on viewport) {
+        <ptah-advanced-settings-group groupId="context-budgets" />
+        <ptah-advanced-settings-group groupId="codex-agents" />
+        <ptah-advanced-settings-group groupId="background-queries" />
+      } @placeholder {
+        <div
+          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+          data-testid="orchestration-advanced-placeholder"
+        ></div>
+      }
 
       @if (state.commit().status !== 'idle') {
         <div

@@ -37,6 +37,7 @@ import {
   McpOAuthInstalledManifestStore,
   McpOAuthOverrideResolver,
   createMcpOAuthTokenStore,
+  safeErrorKind,
   type AgentProcessManager,
 } from '@ptah-extension/cli-agent-runtime';
 import { SMITHERY_API_KEY_SECRET_ID } from '../../handlers/mcp-directory-rpc.schema';
@@ -92,6 +93,10 @@ import type { ChatSubagentContextInjectorService } from './chat-subagent-context
 import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
 import {
+  selectDeliveredBlockOwners,
+  selectDeliveredSyntheticResults,
+} from './history-block-owners';
+import {
   OUTPUT_STYLE_TOKENS,
   type OutputStyleSessionActivationService,
 } from '@ptah-extension/output-styles';
@@ -137,9 +142,38 @@ export interface AgentChildSessionStartParams {
   readonly prompt: string;
   readonly sessionName: string;
   readonly model?: string;
+  /**
+   * The parent session's live permission level, read when the child starts.
+   * Absent (the parent's level is unknown) → `ask` (TASK_2026_660).
+   */
+  readonly permissionLevel?: PermissionLevel;
 }
 
-/** What {@link ChatSessionService.launchSdkSession} needs from its two callers. */
+/** Input of {@link ChatSessionService.startHandoffSession} (TASK_2026_655). */
+export interface HandoffSessionStartParams {
+  /** Backend-minted tab id of the new session: the stream key and MCP routing id. */
+  readonly tabId: string;
+  /** The handing-off session's root: the metadata `workspaceId`. */
+  readonly workspaceRoot: string;
+  /** The handing-off session's cwd: the new session's `projectPath`. */
+  readonly cwd: string;
+  /** The continuation prompt: the new session's first user message. */
+  readonly prompt: string;
+  readonly sessionName: string;
+  readonly model?: string;
+  /** The handing-off session's level; absent → the global default. */
+  readonly permissionLevel?: PermissionLevel;
+}
+
+/** How an agent-started session names itself in the path-refusal texts. */
+interface AgentSessionPathLabels {
+  /** Log label, e.g. `agent child session`. */
+  readonly logLabel: string;
+  /** What the session's cwd is called, e.g. `worktree path`. */
+  readonly cwdNoun: string;
+}
+
+/** What {@link ChatSessionService.launchSdkSession} needs from its callers. */
 interface SdkSessionLaunch {
   /** Label in the launch log lines (`chat:start` keeps its existing text). */
   readonly logLabel: string;
@@ -604,7 +638,8 @@ export class ChatSessionService {
    * Same SDK launch as `chat:start`, with three differences that make it a
    * child: the metadata identity is the parent's `workspaceRoot` (so the child
    * lists under the parent's workspace) while the session runs in its own
-   * `worktreePath`; it always starts at `auto-edit`; and MCP availability is the
+   * `worktreePath`; it starts at the parent's permission level (see
+   * {@link childPermissionLevel}); and MCP availability is the
    * server's own state — the active root's `.mcp.json` outcome does not
    * downgrade it, because a child without MCP could never report back.
    * There is no slash-command intercept and no Ptah-CLI branch: the prompt is
@@ -618,40 +653,22 @@ export class ChatSessionService {
     const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
       params;
     try {
-      // Prompts, provider profile and output style are resolved for the root,
-      // so the root needs the same authorization as the worktree.
-      if (!isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)) {
-        this.logger.warn(
-          '[RPC] agent child session - refused: workspace root is not inside an open folder',
-          { tabId, workspaceRoot },
-        );
-        return {
-          success: false,
-          error: 'Access denied: workspace root is not inside an open folder.',
-        };
-      }
-      if (!isAuthorizedWorkspace(worktreePath, this.workspaceProvider)) {
-        this.logger.warn(
-          '[RPC] agent child session - refused: worktree is not inside an open folder',
-          { tabId, worktreePath },
-        );
-        return {
-          success: false,
-          error: 'Access denied: worktree path is not inside an open folder.',
-        };
-      }
-      const unsafe = this.rejectIfUnsafeWorkspace(
+      const refused = this.authorizeAgentSessionPaths(
+        tabId,
+        workspaceRoot,
         worktreePath,
-        'agent child session',
+        { logLabel: 'agent child session', cwdNoun: 'worktree path' },
       );
-      if (unsafe) return unsafe;
+      if (refused) return refused;
 
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
+      const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
         tabId,
         workspaceRoot,
         worktreePath,
         mcpServerRunning,
+        permissionLevel,
       });
 
       await this.launchSdkSession({
@@ -664,7 +681,7 @@ export class ChatSessionService {
         options: model ? { model } : undefined,
         mcpServerRunning,
         mcpServersOverride: undefined,
-        permissionLevel: 'auto-edit',
+        permissionLevel,
         surfaceMode: undefined,
       });
 
@@ -684,10 +701,135 @@ export class ChatSessionService {
   }
 
   /**
-   * The SDK-launch half shared by `chat:start` and child sessions: enhanced
-   * prompts, model, MCP overrides, provider profile and output style — all
-   * resolved for `workspaceId` — then `startChatSession` and the webview
-   * stream. Throws on failure; each caller result-shapes it.
+   * The level a child session starts at (TASK_2026_660): the parent's live
+   * level. A `yolo` child approves every call; any other level runs under the
+   * unattended policy, which stays in force regardless (`SdkPermissionHandler`).
+   *
+   * An unknown parent level (no lifecycle record, the record disappeared, or
+   * the host passed none) starts the child at `ask`. The saved global autopilot
+   * level is never used: it says nothing about the authority of this parent,
+   * and reading it could start a `yolo` child under a parent that never chose
+   * `yolo`.
+   *
+   * `plan` becomes `ask`: plan mode is unavailable to an unattended session —
+   * nobody is there to approve the plan and the policy denies `EnterPlanMode` —
+   * so the child gets the strictest non-plan level instead.
+   */
+  private childPermissionLevel(
+    parentLevel: PermissionLevel | undefined,
+  ): PermissionLevel {
+    if (parentLevel === undefined || parentLevel === 'plan') return 'ask';
+    return parentLevel;
+  }
+
+  /**
+   * Start the top-level session a `ptah_session_handoff` asks for
+   * (TASK_2026_655). Called only by `ChildChatSessionHostAdapter`.
+   *
+   * An ordinary session, not a child: it runs in the handing-off session's
+   * own cwd (no worktree), keeps that session's permission level, and lists
+   * under the same `workspaceRoot`. MCP availability is the server's own
+   * state, because the new session must be able to hand off again. As with a
+   * child, there is no slash-command intercept and no Ptah-CLI branch.
+   *
+   * The prompt is the agent's continuation text, so a launch error message
+   * may quote it: only the error's kind is logged, returned and reported.
+   *
+   * Never throws: every failure returns `{ success: false, error }`.
+   */
+  async startHandoffSession(
+    params: HandoffSessionStartParams,
+  ): Promise<ChatStartResult> {
+    const { tabId, workspaceRoot, cwd, prompt, sessionName, model } = params;
+    const { permissionLevel } = params;
+    try {
+      const refused = this.authorizeAgentSessionPaths(
+        tabId,
+        workspaceRoot,
+        cwd,
+        { logLabel: 'handoff session', cwdNoun: 'working directory' },
+      );
+      if (refused) return refused;
+
+      const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
+      this.logger.info('[ptah.main] handoff session - session config', {
+        tabId,
+        workspaceRoot,
+        cwd,
+        mcpServerRunning,
+        permissionLevel,
+      });
+
+      await this.launchSdkSession({
+        logLabel: 'handoff session',
+        tabId,
+        workspaceId: workspaceRoot,
+        projectPath: cwd,
+        prompt,
+        name: sessionName,
+        options: model ? { model } : undefined,
+        mcpServerRunning,
+        mcpServersOverride: undefined,
+        permissionLevel,
+        surfaceMode: undefined,
+      });
+
+      return { success: true };
+    } catch (error) {
+      const kind = safeErrorKind(error);
+      this.logger.error(`RPC: handoff session start failed: ${kind}`);
+      this.captureSentry(
+        new Error(`Handoff session launch failed: ${kind}`),
+        'ChatSessionService.startHandoffSession',
+      );
+      return {
+        success: false,
+        error: `the session launch failed (${kind}).`,
+        ...this.authErrorFields(error),
+      };
+    }
+  }
+
+  /**
+   * The path checks every agent-started session passes before any launch
+   * work: the root (prompts, provider profile and output style resolve for
+   * it) and the cwd must be inside an open folder, and the cwd must be safe.
+   * Returns the refusal, or `null` when both paths are allowed.
+   */
+  private authorizeAgentSessionPaths(
+    tabId: string,
+    workspaceRoot: string,
+    cwd: string,
+    labels: AgentSessionPathLabels,
+  ): { success: false; error: string } | null {
+    if (!isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)) {
+      this.logger.warn(
+        `[RPC] ${labels.logLabel} - refused: workspace root is not inside an open folder`,
+        { tabId, workspaceRoot },
+      );
+      return {
+        success: false,
+        error: 'Access denied: workspace root is not inside an open folder.',
+      };
+    }
+    if (!isAuthorizedWorkspace(cwd, this.workspaceProvider)) {
+      this.logger.warn(
+        `[RPC] ${labels.logLabel} - refused: ${labels.cwdNoun} is not inside an open folder`,
+        { tabId, cwd },
+      );
+      return {
+        success: false,
+        error: `Access denied: ${labels.cwdNoun} is not inside an open folder.`,
+      };
+    }
+    return this.rejectIfUnsafeWorkspace(cwd, labels.logLabel);
+  }
+
+  /**
+   * The SDK-launch half shared by `chat:start`, child and handoff sessions:
+   * enhanced prompts, model, MCP overrides, provider profile and output
+   * style — all resolved for `workspaceId` — then `startChatSession` and the
+   * webview stream. Throws on failure; each caller result-shapes it.
    *
    * `workspaceId` is the session's metadata identity and the root its context
    * is resolved for; `projectPath` is where it runs. `chat:start` passes the
@@ -753,7 +895,8 @@ export class ChatSessionService {
       includePartialMessages: options?.includePartialMessages,
       mcpServersOverride,
       providerProfile,
-      // Only a child passes a level; `chat:start` keeps the global default.
+      // Only agent-started sessions pass a level; `chat:start` keeps the
+      // global default.
       ...(input.permissionLevel
         ? { permissionLevel: input.permissionLevel }
         : {}),
@@ -946,7 +1089,9 @@ export class ChatSessionService {
     try {
       const { sessionId } = params;
       const metadata = await this.sessionMetadataStore.get(sessionId);
-      const result = await this.historyRead.readForResume(sessionId);
+      const result = await this.historyRead.readForResume(sessionId, {
+        includeBlockOwners: params.historyBlockOwners === true,
+      });
       const resolvedWorkspacePath = result.resolvedWorkspacePath;
       this.logger.info('RPC: chat:resume called', {
         sessionId,
@@ -1086,6 +1231,19 @@ export class ChatSessionService {
         cliSessions,
         activated,
         ...(page ? { historyPage: { olderCursor: page.olderCursor } } : {}),
+        ...(params.historyBlockOwners === true
+          ? {
+              historyBlockOwners: selectDeliveredBlockOwners(
+                fullEvents,
+                page?.events ?? fullEvents,
+                result.blockOwners ?? new Map(),
+              ),
+              historySyntheticToolResults: selectDeliveredSyntheticResults(
+                page?.events ?? fullEvents,
+                result.syntheticToolResults ?? new Set(),
+              ),
+            }
+          : {}),
         ...(staleSnapshot ? { staleSnapshot } : {}),
         ...(activationError ? { activationError } : {}),
         ...(activationErrorCode ? { activationErrorCode } : {}),

@@ -216,8 +216,8 @@ export class ConductorTileComponent implements OnInit, OnDestroy {
       createEnvironmentInjector(
         [
           { provide: SESSION_CONTEXT, useValue: tabIdSignal },
-          // Panelists already render as their own tiles in the Tribunal — hide
-          // the conductor chat's per-session Agents right sidebar.
+          // Panelists render as Tribunal tiles, so hide the VS Code Agents sidebar.
+          // The Electron display dock remains available for display surfaces.
           { provide: HIDE_AGENT_SIDEBAR, useValue: true },
         ],
         this.parentEnvInjector,

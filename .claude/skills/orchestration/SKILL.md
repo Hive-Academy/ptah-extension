@@ -126,6 +126,8 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 - **CLI lanes**: Gate 0.1 decides whether they are used. Who may spawn them and how phases,
   batches or whole runs are assigned to lanes: [lane-assignment.md](references/lane-assignment.md).
   How to run a lane: the [agent-lanes skill](../agent-lanes/SKILL.md).
+- **Subagent handoffs**: when you re-spawn an agent that Ptah stopped, put the pending handoff
+  record path (from the Ptah pointer line or the `subagent-handoff-*.md` stub) in its prompt.
 
 ## Never
 

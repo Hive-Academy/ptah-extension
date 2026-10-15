@@ -1,8 +1,10 @@
 import type {
+  ISessionHandoff,
   ISessionSpawner,
   SessionChildSnapshot,
 } from '@ptah-extension/cli-agent-runtime';
 import {
+  SESSION_HANDOFF_UNAVAILABLE_MESSAGE,
   SESSION_SPAWNER_UNAVAILABLE_MESSAGE,
   buildSessionNamespace,
   type SessionNamespaceDependencies,
@@ -29,13 +31,27 @@ function fakeSpawner(): jest.Mocked<ISessionSpawner> {
   };
 }
 
+const HANDED_OFF = {
+  ok: true,
+  tabId: 'tab-new',
+  label: 'Continued: x',
+  workspaceRoot: '/repo',
+  cwd: '/repo',
+  tabOpened: true,
+} as const;
+
 function harness(overrides: Partial<SessionNamespaceDependencies> = {}) {
   const spawner = fakeSpawner();
+  const handoff: jest.Mocked<ISessionHandoff> = {
+    handoff: jest.fn().mockResolvedValue(HANDED_OFF),
+  };
   let caller: string | undefined = 'tab-parent';
   const onWorktreeChanged = jest.fn();
   const getSpawner = jest.fn((): ISessionSpawner | undefined => spawner);
+  const getHandoff = jest.fn((): ISessionHandoff | undefined => handoff);
   const session = buildSessionNamespace({
     getSpawner,
+    getHandoff,
     getCallerSessionId: () => caller,
     onWorktreeChanged,
     ...overrides,
@@ -43,7 +59,9 @@ function harness(overrides: Partial<SessionNamespaceDependencies> = {}) {
   return {
     session,
     spawner,
+    handoff,
     getSpawner,
+    getHandoff,
     onWorktreeChanged,
     setCaller: (id: string | undefined) => {
       caller = id;
@@ -124,6 +142,39 @@ describe('buildSessionNamespace', () => {
     await h.session.status();
     await h.session.status();
     expect(h.getSpawner).toHaveBeenCalledTimes(2);
+  });
+
+  describe('handoff (TASK_2026_655)', () => {
+    const input = { handoffPath: '/repo/HANDOFF.md', prompt: 'p' };
+
+    it('passes the transport caller and returns the service result', async () => {
+      const h = harness();
+      await expect(h.session.handoff(input)).resolves.toEqual(HANDED_OFF);
+      expect(h.handoff.handoff).toHaveBeenCalledWith({
+        ...input,
+        callerSessionId: 'tab-parent',
+      });
+    });
+
+    it('looks the service up on every call, never at build time', async () => {
+      const h = harness();
+      expect(h.getHandoff).not.toHaveBeenCalled();
+      await h.session.handoff(input);
+      await h.session.handoff(input);
+      expect(h.getHandoff).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects with the named error when the host has no handoff service', async () => {
+      const { session } = harness({ getHandoff: () => undefined });
+      await expect(session.handoff(input)).rejects.toThrow(
+        SESSION_HANDOFF_UNAVAILABLE_MESSAGE,
+      );
+    });
+
+    it('does not need a spawner', async () => {
+      const { session } = harness({ getSpawner: () => undefined });
+      await expect(session.handoff(input)).resolves.toEqual(HANDED_OFF);
+    });
   });
 
   describe('without a spawner', () => {

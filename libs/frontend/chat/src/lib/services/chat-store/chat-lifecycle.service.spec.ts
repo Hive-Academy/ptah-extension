@@ -45,6 +45,7 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
+import { ConversationService } from './conversation.service';
 import type { TabState, StreamingState } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 
@@ -107,6 +108,8 @@ describe('ChatLifecycleService', () => {
   let activeTabIdMock: jest.Mock;
   let markTabIdleMock: jest.Mock;
   let clearQueuedContentAndOptionsMock: jest.Mock;
+  let markSessionStartFailedMock: jest.Mock;
+  let dropHeldCommandsMock: jest.Mock;
   let setStatusMock: jest.Mock;
   let loadSessionsMock: jest.Mock;
   let restoreCliSessionsMock: jest.Mock;
@@ -189,6 +192,34 @@ describe('ChatLifecycleService', () => {
         t.id === id ? { ...t, queuedContent: null, queuedOptions: null } : t,
       );
     });
+    // Mirrors the real guard: only a streaming tab with no SDK session and
+    // nothing streamed is settled.
+    markSessionStartFailedMock = jest.fn((id: string, reason: string) => {
+      const tab = tabs.find((t) => t.id === id);
+      if (
+        !tab ||
+        tab.claudeSessionId ||
+        tab.status !== 'streaming' ||
+        tab.streamingState
+      ) {
+        return false;
+      }
+      tabs = tabs.map((t) =>
+        t.id === id
+          ? ({
+              ...t,
+              status: 'loaded',
+              hasLiveSession: false,
+              messages: [
+                ...t.messages,
+                { id: 'notice', role: 'assistant', rawContent: reason },
+              ],
+            } as unknown as TabState)
+          : t,
+      );
+      return true;
+    });
+    dropHeldCommandsMock = jest.fn();
     setStatusMock = jest.fn();
     loadSessionsMock = jest.fn().mockResolvedValue(undefined);
     restoreCliSessionsMock = jest.fn().mockResolvedValue(undefined);
@@ -214,6 +245,7 @@ describe('ChatLifecycleService', () => {
       visibleTabIds: () => new Set<string>(),
       markTabIdle: markTabIdleMock,
       clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
+      markSessionStartFailed: markSessionStartFailedMock,
     } as unknown as TabManagerService;
 
     const sessionManagerMock = {
@@ -255,6 +287,10 @@ describe('ChatLifecycleService', () => {
         { provide: SessionLoaderService, useValue: sessionLoaderMock },
         { provide: StreamingHandlerService, useValue: streamingHandlerMock },
         { provide: CompactionLifecycleService, useValue: compactionMock },
+        {
+          provide: ConversationService,
+          useValue: { dropHeldCommands: dropHeldCommandsMock },
+        },
         { provide: ClaudeRpcService, useValue: claudeRpcMock },
         { provide: AuthStateService, useValue: authStateMock },
         { provide: VSCodeService, useValue: vscodeServiceMock },
@@ -466,7 +502,8 @@ describe('ChatLifecycleService', () => {
       runRaf();
 
       expect(setStreamingStateMock).toHaveBeenCalledTimes(1);
-      const published = setStreamingStateMock.mock.calls[0][1] as StreamingState;
+      const published = setStreamingStateMock.mock
+        .calls[0][1] as StreamingState;
       expect(published).not.toBe(state);
       expect(published.agentSummaryAccumulators.get('agent-1')).toBe('abc');
       expect(published.agentContentBlocksMap.get('agent-1')).toEqual([
@@ -645,7 +682,10 @@ describe('ChatLifecycleService', () => {
 
       it('a background replacement survives the return to the workspace', () => {
         const replacement = makeStreamingState();
-        background = { ...(background as TabState), streamingState: replacement };
+        background = {
+          ...(background as TabState),
+          streamingState: replacement,
+        };
         // Return: tab-1 is active again and the deferred entry drains.
         tabs = [background];
         background = null;
@@ -661,7 +701,10 @@ describe('ChatLifecycleService', () => {
 
       it('a full flushSync while backgrounded does not write the old state', () => {
         const replacement = makeStreamingState();
-        background = { ...(background as TabState), streamingState: replacement };
+        background = {
+          ...(background as TabState),
+          streamingState: replacement,
+        };
         TestBed.inject(BatchedUpdateService).flushSync();
         expect(setStreamingStateMock).not.toHaveBeenCalled();
       });
@@ -889,6 +932,111 @@ describe('ChatLifecycleService', () => {
     it('refreshes sidebar after error reset', () => {
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
       expect(loadSessionsMock).toHaveBeenCalled();
+    });
+
+    it('drops slash commands held behind the queue with it (TASK_2026_655)', () => {
+      service.handleChatError({ tabId: 'tab-1', error: 'boom' });
+      expect(dropHeldCommandsMock).toHaveBeenCalledWith('tab-1');
+    });
+
+    // TASK_2026_655: the host announces a handoff tab, then its SDK start
+    // fails and it sends chat:error with sessionId = the tab id.
+    describe('announce, then a failed session start', () => {
+      // A tab id is a UUID too; the host sends it as the sessionId as well.
+      const HANDOFF_TAB = String(SessionId.create()) as TabState['id'];
+      const REASON = 'Handoff session could not start: launch failed.';
+
+      function announcedTab(overrides: Partial<TabState> = {}): TabState {
+        return makeTab({
+          id: HANDOFF_TAB,
+          status: 'streaming',
+          claudeSessionId: null,
+          hasLiveSession: true,
+          messages: [
+            { id: 'u1', role: 'user', rawContent: 'continue' },
+          ] as unknown as TabState['messages'],
+          ...overrides,
+        });
+      }
+
+      it('settles the announced tab as idle, not live, with the reason shown', () => {
+        tabs = [makeTab(), announcedTab()];
+
+        service.handleChatError({
+          tabId: HANDOFF_TAB,
+          sessionId: HANDOFF_TAB,
+          error: REASON,
+        });
+
+        expect(markSessionStartFailedMock).toHaveBeenCalledWith(
+          HANDOFF_TAB,
+          REASON,
+        );
+        const tab = tabs.find((t) => t.id === HANDOFF_TAB);
+        expect(tab?.status).toBe('loaded');
+        expect(tab?.hasLiveSession).toBe(false);
+        expect(tab?.messages.at(-1)?.rawContent).toBe(REASON);
+        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith(
+          HANDOFF_TAB,
+        );
+        expect(dropHeldCommandsMock).toHaveBeenCalledWith(HANDOFF_TAB);
+        expect(loadSessionsMock).toHaveBeenCalled();
+      });
+
+      it('settles a tab outside the active set without touching the active tab', () => {
+        // The tab sits in a background partition: not in the active set the
+        // fallback routing reads, so only the cross-partition settle finds it.
+        const background = announcedTab();
+        tabs = [makeTab({ claudeSessionId: null })];
+        markSessionStartFailedMock.mockImplementationOnce(
+          (id: string) => id === background.id,
+        );
+
+        service.handleChatError({
+          tabId: HANDOFF_TAB,
+          sessionId: HANDOFF_TAB,
+          error: REASON,
+        });
+
+        expect(markSessionStartFailedMock).toHaveBeenCalledWith(
+          HANDOFF_TAB,
+          REASON,
+        );
+        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
+        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith(
+          HANDOFF_TAB,
+        );
+      });
+
+      it('leaves a tab whose session started to the turn_state path', () => {
+        tabs = [announcedTab({ claudeSessionId: SESS_2 })];
+
+        service.handleChatError({
+          tabId: HANDOFF_TAB,
+          sessionId: HANDOFF_TAB,
+          error: REASON,
+        });
+
+        const tab = tabs.find((t) => t.id === HANDOFF_TAB);
+        expect(tab?.status).toBe('streaming');
+        expect(tab?.hasLiveSession).toBe(true);
+        expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith(
+          HANDOFF_TAB,
+        );
+      });
+
+      it('does not treat an ordinary stream error as a failed start', () => {
+        tabs = [announcedTab()];
+
+        service.handleChatError({
+          tabId: HANDOFF_TAB,
+          sessionId: SESS_2,
+          error: 'stream broke',
+        });
+
+        expect(markSessionStartFailedMock).not.toHaveBeenCalled();
+        expect(tabs[0].status).toBe('streaming');
+      });
     });
   });
 });

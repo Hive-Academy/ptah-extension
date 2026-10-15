@@ -358,3 +358,10 @@ export type {
   AgentPackDownloadResult,
 } from './agent-pack-download.service';
 export { resolveAuthProviderKey } from './settings-auth-key';
+export {
+  PROVIDER_KEY_SECRET_PREFIX,
+  NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES,
+  NON_AUTH_PROVIDER_KEY_SLOT_IDS,
+  isSdkAuthSecretKey,
+  authProviderIdOfSecretKey,
+} from './provider-key-slots';

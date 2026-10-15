@@ -52,6 +52,7 @@ import type {
   SessionStatus,
   TabAgentOrigin,
   TabState,
+  TabViewMode,
 } from '@ptah-extension/chat-types';
 import { DEFAULT_SESSION_NAME_PATTERN } from './session-identity';
 
@@ -156,55 +157,21 @@ const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
   'sleeping',
 ]);
 
-/**
- * Height, in canvas grid rows, of the retired `'compact-tall'` view mode.
- * A tab saved in that mode restores as `'compact'` at this height.
- */
-export const LEGACY_COMPACT_TALL_HEIGHT_UNITS = 3;
-
-/**
- * Height, in canvas grid rows, that a plain `'compact'` tab had before heights
- * were stored. A compact tab restored without a valid height gets this one, so
- * old tabs keep the size they were saved at.
- */
-export const LEGACY_COMPACT_HEIGHT_UNITS = 2;
-
 /** The retired view-mode value, only ever read from old stored blobs. */
 const LEGACY_COMPACT_TALL_VIEW_MODE = 'compact-tall';
 
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
-
 /**
- * Stored view mode and compact height, validated.
+ * Stored view mode, validated.
  *
- * Persisted JSON is external input: a `compactHeightUnits` that is not a
- * positive integer is dropped. A legacy `'compact-tall'` tab becomes compact at
- * {@link LEGACY_COMPACT_TALL_HEIGHT_UNITS}, and a compact tab without a valid
- * height gets {@link LEGACY_COMPACT_HEIGHT_UNITS}; a valid stored height always
- * wins. The range is canvas's concern; it clamps again on read.
+ * Persisted JSON is external input. The one retired value is the legacy
+ * `'compact-tall'` mode, which migrates to `'compact'`; every other value
+ * passes through unchanged.
  */
-function restoredCompactView(
-  tab: TabState,
-): Pick<TabState, 'viewMode' | 'compactHeightUnits'> {
+function restoredViewMode(tab: TabState): TabViewMode | undefined {
   const storedMode: string | undefined = tab.viewMode;
-  const storedUnits = isPositiveInteger(tab.compactHeightUnits)
-    ? tab.compactHeightUnits
-    : undefined;
-  if (storedMode === LEGACY_COMPACT_TALL_VIEW_MODE) {
-    return {
-      viewMode: 'compact',
-      compactHeightUnits: storedUnits ?? LEGACY_COMPACT_TALL_HEIGHT_UNITS,
-    };
-  }
-  if (storedMode === 'compact') {
-    return {
-      viewMode: 'compact',
-      compactHeightUnits: storedUnits ?? LEGACY_COMPACT_HEIGHT_UNITS,
-    };
-  }
-  return { viewMode: tab.viewMode, compactHeightUnits: storedUnits };
+  return storedMode === LEGACY_COMPACT_TALL_VIEW_MODE
+    ? 'compact'
+    : tab.viewMode;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -264,12 +231,12 @@ function restoredAgentOrigin(tab: TabState): TabAgentOrigin | undefined {
  * on the way back in, so neither can arrive from an older blob either.
  */
 export function sanitizeRestoredTab(tab: TabState): TabState {
-  return {
+  const sanitized: TabState & { compactHeightUnits?: unknown } = {
     ...tab,
     // Persisted, but external input on the way back: a malformed record is
     // dropped and the tab restores as an ordinary one.
     agentOrigin: restoredAgentOrigin(tab),
-    ...restoredCompactView(tab),
+    viewMode: restoredViewMode(tab),
     // Mirror projectTabForPersist explicitly. Only a recognized placeholder or
     // generated name on an empty draft is safe to treat as default.
     titleOrigin: tab.titleOrigin ?? legacyTitleOrigin(tab),
@@ -292,6 +259,14 @@ export function sanitizeRestoredTab(tab: TabState): TabState {
     // start of the next turn.
     liveBudgetStage: null,
   };
+
+  // Legacy tolerance: a pre-R9s blob can still carry the retired
+  // `compactHeightUnits` key (the old compact-tile grid height). Dropped from
+  // this fresh copy so it cannot re-enter memory — or, via the persist
+  // spread, a later save.
+  delete sanitized.compactHeightUnits;
+
+  return sanitized;
 }
 
 /** Bring a whole stored tab set back. See {@link sanitizeRestoredTab}. */

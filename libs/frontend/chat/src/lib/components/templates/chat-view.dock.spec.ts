@@ -19,6 +19,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { By } from '@angular/platform-browser';
 
 // Stub ngx-markdown (ESM-only bundle) BEFORE any component import.
 jest.mock('ngx-markdown', () => {
@@ -94,10 +95,11 @@ import { HistoryPagingService } from '../../services/chat-store/history-paging.s
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
 import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
-import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import {
   HIDE_AGENT_SIDEBAR,
+  RAIL_TRANSCRIPT_RETENTION,
   SESSION_CONTEXT,
+  SESSION_CARD_ACTIONS,
   SESSION_VISIBLE,
 } from '../../tokens/session-context.token';
 
@@ -109,6 +111,7 @@ import {
 class StubDisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly summary = input<unknown>(null);
+  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);
@@ -170,7 +173,9 @@ interface Harness {
   fixture: ComponentFixture<ChatViewComponent>;
   agents: ReturnType<typeof signal<MonitoredAgent[]>>;
   activeTabId: ReturnType<typeof signal<string | null>>;
-  openTabs: ReturnType<typeof signal<{ id: string }[]>>;
+  openTabs: ReturnType<typeof signal<{ id: string; claudeSessionId?: string }[]>>;
+  contextTabId: ReturnType<typeof signal<string | null>>;
+  closeTab(tabId: string): void;
   panelOpenRequest: ReturnType<
     typeof signal<{ seq: number; tabId: string | null }>
   >;
@@ -182,16 +187,24 @@ function mount(
     electron?: boolean;
     hideAgentSidebar?: boolean;
     deferBehavior?: DeferBlockBehavior;
+    contextual?: boolean;
+    cardActions?: boolean;
+    railRetention?: boolean;
   } = {},
 ): Harness {
   const {
     electron = true,
     hideAgentSidebar = false,
     deferBehavior = DeferBlockBehavior.Playthrough,
+    contextual = false,
+    cardActions = false,
+    railRetention = false,
   } = options;
   const agents = signal<MonitoredAgent[]>([]);
   const activeTabId = signal<string | null>('tab-1');
-  const openTabs = signal<{ id: string }[]>([]);
+  const contextTabId = signal<string | null>('tab-1');
+  const openTabs = signal<{ id: string; claudeSessionId?: string }[]>(contextual ? [{ id: 'tab-1', claudeSessionId: 'session-1' }] : []);
+  const closedTabListeners = new Set<(event: { tabId: string; kind: string }) => void>();
   const panelOpenRequest = signal<{ seq: number; tabId: string | null }>({
     seq: 0,
     tabId: null,
@@ -216,9 +229,15 @@ function mount(
     tabs: openTabs.asReadonly(),
     streamingTabIds: signal<Set<string>>(new Set()).asReadonly(),
     closedTab: signal(null).asReadonly(),
-    onTabClosed: jest.fn(() => () => undefined),
+    onTabClosed: jest.fn((listener: (event: { tabId: string; kind: string }) => void) => {
+      closedTabListeners.add(listener);
+      return () => closedTabListeners.delete(listener);
+    }),
     removedWorkspace$: signal(null).asReadonly(),
-    findTabByIdAcrossWorkspaces: jest.fn(() => null),
+    findTabByIdAcrossWorkspaces: jest.fn((id: string) => {
+      const tab = openTabs().find((candidate) => candidate.id === id);
+      return tab ? { tab, workspacePath: '/w' } : null;
+    }),
     findTabBySessionId: jest.fn(() => null),
     findTabsBySessionId: jest.fn(() => []),
     clearRemovedWorkspace: jest.fn(),
@@ -274,7 +293,10 @@ function mount(
       { provide: TabManagerService, useValue: tabManager },
       {
         provide: SessionHistoryReplayer,
-        useValue: { isReplaying: jest.fn(() => false) },
+        useValue: {
+          isReplaying: jest.fn(() => false),
+          retirePersistedFilter: jest.fn(),
+        },
       },
       {
         provide: HistoryPagingService,
@@ -288,7 +310,8 @@ function mount(
         useValue: {
           agents: agents.asReadonly(),
           agentsForSession: (): MonitoredAgent[] => agents(),
-          agentsOwnedBySession: (): MonitoredAgent[] => [],
+          agentsOwnedBySession: (sid: string): MonitoredAgent[] =>
+            agents().filter((agent) => agent.parentSessionId === sid),
           panelOpenRequest: panelOpenRequest.asReadonly(),
           cliOutputDemand: signal([]).asReadonly(),
           tick: signal(0),
@@ -347,7 +370,9 @@ function mount(
         provide: ChangeSetActionsService,
         useValue: { openFile: jest.fn(), review: jest.fn() },
       },
-      { provide: SESSION_CONTEXT, useValue: null },
+      { provide: SESSION_CONTEXT, useValue: contextual ? contextTabId.asReadonly() : null },
+      { provide: RAIL_TRANSCRIPT_RETENTION, useValue: railRetention },
+      { provide: SESSION_CARD_ACTIONS, useValue: cardActions ? { openLane: jest.fn(), openSession: jest.fn() } : null },
       { provide: SESSION_VISIBLE, useValue: null },
       { provide: HIDE_AGENT_SIDEBAR, useValue: hideAgentSidebar },
     ],
@@ -363,9 +388,9 @@ function mount(
     },
   });
   TestBed.overrideComponent(DisplayDockComponent, {
-    remove: { imports: [DisplayPanelComponent, AgentMonitorPanelComponent] },
+    remove: { imports: [DisplayPanelComponent] },
     add: {
-      imports: [StubDisplayPanelComponent, StubAgentMonitorPanelComponent],
+      imports: [StubDisplayPanelComponent],
     },
   });
 
@@ -376,6 +401,11 @@ function mount(
     agents,
     activeTabId,
     openTabs,
+    contextTabId,
+    closeTab(tabId: string): void {
+      openTabs.update((tabs) => tabs.filter((tab) => tab.id !== tabId));
+      for (const listener of closedTabListeners) listener({ tabId, kind: 'close' });
+    },
     panelOpenRequest,
     emitHostWidth(width: number): void {
       const entry = {
@@ -413,9 +443,6 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     native().querySelector('ptah-display-dock');
   const separator = (): HTMLElement | null =>
     native().querySelector('[data-testid="display-dock-separator"]');
-  const dockTab = (name: 'displays' | 'agents'): HTMLButtonElement =>
-    native().querySelector(`ptah-display-dock [data-tab="${name}"]`) as HTMLButtonElement;
-
   /** Change detection plus the deferred dock block, a few rounds. */
   async function settle(): Promise<void> {
     for (let round = 0; round < 3; round += 1) {
@@ -476,15 +503,43 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       expect(native().querySelector('ptah-agent-monitor-panel')).not.toBeNull();
     });
 
-    it('HIDE_AGENT_SIDEBAR: no store, no toggle, no dock', () => {
-      h = mount({ hideAgentSidebar: true });
-      expect(
-        h.fixture.debugElement.injector.get(DisplayDockState, null, {
-          optional: true,
-        }),
-      ).toBeNull();
+    it('HIDE_AGENT_SIDEBAR still hides the VS Code sidebar', async () => {
+      h = mount({ electron: false, hideAgentSidebar: true });
+      await settle();
       expect(toggle()).toBeNull();
-      expect(dockEl()).toBeNull();
+      expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
+    });
+
+    it('shows display surfaces in every Electron host without an Agents tab', async () => {
+      h = mount({ hideAgentSidebar: true });
+      h.emitHostWidth(1280);
+      h.agents.set([agent('running')]);
+      await settle();
+      expect(store().tab('tab-1').open).toBe(false);
+      const first = surface('id:chart');
+      store().setLiveTurn('tab-1', 'turn-1');
+      store().setSurfaces('tab-1', { surfaces: [first], statuses: new Map() });
+      store().requestAutoOpen('tab-1', 'turn-1', first.key);
+      await settle();
+      expect(store().tab('tab-1').open).toBe(true);
+      const panel = h.fixture.debugElement.query(By.directive(StubDisplayPanelComponent));
+      expect(panel.componentInstance.surfaces()).toEqual([first]);
+      const updated = { ...first, updatedSeq: 2 };
+      store().setSurfaces('tab-1', { surfaces: [updated], statuses: new Map() });
+      await settle();
+      expect(panel.componentInstance.surfaces()).toEqual([updated]);
+      expect(native().querySelector('ptah-display-dock [role="tablist"]')).toBeNull();
+      expect(native().querySelector('ptah-display-dock ptah-agent-monitor-panel')).toBeNull();
+    });
+
+    it('running agents and monitor chip requests never open the Electron display dock', async () => {
+      h = mount();
+      h.agents.set([agent('running')]);
+      await settle();
+      expect(store().tab('tab-1').open).toBe(false);
+      h.panelOpenRequest.set({ seq: 1, tabId: null });
+      await settle();
+      expect(store().tab('tab-1').open).toBe(false);
     });
   });
 
@@ -608,48 +663,18 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
   });
 
   describe('R1.3: one right-side panel', () => {
-    it('renders one dock, the monitor only in its Agents tabpanel, one visible tabpanel, chat = host - dock', async () => {
+    it('renders one display region beside the chat at its resized width', async () => {
       h = mount();
       h.emitHostWidth(1280);
-      h.agents.set([agent('running')]);
+      await clickToggle();
+      store().setSurfaces('tab-1', { surfaces: [surface('id:a')], statuses: new Map() });
+      separator()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
       await settle();
-      // Running agents opened the dock on Agents.
-      expect(store().tab('tab-1').open).toBe(true);
-      store().setSurfaces('tab-1', {
-        surfaces: [surface('id:a')],
-        statuses: new Map(),
-      });
-      separator()?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
-      );
-      await settle();
-
-      for (const name of ['displays', 'agents'] as const) {
-        dockTab(name).click();
-        await settle();
-        expect(native().querySelectorAll('ptah-display-dock')).toHaveLength(1);
-        const monitors = Array.from(
-          native().querySelectorAll('ptah-agent-monitor-panel'),
-        );
-        expect(monitors).toHaveLength(1);
-        expect(
-          monitors[0].closest('[data-testid="display-dock-agents"]'),
-        ).not.toBeNull();
-        const visible = Array.from(
-          native().querySelectorAll<HTMLElement>(
-            'ptah-display-dock [role="tabpanel"]',
-          ),
-        ).filter((panel) => !panel.hidden);
-        expect(visible).toHaveLength(1);
-        expect(dockEl()?.style.width).toBe('300px');
-        expect(dockEl()?.classList.contains('absolute')).toBe(false);
-        // The chat column is the one flexible child; the dock takes 300 px.
-        const chatColumn = native().querySelector(
-          ':scope > div > div.flex-1',
-        ) as HTMLElement;
-        expect(chatColumn).not.toBeNull();
-        expect(chatColumn.contains(dockEl())).toBe(false);
-      }
+      expect(native().querySelectorAll('ptah-display-dock')).toHaveLength(1);
+      expect(native().querySelectorAll('ptah-display-dock [role="region"]')).toHaveLength(1);
+      expect(native().querySelector('ptah-display-dock ptah-agent-monitor-panel')).toBeNull();
+      expect(dockEl()?.style.width).toBe('300px');
+      expect(dockEl()?.classList.contains('absolute')).toBe(false);
     });
 
     it('below the breakpoint the dock is the single overlay; Escape closes and returns focus', async () => {
@@ -703,114 +728,106 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     expect(dockEl()?.classList.contains('hidden')).toBe(false);
   });
 
-  describe('agent auto-open on the store (decision #100)', () => {
-    it('a user close, then a running agent: the dock stays closed', async () => {
-      h = mount();
-      h.emitHostWidth(1280);
-      await clickToggle();
-      await clickToggle();
-      expect(store().tab('tab-1').open).toBe(false);
-
-      h.agents.set([agent('running')]);
-      await settle();
-      expect(store().tab('tab-1').open).toBe(false);
-    });
-
-    it('agents settle, then a new running agent opens the dock on Agents', async () => {
-      h = mount();
-      h.emitHostWidth(1280);
-      h.agents.set([agent('running')]);
-      await settle();
-      expect(store().tab('tab-1').open).toBe(true);
-      store().selectTab('tab-1', 'displays');
-      await clickToggle();
-      expect(store().tab('tab-1').open).toBe(false);
-
-      h.agents.set([agent('completed')]);
-      await settle();
-      expect(store().tab('tab-1').agentsUserClosed).toBe(false);
-
-      h.agents.set([agent('completed'), { ...agent('running'), agentId: 'b' }]);
-      await settle();
-      expect(store().tab('tab-1').open).toBe(true);
-      expect(store().tab('tab-1').activeTab).toBe('agents');
-      expect(dockTab('agents').getAttribute('aria-selected')).toBe('true');
-    });
-
-    it('a chip request opens the dock on Agents after a user close', async () => {
-      h = mount();
-      h.emitHostWidth(1280);
-      await clickToggle();
-      await clickToggle();
-      h.agents.set([agent('running')]);
-      await settle();
-      expect(store().tab('tab-1').open).toBe(false);
-
-      h.panelOpenRequest.set({ seq: 1, tabId: null });
-      await settle();
-      expect(store().tab('tab-1').open).toBe(true);
-      expect(store().tab('tab-1').activeTab).toBe('agents');
-      expect(store().tab('tab-1').agentsUserClosed).toBe(false);
-    });
+  it('dock chunk failure shows an alert without an agent monitor', async () => {
+    h = mount({ deferBehavior: DeferBlockBehavior.Manual });
+    h.emitHostWidth(1280);
+    await clickToggle();
+    const [dockBlock] = await h.fixture.getDeferBlocks();
+    await dockBlock.render(DeferBlockState.Error);
+    await settle();
+    expect(native().querySelector('[data-testid="display-dock-load-failed"]')?.textContent).toContain('Display panel failed to load');
+    expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
   });
 
-  describe('dock chunk failure (decision #109)', () => {
-    it('falls back to the eager agent monitor beside the alert, and the toggle closes it', async () => {
-      h = mount({ deferBehavior: DeferBlockBehavior.Manual });
-      h.emitHostWidth(1280);
-      h.agents.set([agent('running')]);
-      await settle();
-      expect(store().tab('tab-1').open).toBe(true);
-
-      const [dockBlock] = await h.fixture.getDeferBlocks();
-      await dockBlock.render(DeferBlockState.Error);
-      await settle();
-
-      const alert = native().querySelector(
-        '[data-testid="display-dock-load-failed"]',
-      );
-      expect(alert?.getAttribute('role')).toBe('alert');
-      expect(alert?.textContent?.trim()).toBe('Display panel failed to load');
-      expect(dockEl()).toBeNull();
-      const monitors = h.fixture.debugElement.queryAll(
-        (el) => el.name === 'ptah-agent-monitor-panel',
-      );
-      expect(monitors).toHaveLength(1);
-      // The VS Code branch bindings, not docked mode.
-      const monitor = monitors[0]
-        .componentInstance as StubAgentMonitorPanelComponent;
-      expect(monitor.docked()).toBe(false);
-      expect(monitor.embeddedOpen()).toBe(true);
-      expect(monitor.embeddedAgents()?.map((a) => a.agentId)).toEqual([
-        'agent-running',
-      ]);
-      expect(monitor.sessionId()).toBe('session-1');
-      expect(monitor.isOverlay()).toBe(false);
-
-      await clickToggle();
-      expect(store().tab('tab-1').open).toBe(false);
-      expect(
-        native().querySelector('[data-testid="display-dock-load-failed"]'),
-      ).toBeNull();
-      expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
-      expect(dockEl()).toBeNull();
-    });
-
-    it("the fallback monitor's close output closes the panel", async () => {
-      h = mount({ deferBehavior: DeferBlockBehavior.Manual });
-      h.emitHostWidth(1280);
-      await clickToggle();
-      const [dockBlock] = await h.fixture.getDeferBlocks();
-      await dockBlock.render(DeferBlockState.Error);
-      await settle();
-
-      const monitor = h.fixture.debugElement.query(
-        (el) => el.name === 'ptah-agent-monitor-panel',
-      ).componentInstance as StubAgentMonitorPanelComponent;
-      monitor.closed.emit();
-      await settle();
-      expect(store().tab('tab-1').open).toBe(false);
-      expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
-    });
+  it('Rail host agent activity never opens the display dock', async () => {
+    h = mount({ contextual: true, railRetention: true });
+    h.agents.set([{ ...agent('running'), parentSessionId: 'session-1' }]);
+    await settle();
+    expect(store().tab('tab-1').open).toBe(false);
   });
+
+  it('Rail ChatView retains two transcript DOM nodes and restores its own dock state on context round trip', async () => {
+    h = mount({ contextual: true, railRetention: true });
+    h.openTabs.set([
+      { id: 'tab-1', claudeSessionId: 'session-1' },
+      { id: 'tab-2', claudeSessionId: 'session-2' },
+    ]);
+    h.emitHostWidth(1280);
+    await settle();
+    const transcripts = () => native().querySelectorAll('ptah-chat-transcript');
+    const first = transcripts()[0] as HTMLElement & { active: boolean };
+    expect(first.active).toBe(true);
+    store().open('tab-1');
+    store().setPinned('tab-1', true);
+    store().setWidth('tab-1', 520);
+    h.contextTabId.set('tab-2');
+    await settle();
+    expect(transcripts()).toHaveLength(2);
+    expect(first.active).toBe(false);
+    expect((transcripts()[1] as HTMLElement & { active: boolean }).active).toBe(true);
+    expect(store().tab('tab-2').open).toBe(false);
+    h.contextTabId.set('tab-1');
+    await settle();
+    expect(transcripts()).toHaveLength(2);
+    expect(transcripts()[0]).toBe(first);
+    expect(first.active).toBe(true);
+    expect((transcripts()[1] as HTMLElement & { active: boolean }).active).toBe(false);
+    expect(store().tab('tab-1').open).toBe(true);
+    expect(store().tab('tab-1').pinned).toBe(true);
+    expect(store().tab('tab-1').widthPx).toBe(520);
+    expect(separator()?.getAttribute('aria-valuenow')).toBe('520');
+  });
+
+  it('contextual ChatView without Rail token renders exactly one transcript', async () => {
+    h = mount({ contextual: true });
+    h.openTabs.set([
+      { id: 'tab-1', claudeSessionId: 'session-1' },
+      { id: 'tab-2', claudeSessionId: 'session-2' },
+    ]);
+    await settle();
+    const first = native().querySelector('ptah-chat-transcript');
+    h.contextTabId.set('tab-2');
+    await settle();
+    expect(native().querySelectorAll('ptah-chat-transcript')).toHaveLength(1);
+    expect(native().querySelector('ptah-chat-transcript')).not.toBe(first);
+  });
+
+  it('Rail ChatView removes the closed context tab transcript before context changes', async () => {
+    h = mount({ contextual: true, railRetention: true });
+    await settle();
+    expect(native().querySelectorAll('ptah-chat-transcript')).toHaveLength(1);
+    h.closeTab('tab-1');
+    await settle();
+    expect(native().querySelectorAll('ptah-chat-transcript')).toHaveLength(0);
+  });
+
+  it('single chat agent activity never opens the display dock', async () => {
+    h = mount({ cardActions: true });
+    h.agents.set([agent('running')]);
+    await settle();
+    expect(store().tab('tab-1').open).toBe(false);
+  });
+
+  it('a fenced ptah-ui display [id] opens in the single chat view dock and updates in place', async () => {
+    h = mount();
+    const first = surface('id:chart');
+    store().setLiveTurn('tab-1', 'turn-1');
+    store().setSurfaces('tab-1', { surfaces: [first], statuses: new Map() });
+    store().requestAutoOpen('tab-1', 'turn-1', first.key);
+    await settle();
+    expect(store().tab('tab-1').open).toBe(true);
+    expect(store().tab('tab-1').surfaces).toHaveLength(1);
+    const panel = h.fixture.debugElement.query(By.directive(StubDisplayPanelComponent));
+    expect(panel).toBeTruthy();
+    expect(panel.componentInstance.surfaces()).toEqual([first]);
+    const updated = { ...first, updatedSeq: 2 };
+    store().setSurfaces('tab-1', { surfaces: [updated], statuses: new Map() });
+    await settle();
+    expect(store().tab('tab-1').surfaces).toEqual([updated]);
+    expect(store().tab('tab-1').surfaces).toHaveLength(1);
+    expect(h.fixture.debugElement.query(By.directive(StubDisplayPanelComponent)).componentInstance).toBe(panel.componentInstance);
+    expect(panel.componentInstance.surfaces()).toEqual([updated]);
+    expect(native().querySelectorAll('ptah-display-dock')).toHaveLength(1);
+  });
+
 });

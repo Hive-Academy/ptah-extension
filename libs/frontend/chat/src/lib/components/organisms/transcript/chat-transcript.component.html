@@ -9,6 +9,7 @@
   [active]="workActive()"
   [historyReplaying]="historyReplaying()"
   [pinnedToBottom]="isPinnedToBottom()"
+  [attr.inert]="subagentOpen() ? '' : null"
 >
   <div #messageContent class="chat-scroll-content">
     @if (vm().hasOlderHistory && !historyReplaying()) {
@@ -46,6 +47,7 @@
           <ptah-message-bubble
             class="block px-2 pb-3"
             [message]="slot.record()"
+            [agentTileMode]="true"
             [ptahUiOrderKey]="ptahUiOrderKeys().get(slot.id) ?? 0"
             [ptahUiSnapshot]="ptahUiSnapshots().get(slot.id) ?? null"
             [messageIndex]="i"
@@ -164,3 +166,20 @@
     (promptSelected)="promptSelected.emit($event)"
   />
 }
+
+<!-- Single chat view: a sub-agent tile opens the live agent in place. It
+     covers the transcript, which stays mounted (inert) so Back returns to the
+     same scroll position, and the composer outside keeps its draft. The view
+     and the inert flag exist only while the agent resolves in this
+     conversation (see `syncOpenSubagent`). -->
+@if (openSubagent(); as subagent) {
+  <ptah-single-chat-subagent-view
+    class="absolute inset-0 z-10"
+    [node]="subagent.node"
+    [isStreaming]="subagent.streaming"
+    (back)="closeSubagent()"
+  />
+}
+<p class="sr-only" role="status" data-testid="subagent-notice">
+  {{ subagentNotice() }}
+</p>

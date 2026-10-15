@@ -2,7 +2,10 @@ import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Placement } from '@floating-ui/dom';
 import * as FloatingDom from '@floating-ui/dom';
-import { NativePopoverComponent } from './native-popover.component';
+import {
+  NativePopoverComponent,
+  POPOVER_POSITION_TIMEOUT_MS,
+} from './native-popover.component';
 
 jest.mock('@floating-ui/dom', () => {
   const actual = jest.requireActual('@floating-ui/dom');
@@ -61,6 +64,7 @@ describe('NativePopoverComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
   const mockedCompute = FloatingDom.computePosition as unknown as jest.Mock;
+  const mockedAutoUpdate = FloatingDom.autoUpdate as unknown as jest.Mock;
 
   beforeEach(async () => {
     mockedCompute.mockClear();
@@ -75,8 +79,8 @@ describe('NativePopoverComponent', () => {
 
   const flushAll = async () => {
     await new Promise((r) => queueMicrotask(() => r(null)));
-    await Promise.resolve();
-    await Promise.resolve();
+    // The bounded positioning race adds a few promise hops before `opened`.
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     fixture.detectChanges();
   };
 
@@ -246,6 +250,143 @@ describe('NativePopoverComponent', () => {
       fixture.detectChanges();
 
       expect(document.activeElement).toBe(triggerBtn);
+    });
+  });
+
+  describe('Positioning failure and stale opens', () => {
+    const microtasks = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve));
+    const panel = () =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '.popover-panel',
+      ) as HTMLElement;
+    const focusTrigger = () => {
+      document.body.appendChild(fixture.nativeElement);
+      const triggerBtn = (fixture.nativeElement as HTMLElement).querySelector(
+        '#trigger-btn',
+      ) as HTMLButtonElement;
+      triggerBtn.focus();
+      return triggerBtn;
+    };
+    let consoleError: jest.SpyInstance;
+    beforeEach(() => {
+      consoleError = jest.spyOn(console, 'error').mockImplementation(() => {
+        /* the dev-mode diagnostic is asserted, not printed */
+      });
+    });
+    afterEach(() => consoleError.mockRestore());
+
+    it('shows the panel unpositioned, focuses it and emits opened when positioning rejects; Escape still closes and restores focus', async () => {
+      mockedCompute.mockRejectedValueOnce(new Error('no layout'));
+      const triggerBtn = focusTrigger();
+
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+
+      expect(panel().style.visibility).toBe('visible');
+      expect(document.activeElement).toBe(panel());
+      expect(host.openedCount).toBe(1);
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('positioning failed'),
+      );
+
+      // The fallback panel is dismissable like a positioned one.
+      panel().dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      expect(host.closedCount).toBe(1);
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(triggerBtn);
+    });
+
+    it('shows the panel unpositioned once positioning overruns its bound', async () => {
+      jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] });
+      try {
+        mockedCompute.mockReturnValueOnce(new Promise(() => undefined));
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await microtasks();
+
+        expect(panel().style.visibility).toBe('hidden');
+        expect(host.openedCount).toBe(0);
+
+        jest.advanceTimersByTime(POPOVER_POSITION_TIMEOUT_MS);
+        await microtasks();
+
+        expect(panel().style.visibility).toBe('visible');
+        expect(host.openedCount).toBe(1);
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining('positioning timed out'),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('does not focus or emit opened when closed before positioning resolves', async () => {
+      let resolvePosition: (value: { x: number; y: number }) => void = () =>
+        undefined;
+      mockedCompute.mockReturnValueOnce(
+        new Promise((resolve) => (resolvePosition = resolve)),
+      );
+      const triggerBtn = focusTrigger();
+
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+      expect(mockedCompute).toHaveBeenCalledTimes(1);
+
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(triggerBtn);
+      const autoUpdatesBefore = mockedAutoUpdate.mock.calls.length;
+
+      resolvePosition({ x: 0, y: 0 });
+      await settle();
+
+      expect(host.openedCount).toBe(0);
+      expect(document.activeElement).toBe(triggerBtn);
+      // The cancelled position never starts an auto-update.
+      expect(mockedAutoUpdate.mock.calls.length).toBe(autoUpdatesBefore);
+    });
+
+    it('close during a pending position leaves no auto-update after it resolves', async () => {
+      jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] });
+      try {
+        let resolvePosition: (value: { x: number; y: number }) => void = () =>
+          undefined;
+        mockedCompute.mockReturnValueOnce(
+          new Promise((resolve) => (resolvePosition = resolve)),
+        );
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await microtasks();
+
+        // The bound overruns: the panel opens unpositioned.
+        jest.advanceTimersByTime(POPOVER_POSITION_TIMEOUT_MS);
+        await microtasks();
+        expect(host.openedCount).toBe(1);
+
+        host.isOpen.set(false);
+        fixture.detectChanges();
+        const autoUpdatesBefore = mockedAutoUpdate.mock.calls.length;
+
+        resolvePosition({ x: 0, y: 0 });
+        await microtasks();
+
+        expect(mockedAutoUpdate.mock.calls.length).toBe(autoUpdatesBefore);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

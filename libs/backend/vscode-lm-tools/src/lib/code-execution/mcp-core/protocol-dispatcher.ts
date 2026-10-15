@@ -162,11 +162,13 @@ import {
   formatSessionLinkTaskResult,
 } from './session-organization-tools';
 import {
+  SESSION_HANDOFF_TOOL_NAME,
   SESSION_READ_TOOL_NAME,
   SESSION_SEND_TOOL_NAME,
   SESSION_START_TOOL_NAME,
   SESSION_STATUS_TOOL_NAME,
   SESSION_STOP_TOOL_NAME,
+  buildSessionHandoffTool,
   buildSessionReadTool,
   buildSessionSendTool,
   buildSessionStartTool,
@@ -421,6 +423,9 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * - workspace_analyze, search_files, get_diagnostics, count_tokens,
  *   web_search, execute_code, approval_prompt
  * - ptah_session_link_task (TASK_2026_580), beside the task tools.
+ * - ptah_session_handoff (TASK_2026_655), beside ptah_session_link_task: the
+ *   budget banner's handoff action relies on it, so the 'agent' toggle must
+ *   not remove it.
  * - ptah_task_create/update/get/list/check (TASK_2026_179, step 17). These sit
  *   in the core set on purpose and have NO entry in the namespace-toggle list
  *   below: an agent that cannot rely on the task tools being present will fall
@@ -516,6 +521,9 @@ function buildToolDefinitions(
     // Always-on beside the task tools (TASK_2026_580, D12): an agent that
     // cannot rely on it would leave its session unlinked from the task.
     buildSessionLinkTaskTool(),
+    // Always-on (TASK_2026_655): the budget banner's handoff action relies on
+    // it, so the `agent` toggle must not remove it.
+    buildSessionHandoffTool(),
     // Listed only under the apps profile (TASK_2026_595), filtered in buildToolSet.
     buildDashboardProposeSpecTool(),
     buildSurfaceUpdateTool(),
@@ -2319,7 +2327,8 @@ async function handleIndividualTool(
       case SESSION_SEND_TOOL_NAME:
       case SESSION_STATUS_TOOL_NAME:
       case SESSION_READ_TOOL_NAME:
-      case SESSION_STOP_TOOL_NAME: {
+      case SESSION_STOP_TOOL_NAME:
+      case SESSION_HANDOFF_TOOL_NAME: {
         const reply = await handleSessionToolCall(
           name,
           args,

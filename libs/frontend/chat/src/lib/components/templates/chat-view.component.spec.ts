@@ -101,6 +101,8 @@ import { PanelResizeService } from '../../services/panel-resize.service';
 import {
   SESSION_CONTEXT,
   SESSION_VISIBLE,
+  SESSION_FORCED_CARD,
+  SESSION_START_GUARD,
 } from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
@@ -178,6 +180,10 @@ function makeHarness(
     renderCompactTemplate?: boolean;
     /** Initial `activeTabViewMode` stub value. Defaults to 'full'. */
     activeTabViewMode?: TabViewMode;
+    /** When set, provide a tile-local signal that forces the compact card. */
+    forcedCard?: boolean;
+    startGuard?: () => string | null;
+    isElectron?: boolean;
   } = {},
 ) {
   const {
@@ -191,9 +197,14 @@ function makeHarness(
     renderOverlayTemplate = false,
     renderCompactTemplate = false,
     activeTabViewMode = 'full',
+    forcedCard,
+    startGuard,
+    isElectron = false,
   } = opts;
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
+  const forcedCardSig =
+    forcedCard === undefined ? null : signal<boolean>(forcedCard);
 
   // Writable signals for reactive control from tests
   const sessionIdSig = signal<string | null>(sessionId);
@@ -211,6 +222,7 @@ function makeHarness(
   const resumableSubagentsSig = signal<SubagentRecord[]>([]);
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
   const sendOrQueueMessageMock = jest.fn().mockResolvedValue({ success: true });
+  const removeResumableSubagentMock = jest.fn();
   const upsertSessionSummaryMock = jest.fn();
   const removeSessionFromListMock = jest.fn();
   const isCompactingForTabMock = jest.fn(
@@ -236,6 +248,7 @@ function makeHarness(
     handleQuestionResponse: jest.fn(),
     switchSession: switchSessionMock,
     sendOrQueueMessage: sendOrQueueMessageMock,
+    removeResumableSubagent: removeResumableSubagentMock,
     upsertSessionSummary: upsertSessionSummaryMock,
     removeSessionFromList: removeSessionFromListMock,
   } as unknown as ChatStore;
@@ -299,6 +312,7 @@ function makeHarness(
   } as unknown as TabManagerService;
 
   const vscodeStub = {
+    isElectron,
     config: jest.fn(() => ({
       workspaceRoot: '/test/workspace',
     })),
@@ -478,6 +492,9 @@ function makeHarness(
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
+      ...(startGuard
+        ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
+        : []),
       {
         provide: SESSION_CONTEXT,
         useValue:
@@ -489,6 +506,14 @@ function makeHarness(
         provide: SESSION_VISIBLE,
         useValue: sessionVisibleSig ? sessionVisibleSig.asReadonly() : null,
       },
+      ...(forcedCardSig
+        ? [
+            {
+              provide: SESSION_FORCED_CARD,
+              useValue: forcedCardSig.asReadonly(),
+            },
+          ]
+        : []),
     ],
   });
 
@@ -542,6 +567,7 @@ function makeHarness(
     sessionIdSig,
     activeTabIdSig,
     sessionVisibleSig,
+    forcedCardSig,
     resumableSubagentsSig,
     isCompactingForTabMock,
     replayingTabIds,
@@ -557,6 +583,7 @@ function makeHarness(
     activeTabMock,
     createTabMock,
     sendOrQueueMessageMock,
+    removeResumableSubagentMock,
     requestCanvasTabMock,
     requestComposerPrefillMock,
   };
@@ -1270,6 +1297,60 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 // computeds are exercised end-to-end: a banner scoped to another tile must NOT
 // leak into this tile, a global (`null`) banner must, and the kind must match.
 // ---------------------------------------------------------------------------
+describe('ChatViewComponent — canvas start guard', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  const agents = [
+    { agentId: 'a', agentType: 'Explore', toolCallId: 'tool-a' },
+    { agentId: 'b', agentType: 'Explore', toolCallId: 'tool-b' },
+  ] as SubagentRecord[];
+
+  it.each(['single', 'all'] as const)(
+    'keeps %s resumable entries and shows the cap reason',
+    (mode) => {
+      const h = makeHarness({
+        sessionContextTabId: 'tile-A',
+        useRealBanner: true,
+        startGuard: () => 'Running cap reached',
+      });
+      if (mode === 'single') h.component.handleResumeAgent(agents[0]);
+      else h.component.handleResumeAllAgents(agents);
+      expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+      expect(h.removeResumableSubagentMock).not.toHaveBeenCalled();
+      expect(h.component.actionError()).toBe('Running cap reached');
+    },
+  );
+
+  it.each([null, undefined])(
+    'sends both resume paths when guard is %s',
+    (result) => {
+      const h = makeHarness({
+        startGuard: result === undefined ? undefined : () => null,
+      });
+      h.component.handleResumeAgent(agents[0]);
+      h.component.handleResumeAllAgents(agents);
+      expect(h.sendOrQueueMessageMock).toHaveBeenCalledTimes(2);
+      expect(h.removeResumableSubagentMock).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it('blocks the budget wrap-up send with the same notice', async () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-A',
+      useRealBanner: true,
+      startGuard: () => 'Running cap reached',
+    });
+    await (
+      h.component as unknown as { onBudgetWrapUp(): Promise<void> }
+    ).onBudgetWrapUp();
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+    expect(h.component.actionError()).toBe('Running cap reached');
+  });
+});
+
 describe('ChatViewComponent — per-tile banner scoping', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -2255,6 +2336,62 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     ).not.toBeNull();
     // Falling through to the full view would render the input area instead.
     expect(fixture.nativeElement.querySelector('ptah-chat-input')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-sidebar-tab'),
+    ).not.toBeNull();
+  });
+
+  it('keeps the display dock for a user-chosen compact mode', () => {
+    const { fixture } = makeHarness({
+      activeTabViewMode: 'compact',
+      renderCompactTemplate: true,
+      isElectron: true,
+    });
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-sidebar-tab'),
+    ).not.toBeNull();
+  });
+
+  it('hides the display dock when card mode is forced', () => {
+    const forced = makeHarness({
+      activeTabViewMode: 'compact',
+      renderCompactTemplate: true,
+      isElectron: true,
+      forcedCard: true,
+    });
+    forced.fixture.detectChanges();
+    expect(
+      forced.fixture.nativeElement.querySelector('ptah-sidebar-tab'),
+    ).toBeNull();
+  });
+
+  it('forces a compact card in full mode and restores the full view when cleared', () => {
+    const { component, fixture, forcedCardSig } = makeHarness({
+      activeTabViewMode: 'full',
+      forcedCard: true,
+      renderCompactTemplate: true,
+    });
+    fixture.detectChanges();
+
+    expect(component.resolvedViewMode()).toBe('full');
+    expect(
+      fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-transcript'),
+    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-sidebar-tab')).toBeNull();
+
+    forcedCardSig!.set(false);
+    fixture.detectChanges();
+    expect(component.resolvedViewMode()).toBe('full');
+    expect(
+      fixture.nativeElement.querySelector('ptah-compact-session-card'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
   });
 
   it('renders the full view (not the compact card) for "full"', () => {
@@ -2267,6 +2404,9 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
   });
 });
 

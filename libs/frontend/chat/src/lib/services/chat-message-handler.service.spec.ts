@@ -92,7 +92,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     markTabDetached: jest.Mock;
   };
   let turnStateApplier: { apply: jest.Mock };
-  let agentSessionAdoption: { adopt: jest.Mock };
+  let agentSessionAdoption: { adopt: jest.Mock; adoptHandoff: jest.Mock };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
@@ -140,7 +140,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       markTabDetached: jest.fn(),
     };
     turnStateApplier = { apply: jest.fn() };
-    agentSessionAdoption = { adopt: jest.fn() };
+    agentSessionAdoption = { adopt: jest.fn(), adoptHandoff: jest.fn() };
 
     TestBed.configureTestingModule({
       providers: [
@@ -148,7 +148,10 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         { provide: ChatStore, useValue: chatStore },
         {
           provide: StreamFlushScheduler,
-          useValue: { enqueue: (_tabId: string | undefined, work: () => void) => work(), enqueueSnapshot: (_snapshot: unknown, work: () => void) => work() },
+          useValue: {
+            enqueue: (_tabId: string | undefined, work: () => void) => work(),
+            enqueueSnapshot: (_snapshot: unknown, work: () => void) => work(),
+          },
         },
         { provide: StreamViewportController, useValue: {} },
         { provide: StreamRouter, useValue: streamRouter },
@@ -471,6 +474,59 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     },
   );
 
+  // ----- SESSION_HANDOFF_OPENED (TASK_2026_655) ------------------------------
+
+  const handoffPayload = {
+    tabId: VALID_UUID,
+    fromTabId: '22222222-2222-4222-8222-222222222222',
+    fromSessionId: null,
+    workspaceRoot: '/ws',
+    cwd: '/ws/pkg',
+    label: 'Continue',
+    displayPrompt: 'Read HANDOFF.md first',
+    startedAt: 1,
+  };
+
+  it('sessionHandoff:opened is a handled type and adopts the handoff tab', () => {
+    expect(handler.handledMessageTypes).toContain(
+      MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
+    );
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
+      payload: handoffPayload,
+    });
+
+    expect(agentSessionAdoption.adoptHandoff).toHaveBeenCalledTimes(1);
+    expect(agentSessionAdoption.adoptHandoff).toHaveBeenCalledWith(
+      handoffPayload,
+    );
+    expect(agentSessionAdoption.adopt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['a string', 'nope'],
+    ['missing fromTabId', { ...handoffPayload, fromTabId: '' }],
+    ['missing cwd', { ...handoffPayload, cwd: undefined }],
+    ['non-numeric startedAt', { ...handoffPayload, startedAt: 'x' }],
+  ])(
+    'sessionHandoff:opened drops %s without throwing or adopting',
+    (_label, payload) => {
+      expect(() =>
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
+          payload,
+        }),
+      ).not.toThrow();
+      expect(agentSessionAdoption.adoptHandoff).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('sessionHandoff:opened payload rejected'),
+        expect.anything(),
+      );
+    },
+  );
+
   // ----- SESSION_TURN_ENDED (Phase 2 Batch 3) -------------------------------
 
   it('handleSessionTurnEnded forwards a well-formed payload to ChatStore', () => {
@@ -769,6 +825,29 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
     });
 
+    it('delivers a filtered live event to sibling tabs once without implicit fan-out', () => {
+      let deferred: ((excludeTabIds?: ReadonlySet<string>) => void) | undefined;
+      tabManager.tabs.mockReturnValue([
+        { id: 'tab-1', claudeSessionId: CHUNK_SESSION },
+        { id: 'tab-2', claudeSessionId: CHUNK_SESSION },
+        { id: 'other', claudeSessionId: 'other-session' },
+      ]);
+      chatStore.deferLiveStreamEvent.mockImplementation(
+        (_event: unknown, _tabId: unknown, _sessionId: unknown,
+          deliver: (excludeTabIds?: ReadonlySet<string>) => void) => {
+          deferred = deliver;
+          return true;
+        },
+      );
+      handler.handleMessage({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: makeChunkPayload('tab-1') });
+      deferred?.(new Set(['tab-1']));
+      expect(chatStore.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(chatStore.processStreamEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'evt-1' }), 'tab-2', CHUNK_SESSION, { fanOut: false },
+      );
+      expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
+    });
+
     it('skips tab adoption on session:id-resolved for a claimed surface', () => {
       const correlationId = VALID_UUID;
       const surfaceId = SurfaceId.create();
@@ -1024,6 +1103,78 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       });
 
       expect(chatStore.resyncStream).toHaveBeenCalledWith('tab-1', 'session-1');
+    });
+
+    it('passes the resync seed and applies only the events kept by the fence', () => {
+      const first = { eventType: 'message_start', id: 'start' };
+      const second = { eventType: 'text_delta', id: 'delta' };
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: [first, second], liveSeedBlocks: { message: 1 },
+        },
+      });
+      const seed = chatStore.resyncStream.mock.calls[0][2];
+      expect(seed.events).toEqual([first, second]);
+      expect(seed.liveSeedBlocks).toEqual({ message: 1 });
+      seed.apply([second]);
+      expect(chatStore.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(chatStore.processStreamEvent).toHaveBeenCalledWith(
+        second, 'tab-1', 'session-1', { fanOut: false },
+      );
+      expect(streamRouter.routeStreamEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects liveSeed on an events snapshot', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', fromSequence: 1,
+          toSequence: 1, events: [], liveSeed: [],
+        },
+      });
+      expect(chatStore.resyncStream).not.toHaveBeenCalled();
+      expect(chatStore.processStreamEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects a resync snapshot with a non-array liveSeed', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: { eventType: 'message_start' },
+        },
+      });
+      expect(chatStore.resyncStream).not.toHaveBeenCalled();
+    });
+
+    it.each([null, 42, { eventType: 42 }])('rejects a resync snapshot with a malformed seed element %p', (bad) => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: [{ eventType: 'message_start' }, bad],
+        },
+      });
+      expect(chatStore.resyncStream).not.toHaveBeenCalled();
+    });
+
+    it('ignores malformed liveSeedBlocks while retaining the snapshot', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2, tabId: 'tab-1', sessionId: 'session-1',
+          fromSequence: 1, toSequence: 1, resyncRequired: true,
+          liveSeed: [{ eventType: 'message_start', id: 'start' }],
+          liveSeedBlocks: { message: -1 },
+        },
+      });
+      expect(consoleWarnSpy).toHaveBeenCalled();
+      expect(chatStore.resyncStream.mock.calls[0][2].liveSeedBlocks).toBeUndefined();
     });
   });
 });

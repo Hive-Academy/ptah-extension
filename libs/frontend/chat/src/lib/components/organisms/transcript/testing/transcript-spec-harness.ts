@@ -32,6 +32,7 @@ import { ChatTranscriptComponent } from '../chat-transcript.component';
 })
 export class TranscriptMessageBubbleStub {
   @Input() message!: ExecutionChatMessage;
+  @Input() agentTileMode = false;
   // Mirrors MessageBubbleComponent's ptah-ui input (TASK_2026_610 B7): the
   // transcript template binds it, so the stub must accept it.
   @Input() ptahUiOrderKey = 0;

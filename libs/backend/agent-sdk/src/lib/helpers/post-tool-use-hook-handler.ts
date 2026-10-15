@@ -14,6 +14,7 @@ import { resolveHookSessionId } from './hook-session-resolver';
 import type { ToolOutputCapper } from './compaction/tool-output-capper';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 import { MainThreadNoticeQueue } from './main-thread-notice-queue';
+import { SubagentNoticeQueue } from './subagent-notice-queue';
 
 /**
  * Upper bound for one output cap. The SDK's hook timeout defaults to 60 s; a
@@ -68,20 +69,36 @@ export class PostToolUseHookHandler {
     /** Absent in callers that construct the handler without one: no notices. */
     @inject(MainThreadNoticeQueue)
     private readonly noticeQueue?: MainThreadNoticeQueue,
+    /** Absent in callers that construct the handler without one: no subagent notices. */
+    @inject(SubagentNoticeQueue)
+    private readonly subagentNotices?: SubagentNoticeQueue,
   ) {}
 
   /**
+   * The pending host notice for this tool result: a subagent's tool result
+   * (`agent_id` set) drains only that subagent's notice, a main-thread one
+   * drains the session's main-thread notices.
+   */
+  private takeNotice(
+    input: PostToolUseHookInput,
+    sessionId: string | undefined,
+  ): string | undefined {
+    return input.agent_id
+      ? this.subagentNotices?.take(input.agent_id)
+      : this.takeMainThreadNotice(input, sessionId);
+  }
+
+  /**
    * Drains the session's pending host notices for a main-thread tool result.
-   * A subagent's tool result (`agent_id` set) never drains the queue, so the
-   * notice waits for the main agent. A failure loses the notice for this tool
-   * call only and never breaks the hook.
+   * A failure loses the notice for this tool call only and never breaks the
+   * hook.
    */
   private takeMainThreadNotice(
     input: PostToolUseHookInput,
     sessionId: string | undefined,
   ): string | undefined {
     const queue = this.noticeQueue;
-    if (!queue || input.agent_id) {
+    if (!queue) {
       return undefined;
     }
     try {
@@ -127,7 +144,7 @@ export class PostToolUseHookHandler {
               );
               this.fanOut(input, sessionId, cwd);
               const rewritten = cappedOutput !== input.tool_response;
-              const notice = this.takeMainThreadNotice(input, sessionId);
+              const notice = this.takeNotice(input, sessionId);
               if (!rewritten && notice === undefined) {
                 return { continue: true };
               }
@@ -170,7 +187,10 @@ export class PostToolUseHookHandler {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onAbort: (() => void) | undefined;
     const interruption = new Promise<CapInterruption>((resolve) => {
-      timer = setTimeout(() => resolve('timeout'), POST_TOOL_USE_CAP_TIMEOUT_MS);
+      timer = setTimeout(
+        () => resolve('timeout'),
+        POST_TOOL_USE_CAP_TIMEOUT_MS,
+      );
       timer.unref?.();
       onAbort = () => resolve('aborted');
       signal?.addEventListener('abort', onAbort, { once: true });

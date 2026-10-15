@@ -13,6 +13,8 @@ import {
   LOCALE_ID,
   NgZone,
   OnDestroy,
+  InjectionToken,
+  Signal,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -74,8 +76,11 @@ import {
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
+  RAIL_TRANSCRIPT_RETENTION,
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
+  SESSION_FORCED_CARD,
+  SESSION_START_GUARD,
 } from '../../tokens/session-context.token';
 import {
   ClaudeRpcService,
@@ -94,6 +99,22 @@ import type {
   SubagentRecord,
   MessageAnchorHint,
 } from '@ptah-extension/shared';
+
+/** Minimum transcript/composer width requested by a Rail pane. */
+export const RAIL_MIN_CONTENT_WIDTH = new InjectionToken<Signal<number | null>>(
+  'RAIL_MIN_CONTENT_WIDTH',
+);
+
+export function shouldOverlayDock(
+  hostWidth: number,
+  dockWidth: number,
+  minContentWidth: number | null,
+  panelOpen: boolean,
+): boolean {
+  if (hostWidth === 0) return panelOpen;
+  return hostWidth < AGENT_PANEL_OVERLAY_BREAKPOINT ||
+    (minContentWidth !== null && hostWidth - dockWidth < minContentWidth);
+}
 
 /** Product names of the lane CLIs, for runs that carry no display name. */
 const CLI_LABELS: Readonly<Record<CliType, string>> = {
@@ -232,16 +253,13 @@ const VIEW_PANEL_KEY = '';
     StatsTileExpansionState,
     // Budget banner state belongs to this view's tab and session.
     SessionBudgetActionsService,
-    // The Display dock store, only where the dock mounts: Electron with the
-    // agent sidebar shown (R1.14, decision #108). Elsewhere the token resolves
-    // to null, so the transcript's live-turn effect and the chips stay inert.
+    // The Display dock store, only where the dock mounts: Electron (R1.14,
+    // decision #108). In VS Code the token resolves to null, so the
+    // transcript's live-turn effect and the chips stay inert.
     {
       provide: DisplayDockState,
       useFactory: (): DisplayDockState | null =>
-        inject(VSCodeService).isElectron &&
-        !(inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false)
-          ? new DisplayDockState()
-          : null,
+        inject(VSCodeService).isElectron ? new DisplayDockState() : null,
     },
     // The chat-ui ports the chip and the display sync read (decisions #59, #60).
     { provide: PTAH_UI_DISPLAY_DOCK, useExisting: DisplayDockState },
@@ -252,17 +270,23 @@ export class ChatViewComponent implements OnDestroy {
   readonly chatStore = inject(ChatStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly panelResizeService = inject(PanelResizeService);
+  private readonly railMinContentWidth = inject(RAIL_MIN_CONTENT_WIDTH, { optional: true });
   private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly ngZone = inject(NgZone);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
+  private readonly _sessionStartGuard = inject(SESSION_START_GUARD, {
     optional: true,
   });
   /** Tile surfaces provide their on-screen state; absent → always visible. */
   private readonly _sessionVisible = inject(SESSION_VISIBLE, {
     optional: true,
   });
-  /** When true, the per-session Agents right sidebar is hidden (e.g. Tribunal
-   * conductor — panelists render as their own tiles). */
+  protected readonly _forcedCard = inject(SESSION_FORCED_CARD, {
+    optional: true,
+  });
+  /** Hides the VS Code Agents sidebar where panelists render elsewhere. */
   protected readonly hideAgentSidebar =
     inject(HIDE_AGENT_SIDEBAR, { optional: true }) ?? false;
   private readonly _tabManager = inject(TabManagerService);
@@ -412,15 +436,17 @@ export class ChatViewComponent implements OnDestroy {
    * `ResizeObserver` is missing, so 0 is transient and never a resting state.
    */
   protected readonly isOverlay = computed(() => {
-    const width = this.hostWidth();
-    return width === 0
-      ? this.panelOpen()
-      : width < AGENT_PANEL_OVERLAY_BREAKPOINT;
+    return shouldOverlayDock(
+      this.hostWidth(),
+      this.dockWidth(),
+      this.railMinContentWidth?.() ?? null,
+      this.panelOpen(),
+    );
   });
 
-  /** The Electron dock store; `null` in VS Code or with the sidebar hidden. */
+  /** The Electron dock store; `null` in VS Code. */
   private readonly displayDock = inject(DisplayDockState, { optional: true });
-  /** Electron: the right-side panel is the `Displays | Agents` dock. */
+  /** Electron: the right-side panel is the display dock. */
   protected readonly dockEnabled = this.displayDock !== null;
   /**
    * Open state and the agent user-close rule of the right-side panel. The
@@ -443,15 +469,22 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly dockFocusRequest = signal(0);
 
   /** The dock width beside the chat: the user's width or 400 px, clamped. */
-  protected readonly dockWidth = computed(() =>
-    clampDockWidth(
-      this.panelResizeService.customWidth() ?? DISPLAY_DOCK_DEFAULT_WIDTH,
+  protected readonly dockWidth = computed(() => {
+    const custom = this.panelResizeService.customWidth();
+    const width = clampDockWidth(
+      custom ?? DISPLAY_DOCK_DEFAULT_WIDTH,
       this.hostWidth(),
-    ),
-  );
+    );
+    return custom === null ? width : Math.min(width, this.dockMaxWidth() ?? Infinity);
+  });
   protected readonly dockMaxWidth = computed(() => {
     const host = this.hostWidth();
-    return host > 0 ? Math.round(host * DOCK_MAX_WIDTH_RATIO) : null;
+    if (host <= 0) return null;
+    const proportionalMax = Math.round(host * DOCK_MAX_WIDTH_RATIO);
+    const minimum = this.railMinContentWidth?.() ?? null;
+    return minimum === null
+      ? proportionalMax
+      : Math.max(DOCK_MIN_WIDTH, Math.min(proportionalMax, host - minimum));
   });
   protected readonly dockMinWidth = computed(() =>
     Math.min(DOCK_MIN_WIDTH, this.dockMaxWidth() ?? DOCK_MIN_WIDTH),
@@ -530,14 +563,20 @@ export class ChatViewComponent implements OnDestroy {
     this._sessionContext ? this.resolvedSessionId() : null,
   );
 
-  /** Session-scoped agents for the embedded panel */
+  /**
+   * Session-scoped agents for the embedded panel. Empty when the host hides
+   * the Agents list, so the badge and the agent auto-open stay inert.
+   */
   readonly sessionAgents = computed(() => {
+    if (this.hideAgentSidebar) return [];
     const sid = this.resolvedSessionId();
     if (!sid) {
       if (this._sessionContext) return [];
       return this.agentMonitorStore.agents();
     }
-    return this.agentMonitorStore.agentsForSession(sid);
+    return this._sessionContext
+      ? this.agentMonitorStore.agentsOwnedBySession(sid)
+      : this.agentMonitorStore.agentsForSession(sid);
   });
 
   /** Badge type for the Agents sidebar tab */
@@ -801,15 +840,18 @@ export class ChatViewComponent implements OnDestroy {
    */
   private readonly _retention = inject(TranscriptRetentionService);
 
+  private readonly _railRetention =
+    inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) ?? false;
+
   /**
    * Tab ids to render as `<ptah-chat-transcript>` instances. Tile mode
-   * (SESSION_CONTEXT present) renders exactly its one tab; the main panel
-   * renders the retained set so switching tabs/workspaces reuses built DOM
+   * (SESSION_CONTEXT present) renders one tab unless Rail retention is opted in;
+   * retained hosts keep their previous tabs mounted across switches
    * instead of rebuilding it.
    */
   protected readonly transcriptTabIds = computed<readonly string[]>(() => {
     const ctx = this._sessionContext;
-    if (ctx) {
+    if (ctx && !this._railRetention) {
       const id = ctx();
       return id ? [id] : [];
     }
@@ -818,7 +860,22 @@ export class ChatViewComponent implements OnDestroy {
     // between an active-tab change and the effect touch. Appending at the end
     // matches where `touch` inserts it, so `@for track tabId` never reorders.
     const retained = this._retention.retainedTabIds();
-    const active = this._tabManager.activeTabId();
+    // A Rail context can briefly point at a tab the user has just closed.
+    // Reading tabs keeps this list reactive when that happens.
+    if (ctx && this._railRetention) {
+      this._tabManager.tabs();
+      const existing = retained.filter((id) =>
+        this._tabManager.findTabByIdAcrossWorkspaces(id) &&
+        !this._retention.liveElsewhere(id),
+      );
+      const active = this.resolvedTabId();
+      return active &&
+        !existing.includes(active) &&
+        this._tabManager.findTabByIdAcrossWorkspaces(active)
+        ? [...existing, active]
+        : existing;
+    }
+    const active = this.resolvedTabId();
     if (active && !retained.includes(active)) {
       return [...retained, active];
     }
@@ -833,7 +890,7 @@ export class ChatViewComponent implements OnDestroy {
    * transcript freezes; when the token is absent (tribunal conductor, tests) the
    * tile is treated as always showing.
    *
-   * NOTE: a compact view mode (`isCompactViewMode(resolvedViewMode())`)
+   * NOTE: `showCompactCard()`
    * destroys the keep-alive region via the template `@if/@else`; a main-panel
    * compact toggle is rare and simply rebuilds on return. Accepted, not fixed
    * (plan risk 6).
@@ -896,14 +953,11 @@ export class ChatViewComponent implements OnDestroy {
     return this._tabManager.tabs().find((t) => t.id === tabId) ?? null;
   });
 
-  /** Exposed for the template's `@if (isCompactViewMode(resolvedViewMode()))` gate. */
-  protected readonly isCompactViewMode = isCompactViewMode;
-
   /**
    * Resolved view mode: 'full' or 'compact', scoped to tile or active tab.
    * In compact mode the chat view renders a CompactSessionCard instead of the
-   * full message list — see {@link isCompactViewMode}. The compact height is
-   * tab state (`compactHeightUnits`) that only canvas reads.
+   * full message list via `showCompactCard()`. The selected view mode is
+   * tab state, shared by surfaces for the same tab.
    */
   readonly resolvedViewMode = computed(() => {
     const ctx = this._sessionContext;
@@ -916,6 +970,12 @@ export class ChatViewComponent implements OnDestroy {
     }
     return this._tabManager.activeTabViewMode();
   });
+
+  protected readonly showCompactCard = computed(
+    () =>
+      (this._forcedCard?.() ?? false) ||
+      isCompactViewMode(this.resolvedViewMode()),
+  );
 
   /**
    * The full TabState for the active tab (for compact card rendering).
@@ -994,9 +1054,8 @@ export class ChatViewComponent implements OnDestroy {
   };
 
   /**
-   * Lane runs of this surface's own session only (F58). Unlike
-   * {@link sessionAgents}, the main panel with no session gets none, never
-   * every session's runs, and a lane whose parent session is not resolved yet
+   * Lane runs belong only to this surface's own session (F58). The main panel
+   * with no session gets none; a lane whose parent session is not resolved yet
    * is in no session's quota or lane tiles (exact parent match only).
    */
   private readonly sessionLaneRuns = computed<readonly MonitoredAgent[]>(() => {
@@ -1289,6 +1348,7 @@ export class ChatViewComponent implements OnDestroy {
     // runs in all). A request with no tab id came from the main panel, which
     // has no SESSION_CONTEXT, so only main-panel surfaces honour it.
     effect(() => {
+      if (this.dockEnabled) return;
       const request = this.agentMonitorStore.panelOpenRequest();
       if (request.seq === 0) return;
       untracked(() => {
@@ -1322,10 +1382,11 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
-    // Agent auto-open, per panel key (decision #100): running agents or a
-    // pending permission ask for the Agents tab, which the store ignores while
+    // VS Code sidebar auto-open: running agents or a pending permission
+    // ask for the Agents view, which the store ignores while
     // the panel is open or after a user close; settled agents release it.
     effect(() => {
+      if (this.dockEnabled) return;
       const key = this.panelKey();
       const agents = this.sessionAgents();
       const hasRunning = agents.some((a) => a.status === 'running');
@@ -1424,6 +1485,11 @@ export class ChatViewComponent implements OnDestroy {
    * This prevents creating a new session when the tab is in streaming status.
    */
   handleResumeAgent(agent: SubagentRecord): void {
+    const reason = this._sessionStartGuard?.();
+    if (reason) {
+      this.showActionError(reason, this._sessionContext?.() ?? null);
+      return;
+    }
     const prompt = `Resume agent ${agent.agentId} (the interrupted ${agent.agentType} agent) and have it continue its previous work from where it was interrupted.`;
     const tabId = this._sessionContext?.() ?? undefined;
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
@@ -1442,6 +1508,12 @@ export class ChatViewComponent implements OnDestroy {
       return;
     }
 
+    const reason = this._sessionStartGuard?.();
+    if (reason) {
+      this.showActionError(reason, this._sessionContext?.() ?? null);
+      return;
+    }
+
     const agentList = agents
       .map((a) => `- Resume agent ${a.agentId} (${a.agentType})`)
       .join('\n');
@@ -1455,6 +1527,11 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Budget banner "Wrap up & hand off": one normal message to the agent. */
   protected onBudgetWrapUp(): Promise<void> {
+    const reason = this._sessionStartGuard?.();
+    if (reason) {
+      this.showActionError(reason, this._sessionContext?.() ?? null);
+      return Promise.resolve();
+    }
     return this._budgetActions.sendWrapUp();
   }
 
@@ -1868,3 +1945,4 @@ function clampDockWidth(width: number, hostWidth: number): number {
   const min = Math.min(DOCK_MIN_WIDTH, max);
   return Math.round(Math.min(Math.max(width, min), max));
 }
+

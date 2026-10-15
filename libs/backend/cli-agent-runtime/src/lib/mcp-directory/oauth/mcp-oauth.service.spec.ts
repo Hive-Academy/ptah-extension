@@ -99,8 +99,10 @@ function makeFakeCallbackListener(opts?: {
 function makeService(overrides?: {
   manifestPath?: string;
   now?: () => number;
+  fetchImpl?: FetchLike;
+  secrets?: ReturnType<typeof makeSecrets>;
 }) {
-  const secrets = makeSecrets();
+  const secrets = overrides?.secrets ?? makeSecrets();
   const tokenStore = createMcpOAuthTokenStore(secrets);
   const manifestPath =
     overrides?.manifestPath ??
@@ -121,11 +123,11 @@ function makeService(overrides?: {
     openExternal,
     tokenStore,
     manifest,
-    fetchImpl,
+    fetchImpl: overrides?.fetchImpl ?? fetchImpl,
     now: overrides?.now ?? (() => 1_000_000),
     callbackTimeoutMs: 5000,
   });
-  return { service, tokenStore, manifest, manifestPath, capture };
+  return { service, tokenStore, manifest, manifestPath, capture, secrets };
 }
 
 describe('McpOAuthService', () => {
@@ -201,6 +203,224 @@ describe('McpOAuthService', () => {
     t = 1_000_000 + 3600 * 1000 + 1;
     const fresh = await service.getFreshAccessToken(serverKey);
     expect(fresh).toBe('AT2');
+  });
+
+  it('concurrent session starts share one refresh per server', async () => {
+    let t = 1_000_000;
+    let refreshRequests = 0;
+    const countingFetch: FetchLike = async (url, init) => {
+      const body = new URLSearchParams(init?.body ?? '');
+      if (body.get('grant_type') === 'refresh_token') refreshRequests++;
+      return fetchImpl(url, init);
+    };
+    const { service, manifestPath } = makeService({
+      now: () => t,
+      fetchImpl: countingFetch,
+    });
+    cleanup.push(manifestPath);
+    const { serverKey } = await service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+    });
+
+    t = 1_000_000 + 3600 * 1000 + 1;
+    const tokens = await Promise.all([
+      service.getFreshAccessToken(serverKey),
+      service.getFreshAccessToken(serverKey),
+      service.getFreshAccessToken(serverKey),
+    ]);
+
+    expect(tokens).toEqual(['AT2', 'AT2', 'AT2']);
+    expect(refreshRequests).toBe(1);
+  });
+
+  it('two service instances over the same slots share one refresh', async () => {
+    let t = 1_000_000;
+    let refreshRequests = 0;
+    const countingFetch: FetchLike = async (url, init) => {
+      const body = new URLSearchParams(init?.body ?? '');
+      if (body.get('grant_type') === 'refresh_token') refreshRequests++;
+      return fetchImpl(url, init);
+    };
+    const first = makeService({ now: () => t, fetchImpl: countingFetch });
+    cleanup.push(first.manifestPath);
+    const second = makeService({
+      now: () => t,
+      fetchImpl: countingFetch,
+      secrets: first.secrets,
+      manifestPath: first.manifestPath,
+    });
+    const { serverKey } = await first.service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+    });
+
+    t = 1_000_000 + 3600 * 1000 + 1;
+    const tokens = await Promise.all([
+      first.service.getFreshAccessToken(serverKey),
+      second.service.getFreshAccessToken(serverKey),
+    ]);
+
+    expect(tokens).toEqual(['AT2', 'AT2']);
+    expect(refreshRequests).toBe(1);
+  });
+
+  describe('a refresh rejected because another window rotated first', () => {
+    async function setup(opts: { disconnectFirst?: boolean }) {
+      let t = 1_000_000;
+      let serverKey = '';
+      const other: { h?: ReturnType<typeof makeService> } = {};
+      const rotatedElsewhere: FetchLike = async (url, init) => {
+        const body = new URLSearchParams(init?.body ?? '');
+        const h = other.h;
+        if (body.get('grant_type') !== 'refresh_token' || !h) {
+          return fetchImpl(url, init);
+        }
+        const stored = await h.tokenStore.getToken(serverKey);
+        if (!stored) throw new Error('connect() stored no token');
+        await h.tokenStore.setToken(serverKey, {
+          ...stored,
+          accessToken: 'AT-OTHER',
+          refreshToken: 'RT-OTHER',
+          expiresAt: t + 3600 * 1000,
+        });
+        if (opts.disconnectFirst) h.manifest.remove(serverKey);
+        return { ...notFound(), status: 400 };
+      };
+      const h = makeService({ now: () => t, fetchImpl: rotatedElsewhere });
+      cleanup.push(h.manifestPath);
+      ({ serverKey } = await h.service.connect({
+        serverUrl: 'https://mcp.example.com/mcp',
+      }));
+      other.h = h;
+      t = 1_000_000 + 3600 * 1000 + 1;
+      return { service: h.service, serverKey };
+    }
+
+    it('returns the token the other window stored', async () => {
+      const { service, serverKey } = await setup({});
+
+      expect(await service.getFreshAccessToken(serverKey)).toBe('AT-OTHER');
+    });
+
+    it('returns nothing once the server was disconnected', async () => {
+      const { service, serverKey } = await setup({ disconnectFirst: true });
+
+      expect(await service.getFreshAccessToken(serverKey)).toBeNull();
+    });
+  });
+
+  it('hands out no token while a disconnect is still deleting it', async () => {
+    const h = makeService();
+    cleanup.push(h.manifestPath);
+    const { serverKey } = await h.service.connect({
+      serverUrl: 'https://mcp.example.com/mcp',
+    });
+    const realDelete = h.tokenStore.deleteToken.bind(h.tokenStore);
+    let releaseDelete: () => void = () => undefined;
+    h.tokenStore.deleteToken = async (key) => {
+      await new Promise<void>((resolve) => {
+        releaseDelete = resolve;
+      });
+      return realDelete(key);
+    };
+
+    const disconnecting = h.service.disconnect(serverKey);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(await h.tokenStore.getToken(serverKey)).not.toBeNull();
+    expect(await h.service.getFreshAccessToken(serverKey)).toBeNull();
+    releaseDelete();
+    await disconnecting;
+  });
+
+  describe('connection changes while a refresh is in flight', () => {
+    async function startDeferredRefresh() {
+      let t = 1_000_000;
+      let releaseRefresh: () => void = () => undefined;
+      const deferredFetch: FetchLike = async (url, init) => {
+        const body = new URLSearchParams(init?.body ?? '');
+        if (body.get('grant_type') === 'refresh_token') {
+          await new Promise<void>((resolve) => {
+            releaseRefresh = resolve;
+          });
+        }
+        return fetchImpl(url, init);
+      };
+      const h = makeService({ now: () => t, fetchImpl: deferredFetch });
+      cleanup.push(h.manifestPath);
+      const { serverKey } = await h.service.connect({
+        serverUrl: 'https://mcp.example.com/mcp',
+      });
+      t = 1_000_000 + 3600 * 1000 + 1;
+      const refreshing = h.service.getFreshAccessToken(serverKey);
+      // Let the refresh reach the token endpoint before the connection changes.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      return { ...h, serverKey, refreshing, release: () => releaseRefresh() };
+    }
+
+    it('does not restore a token after a disconnect', async () => {
+      const r = await startDeferredRefresh();
+
+      await r.service.disconnect(r.serverKey);
+      r.release();
+
+      expect(await r.refreshing).toBeNull();
+      expect(await r.tokenStore.getToken(r.serverKey)).toBeNull();
+      expect(await r.service.status(r.serverKey)).toBe('disconnected');
+    });
+
+    it('orders a disconnect after a refresh commit that is already writing', async () => {
+      let t = 1_000_000;
+      const h = makeService({ now: () => t });
+      cleanup.push(h.manifestPath);
+      const { serverKey } = await h.service.connect({
+        serverUrl: 'https://mcp.example.com/mcp',
+      });
+
+      // Block the refresh inside its token-store write.
+      const realSet = h.tokenStore.setToken.bind(h.tokenStore);
+      let writing = false;
+      let releaseWrite: () => void = () => undefined;
+      h.tokenStore.setToken = async (key, token) => {
+        writing = true;
+        await new Promise<void>((resolve) => {
+          releaseWrite = resolve;
+        });
+        return realSet(key, token);
+      };
+
+      t = 1_000_000 + 3600 * 1000 + 1;
+      const refreshing = h.service.getFreshAccessToken(serverKey);
+      while (!writing) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      const disconnecting = h.service.disconnect(serverKey);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releaseWrite();
+      await Promise.all([refreshing, disconnecting]);
+
+      // The disconnect ran after the commit, so it wins.
+      expect(await h.tokenStore.getToken(serverKey)).toBeNull();
+      expect(await h.service.status(serverKey)).toBe('disconnected');
+    });
+
+    it('does not overwrite the token of a newer connection', async () => {
+      const r = await startDeferredRefresh();
+      const stored = await r.tokenStore.getToken(r.serverKey);
+      if (!stored) throw new Error('connect() stored no token');
+      const reconnected = {
+        ...stored,
+        accessToken: 'AT-NEW',
+        refreshToken: 'RT-NEW',
+      };
+      await r.tokenStore.setToken(r.serverKey, reconnected);
+
+      r.release();
+
+      expect(await r.refreshing).toBe('AT-NEW');
+      expect((await r.tokenStore.getToken(r.serverKey))?.accessToken).toBe(
+        'AT-NEW',
+      );
+    });
   });
 
   /**

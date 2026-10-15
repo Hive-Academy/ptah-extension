@@ -1,0 +1,14 @@
+﻿Verdict: NEEDS_REVISION — 5/10
+
+## Findings
+- Serious — `libs/frontend/chat-state/src/lib/tab-manager.service.ts:826-834` clears the active workspace's tabs without emitting `onTabClosed`; `libs/frontend/chat/src/lib/services/chat-store/conversation.service.ts:92-95` therefore never drops their held commands. Removing a workspace while a wrap-up waits leaves `sendWrapUp()` pending and the button latched (`session-budget-actions.service.ts:182-200`). Fix: emit a close/drop event for every tab permanently removed by `removeWorkspaceState`, including parked tabs, and test the banner outcome.
+- Serious — `libs/frontend/chat-state/src/lib/tab-manager.service.ts:1414-1415,1435-1439` clears queued content on `/clear`, but `libs/frontend/chat/src/lib/services/chat-store/conversation.service.ts:93-95` deliberately keeps held commands on `reset`. A held `/session-handoff` behind text that is cleared by reset can remain pending with no queue left to flush; the new test at `conversation.service.spec.ts:566-574` asserts it stays pending without proving later settlement. Fix: on reset, drop held commands whose prerequisite queue was discarded; preserve only a chain for which a subsequent flush is actually guaranteed, with an end-to-end test.
+
+## Five logic checks
+1. Silent failure: both paths above leave a success-looking, disabled wrap-up action while its promise does not settle (`session-budget-actions.service.ts:187-200`).
+2. User action: remove a workspace with a held wrap-up, or run `/clear` while another command waits behind its queue (`tab-manager.service.ts:826-834,1386-1439`).
+3. Wrong answer from data: the handoff path's `safeErrorKind` uses fixed allowlists (`safe-error-kind.ts:14-57`); no raw error text was found in `session-handoff.service.ts:111-399`. The supplied handoff path still appears in refusal detail at :312-334 by design.
+4. Dependency failure: `fs.stat` and chat-host resolution now return safe error kinds (`session-handoff.service.ts:325-335,366-378`); host-start failure/timeout uses fixed details at :243-262 and :194-202. Scoped diagnostics were unavailable after a 45-second timeout; the fixer reports 30 passing frontend tests.
+5. Missing requirement: tab removal and reset need an explicit settlement contract for every held command, including workspace removal (`tab-manager.service.ts:826-834`) and queue-discarding reset (:1414-1439).
+
+The close/force-close listener is synchronous and torn down through `DestroyRef` (`conversation.service.ts:88-97`; `tab-manager.service.ts:315-332`). `dropHeldCommands` deletes before settling, so repeated close events cannot settle the same held promise twice (`conversation.service.ts:254-259`). The score reflects two reachable pending-promise paths despite the corrected close and safe-error paths; it is below the 7-8 band because both affect the requested behavior.

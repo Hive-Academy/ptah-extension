@@ -111,6 +111,7 @@ import type {
 import type { SessionMcpStatusPayload } from './session-mcp-status';
 import type { PlanLimitsSnapshot } from '../plan-limit.types';
 import type { AgentSessionOpenedPayload } from './agent-session';
+import type { SessionHandoffOpenedPayload } from './session-handoff';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -261,6 +262,17 @@ export interface ChatStreamSnapshotPayload {
   readonly toSequence: number;
   readonly events?: readonly FlatStreamEventUnion[];
   readonly resyncRequired?: true;
+  /**
+   * Ordered live events applied after rebuilding history and before later live
+   * events. Valid only with resyncRequired: true.
+   */
+  readonly liveSeed?: readonly FlatStreamEventUnion[];
+  /**
+   * Complete block count per projected message context at the snapshot, including
+   * deferred anchors. Root counts text_delta, thinking_delta and tool_start;
+   * subagents count text_delta and tool_start. Valid only for a resync.
+   */
+  readonly liveSeedBlocks?: Readonly<Record<string, number>>;
 }
 
 /** Payload for MESSAGE_TYPES.SURFACE_UPDATED ('surface:updated'). */
@@ -402,6 +414,7 @@ export interface MessagePayloadMap {
   'planLimits:changed': PlanLimitsSnapshot;
   'session:organizationChanged': SessionOrganizationChangedPayload;
   'agentSession:opened': AgentSessionOpenedPayload;
+  'sessionHandoff:opened': SessionHandoffOpenedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;

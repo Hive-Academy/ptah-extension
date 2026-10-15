@@ -1071,6 +1071,7 @@ describe('CompactionLifecycleService', () => {
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_1, {
         reason: 'compaction',
         targetTabId: 'tab-1',
+        compactionDelayed: true,
       });
     });
 
@@ -1488,6 +1489,7 @@ describe('CompactionLifecycleService', () => {
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_B, {
         reason: 'compaction',
         targetTabId: 'tab-1',
+        compactionDelayed: true,
       });
       expect(applyCompactionCompleteMock).toHaveBeenCalledTimes(1);
       expect(setCompactionStateMock).toHaveBeenLastCalledWith(
@@ -1516,6 +1518,7 @@ describe('CompactionLifecycleService', () => {
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_B, {
         reason: 'compaction',
         targetTabId: 'tab-1',
+        compactionDelayed: true,
       });
       jest.advanceTimersByTime(SAFETY_TIMEOUT_MS);
       expect(applyCompactionTimeoutResetMock).not.toHaveBeenCalled();
@@ -1558,6 +1561,7 @@ describe('CompactionLifecycleService', () => {
       expect(switchSessionMock).toHaveBeenLastCalledWith(SESS_A, {
         reason: 'compaction',
         targetTabId: 'tab-1',
+        compactionDelayed: true,
       });
 
       jest.advanceTimersByTime(250 * 10);
@@ -1596,6 +1600,7 @@ describe('CompactionLifecycleService', () => {
       expect(switchSessionMock).toHaveBeenCalledWith(SESS_A, {
         reason: 'compaction',
         targetTabId: 'tab-1',
+        compactionDelayed: true,
       });
     });
 

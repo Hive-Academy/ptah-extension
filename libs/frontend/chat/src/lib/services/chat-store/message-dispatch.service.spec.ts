@@ -74,6 +74,7 @@ describe('MessageDispatchService', () => {
   let promptTargets: Map<string, string[]>;
   let sendMock: jest.Mock;
   let queueOrAppendMock: jest.Mock;
+  let releaseHeldCommandMock: jest.Mock;
   let continueConversationMock: jest.Mock;
   let continueExistingSessionForQueueFlushMock: jest.Mock;
   let handlePermissionResponseMock: jest.Mock;
@@ -101,7 +102,8 @@ describe('MessageDispatchService', () => {
     isLoadingAuth = signal<boolean>(false);
     permissionRequests = signal<unknown[]>([]);
     sendMock = jest.fn().mockResolvedValue(undefined);
-    queueOrAppendMock = jest.fn();
+    queueOrAppendMock = jest.fn(() => null);
+    releaseHeldCommandMock = jest.fn();
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
     continueExistingSessionForQueueFlushMock = jest
       .fn()
@@ -151,6 +153,7 @@ describe('MessageDispatchService', () => {
     const conversationMock = {
       queueOrAppendMessage: queueOrAppendMock,
       continueConversation: continueConversationMock,
+      releaseHeldCommand: releaseHeldCommandMock,
     } as unknown as ConversationService;
     promptTargets = new Map<string, string[]>();
     const permissionHandlerMock = {
@@ -631,6 +634,30 @@ describe('MessageDispatchService', () => {
     it('clears queue + queuedOptions before dispatch', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
       expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
+    });
+
+    it('releases a held slash command after the text was sent (TASK_2026_655)', async () => {
+      await service.sendQueuedMessage('tab-1', 'queued');
+      expect(releaseHeldCommandMock).toHaveBeenCalledWith('tab-1', 'queued');
+    });
+
+    it('keeps a held slash command waiting when the flush is refused', async () => {
+      continueExistingSessionForQueueFlushMock.mockResolvedValueOnce({
+        success: false,
+        error: 'offline',
+      });
+      await service.sendQueuedMessage('tab-1', 'queued');
+      expect(releaseHeldCommandMock).not.toHaveBeenCalled();
+    });
+
+    it('streaming: returns the held-command promise with the queued outcome', async () => {
+      const held = Promise.resolve(true);
+      queueOrAppendMock.mockReturnValueOnce(held);
+      activeTabStatus.set('streaming');
+
+      const outcome = await service.sendOrQueueMessage('/session-handoff x');
+
+      expect(outcome).toEqual({ success: true, heldCommand: held });
     });
 
     it('forwards stored queuedOptions (files + images) to the dedicated queue-flush method', async () => {

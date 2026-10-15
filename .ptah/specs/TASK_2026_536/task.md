@@ -1,13 +1,17 @@
 ---
-status: backlog
+status: cancelled
 type: feature
-title: 'Lane trajectories: run skill-synthesis archaeology and judging on CLI lane sessions'
-depends_on: [ TASK_2026_535 ]
-blocks: [ TASK_2026_537 ]
+title: >-
+  Lane trajectories: run skill-synthesis archaeology and judging on CLI lane
+  sessions
+depends_on:
+  - TASK_2026_535
+blocks:
+  - TASK_2026_537
 parent: TASK_2026_639_97f0
 labels:
   - P4
-updated: '2026-10-12T19:41:51.738Z'
+updated: '2026-10-14T01:23:42.465Z'
 ---
 
 # TASK_2026_536 — Judge lanes from their session trajectories

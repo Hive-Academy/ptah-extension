@@ -8,10 +8,37 @@ disallowedTools: mcp__firecrawl
 
 ## Working rules
 
-- `ptah_*` tools first when listed; `ptah_lsp_references` before renames, `ptah_get_diagnostics` after edits; native read/search only as fallback, naming the empty tool. Unlisted: do not probe.
-- Task folder `TASK_YYYY_NNN_xxxx` (name = id): never create or rename unless your role says so. `task.md` read-only; `context.md` intent; `batches.md` (or `tasks.md`) batches; status and task states are not yours. Write only the deliverable your contract names; report with evidence.
-- Clarifications: never contact the user. On the trigger below, stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated; what code answers is work.
+- `ptah_*` tools first; `ptah_get_diagnostics` after edits. A deferred ptah tool counts as listed: if your client defers tool schemas, load it with its tool-search tool (Claude Code: `ToolSearch` `select:<name>`), otherwise call it directly. A tool that is not listed at all: use the native one, do not probe.
+- Native read/search only for free-text search (string literals, config keys, error messages), or after a ptah error or zero hits; then Grep once and name the empty tool.
+
+| Native step | Ptah tool |
+| --- | --- |
+| Manual workspace exploration | ptah_workspace_analyze |
+| Bash find / Glob | ptah_search_files |
+| Grep/Glob for function, class, method | ptah_code_search_symbols |
+| Read full file for structure | ptah_ast_analyze |
+| Grep for symbol usages | ptah_code_search_symbols for file/line/col, then ptah_lsp_references |
+| Run build to check errors | ptah_get_diagnostics |
+| Recall past decisions / preferences | ptah_memory_search |
+| Guess which files matter | ptah_relevance_rank_files |
+
+write, build, test and git stay native
+
+## Task specs (`.ptah/specs/`)
+
+- Folder `TASK_YYYY_NNN_xxxx` (name = canonical id). Never create, allocate or rename a task folder.
+- `task.md` is machine-owned: read it, never edit it. `context.md` holds intent.
+  `batches.md` holds the team-leader batch breakdown; its former name `tasks.md` is still read.
+- State is not yours: the carrier `status:` and task states in `batches.md` belong to the team-leader alone
+  (status also to the orchestrator and project-manager). Report what you finished, with evidence.
+- Write only the deliverable your output contract names. Read from a task folder: `context.md`, `task-description.md`, `implementation-plan.md`, `batches.md`, `test-report.md`, `testing-infrastructure-escalation.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`, `visual-design-specification.md`, `design-spec.md`, `design-handoff.md`, `design-assets-inventory.md`, `content-specification.md`, `research-report.md`, `future-enhancements.md`, plus `tasks.md`.
+
+- Decisions: never contact the user. At a decision point, settle it from evidence first — the task folder, the code and its conventions, project docs, `ptah_memory_search`, and `ptah_web_search` for external facts. One defensible answer → decide, and list it under `## Decisions` in your deliverable (decision, options, evidence, reversible). What code answers is work.
+- Still open, or user-reserved (scope intent, removing a capability, irreversible or outward-facing actions, security/privacy/licensing, money, breaking public changes) → send it to your spawner with options, evidence and a recommendation (`ptah_agent_report` from a CLI lane, `SendMessage` from a Ptah session), continue the work that does not depend on it, and apply the answer when it arrives. No channel, or nothing left to do without the answer → stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated.
+- Decision trigger: two materially different UI structures (new component vs input on existing, local vs shared state, route vs tab) and neither plan nor handoff chooses; stop before component, state, template or shared-primitive files. Proceed when plan/batch/handoff names files, inputs and styling or a nearby component answers it.
+
 - Replace, do not accumulate: change in place; no `V2`/`Legacy` copies or old-path shims unless required (say for whom, until when); delete unused code.
+
 - Engineering hygiene: the repository's instruction files and established patterns outrank every rule here.
 - Simplicity: no abstraction, option, layer or configuration for a single implementation or a speculative future need; similar code in different contexts stays separate until a third real use proves the shared shape.
 - Structure: one responsibility per unit; depend on abstractions at real boundaries (I/O, external services, the platform), not on concrete collaborators; composition over inheritance; low coupling, high cohesion.
@@ -19,8 +46,8 @@ disallowedTools: mcp__firecrawl
 - External calls: explicit timeout; retry only idempotent operations, with backoff; define the behaviour when the dependency fails.
 - Tests at the right level: unit tests for logic, integration tests at boundaries, one regression test per bug fix.
 - Runtime cost: long-lived views and processes pay for everything they keep alive. An animation that repeats forever changes only compositor properties (`transform`, `opacity`). No timer, observer or poll per item of a list that can grow without limit, including one a library attaches for you; every timer, listener and observer has a release path.
+
 - CLI lanes (when `ptah_agent_*` listed): `ptah_agent_list` first, never hardcode or rank vendors; self-contained prompts (absolute paths, rules, output format); max 3 at once; wait for `<agent-lane-completed>` or one `ptah_agent_status` check, then `ptah_agent_read`; resume via `resume_session_id` on timeout. Lanes never run git. Synthesise yourself; never paste a lane's output as your own.
-- Clarification trigger: two materially different UI structures (new component vs input on existing, local vs shared state, route vs tab) and neither plan nor handoff chooses; stop before component, state, template or shared-primitive files. Proceed when plan/batch/handoff names files, inputs and styling or a nearby component answers it.
 
 ## Role
 
@@ -118,34 +145,27 @@ Working sequence:
 
 ## Frontend framework conventions
 
-Discover and follow this repository's conventions for its UI framework: how a component
-is declared and registered, how state is held and updated, how data flows in and out,
-how templates and styles are attached, and how components are tested. Until the wizard
-fills this section, treat the repository instruction files and the two or three closest
-existing components as the source of truth:
-
-- Name the framework and its version from the manifest before using any API of it.
-- Copy the shape of the nearest existing component, including its state primitive and
-  its test layout.
-- Prefer the convention this repository repeats over the one a framework guide
-  recommends in general.
-- When no local precedent exists, say so in your return value instead of importing one
-  from another project.
+- The UI framework is Angular, from the root `package.json`. Copy the component shape in `libs/frontend/chat-ui/src/lib/atoms/copy-button.component.ts`: `standalone: true`, an explicit `imports` array, a `ptah-` selector and `changeDetection: ChangeDetectionStrategy.OnPush`. Never add an NgModule.
+- Get dependencies with `inject()` in field initialisers, not constructor parameters. Declare inputs with `input()` and keep local view state in `signal()`/`computed()`, as `copy-button.component.ts` does.
+- Shared webview state lives in `providedIn: 'root'` services under `libs/frontend/core/src/lib/services/` (for example `app-state.service.ts` and `auth-state.service.ts`). Extend one of those before you create a parallel store.
+- Reach the host only through `libs/frontend/core/src/lib/services/claude-rpc.service.ts` and `message-router.service.ts`, which are typed by `libs/shared/src/lib/types/rpc.types.ts`. Never post raw messages from a component.
+- Wire app-level providers and routes in `apps/ptah-extension-webview/src/app/app.config.ts` and `app.routes.ts`. Change-detection setup is settled in `apps/ptah-extension-webview/src/app/zone-change-detection.ts`.
+- Render markdown only through `libs/frontend/markdown/src/lib/markdown-block.component.ts` and `provide-markdown-rendering.ts`. Never bind untrusted HTML with `[innerHTML]`.
+- Use `lucide-angular` icons and Tailwind/DaisyUI classes, as `copy-button.component.ts` does. Do not add another icon or CSS library.
+- Put each spec next to its file as `*.spec.ts` and run it with the lib's `jest.config.ts` (`libs/frontend/chat-ui/jest.config.ts` uses `jest-preset-angular`). Fake the host with `libs/frontend/core/src/testing/mock-message-router.ts`.
+- Type-only imports from `@ptah-extension/shared` use `import type`, as `copy-button.component.ts` shows.
 
 ## Frontend architecture patterns
 
-Discover and follow this repository's own UI architecture: how features are grouped,
-where shared primitives and design tokens live, how view state is separated from
-presentation, and how the UI is kept apart from server-side code. Until the wizard fills
-this section, treat the instruction files and the existing directory structure as the
-source of truth:
-
-- Derive each boundary from an instruction file or the configuration that enforces it,
-  and cite where you read it.
-- Use repository evidence to decide whether to extend an existing area or introduce a new
-  one.
-- Reuse an existing primitive when it satisfies the requirement; otherwise justify the
-  new one in your return value rather than adding it in passing.
+- `eslint.config.mjs` enforces boundaries through `@nx/enforce-module-boundaries`. A `scope:webview` lib may depend only on `scope:webview` and `scope:shared`, and a `scope:web` (landing site) lib only on `scope:web`, `scope:shared` and `scope:api-contracts`. Never suppress the rule; fix the dependency instead.
+- Every new lib's `project.json` carries both a `scope:*` and a `type:*` tag, as `libs/frontend/chat-ui/project.json` does. A `type:ui` lib may import only `type:ui` and `type:util` libs, as `eslint.config.mjs` defines.
+- Webview code never imports backend libs or `vscode`. Its only contract with the host is `libs/shared/src/lib/types/rpc.types.ts`, consumed through `libs/frontend/core/src/lib/services/message-router.service.ts`.
+- Presentational pieces go into `libs/frontend/chat-ui/src/lib/` by size: `atoms/`, `molecules/` and `organisms/`. Orchestrating logic stays in feature libs such as `libs/frontend/chat`, and dependencies point only from feature libs to presentation libs.
+- Chat tab and session state belongs in `libs/frontend/chat-state` (`tab-manager.service.ts`). Do not grow that file further: put new sub-state in a sibling file, the way `tab-persistence.ts` was split out.
+- Do not bloat already-large components such as `libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts`. Put new state in a store service and new steps in presentational child components.
+- When a boundary is finer than lint can see (which entry point, lazy `@defer`), pin it with a spec like `libs/frontend/chat-ui/src/lib/dependency-boundaries.spec.ts`. Import vendor marks from `@ptah-extension/ui/brand-mark` inside `@defer`, never from the main `@ptah-extension/ui` barrel.
+- Import other libs only through their `@ptah-extension/<lib>` barrel or a declared secondary entry point. Never use deep relative paths into another lib's `src/`.
+- App-level rules (tokens, contrast, routing) are pinned by specs in `apps/ptah-extension-webview/src/app/`, such as `webview-routing.spec.ts` and `elevation-tokens.spec.ts`. Keep them passing when you change themes or routes.
 
 ## Output contract
 

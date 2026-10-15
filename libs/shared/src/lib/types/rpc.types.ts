@@ -150,6 +150,7 @@ import type {
   ConfigEffortGetResult,
   ConfigAutopilotToggleParams,
   ConfigAutopilotToggleResult,
+  ConfigAutopilotGetParams,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
   ConfigPricingGetResult,
@@ -913,7 +914,7 @@ export interface RpcMethodRegistry {
     result: ConfigAutopilotToggleResult;
   };
   'config:autopilot-get': {
-    params: Record<string, never>;
+    params: ConfigAutopilotGetParams;
     result: ConfigAutopilotGetResult;
   };
   'config:models-list': {

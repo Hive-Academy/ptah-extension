@@ -54,10 +54,18 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import {
+  EnvironmentInjector,
+  createEnvironmentInjector,
+  runInInjectionContext,
+  signal,
+  type WritableSignal,
+} from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
+import { ComposerDraftStore } from '../../../services/composer-draft.store';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { ChatStore } from '../../../services/chat.store';
+import type { SendOutcome } from '../../../services/message-sender.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { FilePickerService } from '../../../services/file-picker.service';
 import {
@@ -68,7 +76,10 @@ import {
 } from '@ptah-extension/core';
 import { VoiceInputService } from '../../../services/voice-input.service';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  SESSION_START_GUARD,
+} from '../../../tokens/session-context.token';
 import { CompactionLifecycleService } from '../../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../../services/chat-store/session-loader.service';
 import {
@@ -90,7 +101,7 @@ describe('ChatInputComponent', () => {
     isStreaming: signal(false),
     queueRestoreContent: signal(null),
     clearQueueRestoreSignal: jest.fn(),
-    sendOrQueueMessage: jest.fn().mockResolvedValue(undefined),
+    sendOrQueueMessage: jest.fn().mockResolvedValue({ success: true }),
     abortCurrentMessage: jest.fn().mockResolvedValue(undefined),
     abortWithConfirmation: jest.fn().mockResolvedValue(true),
     isCompactingForTab: jest.fn(
@@ -106,7 +117,14 @@ describe('ChatInputComponent', () => {
     }>
   >([]);
   const activeTabIdSignal = signal<string | null>(null);
+  let onTabClosedListener: ((event: { tabId: string }) => void) | null = null;
   const mockTabManager = {
+    onTabClosed: jest.fn((listener: (event: { tabId: string }) => void) => {
+      onTabClosedListener = listener;
+      return () => {
+        onTabClosedListener = null;
+      };
+    }),
     isTabStreaming: jest.fn().mockReturnValue(false),
     tabs: tabsSignal,
     activeTabId: activeTabIdSignal,
@@ -176,6 +194,7 @@ describe('ChatInputComponent', () => {
       composerTriggerCacheEnabled?: boolean;
       /** Tile tab id for SESSION_CONTEXT; `undefined` = token not provided. */
       sessionContextTabId?: string | null;
+      startGuard?: () => string | null;
     } = {},
   ): void {
     mockIsElectron = opts.isElectron ?? false;
@@ -211,6 +230,9 @@ describe('ChatInputComponent', () => {
                 ).asReadonly(),
               },
             ]),
+        ...(opts.startGuard
+          ? [{ provide: SESSION_START_GUARD, useValue: opts.startGuard }]
+          : []),
       ],
     });
 
@@ -231,6 +253,338 @@ describe('ChatInputComponent', () => {
 
   it('should be created', () => {
     expect(component).toBeTruthy();
+  });
+
+  it('keeps the canvas draft and attachments when nine other sessions run', async () => {
+    const message =
+      '9 sessions are running. Wait for one to finish to start another.';
+    createComponent({
+      sessionContextTabId: 'idle-tile',
+      startGuard: () => message,
+    });
+    component.handleInput({
+      target: { value: 'Keep this' },
+    } as unknown as Event);
+    const attachments = component as unknown as {
+      _selectedFiles: ReturnType<typeof signal<Array<{ path: string }>>>;
+      _pastedImages: ReturnType<typeof signal<Array<{ data: string }>>>;
+    };
+    attachments._selectedFiles.set([{ path: '/project/a.ts' }]);
+    attachments._pastedImages.set([{ data: 'image' }]);
+
+    await component.handleSend();
+
+    expect(mockChatStore.sendOrQueueMessage).not.toHaveBeenCalled();
+    expect(component.currentMessage()).toBe('Keep this');
+    expect(component.selectedFiles()).toHaveLength(1);
+    expect(component.pastedImages()).toHaveLength(1);
+    expect(component.imageAttachmentError()).toBe(message);
+  });
+
+  it.each(['eight running', 'already running and queueing'])(
+    'sends from canvas when %s',
+    async () => {
+      createComponent({
+        sessionContextTabId: 'tile-A',
+        startGuard: () => null,
+      });
+      component.handleInput({
+        target: { value: 'Proceed' },
+      } as unknown as Event);
+      await component.handleSend();
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        'Proceed',
+        expect.objectContaining({ tabId: 'tile-A' }),
+      );
+      expect(component.currentMessage()).toBe('');
+    },
+  );
+
+  it('sends outside canvas without a guard token', async () => {
+    component.handleInput({
+      target: { value: 'Normal chat' },
+    } as unknown as Event);
+    await component.handleSend();
+    expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalled();
+  });
+
+  it('restores a tab draft after remount and clears it on send', async () => {
+    createComponent({ sessionContextTabId: 'tile-A' });
+    tabsSignal.set([{ id: 'tile-A', status: 'loaded' }]);
+    component.handleInput({
+      target: { value: 'Unsent note' },
+    } as unknown as Event);
+    component.ngOnDestroy();
+    component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    expect(component.currentMessage()).toBe('Unsent note');
+
+    await component.handleSend();
+    expect(component.currentMessage()).toBe('');
+    expect(TestBed.inject(ComposerDraftStore).get('tile-A')).toBeUndefined();
+  });
+
+  it('clears only the sending tab draft when the user switches tabs during the send', async () => {
+    tabsSignal.set([
+      { id: 'tab-A', status: 'loaded' },
+      { id: 'tab-B', status: 'loaded' },
+    ]);
+    const drafts = TestBed.inject(ComposerDraftStore);
+    drafts.save('tab-B', { text: 'B draft', files: [], images: [] });
+    activeTabIdSignal.set('tab-A');
+    TestBed.tick();
+    component.handleInput({
+      target: { value: 'Send from A' },
+    } as unknown as Event);
+    TestBed.tick();
+    let resolveSend: (value: SendOutcome) => void = () => undefined;
+    mockChatStore.sendOrQueueMessage.mockReturnValueOnce(
+      new Promise<SendOutcome>((resolve) => (resolveSend = resolve)),
+    );
+
+    const sending = component.handleSend();
+    activeTabIdSignal.set('tab-B');
+    TestBed.tick();
+    expect(component.currentMessage()).toBe('B draft');
+    resolveSend({ success: true });
+    await sending;
+    TestBed.tick();
+
+    expect(component.currentMessage()).toBe('B draft');
+    expect(drafts.get('tab-B')?.text).toBe('B draft');
+    expect(drafts.get('tab-A')).toBeUndefined();
+    activeTabIdSignal.set('tab-A');
+    TestBed.tick();
+    expect(component.currentMessage()).toBe('');
+  });
+
+  it('keeps text typed into the composer while the send was in flight', async () => {
+    tabsSignal.set([{ id: 'tab-A', status: 'loaded' }]);
+    activeTabIdSignal.set('tab-A');
+    TestBed.tick();
+    component.handleInput({
+      target: { value: 'First' },
+    } as unknown as Event);
+    TestBed.tick();
+    let resolveSend: (value: SendOutcome) => void = () => undefined;
+    mockChatStore.sendOrQueueMessage.mockReturnValueOnce(
+      new Promise<SendOutcome>((resolve) => (resolveSend = resolve)),
+    );
+
+    const sending = component.handleSend();
+    component.handleInput({
+      target: { value: 'Follow-up' },
+    } as unknown as Event);
+    TestBed.tick();
+    resolveSend({ success: true });
+    await sending;
+    TestBed.tick();
+
+    expect(component.currentMessage()).toBe('Follow-up');
+    expect(TestBed.inject(ComposerDraftStore).get('tab-A')?.text).toBe(
+      'Follow-up',
+    );
+  });
+
+  it('dispatches an unchanged draft once when Send fires twice while it is pending', async () => {
+    tabsSignal.set([{ id: 'tab-A', status: 'loaded' }]);
+    activeTabIdSignal.set('tab-A');
+    TestBed.tick();
+    component.handleInput({
+      target: { value: 'Only once' },
+    } as unknown as Event);
+    TestBed.tick();
+    let resolveSend: (value: SendOutcome) => void = () => undefined;
+    mockChatStore.sendOrQueueMessage.mockReturnValueOnce(
+      new Promise<SendOutcome>((resolve) => (resolveSend = resolve)),
+    );
+
+    const first = component.handleSend();
+    const second = component.handleSend();
+    resolveSend({ success: true });
+    await Promise.all([first, second]);
+
+    expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledTimes(1);
+    expect(component.currentMessage()).toBe('');
+
+    // The guard is released: the next draft sends normally.
+    component.handleInput({
+      target: { value: 'Next' },
+    } as unknown as Event);
+    await component.handleSend();
+    expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('still dispatches an edited follow-up while the first send is pending', async () => {
+    tabsSignal.set([{ id: 'tab-A', status: 'loaded' }]);
+    activeTabIdSignal.set('tab-A');
+    TestBed.tick();
+    component.handleInput({
+      target: { value: 'First' },
+    } as unknown as Event);
+    TestBed.tick();
+    let resolveSend: (value: SendOutcome) => void = () => undefined;
+    mockChatStore.sendOrQueueMessage.mockReturnValueOnce(
+      new Promise<SendOutcome>((resolve) => (resolveSend = resolve)),
+    );
+
+    const first = component.handleSend();
+    component.handleInput({
+      target: { value: 'Queued follow-up' },
+    } as unknown as Event);
+    await component.handleSend();
+    resolveSend({ success: true });
+    await first;
+
+    expect(mockChatStore.sendOrQueueMessage).toHaveBeenNthCalledWith(
+      2,
+      'Queued follow-up',
+      expect.anything(),
+    );
+    expect(component.currentMessage()).toBe('');
+  });
+
+  it.each([
+    [
+      'an unavailable slash command',
+      '/context',
+      'This command is not available for the current provider.',
+    ],
+    ['an unsuccessful sender outcome', 'Hello', 'Delivery failed'],
+  ])('clears the draft when %s is not sent', async (_case, text, error) => {
+    tabsSignal.set([{ id: 'tab-A', status: 'loaded' }]);
+    activeTabIdSignal.set('tab-A');
+    TestBed.tick();
+    component.handleInput({ target: { value: text } } as unknown as Event);
+    TestBed.tick();
+    mockChatStore.sendOrQueueMessage.mockResolvedValueOnce({
+      success: false,
+      error,
+    });
+
+    await component.handleSend();
+    TestBed.tick();
+
+    expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledTimes(1);
+    // The sender keeps the prompt as the user's bubble, so the composer clears.
+    expect(component.currentMessage()).toBe('');
+    expect(TestBed.inject(ComposerDraftStore).get('tab-A')).toBeUndefined();
+
+    // The guard is released after a failure, so the same text sends again.
+    component.handleInput({ target: { value: text } } as unknown as Event);
+    TestBed.tick();
+    await component.handleSend();
+    expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves a draft when a second empty composer mounts before the first unmounts', () => {
+    createComponent({ sessionContextTabId: 'tile-A' });
+    tabsSignal.set([{ id: 'tile-A', status: 'loaded' }]);
+    const first = component;
+    first.handleInput({
+      target: { value: 'draft typed' },
+    } as unknown as Event);
+    const second = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    first.ngOnDestroy();
+    second.ngOnDestroy();
+    component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    expect(component.currentMessage()).toBe('draft typed');
+  });
+
+  it('restores attachments and clears the draft when its tab closes', () => {
+    createComponent({ sessionContextTabId: 'tile-A' });
+    tabsSignal.set([{ id: 'tile-A', status: 'loaded' }]);
+    (component as any)._selectedFiles.set([{ path: '/project/a.ts' }]);
+    (component as any)._pastedImages.set([
+      {
+        id: 'image-1',
+        data: 'abc',
+        mediaType: 'image/png',
+        dataUrl: 'data:image/png;base64,abc',
+        name: 'paste.png',
+      },
+    ]);
+    component.ngOnDestroy();
+    component = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    expect(component.selectedFiles()).toHaveLength(1);
+    expect(component.pastedImages()).toHaveLength(1);
+
+    tabsSignal.set([]);
+    onTabClosedListener?.({ tabId: 'tile-A' });
+    component.ngOnDestroy();
+    expect(TestBed.inject(ComposerDraftStore).get('tile-A')).toBeUndefined();
+  });
+
+  // R9x: split Rail panes mount one composer per pane, each scoped by its own
+  // SESSION_CONTEXT tab. F5 (draft lost on a card flip) must hold per pane.
+  describe('contextual F5 drafts per SESSION_CONTEXT tab', () => {
+    const typed = (composer: ChatInputComponent, value: string) =>
+      composer.handleInput({ target: { value } } as unknown as Event);
+    function paneComposer(context: WritableSignal<string | null>): ChatInputComponent {
+      const injector = createEnvironmentInjector(
+        [{ provide: SESSION_CONTEXT, useValue: context.asReadonly() }],
+        TestBed.inject(EnvironmentInjector),
+      );
+      return runInInjectionContext(injector, () => new ChatInputComponent());
+    }
+
+    beforeEach(() => {
+      tabsSignal.set([
+        { id: 'tile-A', status: 'loaded' },
+        { id: 'tile-B', status: 'loaded' },
+        { id: 'tile-C', status: 'loaded' },
+      ]);
+    });
+
+    it('keeps each pane draft on its own tab while the active pane moves between them', () => {
+      const left = paneComposer(signal<string | null>('tile-A'));
+      const right = paneComposer(signal<string | null>('tile-B'));
+      typed(left, 'left draft');
+      typed(right, 'right draft');
+      TestBed.tick();
+      for (const active of ['tile-A', 'tile-B', 'tile-A', null]) {
+        activeTabIdSignal.set(active);
+        TestBed.tick();
+        expect(left.currentMessage()).toBe('left draft');
+        expect(right.currentMessage()).toBe('right draft');
+      }
+      const drafts = TestBed.inject(ComposerDraftStore);
+      expect(drafts.get('tile-A')?.text).toBe('left draft');
+      expect(drafts.get('tile-B')?.text).toBe('right draft');
+    });
+
+    it('saves the replaced pane tab draft and restores it when the tab returns, leaving the other pane alone', () => {
+      const leftContext = signal<string | null>('tile-A');
+      const left = paneComposer(leftContext);
+      const right = paneComposer(signal<string | null>('tile-B'));
+      typed(left, 'left draft');
+      typed(right, 'right draft');
+      TestBed.tick();
+      leftContext.set('tile-C');
+      TestBed.tick();
+      expect(left.currentMessage()).toBe('');
+      typed(left, 'replacement draft');
+      TestBed.tick();
+      leftContext.set('tile-A');
+      TestBed.tick();
+      expect(left.currentMessage()).toBe('left draft');
+      expect(right.currentMessage()).toBe('right draft');
+      expect(TestBed.inject(ComposerDraftStore).get('tile-C')?.text).toBe('replacement draft');
+    });
+
+    it('F5: both pane composers remount and each restores its own tab draft, also after a pane swap', () => {
+      let left = paneComposer(signal<string | null>('tile-A'));
+      let right = paneComposer(signal<string | null>('tile-B'));
+      typed(left, 'left draft');
+      typed(right, 'right draft');
+      left.ngOnDestroy();
+      right.ngOnDestroy();
+      left = paneComposer(signal<string | null>('tile-A'));
+      right = paneComposer(signal<string | null>('tile-B'));
+      expect(left.currentMessage()).toBe('left draft');
+      expect(right.currentMessage()).toBe('right draft');
+      // A swap moves no composer; even a composer bound to the other tab reads that tab's draft.
+      expect(paneComposer(signal<string | null>('tile-B')).currentMessage()).toBe('right draft');
+    });
   });
 
   // ============================================================================
@@ -940,7 +1294,7 @@ describe('ChatInputComponent', () => {
         error: 'not sent',
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (component as any)._currentMessage.set('gone');
+      (component as any)._currentMessage.set('cleared');
 
       await component.handleSend();
 

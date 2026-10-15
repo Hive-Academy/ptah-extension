@@ -149,15 +149,17 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
     });
 
     await ui.goto('chat');
-    const tiles = page.locator('[data-testid="canvas-tile"]');
-    await expect(tiles).toHaveCount(1);
+    // The Rail shows one focused pane while a single session is open; the
+    // second session is shown beside it further down.
+    const panes = ui.canvasPanes();
+    await expect(panes).toHaveCount(1);
 
-    const firstTile = tiles.nth(0);
-    await chooseFableModel(firstTile);
-    await firstTile
+    const soloPane = panes.first();
+    await chooseFableModel(soloPane);
+    await soloPane
       .locator('ptah-chat-input textarea[role="combobox"]')
       .fill('Bind the first tile');
-    await firstTile.locator('[data-testid="chat-send-btn"]').click();
+    await soloPane.locator('[data-testid="chat-send-btn"]').click();
     await expect
       .poll(async () => (await ui.getObservedCalls('chat:start')).length)
       .toBe(1);
@@ -170,9 +172,17 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
 
     await page.locator('[title="Add new session tile"]').click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(tiles).toHaveCount(2);
+    const cards = page.locator('ptah-canvas-rail [data-rail-card]');
+    await expect(cards).toHaveCount(2);
+    await expect(panes).toHaveCount(1);
 
-    const secondTile = tiles.nth(1);
+    // The new session took the single pane. Open the first session beside it
+    // so both are live: it takes the opposite pane (the invoked, active one)
+    // and the new session keeps its pane. Pane sides are stable host ids.
+    const { opened: firstTile, kept: secondTile } =
+      await ui.openRailCardBeside(cards.first());
+    await expect(panes).toHaveCount(2);
+
     await chooseFableModel(secondTile);
     await secondTile
       .locator('ptah-chat-input textarea[role="combobox"]')
@@ -296,16 +306,11 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
       secondTile.locator('ptah-compaction-marker dialog'),
     ).toContainText(COMPACTION_SUMMARY);
 
-    // A targeted compaction reload must not create a third tile or activate
-    // the array-first match. The non-first origin remains focused throughout.
-    await expect(tiles).toHaveCount(2);
-    await expect(firstTile.locator('.canvas-tile')).toHaveAttribute(
-      'data-focused',
-      'false',
-    );
-    await expect(secondTile.locator('.canvas-tile')).toHaveAttribute(
-      'data-focused',
-      'true',
-    );
+    // A targeted compaction reload must not create a third pane or activate
+    // the array-first match. The non-first origin remains focused throughout:
+    // the active pane's label ends ", active".
+    await expect(panes).toHaveCount(2);
+    await expect(firstTile).not.toHaveAttribute('aria-label', /, active$/);
+    await expect(secondTile).toHaveAttribute('aria-label', /, active$/);
   });
 });

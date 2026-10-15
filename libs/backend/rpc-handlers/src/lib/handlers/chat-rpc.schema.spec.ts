@@ -114,6 +114,16 @@ describe('chat-rpc.schema', () => {
   });
 
   describe('ChatResumeParamsSchema', () => {
+    it('accepts only literal true for the history ownership opt-in', () => {
+      const params = { sessionId: VALID_SESSION_UUID, tabId: VALID_TAB_UUID };
+      expect(
+        ChatResumeParamsSchema.parse({ ...params, historyBlockOwners: true })
+          .historyBlockOwners,
+      ).toBe(true);
+      expect(() =>
+        ChatResumeParamsSchema.parse({ ...params, historyBlockOwners: false }),
+      ).toThrow(ZodError);
+    });
     it('accepts a payload with both UUIDs', () => {
       const parsed = ChatResumeParamsSchema.parse({
         sessionId: VALID_SESSION_UUID,
@@ -155,6 +165,41 @@ describe('chat-rpc.schema', () => {
   });
 
   describe('ChatSetStreamViewportParamsSchema', () => {
+    it('accepts a distinct resync tab list', () => {
+      expect(
+        ChatSetStreamViewportParamsSchema.parse({
+          protocolVersion: 2,
+          visibleTabIds: [],
+          resyncTabIds: [VALID_TAB_UUID],
+        }).resyncTabIds,
+      ).toEqual([VALID_TAB_UUID]);
+    });
+
+    it.each([
+      [VALID_TAB_UUID, VALID_TAB_UUID],
+      ['not-a-tab-id'],
+      Array.from({ length: 129 }, (_, i) =>
+        `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      ),
+    ])('rejects an invalid resync tab list %#', (...resyncTabIds) => {
+      expect(() =>
+        ChatSetStreamViewportParamsSchema.parse({
+          protocolVersion: 2,
+          visibleTabIds: [],
+          resyncTabIds,
+        }),
+      ).toThrow(ZodError);
+    });
+
+    it('rejects other unknown viewport keys', () => {
+      expect(() =>
+        ChatSetStreamViewportParamsSchema.parse({
+          protocolVersion: 2,
+          visibleTabIds: [],
+          unexpected: true,
+        }),
+      ).toThrow(ZodError);
+    });
     it('accepts a distinct v2 focused/visible viewport', () => {
       expect(
         ChatSetStreamViewportParamsSchema.parse({

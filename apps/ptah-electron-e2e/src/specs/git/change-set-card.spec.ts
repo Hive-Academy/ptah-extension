@@ -134,8 +134,10 @@ async function openSession(
   session: SessionFixture,
 ): Promise<Locator> {
   await sessionRowButton(page, session.name).click();
+  // The session renders in the Rail's focused pane (Rail cards echo the marker
+  // too, so the scope is the pane, not the board).
   const tile = page
-    .locator('[data-testid="canvas-tile"]')
+    .locator('ptah-canvas-focus-area')
     .filter({ hasText: session.marker });
   await expect(tile).toBeVisible();
   // The tile header echoes the last reply too; wait for the transcript bubble.

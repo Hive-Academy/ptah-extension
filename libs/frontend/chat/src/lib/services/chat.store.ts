@@ -30,7 +30,7 @@ import {
   SessionLoaderService,
   type SessionListQuery,
 } from './chat-store/session-loader.service';
-import { SessionHistoryReplayer } from './chat-store/session-history-replayer.service';
+import { SessionHistoryReplayer, type ReplayLiveSeed } from './chat-store/session-history-replayer.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
@@ -225,14 +225,19 @@ export class ChatStore {
   }
 
   /** Rebuild one tab from the canonical resume stream after a v2 tail overflow. */
-  async resyncStream(tabId: string, sessionId: string): Promise<void> {
+  async resyncStream(tabId: string, sessionId: string, liveSeed?: ReplayLiveSeed): Promise<void> {
     const parsedTabId = TabId.safeParse(tabId);
     const parsedSessionId = SessionId.safeParse(sessionId);
     if (!parsedTabId || !parsedSessionId) return;
-    await this.sessionLoader.switchSession(parsedSessionId, {
-      targetTabId: parsedTabId,
-      reason: 'resync',
-    });
+    try {
+      await this.sessionLoader.switchSession(parsedSessionId, {
+        targetTabId: parsedTabId,
+        reason: 'resync',
+        liveSeed,
+      });
+    } catch {
+      console.warn('[ChatStore] Stream resync failed');
+    }
   }
 
   removeSessionFromList(sessionId: SessionId): void {
@@ -369,11 +374,16 @@ export class ChatStore {
     return this.conversation.abortWithConfirmation();
   }
 
-  /** Clear queued content for a specific tab or the active tab. */
+  /**
+   * Clear queued content for a specific tab or the active tab (the queue's
+   * cancel and edit actions). A slash command held behind the removed text
+   * becomes the queued message, so it is still sent, and shown.
+   */
   clearQueuedContent(tabId?: string): void {
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
     this.tabManager.setQueuedContent(targetTabId, null);
+    this.conversation.releaseHeldCommand(targetTabId);
   }
 
   clearQueueRestoreSignal(): void {
@@ -393,11 +403,13 @@ export class ChatStore {
     event: FlatStreamEventUnion,
     tabId?: string,
     sessionId?: string,
+    options?: { fanOut?: boolean },
   ): void {
     const result = this.streamingHandler.processStreamEvent(
       event,
       tabId,
       sessionId,
+      options,
     );
 
     if (result && result.compactionComplete && result.compactionSessionId) {
@@ -416,7 +428,8 @@ export class ChatStore {
       this.handleCompactionStart(result.compactionSessionId);
       return;
     }
-    const queueFlushes = result?.queueFlushes ??
+    const queueFlushes =
+      result?.queueFlushes ??
       (result?.queuedContent
         ? [{ tabId: result.tabId, content: result.queuedContent }]
         : []);
@@ -440,7 +453,7 @@ export class ChatStore {
     event: FlatStreamEventUnion,
     tabId: string | undefined,
     sessionId: string | undefined,
-    deliver: () => void,
+    deliver: (excludeTabIds?: ReadonlySet<string>) => void,
   ): boolean {
     return this.historyReplayer.deferLiveEvent(
       event,

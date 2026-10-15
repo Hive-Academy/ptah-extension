@@ -21,6 +21,9 @@
  *     default; a missing key is refused without reaching the provider.
  *   - settings:set: a file-based key is written through the provider; a key
  *     outside FILE_BASED_SETTINGS_KEYS is refused and nothing is written.
+ *   - settings:set: a key with an ADVANCED_SETTINGS descriptor is written only
+ *     when its validator accepts the value; a wrong type or an out-of-range
+ *     value is refused with the validator's message and nothing is written.
  *   - settings:export: happy path returns exported:true with counts; cancelled
  *     dialog returns exported:false, cancelled:true.
  *   - settings:import: no showOpenDialog → cancelled:true.
@@ -343,6 +346,110 @@ describe('SettingsRpcHandlers', () => {
         error: "Setting key 'not.a.real.setting' is not writable",
       });
       expect(h.workspaceProvider.setConfiguration).not.toHaveBeenCalled();
+    });
+
+    describe('described (advanced) keys', () => {
+      it.each([
+        ['memory.retention.stuckDays', 30],
+        ['skillSynthesis.replayValidation.minConfidence', 0.75],
+        ['agentOrchestration.codexWebSearch', false],
+        ['cron.catchupWindowMs', 0],
+      ])('writes a valid value for %s', async (key, value) => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        const result = await call<{ success: boolean }>(h, 'settings:set', {
+          key,
+          value,
+        });
+
+        expect(result).toEqual({ success: true });
+        expect(h.workspaceProvider.setConfiguration).toHaveBeenCalledWith(
+          'ptah',
+          key,
+          value,
+        );
+      });
+
+      it.each([
+        [
+          'below min',
+          'cron.maxConcurrentJobs',
+          0,
+          'Use a whole number from 1 to 16 jobs.',
+        ],
+        [
+          'above max',
+          'memory.retention.stuckDays',
+          366,
+          'Use a whole number from 7 to 365 days.',
+        ],
+        [
+          'a fraction for an integer key',
+          'internalQuery.maxConcurrent',
+          2.5,
+          'Use a whole number from 1 to 16 queries.',
+        ],
+        [
+          'a numeric string',
+          'harness.preflightTimeoutMs',
+          '1500',
+          'Use a whole number from 100 to 60,000 ms.',
+        ],
+        [
+          'null',
+          'compaction.toolOutputBudgetTokens',
+          null,
+          'Use a whole number from 100 to 200,000 tokens.',
+        ],
+        [
+          'a missing value',
+          'skillSynthesis.judgePanel.disagreementThreshold',
+          undefined,
+          'Use a number from 0 to 9 points.',
+        ],
+        [
+          'a non-boolean for a boolean key',
+          'harness.manageGitignore',
+          'yes',
+          'Use on or off.',
+        ],
+      ])(
+        'refuses %s (%s) and writes nothing',
+        async (_case, key, value, error) => {
+          const h = makeHarness();
+          h.handlers.register();
+
+          const result = await call<{ success: boolean; error?: string }>(
+            h,
+            'settings:set',
+            { key, value },
+          );
+
+          expect(result).toEqual({ success: false, error });
+          expect(h.workspaceProvider.setConfiguration).not.toHaveBeenCalled();
+          expect(h.logger.error).not.toHaveBeenCalled();
+        },
+      );
+
+      it('leaves a file key without a descriptor unchecked', async () => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        // Far outside the session-budget card's own bounds: settings:set does
+        // not check keys the advanced table does not describe.
+        const result = await call<{ success: boolean }>(h, 'settings:set', {
+          key: 'sessionBudget.tokens',
+          value: 5,
+        });
+
+        expect(result).toEqual({ success: true });
+        expect(h.workspaceProvider.setConfiguration).toHaveBeenCalledWith(
+          'ptah',
+          'sessionBudget.tokens',
+          5,
+        );
+      });
     });
   });
 

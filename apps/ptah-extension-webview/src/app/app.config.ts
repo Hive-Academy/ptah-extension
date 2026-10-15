@@ -48,6 +48,7 @@ import {
   VoiceDownloadProgressService,
   VoiceProviderErrorService,
   ChangeSetStore,
+  SessionGitStatsStore,
   ChatAgentFeedbackSender,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
@@ -217,6 +218,11 @@ export const appConfig: ApplicationConfig = {
     // Eager because a push for the open session must merge before any card
     // chunk loads; the store imports nothing from git-ui.
     { provide: MESSAGE_HANDLERS, useExisting: ChangeSetStore, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SessionGitStatsStore,
+      multi: true,
+    },
     { provide: SESSION_DATA_PROVIDER, useExisting: ChatStore },
     {
       provide: WORKSPACE_COORDINATOR,

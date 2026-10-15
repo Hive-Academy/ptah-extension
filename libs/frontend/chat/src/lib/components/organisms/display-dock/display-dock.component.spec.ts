@@ -4,7 +4,6 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
-import { AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   DISPLAY_PANEL_SUMMARY_KEY,
@@ -30,6 +29,7 @@ import { DisplayDockComponent } from './display-dock.component';
 class StubDisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
   readonly summary = input<TurnSummaryModel | null>(null);
+  readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
   readonly pinned = input(false);
   readonly viewStates = input<ReadonlyMap<string, SurfaceViewState>>(new Map());
@@ -73,23 +73,6 @@ function changeSet(): TurnChangeSet {
 
 const MODEL = { marker: 'summary' } as unknown as TurnSummaryModel;
 
-function runningAgent(): MonitoredAgent {
-  return {
-    agentId: 'a1',
-    cli: 'ptah-cli',
-    task: 'work',
-    status: 'running',
-    startedAt: 0,
-    stdout: '',
-    stderr: '',
-    expanded: false,
-    segments: [],
-    streamEvents: [],
-    streamRevision: 0,
-    permissionQueue: [],
-  } as MonitoredAgent;
-}
-
 describe('DisplayDockComponent', () => {
   let fixture: ComponentFixture<DisplayDockComponent>;
   let dock: DisplayDockState;
@@ -106,25 +89,6 @@ describe('DisplayDockComponent', () => {
         provideSurfaceActiveTesting(),
         DisplayDockState,
         { provide: ChangeSetActionsService, useValue: actions },
-        {
-          provide: AgentMonitorStore,
-          useValue: {
-            activeWorkflowSubagents: signal([]),
-            workflowSubagentsForSession: jest.fn(() => []),
-            activeSessionSubagents: signal([]),
-            sessionSubagentsForSession: jest.fn(() => []),
-            activeTabAgents: signal([]),
-            pendingPermissions: signal([]),
-            panelOpen: signal(false),
-            closePanel: jest.fn(),
-            clearCompleted: jest.fn(),
-            clearCompletedInSession: jest.fn(),
-            getSubagent: jest.fn(),
-            toggleAgentExpanded: jest.fn(),
-            tick: signal(0),
-            cliOutputDemand: signal([]),
-          },
-        },
         {
           provide: VSCodeService,
           useValue: {
@@ -156,7 +120,6 @@ describe('DisplayDockComponent', () => {
     dock.open(TAB);
     fixture = TestBed.createComponent(DisplayDockComponent);
     fixture.componentRef.setInput('tabId', TAB);
-    fixture.componentRef.setInput('sessionId', 'session-1');
     fixture.detectChanges();
   });
 
@@ -166,12 +129,6 @@ describe('DisplayDockComponent', () => {
   });
 
   const native = (): HTMLElement => fixture.nativeElement as HTMLElement;
-  const tabs = (): HTMLButtonElement[] =>
-    Array.from(native().querySelectorAll('[data-testid="display-dock-tab"]'));
-  const tab = (name: 'displays' | 'agents'): HTMLButtonElement =>
-    native().querySelector(`[data-tab="${name}"]`) as HTMLButtonElement;
-  const tabpanel = (name: 'displays' | 'agents'): HTMLElement =>
-    native().querySelector(`[data-testid="display-dock-${name}"]`) as HTMLElement;
   const panel = (): StubDisplayPanelComponent =>
     fixture.debugElement.query(By.directive(StubDisplayPanelComponent))
       .componentInstance as StubDisplayPanelComponent;
@@ -181,139 +138,12 @@ describe('DisplayDockComponent', () => {
     fixture.detectChanges();
   };
 
-  describe('Displays | Agents tablist (design assertions 6-9)', () => {
-    it('is a labelled tablist with one selected tab controlling its tabpanel', () => {
-      const list = native().querySelector('[role="tablist"]');
-      expect(list?.getAttribute('aria-label')).toBe('Display panel sections');
-      expect(tabs()).toHaveLength(2);
-      expect(tabs().filter((t) => t.getAttribute('aria-selected') === 'true')).toEqual([
-        tab('displays'),
-      ]);
-      for (const name of ['displays', 'agents'] as const) {
-        const controlled = native().querySelector(
-          `#${tab(name).getAttribute('aria-controls')}`,
-        );
-        expect(controlled).toBe(tabpanel(name));
-        expect(controlled?.getAttribute('role')).toBe('tabpanel');
-        expect(controlled?.getAttribute('aria-labelledby')).toBe(tab(name).id);
-      }
-      expect(tab('displays').tabIndex).toBe(0);
-      expect(tab('agents').tabIndex).toBe(-1);
-      expect(tabpanel('displays').hidden).toBe(false);
-      expect(tabpanel('agents').hidden).toBe(true);
-    });
-
-    it('moves selection and focus with wrapping arrows, Home and End', () => {
-      tab('displays').focus();
-      tab('displays').dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
-      );
-      fixture.detectChanges();
-      expect(dock.tab(TAB).activeTab).toBe('agents');
-      expect(document.activeElement).toBe(tab('agents'));
-      expect(tabpanel('agents').hidden).toBe(false);
-      expect(tabpanel('displays').hidden).toBe(true);
-      expect(tab('agents').tabIndex).toBe(0);
-
-      tab('agents').dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
-      );
-      fixture.detectChanges();
-      expect(dock.tab(TAB).activeTab).toBe('displays');
-
-      tab('displays').dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'End', bubbles: true }),
-      );
-      fixture.detectChanges();
-      expect(dock.tab(TAB).activeTab).toBe('agents');
-
-      tab('agents').dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
-      );
-      fixture.detectChanges();
-      expect(dock.tab(TAB).activeTab).toBe('displays');
-      expect(document.activeElement).toBe(tab('displays'));
-    });
-
-    // jsdom does not compute CSS, so it cannot show `.flex { display: flex }`
-    // overriding the `[hidden]` attribute. The class contract is the guard:
-    // the inactive panel must never carry `flex` and must carry `hidden` (D1, #149).
-    it.each([
-      ['displays', 'agents'],
-      ['agents', 'displays'],
-    ] as const)(
-      'with %s active, hides the %s panel by attribute and class, not overridden by flex',
-      (active, inactive) => {
-        dock.selectTab(TAB, active);
-        fixture.detectChanges();
-
-        const shown = tabpanel(active);
-        expect(shown.classList.contains('flex')).toBe(true);
-        expect(shown.classList.contains('hidden')).toBe(false);
-        expect(shown.hasAttribute('hidden')).toBe(false);
-
-        const off = tabpanel(inactive);
-        expect(off.hasAttribute('hidden')).toBe(true);
-        expect(off.classList.contains('hidden')).toBe(true);
-        expect(off.classList.contains('flex')).toBe(false);
-      },
-    );
-
-    it('keeps both tabpanels mounted across tab switches', () => {
-      dock.selectTab(TAB, 'agents');
-      fixture.detectChanges();
-      expect(tabpanel('displays')).not.toBeNull();
-      expect(panel()).toBeTruthy();
-      dock.selectTab(TAB, 'displays');
-      fixture.detectChanges();
-      expect(tabpanel('agents')).not.toBeNull();
-    });
-
-    it('labels each tab with its count and a running suffix', () => {
-      dock.setSurfaces(TAB, {
-        surfaces: [surface('id:a'), surface('id:b')],
-        statuses: new Map(),
-      });
-      fixture.componentRef.setInput('agents', [runningAgent()]);
-      fixture.detectChanges();
-      expect(tab('displays').textContent).toContain('Displays (2)');
-      expect(tab('agents').textContent).toContain('Agents (1)');
-      expect(tab('agents').textContent).toContain(', 1 running');
-      // Agents is not shown and has a running agent: it is marked new.
-      expect(tab('agents').querySelector('.sr-only')?.textContent).toBe('New: ');
-    });
-
-    it('marks the Displays tab new when a surface changes while Agents shows', () => {
-      dock.setSurfaces(TAB, { surfaces: [surface('id:a', 1)], statuses: new Map() });
-      fixture.detectChanges();
-      dock.selectTab(TAB, 'agents');
-      fixture.detectChanges();
-      expect(tab('displays').querySelector('[data-testid="display-dock-tab-new"]')).toBeNull();
-
-      dock.setSurfaces(TAB, { surfaces: [surface('id:a', 2)], statuses: new Map() });
-      fixture.detectChanges();
-      expect(
-        tab('displays').querySelector('[data-testid="display-dock-tab-new"]'),
-      ).not.toBeNull();
-
-      dock.selectTab(TAB, 'displays');
-      fixture.detectChanges();
-      dock.selectTab(TAB, 'agents');
-      fixture.detectChanges();
-      expect(tab('displays').querySelector('[data-testid="display-dock-tab-new"]')).toBeNull();
-    });
-  });
-
-  it('always has the Agents tabpanel, with "No agents in this session" (R1.13, #11)', () => {
-    tab('agents').click();
-    fixture.detectChanges();
-    const agents = tabpanel('agents');
-    expect(agents.getAttribute('role')).toBe('tabpanel');
-    expect(agents.hidden).toBe(false);
-    expect(agents.getAttribute('aria-labelledby')).toBe(tab('agents').id);
-    expect(agents.textContent).toContain('No agents in this session');
-    // The dock owns close: the docked monitor has no close button of its own.
-    expect(agents.querySelector('button[title="Close panel"]')).toBeNull();
+  it('shows one labelled display region and no Agents tab, badge or monitor', () => {
+    expect(native().querySelector('[role="tablist"]')).toBeNull();
+    expect(native().querySelector('[data-testid="display-dock-heading"]')?.textContent).toContain('Displays (0)');
+    expect(native().querySelector('[data-testid="display-dock-displays"]')?.getAttribute('aria-label')).toBe('Displays');
+    expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
+    expect(native().textContent).not.toContain('Agents (');
   });
 
   describe('pin and close', () => {
@@ -348,7 +178,7 @@ describe('DisplayDockComponent', () => {
     });
   });
 
-  describe('Displays tabpanel bindings (decisions #101, #102)', () => {
+  describe('Displays panel bindings (decisions #101, #102)', () => {
     it('binds the store surfaces, pin, view states and summary model', () => {
       const surfaces = [surface('id:a')];
       dock.setSurfaces(TAB, { surfaces, statuses: new Map() });
@@ -356,6 +186,8 @@ describe('DisplayDockComponent', () => {
       fixture.detectChanges();
       expect(panel().surfaces()).toBe(surfaces);
       expect(panel().summary()).toBe(MODEL);
+      // The panel keys its disclosure state on the source's turn id.
+      expect(panel().summaryTurnKey()).toBe('turn-1');
       expect(panel().viewStates()).toBe(dock.tab(TAB).viewStates);
     });
 
@@ -422,17 +254,19 @@ describe('DisplayDockComponent', () => {
     });
   });
 
-  it('shows the state of the tab it is bound to (R1.1)', () => {
+  it('restores the display count and pin state by tab id', () => {
     dock.setSurfaces(TAB, { surfaces: [surface('id:a')], statuses: new Map() });
-    dock.open('tab-2');
-    dock.selectTab('tab-2', 'agents');
+    native().querySelector<HTMLButtonElement>('[data-testid="display-dock-pin"]')?.click();
     fixture.detectChanges();
-    expect(tab('displays').textContent).toContain('Displays (1)');
-
+    dock.open('tab-2');
     fixture.componentRef.setInput('tabId', 'tab-2');
     fixture.detectChanges();
-    expect(tab('displays').textContent).toContain('Displays (0)');
-    expect(tab('agents').getAttribute('aria-selected')).toBe('true');
+    expect(native().querySelector('[data-testid="display-dock-heading"]')?.textContent).toContain('Displays (0)');
+    expect(panel().pinned()).toBe(false);
+    fixture.componentRef.setInput('tabId', TAB);
+    fixture.detectChanges();
+    expect(native().querySelector('[data-testid="display-dock-heading"]')?.textContent).toContain('Displays (1)');
+    expect(panel().pinned()).toBe(true);
   });
 
   describe('focus (R1.2, R1.7)', () => {

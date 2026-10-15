@@ -19,6 +19,7 @@ import { LoggingService, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from '../../../services/scroll-dirty.service';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
+import { SubagentTileComponent } from './subagent-tile.component';
 import {
   AgentSummaryComponent,
   ThinkingBlockComponent,
@@ -149,6 +150,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
     MarkdownModule,
     LucideAngularModule,
     InlineAgentBubbleComponent, // Required in imports even with @defer - Angular needs to know about it
+    SubagentTileComponent,
     AgentSummaryComponent,
     ThinkingBlockComponent,
     ToolCallItemComponent,
@@ -234,7 +236,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                  streams, and the exact final string the moment it settles.
                  Any HTML from AI text reaches the DOM only after DOMPurify:
                  through ngx-markdown when settled, per block while streaming. -->
-            @if (incrementalStreamingEnabled && isNodeStreaming()) {
+            @if (incrementalStreamingEnabled && rendersIncrementally()) {
               <!-- Each completed block was sanitized alone and is parsed alone
                    in its own host; tracking by id keeps its DOM across frames.
                    The open tail is interpolated as text and never parsed. -->
@@ -296,6 +298,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                       [isStreaming]="isStreaming()"
                       [isFinalizing]="isFinalizing()"
                       [getPermissionForTool]="getPermissionForTool()"
+                      [agentTileMode]="agentTileMode()"
                       (permissionResponded)="permissionResponded.emit($event)"
                     />
                   }
@@ -325,6 +328,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                     [isStreaming]="isStreaming()"
                     [isFinalizing]="isFinalizing()"
                     [getPermissionForTool]="getPermissionForTool()"
+                    [agentTileMode]="agentTileMode()"
                     (permissionResponded)="permissionResponded.emit($event)"
                   />
                 }
@@ -334,6 +338,14 @@ function scheduleFrame(cb: () => void): FrameHandle {
         }
       }
       @case ('agent') {
+        @if (agentTileMode()) {
+          <div [class.exec-fade-in]="!isFinalizing()">
+            <ptah-subagent-tile
+              [node]="node()"
+              [getPermissionForTool]="getPermissionForTool()"
+            />
+          </div>
+        } @else {
         <!--
       Pass nodeTemplate so the bubble can render its children recursively
       without importing ExecutionNodeComponent. @defer was previously used
@@ -360,23 +372,29 @@ function scheduleFrame(cb: () => void): FrameHandle {
             [isStreaming]="isStreaming()"
             [isFinalizing]="isFinalizing()"
             [getPermissionForTool]="getPermissionForTool()"
+            [agentTileMode]="agentTileMode()"
             (permissionResponded)="permissionResponded.emit($event)"
           />
         </ng-template>
+        }
       }
       @case ('message') {
         <!-- Message node unwraps to its children. The ptah-ui context is
              forwarded HERE ONLY: agent, tool and SendMessage recursions above
              never pass it, so subagent, tool and nested text stay code. The
              turn-source snapshot rides INSIDE the context (PR C), so it
-             reaches this message's assistant text only — never a subagent's. -->
+             reaches this message's assistant text only — never a subagent's.
+             A text child with a later sibling is complete, so it renders as
+             settled markdown instead of keeping a raw streaming tail. -->
         <div class="exec-children">
           @for (child of node().children; track child.id) {
             <ptah-execution-node
               [node]="child"
               [isStreaming]="isStreaming()"
+              [textClosed]="!$last && child.type === 'text'"
               [isFinalizing]="isFinalizing()"
               [getPermissionForTool]="getPermissionForTool()"
+              [agentTileMode]="agentTileMode()"
               [ptahUi]="ptahUi()"
               (permissionResponded)="permissionResponded.emit($event)"
             />
@@ -437,6 +455,8 @@ function scheduleFrame(cb: () => void): FrameHandle {
 })
 export class ExecutionNodeComponent {
   readonly node = input.required<ExecutionNode>();
+  /** Main-transcript opt-in. Other execution-tree hosts retain inline agents. */
+  readonly agentTileMode = input<boolean>(false);
 
   /** Global streaming state passed from parent */
   readonly isStreaming = input<boolean>(false);
@@ -484,6 +504,20 @@ export class ExecutionNodeComponent {
    */
   protected readonly isNodeStreaming = computed(
     () => this.isStreaming() || this.node().status === 'streaming',
+  );
+
+  /**
+   * Set by the `message` parent on a text child that already has a later
+   * sibling: the SDK streams content blocks in order, so its text is complete
+   * while the turn still runs. It only moves the text to the settled
+   * `<markdown>` path; ptah-ui and Mermaid keep waiting for the turn to end,
+   * so they never mount mid-turn and then unmount for the finalization hold.
+   */
+  readonly textClosed = input<boolean>(false);
+
+  /** True while the text renders block by block with a raw tail. */
+  protected readonly rendersIncrementally = computed(
+    () => this.isNodeStreaming() && !this.textClosed(),
   );
 
   /**
@@ -536,7 +570,7 @@ export class ExecutionNodeComponent {
 
       // Settled node (or a restored transcript): the value is final, so pay
       // the render now rather than one frame late.
-      if (!this.isNodeStreaming()) {
+      if (!this.rendersIncrementally()) {
         this.publishNow(content);
         return;
       }

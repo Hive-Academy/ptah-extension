@@ -19,6 +19,12 @@ import { AppStateManager, PluginCatalogService } from '@ptah-extension/core';
  *
  * `chat` must not import `@ptah-extension/marketplace`, so the warning's
  * button addresses the Marketplace page through `AppStateManager.openMarketplace`.
+ *
+ * Inks are the per-theme measured tokens, not the raw hues: `text-primary`, an
+ * outline primary button and `text-warning` measured 1.32-2.33:1 on the cream
+ * anubis-light card and 3.16-3.49:1 in anubis. `state-need` is the legible
+ * warning ink (5.53 / 6.43:1), the title is base-content, and the button and
+ * icon tile are primary fills with primary-content ink (6.99 / 4.82:1).
  */
 @Component({
   selector: 'ptah-project-setup-card',
@@ -33,11 +39,11 @@ import { AppStateManager, PluginCatalogService } from '@ptah-extension/core';
         >
           <lucide-angular
             [img]="AlertTriangleIcon"
-            class="w-4 h-4 text-warning shrink-0 mt-0.5"
+            class="w-4 h-4 text-state-need shrink-0 mt-0.5"
             aria-hidden="true"
           />
           <div class="flex-1">
-            <h4 class="text-xs font-semibold text-warning mb-1">
+            <h4 class="text-xs font-semibold text-state-need mb-1">
               Skills Not Configured
             </h4>
             <p class="text-xs text-base-content-muted leading-relaxed mb-2">
@@ -46,7 +52,7 @@ import { AppStateManager, PluginCatalogService } from '@ptah-extension/core';
               Ptah Skills first for optimal results.
             </p>
             <button
-              class="btn btn-xs btn-primary btn-outline"
+              class="btn btn-xs btn-primary"
               (click)="openMarketplaceSkills()"
               type="button"
             >
@@ -64,7 +70,7 @@ import { AppStateManager, PluginCatalogService } from '@ptah-extension/core';
           <!-- Header with Scanner Icon -->
           <div class="flex items-start gap-3 mb-3">
             <div
-              class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0 agent-working"
+              class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary text-primary-content shrink-0 agent-working"
             >
               <lucide-angular
                 [img]="ScanSearchIcon"
@@ -74,7 +80,7 @@ import { AppStateManager, PluginCatalogService } from '@ptah-extension/core';
             </div>
             <div class="flex-1">
               <h3
-                class="text-sm md:text-base font-semibold text-primary mb-0.5"
+                class="text-sm md:text-base font-semibold text-base-content mb-0.5"
               >
                 Intelligent Project Setup
               </h3>

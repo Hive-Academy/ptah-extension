@@ -6,6 +6,11 @@ import {
   type Signal,
 } from '@angular/core';
 import type { SessionStatus } from '@ptah-extension/chat-types';
+import {
+  ClaudeRpcService,
+  VSCodeService,
+  pickerWorkspaceScope,
+} from '@ptah-extension/core';
 import type {
   SessionBudgetStage,
   SessionBudgetState,
@@ -47,6 +52,20 @@ export function buildWrapUpPrompt(budget: SessionBudgetState | null): string {
   return SESSION_WRAP_UP_PROMPT.replace('{used}', usedFigure(budget));
 }
 
+/**
+ * The `session-handoff` skill's slash command (TASK_2026_655). Un-namespaced:
+ * the SDK resolves `/session-handoff`, not `/ptah-core:session-handoff`.
+ */
+export const SESSION_HANDOFF_COMMAND = '/session-handoff';
+
+/** The skill's command name as the command discovery lists it. */
+const SESSION_HANDOFF_SKILL = SESSION_HANDOFF_COMMAND.slice(1);
+
+/** `/session-handoff` with the session's usage as its argument. */
+export function buildHandoffCommand(budget: SessionBudgetState | null): string {
+  return `${SESSION_HANDOFF_COMMAND} This session has used ${usedFigure(budget)} tokens.`;
+}
+
 /** `41.2M`, or `$8.96 worth of` for a cost budget, so "… {used} tokens" reads. */
 function usedFigure(budget: SessionBudgetState | null): string {
   if (!budget || budget.used === null) return 'a large number of';
@@ -66,6 +85,10 @@ const NO_VIEW: SessionBudgetView = {
  * chat message to the agent through the composer's send path (so a running
  * turn queues it like any typed message). The agent does the rest.
  *
+ * That message is the `/session-handoff` slash command when the workspace has
+ * the `session-handoff` skill, which opens the continuation session itself;
+ * otherwise it is the inline {@link SESSION_WRAP_UP_PROMPT}.
+ *
  * Provided by the chat view, one instance per view. The view calls
  * {@link connect} once with its resolved tab and session.
  */
@@ -73,6 +96,8 @@ const NO_VIEW: SessionBudgetView = {
 export class SessionBudgetActionsService {
   private readonly actionBanner = inject(ActionBannerService);
   private readonly chatStore = inject(ChatStore);
+  private readonly rpc = inject(ClaudeRpcService);
+  private readonly vscodeService = inject(VSCodeService);
 
   private readonly view = signal<SessionBudgetView>(NO_VIEW);
 
@@ -143,9 +168,16 @@ export class SessionBudgetActionsService {
   }
 
   /**
-   * "Wrap up & hand off": send {@link SESSION_WRAP_UP_PROMPT} as a normal
-   * message through `ChatStore.sendOrQueueMessage`, the composer's send path.
-   * A failed send re-enables the button; a thrown error is also shown.
+   * "Wrap up & hand off": send {@link buildHandoffCommand} when the
+   * `session-handoff` skill is available, else {@link SESSION_WRAP_UP_PROMPT},
+   * as a normal message through `ChatStore.sendOrQueueMessage`, the
+   * composer's send path. The button is disabled before the skill probe, so a
+   * second click during it sends nothing. A failed send re-enables the
+   * button; a thrown error is also shown.
+   *
+   * When the tab already has queued text, the slash command waits behind it
+   * as its own turn. The button stays disabled meanwhile; if the command is
+   * dropped (Stop, failed turn), it is enabled again with a notice.
    */
   async sendWrapUp(): Promise<void> {
     const tabId = this.view().tabId();
@@ -153,19 +185,57 @@ export class SessionBudgetActionsService {
     const sessionId = budget?.sessionId;
     if (!tabId || !sessionId || this.wrapUpSessions().has(sessionId)) return;
     this.setWrapUpSent(sessionId, true);
-    const prompt = buildWrapUpPrompt(budget);
     try {
+      const prompt = (await this.handoffSkillAvailable())
+        ? buildHandoffCommand(budget)
+        : buildWrapUpPrompt(budget);
       const outcome = await this.chatStore.sendOrQueueMessage(prompt, {
         tabId,
       });
       // The send path already shows its own failure notice in the transcript.
-      if (!outcome?.success) this.setWrapUpSent(sessionId, false);
+      if (!outcome?.success) {
+        this.setWrapUpSent(sessionId, false);
+        return;
+      }
+      if (outcome.heldCommand && !(await outcome.heldCommand)) {
+        this.setWrapUpSent(sessionId, false);
+        this.actionBanner.showError(
+          'The wrap-up request was not sent: the queued messages before it were stopped or failed.',
+          tabId,
+        );
+      }
     } catch (error: unknown) {
       this.setWrapUpSent(sessionId, false);
       this.actionBanner.showError(
         `Could not send the wrap-up request: ${error instanceof Error ? error.message : String(error)}`,
         tabId,
       );
+    }
+  }
+
+  /**
+   * Whether this workspace has the `session-handoff` skill: the command
+   * discovery lists the workspace `.claude/skills` the SDK resolves slash
+   * commands from. Any failure means "not available", so the button falls
+   * back to the inline prompt instead of failing.
+   */
+  private async handoffSkillAvailable(): Promise<boolean> {
+    try {
+      const result = await this.rpc.call('autocomplete:commands', {
+        query: SESSION_HANDOFF_SKILL,
+        maxResults: 10,
+        ...pickerWorkspaceScope(this.vscodeService.config().workspaceRoot),
+      });
+      return (
+        result.success &&
+        (result.data?.commands ?? []).some(
+          (command) => command.name === SESSION_HANDOFF_SKILL,
+        )
+      );
+    } catch {
+      // degradation-audit: optional-capability - a failed probe sends the
+      // inline wrap-up prompt, which does the same job without the skill.
+      return false;
     }
   }
 

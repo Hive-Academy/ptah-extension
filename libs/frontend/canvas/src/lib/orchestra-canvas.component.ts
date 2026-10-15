@@ -6,37 +6,39 @@ import {
   effect,
   signal,
   viewChild,
+  viewChildren,
   ElementRef,
   untracked,
   afterNextRender,
   Injector,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import {
-  LucideAngularModule,
-  Plus,
-  X,
-  Check,
-  Lock,
-  Unlock,
-} from 'lucide-angular';
+import { LucideAngularModule, Plus, X, Check } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
 import {
   AppStateManager,
   BackOfficeActivityService,
   defaultSessionName,
+  SURFACE_ACTIVE,
 } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
-import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
-import { CanvasEmptyStateComponent } from './canvas-empty-state.component';
-import { CanvasLayoutControlsComponent } from './canvas-layout-controls.component';
+// Deferred (`@defer` only, never a value here): its own declaration, and no
+// eager file imports it, so the compiler and esbuild move it to a lazy chunk.
+import { CanvasNeedsYouQueueComponent } from './canvas-needs-you-queue.component';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
-import type { CanvasLayoutPreset } from './canvas-layout-intent';
+import { MAX_CANVAS_TILES } from './canvas-layout-intent';
+import { RUNNING_CAP_MESSAGE } from './canvas-running-cap';
+import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
+import { CanvasRailBoardComponent } from './canvas-rail/canvas-rail-board.component';
+import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
+
+/** Same wording as the Rail footer's disabled reason (`canvas-rail.component.ts`). */
+const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
 
 /**
  * OrchestraCanvasComponent — top-level panel for the Orchestra Canvas view.
@@ -44,14 +46,13 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
  * Each instance owns its own CanvasStore (via providers array), ensuring full
  * isolation between multiple canvas panels opened simultaneously.
  *
- * Layout: Gridstack.js drag-and-resize grid with one CanvasTileComponent per tile.
+ * Layout: the Rail board (`ptah-canvas-rail-board`) is the only board, one per
+ * workspace path; only the active workspace's board is visible. A stored
+ * legacy Grid board renders as Rail.
  *
- * Gridstack API (v12.6.0):
- * - Component selector: <gridstack>
- * - Item selector: <gridstack-item [options]="{ x, y, w, h, id }">
- * - Change event: (changeCB) — fires after drag/resize; the workspace grid
- *   translates it into tile intent (order / width), never into stored coordinates
- * - Imports: GridstackComponent + GridstackItemComponent from 'gridstack/dist/angular'
+ * New session: one named `ptah-native-popover`, anchored to the dock's
+ * New Session button. The dock button, the Rail footer and the zero-tile
+ * empty-board trigger all open this same popover.
  *
  * Toolbar removed; session management delegated to shared sidebar in AppShellComponent.
  * Signal bridge effects watch for session requests from AppStateManager and route them
@@ -60,17 +61,18 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
 @Component({
   selector: 'ptah-orchestra-canvas',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(window:keydown)': 'onRailKeydown($event)' },
   providers: [
     CanvasStore,
     CanvasLayoutService,
     CanvasLayoutPersistenceService,
     CanvasRenderMetricsService,
+    CanvasDetailService,
   ],
   imports: [
     FormsModule,
-    CanvasWorkspaceGridComponent,
-    CanvasEmptyStateComponent,
-    CanvasLayoutControlsComponent,
+    CanvasNeedsYouQueueComponent,
+    CanvasRailBoardComponent,
     ActivityTickerComponent,
     LucideAngularModule,
     NativePopoverComponent,
@@ -80,101 +82,162 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
       class="flex flex-col h-full bg-base-100 relative"
       data-testid="canvas-grid"
     >
-      @if (canvasStore.tiles().length > 0) {
-        <!-- Reserved canvas control dock outside measured session viewport -->
-        <div
-          class="canvas-dock flex items-center gap-2 px-3 py-1.5 border-b border-surface-border shrink-0 bg-surface-1 backdrop-blur-sm z-20"
-          data-testid="canvas-dock"
-        >
-          <!--
-            Back-office activity ticker (TASK_2026_405 follow-up).
+      <!-- Reserved canvas control dock outside measured session viewport -->
+      <div
+        class="canvas-dock flex items-center gap-2 px-3 py-1.5 border-b border-surface-border shrink-0 bg-surface-1 backdrop-blur-sm z-20"
+        data-testid="canvas-dock"
+      >
+        <!--
+          Back-office activity ticker (TASK_2026_405 follow-up).
 
-            It sits in this row's free left edge, in normal flow — not in a
-            fixed overlay, and not in the navbar row, where its width would
-            shift the tab strip. This cell takes every spare pixel
-            (flex-1 min-w-0), so the controls after it stay pinned to the
-            right edge and never move when a message arrives or changes
-            length. The ticker's own button carries max-w + truncate, so a
-            long summary is clipped rather than pushed into the controls.
-          -->
-          <div class="flex items-center min-w-0 flex-1">
-            @if (!activity.isIdle()) {
-              <ptah-activity-ticker
-                data-testid="activity-ticker-host"
-                [items]="activity.recent()"
-                [idle]="activity.isIdle()"
-                (activate)="openThoth()"
-              />
-            }
-          </div>
-
-          <ptah-canvas-layout-controls
-            [locked]="locked()"
-            [tileCount]="canvasStore.tiles().length"
-            (lockToggled)="toggleLock()"
-            (presetRequested)="applyPreset($event)"
-          />
-
-          @if (canvasStore.canAddTile()) {
-            <ptah-native-popover
-              [isOpen]="sessionPopoverOpen()"
-              [placement]="'bottom-end'"
-              [hasBackdrop]="true"
-              [backdropClass]="'transparent'"
-              (closed)="handleCancelSession()"
-            >
-              <button
-                trigger
-                type="button"
-                class="btn btn-xs btn-primary gap-1 shadow-sm"
-                title="Add new session tile"
-                aria-label="Add new session tile"
-                (click)="openNewSessionPopover()"
-              >
-                <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
-                <span class="text-xs font-medium">New Session</span>
-              </button>
-
-              <div content class="surface-3 p-4 w-72 rounded-xl">
-                <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
-                  New Session
-                </h3>
-                <input
-                  #sessionNameInputRef
-                  type="text"
-                  class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
-                  placeholder="Enter session name (optional)"
-                  [(ngModel)]="sessionNameInput"
-                  (keydown.enter)="
-                    handleCreateSession();
-                    $event.preventDefault();
-                    $event.stopPropagation()
-                  "
-                  (keydown.escape)="handleCancelSession()"
-                />
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
-                    (click)="handleCancelSession()"
-                  >
-                    <lucide-angular [img]="XIcon" class="w-3 h-3" />
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-primary flex-1 gap-1.5"
-                    (click)="handleCreateSession()"
-                  >
-                    <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
-                    Create
-                  </button>
-                </div>
-              </div>
-            </ptah-native-popover>
+          It sits in this row's free left edge, in normal flow — not in a
+          fixed overlay, and not in the navbar row, where its width would
+          shift the tab strip. This cell takes every spare pixel
+          (flex-1 min-w-0), so the controls after it stay pinned to the
+          right edge and never move when a message arrives or changes
+          length. The ticker's own button carries max-w + truncate, so a
+          long summary is clipped rather than pushed into the controls.
+        -->
+        <div class="flex items-center min-w-0 flex-1">
+          @if (!activity.isIdle()) {
+            <ptah-activity-ticker
+              data-testid="activity-ticker-host"
+              [items]="activity.recent()"
+              [idle]="activity.isIdle()"
+              (activate)="openThoth()"
+            />
           }
         </div>
-      }
+
+        @defer (on idle) {
+          <ptah-canvas-needs-you-queue />
+        } @placeholder {
+          <!-- Keeps the trigger's footprint so the controls after it do not move. -->
+          <span
+            class="btn btn-xs btn-ghost invisible border border-base-300"
+            aria-hidden="true"
+            >All clear</span
+          >
+        }
+        @if (layoutPersistence.writeFailed()) {
+          <span class="text-xs text-warning" role="status"
+            >Board layout could not be saved. Changes stay for this
+            session.</span
+          >
+        }
+        @if (
+          layoutPersistence
+            .readOnlyPaths()
+            .has(canvasStore.activeWorkspacePath() ?? '')
+        ) {
+          <span class="text-xs text-warning" role="status"
+            >This board layout was saved by a newer Ptah version. Changes here
+            are not saved.</span
+          >
+        }
+        @if (headerMessage()) {
+          <span class="text-xs text-warning" role="status">{{
+            headerMessage()
+          }}</span>
+        }
+
+        <!--
+          The one named New Session popover. Its anchor is this dock button;
+          the Rail footer and the zero-tile empty board open the same popover
+          through (newSessionRequested) and never create a session directly.
+        -->
+        @if (canvasStore.canAddTile()) {
+          <ptah-native-popover
+            [isOpen]="sessionPopoverOpen()"
+            [placement]="'bottom-end'"
+            [hasBackdrop]="true"
+            [backdropClass]="'transparent'"
+            [attr.tabindex]="canvasStore.canStartRunningSession() ? null : 0"
+            [attr.role]="canvasStore.canStartRunningSession() ? null : 'group'"
+            [attr.aria-label]="
+              canvasStore.canStartRunningSession()
+                ? null
+                : 'New Session unavailable'
+            "
+            [attr.aria-describedby]="
+              canvasStore.canStartRunningSession()
+                ? null
+                : 'canvas-running-cap-reason'
+            "
+            [attr.title]="
+              canvasStore.canStartRunningSession() ? null : runningCapMessage
+            "
+            (closed)="handleCancelSession()"
+          >
+            <button
+              trigger
+              type="button"
+              class="btn btn-xs btn-primary gap-1 shadow-sm"
+              data-testid="canvas-new-session-anchor"
+              [disabled]="!canvasStore.canStartRunningSession()"
+              [title]="
+                canvasStore.canStartRunningSession()
+                  ? 'Add new session tile'
+                  : runningCapMessage
+              "
+              [attr.aria-describedby]="
+                canvasStore.canStartRunningSession()
+                  ? null
+                  : 'canvas-running-cap-reason'
+              "
+              aria-label="Add new session tile"
+              (click)="openNewSessionPopover()"
+            >
+              <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+              <span class="text-xs font-medium">New Session</span>
+            </button>
+            <div
+              content
+              class="surface-3 p-4 w-72 rounded-xl"
+              data-testid="canvas-new-session-popover"
+            >
+              <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
+                New Session
+              </h3>
+              <input
+                #sessionNameInputRef
+                type="text"
+                class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
+                placeholder="Enter session name (optional)"
+                aria-label="Session name"
+                [(ngModel)]="sessionNameInput"
+                (keydown.enter)="
+                  handleCreateSession();
+                  $event.preventDefault();
+                  $event.stopPropagation()
+                "
+                (keydown.escape)="handleCancelSession()"
+              />
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
+                  (click)="handleCancelSession()"
+                >
+                  <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary flex-1 gap-1.5"
+                  (click)="handleCreateSession()"
+                >
+                  <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+                  Create
+                </button>
+              </div>
+            </div>
+          </ptah-native-popover>
+          <span id="canvas-running-cap-reason" class="sr-only">{{
+            runningCapMessage
+          }}</span>
+        }
+      </div>
 
       <!-- Usable session viewport -->
       <div
@@ -183,71 +246,13 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
         data-testid="session-viewport"
       >
         @for (path of canvasStore.workspacePaths(); track path) {
-          <ptah-canvas-workspace-grid
-            class="h-full overflow-auto w-full"
+          <ptah-canvas-rail-board
             [workspacePath]="path"
             [visible]="path === canvasStore.activeWorkspacePath()"
-            [locked]="locked()"
-          />
-        }
-
-        @if (canvasStore.tiles().length === 0) {
-          <!-- Empty state overlay: the active workspace has no tiles -->
-          <ptah-canvas-empty-state
-            class="absolute inset-0 z-10"
-            (createSession)="openNewSessionPopover()"
+            (newSessionRequested)="openNewSessionPopover()"
           />
         }
       </div>
-
-      <!-- Standalone popover for empty state (no FAB to anchor to) -->
-      @if (canvasStore.tiles().length === 0 && sessionPopoverOpen()) {
-        <div
-          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50"
-        >
-          <div class="surface-3 p-4 w-72 rounded-xl">
-            <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
-              New Session
-            </h3>
-            <input
-              #emptyStateNameInputRef
-              type="text"
-              class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
-              placeholder="Enter session name (optional)"
-              [(ngModel)]="sessionNameInput"
-              (keydown.enter)="
-                handleCreateSession();
-                $event.preventDefault();
-                $event.stopPropagation()
-              "
-              (keydown.escape)="handleCancelSession()"
-            />
-            <div class="flex gap-2">
-              <button
-                type="button"
-                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content-muted"
-                (click)="handleCancelSession()"
-              >
-                <lucide-angular [img]="XIcon" class="w-3 h-3" />
-                Cancel
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-primary flex-1 gap-1.5"
-                (click)="handleCreateSession()"
-              >
-                <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
-                Create
-              </button>
-            </div>
-          </div>
-          <!-- Backdrop -->
-          <div
-            class="fixed inset-0 -z-10"
-            (click)="handleCancelSession()"
-          ></div>
-        </div>
-      }
     </div>
   `,
   styles: [
@@ -256,31 +261,47 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
         display: block;
         height: 100%;
       }
-
-      /* The grid host measures the full container width (the layout service
-         derives its column count from that measurement, so a 97% child would
-         over-report by ~3% and move the 2->3 column boundary by ~45 px).
-         Reserving the scrollbar gutter up front keeps the measured width from
-         oscillating as the overflow-auto host gains and loses its scrollbar. */
-      ptah-canvas-workspace-grid {
-        scrollbar-gutter: stable;
-      }
-
-      gridstack {
-        min-height: 200px;
-      }
     `,
   ],
 })
 export class OrchestraCanvasComponent implements OnDestroy {
   readonly canvasStore = inject(CanvasStore);
+  private readonly activeRailBoards = viewChildren(CanvasRailBoardComponent);
+
+  protected onRailKeydown(event: KeyboardEvent): void {
+    const board = this.visibleRailBoard();
+    if (!board) return;
+    handleCanvasRailKeydown(event, {
+      surfaceActive: this.surfaceActive(),
+      host: this.sessionViewport()?.nativeElement ?? null,
+      orderedIds: board.orderedTiles().map((tile) => tile.tabId),
+      focusedId: board.focusedId(),
+      focus: (id) => board.focus(id),
+      focusSelectButton: (id) => {
+        const card = [
+          ...(this.sessionViewport()?.nativeElement.querySelectorAll<HTMLElement>(
+            '[data-rail-card]',
+          ) ?? []),
+        ].find((item) => item.dataset['tabId'] === id);
+        focusRailSelectButton(card);
+      },
+      focusInnerButtons: true,
+    });
+  }
+
+  private visibleRailBoard(): CanvasRailBoardComponent | undefined {
+    return this.activeRailBoards?.().find((candidate) => candidate.visible());
+  }
+
   private readonly appState = inject(AppStateManager);
+  private readonly surfaceActive =
+    inject(SURFACE_ACTIVE, { optional: true }) ?? signal(false);
   /** The dock ticker's only source of items (TASK_2026_380). */
   protected readonly activity = inject(BackOfficeActivityService);
   private readonly tabManager = inject(TabManagerService);
   private readonly chatStore = inject(ChatStore);
   private readonly layoutService = inject(CanvasLayoutService);
-  private readonly layoutPersistence = inject(CanvasLayoutPersistenceService);
+  protected readonly layoutPersistence = inject(CanvasLayoutPersistenceService);
   private readonly injector = inject(Injector);
   private unsubscribeTabClosed: (() => void) | null = null;
   private focusRequestChain = Promise.resolve();
@@ -288,11 +309,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
   protected readonly PlusIcon = Plus;
   protected readonly XIcon = X;
   protected readonly CheckIcon = Check;
-  protected readonly LockIcon = Lock;
-  protected readonly UnlockIcon = Unlock;
-
-  /** When locked, drag/resize is disabled and the auto-layout is frozen. */
-  protected readonly locked = signal(false);
 
   /** Last workspace-removal `seq` this component has processed (see
    *  `removedWorkspace$`). Guarantees each removal is handled exactly once
@@ -301,12 +317,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
   protected readonly sessionPopoverOpen = signal(false);
   protected readonly sessionNameInput = signal('');
+  protected readonly runningCapMessage = RUNNING_CAP_MESSAGE;
+  protected readonly headerMessage = signal<string | null>(null);
   private readonly sessionNameInputRef = viewChild<
     ElementRef<HTMLInputElement>
   >('sessionNameInputRef');
-  private readonly emptyStateNameInputRef = viewChild<
-    ElementRef<HTMLInputElement>
-  >('emptyStateNameInputRef');
   private readonly sessionViewport =
     viewChild<ElementRef<HTMLElement>>('sessionViewport');
 
@@ -320,9 +335,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     effect(() => {
       if (this.sessionPopoverOpen()) {
         setTimeout(() => {
-          const ref =
-            this.sessionNameInputRef() ?? this.emptyStateNameInputRef();
-          ref?.nativeElement.focus();
+          this.sessionNameInputRef()?.nativeElement.focus();
         }, 0);
       }
     });
@@ -391,8 +404,31 @@ export class OrchestraCanvasComponent implements OnDestroy {
     effect(() => {
       const name = this.appState.newCanvasSessionRequest();
       if (name !== null) {
-        this.canvasStore.addTile(name);
+        if (this.canvasStore.canStartRunningSession()) {
+          if (!this.canvasStore.addTile(name))
+            this.headerMessage.set(TILE_BOUND_MESSAGE);
+        } else {
+          this.headerMessage.set(this.runningCapMessage);
+        }
         this.appState.clearNewCanvasSessionRequest();
+      }
+    });
+    // A refused create stays announced until both the running slot and the
+    // tile bound allow a new session again.
+    effect(() => {
+      if (
+        this.canvasStore.canStartRunningSession() &&
+        this.canvasStore.canAddTile()
+      ) {
+        this.headerMessage.set(null);
+      }
+    });
+    // Reaching the tile bound unmounts the popover (`@if (canAddTile())`)
+    // without a `closed` event. Drop its open state and typed name here so a
+    // later tile close mounts it closed and empty, never re-opened.
+    effect(() => {
+      if (!this.canvasStore.canAddTile()) {
+        untracked(() => this.handleCancelSession());
       }
     });
     // Adopt already-existing tabs as tiles (F-D3). The Tasks-board launch and
@@ -404,7 +440,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // child. A request whose `workspacePath` is no longer the workspace this
     // canvas is showing (queued while the canvas wasn't mounted, with a
     // workspace switch in between) is DROPPED, never tiled into the wrong
-    // grid; `null` (single tab set, VS Code panel) normalizes to the implicit
+    // board; `null` (single tab set, VS Code panel) normalizes to the implicit
     // partition, matching `ensureActivePath`'s `?? IMPLICIT_WORKSPACE_PATH`.
     // `adoptTab` dedups (safe if a fresh hydration already tiled it, and
     // re-adoption never doubles a tile) and returns null at `MAX_CANVAS_TILES`,
@@ -540,18 +576,43 @@ export class OrchestraCanvasComponent implements OnDestroy {
     });
   }
 
-  /** Open the session name popover. */
+  /**
+   * Open the one named session popover. Called by the dock button, the Rail
+   * footer and the zero-tile empty board. A blocked create never opens it; the
+   * reason is announced in the dock status line instead.
+   */
   protected openNewSessionPopover(): void {
+    const blocked = this.createBlockReason();
+    if (blocked) {
+      this.headerMessage.set(blocked);
+      return;
+    }
     this.sessionNameInput.set('');
     this.sessionPopoverOpen.set(true);
   }
 
-  /** Create session with the entered (or default) name. */
+  /**
+   * Create a session with the entered name. An empty name uses
+   * `defaultSessionName()`, which keeps the first-prompt auto-rename. After a
+   * successful add the visible Rail board resets its geometry baseline,
+   * focuses the new tile and anchors the rail scroll on it.
+   */
   protected handleCreateSession(): void {
-    const name = this.sessionNameInput().trim();
-    const sessionName = name || defaultSessionName();
-    this.canvasStore.addTile(sessionName);
+    const blocked = this.createBlockReason();
+    const tabId = blocked
+      ? null
+      : this.canvasStore.addTile(
+          this.sessionNameInput().trim() || defaultSessionName(),
+        );
     this.sessionPopoverOpen.set(false);
+    this.sessionNameInput.set('');
+    if (!tabId) {
+      this.headerMessage.set(blocked ?? TILE_BOUND_MESSAGE);
+      return;
+    }
+    const board = this.visibleRailBoard();
+    if (board) board.sessionCreated(tabId);
+    else this.canvasStore.focusTile(tabId);
   }
 
   /** Cancel session creation. */
@@ -560,23 +621,11 @@ export class OrchestraCanvasComponent implements OnDestroy {
     this.sessionNameInput.set('');
   }
 
-  /**
-   * Toggle the locked state of the canvas.
-   *
-   * Locking calls Gridstack's setStatic() to disable drag/resize on every tile
-   * and freezes the auto-layout effect so the current arrangement is preserved
-   * across container resizes. `onGridChange` also refuses to write intent while
-   * locked, so locked means *no layout writes at all* — not merely no layout
-   * recomputation. Unlocking restores managed drag/resize behaviour.
-   */
-  protected toggleLock(): void {
-    const locked = !this.locked();
-    this.locked.set(locked);
-    this.canvasStore.setLayoutLocked(locked);
-  }
-
-  protected applyPreset(preset: CanvasLayoutPreset): void {
-    this.canvasStore.applyPreset(preset);
+  private createBlockReason(): string | null {
+    if (!this.canvasStore.canStartRunningSession())
+      return this.runningCapMessage;
+    if (!this.canvasStore.canAddTile()) return TILE_BOUND_MESSAGE;
+    return null;
   }
 
   /**

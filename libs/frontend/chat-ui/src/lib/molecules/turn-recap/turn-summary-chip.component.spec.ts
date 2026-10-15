@@ -7,6 +7,10 @@ import type {
   TurnSourceSnapshot,
   TurnTestRun,
 } from '@ptah-extension/shared';
+import {
+  MINI_CARD_CLASS,
+  MINI_SECTION_CLASS,
+} from '../../organisms/display-panel/turn-summary-mini-card.styles';
 import { TurnSummaryChipComponent } from './turn-summary-chip.component';
 import {
   buildTurnSummaryModel,
@@ -448,6 +452,26 @@ describe('TurnSummaryChipComponent', () => {
       'utf8',
     );
     expect(source).not.toMatch(/linear-gradient|ts-hero/);
+  });
+
+  it('shares the mini-card look with the panel Turn summary (decision 76)', () => {
+    render(model());
+    expand();
+    const section = query('turn-summary-chip') as HTMLElement;
+    expect(section.classList).toContain('my-2');
+    for (const token of MINI_SECTION_CLASS.split(' ')) {
+      expect(section.classList).toContain(token);
+    }
+    for (const card of queryAll('turn-summary-chip-card')) {
+      for (const token of MINI_CARD_CLASS.split(' ')) {
+        expect(card.classList).toContain(token);
+      }
+    }
+    const source = readFileSync(
+      join(__dirname, 'turn-summary-chip.component.ts'),
+      'utf8',
+    );
+    expect(source).toContain('styles: [TURN_SUMMARY_MINI_STYLES]');
   });
 
   it('imports neither the surface renderer nor the dashboard library (D14)', () => {

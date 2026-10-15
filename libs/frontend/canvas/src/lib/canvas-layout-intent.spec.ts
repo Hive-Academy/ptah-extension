@@ -1,5 +1,4 @@
 import {
-  clampCompactHeightUnits,
   compactResizeBounds,
   FULL_TILE_HEIGHT_UNITS,
   logicalRows,
@@ -7,12 +6,10 @@ import {
   MIN_COMPACT_TILE_HEIGHT_UNITS,
   packRows,
   projectDragIntent,
-  projectPreset,
   projectTileGeometry,
   retainTilesInLogicalRows,
   sameViewConstraints,
   snapSpan,
-  tileViewConstraint,
   totalExtentOf,
   viewConstraintsFingerprint,
   type TileIntent,
@@ -96,19 +93,6 @@ describe('canvas layout intent', () => {
     expect(JSON.stringify(intent)).toBe(before);
   });
 
-  it('projects every preset to exact dense width and break intent', () => {
-    const source = tiles([['A', auto()], ['B', auto()], ['C', auto()], ['D', auto()]]);
-    expect(projectPreset(source, 'even-grid', null).map((t) => [t.order, t.width, t.rowBreakBefore])).toEqual([
-      [0, auto(), false], [1, auto(), false], [2, auto(), false], [3, auto(), true],
-    ]);
-    expect(projectPreset(source, 'one-plus-two', null).map((t) => [t.tabId, t.width, t.rowBreakBefore])).toEqual([
-      ['A', span('full'), false], ['B', span('half'), true], ['C', span('half'), false], ['D', span('full'), true],
-    ]);
-    expect(projectPreset(source, 'focus-plus-stack', 'C').map((t) => [t.tabId, t.width, t.rowBreakBefore])).toEqual([
-      ['C', span('full'), false], ['A', span('half'), true], ['B', span('half'), false], ['D', span('full'), true],
-    ]);
-  });
-
   it('snaps to named spans with wider tie-breaking', () => {
     expect([4, 6, 8, 12].map(snapSpan)).toEqual(['third', 'half', 'two-thirds', 'full']);
     expect(snapSpan(5)).toBe('half');
@@ -121,21 +105,6 @@ describe('canvas layout intent', () => {
     expect(MIN_COMPACT_TILE_HEIGHT_UNITS).toBe(2);
     // One short of full, so a compact tile never gets the full-tile floor.
     expect(MAX_COMPACT_TILE_HEIGHT_UNITS).toBe(5);
-  });
-
-  it('clamps a stored compact height into [2, 5]', () => {
-    expect(clampCompactHeightUnits(undefined)).toBe(2);
-    expect(clampCompactHeightUnits(Number.NaN)).toBe(2);
-    expect(clampCompactHeightUnits(Number.POSITIVE_INFINITY)).toBe(2);
-    expect(clampCompactHeightUnits(-3)).toBe(2);
-    expect(clampCompactHeightUnits(0)).toBe(2);
-    expect(clampCompactHeightUnits(1)).toBe(2);
-    expect(clampCompactHeightUnits(2)).toBe(2);
-    expect(clampCompactHeightUnits(3.4)).toBe(3);
-    expect(clampCompactHeightUnits(3.6)).toBe(4);
-    expect(clampCompactHeightUnits(5)).toBe(5);
-    expect(clampCompactHeightUnits(6)).toBe(5);
-    expect(clampCompactHeightUnits(99)).toBe(5);
   });
 
   it('fingerprints view constraints structurally', () => {
@@ -153,14 +122,6 @@ describe('canvas layout intent', () => {
     ];
     expect(viewConstraintsFingerprint(constraints)).toBe(viewConstraintsFingerprint(equal));
     expect(viewConstraintsFingerprint(constraints)).not.toBe(viewConstraintsFingerprint(different));
-  });
-
-  it('builds a clamped compact constraint and a full one from tab view state', () => {
-    expect(tileViewConstraint('A', true, 4)).toEqual({ tabId: 'A', compact: true, heightUnits: 4 });
-    expect(tileViewConstraint('A', true, 9)).toEqual({ tabId: 'A', compact: true, heightUnits: 5 });
-    expect(tileViewConstraint('A', true, undefined)).toEqual({ tabId: 'A', compact: true, heightUnits: 2 });
-    // A full tile ignores a stored compact height.
-    expect(tileViewConstraint('A', false, 4)).toEqual({ tabId: 'A', compact: false, heightUnits: 6 });
   });
 
   it('compares view constraints structurally, including height', () => {

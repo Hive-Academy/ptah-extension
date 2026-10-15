@@ -201,6 +201,26 @@ describe('PermissionHandlerService', () => {
       expect(ids.has(UNKNOWN_AGENT_TOOL_CALL_ID)).toBe(true);
     });
 
+    it('buckets an unscoped deny under the explicit deciding tab instead of the active tab', () => {
+      tabSignals.tabs.set([{ id: 'tab-active' }, { id: 'tab-card' }]);
+      tabSignals.activeTabId.set('tab-active');
+      service.handlePermissionRequest(
+        makePermissionRequest({ sessionId: undefined, tabId: undefined }),
+      );
+
+      service.handlePermissionResponse(
+        { id: 'req-1', decision: 'deny' } as never,
+        'tab-card',
+      );
+
+      expect(
+        service
+          .consumeHardDenyToolUseIds('tab-card')
+          .has(UNKNOWN_AGENT_TOOL_CALL_ID),
+      ).toBe(true);
+      expect(service.consumeHardDenyToolUseIds('tab-active').size).toBe(0);
+    });
+
     it('does not track deny ids on allow decisions', () => {
       service.handlePermissionRequest(makePermissionRequest());
       service.handlePermissionResponse({
@@ -707,6 +727,33 @@ describe('PermissionHandlerService', () => {
         } as never);
 
         expect(service.decisionPulse()?.decidingTabId).toBeNull();
+      });
+
+      it('uses an explicit tabId as decidingTabId instead of the active tab', () => {
+        tabSignals.activeTabId.set('tab-active');
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+        service.attachPromptTargets('p-1', ['tab-active', 'tab-card']);
+
+        service.handlePermissionResponse(
+          { id: 'p-1', decision: 'allow' } as never,
+          'tab-card',
+        );
+
+        const pulse = service.decisionPulse();
+        expect(pulse?.promptId).toBe('p-1');
+        expect(pulse?.decidingTabId).toBe('tab-card');
+      });
+
+      it('uses an explicit tabId even when no tab is active', () => {
+        tabSignals.activeTabId.set(null);
+        service.handlePermissionRequest(makePermissionRequest({ id: 'p-1' }));
+
+        service.handlePermissionResponse(
+          { id: 'p-1', decision: 'deny' } as never,
+          'tab-card',
+        );
+
+        expect(service.decisionPulse()?.decidingTabId).toBe('tab-card');
       });
 
       it('emits a fresh pulse with a higher seq for each response', () => {

@@ -563,15 +563,6 @@ export class SessionRegistry {
     return this.byTabId.entries();
   }
 
-  /**
-   * Atomic reset of all state fields. Used by `disposeAllSessions`.
-   */
-  clearAll(): void {
-    this.byTabId.clear();
-    this.bySessionId.clear();
-    this._lastActiveTabId = null;
-  }
-
   startEvictionSweep(
     intervalMs: number = DEFAULT_SWEEP_INTERVAL_MS,
     ttlMs: number = DEFAULT_SWEEP_TTL_MS,

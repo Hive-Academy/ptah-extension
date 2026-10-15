@@ -31,6 +31,7 @@ import { PlanLimitOwnerDiscoveryService } from '../cli-agents/limits/plan-limit-
 import { SessionChildRegistry } from '../session-children/session-child.registry';
 import { ChildWorktreeProvisioner } from '../session-children/child-worktree.provisioner';
 import { SessionSpawnerService } from '../session-children/session-spawner.service';
+import { SessionHandoffService } from '../session-children/session-handoff.service';
 import { AgentRoleResolver } from '../roles';
 import {
   PtahCliRegistry,
@@ -143,6 +144,13 @@ export function registerCliAgentRuntimeServices(
   container.register(
     CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
     { useClass: SessionSpawnerService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  // Session handoff (TASK_2026_655). No subscriptions; it looks the same
+  // `CHILD_CHAT_SESSION_HOST` up at call time, like the spawner.
+  container.register(
+    CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF,
+    { useClass: SessionHandoffService },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

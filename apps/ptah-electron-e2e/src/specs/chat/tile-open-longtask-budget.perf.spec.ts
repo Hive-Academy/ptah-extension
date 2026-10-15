@@ -364,7 +364,12 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
 
     // Sanity check AFTER the window closed and the observer was already read —
     // Playwright locator work here cannot pollute the measurement.
-    const tiles = page.locator('[data-testid="canvas-tile"]');
+    // The Rail board mounts one focused pane; the opened sessions are its cards.
+    // NOTE: the per-session marker and scroll checks below, and the all-markers wait
+    // in `openTilesWithinPage`, still assume every session is mounted at once (the
+    // removed Grid). Re-baseline this PTAH_PERF_SPECS-gated harness for a single
+    // focused pane before enabling it.
+    const tiles = page.locator('ptah-canvas-rail [data-rail-card]');
     await expect(tiles).toHaveCount(sessions.length);
     for (const s of sessions) {
       await waitForTileMarker(page, s.marker);

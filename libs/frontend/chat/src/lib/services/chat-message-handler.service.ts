@@ -17,6 +17,7 @@
  * - PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
  * - PERMISSION_SESSION_CLEANUP: Session abort cleanup
  * - AGENT_SESSION_OPENED: Agent-started child session tab (TASK_2026_584)
+ * - SESSION_HANDOFF_OPENED: Session a handoff started to continue the work (TASK_2026_655)
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -45,6 +46,7 @@ import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-captur
 import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
+  parseSessionHandoffOpenedPayload,
 } from './agent-session-adoption.service';
 import {
   AgentMonitorStore,
@@ -140,6 +142,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED,
     MESSAGE_TYPES.GATEWAY_SESSION_DETACHED,
     MESSAGE_TYPES.AGENT_SESSION_OPENED,
+    MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -213,7 +216,29 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.AGENT_SESSION_OPENED:
         this.handleAgentSessionOpened(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_HANDOFF_OPENED:
+        this.handleSessionHandoffOpened(message.payload);
+        break;
     }
+  }
+
+  /**
+   * `sessionHandoff:opened` — a session started a new top-level session with
+   * `ptah_session_handoff` to continue its work (TASK_2026_655). Pushed before
+   * the new session's first chunk. The panel that holds the source tab adopts
+   * it after that tab; every other panel's adoption is a no-op.
+   */
+  private handleSessionHandoffOpened(payload: unknown): void {
+    const parsed = parseSessionHandoffOpenedPayload(payload);
+    if (!parsed) {
+      console.warn(
+        '[ChatMessageHandler] sessionHandoff:opened payload rejected — dropped',
+        ChatMessageHandler.describePayload(payload),
+      );
+      return;
+    }
+    // Never throws (the service catches an adoption fault).
+    this.agentSessionAdoption.adoptHandoff(parsed);
   }
 
   /**
@@ -515,8 +540,16 @@ export class ChatMessageHandler implements MessageHandler {
     tabId: string | undefined,
     sessionId: string | undefined,
   ): void {
-    const deliver = (): void => {
-      this.chatStore.processStreamEvent(event, tabId, sessionId);
+    const deliver = (excludeTabIds?: ReadonlySet<string>): void => {
+      const boundSessionId = sessionId ?? event.sessionId;
+      if (excludeTabIds?.size && boundSessionId) {
+        for (const tab of this.tabManager.tabs()) {
+          if (tab.claudeSessionId !== boundSessionId || excludeTabIds.has(tab.id)) continue;
+          this.chatStore.processStreamEvent(event, tab.id, boundSessionId, { fanOut: false });
+        }
+      } else {
+        this.chatStore.processStreamEvent(event, tabId, sessionId);
+      }
       const originTabId = tabId ? TabId.safeParse(tabId) : null;
       this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
     };
@@ -532,7 +565,23 @@ export class ChatMessageHandler implements MessageHandler {
     if (!snapshot) return;
     if (snapshot.resyncRequired) {
       const sessionId = snapshot.sessionId ?? this.tabsSessionId(snapshot.tabId);
-      if (sessionId) void this.chatStore.resyncStream(snapshot.tabId, sessionId);
+      if (sessionId) {
+        if (snapshot.liveSeed !== undefined || snapshot.liveSeedBlocks !== undefined) {
+          void this.chatStore.resyncStream(snapshot.tabId, sessionId, {
+            events: snapshot.liveSeed ?? [],
+            apply: (events) => {
+              for (const event of events) {
+                this.chatStore.processStreamEvent(event, snapshot.tabId, sessionId, { fanOut: false });
+                const originTabId = TabId.safeParse(snapshot.tabId);
+                this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
+              }
+            },
+            liveSeedBlocks: snapshot.liveSeedBlocks,
+          });
+        } else {
+          void this.chatStore.resyncStream(snapshot.tabId, sessionId);
+        }
+      }
       return;
     }
     this.streamScheduler.enqueueSnapshot(snapshot, () => {
@@ -549,7 +598,9 @@ export class ChatMessageHandler implements MessageHandler {
     );
   }
 
-  private parseStreamSnapshot(payload: unknown): ChatStreamSnapshotPayload | null {
+  private parseStreamSnapshot(
+    payload: unknown,
+  ): ChatStreamSnapshotPayload | null {
     if (!payload || typeof payload !== 'object') return null;
     const value = payload as Partial<ChatStreamSnapshotPayload>;
     if (
@@ -565,6 +616,24 @@ export class ChatMessageHandler implements MessageHandler {
       (value.resyncRequired !== true && !Array.isArray(value.events))
     ) {
       return null;
+    }
+    if (
+      (value.liveSeed !== undefined && (!Array.isArray(value.liveSeed) || value.resyncRequired !== true ||
+        value.liveSeed.some((event: unknown) => event === null || typeof event !== 'object' ||
+          typeof (event as { eventType?: unknown }).eventType !== 'string')))
+    ) return null;
+    if (value.liveSeedBlocks !== undefined) {
+      const blocks = value.liveSeedBlocks;
+      if (
+        value.resyncRequired !== true ||
+        !blocks || typeof blocks !== 'object' || Array.isArray(blocks) ||
+        Object.getPrototypeOf(blocks) !== Object.prototype ||
+        Object.entries(blocks).some(([key, count]) =>
+          key.length === 0 || !Number.isSafeInteger(count) || count < 0)
+      ) {
+        console.warn('[ChatMessageHandler] Ignoring malformed liveSeedBlocks');
+        return { ...value, liveSeedBlocks: undefined } as ChatStreamSnapshotPayload;
+      }
     }
     return value as ChatStreamSnapshotPayload;
   }

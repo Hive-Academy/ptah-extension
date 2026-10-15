@@ -71,7 +71,10 @@ import type {
 import { buildCodeNamespace } from '../namespace-builders/code-namespace.builder';
 import { buildSessionOrganizationNamespace } from '../namespace-builders/session-organization-namespace.builder';
 import { buildSessionNamespace } from '../namespace-builders/session-namespace.builder';
-import type { ISessionSpawner } from '@ptah-extension/cli-agent-runtime';
+import type {
+  ISessionHandoff,
+  ISessionSpawner,
+} from '@ptah-extension/cli-agent-runtime';
 import {
   buildBrowserNamespace,
   type IBrowserCapabilities,
@@ -7835,8 +7838,9 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       const apps = await list('apps');
       expect(await list('coding')).toEqual(coding);
       expect(await list('admin')).toEqual(coding);
-      // +3: agent_wait, run_check and HTTP-only run_check_wait.
-      expect(coding).toHaveLength(hasIDECapabilities ? 62 : 59);
+      // +3: agent_wait, run_check and HTTP-only run_check_wait. +1:
+      // ptah_session_handoff, always-on (TASK_2026_655).
+      expect(coding).toHaveLength(hasIDECapabilities ? 63 : 60);
       expect(
         apps.filter((tool) => !APPS_ONLY_TOOL_NAMES.has(tool.name)),
       ).toEqual(coding);
@@ -7973,6 +7977,7 @@ function sessionDeps(spawner: Partial<ISessionSpawner>) {
     ptahAPI: buildPtahAPIStub({
       session: buildSessionNamespace({
         getSpawner: () => full,
+        getHandoff: () => undefined,
         getCallerSessionId,
       }),
     }),
@@ -8171,6 +8176,7 @@ describe('protocol-handlers › session tools', () => {
         ptahAPI: buildPtahAPIStub({
           session: buildSessionNamespace({
             getSpawner: () => undefined,
+            getHandoff: () => undefined,
             getCallerSessionId,
           }),
         }),
@@ -8180,6 +8186,116 @@ describe('protocol-handlers › session tools', () => {
     const { text, isError } = agentToolResult(res);
     expect(isError).toBe(true);
     expect(text).toMatch(/Agent sessions are unavailable/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_session_handoff (TASK_2026_655)
+// ---------------------------------------------------------------------------
+
+const HANDOFF_ARGS = {
+  handoffPath: '/repo/HANDOFF.md',
+  prompt: 'Continue from /repo/HANDOFF.md',
+};
+
+/** A real session namespace over a fake handoff service and no spawner. */
+function handoffDeps(handoff: ISessionHandoff | undefined) {
+  return buildDeps({
+    ptahAPI: buildPtahAPIStub({
+      session: buildSessionNamespace({
+        getSpawner: () => undefined,
+        getHandoff: () => handoff,
+        getCallerSessionId,
+      }),
+    }),
+  });
+}
+
+describe('protocol-handlers › ptah_session_handoff', () => {
+  it('is listed once, always-on, right after ptah_session_link_task', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'h-list', method: 'tools/list' }),
+        buildDeps(),
+      ),
+    );
+    expect(names.filter((n) => n === 'ptah_session_handoff')).toHaveLength(1);
+    expect(names[names.indexOf('ptah_session_link_task') + 1]).toBe(
+      'ptah_session_handoff',
+    );
+  });
+
+  it('stays listed when the agent namespace toggle is off', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'h-off', method: 'tools/list' }),
+        buildDeps({ disabledMcpNamespaces: ['agent'] }),
+      ),
+    );
+    expect(names).toContain('ptah_session_handoff');
+    expect(names).not.toContain('ptah_session_start');
+  });
+
+  it('routes to the handoff service with the transport caller, not an argument', async () => {
+    const handoff = jest.fn().mockResolvedValue({
+      ok: true,
+      tabId: 'tab-new',
+      label: 'Continued: parser',
+      workspaceRoot: '/repo',
+      cwd: '/repo',
+      tabOpened: true,
+    });
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'h-call',
+        method: 'tools/call',
+        params: { name: 'ptah_session_handoff', arguments: HANDOFF_ARGS },
+        _callerSessionId: 'tab-parent',
+      }),
+      handoffDeps({ handoff }),
+    );
+
+    expect(handoff).toHaveBeenCalledWith({
+      ...HANDOFF_ARGS,
+      callerSessionId: 'tab-parent',
+    });
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBeFalsy();
+    expect(text).toMatch(/tab tab-new/);
+    expect(text).toMatch(/tabOpened: true/);
+  });
+
+  it('rejects a caller key in the arguments as isError without calling the service', async () => {
+    const handoff = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'h-forge',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_session_handoff',
+          arguments: { ...HANDOFF_ARGS, callerSessionId: 'victim' },
+        },
+        _callerSessionId: 'tab-parent',
+      }),
+      handoffDeps({ handoff }),
+    );
+    expect(agentToolResult(res).isError).toBe(true);
+    expect(handoff).not.toHaveBeenCalled();
+  });
+
+  it('a host without a handoff service answers with the named error', async () => {
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'h-none',
+        method: 'tools/call',
+        params: { name: 'ptah_session_handoff', arguments: HANDOFF_ARGS },
+        _callerSessionId: 'tab-parent',
+      }),
+      handoffDeps(undefined),
+    );
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(/Session handoff is unavailable/);
   });
 });
 

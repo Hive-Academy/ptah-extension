@@ -27,7 +27,9 @@ import {
   isTerminalTurnPhase,
   GatewayPlatformId,
   createExecutionChatMessage,
+  MessageId,
   type AgentSessionOpenedPayload,
+  type SessionHandoffOpenedPayload,
   type SessionStatsEntry,
   type SessionStatsLiveContext,
   type SessionBudgetState,
@@ -48,6 +50,7 @@ import {
 import { TabSessionBinding } from './tab-session-binding.service';
 import { ConversationRegistry } from './conversation-registry.service';
 import { TabId } from './identity/ids';
+import { withTerminalFailureSeq } from './terminal-failure-seq';
 import {
   buildPersistedTabState,
   nextPersistFailure,
@@ -95,6 +98,35 @@ export type AgentSessionAdoptionMode = 'live' | 'late';
  */
 export type AgentSessionAdoptionResult =
   'adopted' | 'exists' | 'parent-absent' | 'invalid';
+
+/**
+ * Outcome of {@link TabManagerService.adoptHandoffTab} (TASK_2026_655).
+ * - `adopted`: the tab was created.
+ * - `exists`: a tab with the new session's id is already in this panel (no-op).
+ * - `source-absent`: this panel does not hold the tab that handed off (no-op;
+ *   another panel, or none, owns it — the session is still in the sidebar).
+ * - `invalid`: the new tab id is not a tab id (no-op).
+ */
+export type SessionHandoffAdoptionResult =
+  'adopted' | 'exists' | 'source-absent' | 'invalid';
+
+/**
+ * The first user turn of a tab a backend-started session opens (an agent
+ * child or a handoff). Client-only id in the optimistic `msg_` shape, so the
+ * native transcript uuid can replace it like any sent first message.
+ */
+function firstUserTurn(
+  tabId: TabId,
+  prompt: string,
+  startedAt: number,
+): ExecutionChatMessage {
+  return createExecutionChatMessage({
+    id: `msg_${startedAt}_${tabId.slice(0, 8)}`,
+    role: 'user',
+    rawContent: prompt,
+    timestamp: startedAt,
+  });
+}
 
 export interface TerminalTurnPulse {
   readonly seq: number;
@@ -971,7 +1003,10 @@ export class TabManagerService {
     if (!tabId) return 'invalid';
     if (this.locateTabInPanel(tabId)) return 'exists';
 
-    const parent = this.locateAgentSessionParent(payload);
+    const parent = this.locateSessionTab(
+      payload.parentTabId,
+      payload.parentSessionId,
+    );
     if (!parent) return 'parent-absent';
 
     const sessionId =
@@ -1003,20 +1038,116 @@ export class TabManagerService {
   }
 
   /**
-   * Find the parent tab of an agent session. The spawner identifies the
-   * parent by its MCP caller id, which is the tab id for a new chat but the
-   * SDK session id for a resumed one — so a miss by id falls back to a tab
-   * bound to `parentTabId` or `parentSessionId` as its session.
+   * Open the tab of a top-level session another session started with
+   * `ptah_session_handoff` to continue its work (TASK_2026_655).
+   *
+   * - Idempotent: a tab with `payload.tabId` already in this panel (any
+   *   partition) is left exactly as it is.
+   * - Adopts ONLY when this panel holds the tab that handed off, in any
+   *   workspace partition, so a second panel does not open a duplicate.
+   * - The tab goes into the source's partition, directly after the source,
+   *   under the backend's tab id (the stream key its events are routed by).
+   * - An ordinary chat tab: no `agentOrigin`, streaming, with the
+   *   continuation prompt as its first user turn.
+   * - Takes focus only when the source is the active tab, i.e. the user was
+   *   looking at the session that handed off. A handoff from a background
+   *   tab or partition never steals focus.
+   *
+   * Autopilot is not per-tab state in this webview: the composer reads the
+   * global `AutopilotStateService`, and the backend starts the new session at
+   * the source session's own permission level. Nothing here writes or resets
+   * it, so the new tab shows the level the source tab showed.
    */
-  private locateAgentSessionParent(
-    payload: AgentSessionOpenedPayload,
-  ): { tabId: string; workspacePath: string | null } | null {
-    const byId = this.locateTabInPanel(payload.parentTabId);
-    if (byId) return { tabId: payload.parentTabId, ...byId };
+  adoptHandoffTab(
+    payload: SessionHandoffOpenedPayload,
+  ): SessionHandoffAdoptionResult {
+    const tabId = TabId.safeParse(payload.tabId);
+    if (!tabId) return 'invalid';
+    if (this.locateTabInPanel(tabId)) return 'exists';
 
-    for (const sessionId of [payload.parentTabId, payload.parentSessionId]) {
-      if (!sessionId) continue;
-      const tab = this.findTabBySessionId(sessionId);
+    const source = this.locateSessionTab(
+      payload.fromTabId,
+      payload.fromSessionId,
+    );
+    if (!source) return 'source-absent';
+
+    const tab = this.buildHandoffTab(tabId, payload);
+
+    if (source.workspacePath === null) {
+      this._tabs.update((tabs) => insertTabAfter(tabs, tab, source.tabId));
+      if (this._activeTabId() === source.tabId) {
+        this._activeTabId.set(tabId);
+      }
+      this.saveTabState();
+      return 'adopted';
+    }
+
+    return this.workspacePartition.addTabToWorkspace(
+      source.workspacePath,
+      tab,
+      source.tabId,
+    )
+      ? 'adopted'
+      : 'source-absent';
+  }
+
+  /**
+   * Settle a tab whose announced session never started (TASK_2026_655).
+   *
+   * The host announces a handoff (or agent child) tab before it launches the
+   * SDK session, so the tab is adopted streaming and live. A failed launch is
+   * reported as `chat:error` for that tab id. This turns such a tab into an
+   * idle, non-live tab and appends `reason` as a transcript notice, so it no
+   * longer looks like a running session.
+   *
+   * Only a tab that never bound an SDK session and has not streamed anything
+   * qualifies. Any other tab is left unchanged and `false` is returned: its
+   * errors belong to the ordered `turn_state` path.
+   */
+  markSessionStartFailed(tabId: string, reason: string): boolean {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (
+      !tab ||
+      tab.claudeSessionId ||
+      tab.status !== 'streaming' ||
+      tab.streamingState
+    ) {
+      return false;
+    }
+    this.updateTabInternal(tabId, {
+      status: 'loaded',
+      hasLiveSession: false,
+      currentMessageId: null,
+      messages: [
+        ...tab.messages,
+        createExecutionChatMessage({
+          id: MessageId.create(),
+          role: 'assistant',
+          rawContent: reason,
+        }),
+      ],
+    });
+    this.markTabIdle(tabId);
+    return true;
+  }
+
+  /**
+   * Find the tab of a session that started another one (an agent child's
+   * parent, or a handoff's source). The backend identifies that session by its
+   * MCP caller id, which is the tab id for a new chat but the SDK session id
+   * for a resumed one — so a miss by id falls back to a tab bound to `tabId`
+   * or `sessionId` as its session.
+   */
+  private locateSessionTab(
+    tabId: string,
+    sessionId: string | null,
+  ): { tabId: string; workspacePath: string | null } | null {
+    const byId = this.locateTabInPanel(tabId);
+    if (byId) return { tabId, ...byId };
+
+    for (const candidate of [tabId, sessionId]) {
+      if (!candidate) continue;
+      const tab = this.findTabBySessionId(candidate);
       const located = tab ? this.locateTabInPanel(tab.id) : null;
       if (tab && located) return { tabId: tab.id, ...located };
     }
@@ -1064,16 +1195,7 @@ export class TabManagerService {
       isDirty: false,
       lastActivityAt: Date.now(),
       messages: running
-        ? [
-            createExecutionChatMessage({
-              // Client-only id in the optimistic `msg_` shape, so the native
-              // transcript uuid can replace it like any sent first message.
-              id: `msg_${payload.startedAt}_${tabId.slice(0, 8)}`,
-              role: 'user',
-              rawContent: payload.displayPrompt,
-              timestamp: payload.startedAt,
-            }),
-          ]
+        ? [firstUserTurn(tabId, payload.displayPrompt, payload.startedAt)]
         : [],
       streamingState: null,
       // Left unset for a `late` tab on purpose: `SessionLoaderService.
@@ -1089,6 +1211,30 @@ export class TabManagerService {
         ...(payload.taskId ? { taskId: payload.taskId } : {}),
         startedAt: payload.startedAt,
       },
+    };
+  }
+
+  private buildHandoffTab(
+    tabId: TabId,
+    payload: SessionHandoffOpenedPayload,
+  ): TabState {
+    return {
+      id: tabId,
+      // Bound when the backend resolves the new session's SDK id.
+      claudeSessionId: null,
+      name: payload.label,
+      title: payload.label,
+      // The handing-off session named it; auto-titling must not overwrite it.
+      titleOrigin: 'user',
+      order: 0, // renumbered by insertTabAfter
+      status: 'streaming',
+      isDirty: false,
+      lastActivityAt: Date.now(),
+      messages: [
+        firstUserTurn(tabId, payload.displayPrompt, payload.startedAt),
+      ],
+      streamingState: null,
+      hasLiveSession: true,
     };
   }
 
@@ -1355,6 +1501,7 @@ export class TabManagerService {
         );
       }
 
+      updates = withTerminalFailureSeq(existingTab, updates);
       let differs = false;
       for (const key in updates) {
         const field = key as keyof TabState;
@@ -2149,10 +2296,7 @@ export class TabManagerService {
   ): void {
     const tab = this.tabs().find((candidate) => candidate.id === tabId);
     this.updateTabInternal(tabId, {
-      liveModelStats: contextFillStats(
-        tab?.liveModelStats,
-        postTokens,
-      ),
+      liveModelStats: contextFillStats(tab?.liveModelStats, postTokens),
     });
   }
 
@@ -2192,7 +2336,6 @@ export class TabManagerService {
       liveModelStats,
     });
   }
-
 
   /**
    * Persist the SDK `Stop` hook snapshot onto the tab. Captures background
@@ -2539,7 +2682,8 @@ export class TabManagerService {
       streamingState: StreamingState;
     },
   ): void {
-    const previousSessionId = this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId;
+    const previousSessionId =
+      this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId;
     this.updateTabInternal(tabId, {
       messages: [],
       olderHistoryCursor: undefined,
@@ -2941,10 +3085,6 @@ export class TabManagerService {
    * Deliberately BINARY. This is the tile header's one-click affordance, and
    * its round-trip is load-bearing: two clicks must return the tile to where
    * it started (`canvas.spec.ts`, TASK_2026_512).
-   *
-   * Height is not a mode: `compactHeightUnits` survives the trip to full, so
-   * returning to compact restores the last compact height. A caller that wants
-   * a specific height calls {@link setCompactHeight}.
    */
   toggleTabViewMode(tabId: string): void {
     const tab = this._tabs().find((t) => t.id === tabId);
@@ -2955,7 +3095,7 @@ export class TabManagerService {
     );
   }
 
-  /** Select a tab's view mode. The stored compact height is kept. */
+  /** Select a tab's view mode. */
   setViewMode(tabId: string, mode: TabViewMode): void {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab || (tab.viewMode ?? 'full') === mode) return;
@@ -2963,37 +3103,10 @@ export class TabManagerService {
   }
 
   /**
-   * Show a tab compact at `units` canvas grid rows.
-   *
-   * Ignores a `units` that is not a positive integer. The range is canvas's
-   * concern: it clamps the stored value on read. A no-op when the tab is
-   * already compact at that height, so a repeated drag or preset does not
-   * trigger a write.
-   */
-  setCompactHeight(tabId: string, units: number): void {
-    if (!Number.isInteger(units) || units <= 0) return;
-    const tab = this._tabs().find((t) => t.id === tabId);
-    if (!tab) return;
-    if (tab.viewMode === 'compact' && tab.compactHeightUnits === units) return;
-    this.updateTabInternal(tabId, {
-      viewMode: 'compact',
-      compactHeightUnits: units,
-    });
-  }
-
-  /**
    * Get a specific tab's view mode.
    */
   getTabViewMode(tabId: string): TabViewMode {
     return this._tabs().find((t) => t.id === tabId)?.viewMode ?? 'full';
-  }
-
-  /**
-   * Get a tab's stored compact height in canvas grid rows, or `undefined`
-   * when none is stored (canvas then uses its default).
-   */
-  getTabCompactHeightUnits(tabId: string): number | undefined {
-    return this._tabs().find((t) => t.id === tabId)?.compactHeightUnits;
   }
 
   // ============================================================================

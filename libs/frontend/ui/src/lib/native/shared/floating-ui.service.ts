@@ -87,6 +87,13 @@ export class FloatingUIService {
   private cleanupFn: (() => void) | null = null;
 
   /**
+   * Identifies the live position() request. cleanup() bumps it, and every
+   * position() starts with cleanup(), so a request whose token is no longer
+   * current was cancelled by a close or superseded by a newer request.
+   */
+  private requestToken = 0;
+
+  /**
    * Flag to track if the service has been destroyed.
    * Used to prevent position updates after component destruction.
    */
@@ -121,6 +128,7 @@ export class FloatingUIService {
     options: FloatingUIOptions = {},
   ): Promise<void> {
     this.cleanup();
+    const request = this.requestToken;
 
     const {
       placement = 'bottom-start',
@@ -141,13 +149,21 @@ export class FloatingUIService {
     floatingEl.style.position = 'fixed';
     const config = { placement, middleware, strategy: 'fixed' as const };
     const { x, y } = await computePosition(referenceEl, floatingEl, config);
-    if (this.isDestroyed) return;
+    // cleanup() ran or a newer position() started while this one computed: a
+    // stale request writes nothing and installs no auto-update, so it can
+    // neither leave an observer on a closed panel nor overwrite the live
+    // request's cleanup handle.
+    if (!this.isCurrent(request)) return;
     this.applyPosition(floatingEl, x, y);
     this.cleanupFn = autoUpdate(referenceEl, floatingEl, async () => {
       const result = await computePosition(referenceEl, floatingEl, config);
-      if (this.isDestroyed) return;
+      if (!this.isCurrent(request)) return;
       this.applyPosition(floatingEl, result.x, result.y);
     });
+  }
+
+  private isCurrent(request: number): boolean {
+    return !this.isDestroyed && request === this.requestToken;
   }
 
   /**
@@ -164,12 +180,13 @@ export class FloatingUIService {
   }
 
   /**
-   * Cleanup auto-update listeners.
+   * Cleanup auto-update listeners and cancel a pending position() request.
    * Call this when closing the floating element.
    *
    * Note: Also called automatically on component destroy via DestroyRef.
    */
   cleanup(): void {
+    this.requestToken++;
     if (this.cleanupFn) {
       this.cleanupFn();
       this.cleanupFn = null;

@@ -107,6 +107,8 @@ export class MessageBubbleComponent {
   private readonly chatStore = inject(ChatStore);
 
   readonly message = input.required<ExecutionChatMessage>();
+  /** Main transcript opts into compact agent tiles; other hosts stay inline. */
+  readonly agentTileMode = input<boolean>(false);
 
   /** Indicates if this message is currently streaming */
   readonly isStreaming = input<boolean>(false);

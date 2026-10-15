@@ -39,7 +39,10 @@ import {
 } from '@ptah-extension/memory-contracts';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  NON_AUTH_PROVIDER_KEY_SLOT_IDS,
+} from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
@@ -131,6 +134,7 @@ import {
 import type {
   AgentReportRouter,
   AgentRoleResolver,
+  ISessionHandoff,
   ISessionSpawner,
   LaneLimitLookupService,
 } from '@ptah-extension/cli-agent-runtime';
@@ -320,14 +324,9 @@ interface PtahCliRegistryLike {
  */
 export const BROWSER_CAPABILITIES_TOKEN = Symbol.for('BrowserCapabilities');
 
-/**
- * SecretStorage slot for the Smithery API key. Duplicated as a literal to avoid
- * importing rpc-handlers (forbidden cycle); must match SMITHERY_API_KEY_SECRET_ID
- * in libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.schema.ts.
- *
- * @warning Keep this string value in sync with the canonical definition.
- */
-const SMITHERY_API_KEY_SECRET_ID = 'smithery.apiKey';
+/** SecretStorage slot for the Smithery API key (a non-auth connector slot). */
+const SMITHERY_API_KEY_SECRET_ID =
+  NON_AUTH_PROVIDER_KEY_SLOT_IDS.smitheryApiKey;
 
 @injectable()
 export class PtahAPIBuilder {
@@ -931,6 +930,7 @@ export class PtahAPIBuilder {
       session: this.buildNamespaceSafe('session', () =>
         buildSessionNamespace({
           getSpawner: () => this.resolveSessionSpawner(),
+          getHandoff: () => this.resolveSessionHandoff(),
           getCallerSessionId,
           onWorktreeChanged: this.buildWorktreeChangeHandler(),
         }),
@@ -1168,6 +1168,18 @@ export class PtahAPIBuilder {
     const container = this.container;
     if (!container?.isRegistered(token, true)) return undefined;
     return container.resolve<ISessionSpawner>(token);
+  }
+
+  /**
+   * The session handoff service (TASK_2026_655), resolved on EVERY call for
+   * the same reason as `resolveSessionSpawner`. `undefined` when the host
+   * never registered it; the session namespace turns that into a named error.
+   */
+  private resolveSessionHandoff(): ISessionHandoff | undefined {
+    const token = CLI_AGENT_RUNTIME_TOKENS.SESSION_HANDOFF;
+    const container = this.container;
+    if (!container?.isRegistered(token, true)) return undefined;
+    return container.resolve<ISessionHandoff>(token);
   }
 
   /**

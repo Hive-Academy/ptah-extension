@@ -4,6 +4,7 @@ import {
   signal,
   computed,
   effect,
+  untracked,
   ChangeDetectionStrategy,
   viewChild,
   ElementRef,
@@ -34,7 +35,15 @@ import {
 import { ChatStore } from '../../../services/chat.store';
 import { isTabBusyGenerating } from '../../../services/chat-store/message-dispatch.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  SESSION_START_GUARD,
+} from '../../../tokens/session-context.token';
+import {
+  ComposerDraftStore,
+  type ComposerDraft,
+  type ComposerDraftImage,
+} from '../../../services/composer-draft.store';
 import {
   AuthStateService,
   AutopilotStateService,
@@ -73,7 +82,7 @@ import {
 } from '../../../services/composer-trigger-scheduler';
 
 /** Pasted image data for UI display */
-interface PastedImage {
+interface PastedImage extends ComposerDraftImage {
   id: string;
   data: string; // base64 (no prefix)
   mediaType: string;
@@ -407,12 +416,15 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
       <!-- Status line under the card -->
       <div class="flex items-center gap-2 px-1 mt-1.5 min-w-0">
         <div class="flex items-center gap-0.5 min-w-0">
-          <ptah-autopilot-popover class="min-w-0" />
+          <ptah-autopilot-popover
+            class="min-w-0"
+            [sessionId]="tabSessionId()"
+          />
 
           <!-- MCP status (host is display: contents; renders nothing when the
                session reports no servers) -->
           <ptah-mcp-status-chip
-            [sessionId]="mcpSessionId()"
+            [sessionId]="tabSessionId()"
             [tabId]="mcpTabId()"
           />
 
@@ -456,7 +468,11 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
 export class ChatInputComponent implements OnInit, OnDestroy {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
+  private readonly draftStore = inject(ComposerDraftStore);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
+    optional: true,
+  });
+  private readonly sessionStartGuard = inject(SESSION_START_GUARD, {
     optional: true,
   });
   readonly autopilotState = inject(AutopilotStateService);
@@ -560,17 +576,19 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Tab and session ids for the MCP status chip, resolved exactly as
-   * `ChatViewComponent` resolves them: a canvas tile scopes to its own tab via
-   * SESSION_CONTEXT, the main panel falls back to the global active tab. Both
-   * ids are passed because the backend pushes MCP status under the tabId until
-   * the SDK reports the session UUID.
+   * Tab and session ids of the tab this composer belongs to, resolved exactly
+   * as `ChatViewComponent` resolves them: a canvas tile scopes to its own tab
+   * via SESSION_CONTEXT, the main panel falls back to the global active tab.
+   * The MCP status chip gets both ids because the backend pushes MCP status
+   * under the tabId until the SDK reports the session UUID. The autopilot
+   * popover gets the session id so a toggle re-gates THIS tab's session, not
+   * the backend's most recently active one.
    */
   protected readonly mcpTabId = computed(
     () => this._sessionContext?.() ?? this.tabManager.activeTabId(),
   );
 
-  protected readonly mcpSessionId = computed(() =>
+  protected readonly tabSessionId = computed(() =>
     this._sessionContext
       ? (this.resolvedTab()?.claudeSessionId ?? null)
       : this.chatStore.currentSessionId(),
@@ -673,6 +691,17 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     null;
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _pastedImages = signal<PastedImage[]>([]);
+  private draftTabId: string | null = null;
+  /** Drafts whose send is still pending, with the tab they were sent from. */
+  private readonly sendsInFlight = new Set<{
+    tabId: string | null;
+    draft: ComposerDraft;
+  }>();
+  private lastDraft: {
+    text: string;
+    files: ChatFile[];
+    images: PastedImage[];
+  } | null = null;
   private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
   private readonly _isPickingFiles = signal(false);
@@ -710,6 +739,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.saveDraft();
     this.clearTriggerProjectionTimeout();
     if (this._imageAttachmentErrorTimeout) {
       clearTimeout(this._imageAttachmentErrorTimeout);
@@ -764,7 +794,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Mirrors the signal+timeout pattern used in editor.service.ts showError().
    * Auto-clears after 4 seconds.
    */
-  private showImageAttachmentError(message: string): void {
+  private showComposerError(message: string): void {
     if (this._imageAttachmentErrorTimeout) {
       clearTimeout(this._imageAttachmentErrorTimeout);
     }
@@ -792,7 +822,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         const file = item.getAsFile();
         if (!file) continue;
         if (file.size > MAX_IMAGE_SIZE_BYTES) {
-          this.showImageAttachmentError('Image too large — 5MB max');
+          this.showComposerError('Image too large — 5MB max');
           continue;
         }
 
@@ -802,12 +832,12 @@ export class ChatInputComponent implements OnInit, OnDestroy {
           const base64 = dataUrl.split(',')[1];
           const decodedSize = Math.floor(base64.length * 0.75);
           if (decodedSize > MAX_IMAGE_SIZE_BYTES) {
-            this.showImageAttachmentError('Image too large — 5MB max');
+            this.showComposerError('Image too large — 5MB max');
             return;
           }
           const mediaType = resolveImageMediaType(item.type, base64);
           if (!mediaType) {
-            this.showImageAttachmentError(
+            this.showComposerError(
               'Unsupported image format — use PNG, JPEG, GIF, or WebP',
             );
             return;
@@ -947,7 +977,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       if (result.ok && result.transcript) {
         this.insertTranscript(result.transcript);
       } else if (!result.ok && result.error) {
-        this.showImageAttachmentError(result.error);
+        this.showComposerError(result.error);
       }
       return;
     }
@@ -955,7 +985,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     await this.voiceInput.startRecording();
     const error = this.voiceInput.error();
     if (error) {
-      this.showImageAttachmentError(error);
+      this.showComposerError(error);
     }
   }
 
@@ -1029,7 +1059,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue;
       if (file.size > MAX_IMAGE_SIZE_BYTES) {
-        this.showImageAttachmentError('Image too large — 5MB max');
+        this.showComposerError('Image too large — 5MB max');
         continue;
       }
 
@@ -1039,7 +1069,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         const base64 = dataUrl.split(',')[1];
         const mediaType = resolveImageMediaType(file.type, base64);
         if (!mediaType) {
-          this.showImageAttachmentError(
+          this.showComposerError(
             'Unsupported image format — use PNG, JPEG, GIF, or WebP',
           );
           return;
@@ -1189,7 +1219,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
             (command) =>
               command.name.toLowerCase().includes(query.toLowerCase()) ||
               (command.description &&
-                command.description.toLowerCase().includes(query.toLowerCase())),
+                command.description
+                  .toLowerCase()
+                  .includes(query.toLowerCase())),
           ),
     );
   }
@@ -1448,10 +1480,33 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
+    const blockReason = this.sessionStartGuard?.();
+    if (blockReason) return this.showComposerError(blockReason);
     const normalizedContent = content;
+    // Captured before the await: the user may switch tabs while it runs, and
+    // the draft effect then shows (and stores) another tab's draft.
+    const sendingTabId =
+      this._sessionContext?.() ?? this.tabManager.activeTabId();
+    const submitted = {
+      text: this._currentMessage(),
+      files: this._selectedFiles(),
+      images,
+    };
+    // A double click, or Enter then a click, re-submits the unchanged draft
+    // while its send is pending. An edited or other-tab draft still sends.
+    for (const pending of this.sendsInFlight) {
+      if (
+        pending.tabId === sendingTabId &&
+        this.isSubmittedDraft(submitted, pending.draft)
+      ) {
+        return;
+      }
+    }
+    const inFlight = { tabId: sendingTabId, draft: submitted };
+    this.sendsInFlight.add(inFlight);
 
     try {
-      const filePaths = this._selectedFiles().map((f) => f.path);
+      const filePaths = submitted.files.map((f) => f.path);
       const inlineImages: InlineImageAttachment[] = images.map((img) => ({
         data: img.data,
         mediaType: img.mediaType,
@@ -1464,13 +1519,37 @@ export class ChatInputComponent implements OnInit, OnDestroy {
           tabId: this._sessionContext?.() ?? undefined,
         },
       );
-      this._currentMessage.set('');
-      this._selectedFiles.set([]);
-      this._pastedImages.set([]);
+      // A failed send also clears: the sender keeps the prompt as the user's
+      // bubble, so a kept draft would duplicate it on retry.
+      // Clear only what still holds the submitted draft: the sending tab's
+      // stored draft, and the composer while it shows that tab unchanged.
+      if (
+        sendingTabId &&
+        this.isSubmittedDraft(this.draftStore.get(sendingTabId), submitted)
+      ) {
+        this.draftStore.clear(sendingTabId);
+      }
+      if (
+        this.draftTabId === sendingTabId &&
+        this.isSubmittedDraft(
+          {
+            text: this._currentMessage(),
+            files: this._selectedFiles(),
+            images: this._pastedImages(),
+          },
+          submitted,
+        )
+      ) {
+        this._currentMessage.set('');
+        this._selectedFiles.set([]);
+        this._pastedImages.set([]);
+      }
       // The emptied `[value]` binding plus `field-sizing: content` shrink the
       // textarea back to its resting height — no manual height reset.
     } catch (error) {
       console.error('[ChatInputComponent] Failed to send message:', error);
+    } finally {
+      this.sendsInFlight.delete(inFlight);
     }
   }
 
@@ -1503,6 +1582,23 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   }
 
   constructor() {
+    this.draftTabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (this.draftTabId) this.restoreDraft(this.draftTabId);
+    effect(() => {
+      const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+      if (tabId !== this.draftTabId) {
+        untracked(() => {
+          this.saveDraft();
+          this.draftTabId = tabId;
+          if (tabId) this.restoreDraft(tabId);
+          else this.clearLocalDraft();
+        });
+      }
+      this._currentMessage();
+      this._selectedFiles();
+      this._pastedImages();
+      untracked(() => this.saveDraft());
+    });
     effect(() => {
       const restoreData = this.chatStore.queueRestoreContent();
       if (restoreData) {
@@ -1522,5 +1618,65 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         this._lastSessionId = currentTabId;
       }
     });
+  }
+
+  private saveDraft(): void {
+    if (!this.draftTabId) return;
+    if (!this.tabManager.findTabByIdAcrossWorkspaces(this.draftTabId)) return;
+    const text = this._currentMessage();
+    const files = this._selectedFiles();
+    const images = this._pastedImages();
+    if (
+      this.lastDraft?.text === text &&
+      this.lastDraft.files === files &&
+      this.lastDraft.images === images
+    )
+      return;
+    this.lastDraft = { text, files, images };
+    if (
+      !text &&
+      files.length === 0 &&
+      images.length === 0
+    ) {
+      this.draftStore.clear(this.draftTabId);
+      return;
+    }
+    this.draftStore.save(this.draftTabId, {
+      text,
+      files,
+      images,
+    });
+  }
+
+  private restoreDraft(tabId: string): void {
+    const draft = this.draftStore.get(tabId);
+    this._currentMessage.set(draft?.text ?? '');
+    this._selectedFiles.set(draft?.files ?? []);
+    this._pastedImages.set(draft?.images ?? []);
+    this.lastDraft = {
+      text: this._currentMessage(),
+      files: this._selectedFiles(),
+      images: this._pastedImages(),
+    };
+  }
+
+  /** The same text and the same file and image lists (by reference). */
+  private isSubmittedDraft(
+    draft: ComposerDraft | undefined,
+    submitted: ComposerDraft,
+  ): boolean {
+    return (
+      draft !== undefined &&
+      draft.text === submitted.text &&
+      draft.files === submitted.files &&
+      draft.images === submitted.images
+    );
+  }
+
+  private clearLocalDraft(): void {
+    this._currentMessage.set('');
+    this._selectedFiles.set([]);
+    this._pastedImages.set([]);
+    this.lastDraft = null;
   }
 }
