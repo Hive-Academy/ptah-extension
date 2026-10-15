@@ -17,6 +17,7 @@ import {
   ExecutionNodeComponent,
   SubagentUsageSummaryComponent,
   TabManagerService,
+  ownedBySession,
   parseLaneKey,
 } from '@ptah-extension/chat';
 import {
@@ -32,7 +33,6 @@ import {
 import type { ExecutionNode, SubagentTranscriptMessage } from '@ptah-extension/shared';
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
 import { CanvasDetailService } from './canvas-detail.service';
-import { ownedBySession } from './lane-owner';
 
 @Component({
   selector: 'ptah-canvas-lane-view',

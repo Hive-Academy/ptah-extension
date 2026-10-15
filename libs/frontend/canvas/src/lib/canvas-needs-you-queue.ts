@@ -3,7 +3,7 @@ import type {
   PermissionRequest,
 } from '@ptah-extension/shared';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
-import { ownedBySession } from './canvas-detail/lane-owner';
+import { ownedBySession } from '@ptah-extension/chat';
 
 export type NeedsYouItemKind = 'permission' | 'question' | 'lane-permission';
 

@@ -55,7 +55,7 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
         />
         <ptah-canvas-lane-tabs
           [panelId]="panelId()"
-          [sessionId]="tab()?.claudeSessionId ?? null"
+          [tabId]="id"
           [laneKey]="detail.laneKeyFor(id)"
           (laneSelected)="detail.selectLaneFor(id, $event)"
         />
