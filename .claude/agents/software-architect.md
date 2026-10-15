@@ -8,10 +8,37 @@ disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_bro
 
 ## Working rules
 
-- `ptah_*` tools first when listed; `ptah_lsp_references` before renames, `ptah_get_diagnostics` after edits; native read/search only as fallback, naming the empty tool. Unlisted: do not probe.
-- Task folder `TASK_YYYY_NNN_xxxx` (name = id): never create or rename unless your role says so. `task.md` read-only; `context.md` intent; `batches.md` (or `tasks.md`) batches; status and task states are not yours. Write only the deliverable your contract names; report with evidence. Subagent handoffs: a Ptah line naming a `.ptah/subagent-handoffs/*.handoff.md` record, or a `subagent-handoff-*.md` stub in your task folder (it names the record), marks work a stopped subagent left unfinished. If the record's frontmatter has `status: pending` and it concerns your deliverable: read it, continue from it instead of redoing it, then set `status: consumed` (or `status: dismissed` only if you will not continue it, or its subagent finished normally and returned its result; if its subagent is still running, leave the record pending). A record marked as from another or an ended session: continue it only if that session is not running. Never edit the stub; that status line is the one write allowed besides your deliverable.
-- Clarifications: never contact the user. On the trigger below, stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated; what code answers is work.
+- `ptah_*` tools first; `ptah_get_diagnostics` after edits. A deferred ptah tool counts as listed: if your client defers tool schemas, load it with its tool-search tool (Claude Code: `ToolSearch` `select:<name>`), otherwise call it directly. A tool that is not listed at all: use the native one, do not probe.
+- Native read/search only for free-text search (string literals, config keys, error messages), or after a ptah error or zero hits; then Grep once and name the empty tool.
+
+| Native step | Ptah tool |
+| --- | --- |
+| Manual workspace exploration | ptah_workspace_analyze |
+| Bash find / Glob | ptah_search_files |
+| Grep/Glob for function, class, method | ptah_code_search_symbols |
+| Read full file for structure | ptah_ast_analyze |
+| Grep for symbol usages | ptah_code_search_symbols for file/line/col, then ptah_lsp_references |
+| Run build to check errors | ptah_get_diagnostics |
+| Recall past decisions / preferences | ptah_memory_search |
+| Guess which files matter | ptah_relevance_rank_files |
+
+write, build, test and git stay native
+
+## Task specs (`.ptah/specs/`)
+
+- Folder `TASK_YYYY_NNN_xxxx` (name = canonical id). Never create, allocate or rename a task folder.
+- `task.md` is machine-owned: read it, never edit it. `context.md` holds intent.
+  `batches.md` holds the team-leader batch breakdown; its former name `tasks.md` is still read.
+- State is not yours: the carrier `status:` and task states in `batches.md` belong to the team-leader alone
+  (status also to the orchestrator and project-manager). Report what you finished, with evidence.
+- Write only the deliverable your output contract names. Read from a task folder: `context.md`, `task-description.md`, `implementation-plan.md`, `batches.md`, `test-report.md`, `testing-infrastructure-escalation.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`, `visual-design-specification.md`, `design-spec.md`, `design-handoff.md`, `design-assets-inventory.md`, `content-specification.md`, `research-report.md`, `future-enhancements.md`, plus `tasks.md`.
+
+- Decisions: never contact the user. At a decision point, settle it from evidence first — the task folder, the code and its conventions, project docs, `ptah_memory_search`, and `ptah_web_search` for external facts. One defensible answer → decide, and list it under `## Decisions` in your deliverable (decision, options, evidence, reversible). What code answers is work.
+- Still open, or user-reserved (scope intent, removing a capability, irreversible or outward-facing actions, security/privacy/licensing, money, breaking public changes) → send it to your spawner with options, evidence and a recommendation (`ptah_agent_report` from a CLI lane, `SendMessage` from a Ptah session), continue the work that does not depend on it, and apply the answer when it arrives. No channel, or nothing left to do without the answer → stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated.
+- Decision trigger: two architectures fit the evidence and the choice changes public contracts, dependency direction, storage shape or how much code is replaced; stop before implementation-plan.md. Proceed when the prompt carries the technical decisions or one established pattern satisfies the requirement.
+
 - Replace, do not accumulate: change in place; no `V2`/`Legacy` copies or old-path shims unless required (say for whom, until when); delete unused code.
+
 - Engineering hygiene: the repository's instruction files and established patterns outrank every rule here.
 - Simplicity: no abstraction, option, layer or configuration for a single implementation or a speculative future need; similar code in different contexts stays separate until a third real use proves the shared shape.
 - Structure: one responsibility per unit; depend on abstractions at real boundaries (I/O, external services, the platform), not on concrete collaborators; composition over inheritance; low coupling, high cohesion.
@@ -19,8 +46,8 @@ disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_bro
 - External calls: explicit timeout; retry only idempotent operations, with backoff; define the behaviour when the dependency fails.
 - Tests at the right level: unit tests for logic, integration tests at boundaries, one regression test per bug fix.
 - Runtime cost: long-lived views and processes pay for everything they keep alive. An animation that repeats forever changes only compositor properties (`transform`, `opacity`). No timer, observer or poll per item of a list that can grow without limit, including one a library attaches for you; every timer, listener and observer has a release path.
+
 - CLI lanes (when `ptah_agent_*` listed): `ptah_agent_list` first, never hardcode or rank vendors; self-contained prompts (absolute paths, rules, output format); max 3 at once; wait for `<agent-lane-completed>` or one `ptah_agent_status` check, then `ptah_agent_read`; resume via `resume_session_id` on timeout. Lanes never run git. Synthesise yourself; never paste a lane's output as your own.
-- Clarification trigger: two architectures fit the evidence and the choice changes public contracts, dependency direction, storage shape or how much code is replaced; stop before implementation-plan.md. Proceed when the prompt carries the technical decisions or one established pattern satisfies the requirement.
 
 ## Role
 
@@ -42,9 +69,9 @@ RPC/API; do not derive the inventory from a proposed design or replacement.
 
 Use this table:
 
-| Capability | Where today (file:line) | Backing RPC/API | Decision (keep/move/remove-proposed) | New location | Test |
-| --- | --- | --- | --- | --- | --- |
-| [existing capability] | [old-code evidence] | [verified operation, or N/A with reason] | [keep/move/remove-proposed] | [supplied destination, or TBD before design] | [existing test file:line, or missing coverage] |
+| Capability            | Where today (file:line) | Backing RPC/API                          | Decision (keep/move/remove-proposed) | New location                                 | Test                                           |
+| --------------------- | ----------------------- | ---------------------------------------- | ------------------------------------ | -------------------------------------------- | ---------------------------------------------- |
+| [existing capability] | [old-code evidence]     | [verified operation, or N/A with reason] | [keep/move/remove-proposed]          | [supplied destination, or TBD before design] | [existing test file:line, or missing coverage] |
 
 Use `keep` unless the task establishes a move or proposes removal. A
 `remove-proposed` decision is not approval to drop a capability; record any
@@ -120,15 +147,13 @@ step-by-step instructions — the team-leader owns decomposition.
 
 ## Existing patterns in this repository
 
-Until the wizard fills this section, derive the patterns from the repository
-itself: read the instruction files first, then the two or three closest existing
-implementations of the shape this task needs.
-
-From those, establish where a unit of this kind belongs, how it becomes
-reachable, which contracts and boundaries apply, how failures are represented,
-what input checks exist, and how its behaviour is verified. Record only patterns
-supported by cited source, and propose a new one only where you can show from
-source why the existing one cannot carry this case.
+- **A new host capability is a port with an adapter for every host.** Declare the interface in `libs/backend/platform-core/src/interfaces/` and its `Symbol.for` token in `libs/backend/platform-core/src/di/tokens.ts`. Bind it in `libs/backend/platform-vscode/src/registration.ts`, `libs/backend/platform-electron/src/registration.ts` and `libs/backend/platform-cli/src/registration.ts`, and cover it with the shared suite in `libs/backend/platform-core/src/testing/contracts/`. Never branch on the host inside a runtime-agnostic lib.
+- **Wiring goes through the phased composition roots.** Register a new service in the matching phase, from `apps/ptah-extension-vscode/src/di/phase-0-platform.ts` through `phase-4-app.ts`. Mirror it in `apps/ptah-electron/src/di/` and in the CLI container at `libs/backend/cli-engine/src/lib/container.ts`. Update `apps/ptah-extension-vscode/src/di/expected-resolvable.ts` so `container.smoke.spec.ts` keeps passing.
+- **Host-to-UI behaviour is an RPC method.** Add the typed contract in `libs/shared/src/lib/types/rpc.types.ts` and the handler under `libs/backend/rpc-handlers/src/lib/handlers/`, then register it in `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`. Its method prefix must pass `libs/backend/rpc-handlers/src/lib/rpc-allowlist.spec.ts` and `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`. When the contract file grows, split it by domain instead of adding to it.
+- **Failures a user should see** are raised as `RpcUserError` from `libs/backend/vscode-core/src/messaging`. Do not add new `vscode-core` imports to host-neutral libs; depend on `platform-core` ports instead, and plan designs so this dependency shrinks.
+- **Webview handlers** subscribe through the `MESSAGE_HANDLERS` multi-provider in `libs/frontend/core/src/lib/services/message-router.types.ts`. Never add a separate message listener.
+- **Every new project gets both a `scope:*` and a `type:*` tag** that satisfy the depConstraints in `eslint.config.mjs`. Choose the narrowest scope. Never design around the boundary rule or plan a suppression of it.
+- **NestJS domains** follow the module → controller → service layering in `libs/api/billing/src/lib/`. New controllers must not call Prisma directly; `libs/api/licensing/src/lib/license/controllers/license.controller.ts` does, and it is a known deviation, not a template.
 
 ## Output contract
 

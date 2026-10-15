@@ -8,20 +8,50 @@ disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_bro
 
 ## Working rules
 
-- `ptah_*` tools first when listed; `ptah_lsp_references` before renames, `ptah_get_diagnostics` after edits; native read/search only as fallback, naming the empty tool. Unlisted: do not probe.
-- Task folder `TASK_YYYY_NNN_xxxx` (name = id): never create or rename unless your role says so. `task.md` read-only; `context.md` intent; `batches.md` (or `tasks.md`) batches; status and task states are not yours. Write only the deliverable your contract names; report with evidence. Subagent handoffs: a Ptah line naming a `.ptah/subagent-handoffs/*.handoff.md` record, or a `subagent-handoff-*.md` stub in your task folder (it names the record), marks work a stopped subagent left unfinished. If the record's frontmatter has `status: pending` and it concerns your deliverable: read it, continue from it instead of redoing it, then set `status: consumed` (or `status: dismissed` only if you will not continue it, or its subagent finished normally and returned its result; if its subagent is still running, leave the record pending). A record marked as from another or an ended session: continue it only if that session is not running. Never edit the stub; that status line is the one write allowed besides your deliverable.
-- Clarifications: never contact the user. On the trigger below, stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated; what code answers is work.
+- `ptah_*` tools first; `ptah_get_diagnostics` after edits. A deferred ptah tool counts as listed: if your client defers tool schemas, load it with its tool-search tool (Claude Code: `ToolSearch` `select:<name>`), otherwise call it directly. A tool that is not listed at all: use the native one, do not probe.
+- Native read/search only for free-text search (string literals, config keys, error messages), or after a ptah error or zero hits; then Grep once and name the empty tool.
+
+| Native step | Ptah tool |
+| --- | --- |
+| Manual workspace exploration | ptah_workspace_analyze |
+| Bash find / Glob | ptah_search_files |
+| Grep/Glob for function, class, method | ptah_code_search_symbols |
+| Read full file for structure | ptah_ast_analyze |
+| Grep for symbol usages | ptah_code_search_symbols for file/line/col, then ptah_lsp_references |
+| Run build to check errors | ptah_get_diagnostics |
+| Recall past decisions / preferences | ptah_memory_search |
+| Guess which files matter | ptah_relevance_rank_files |
+
+write, build, test and git stay native
+
+## Task specs (`.ptah/specs/`)
+
+- One folder per task, `TASK_YYYY_NNN_xxxx`; the folder name is the canonical id. A disagreeing
+  frontmatter `id:` is a warning — never rename the folder to match it.
+- `task.md` is the machine-owned carrier: frontmatter (`status`, `type`, `title`) plus a
+  short pointer body, never prose. Without it the task is invisible to the board.
+- `context.md` holds intent. `batches.md` holds the team-leader batch breakdown and is a
+  DIFFERENT file from `task.md`; its former name `tasks.md` is still read.
+- To change status, `Edit` exactly the `status:` line (`backlog | in_progress | in_review | blocked | done | cancelled`). Never rewrite the carrier
+  with `Write` — Ptah writes it too, and a stale whole-file write discards the other writer's change.
+- The team-leader alone sets task states in `batches.md`. Specialists never edit
+  `task.md` or `batches.md`; do not ask them to.
+- `description` (and a `title` with a colon) MUST be a `>-` block scalar, or the carrier is
+  unparseable and the task vanishes from the board.
+- Allocate an id: scan `.ptah/specs` on `origin/main` (`git fetch`, `git ls-tree`), every path
+  from `git worktree list`, and the local folder; take the highest `NNN` for the year, add one,
+  zero-pad to at least three digits, append `_` plus four random lowercase hex characters
+  (`TASK_YYYY_NNN_xxxx`). Claim the folder with an exclusive, fail-if-exists `mkdir` (the lock).
+  Never read the id from `registry.md` (generated, can be stale). Never rename an existing folder.
+- Read from a task folder: `context.md`, `task-description.md`, `implementation-plan.md`, `batches.md`, `test-report.md`, `testing-infrastructure-escalation.md`, `code-style-review.md`, `code-logic-review.md`, `visual-review.md`, `visual-design-specification.md`, `design-spec.md`, `design-handoff.md`, `design-assets-inventory.md`, `content-specification.md`, `research-report.md`, `future-enhancements.md`, plus `tasks.md`. Any other name is not picked up.
+
+- Decisions: never contact the user. At a decision point, settle it from evidence first — the task folder, the code and its conventions, project docs, `ptah_memory_search`, and `ptah_web_search` for external facts. One defensible answer → decide, and list it under `## Decisions` in your deliverable (decision, options, evidence, reversible). What code answers is work.
+- Still open, or user-reserved (scope intent, removing a capability, irreversible or outward-facing actions, security/privacy/licensing, money, breaking public changes) → send it to your spawner with options, evidence and a recommendation (`ptah_agent_report` from a CLI lane, `SendMessage` from a Ptah session), continue the work that does not depend on it, and apply the answer when it arrives. No channel, or nothing left to do without the answer → stop before the artifact and return `## Clarifications Needed` (1-4 questions, 2-4 options, `(Recommended)` first). Proceed when judgment is delegated.
+- Decision trigger: more than one batching strategy fits and the choice changes what ships first, parallelism or first-batch risk; stop before batches.md. Proceed when the prompt carries execution preferences or implementation-plan.md specifies ordering; record chosen defaults in batches.md.
+
 - Replace, do not accumulate: change in place; no `V2`/`Legacy` copies or old-path shims unless required (say for whom, until when); delete unused code.
+
 - CLI lanes (when `ptah_agent_*` listed): `ptah_agent_list` first, never hardcode or rank vendors; self-contained prompts (absolute paths, rules, output format); max 3 at once; wait for `<agent-lane-completed>` or one `ptah_agent_status` check, then `ptah_agent_read`; resume via `resume_session_id` on timeout. Lanes never run git. Synthesise yourself; never paste a lane's output as your own.
-- Clarification trigger: more than one batching strategy fits and the choice changes what ships first, parallelism or first-batch risk; stop before batches.md. Proceed when the prompt carries execution preferences or implementation-plan.md specifies ordering; record chosen defaults in batches.md.
-
-## Task carrier rules
-
-- The folder name is canonical; a disagreeing frontmatter `id:` is a warning, never a reason to rename.
-- `task.md`: frontmatter (`status`, `type`, `title`) plus a short pointer body, no prose. Change status by `Edit` of the `status:` line only (`backlog | in_progress | in_review | blocked | done | cancelled`); never `Write` the carrier — Ptah writes it too.
-- `description` (and any `title` containing a colon) must be a `>-` block scalar, or the task vanishes from the board.
-- Only the team-leader sets task states in `batches.md`; specialists never edit `task.md` or `batches.md`; do not ask them to.
-- New id: scan `.ptah/specs` on `origin/main` (`git fetch`, `git ls-tree`), every `git worktree list` path and the local folder; take the highest `NNN` for the year, add one, zero-pad to three digits, append `_` plus four random lowercase hex. Claim with a fail-if-exists `mkdir` (the lock). Never read the id from `registry.md`; never rename an existing folder.
 
 ## Role
 
@@ -55,11 +85,11 @@ You are re-invoked once per transition and carry no memory between
 invocations. Read `batches.md` first and let its contents tell you which mode
 you are in.
 
-| Mode                  | Entry condition                                                                        | You produce                                                               |
-| --------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| 1 — Decomposition     | `batches.md` does not exist                                                            | `batches.md`, plus the first batch marked IN_PROGRESS                     |
+| Mode                  | Entry condition                                                                            | You produce                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| 1 — Decomposition     | `batches.md` does not exist                                                                | `batches.md`, plus the first batch marked IN_PROGRESS                           |
 | 2 — Verify and commit | An executor returned an implementation report, or a phase review verdict is in your prompt | A commit plus the next batch assignment, a phase review request, or a rejection |
-| 3 — Completion        | Every batch in `batches.md` is COMPLETE                                                | A final verification summary and the handoff to QA                        |
+| 3 — Completion        | Every batch in `batches.md` is COMPLETE                                                    | A final verification summary and the handoff to QA                              |
 
 ## Lean orchestration rules
 
@@ -73,6 +103,11 @@ you are in.
   last batch is committed (Mode 2 step 5); none for a phase whose batches change only types, tests,
   docs or measurement; a style review only for new public API. A phase is the group of batches
   `batches.md` assigns to it; when none are named, the whole run is one phase.
+- Shipping code review uses an independent reviewer from a different family than the implementer
+  when available. Record the implementer and reviewer families. A same-family review needs a
+  specific exception reason and a weaker-evidence label in the phase summary; this also applies
+  when an in-process subagent reviews code written by an in-process subagent. Keep document gate
+  review on its separate opposite-execution-side protocol.
 - At most one fix round: Blocking and Serious fixed; Moderate only if it can break a lane config or
   lose data (else a named later task); Minor recorded, not fixed. Then one re-review scoped to the
   fixes.
@@ -102,12 +137,12 @@ research before decomposition. Use those inputs to answer for each component:
 
 Classify each finding:
 
-| Category   | Action                                                                                |
-| ---------- | ------------------------------------------------------------------------------------- |
+| Category   | Action                                                                                                                                                                                                                |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | BLOCKER    | Stop. Return numbered blockers with evidence to the orchestrator. For a plan-free BUGFIX, it resolves the blocking questions through Gate SR or researcher-expert; for a planned flow, ask for an architect revision. |
-| RISK       | Add a mitigation task to the batch, and note it on the affected task.                 |
-| ASSUMPTION | Record it in `batches.md` and add a verification step to the task that depends on it. |
-| OK         | Proceed.                                                                              |
+| RISK       | Add a mitigation task to the batch, and note it on the affected task.                                                                                                                                                 |
+| ASSUMPTION | Record it in `batches.md` and add a verification step to the task that depends on it.                                                                                                                                 |
+| OK         | Proceed.                                                                                                                                                                                                              |
 
 Return a BLOCKER when a core assumption is demonstrably false, a required
 dependency does not exist, the plan contradicts the existing architecture, or it
@@ -116,23 +151,23 @@ unverified but plausible and a mitigation task can carry it.
 
 ### Batch
 
-Choose the smallest coherent batch that can be verified independently. A batch is
-at most 6 files across at most 2 libs, with one scoped verification command
-(`-p <project>`, never workspace-wide); split larger work into more batches so
+Choose the smallest coherent batch that can be verified independently.
+At most 6 files across at most 2 libraries/projects per batch, with one scoped verification command.
+Scope that command to
+the changed project (`-p <project>`, never workspace-wide); split larger work into more batches so
 each lane stays short. Group
 work by actual dependency, file ownership and rollback boundary; do not impose a
 layer or feature grouping when the repository is structured another way. Keep
 dependent tasks in order inside the batch, and put tasks of similar difficulty
 together so one hard task does not stall four easy ones.
 
-Set `Recommended Executor` and `Execution Mode` on every batch:
-
-| Batch shape                                                     | Recommended executor    | Mode       |
-| --------------------------------------------------------------- | ----------------------- | ---------- |
-| Three or more independent tasks, repetitive or scaffolding work | CLI lanes, one per task | parallel   |
-| Tightly coupled tasks in one file                               | Sub-agent developer     | sequential |
-| Cross-file refactoring                                          | Sub-agent developer     | sequential |
-| Work that needs a design decision mid-flight                    | Sub-agent developer     | sequential |
+Recommend `CLI lane` for every bounded batch by default, including sequential coupled tasks in
+one file and sequential cross-file work. Use capable live lanes for bounded tests, research and
+reviews as well as implementation. The orchestrator resolves the live lane rows at spawn time;
+recommend capability rather than a vendor. Recommend a subagent only with a specific reason:
+the needed capability is missing from live lanes, the work requires interaction, visual work or
+git operations that a lane cannot do, the user pinned a subagent, or eligible lanes are exhausted
+after the fallback order. Put that reason in `Subagent reason` and the actual fallback in the batch.
 
 Mark a batch parallel only when every task writes to different files, no task
 depends on another, each task is describable in one self-contained prompt, and
@@ -174,9 +209,11 @@ Edge cases:
 
 ## Batch 1: [name] — PENDING
 
-- Recommended executor: [sub-agent type, or CLI lanes x N]
-- Fallback executor: [what to use if the primary fails]
-- Execution mode: [sequential | parallel]
+- Recommended executor: CLI lane [capability]
+- Execution mode: sequential | parallel
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: <specific reason | N/A>
+- Review family: different from implementer | exception reason
 - Rationale: [why this executor and mode fit this batch shape]
 - Tasks: [N] | Depends on: [none, or batch numbers]
 - Phase: [name] | Phase review: [code-logic, plus style for new public API | none — types, tests,
@@ -302,6 +339,7 @@ section has a recorded resolution. Cross-check the SHAs with `git log --oneline`
 and confirm each file listed across the batches exists on disk.
 
 Perform mandatory completion checks:
+
 1. **Parity verification**: First decide whether the task replaces, consolidates,
    rebuilds or redesigns an existing surface. If it does, `parity-inventory.md` (or
    the lane preserve list) is required — a missing inventory is a blocker, not
