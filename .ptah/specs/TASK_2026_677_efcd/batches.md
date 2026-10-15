@@ -1,6 +1,6 @@
 # Batches - TASK_2026_677_efcd
 
-Total tasks: 17 implementation batches + 1 measurement step (BUILD-1) | Batches: 18 | Complete: 3/18
+Total tasks: 17 implementation batches + 1 measurement step (BUILD-1) | Batches: 18 | Complete: 6/18
 Waves: 8 (W1-W7 implementation, W8 measurement) | Phase: one phase "clean-session-view" (all batches)
 
 Root for every relative path: `D:\projects\ptah-extension\.claude-worktrees\clean-session-view\`
@@ -244,7 +244,16 @@ executor prompt.
 
 ## Wave 2 - C-2, A1-1, A1-4 (parallel; after W1)
 
-## Batch C-2: session agent roster + lane status delegation (chat) - IN_PROGRESS
+- Verified (team-leader Mode 2): files on disk match each batch; no stub markers; no new spec files.
+  Combined-tree checks, 3 projects (chat, chat-ui, chat-streaming), `--parallel=1 --skip-nx-cache`:
+  typecheck, lint, test (`--maxWorkers=2`) all exit 0, header N = 3.
+  Accepted deviations: C-2 did not touch `F/chat/src/index.ts` (it already re-exports `./lib/services`);
+  A1-1 did not add `formatCostUsd` (cost text reuses `formatUsdCost` from `@ptah-extension/shared`) and
+  left the bubble's compaction literal for A1-3 to switch to `isCompactionContinuationMessage`.
+  For the phase reviewer: C-2 runtime-unknown status reads `stopped` in the roster but `running` in compact
+  rows; a permission whose `agentToolCallId` matches no owned agent is attached to no roster row.
+
+## Batch C-2: session agent roster + lane status delegation (chat) - COMPLETE (commit 3db987a97)
 
 - Wave: W2 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with A1-1, A1-4)
@@ -255,7 +264,7 @@ executor prompt.
 - Tasks: 1 | Depends on: C-1
 - Phase: clean-session-view | Phase review: as phase
 
-### Task C-2.1: create `SessionAgentRosterService`, roster builder, `ownedBySession`; delegate `laneStatus` - IN_PROGRESS
+### Task C-2.1: create `SessionAgentRosterService`, roster builder, `ownedBySession`; delegate `laneStatus` - COMPLETE
 
 - Files:
   - CREATE `F/chat/src/lib/services/session-agents/session-agent-roster.ts`
@@ -288,7 +297,7 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch A1-1: turn utils + chat-ui formatter export - IN_PROGRESS
+## Batch A1-1: turn utils + chat-ui formatter export - COMPLETE (commit b9d47a8df)
 
 - Wave: W2 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with C-2, A1-4)
@@ -299,7 +308,7 @@ executor prompt.
 - Tasks: 1 | Depends on: C-1
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A1-1.1: create turn-facts / turn-answer-split utils; extract `formatTokenCount`, `formatCostUsd` - IN_PROGRESS
+### Task A1-1.1: create turn-facts / turn-answer-split utils; extract `formatTokenCount`, `formatCostUsd` - COMPLETE
 
 - Files:
   - CREATE `F/chat/src/lib/utils/turn-facts.utils.ts`
@@ -331,7 +340,7 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch A1-4: finalization message-start timestamp (chat-streaming) - IN_PROGRESS
+## Batch A1-4: finalization message-start timestamp (chat-streaming) - COMPLETE (commit 49c153d69)
 
 - Wave: W2 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with C-2, A1-1)
@@ -342,7 +351,7 @@ executor prompt.
 - Tasks: 1 | Depends on: none
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A1-4.1: pass the message-start timestamp on live finalization (A1-D1) - IN_PROGRESS
+### Task A1-4.1: pass the message-start timestamp on live finalization (A1-D1) - COMPLETE
 
 - Files:
   - MODIFY `F/chat-streaming/src/lib/message-finalization.service.ts` (`:198-242`)
@@ -375,7 +384,7 @@ executor prompt.
 
 ## Wave 3 - B-3, C-3, A2-1 (parallel; after W2)
 
-## Batch B-3: inspector services, add-on token, git branch (chat, webview app) - PENDING
+## Batch B-3: inspector services, add-on token, git branch (chat, webview app) - IN_PROGRESS
 
 - Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with C-3, A2-1)
@@ -387,7 +396,7 @@ executor prompt.
 - Tasks: 1 | Depends on: C-2 (and B-1 committed, since it shares the webview project)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task B-3.1: create session-inspector services, `SESSION_WORKFLOW_ADDONS`, git `branch` + `sessionBranch` - PENDING
+### Task B-3.1: create session-inspector services, `SESSION_WORKFLOW_ADDONS`, git `branch` + `sessionBranch` - IN_PROGRESS
 
 - Files:
   - CREATE `F/chat/src/lib/services/session-inspector/session-inspector.types.ts`
@@ -430,7 +439,7 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch C-3: agent dock rewrite (canvas) - PENDING
+## Batch C-3: agent dock rewrite (canvas) - IN_PROGRESS
 
 - Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with B-3, A2-1)
@@ -441,7 +450,7 @@ executor prompt.
 - Tasks: 1 | Depends on: C-1, C-2
 - Phase: clean-session-view | Phase review: as phase
 
-### Task C-3.1: rewrite `ptah-canvas-lane-tabs` as the agent dock; add card, menu, overflow; delete `lane-owner.ts` - PENDING
+### Task C-3.1: rewrite `ptah-canvas-lane-tabs` as the agent dock; add card, menu, overflow; delete `lane-owner.ts` - IN_PROGRESS
 
 - Files:
   - REWRITE `F/canvas/src/lib/canvas-detail/canvas-lane-tabs.component.ts` (+ `canvas-lane-tabs.component.spec.ts`)
@@ -481,7 +490,7 @@ executor prompt.
   - Handoff files are handoff-N.md, never HANDOFF.md.
   - No new spec files; update an existing spec only where this batch changes behaviour it asserts. Do not edit batches.md.
 
-## Batch A2-1: session header molecule (chat) - PENDING
+## Batch A2-1: session header molecule (chat) - IN_PROGRESS
 
 - Wave: W3 | Recommended executor: `frontend-developer` (Claude sub-agent)
 - Execution mode: sequential (parallel with B-3, C-3)
@@ -492,7 +501,7 @@ executor prompt.
 - Tasks: 1 | Depends on: none (placed in W3 per plan §5)
 - Phase: clean-session-view | Phase review: as phase
 
-### Task A2-1.1: create `SessionHeaderComponent` - PENDING
+### Task A2-1.1: create `SessionHeaderComponent` - IN_PROGRESS
 
 - Files:
   - CREATE `F/chat/src/lib/components/molecules/session-header/session-header.component.ts`
