@@ -50,6 +50,7 @@ import type {
   ISecretStorage,
   IMemoryWriter,
   ISessionOrganizationRecorder,
+  IHarnessProposalStore,
 } from '@ptah-extension/platform-core';
 import {
   WorkspaceAnalyzerService,
@@ -746,7 +747,9 @@ export class PtahAPIBuilder {
             }
             return this.agentRoleResolver.listRoles(workspaceRoot);
           },
-          getLaneLimits: this.laneLimitLookup?.lookup.bind(this.laneLimitLookup),
+          getLaneLimits: this.laneLimitLookup?.lookup.bind(
+            this.laneLimitLookup,
+          ),
           getDisabledClis: () => {
             return (
               this.workspaceProvider.getConfiguration<string[]>(
@@ -869,6 +872,18 @@ export class PtahAPIBuilder {
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
           // Same root source as `getPluginPaths`: never the home fallback.
           getPolicyWorkspaceRoot: () => this.resolveSessionWorkspaceRoot(),
+          getCallerSdkSessionId: () => this.resolveCallerSdkSessionId(),
+          saveProposal: (sessionId, update, complete) => {
+            const token = PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE;
+            if (!this.container?.isRegistered(token, true)) {
+              throw new Error(
+                'Harness proposal store is unavailable; retry when the host is ready.',
+              );
+            }
+            return this.container
+              .resolve<IHarnessProposalStore>(token)
+              .save(sessionId, update, complete);
+          },
           broadcast: (type, payload) => {
             if (!webviewManager) {
               this.logger.debug(

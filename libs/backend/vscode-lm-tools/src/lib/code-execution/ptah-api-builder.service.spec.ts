@@ -195,6 +195,7 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
 }));
 
 import * as namespaceBuilders from './namespace-builders';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { WebSearchService } from './services/web-search.service';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
 import { executeCode } from './mcp-core/code-execution.engine';
@@ -252,6 +253,66 @@ const DECLARED_ROOT = 'D:\\declared-root';
  * (or gained, unguarded) its session-aware capability.
  */
 const EXPECTED_ROOT_CAPABLE_SITES = 17;
+
+describe('PtahAPIBuilder harness proposal wiring', () => {
+  afterEach(() => jest.clearAllMocks());
+  it('resolves the real SDK id and the proposal store on every call', async () => {
+    const sessionManager = makeSessionManager();
+    let realSessionId: string | null = null;
+    sessionManager.find.mockImplementation((id: string) =>
+      id === 'tab-7' ? { realSessionId } : undefined,
+    );
+    const save = jest.fn().mockResolvedValue({ sessionId: 'sdk-7' });
+    const resolve = jest.fn().mockReturnValue({ save });
+    const container = {
+      isRegistered: jest.fn().mockReturnValue(true),
+      resolve,
+    };
+    const builder = buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      sessionManager,
+    );
+    Object.assign(builder, { pluginLoader: {}, container });
+    builder.build();
+    const deps = (
+      namespaceBuilders.buildHarnessNamespace as jest.Mock
+    ).mock.calls.at(-1)?.[0];
+    expect(deps).toBeDefined();
+    await runWithMcpRequestContext({ callerSessionId: 'tab-7' }, async () => {
+      expect(deps.getCallerSdkSessionId()).toBeUndefined();
+      realSessionId = 'sdk-7';
+      expect(deps.getCallerSdkSessionId()).toBe('sdk-7');
+      await deps.saveProposal('sdk-7', { name: 'X' }, false);
+      await deps.saveProposal('sdk-7', { name: 'Y' }, true);
+    });
+    expect(save).toHaveBeenNthCalledWith(1, 'sdk-7', { name: 'X' }, false);
+    expect(save).toHaveBeenNthCalledWith(2, 'sdk-7', { name: 'Y' }, true);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledWith(
+      PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
+    );
+    expect(save).not.toHaveBeenCalledWith(
+      'tab-7',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('throws when the proposal store is unavailable', () => {
+    const builder = buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      makeSessionManager(),
+    );
+    Object.assign(builder, { pluginLoader: {} });
+    builder.build();
+    const deps = (
+      namespaceBuilders.buildHarnessNamespace as jest.Mock
+    ).mock.calls.at(-1)?.[0];
+    expect(() => deps.saveProposal('sdk-7', {}, false)).toThrow(
+      /store is unavailable/,
+    );
+  });
+});
 
 function makeRawWorkspaceProvider(): IWorkspaceProvider {
   return {

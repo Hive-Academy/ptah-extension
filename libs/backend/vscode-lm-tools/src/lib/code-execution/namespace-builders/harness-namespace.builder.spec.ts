@@ -51,6 +51,7 @@ import {
 } from './harness-namespace.builder';
 import {
   CAPABILITY_POLICY_UNKNOWN_ERROR_NAME,
+  type HarnessProposal,
   type SkillShEntry,
 } from '@ptah-extension/shared';
 
@@ -111,6 +112,8 @@ function makeDeps(
     skillsDirectory?: SkillsDirectoryMock;
     smitheryRegistry?: SmitheryRegistryMock;
     mcpInstaller?: McpInstallerMock;
+    sessionId?: string;
+    saveProposal?: jest.Mock;
   } = {},
 ): {
   deps: HarnessNamespaceDependencies;
@@ -120,6 +123,7 @@ function makeDeps(
   smitheryRegistry?: SmitheryRegistryMock;
   mcpInstaller?: McpInstallerMock;
   broadcast: jest.Mock;
+  saveProposal: jest.Mock;
   logger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
 } {
   const skills = overrides.skills ?? [];
@@ -138,6 +142,19 @@ function makeDeps(
     listServers: jest.fn().mockResolvedValue(servers),
   };
   const broadcast = jest.fn();
+  const saveProposal =
+    overrides.saveProposal ??
+    jest.fn(
+      async (sessionId: string, configUpdates, isConfigComplete) =>
+        ({
+          version: 1,
+          workspaceRoot: 'D:/ws',
+          sessionId: sessionId.trim(),
+          configUpdates,
+          isConfigComplete,
+          updatedAt: '2026-10-13T00:00:00Z',
+        }) satisfies HarnessProposal,
+    );
   const logger = {
     info: jest.fn(),
     warn: jest.fn(),
@@ -156,6 +173,8 @@ function makeDeps(
         ? overrides.policyWorkspaceRoot
         : 'D:/ws',
     broadcast,
+    getCallerSdkSessionId: () => overrides.sessionId ?? 'sdk-1',
+    saveProposal,
     logger,
   };
   return {
@@ -166,6 +185,7 @@ function makeDeps(
     smitheryRegistry: overrides.smitheryRegistry,
     mcpInstaller: overrides.mcpInstaller,
     broadcast,
+    saveProposal,
     logger,
   };
 }
@@ -397,11 +417,13 @@ describe('buildHarnessNamespace — installMcpServer', () => {
 describe('buildHarnessNamespace — proposeConfig', () => {
   it('rejects invalid configUpdates without broadcasting', async () => {
     const { deps, broadcast } = makeDeps();
-    await expect(
-      buildHarnessNamespace(deps).proposeConfig({
-        persona: { goals: 'not-an-array' },
-      } as never),
-    ).rejects.toThrow(/Invalid configUpdates/);
+    const proposal = buildHarnessNamespace(deps).proposeConfig({
+      persona: { goals: 'not-an-array' },
+    } as never);
+    await expect(proposal).rejects.toThrow(/Invalid configUpdates/);
+    await expect(proposal).rejects.toMatchObject({
+      name: 'HarnessConfigUpdatesError',
+    });
     expect(broadcast).not.toHaveBeenCalled();
   });
 
@@ -433,6 +455,54 @@ describe('buildHarnessNamespace — proposeConfig', () => {
       expect.objectContaining({ isConfigComplete: true }),
     );
     expect(result).toMatch(/complete/i);
+  });
+
+  it('rejects an unresolved session without saving or broadcasting', async () => {
+    const { deps, saveProposal, broadcast } = makeDeps();
+    deps.getCallerSdkSessionId = () => undefined;
+    const proposal = buildHarnessNamespace(deps).proposeConfig({ name: 'X' });
+    await expect(proposal).rejects.toThrow(/no SDK session/);
+    await expect(proposal).rejects.toMatchObject({
+      name: 'HarnessProposalNoSessionError',
+    });
+    expect(saveProposal).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('does not broadcast when persistence fails', async () => {
+    const saveProposal = jest.fn().mockRejectedValue(new Error('disk full'));
+    const { deps, broadcast } = makeDeps({ saveProposal });
+    await expect(
+      buildHarnessNamespace(deps).proposeConfig({ name: 'X' }),
+    ).rejects.toThrow('disk full');
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts only after saving and uses the stored session id', async () => {
+    const order: string[] = [];
+    const saveProposal = jest.fn(async (_id, update, complete) => {
+      order.push('save');
+      return {
+        version: 1,
+        workspaceRoot: 'D:/ws',
+        sessionId: 'sdk-1',
+        configUpdates: update,
+        isConfigComplete: complete,
+        updatedAt: 'now',
+      } as HarnessProposal;
+    });
+    const { deps, broadcast } = makeDeps({
+      saveProposal,
+      sessionId: ' sdk-1 ',
+    });
+    broadcast.mockImplementation(() => order.push('broadcast'));
+    await buildHarnessNamespace(deps).proposeConfig({ name: 'X' });
+    expect(saveProposal).toHaveBeenCalledWith(' sdk-1 ', { name: 'X' }, false);
+    expect(order).toEqual(['save', 'broadcast']);
+    expect(broadcast).toHaveBeenCalledWith(
+      'harness:config-proposed',
+      expect.objectContaining({ sessionId: 'sdk-1' }),
+    );
   });
 });
 

@@ -41,9 +41,10 @@ export type {
   AnalysisPhaseStatus,
   PhaseResult,
   MultiPhaseManifest,
+  MultiPhaseManifestV4,
   MultiPhaseAnalysisOptions,
 } from './multi-phase.types';
-export { PHASE_CONFIGS, MultiPhaseManifestSchema } from './multi-phase.types';
+export { PHASE_CONFIGS } from './multi-phase.types';
 export type {
   GenerationAgentCheckpoint,
   GenerationCheckpointManifest,

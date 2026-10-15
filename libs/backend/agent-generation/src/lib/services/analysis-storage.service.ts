@@ -2,7 +2,7 @@
  * AnalysisStorageService - The single owner of `.ptah/analysis` I/O.
  *
  * Owns every durable artifact under `<workspace>/.ptah/analysis/`:
- * - `<slug>/manifest.json` — the version-3 analysis checkpoint
+ * - `<slug>/manifest.json` — the version-3 or version-4 analysis checkpoint
  * - `<slug>/NN-phase.md` — phase output files
  * - `<slug>/generation-manifest.json` — the generation checkpoint
  *   (`<root>/generation-manifest.json` when a run has no analysis slug)
@@ -15,7 +15,8 @@
  */
 
 import { inject, injectable } from 'tsyringe';
-import { dirname, isAbsolute, join, relative, resolve } from 'path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
+import { ulid } from 'ulid';
 import {
   PLATFORM_TOKENS,
   FileType,
@@ -27,8 +28,11 @@ import type {
   MultiPhaseAnalysisResponse,
 } from '@ptah-extension/shared';
 import {
-  MultiPhaseManifestSchema,
+  MultiPhaseManifestV3Schema,
+  MultiPhaseManifestV4Schema,
   type MultiPhaseManifest,
+  type MultiPhaseManifestV3,
+  type MultiPhaseManifestV4,
 } from '../types/multi-phase.types';
 import {
   GenerationCheckpointManifestSchema,
@@ -41,15 +45,38 @@ const MANIFEST_FILE = 'manifest.json';
 const GENERATION_MANIFEST_FILE = 'generation-manifest.json';
 const ENHANCED_PROMPT_MARKDOWN_FILE = 'enhanced-prompt.md';
 const ENHANCED_PROMPT_METADATA_FILE = 'enhanced-prompt.json';
+export const LEGACY_FALLBACK_SUFFIX = '--v4';
+export const LEGACY_ARCHIVE_MARKER = '-v3-archive-';
+export type RunDirVariant = 'primary' | 'legacy-fallback';
+
+export function isLegacyArchiveDirName(name: string): boolean {
+  return name.includes(LEGACY_ARCHIVE_MARKER);
+}
 
 /** The latest run that still has work a resume can pick up. */
 export interface ResumableRun {
   /** Slug directory of the analysis run, or null for a slug-less generation. */
   slugDir: string | null;
-  /** Validated version-3 analysis manifest, or null when only a generation exists. */
+  /** Validated version-3 or version-4 analysis manifest, or null when only a generation exists. */
   manifest: MultiPhaseManifest | null;
   /** Validated generation checkpoint stored beside the analysis, if any. */
   generation: GenerationCheckpointManifest | null;
+}
+
+export type ManifestReadResult =
+  | { kind: 'current'; manifest: MultiPhaseManifestV4 }
+  | { kind: 'legacy-v3'; manifest: MultiPhaseManifestV3 };
+
+/** Archiving failed before a verified v3 copy could replace the source. */
+export class LegacyRunArchiveError extends Error {
+  constructor(
+    message: string,
+    cause?: unknown,
+    readonly archiveDir: string | null = null,
+  ) {
+    super(message, { cause });
+    this.name = 'LegacyRunArchiveError';
+  }
 }
 
 @injectable()
@@ -88,6 +115,21 @@ export class AnalysisStorageService {
    */
   getSlugDir(workspacePath: string, slug: string): string {
     return join(this.getAnalysisDir(workspacePath), slug);
+  }
+
+  /** Resolve a run directory without I/O. Slugify never emits `--`, so the
+   * fallback suffix cannot collide with a real project slug. */
+  getRunDir(
+    workspacePath: string,
+    projectDescription: string,
+    variant: RunDirVariant = 'primary',
+  ): { slugDir: string; slug: string } {
+    const baseSlug = this.slugify(projectDescription);
+    const slug =
+      variant === 'legacy-fallback'
+        ? `${baseSlug}${LEGACY_FALLBACK_SUFFIX}`
+        : baseSlug;
+    return { slugDir: this.getSlugDir(workspacePath, slug), slug };
   }
 
   /**
@@ -137,9 +179,13 @@ export class AnalysisStorageService {
   async createSlugDir(
     workspacePath: string,
     projectDescription: string,
+    variant: RunDirVariant = 'primary',
   ): Promise<{ slugDir: string; slug: string }> {
-    const slug = this.slugify(projectDescription);
-    const slugDir = this.getSlugDir(workspacePath, slug);
+    const { slug, slugDir } = this.getRunDir(
+      workspacePath,
+      projectDescription,
+      variant,
+    );
 
     if (await this.fs.exists(slugDir)) {
       await this.fs.delete(slugDir, { recursive: true });
@@ -273,16 +319,32 @@ export class AnalysisStorageService {
   }
 
   /**
-   * Load and validate the version-3 manifest of a slug directory.
+   * Load and validate a manifest of a slug directory.
    *
    * Returns null when the file is missing, is not valid JSON, or does not
-   * satisfy `MultiPhaseManifestSchema` (a version-2 manifest included). The
+   * satisfy its versioned schema (a version-2 manifest included). The
    * file is left untouched in every one of those cases.
    */
   async loadManifest(slugDir: string): Promise<MultiPhaseManifest | null> {
+    return (await this.readManifest(slugDir))?.manifest ?? null;
+  }
+
+  /** Read a current v4 or legacy-v3 manifest. Missing, malformed, v2, and
+   * unknown versions return null; this method never rewrites the file. */
+  async readManifest(slugDir: string): Promise<ManifestReadResult | null> {
     const parsed = await this.readJson(join(slugDir, MANIFEST_FILE));
     if (parsed === undefined) return null;
-    const result = MultiPhaseManifestSchema.safeParse(parsed);
+    const version =
+      typeof parsed === 'object' && parsed !== null && 'version' in parsed
+        ? parsed.version
+        : undefined;
+    const result =
+      version === 3
+        ? MultiPhaseManifestV3Schema.safeParse(parsed)
+        : version === 4
+          ? MultiPhaseManifestV4Schema.safeParse(parsed)
+          : null;
+    if (result === null) return null;
     if (!result.success) {
       this.logger.debug(`${SERVICE_TAG} Manifest rejected by schema`, {
         slugDir,
@@ -290,7 +352,107 @@ export class AnalysisStorageService {
       });
       return null;
     }
-    return result.data as MultiPhaseManifest;
+    return version === 3
+      ? { kind: 'legacy-v3', manifest: result.data as MultiPhaseManifestV3 }
+      : { kind: 'current', manifest: result.data as MultiPhaseManifestV4 };
+  }
+
+  /** Copy a v3 run into a unique archive directory before removing its source. */
+  async archiveLegacyRun(
+    workspacePath: string,
+    slugDir: string,
+  ): Promise<string> {
+    const root = resolve(this.getAnalysisDir(workspacePath));
+    const source = resolve(slugDir);
+    if (dirname(source) !== root) {
+      throw new LegacyRunArchiveError(
+        'Analysis run is outside the workspace analysis root.',
+      );
+    }
+    const legacy = await this.readManifest(source);
+    if (legacy?.kind !== 'legacy-v3') {
+      throw new LegacyRunArchiveError(
+        'Analysis run is not a valid v3 manifest.',
+      );
+    }
+
+    const archive = join(
+      root,
+      `${basename(source)}${LEGACY_ARCHIVE_MARKER}${ulid()}`,
+    );
+    let created = false;
+    let deleteStarted = false;
+    let archiveKept = false;
+    try {
+      await this.fs.createDirectoryExclusive(archive);
+      created = true;
+      archiveKept = true;
+      await this.copyDirectoryVerified(source, archive);
+      const copied = await this.readManifest(archive);
+      if (
+        copied?.kind !== 'legacy-v3' ||
+        JSON.stringify(copied.manifest) !== JSON.stringify(legacy.manifest)
+      ) {
+        throw new Error('Archived manifest failed v3 validation.');
+      }
+      try {
+        deleteStarted = true;
+        await this.fs.delete(source, { recursive: true });
+      } catch (error: unknown) {
+        // A provider may have deleted some files before failing. Restore from
+        // the verified archive and retain that copy if restoration also fails.
+        await this.fs.createDirectory(source);
+        await this.copyDirectoryVerified(archive, source);
+        throw error;
+      }
+      return archive;
+    } catch (error: unknown) {
+      if (
+        created &&
+        !deleteStarted &&
+        (await this.readManifest(source))?.kind === 'legacy-v3'
+      ) {
+        try {
+          await this.fs.delete(archive, { recursive: true });
+          archiveKept = false;
+        } catch {
+          // Keep the partial archive when its cleanup fails; the v3 source remains.
+        }
+      }
+      throw new LegacyRunArchiveError(
+        archiveKept
+          ? deleteStarted
+            ? `Could not archive the legacy analysis run; the verified copy is kept at ${archive}.`
+            : `Could not archive the legacy analysis run; the partial archive is kept at ${archive}.`
+          : 'Could not archive the legacy analysis run.',
+        error,
+        archiveKept ? archive : null,
+      );
+    }
+  }
+
+  private async copyDirectoryVerified(
+    source: string,
+    destination: string,
+  ): Promise<void> {
+    const entries = await this.fs.readDirectory(source);
+    for (const entry of entries) {
+      const from = join(source, entry.name);
+      const to = join(destination, entry.name);
+      if (entry.type === FileType.Directory) {
+        await this.fs.createDirectory(to);
+        await this.copyDirectoryVerified(from, to);
+      } else if (entry.type === FileType.File) {
+        await this.fs.copy(from, to, { overwrite: true });
+        const original = await this.fs.readFileBytes(from);
+        const copied = await this.fs.readFileBytes(to);
+        if (!Buffer.from(original).equals(Buffer.from(copied))) {
+          throw new Error('Archived file failed byte verification.');
+        }
+      } else {
+        throw new Error('Unsupported entry in analysis run.');
+      }
+    }
   }
 
   /**
@@ -303,6 +465,7 @@ export class AnalysisStorageService {
     const runs = await this.listValidRuns(workspacePath);
     let latest: { slugDir: string; manifest: MultiPhaseManifest } | null = null;
     for (const run of runs) {
+      if (isLegacyArchiveDirName(run.entry)) continue;
       if (
         !latest ||
         new Date(run.manifest.analyzedAt) > new Date(latest.manifest.analyzedAt)
@@ -329,6 +492,8 @@ export class AnalysisStorageService {
     );
 
     for (const run of runs) {
+      if (isLegacyArchiveDirName(run.entry)) continue;
+      if (run.manifest.version === 3) continue;
       const generation = await this.loadGenerationManifest(
         workspacePath,
         run.slugDir,
@@ -525,17 +690,7 @@ export class AnalysisStorageService {
   ): MultiPhaseAnalysisResponse {
     return {
       isMultiPhase: true,
-      manifest: {
-        version: manifest.version,
-        runId: manifest.runId,
-        slug: manifest.slug,
-        analyzedAt: manifest.analyzedAt,
-        updatedAt: manifest.updatedAt,
-        lifecycle: manifest.lifecycle,
-        model: manifest.model,
-        totalDurationMs: manifest.totalDurationMs,
-        phases: manifest.phases,
-      },
+      manifest,
       phaseContents,
       analysisDir: slugDir,
     };
@@ -545,7 +700,7 @@ export class AnalysisStorageService {
   // Internals
   // ---------------------------------------------------------------------------
 
-  /** Every slug directory holding a valid version-3 manifest. */
+  /** Every slug directory holding a valid version-3 or version-4 manifest. */
   private async listValidRuns(workspacePath: string): Promise<
     Array<{
       entry: string;

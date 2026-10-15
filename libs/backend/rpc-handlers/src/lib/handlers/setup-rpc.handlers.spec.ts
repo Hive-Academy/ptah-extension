@@ -178,6 +178,7 @@ const AGENT_GENERATION_TOKENS = {
   SETUP_WIZARD_SERVICE: Symbol.for('SetupWizardService'),
   MULTI_PHASE_ANALYSIS_SERVICE: Symbol.for('MultiPhaseAnalysisService'),
   ANALYSIS_STORAGE_SERVICE: Symbol.for('AnalysisStorageService'),
+  ANALYSIS_FRESHNESS_SERVICE: Symbol.for('AnalysisFreshnessService'),
   AGENT_RECOMMENDATION_SERVICE: Symbol.for('AgentRecommendationService'),
   AGENTIC_ANALYSIS_SERVICE: Symbol.for('AgenticAnalysisService'),
   WIZARD_WEBVIEW_LIFECYCLE: Symbol.for('WizardWebviewLifecycleService'),
@@ -333,6 +334,7 @@ describe('SetupRpcHandlers', () => {
           'wizard:cancel-analysis',
           'wizard:deep-analyze',
           'wizard:get-resumable-run',
+          'wizard:analysis-status',
           'wizard:install-pack-agents',
           'wizard:list-agent-packs',
           'wizard:list-analyses',
@@ -344,6 +346,74 @@ describe('SetupRpcHandlers', () => {
 
     it('exposes wizard:get-resumable-run in the static METHODS manifest', () => {
       expect(SetupRpcHandlers.METHODS).toContain('wizard:get-resumable-run');
+      expect(SetupRpcHandlers.METHODS).toContain('wizard:analysis-status');
+    });
+  });
+
+  describe('wizard:analysis-status', () => {
+    const missing = {
+      state: 'missing' as const,
+      reason: 'no-analysis' as const,
+      analysisDir: null,
+      checkedAt: '2026-10-14T00:00:00.000Z',
+      analyzedAt: null,
+    };
+
+    it('passes null to the freshness service when no workspace is open', async () => {
+      const h = makeHarness({ workspaceFolders: [] });
+      const getStatus = jest.fn().mockResolvedValue(missing);
+      h.container.__register(
+        AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
+        {
+          getStatus,
+        },
+      );
+      h.handlers.register();
+
+      expect(await call(h, 'wizard:analysis-status')).toEqual(missing);
+      expect(getStatus).toHaveBeenCalledWith(null);
+    });
+
+    it('returns the service result unchanged and does not mutate storage', async () => {
+      const h = makeHarness();
+      const status = {
+        state: 'fresh',
+        reason: 'ok',
+        analysisDir: '/fake/workspace/.ptah/analysis/acme',
+        checkedAt: '2026-10-14T00:00:00.000Z',
+        analyzedAt: '2026-10-13T00:00:00.000Z',
+      };
+      const getStatus = jest.fn().mockResolvedValue(status);
+      const writeManifest = jest.fn();
+      h.container.__register(
+        AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
+        {
+          getStatus,
+        },
+      );
+      h.container.__register(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, {
+        writeManifest,
+      });
+      h.handlers.register();
+
+      expect(await call(h, 'wizard:analysis-status', { ignored: true })).toBe(
+        status,
+      );
+      expect(getStatus).toHaveBeenCalledWith(WORKSPACE);
+      expect(writeManifest).not.toHaveBeenCalled();
+      expect(h.container.resolve).not.toHaveBeenCalledWith(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+      );
+    });
+
+    it('rejects non-object params before resolving the service', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:analysis-status', []);
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(h.container.resolve).not.toHaveBeenCalled();
     });
   });
 
@@ -391,8 +461,8 @@ describe('SetupRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('wizard:get-resumable-run', () => {
-    const V3_MANIFEST = {
-      version: 3 as const,
+    const V4_MANIFEST = {
+      version: 4 as const,
       runId: 'run-analysis-1',
       slug: 'acme',
       analyzedAt: '2026-08-31T00:00:00.000Z',
@@ -469,7 +539,7 @@ describe('SetupRpcHandlers', () => {
         toResponse: jest.fn(
           (
             slugDir: string,
-            manifest: typeof V3_MANIFEST,
+            manifest: typeof V4_MANIFEST,
             phaseContents: Record<string, string>,
           ) => ({
             isMultiPhase: true,
@@ -508,11 +578,28 @@ describe('SetupRpcHandlers', () => {
       expect(result).toEqual({ analysis: null, generation: null });
     });
 
+    it('does not offer a legacy v3 run for resume', async () => {
+      const h = makeHarness();
+      const storage = storageWith(null); // Storage excludes v3 manifests from resumable runs.
+      h.container.__register(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        storage,
+      );
+      h.handlers.register();
+
+      expect(await call(h, 'wizard:get-resumable-run')).toEqual({
+        analysis: null,
+        generation: null,
+      });
+      expect(storage.findLatestResumableRun).toHaveBeenCalledWith(WORKSPACE);
+      expect(storage.readPhaseFile).not.toHaveBeenCalled();
+    });
+
     it('returns the paused analysis (completed phases only) and the generation DTO, read-only', async () => {
       const h = makeHarness();
       const storage = storageWith({
         slugDir: '/fake/workspace/.ptah/analysis/acme',
-        manifest: V3_MANIFEST,
+        manifest: V4_MANIFEST,
         generation: GENERATION,
       });
       h.container.__register(

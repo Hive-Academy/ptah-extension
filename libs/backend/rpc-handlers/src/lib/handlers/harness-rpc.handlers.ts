@@ -40,6 +40,7 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
   type IPlatformCommands,
+  type IHarnessProposalStore,
 } from '@ptah-extension/platform-core';
 import { probeStackToolchain } from '@ptah-extension/workspace-intelligence';
 import {
@@ -78,6 +79,8 @@ import type {
   HarnessAnalyzeIntentResponse,
   HarnessStartNewProjectParams,
   HarnessStartNewProjectResult,
+  HarnessGetProposalParams,
+  HarnessGetProposalResult,
   HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
   HarnessHealthParams,
@@ -98,19 +101,16 @@ import type {
   StackProfileId,
   ToolchainProbeResult,
 } from '@ptah-extension/shared';
-import {
-  MESSAGE_TYPES,
-  resolveStackProfileForPlatform,
-} from '@ptah-extension/shared';
+import { resolveStackProfileForPlatform } from '@ptah-extension/shared';
 
 import { HARNESS_TOKENS } from '../harness/tokens';
 import {
   buildNewProjectSeedPrompt,
   WIZARD_VIEW_TYPE,
 } from '../harness/harness-constants';
-import type { WebviewBroadcaster } from '../harness/streaming';
 import {
   HarnessGetSkillSelectionParamsSchema,
+  HarnessGetProposalParamsSchema,
   HarnessHealthParamsSchema,
   HarnessReconcileParamsSchema,
   HarnessRemoveParamsSchema,
@@ -184,6 +184,7 @@ export class HarnessRpcHandlers {
     'harness:generate-document',
     'harness:analyze-intent',
     'harness:start-new-project',
+    'harness:get-proposal',
     'harness:workflow-prompt',
     // The reconciler surface (TASK_2026_278 Batch 4). Registered here rather
     // than in a new handler class so the host-profile manifest, both app DI
@@ -349,6 +350,7 @@ export class HarnessRpcHandlers {
     this.registerGenerateDocument();
     this.registerAnalyzeIntent();
     this.registerStartNewProject();
+    this.registerGetProposal();
     this.registerWorkflowPrompt();
     this.registerHealth();
     this.registerReconcile();
@@ -845,12 +847,12 @@ export class HarnessRpcHandlers {
         if (pluginConfigChanged) {
           await this.reconcileHarness('harness:start-new-project');
         }
-        // Composed before the broadcast, and outside its try, so a probe or a
-        // consent-record read can never be mistaken for a broadcast failure.
+        const toolchain = await this.probeProfileToolchain(profile);
+        const availableSkillIds = this.resolveAvailableSkillIds();
         const seedPrompt = buildNewProjectSeedPrompt(intake, {
-          toolchain: await this.probeProfileToolchain(profile),
+          toolchain,
           missingExternalPlugins: missingExternal,
-          availableSkillIds: this.resolveAvailableSkillIds(),
+          availableSkillIds,
         });
 
         try {
@@ -858,29 +860,6 @@ export class HarnessRpcHandlers {
         } catch (error: unknown) {
           this.logger.warn(
             '[harness:start-new-project] focusChat failed (non-fatal)',
-            {
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        }
-        try {
-          const webviewManager = this.resolveService<WebviewBroadcaster>(
-            TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager',
-          );
-          await webviewManager.broadcastMessage(
-            MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
-            {
-              mode: 'new-project',
-              // What the agent receives …
-              seedPrompt,
-              // … and what the user sees rendered as their first bubble.
-              intake,
-            },
-          );
-        } catch (error: unknown) {
-          this.logger.warn(
-            '[harness:start-new-project] Failed to broadcast workflow open',
             {
               error: error instanceof Error ? error.message : String(error),
             },
@@ -901,7 +880,17 @@ export class HarnessRpcHandlers {
             },
           );
         }
-        return { success: true };
+        return {
+          success: true,
+          seedPrompt,
+          intake,
+          plugins: {
+            enabledBundled: bundled,
+            missingExternal,
+            availableSkillIds,
+          },
+          ...(toolchain ? { toolchain } : {}),
+        };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -917,6 +906,21 @@ export class HarnessRpcHandlers {
         return { success: false, error: message };
       }
     });
+  }
+
+  private registerGetProposal(): void {
+    this.wire<HarnessGetProposalParams, HarnessGetProposalResult>(
+      'harness:get-proposal',
+      'registerGetProposal',
+      async (params) => {
+        const { sessionId } = HarnessGetProposalParamsSchema.parse(params);
+        const store = this.resolveService<IHarnessProposalStore>(
+          PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
+          'HarnessProposalStore',
+        );
+        return { proposal: await store.get(sessionId) };
+      },
+    );
   }
 
   private registerWorkflowPrompt(): void {
