@@ -26,7 +26,7 @@ describe('HarnessWorkflowMessageHandler', () => {
   };
   let rpc: { getProposal: jest.Mock };
   let requests: { requestAndNavigate: jest.Mock };
-  let logger: { error: jest.Mock; warn: jest.Mock };
+  let logger: { debug: jest.Mock; error: jest.Mock; warn: jest.Mock };
   let workflow: { setError: jest.Mock };
 
   const event = (id: string, name: string): HarnessConfigProposedPayload => ({
@@ -62,7 +62,7 @@ describe('HarnessWorkflowMessageHandler', () => {
     };
     rpc = { getProposal: jest.fn().mockResolvedValue({ proposal: null }) };
     requests = { requestAndNavigate: jest.fn().mockResolvedValue('landed') };
-    logger = { error: jest.fn(), warn: jest.fn() };
+    logger = { debug: jest.fn(), error: jest.fn(), warn: jest.fn() };
     workflow = { setError: jest.fn() };
     TestBed.configureTestingModule({
       providers: [
@@ -162,6 +162,20 @@ describe('HarnessWorkflowMessageHandler', () => {
     propose(event('session-a', 'mine'));
     expect(state.applyConfigUpdates).toHaveBeenCalledTimes(1);
     expect(state.applyConfigUpdates).toHaveBeenCalledWith({ name: 'mine' });
+    expect(logger.debug).toHaveBeenCalledWith(
+      'HarnessWorkflowMessageHandler',
+      'Proposal ignored for unknown session session-b',
+    );
+  });
+
+  it('stays silent for proposals without a bound configure-harness workflow', () => {
+    propose(event('session-b', 'unbound'));
+    bind('surface-a', ['session-a']);
+    mode.set('new-project');
+    propose(event('session-b', 'other-mode'));
+
+    expect(logger.debug).not.toHaveBeenCalled();
+    expect(state.applyConfigUpdates).not.toHaveBeenCalled();
   });
 
   it('hydrates a reloaded matching session before any new tool call', async () => {
@@ -227,6 +241,34 @@ describe('HarnessWorkflowMessageHandler', () => {
       expect.any(Error),
     );
     expect(state.applyConfigUpdates).toHaveBeenCalledWith({ name: 'live' });
+  });
+
+  it('logs a failed buffered replay and continues with later events', async () => {
+    let finish!: (value: { proposal: null }) => void;
+    rpc.getProposal.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    bind('surface-a', ['session-a']);
+    propose(event('session-a', 'first'));
+    propose(event('session-a', 'second'));
+    state.applyConfigUpdates.mockImplementationOnce(() => {
+      throw new Error('bad update');
+    });
+
+    finish({ proposal: null });
+    await settle();
+
+    expect(state.applyConfigUpdates.mock.calls).toEqual([
+      [{ name: 'first' }],
+      [{ name: 'second' }],
+    ]);
+    expect(logger.error).toHaveBeenCalledWith(
+      'HarnessWorkflowMessageHandler',
+      'Buffered proposal replay failed',
+      expect.any(Error),
+    );
   });
 
   it('drops a stale hydration response after the workflow changes', async () => {

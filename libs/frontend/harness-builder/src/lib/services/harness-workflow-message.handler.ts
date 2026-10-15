@@ -135,7 +135,18 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
     this.hydrationPending = false;
     const buffered = this.buffered;
     this.buffered = [];
-    for (const event of buffered) this.applyProposal(event);
+    for (const event of buffered) {
+      try {
+        this.applyProposal(event);
+      } catch (cause: unknown) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.logger.error(
+          'HarnessWorkflowMessageHandler',
+          'Buffered proposal replay failed',
+          error,
+        );
+      }
+    }
   }
 
   private handleConfigProposed(payload: unknown): void {
@@ -144,12 +155,14 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
     if (!this.currentSurface || this.workflow.mode() !== 'configure-harness')
       return;
     const data = payload as HarnessConfigProposedPayload | undefined;
-    if (
-      !data ||
-      !sessionIds.some((sessionId) => sessionId === data.sessionId) ||
-      !data.configUpdates
-    )
+    if (!data || !data.configUpdates) return;
+    if (!sessionIds.some((sessionId) => sessionId === data.sessionId)) {
+      this.logger.debug(
+        'HarnessWorkflowMessageHandler',
+        `Proposal ignored for unknown session ${data.sessionId}`,
+      );
       return;
+    }
     if (this.hydrationPending) this.buffered.push(data);
     else this.applyProposal(data);
   }
