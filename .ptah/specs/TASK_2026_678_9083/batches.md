@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 16/27
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 16/28
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -134,6 +134,10 @@ Edge cases:
 | D23 | `TASK/reports/phase-b.diff` (137 KB, generated) is not committed. Delete it after the 8F re-review returns. | commit it | Reproducible with `git diff fa97a6967^..2137ab904`; the re-review range is the 8F commits. | yes |
 | D24 | 8F runs in this order: 8F0 alone, then wave 1 in PARALLEL MODE (8FA, 8FB, 8FD; disjoint files and disjoint Nx projects; lanes run no nx or jest), then 8FC, then 8FE. The team leader checks and commits one batch at a time. Each lane stays at 6 files or fewer, in at most 2 projects, under 40 tool calls. | one 8F batch (about 20 files, 5 projects); fully sequential | Batch-size rule; orchestrator's parallel condition (file-disjoint and different projects); 8FC needs 8FA and 8FB; 8FC and 8FE share `command-center`. | yes |
 | D25 | Q1 (from D16) answered by the orchestrator as a default, not a user answer: option (a). Keep the restored pre-commit hook, never bypass it, and run every commit alone in the foreground with a long timeout and nothing else heavy in flight. Wave 1 lanes run no nx/jest, so a team-leader commit never overlaps a lane check. | (b) scoped-lint arrangement; (c) bypass | A hook bypass is user-reserved and was not requested (orchestrator message, Batch 8F0 Mode 2). The user can overturn this. | yes |
+| D26 | Re-review Serious fix: `pageExit` cancels every `answered` proposal (new terminal state `'cancelled'`, consumed, no turn, no Decline), and `confirmEntry` re-checks after each await before the manifest write. On cancel it removes any manifest from an earlier attempt and returns `cancelled`, not retryable, with one `reportFailure`. A send that already succeeded stays `launched`. | (a) cancel token per entry; (b) keep answered entries alive across page exit; (c) drop silently with no report | `code-logic-review-phase-b-rereview.md` Serious; on disk `pageExit` `:115` deletes and `confirmEntry` has no post-await check. (b) is wrong because the coordinator is page-owned. (c) breaks the "one `reportFailure` per `ok: false`" contract from D18. A method-call check avoids TypeScript keeping the `'answered'` narrowing across `await`. | yes |
+| D27 | The records-migration Moderate is IN the bounded correction: a run-keyed entry beats a root-keyed entry for one `runId`, else the greater `startedAt` wins. | carry to a later task | Fix-round rule: a Moderate is fixed when it can lose data. This is a persisted read path, and key enumeration order decides which body survives and the next write drops the other. No production writer exists yet (B13/B14), so it is not reachable today, but the fix is a few lines in a file the batch can own. | yes |
+| D28 | The projection-dedup Moderate (a persisted provisional id hides the live row as `'unknown'`) is OUT of the bounded correction and carried to Task 14.2, which builds the projection inputs. | fix in 8FG | Fix-round rule: display-only, no lane-config break and no data loss. The re-review marked M6 CLOSED; this is a new edge case where a persisted id equals a live tab id. Task 14.2 owns `persistedChildren` and gets `work-projection.ts` and its spec added to its files. | yes |
+| D29 | Re-review Minors (`removeManifest` false ignored; Decline boolean ignored on duplicate receive and lanes-unavailable) and the 3 style re-review Minors are recorded only, not fixed. 8FG.1 does touch the rollback path, but only for the cancel case. | fix the Minors in 8FG | Fix-round rule: Minor recorded, not fixed. No path sends a launch: a false rollback leaves a run key that the retry rewrites, and an undelivered Decline still ends with the host's Decline-first timeout. The `childBySession` style Minor rides with D28 in Task 14.2. | yes |
 
 ## Phases and reviews
 
@@ -141,7 +145,7 @@ Edge cases:
 | ----- | ------- | ------------ |
 | 0 - Baseline | B0 | none (measurement) |
 | A - Chat runtime contracts | B1-B4, fix B4F | CLOSED: code-logic (B1-B4: NEEDS_REVISION); B4F re-review APPROVED (L1 closed) |
-| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24), all committed; NEEDS REVIEW: one logic re-review (grok) on `5d52cfa5b..HEAD` plus style re-review (phase widening) |
+| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24), all committed; re-review on `5d52cfa5b..b5af1cc42`: logic NEEDS_REVISION 7/10 (grok; all 13 prior findings closed; 1 new S, 2 M), style APPROVED (Anthropic); bounded correction 8FG (D26-D29), then one grok review of the 8FG diff only; a defect there is reported and Phase B stops |
 | C - Voice | B9-B10 | code-logic |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
 | E - Acceptance | B17-B18 | none (tests and measurement); B18 visual evidence is still required for Mode 3 |
@@ -1530,7 +1534,7 @@ Lane rules for this batch:
 - Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/command-center`,
   header 1 project, all 3 targets green.
 
-## Batch 8FE: Tribunal lanes and stage in the projection; persisted state unknown (logic S7, M6; style Moderate 3) - COMPLETE (commit: subject `fix(command-center): batch 8FE - tribunal lanes and stage in work tree`; SHA added when the Phase B re-review verdict is recorded)
+## Batch 8FE: Tribunal lanes and stage in the projection; persisted state unknown (logic S7, M6; style Moderate 3) - COMPLETE (commit b5af1cc42)
 
 - Families (8F fix round): implementer codex for every 8F lane (8FA `codex`, 8FB `codex`, 8FC `daeb9089`, 8FD
   `codex`, 8FE `9dc9ee2b`); 8F0 was an in-process Prettier run (format-only, outside the review range). Review:
@@ -1602,6 +1606,118 @@ Lane rules for this batch:
   `a5adac5cd`, 8FC `ae74169bc`, 8FE this commit). Phase B status: NEEDS REVIEW (logic re-review, grok, output
   `TASK/code-logic-review-phase-b-rereview.md`; style re-review, in-process, appends a `## Re-review (fix round 8F)`
   section with its own verdict to `TASK/code-style-review.md`).
+- Phase B re-review verdicts (team-leader, Mode 2 step 6, 2026-10-15), range `5d52cfa5b..b5af1cc42`:
+  - Logic: `TASK/code-logic-review-phase-b-rereview.md`, grok lane `a6f5ac65` (implementer codex), 7/10,
+    **NEEDS_REVISION**. All 13 prior findings CLOSED (S1-S7, TL-1..TL-3 = M1-M3, M5, M6, M7). New from 8F: 0 B,
+    1 S (pageExit during an in-flight confirm still launches), 2 M (projection dedup lets a persisted
+    provisional id hide the live row; mixed root/run-keyed records: key order decides which body survives),
+    2 Minor (`removeManifest` false ignored; Decline boolean ignored on duplicate receive and lanes-unavailable).
+  - Style: `TASK/code-style-review.md` section `## Re-review (fix round 8F)`, in-process Anthropic, **APPROVED**.
+    S1-S3 and Moderates 2-5 CLOSED; `prettier --check` clean on all 21 files; 3 Minor recorded (spread keeps
+    `availability` on the pending entry; `childBySession` could be a `Set<string>`; residual `input<number>(2)` in
+    `tribunal-panel/src/lib/wizard/step-run.component.ts:94`, not introduced by 8F).
+  - Disposition: Decisions D26-D29. This is the ONE bounded correction (revise cap): Batch 8FG, then one
+    independent review of the 8FG diff only. If that review finds defects, report them and stop; no further
+    fix round in Phase B.
+
+## Batch 8FG: Phase B bounded correction - page exit cancels an in-flight confirm; deterministic manifest migration - IN_PROGRESS
+
+- Recommended executor: CLI lane (implementation; Angular feature/data-access TypeScript, async state machine and
+  test design)
+- Execution mode: sequential (one lane; the two tasks are file-disjoint but small, and one scoped command covers both)
+- Fallback order: other family same capability -> same family other provider/model -> subagent (frontend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer. Implementer codex (any family except grok); follow-up review of the
+  8FG diff only by the grok lane (resume session `01a14044-266f-7ab0-9875-f29af51b78ea`).
+- Rationale: the re-review Serious (paid launch after page exit) and the one Moderate the fix-round rule admits
+  (persisted-record loss, D27). 4 files, 2 projects, well inside 40 tool calls.
+- Tasks: 2 | Depends on: 8FE committed (`b5af1cc42`)
+- Phase: B (bounded correction) | Phase review: one review of the 8FG commit only (logic, grok); no style review
+  (no new public API: only the exported `PendingProposal` state union and `ConfirmFailureReason` gain a member)
+- Scoped verification (team leader): `npx nx run-many -t test typecheck lint -p @ptah-extension/chat-state @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
+  The header must name 2 projects.
+- Files the lane may touch (4):
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.spec.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.ts`,
+  `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.spec.ts`
+- Suggested commit: `fix(command-center,chat-state): batch 8FG - cancel confirm on page exit`
+- Out of scope (D28, D29): the projection dedup Moderate (carried to Task 14.2), both logic Minors and all style
+  Minors (recorded only). Do not change `receive`, `decline`, `timeout`, the lanes-unavailable branch, or the
+  existing `removeManifest`-after-failed-send behaviour except where Task 8FG.1 says so.
+
+### Task 8FG.1: Page exit cancels an in-flight confirm before any manifest write or launch send (re-review Serious) - IN_PROGRESS
+
+- File: `tribunal-run-coordinator.ts` and its spec.
+- Finding: `pageExit()` (about `:111-117`) deletes an `answered` entry from `pending`, but the in-flight
+  `confirmEntry` (about `:134-233`) keeps the object and, after `discoveryComplete()` or `createTask()` resolves, still
+  calls `writeManifest` and `sendLaunchTurn`. A failed send then returns `retryable: true` for an id that is neither
+  pending nor consumed, so the next `confirm` returns `not-launchable` and reports a second time.
+- Quality requirements (Decision D26):
+  - Add terminal state `'cancelled'` to `PendingProposal['state']`, reason `'cancelled'` to `ConfirmFailureReason`,
+    and to `CONFIRM_FAILURE_MESSAGES`: `cancelled: 'Command Center closed before the run launched. Nothing was started.'`
+  - `pageExit()`: an `open` entry that is not in flight is declined as today. Every `answered` entry, in flight or
+    not, is cancelled: set `state = 'cancelled'`, delete it from `pending`, add its id to `consumed`. Send no turn
+    and no Decline (the question is already closed by the fixed answer, D1). Do not touch `inFlight`.
+  - `confirmEntry`: add one private helper, for example `isCancelled(id, entry): boolean` returning
+    `this.pending.get(id) !== entry` (a method call, so TypeScript does not keep the `'answered'` narrowing across
+    an `await`). Check it after EVERY `await` that precedes the manifest write: after `discoveryComplete()` (also
+    when that await rejects) and after `createTask()` (also when it throws or returns null). On cancel, return
+    one shared private path that: calls `transport.removeManifest(entry.workspace, entry.runId)` once if
+    `entry.runId` is set (a manifest from an earlier attempt), inside a `try`/`catch` with a valid
+    `// degradation-audit: reported — <reason>` marker as the first line of the catch body; then returns
+    `this.failure('cancelled', false)`. It never calls `writeManifest` or `sendLaunchTurn`.
+  - After the `sendLaunchTurn` await: if the send succeeded, the launch was already sent before the exit was
+    seen; keep today's `terminate(id, entry, 'launched')` and `{ ok: true }` (`terminate` must still work when the
+    id was already removed from `pending`). If the send returned false or threw AND the entry was cancelled, roll
+    back the manifest (today's rollback) and return `this.failure('cancelled', false)` instead of
+    `launch-send-failed`. Not cancelled: today's behaviour, unchanged.
+  - Invariants kept: exactly one `reportFailure` per `ok: false` result; concurrent `confirm` calls still share one
+    promise; `inFlight` is still cleared on settle; a cancelled id is consumed, so a later `confirm(id)` returns
+    `not-launchable` (not retryable), which is consistent with the `retryable: false` the cancel returned.
+  - The existing comment `/** Page-owned paid-spawn gate. ... */` stays; add one line to the `pageExit` doc or
+    body saying an answered proposal is cancelled and an in-flight confirm stops before the manifest write.
+- Specs (`tribunal-run-coordinator.spec.ts`, use a deferred promise for the awaited transport call):
+  1. `pageExit()` while `discoveryComplete()` is pending, then resolve it: `writeManifest` and `sendLaunchTurn`
+     are never called; the result is `{ ok: false, reason: 'cancelled', retryable: false }`; `reportFailure` is
+     called exactly once with the `cancelled` message; no `Decline` is sent.
+  2. Same with `discoveryComplete()` rejecting after `pageExit()`: reason `cancelled`, not `discovery-failed`.
+  3. Relay: `pageExit()` while `createTask()` is pending: no manifest write, no send, `cancelled`.
+  4. Retry then exit: attempt 1 fails at `sendLaunchTurn` (false, rollback called), attempt 2 is exited during
+     `discoveryComplete()`: `removeManifest` is called with the same `runId`, `writeManifest` is not called again,
+     `cancelled`.
+  5. `pageExit()` while `sendLaunchTurn` is pending and it resolves false: `removeManifest(workspace, runId)` is
+     called, the result is `cancelled` and not retryable, `reportFailure` once; a following `confirm(id)` returns
+     `not-launchable`, `retryable: false`.
+  6. `pageExit()` while `sendLaunchTurn` is pending and it resolves true: `{ ok: true }`; the id is consumed.
+  7. All existing specs pass unchanged (retry after manifest-write failure, rollback after send failure,
+     undelivered answer, duplicate id, lanes-unavailable, `pageExit` after `answered` sends no `Decline`).
+- Validation notes: A1 still holds (no affirmative token, no launch from timeout or auto-resolve). The new catch is
+  the only new catch site; `libs/frontend/command-center` is at degradation-audit baseline 0.
+
+### Task 8FG.2: Deterministic migration when a run key and a root key hold the same run (re-review Moderate, D27) - IN_PROGRESS
+
+- File: `command-center-records.ts` and its spec.
+- Finding: `read()` (about `:64-72`) writes `empty.runs[manifest.data.runId]` for each accepted stored key, so when
+  `runs[<runId>]` and `runs[<rootTabId>]` both hold the same `runId`, the key enumerated last wins and the other body
+  is lost on the next write.
+- Quality requirements: when `empty.runs[runId]` is already set, decide by rule, not by key order: an entry stored
+  under its own `runId` key always wins over one stored under a `rootTabId` key; between two root-keyed entries for
+  one `runId`, keep the greater `startedAt` (ties keep the first). Track the winning entry's key kind locally (for
+  example a `Map<string, boolean>` of "stored under runId"); do not change the persisted shape, the schema, the
+  storage key or any public method. Keep the 8F0.2 marker in the `write()` catch exactly as it is. No new catch.
+- Specs (`command-center-records.spec.ts`): a record with `runs[runId]` (newer body) and `runs[rootTabId]` (older
+  body, same `runId`) reads back the run-keyed body in BOTH insertion orders, and the next write persists only that
+  body under `runId`; two root-keyed entries with one `runId` keep the greater `startedAt`; all existing migration,
+  corrupt-entry and isolation specs pass unchanged.
+
+### Batch 8FG verification
+
+- Every listed artifact exists; the scoped command passes with 2 projects in the header.
+- Team leader reads the `confirmEntry` cancel checks, the new catch against `check-degradation.ts`, and the
+  `read()` precedence rule on disk.
+- After commit: NEEDS REVIEW of the 8FG commit only (grok, resume session `01a14044-266f-7ab0-9875-f29af51b78ea`).
+  APPROVED closes Phase B. Any defect is reported and Phase B stops there (no further fix round).
 
 ## Batch 9: Voice primitives (adapted from property-hub) - PENDING
 
@@ -1955,6 +2071,14 @@ Lane rules for this batch:
     (`session-coordinator.ts:28,34`) if the page needs no second provider.
   - Wire the 8FC transport additions (`availability()`, `removeManifest`, `reportFailure` -> store toast) and
     pass a required `ProposalAvailability` to `receive`.
+- Carried from the Phase B re-review (Decision D28), owned here: the page builds the projection inputs, so it owns
+  the dedup Moderate. Either pass `persistedChildren` keyed by canonical SDK session ids only, or (preferred) fix
+  `projectOwnedWork` itself: key the persisted filter and the node dedup by `canonical(sessionId)`, and when two
+  candidates share a node id keep the live state over `'unknown'`. This adds
+  `libs/frontend/command-center/src/lib/model/work-projection.ts` and its spec to this task's files. Spec: live
+  child `{ tabId: 'temporary', sessionId: 'child-sdk' }` plus persisted `{ sessionId: 'temporary' }` gives one
+  `child:child-sdk` node in the live state. Also apply the recorded style Minor there (`childBySession` as a
+  `Set<string>` built with `flatMap`).
 
 ### Batch 14 verification
 

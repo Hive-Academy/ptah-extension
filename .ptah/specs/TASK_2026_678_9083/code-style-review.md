@@ -361,3 +361,41 @@ Note it in the phase header so nobody adds an eager importer.
   6. Put the Command Center write-failure bookkeeping beside `CommandCenterRecordsService`, not in `TabManagerService`.
 
 Verdict: NEEDS_REVISION
+
+## Re-review (fix round 8F)
+
+Range: `5d52cfa5b..HEAD` (8FA `dd8e42cd9`, 8FB `545d3b53a`, 8FD `a5adac5cd`, 8FC `ae74169bc`, 8FE `b5af1cc42`).
+Reviewer family: Anthropic (in-process), Implementer family: codex.
+Scope: style only. Logic is covered by the parallel grok re-review. Moderates 1 and 6 are carried to Task 14.2 (D20).
+The D17 residue (`session-loader.service.ts`, `chat-rpc.schema.spec.ts`) is out of scope.
+
+### Status of the prior findings
+
+| Prior finding | Status | Evidence |
+| --- | --- | --- |
+| S1 Prettier | CLOSED | `npx prettier --check` on all 21 library files in the range passes (result line below). I also checked `status-context.ts`, `status-context.spec.ts`, `command-center/src/index.ts` and `tsconfig.base.json`, which the original S1 named. All pass. The residue in `session-loader.service.ts` and `chat-rpc.schema.spec.ts` is recorded in D17 and was not re-checked. |
+| S2 local roster-rule copy (D14-R) | CLOSED | `tribunal-roster-proposal.ts:2-8` imports `rosterIsLaunchable` from `@ptah-extension/tribunal-panel/phase`. The local relay/crucible copy and its inlined `normalizeModel` are gone. Only the two proposal-shape checks the panel rule lacks remain, as `proposalShapeIsValid` (`:64-74`). `proposalIsLaunchable` (`:75-82`) composes the two. The coordinator calls `proposalIsLaunchable` at `tribunal-run-coordinator.ts:170`. `phase.ts:21` exports the rule, and `tribunal-roster-rules.ts:1-7` imports only `../types/tribunal-ui.types`, which is pure. |
+| S3 constants re-typed | CLOSED | cli: `tribunal-roster-proposal.ts:17` is `z.enum([...SYSTEM_CLI_TYPES, 'ptah-cli'])`. role: `:19` is `z.enum([...RELAY_ROLES, ...CRUCIBLE_ROLES])`. move: `:25` is `z.enum(TRIBUNAL_MOVES)`. rounds: `:28` is `.max(MAX_CRUCIBLE_ROUND_CAP)`. `AT_LIMIT_STATE` is declared once (`:11`) and used at `:51` and `:92`. `tribunal-phase-derivation.ts:4,91` uses `DEFAULT_CRUCIBLE_ROUND_CAP`. `tribunal-run-framing.ts:104-107` splits the default and the maximum (ruling 2), and `roundCapFor` uses the maximum at `:120`. `TRIBUNAL_MOVES` is declared in `tribunal-ui.types.ts:4-10` with `TribunalMove` derived at `:11`. Compile-time parity of the move list with the `chat-state` manifest enum holds through `tribunal-run-coordinator.ts:193` (`move: proposal.move`). |
+| Moderate 2 phase.ts header and guard | CLOSED | `phase.ts:1-6` gives the reason (Decision D6) and the must-stay-pure rule. All exports are named `export {...} from` / `export type {...} from` (`:7-31`) with no `export *`. `phase.spec.ts:5-17` pins the sorted runtime export list (11 names) and matches `phase.ts` exactly. Type exports are erased and not pinned, which is expected. The header is 5 lines, not the 6-8 asked for, and covers the points I listed. |
+| Moderate 3 casts removed | CLOSED | No `as string` remains in `work-projection.ts`. `aliases` is built with `flatMap` (`:60-64`). The remaining `as const` at `:62,82` are const assertions, not type escapes. No `as any` or `@ts-` in `command-center/src` production code. |
+| Moderate 4 named receive contract | CLOSED | `ProposalReceiveContext` is exported and `readonly` (`tribunal-run-coordinator.ts:49-57`). `PendingBase` derives from it (`:58-60`). `PendingProposal` (`:61-65`) replaces `Pending`. `receive` takes the named type (`:77`). Neither type is in the barrel. |
+| Moderate 5 `''` role sentinel (D21) | CLOSED | `command-center-records.ts:18` is `role: nonEmpty.optional()`. The coordinator omits `role` when absent (`tribunal-run-coordinator.ts:195-199`), so `''` is no longer written. This is `role?: string`, not `role?: LaneRole`. D21 explains why: `eslint.config.mjs:407-414` forbids `chat-state` (`type:data-access`) from importing `tribunal-panel` (`type:feature`). I accept this deviation. The producer's zod enum limits the value to the canonical roles. |
+
+Prettier: `npx prettier --check` on the 21 library files from the diff: "All matched files use Prettier code style!" (exit 0, no cache written).
+
+### New style issues introduced by 8F
+
+Blocking 0, Serious 0, Moderate 0, Minor 3.
+
+- Minor: `tribunal-run-coordinator.ts:93-94` spreads the whole `context` into the pending entry, so `availability` (a snapshot) is kept at runtime while `PendingProposal` omits it (`:58`). The type then misdescribes the object. Destructure `availability` out in `receive`, or keep it in the type. This costs a stale reference per pending proposal, not a failure. Logic can check whether anything reads it.
+- Minor: `work-projection.ts:66-70` builds `childBySession` as a `Map` keyed by `string | undefined` after `.filter((child) => child.sessionId)`, and it is only used for `.has` (`:78`). A `Set<string>` built with `flatMap` would match the `aliases` construction at `:60-64` and drop `undefined` from the key type. The cast removal itself is fine.
+- Minor (residual, not introduced by 8F): `tribunal-panel/src/lib/wizard/step-run.component.ts:94` still has `input<number>(2)` as a bare round-cap default. It is inside the panel, outside the phase entry, and was not in the prior S3 list. The next change to the cap constants should take it from `DEFAULT_CRUCIBLE_ROUND_CAP`.
+
+### Checks run and not verified
+
+- Read in full: `phase.ts`, `phase.spec.ts`, `tribunal-roster-proposal.ts`, `tribunal-run-coordinator.ts`, `work-projection.ts`, and the `phase-b-8f.diff` hunks for `tribunal-ui.types.ts`, `tribunal-run-framing.ts`, `tribunal-phase-derivation.ts` and `command-center-records.ts`. I read the import lists of every module `phase.ts` re-exports. They import only `@ptah-extension/shared`, `import type` from `chat-streaming` and `canvas` (erased), and sibling pure files. No Angular or DI is pulled in.
+- Not verified, because I was limited to prettier: that `z.enum([...SYSTEM_CLI_TYPES, 'ptah-cli'])` type-checks as a tuple (`SYSTEM_CLI_TYPES` is `as const` at `agent-process.types.ts:70-78`, so I expect it to); that `phase.spec.ts` passes under jest; that lint and typecheck are clean. The batch reports record those runs, and I did not repeat them. I did not re-read the 8F spec files beyond the file list and `phase.spec.ts`.
+
+Reviewer family: Anthropic (in-process), Implementer family: codex
+
+Verdict: APPROVED
