@@ -158,3 +158,9 @@ export * from './templates/electron-welcome.component';
 export * from './file-suggestions/file-tag.component';
 export * from './file-suggestions/unified-suggestions-dropdown.component';
 export * from './atoms/workflow-badge.component';
+// Session inspector (TASK_2026_677 B-4): hosts reference it only inside
+// `@defer`, so its section tree stays a lazy chunk.
+export {
+  SessionInspectorComponent,
+  type SessionInspectorPresentation,
+} from './organisms/session-inspector/session-inspector.component';
