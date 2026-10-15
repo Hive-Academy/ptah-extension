@@ -121,3 +121,53 @@ Nothing in this phase calls `engage`. The page that owns engage, release, and th
 Read in full: `command-center-persona.ts`, `command-center-records.ts`, `command-center-send-lock.service.ts`, the four new chat specs, the persona and lock specs, the records spec, the tab-manager command-center spec, the restore spec, both backend persona specs, and the rpc-chat types spec. Traced, not every line of the pre-existing files: `continueSession`, `autoResumeIfInactive`, `resumeSession` activate, `registerRewindFiles`, `send` / `startNewConversation` / `runContinueConversation`, `sendOrQueueMessage` / `sendQueuedMessage`, `handleQuestionResponse`, `closeTab`, `attachSession` / `resolveSession`, `sanitizeRestoredTab`, `switchSession` activate, `attemptRewindV2`, and `executeSlashCommand` through the sessionConfig handoff.
 
 Not checked: a live Electron slash continue, localStorage quota, or a second webview. No source file was edited.
+
+## Re-review (Batch 4F)
+
+- Commit: f590a5647 | Reviewer family: grok | Implementer family: codex
+- Verdict: APPROVED
+- L1 status: Closed
+- Evidence:
+
+### 1. sessionConfig carries systemPrompt only for a non-empty string
+
+`chat-slash-command-router.service.ts:141-156` builds the `executeSlashCommand` config. The only edit in that call is line 150: `...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {})`. A non-empty string is truthy, so the key is set to that exact string. `undefined` and `''` are falsy, so the key is omitted. No other field of the call changed: `model` (142), `projectPath` (143), conditional `mcpToolProfile` (144-146), conditional `ptahUiFence` (147-149), `mcpServerRunning` (152), `enhancedPromptsContent` (153), `tabId` (154), and `providerProfile` (155) are the pre-fix arguments. `git show f590a5647` adds that one line inside the `new-query` object and does not touch the surrounding call.
+
+### 2. Native branches are unchanged
+
+`routeFollowUpSlashCommand` still handles `action === 'native'` at `chat-slash-command-router.service.ts:86-111`. `/clear` still interrupts, broadcasts `CHAT_COMPLETE`, and returns `{ success: true, sessionId }` (92-106). An unrecognized native name still logs and returns the same success result (107-111). The commit diff does not modify those lines.
+
+### 3. The spec exercises the spread through the real router
+
+`chat-slash-command-persona.spec.ts` constructs real `ChatSessionService` and `ChatSlashCommandRouterService` prototypes (37-64) and calls `continueSession`.
+
+| Case | Evidence | Holds if the spread line is removed? |
+| --- | --- | --- |
+| (a) inactive + persona | `it.each` live `false` (72-82); asserts `sessionConfig.systemPrompt` equals the persona (78) and `resumeSession` is not called (80) | No. Nothing else writes `systemPrompt` onto that argument. |
+| (b) active + persona | same `it.each` with live `true` (72-82) | No, same assertion. Active and inactive share the spread; `live` changes `endDeadRecordBeforeSlashCommand` (`chat-session.service.ts:1675-1676`), which returns before `interruptSession` when `isStreaming` is true. The assertion that `resumeSession` was not called checks the slash skip at 983-991. |
+| (c) absent | `it.each` `'absent', undefined` (84-93); `not.toHaveProperty('systemPrompt')` (91-92) | Yes. The key is already absent. This case fails only if a key is written for a missing value. |
+| (d) empty string | `it.each` `'empty', ''` (84-93) | Yes, for the same reason. It fails if the predicate is widened to `!== undefined`, because `''` would then be present. |
+| (e) `/clear` | 95-101: success result, `executeSlashCommand` not called, `resumeSession` not called | The spread is not on this path. The assertion fails if `/clear` starts a relaunch. |
+
+The spec is not vacuous for the fix. `continueSession` (`chat-session.service.ts:980`) uses the real `SlashCommandInterceptor.isSlashCommand`, and `/compact` matches `SLASH_COMMAND_REGEX` (`slash-command-interceptor.ts:39`, `/^[a-zA-Z]/`). It then calls the real `routeFollowUpSlashCommand` (1006-1015). `intercept` is stubbed (spec 42-46), so the spec does not prove production classification of `/compact`; it does prove that a `new-query` result copies the persona. Removing line 150 fails (a) and (b). This lane did not re-run the spec; the orchestrator already passed `@ptah-extension/rpc-handlers` test, typecheck, and lint.
+
+### 4. The agent-sdk chain keeps systemPrompt
+
+`sdk-agent-adapter.ts:1617-1626`: when `providerProfile` and `config.sessionConfig` are both set, the merge is `...config.sessionConfig` first, then `model: providerProfile.model`, then optional `effort`. `systemPrompt` is not overwritten. When `providerProfile` is absent, or `sessionConfig` is absent, the value is `config.sessionConfig` unchanged (1626). `executeSlashCommandQuery` receives that object as `sessionConfig` (1650-1654). `session-lifecycle-manager.ts:743-746` passes `config.sessionConfig` into `executeQuery`. `session-query-executor.service.ts:769-772` passes the same `sessionConfig` to `queryOptionsBuilder.build`. `sdk-query-options-builder.ts:1100-1101` calls `buildSystemPrompt(sessionConfig, ...)`, and line 1769 reads `userSystemPrompt: sessionConfig?.systemPrompt`. `assembleSystemPrompt` appends that string when it is truthy (`sdk-query-options-builder.ts:323-325`).
+
+### 5. No new serious failure mode
+
+The router does not read a tab marker. An unmarked continue that omits `systemPrompt` gets no key (spec case c). A persona is attached only when the caller sends one, which is the same predicate `resumeSession` already uses (`chat-session.service.ts:1599`). A whitespace-only string is truthy, so it is copied and later appended (`sdk-query-options-builder.ts:323-325`). That matches the resume path; it is not a slash-only leak, and the L1 fix asked for any non-empty string. Empty and missing stay omitted.
+
+- New findings: none
+
+| ID | Severity | file:line | defect | fix |
+| --- | --- | --- | --- | --- |
+| — | — | — | No new Blocking, Serious, Moderate, or Minor defect in f590a5647. L2, L3, and L4 were not re-reviewed. | — |
+
+## Decisions
+
+| Decision | Options | Evidence | Reversible |
+| --- | --- | --- | --- |
+| Close L1 as APPROVED | Keep L1 open because the spec stubs `intercept`, or because whitespace-only is copied | The spread is the defect. The real router builds the config, and (a)/(b) fail if line 150 is removed. Whitespace uses the same truthy check as `resumeSession` at `chat-session.service.ts:1599`. | Yes |
+

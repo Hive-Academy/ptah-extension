@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 52 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 4/21
+Total tasks: 52 | Batches: 21 (19 code batches + 2 user-run gates) | Complete: 5/21
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -118,13 +118,14 @@ Edge cases:
 | D8 | Phase A fix round fixes Serious L1 now in Batch 4F (one backend project, 2 files). | fix now; defer | Fix-round rule: Blocking and Serious are fixed. Orchestrator confirmed L1 at `chat-slash-command-router.service.ts:141-150` and `chat-session.service.ts:983-984`. | yes |
 | D9 | Moderate L2 (first `chat:start` on a marked tab carries no persona) is deferred to Task 6.2 in Batch 6, not fixed in Batch 4F. | fix now in the sender (cheapest, same file as B4); defer to B6 | Fix-round rule: a Moderate is fixed now only if it can break a lane config or lose data. L2 does neither: it yields a persona-less session and no product caller of `createCommandCenterTab` exists until B6 (review L2). The race only opens when B6 adds the coordinator start, so B6 is where it closes; the review recommends the same. | yes |
 | D10 | Moderates L3 (close leaves the send lock engaged) and L4 (records write failure ignored, `tab-manager.service.ts:991,1930-1933`) are deferred to Batch 6A. | fix now; defer | L3: no production caller of `engage` until B6/B14, and a stale lock on a dead root holds no live send (sends pass tab ids). L4: the failure comes from storage; ignoring the `false` hides it but does not cause it, and the SDK session itself stays listed by `session:list`, so no user data is lost. Neither breaks a lane config. | yes |
+| D11 | Batches 5 and 6A may run as two concurrent implementation lanes (amends D5 for this pair only). Neither lane runs any `nx` or `jest` command; the orchestrator runs the two scoped checks one after the other, each in the foreground. | keep strictly sequential; parallel with lanes running their own checks | File-disjoint: B5 writes only `libs/frontend/command-center/**`, `tsconfig.base.json` and `.commitlintrc.json`; B6A writes only 4 `libs/frontend/chat-state` files. B6A depends on B3 only (its "after B6" was D5 ordering, not code). Different Nx projects. Lanes running their own checks would break the one-heavy-check rule, so checks stay with the orchestrator. B7 is excluded (shares `tsconfig.base.json` with B5); B6 is excluded (depends on B5). | yes |
 
 ## Phases and reviews
 
 | Phase | Batches | Phase review |
 | ----- | ------- | ------------ |
 | 0 - Baseline | B0 | none (measurement) |
-| A - Chat runtime contracts | B1-B4, fix B4F | code-logic (B1-B4: NEEDS_REVISION); re-review scoped to B4F |
+| A - Chat runtime contracts | B1-B4, fix B4F | CLOSED: code-logic (B1-B4: NEEDS_REVISION); B4F re-review APPROVED (L1 closed) |
 | B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8 | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`) |
 | C - Voice | B9-B10 | code-logic |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
@@ -435,7 +436,7 @@ last batch header.
   3 Moderate L2, L3, L4). Fix round: L1 in Batch 4F (Decision D8). L2 deferred to Task 6.2 (D9).
   L3 and L4 deferred to Batch 6A (D10). One re-review, scoped to the Batch 4F commit, follows it.
 
-## Batch 4F: Phase A fix round - persona on slash relaunch (review L1) - IN_PROGRESS
+## Batch 4F: Phase A fix round - persona on slash relaunch (review L1) - COMPLETE (commit f590a5647)
 
 - Recommended executor: CLI lane (implementation; NestJS-style backend TypeScript), codex family
 - Execution mode: sequential
@@ -450,7 +451,7 @@ last batch header.
   (header must name 1 project). Verification rules above apply.
 - Suggested commit: `fix(rpc-handlers): batch 4F - keep persona on slash relaunch`
 
-### Task 4F.1: Carry systemPrompt into the slash new-query sessionConfig (L1) - IMPLEMENTED
+### Task 4F.1: Carry systemPrompt into the slash new-query sessionConfig (L1) - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-persona.spec.ts` (new)
@@ -494,8 +495,18 @@ last batch header.
   `executeQuery`, `sdk-query-options-builder.ts:1769` reads `sessionConfig?.systemPrompt`. Scoped
   check (run once by the orchestrator): `run-many -t test typecheck lint -p
   @ptah-extension/rpc-handlers --parallel=1`, header names 1 project, all 3 targets succeeded.
+- Committed: `f590a5647` (4 files: router, new spec, batch-4F report, batches.md). HANDOFF.md not staged.
+- Phase A re-review: REQUESTED - code-logic, scoped to `97929ae01..f590a5647` (L1 closure only).
+  Implementer family: codex. Reviewer family: grok CLI lane (different family). Output: a
+  `## Re-review (Batch 4F)` section appended to `TASK/code-logic-review.md`. Verdict: APPROVED
+  (L1 Closed; no new findings). Review path: `TASK/code-logic-review.md` "## Re-review (Batch 4F)".
+- Phase A: CLOSED. Accepting verdict recorded above; implementer family codex (B1-B4, B4F),
+  reviewer family grok CLI lane for both the phase review and the re-review (different family,
+  no exception). The reviewer edited only `code-logic-review.md`. Deferred Moderates carried
+  forward: L2 -> Task 6.2 (D9); L3, L4 -> Batch 6A (D10). L2-L4 were not re-reviewed; the
+  Phase B review checks them.
 
-## Batch 5: command-center lib skeleton, scope and store - PENDING
+## Batch 5: command-center lib skeleton, scope and store - IN_PROGRESS
 
 - Recommended executor: CLI lane (implementation; Nx/Angular library setup)
 - Execution mode: sequential
@@ -503,13 +514,13 @@ last batch header.
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: 12 files, 8 of them boilerplate mirrored from `mcp-apps-page` (Decision D4); one project.
-- Tasks: 2 | Depends on: B4
+- Tasks: 2 | Depends on: B4 | May run concurrently with B6A (Decision D11)
 - Phase: B - Command Center model | Phase review: code-logic + style (after B8)
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/command-center --parallel=1 2>&1 | tail -60`.
   Verification rules above apply.
 - Suggested commit: `feat(command-center): batch 5 - add command-center lib and store` (needs the scope added here)
 
-### Task 5.1: Library skeleton, alias and commit scope - PENDING
+### Task 5.1: Library skeleton, alias and commit scope - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/{project.json,eslint.config.mjs,jest.config.ts,tsconfig.json,tsconfig.lib.json,tsconfig.spec.json,src/test-setup.ts,src/index.ts}` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/tsconfig.base.json`,
@@ -521,7 +532,7 @@ last batch header.
 - Validation notes: the barrel exports real code only (Task 5.2 store); no placeholder export.
 - Implementation details: copy-and-rename from `mcp-apps-page`.
 
-### Task 5.2: CommandCenterStore - PENDING
+### Task 5.2: CommandCenterStore - IN_PROGRESS
 
 - Depends on: Task 5.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/command-center.store.ts` (new),
@@ -599,7 +610,7 @@ last batch header.
   (header must name 2 projects) in place of the one-project command above.
 - No per-batch review.
 
-## Batch 6A: Lock release on close and record-write surfacing (deferred Phase A review L3, L4) - PENDING
+## Batch 6A: Lock release on close and record-write surfacing (deferred Phase A review L3, L4) - IN_PROGRESS
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
 - Execution mode: sequential
@@ -607,13 +618,13 @@ last batch header.
 - Subagent reason: N/A
 - Review family: different from implementer
 - Rationale: two surgical fixes in one data-access lib, both on the marked-tab close and bind paths.
-- Tasks: 2 | Depends on: B3; runs after B6 (Decision D5 sequencing)
+- Tasks: 2 | Depends on: B3 | May run concurrently with B5 (Decision D11); otherwise runs after B5
 - Phase: B | Phase review: covered by the Phase B review after B8
 - Scoped verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/chat-state --parallel=1 2>&1 | tail -60`
   (header must name 1 project). Verification rules above apply.
 - Suggested commit: `fix(chat-state): batch 6A - release lock on close, surface record failures`
 
-### Task 6A.1: Drop the send lock when its root tab closes (L3) - PENDING
+### Task 6A.1: Drop the send lock when its root tab closes (L3) - IN_PROGRESS
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.ts`,
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.spec.ts`,
@@ -627,7 +638,7 @@ last batch header.
   `release` after the clear is a no-op; another root's lock is untouched.
 - Validation notes: do not treat the next `engage` overwrite as the release path.
 
-### Task 6A.2: Surface a failed records write on bind, create and close (L4) - PENDING
+### Task 6A.2: Surface a failed records write on bind, create and close (L4) - IN_PROGRESS
 
 - Depends on: Task 6A.1 (same file)
 - Files: same as Task 6A.1 (tab-manager service and its command-center spec)
