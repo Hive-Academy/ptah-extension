@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 48 | Batches: 19 (17 code batches + 2 user-run gates) | Complete: 2/19
+Total tasks: 48 | Batches: 19 (17 code batches + 2 user-run gates) | Complete: 3/19
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -231,7 +231,7 @@ last batch header.
 - No per-batch review; the Phase A code-logic review covers this batch.
 - Edge cases: restart then regular-chat send (persona present), history-only resume unchanged.
 
-## Batch 2: Tab marker, persona resolver and Command Center records - COMPLETE
+## Batch 2: Tab marker, persona resolver and Command Center records - COMPLETE (commit 619ec683b)
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
 - Execution mode: sequential
@@ -304,7 +304,7 @@ last batch header.
   the records' `workspacePath` key must name the same value when B3 writes them; the records
   service does read-modify-write on one key per workspace (last writer wins across windows).
 
-## Batch 3: Send lock service and marked-tab lifecycle - PENDING
+## Batch 3: Send lock service and marked-tab lifecycle - COMPLETE
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript)
 - Execution mode: sequential
@@ -318,7 +318,7 @@ last batch header.
   Verification rules above apply.
 - Suggested commit: `feat(chat-state): batch 3 - command center send lock and tab lifecycle`
 
-### Task 3.1: CommandCenterSendLockService - PENDING
+### Task 3.1: CommandCenterSendLockService - COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.ts` (new),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-send-lock.service.spec.ts` (new),
@@ -332,7 +332,7 @@ last batch header.
 - Validation notes: rekey during engaged lock; release by wrong token is a no-op.
 - Implementation details: signals only; spec covers engage/release/rekey/other-tab/owner-token/reload.
 
-### Task 3.2: Mark, rekey and close-warning hooks in TabManagerService - PENDING
+### Task 3.2: Mark, rekey and close-warning hooks in TabManagerService - COMPLETE
 
 - Depends on: Task 3.1
 - Files: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.service.ts`,
@@ -352,6 +352,12 @@ last batch header.
 - The scoped command passes; output tailed; all existing `tab-manager.*.spec.ts` still pass.
 - No per-batch review; Phase A review covers it.
 - Edge cases: rekey with lock engaged; close warns and keeps the record; reload never restores a lock.
+- Result: files verified on disk; orchestrator's foreground scoped run passed for 1 project
+  (`TASK/reports/batch-3-report.md`; 30 suites, 585 tests). Notes for the Phase A review:
+  (a) `CommandCenterSendLockService.engage` overwrites a lock held by another owner token (no
+  owner check); (b) `closeTab` on a marked tab clears the active-tab record but does not release
+  the send lock, so a lock engaged on a closed root stays held until page reload; (c) the marker
+  `workspaceId` and the records key both use `activeWorkspacePath` (B2 note resolved).
 
 ## Batch 4: Chat send funnel guard, persona attach and tab-explicit answers - PENDING
 

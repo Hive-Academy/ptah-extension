@@ -76,3 +76,4 @@ export {
   type CommandCenterLastSession,
   type CommandCenterRunManifest,
 } from './lib/command-center-records';
+export { CommandCenterSendLockService, type CommandCenterSendLockState } from './lib/command-center-send-lock.service';

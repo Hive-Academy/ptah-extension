@@ -35,6 +35,8 @@ import {
   type SessionBudgetState,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { CommandCenterRecordsService } from './command-center-records';
+import { CommandCenterSendLockService } from './command-center-send-lock.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
 import {
   TabWorkspacePartitionService,
@@ -58,6 +60,7 @@ import {
   persistBackoffMs,
   persistNeeded,
   sanitizeRestoredTabs,
+  validCommandCenterOrigin,
   type PersistFailure,
   type PersistedSnapshot,
 } from './tab-persistence';
@@ -226,6 +229,8 @@ export class TabManagerService {
   // ============================================================================
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
+  private readonly commandCenterRecords = inject(CommandCenterRecordsService);
+  private readonly commandCenterSendLock = inject(CommandCenterSendLockService);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
   /**
    * Multi-tab fan-out support.
@@ -976,6 +981,18 @@ export class TabManagerService {
     return id;
   }
 
+  /** Create an ordinary chat tab with a durable Command Center origin. */
+  createCommandCenterTab(name?: string): string {
+    const workspacePath = this.workspacePartition.activeWorkspacePath;
+    if (!workspacePath) throw new Error('An active workspace is required');
+    const tabId = this.createTab(name);
+    this.updateTabInternal(tabId, {
+      commandCenterOrigin: { workspaceId: workspacePath, createdAt: Date.now(), version: 1 },
+    });
+    this.commandCenterRecords.setActiveTabId(workspacePath, tabId);
+    return tabId;
+  }
+
   /**
    * Open the tab of a child session another session started with
    * `ptah_session_start` (TASK_2026_584).
@@ -1300,6 +1317,7 @@ export class TabManagerService {
 
     // Check if tab needs confirmation
     const needsConfirmation =
+      validCommandCenterOrigin(initialTab.commandCenterOrigin) ||
       initialTab.isDirty ||
       initialTab.status === 'streaming' ||
       initialTab.status === 'resuming' ||
@@ -1309,8 +1327,9 @@ export class TabManagerService {
     if (needsConfirmation) {
       const confirmed = await this.confirmationDialog.confirm({
         title: 'Close Tab?',
-        message:
-          'This session has unsaved changes, is streaming, or has background work running. Closing it ends the session. Close anyway?',
+        message: validCommandCenterOrigin(initialTab.commandCenterOrigin)
+          ? 'Closing this Command Center tab ends its active session. You can resume the last session later. Close anyway?'
+          : 'This session has unsaved changes, is streaming, or has background work running. Closing it ends the session. Close anyway?',
         confirmLabel: 'Close',
         cancelLabel: 'Keep Open',
         confirmStyle: 'error',
@@ -1327,6 +1346,10 @@ export class TabManagerService {
     const tabs = this._tabs();
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
+    if (validCommandCenterOrigin(tab.commandCenterOrigin) &&
+      this.commandCenterRecords.readActiveTabId(tab.commandCenterOrigin.workspaceId) === tabId) {
+      this.commandCenterRecords.setActiveTabId(tab.commandCenterOrigin.workspaceId, null);
+    }
 
     // Abort any in-flight streaming RPC BEFORE tab state cleanup so the
     // registered abort listener (in MessageSender) can still read
@@ -1903,6 +1926,13 @@ export class TabManagerService {
     this.updateTabInternal(tabId, {
       claudeSessionId: SessionId.from(sessionId),
     });
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (tab && validCommandCenterOrigin(tab.commandCenterOrigin)) {
+      this.commandCenterSendLock.rekey(tabId, sessionId);
+      this.commandCenterRecords.writeLastSession(tab.commandCenterOrigin.workspaceId, {
+        sdkSessionId: sessionId, tabId, updatedAt: Date.now(),
+      });
+    }
   }
 
   /**
