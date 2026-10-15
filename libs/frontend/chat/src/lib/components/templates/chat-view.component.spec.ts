@@ -275,6 +275,7 @@ function makeHarness(
   const findTabsBySessionIdMock = jest.fn().mockReturnValue([]);
   const findTabByIdAcrossWorkspacesMock = jest.fn();
   const closeTabMock = jest.fn().mockResolvedValue(undefined);
+  const forgetWorkflowSessionMock = jest.fn();
   const rebindTabSessionMock = jest.fn();
   const originTab = {
     id: 'tab-abc',
@@ -302,6 +303,7 @@ function makeHarness(
     findTabsBySessionId: findTabsBySessionIdMock,
     rebindTabSession: rebindTabSessionMock,
     closeTab: closeTabMock,
+    forgetWorkflowSession: forgetWorkflowSessionMock,
     // Consumed by the component-scoped TranscriptRetentionService effects.
     closedTab: signal(null).asReadonly(),
     onTabClosed: jest.fn(() => () => undefined),
@@ -555,6 +557,7 @@ function makeHarness(
     findTabByIdAcrossWorkspacesMock,
     rebindTabSessionMock,
     closeTabMock,
+    forgetWorkflowSessionMock,
     upsertSessionSummaryMock,
     removeSessionFromListMock,
     requestCanvasSessionMock,
@@ -914,6 +917,10 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.closeTabMock).toHaveBeenNthCalledWith(1, 'tab-orig-1');
     expect(h.closeTabMock).toHaveBeenNthCalledWith(2, 'tab-orig-2');
     expect(h.deleteSessionMock).toHaveBeenCalledWith('session-uuid-123');
+    expect(h.forgetWorkflowSessionMock).toHaveBeenCalledWith(
+      'session-uuid-123',
+      '/ws',
+    );
 
     const firstClose = h.closeTabMock.mock.invocationCallOrder[0];
     const firstDelete = h.deleteSessionMock.mock.invocationCallOrder[0];

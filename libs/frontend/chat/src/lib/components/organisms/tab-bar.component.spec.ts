@@ -174,6 +174,25 @@ describe('TabBarComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
+  it('shows a workflow badge only for tagged tabs', () => {
+    tabsSignal.set([
+      makeTab({ id: 'tagged', workflow: 'harness-configure' }),
+      makeTab({ id: 'ordinary' }),
+    ]);
+    fixture.detectChanges();
+
+    const items = fixture.nativeElement.querySelectorAll(
+      '[data-test="tab-item-stub"]',
+    ) as NodeListOf<HTMLElement>;
+    expect(items).toHaveLength(2);
+    const badge = items[0].querySelector('ptah-workflow-badge');
+    expect(badge?.textContent?.trim()).toBe('Configure Harness');
+    expect(
+      badge?.querySelector('[aria-label]')?.getAttribute('aria-label'),
+    ).toBe('Workflow: Configure Harness');
+    expect(items[1].querySelector('ptah-workflow-badge')).toBeNull();
+  });
+
   it('does not render awaiting-background slot when no active tab is awaiting-background', () => {
     tabsSignal.set([
       makeTab({ id: 'a', status: 'loaded' }),
@@ -497,9 +516,9 @@ describe('TabBarComponent', () => {
   it('removes the native scroll listener from the registered element on destroy', async () => {
     fixture.detectChanges();
     await fixture.whenStable();
-    const container = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
-      '.tab-scroll-container',
-    );
+    const container = (
+      fixture.nativeElement as HTMLElement
+    ).querySelector<HTMLElement>('.tab-scroll-container');
     expect(container).not.toBeNull();
     const removeEventListener = jest.spyOn(container!, 'removeEventListener');
 

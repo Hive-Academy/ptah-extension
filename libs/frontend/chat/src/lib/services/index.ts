@@ -103,3 +103,4 @@ export {
   SESSION_FOCUSED,
 } from '../tokens/session-context.token';
 export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';
+export * from './workflow-tab-launcher.service';

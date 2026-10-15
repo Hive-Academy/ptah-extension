@@ -182,8 +182,10 @@ class RealRailCardHost {
 describe('CanvasRailCardComponent', () => {
   const focusTile = jest.fn();
   const open = jest.fn();
+  let workflow: 'harness-configure' | undefined;
   beforeEach(() => {
     jest.clearAllMocks();
+    workflow = undefined;
     tabState.set('idle');
     TestBed.configureTestingModule({
       imports: [CanvasRailCardComponent],
@@ -192,7 +194,7 @@ describe('CanvasRailCardComponent', () => {
           provide: TabManagerService,
           useValue: {
             findTabByIdAcrossWorkspaces: () => ({
-              tab: { id: 'a', title: 'Alpha' },
+              tab: { id: 'a', title: 'Alpha', workflow },
             }),
           },
         },
@@ -212,6 +214,32 @@ describe('CanvasRailCardComponent', () => {
     fixture.detectChanges();
     return fixture;
   }
+
+  it('shows the workflow badge on an expanded tagged card only', () => {
+    workflow = 'harness-configure';
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    const badge = host.querySelector('ptah-workflow-badge');
+    expect(badge?.textContent?.trim()).toBe('Configure Harness');
+    expect(
+      badge?.querySelector('[aria-label]')?.getAttribute('aria-label'),
+    ).toBe('Workflow: Configure Harness');
+
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.detectChanges();
+    expect(host.querySelector('ptah-workflow-badge')).toBeNull();
+    expect(host.querySelector('button.rail-collapsed')?.classList).toContain(
+      'h-14',
+    );
+    expect(host.style.height).toBe('56px');
+  });
+
+  it('keeps an untagged expanded card badge free', () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('ptah-workflow-badge')).toBeNull();
+    expect(host.querySelector('ptah-compact-session-card')).not.toBeNull();
+  });
 
   it('does not focus on selection or an inner button click, but focuses on a plain host click', () => {
     const fixture = mount();
@@ -317,7 +345,9 @@ describe('CanvasRailCardComponent', () => {
     const fixture = mount();
     fixture.componentRef.setInput('collapsed', true);
     fixture.detectChanges();
-    const button = fixture.nativeElement.querySelector('button.rail-collapsed') as HTMLButtonElement;
+    const button = fixture.nativeElement.querySelector(
+      'button.rail-collapsed',
+    ) as HTMLButtonElement;
     expect(button.getAttribute('aria-label')).not.toContain('in focus');
     fixture.componentRef.setInput('focused', true);
     fixture.detectChanges();
@@ -547,7 +577,9 @@ describe('CanvasRailCardComponent', () => {
     const select = () =>
       [
         ...host.querySelectorAll<HTMLElement>('.rc-select, .rail-collapsed'),
-      ].find((button) => !button.closest('[aria-hidden="true"]')) as HTMLElement;
+      ].find(
+        (button) => !button.closest('[aria-hidden="true"]'),
+      ) as HTMLElement;
     // A single card is both first and last: no move either way.
     expect(keydown(select(), 'ArrowUp', alt).defaultPrevented).toBe(false);
     expect(keydown(select(), 'ArrowDown', alt).defaultPrevented).toBe(false);
@@ -682,7 +714,9 @@ describe('CanvasRailCardComponent', () => {
     fixture.componentRef.setInput('focused', false);
     fixture.detectChanges();
     expect(
-      host.querySelector('ptah-compact-rail-card')?.classList.contains('rc-focused'),
+      host
+        .querySelector('ptah-compact-rail-card')
+        ?.classList.contains('rc-focused'),
     ).toBe(false);
     fixture.componentRef.setInput('collapsed', true);
     fixture.detectChanges();

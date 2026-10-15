@@ -35,6 +35,7 @@ import {
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
+import { WorkflowBadgeComponent } from '../atoms/workflow-badge.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SessionFilterBarComponent } from '../molecules/session-filter-bar/session-filter-bar.component';
 import { SessionOrganizationEditorComponent } from '../molecules/session-organization-editor/session-organization-editor.component';
@@ -138,6 +139,7 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     NgTemplateOutlet,
     NgClass,
     TabBarComponent,
+    WorkflowBadgeComponent,
     ConfirmationDialogComponent,
     SubagentTranscriptOverlayComponent,
     ThemeToggleComponent,
@@ -172,7 +174,7 @@ export class AppShellComponent {
    */
   readonly bootStatus = inject(BootStatusService);
   readonly agentMonitorStore = inject(AgentMonitorStore);
-  private readonly tabManager = inject(TabManagerService);
+  readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
@@ -955,6 +957,10 @@ export class AppShellComponent {
       const result = await this.rpcService.deleteSession(session.id);
 
       if (result.isSuccess() && result.data?.success) {
+        this.tabManager.forgetWorkflowSession(
+          session.id,
+          this.tabManager.activeWorkspacePath ?? '',
+        );
         this.chatStore.removeSessionFromList(session.id);
         if (this.organizingSessionId() === session.id) {
           this.closeOrganizer();

@@ -157,3 +157,4 @@ export * from './templates/electron-shell.component';
 export * from './templates/electron-welcome.component';
 export * from './file-suggestions/file-tag.component';
 export * from './file-suggestions/unified-suggestions-dropdown.component';
+export * from './atoms/workflow-badge.component';

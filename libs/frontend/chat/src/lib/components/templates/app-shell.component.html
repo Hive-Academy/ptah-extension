@@ -293,6 +293,14 @@
                 >
                   {{ getSessionDisplayName(session) }}
                 </span>
+                <ptah-workflow-badge
+                  [workflow]="
+                    tabManager.workflowForSession(
+                      session.id,
+                      tabManager.activeWorkspacePath ?? ''
+                    )
+                  "
+                />
                 <!-- Session metadata row -->
                 <span
                   class="text-[11px] text-base-content-muted flex items-center gap-1.5 w-full leading-tight"

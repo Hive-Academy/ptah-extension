@@ -30,6 +30,7 @@ import {
 } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import { FloatingUIService } from '@ptah-extension/ui';
+import { WorkflowBadgeComponent } from '../atoms/workflow-badge.component';
 
 /** Text of the agent badge's tooltip, for the one badge it is shown for. */
 interface AgentBadgeTip {
@@ -67,6 +68,7 @@ export function tailPath(path: string, segments = 2): string {
   imports: [
     AwaitingBackgroundIndicatorComponent,
     TabItemComponent,
+    WorkflowBadgeComponent,
     LucideAngularModule,
   ],
   host: { class: 'block min-w-0 overflow-hidden h-full' },
@@ -99,6 +101,9 @@ export function tailPath(path: string, segments = 2): string {
             (tabClose)="onCloseTab($event)"
             (viewModeToggle)="onToggleViewMode($event)"
           >
+            @if (tab.workflow) {
+              <ptah-workflow-badge tabItemLeading [workflow]="tab.workflow" />
+            }
             @if (tab.agentOrigin; as origin) {
               <!-- Agent-started tab (TASK_2026_584), inside its own tab before
                    the title: activating the badge opens the parent tab.
