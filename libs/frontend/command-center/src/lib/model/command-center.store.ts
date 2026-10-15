@@ -146,6 +146,12 @@ export class CommandCenterStore {
     this._outputLevel.set(this.clampLevel(output));
   }
 
+  public resetLevels(): void {
+    this._inputLevel.set(0);
+    this._outputLevel.set(0);
+    this.lastLevelUpdateAt = null;
+  }
+
   /** Keep only the dedicated root and its descendants, regardless of input order. */
   public setProjection(
     rootId: string,

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 10/27
+Total tasks: 66 | Batches: 27 (25 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE) | Complete: 14/27
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -141,7 +141,7 @@ Edge cases:
 | ----- | ------- | ------------ |
 | 0 - Baseline | B0 | none (measurement) |
 | A - Chat runtime contracts | B1-B4, fix B4F | CLOSED: code-logic (B1-B4: NEEDS_REVISION); B4F re-review APPROVED (L1 closed) |
-| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24); then one logic re-review (grok) on `<8F0 SHA>..HEAD` plus style re-review (phase widening) |
+| B - Command Center model and Tribunal source | B5, B6, B6A, B7, B8, fix B8F | code-logic + style (new public API: `@ptah-extension/command-center`, `@ptah-extension/tribunal-panel/phase`); B8 review on `fa97a6967^..2137ab904`: logic NEEDS_REVISION 4/10 (grok), style NEEDS_REVISION 6/10 (Anthropic); fix round B8F = 8F0, 8FA-8FE (D20, D24); then one logic re-review (grok) on `5d52cfa5b..HEAD` plus style re-review (phase widening) |
 | C - Voice | B9-B10 | code-logic |
 | D - Scene, page, route, nav | B11-B16 | code-logic + style (new public API: `@ptah-extension/ui/provider-brand-art`); visual review runs with B18 evidence because it needs the Electron app |
 | E - Acceptance | B17-B18 | none (tests and measurement); B18 visual evidence is still required for Mode 3 |
@@ -948,7 +948,7 @@ Run order (Decisions D16, D24):
 3. **8FC** (needs the 8FA manifest contract and the 8FB phase exports on disk and committed).
 4. **8FE**. It edits `command-center.store.ts` after 8FD and shares the `command-center` project with 8FC, so
    it runs after 8FC, not beside it.
-5. NEEDS REVIEW: one code-logic re-review (grok lane) on `<8F0 SHA>..HEAD`, which excludes the format-only
+5. NEEDS REVIEW: one code-logic re-review (grok lane) on `5d52cfa5b..HEAD`, which excludes the format-only
    commit. A style re-review also runs (in-process `code-style-reviewer`), because 8FB widens the
    `@ptah-extension/tribunal-panel/phase` entry. Scope it to `phase.ts`, its guard spec, `tribunal-roster-proposal.ts`
    and Prettier compliance of the 8F files.
@@ -984,12 +984,15 @@ Lane rules for this batch:
 - Keep any Jest or tool cache outside the worktree (never create .jest-cache or similar under the worktree).
 - No git commands of any kind (no add, commit, stash, checkout, restore).
 - Touch only the files listed in your batch section. If a fix needs another file, stop and report it; do not edit it.
+- Line numbers in the batch sections predate the 8F0 Prettier commit (5d52cfa5b) and may be off by a few lines.
+  Locate code by symbol name and confirm on disk before editing.
 - Real code only: no TODO, PLACEHOLDER or STUB markers, no empty method bodies, no mock data standing in for
   logic, no logging in place of an implementation. Replace code in place; no V2 copies or compatibility shims.
 - New and changed code is lint-clean under the project's eslint config and Prettier-formatted. Finish with
   `npx prettier --write <every file you changed>` then `npx prettier --check <the same files>` (must print
   "All matched files use Prettier code style!"). Prettier is the only command you may run besides reads.
-- Degradation-audit rules (tools/degradation-audit/check-degradation.ts; CI runs it on push): every new or changed
+- Degradation-audit rules (tools/degradation-audit/check-degradation.ts). The restored pre-commit hook runs it on
+  every TS commit (and CI on push), so ONE violation now blocks the team leader's commit of your batch. Every new or changed
   `catch` / `.catch` in non-spec code either rethrows, calls an `.error(...)` logger, avoids returning a literal
   (object literals and `false`/`null` count as literals), or carries a valid marker. Marker syntax is
   `// degradation-audit: reported — <reason>` (em dash), as the first comment line inside the catch body, or on
@@ -1001,7 +1004,7 @@ Lane rules for this batch:
   could not do. Then return a short summary naming that report path.
 ```
 
-## Batch 8F0: Format-only pass on files this task created or changed - IN_PROGRESS
+## Batch 8F0: Format-only pass on files this task created or changed - COMPLETE (commit 5d52cfa5b)
 
 - Recommended executor: CLI lane (mechanical; one command)
 - Execution mode: sequential (runs alone, before every other 8F batch)
@@ -1018,7 +1021,7 @@ Lane rules for this batch:
 - Suggested commit: `style: batch 8F0 - prettier on command center task files` (no scope; commitlint
   `scope-empty` is not enforced). Body: names Decision D15/D17 and lists the excluded files.
 
-### Task 8F0.1: Prettier on the 41 task files - IMPLEMENTED
+### Task 8F0.1: Prettier on the 41 task files - COMPLETE
 
 - Files (all relative to the worktree root; the lane passes these exact paths, never a glob):
   `libs/backend/rpc-handlers/src/lib/chat/session/chat-session-persona-resume.spec.ts`,
@@ -1100,8 +1103,12 @@ Lane rules for this batch:
   (`command-center-records.ts:79`, `return false;` at `:80`); `prettier --check` on the file is clean; one direct
   audit run (`check-degradation.ts --max-warnings=-1`, exit 0) prints `libs/frontend/chat-state: 2 ok (baseline 2)`,
   `libs/backend/rpc-handlers: 1 ok (baseline 1)`, `libs/frontend/tribunal-panel: 1 ok (baseline 1)` and no FAIL line.
+- Commit attempt 2 (team-leader, foreground, hook not bypassed): PASSED. lint-staged `nx format:write` and
+  `nx affected --target=lint --max-warnings=-1` both green, commitlint valid. Commit `5d52cfa5b`, 42 files (the 40
+  formatted files, `batches.md`, `reports/batch-8F0-report.md`). `HANDOFF.md` and `reports/phase-b.diff` stay
+  untracked and unstaged.
 
-### Task 8F0.2: Degradation-audit marker on the records write catch (carried from Batch 2) - IMPLEMENTED
+### Task 8F0.2: Degradation-audit marker on the records write catch (carried from Batch 2) - COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/command-center-records.ts`
   (already in the 8F0 set; no other file)
@@ -1120,7 +1127,7 @@ Lane rules for this batch:
   the foreground with the hook.
 - Validation notes: 8FA rewrites the manifest half of this file next; it must keep this marker.
 
-## Batch 8FA: chat-state manifest contract and close cleanup (TL-1, TL-2 schema, TL-3) - PENDING
+## Batch 8FA: chat-state manifest contract and close cleanup (TL-1, TL-2 schema, TL-3) - COMPLETE (commit dd8e42cd9)
 
 - Recommended executor: CLI lane (implementation; Angular data-access TypeScript, persisted-schema migration)
 - Execution mode: sequential within the batch; runs in PARALLEL wave 1 beside 8FB and 8FD
@@ -1139,8 +1146,12 @@ Lane rules for this batch:
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.service.ts` (close-path hunk only),
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/chat-state/src/lib/tab-manager.command-center.spec.ts`
 - Suggested commit: `fix(chat-state): batch 8FA - per-run manifests and close cleanup`
+- Keep the 8F0.2 marker: the first line inside the `private write(...)` catch body in `command-center-records.ts`
+  stays exactly `// degradation-audit: reported — false reaches TabManagerService.recordCommandCenterWrite, which warns and sets commandCenterRecordWriteFailure`
+  (one line, em dash). If `write()` moves or changes, the marker moves with its catch. Any new catch in the
+  rewritten read/migrate path needs its own valid classification (`libs/frontend/chat-state` is at baseline 2).
 
-### Task 8FA.1: Key run manifests by run ID and migrate the old shape on read (TL-1 / logic M1) - PENDING
+### Task 8FA.1: Key run manifests by run ID and migrate the old shape on read (TL-1 / logic M1) - COMPLETE
 
 - Finding: `command-center-records.ts:29` (`runs: Record<string, …>` keyed by `rootTabId`), `:103-118`
   (`readRunManifest`/`writeRunManifest`/`removeRunManifest` by `rootTabId`, write at `:111`). A second run under
@@ -1163,7 +1174,7 @@ Lane rules for this batch:
   loads and the next write stores the new shape; a corrupt entry is dropped and the others survive; workspace
   isolation; remove-by-run leaves the sibling run; remove-by-root leaves other roots.
 
-### Task 8FA.2: Role-less lanes in the manifest schema (TL-2 schema half / logic M2 / style Moderate 5) - PENDING
+### Task 8FA.2: Role-less lanes in the manifest schema (TL-2 schema half / logic M2 / style Moderate 5) - COMPLETE
 
 - Depends on: Task 8FA.1 (same file)
 - Finding: `command-center-records.ts:18` requires `role: nonEmpty`. The coordinator writes `role: item.role ?? ''`
@@ -1174,7 +1185,7 @@ Lane rules for this batch:
   Spec: a role-less Council manifest writes and reads back; a manifest with `role: ''` is rejected; old records with
   non-empty roles still load.
 
-### Task 8FA.3: Remove the root's run manifests on confirmed close (TL-3 / logic M3) - PENDING
+### Task 8FA.3: Remove the root's run manifests on confirmed close (TL-3 / logic M3) - COMPLETE
 
 - Depends on: Task 8FA.1
 - Finding: `tab-manager.service.ts:1370-1405` (close path) never calls a manifest remover. Close clears only the
@@ -1195,8 +1206,24 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work (team leader reads the 4 files on disk).
 - The scoped command passes, 1 project in the header.
 - Write-path trace recorded on this header after commit (8FA.1 validation notes).
+- Result (team-leader, Mode 2, wave 1): executor codex lane; report `TASK/reports/batch-8FA-report.md`. On disk:
+  lane `role` is `nonEmpty.optional()` (`command-center-records.ts:18`); `read()` re-keys a manifest stored under
+  its `runId` or its `rootTabId` by `runId` and drops the rest; `readRunManifests` filters by root and sorts by
+  `startedAt`; `writeRunManifest` keys by `runId`; `removeRunManifest(runId)` and `removeRunManifests(rootTabId)`
+  exist. The 8F0.2 marker is intact in the `write()` catch. `tab-manager.service.ts` changes only the record-kind
+  union (`'runManifest'`) and the close-path call after the tab is removed (`:1419-1426`), routed through
+  `recordCommandCenterWrite`. No new catch site. No stale `readRunManifest` caller in `libs/`.
+- Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/chat-state`,
+  header 1 project, all 3 targets green. Commit `dd8e42cd9`: pre-commit hook (lint-staged format, `nx affected
+  --target=lint --max-warnings=-1` incl. degradation audit) and commitlint passed on the first attempt.
+- Write-path trace (Mode 3 input): one storage key, `<workspace partition key>.command-center`
+  (`command-center-records.ts:38`), localStorage, workspace scope, no env side effects. Writer: `writeRunManifest`
+  (no production caller yet; 8FC transport, wired in B13/B14). Removers: `removeRunManifests` (only caller
+  `tab-manager.service.ts:1422`, confirmed close of a marked root) and `removeRunManifest` (8FC rollback, not yet
+  wired). Reader: `readRunManifests` (B13/B14 restart join, not yet wired). Old root-keyed records load and the
+  next write persists the run-keyed shape; last-session and active-tab fields are unchanged.
 
-## Batch 8FB: Tribunal phase entry widening and constants (style S2, S3, Moderate 2) - PENDING
+## Batch 8FB: Tribunal phase entry widening and constants (style S2, S3, Moderate 2) - COMPLETE (commit 545d3b53a)
 
 - Recommended executor: CLI lane (implementation; pure TypeScript module surface)
 - Execution mode: sequential within the batch; runs in PARALLEL wave 1 beside 8FA and 8FD
@@ -1218,7 +1245,7 @@ Lane rules for this batch:
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/tribunal-panel/src/lib/types/tribunal-ui.types.ts`
 - Suggested commit: `refactor(tribunal-panel): batch 8FB - export roster rule and round caps`
 
-### Task 8FB.1: Split the round cap and replace the literal 2s (style S3, ruling 2) - PENDING
+### Task 8FB.1: Split the round cap and replace the literal 2s (style S3, ruling 2) - COMPLETE
 
 - Findings: `tribunal-run-framing.ts:97` (`DEFAULT_CRUCIBLE_ROUND_CAP = 2`, doc says "default AND maximum"),
   `:104` (`Math.min(..., 2)`), `tribunal-phase-derivation.ts:61` (`?? 2`).
@@ -1227,7 +1254,7 @@ Lane rules for this batch:
   `derivePhase` uses `?? DEFAULT_CRUCIBLE_ROUND_CAP` (import from `./tribunal-run-framing`). Behaviour does not change.
   The existing framing and derivation specs must still pass unchanged.
 
-### Task 8FB.2: A canonical move list (style S3, moves re-typed) - PENDING
+### Task 8FB.2: A canonical move list (style S3, moves re-typed) - COMPLETE
 
 - Finding: `TribunalMove` is a type only (`tribunal-ui.types.ts:4`), so `tribunal-roster-proposal.ts:16` re-types
   the five moves as a zod enum literal.
@@ -1235,7 +1262,7 @@ Lane rules for this batch:
   'relay', 'crucible'] as const;` and derive `export type TribunalMove = (typeof TRIBUNAL_MOVES)[number];`. The type
   must stay identical, and no other file in `tribunal-panel` needs an edit for it.
 
-### Task 8FB.3: Widen the phase entry, add its header and a barrel guard (style S2, Moderate 2, ruling 3) - PENDING
+### Task 8FB.3: Widen the phase entry, add its header and a barrel guard (style S2, Moderate 2, ruling 3) - COMPLETE
 
 - Depends on: Tasks 8FB.1, 8FB.2
 - Findings: `phase.ts:1-4` exports only framing and derivation, so the Command Center keeps a drifting copy of
@@ -1258,8 +1285,17 @@ Lane rules for this batch:
 
 - Every listed artifact exists; the scoped command passes, 1 project in the header.
 - `git diff` of `tribunal-run-framing.ts` / `tribunal-phase-derivation.ts` shows constant swaps only.
+- Result (team-leader, Mode 2, wave 1): executor codex lane; report `TASK/reports/batch-8FB-report.md`. On disk:
+  the framing and derivation diffs are constant swaps only (new `MAX_CRUCIBLE_ROUND_CAP = 2`, `Math.min(..., MAX_...)`,
+  `?? DEFAULT_CRUCIBLE_ROUND_CAP`) plus one doc line split; no import cycle (framing does not import derivation).
+  `TRIBUNAL_MOVES` tuple with `TribunalMove` derived from it. `phase.ts` has a 6-line purity header naming D6 and
+  named exports only; `phase.spec.ts` pins `Object.keys(phase).sort()` (11 runtime names). Rule-file imports:
+  `tribunal-roster-rules.ts:1-7` imports only from `../types/tribunal-ui.types`; `tribunal-ui.types.ts:1-2` has
+  type-only imports from `@ptah-extension/shared` and `@ptah-extension/canvas`; no Angular. No catch site touched.
+- Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/tribunal-panel`,
+  header 1 project, all 3 targets green. Commit `545d3b53a`: hook and commitlint passed on the first attempt.
 
-## Batch 8FD: Session coordinator resume, voice release and meter zero (S3, S4, S6, M5, M7) - PENDING
+## Batch 8FD: Session coordinator resume, voice release and meter zero (S3, S4, S6, M5, M7) - COMPLETE (commit: subject `fix(command-center,chat): batch 8FD - pinned resume and voice release`; SHA added at the 8FC commit)
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design)
 - Execution mode: sequential within the batch; runs in PARALLEL wave 1 beside 8FA and 8FB
@@ -1283,7 +1319,7 @@ Lane rules for this batch:
   (add one case; it already builds a `ChatStore` TestBed)
 - Suggested commit: `fix(command-center,chat): batch 8FD - pinned resume and voice release`
 
-### Task 8FD.1: Pin resume to the marked tab and retry an unfinished restore (logic S3, S4, M7) - PENDING
+### Task 8FD.1: Pin resume to the marked tab and retry an unfinished restore (logic S3, S4, M7) - COMPLETE
 
 - Findings:
   - S3 `session-coordinator.ts:61-65` and `:73-85`: if `switchSession` throws after `createCommandCenterTab` and
@@ -1318,7 +1354,7 @@ Lane rules for this batch:
   and toasts; the happy path passes `targetTabId`; a success payload without `sessions` creates no tab. One case in
   `chat.store.question-tab.spec.ts` asserts that `switchSession` forwards `targetTabId` to the loader.
 
-### Task 8FD.2: New Command Center stops voice together with the lock (logic S6) - PENDING
+### Task 8FD.2: New Command Center stops voice together with the lock (logic S6) - COMPLETE
 
 - Finding: `session-coordinator.ts:110-120`. `newCommandCenter()` releases the lock (`:116`) but leaves `voiceState`
   (for example `listening`). Regular chat sends are no longer held (`message-sender.service.ts:100-102`) while the
@@ -1329,7 +1365,7 @@ Lane rules for this batch:
   `'stopped'`) but also zero the meters. `DestroyRef` teardown keeps releasing the lock.
 - Spec: `newCommandCenter` while listening leaves `isHeld` false and `voiceState` `'idle'`, with levels 0.
 
-### Task 8FD.3: A trailing zero always reaches the meters (logic M5) - PENDING
+### Task 8FD.3: A trailing zero always reaches the meters (logic M5) - COMPLETE
 
 - Finding: `command-center.store.ts:136-150`. `updateLevels` drops every sample inside 500 ms, including a final
   `(0, 0)`, so output stays at the last accepted level. Batch 10.2 must push a final zero on stop, mute and idle.
@@ -1342,8 +1378,20 @@ Lane rules for this batch:
 - Every listed artifact exists; the scoped command passes with 2 projects in the header.
 - `chat.store.ts` diff is the `switchSession` signature and forwarding only (plus the 8F0 formatting already
   committed).
+- Result (team-leader, Mode 2, wave 1): executor codex lane; report `TASK/reports/batch-8FD-report.md`. On disk:
+  `chat.store.ts` changes one line (the `opts` type gains `targetTabId?: TabId`; the call already forwards `opts`).
+  `CommandCenterStore.resetLevels()` zeroes both levels and clears `lastLevelUpdateAt`; `updateLevels` unchanged.
+  Coordinator: the marked-tab branch re-runs `switchSession(..., { targetTabId })` when the tab has a session id, no
+  messages and no live session, and sets `running` only after it resolves (fail toast plus `null` on throw, with a
+  valid `reported` marker); the last-session branch refuses via `findTabBySessionId` (switch to the owner tab, toast,
+  `null`) before any create/attach, then passes `targetTabId: TabId.from(tabId)`; `sessionExists` treats a success
+  payload without a `sessions` array as a failed attempt; `newCommandCenter` calls `stopVoiceLocally()` (release
+  lock, `idle`, `resetLevels`); `mute` and `stop` also call `resetLevels`. One new non-spec catch, marked.
+- Scoped check (orchestrator, foreground): `nx run-many -t test typecheck lint -p @ptah-extension/chat
+  @ptah-extension/command-center`, header 2 projects, all 6 tasks green. Hook and commitlint result: see the
+  8FD commit (subject on the header); the SHA is added to the header at the 8FC commit.
 
-## Batch 8FC: Tribunal confirm state machine, real roster rule, saved preferences (S1, S2, S5, TL-2 coordinator half, style S2/S3, Moderate 4) - PENDING
+## Batch 8FC: Tribunal confirm state machine, real roster rule, saved preferences (S1, S2, S5, TL-2 coordinator half, style S2/S3, Moderate 4) - IN_PROGRESS
 
 - Recommended executor: CLI lane (implementation; Angular feature TypeScript, strong test design; paid-spawn safety)
 - Execution mode: sequential
@@ -1364,7 +1412,7 @@ Lane rules for this batch:
   `D:/projects/ptah-extension/.claude-worktrees/command-center/libs/frontend/command-center/src/lib/model/tribunal-run-coordinator.spec.ts`
 - Suggested commit: `fix(command-center): batch 8FC - retryable confirm and real roster rule`
 
-### Task 8FC.1: Roster proposal uses Tribunal's rule and constants, and enforces saved preferences (style S2, S3; logic S5) - PENDING
+### Task 8FC.1: Roster proposal uses Tribunal's rule and constants, and enforces saved preferences (style S2, S3; logic S5) - IN_PROGRESS
 
 - Findings:
   - style S2 `tribunal-roster-proposal.ts:35-51`: `rosterIsLaunchableLocally` mirrors and has already diverged from
@@ -1392,7 +1440,7 @@ Lane rules for this batch:
   rejected through the real Tribunal rule; a Council lane with a role is rejected; rounds above
   `MAX_CRUCIBLE_ROUND_CAP` are rejected; the ranker drops disabled and AT LIMIT lanes and keeps preference order.
 
-### Task 8FC.2: Confirm keeps the proposal retryable until the launch is sent (logic S1, S2, TL-2 coordinator half; style Moderate 4) - PENDING
+### Task 8FC.2: Confirm keeps the proposal retryable until the launch is sent (logic S1, S2, TL-2 coordinator half; style Moderate 4) - IN_PROGRESS
 
 - Depends on: Task 8FC.1
 - Findings:
@@ -1509,7 +1557,7 @@ Lane rules for this batch:
 ### Batch 8FE verification
 
 - Every listed artifact exists; the scoped command passes, 1 project.
-- Phase B fix round closes with NEEDS REVIEW: logic re-review (grok) on `<8F0 SHA>..HEAD`, plus a style
+- Phase B fix round closes with NEEDS REVIEW: logic re-review (grok) on `5d52cfa5b..HEAD`, plus a style
   re-review (in-process) of the `phase` widening and the 8F files' formatting.
 
 ## Batch 9: Voice primitives (adapted from property-hub) - PENDING

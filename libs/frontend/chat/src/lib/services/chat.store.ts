@@ -222,7 +222,7 @@ export class ChatStore {
 
   async switchSession(
     sessionId: SessionId,
-    opts?: { reason?: 'compaction'; activate?: boolean },
+    opts?: { reason?: 'compaction'; activate?: boolean; targetTabId?: TabId },
   ): Promise<void> {
     await this.sessionLoader.switchSession(sessionId, opts);
   }

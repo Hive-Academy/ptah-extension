@@ -3,6 +3,7 @@ import { ChatStore, MessageSenderService } from '@ptah-extension/chat';
 import {
   CommandCenterRecordsService,
   CommandCenterSendLockService,
+  TabId,
   TabManagerService,
   commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
@@ -76,6 +77,21 @@ export class CommandCenterSessionCoordinator {
         existing.claudeSessionId ?? null,
         workspace,
       );
+      if (
+        existing.claudeSessionId &&
+        existing.messages.length === 0 &&
+        !existing.hasLiveSession
+      ) {
+        try {
+          await this.chat.switchSession(existing.claudeSessionId, {
+            targetTabId: existing.id,
+          });
+        } catch {
+          // degradation-audit: reported — the restore failure is shown through the safe fail message
+          this.fail('Could not restore the Command Center session.');
+          return null;
+        }
+      }
       this.store.setSessionStatus('running');
       return existing.id;
     }
@@ -88,11 +104,21 @@ export class CommandCenterSessionCoordinator {
       return null;
     }
     if (last && exists) {
+      const openTab = this.tabs.findTabBySessionId(last.sdkSessionId);
+      if (openTab) {
+        this.tabs.switchTab(openTab.id);
+        this.fail(
+          'This session is already open in another tab. Close it there to resume it in Command Center.',
+        );
+        return null;
+      }
       const tabId = this.tabs.createCommandCenterTab('Command Center');
       this.tabs.attachSession(tabId, last.sdkSessionId);
       this.tabs.switchTab(tabId);
       try {
-        await this.chat.switchSession(SessionId.from(last.sdkSessionId));
+        await this.chat.switchSession(SessionId.from(last.sdkSessionId), {
+          targetTabId: TabId.from(tabId),
+        });
         this.store.setSession(tabId, last.sdkSessionId, workspace);
         this.store.setSessionStatus('running');
         return tabId;
@@ -118,10 +144,9 @@ export class CommandCenterSessionCoordinator {
           { workspacePath: workspace },
           { signal: controller.signal },
         );
-        if (result.success) {
-          return (
-            result.data?.sessions.some((session) => session.id === sessionId) ??
-            false
+        if (result.success && Array.isArray(result.data?.sessions)) {
+          return result.data.sessions.some(
+            (session) => session.id === sessionId,
           );
         }
       } catch {
@@ -143,7 +168,7 @@ export class CommandCenterSessionCoordinator {
       this.fail('Open a workspace to use Command Center.');
       return null;
     }
-    this.releaseVoice();
+    this.stopVoiceLocally();
     const tabId = this.tabs.createCommandCenterTab('Command Center');
     this.tabs.switchTab(tabId);
     this.store.setSession(tabId, null, workspace);
@@ -163,6 +188,13 @@ export class CommandCenterSessionCoordinator {
     this.releaseVoice();
     this.store.setMuted(true);
     this.store.setVoiceState('muted');
+    this.store.resetLevels();
+  }
+
+  private stopVoiceLocally(): void {
+    this.releaseVoice();
+    this.store.setVoiceState('idle');
+    this.store.resetLevels();
   }
 
   private releaseVoice(): void {
@@ -177,6 +209,7 @@ export class CommandCenterSessionCoordinator {
       this.store.sessionId();
     this.releaseVoice();
     this.store.setVoiceState('stopped');
+    this.store.resetLevels();
     this.store.setSessionStatus('stopped');
     if (!sessionId) return;
     try {

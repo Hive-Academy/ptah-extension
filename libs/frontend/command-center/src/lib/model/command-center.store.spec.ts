@@ -152,4 +152,13 @@ describe('CommandCenterStore', () => {
     store.updateLevels(0.8, -1);
     expect([store.inputLevel(), store.outputLevel()]).toEqual([0, 0]);
   });
+
+  it('resets both meters immediately and accepts the next sample without waiting', () => {
+    jest.useFakeTimers().setSystemTime(0);
+    store.updateLevels(0.8, 0.8);
+    store.resetLevels();
+    expect([store.inputLevel(), store.outputLevel()]).toEqual([0, 0]);
+    store.updateLevels(0.4, 0.6);
+    expect([store.inputLevel(), store.outputLevel()]).toEqual([0.4, 0.6]);
+  });
 });

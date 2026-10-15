@@ -16,6 +16,8 @@ describe('CommandCenterSessionCoordinator', () => {
   const root = {
     id: rootId,
     claudeSessionId: sdkId,
+    messages: [{}],
+    hasLiveSession: false,
     commandCenterOrigin: { workspaceId: '/repo', createdAt: 1, version: 1 },
   };
   const other = {
@@ -29,6 +31,7 @@ describe('CommandCenterSessionCoordinator', () => {
     switchTab: jest.Mock;
     createCommandCenterTab: jest.Mock;
     attachSession: jest.Mock;
+    findTabBySessionId: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
   };
   let records: { readActiveTabId: jest.Mock; readLastSession: jest.Mock };
@@ -45,6 +48,7 @@ describe('CommandCenterSessionCoordinator', () => {
       switchTab: jest.fn(),
       createCommandCenterTab: jest.fn(() => rootId),
       attachSession: jest.fn(),
+      findTabBySessionId: jest.fn(() => null),
       findTabByIdAcrossWorkspaces: jest.fn((id: string) => ({
         tab: id === rootId ? root : other,
       })),
@@ -105,7 +109,40 @@ describe('CommandCenterSessionCoordinator', () => {
       expect.anything(),
     );
     expect(tabs.attachSession).toHaveBeenCalledWith(rootId, sdkId);
-    expect(chat.switchSession).toHaveBeenCalledWith(sdkId);
+    expect(chat.switchSession).toHaveBeenCalledWith(sdkId, {
+      targetTabId: rootId,
+    });
+  });
+
+  it('retries an unfinished marked-tab restore before reporting running', async () => {
+    const unfinished = { ...root, messages: [], hasLiveSession: false };
+    tabs.tabs.mockReturnValue([unfinished, other]);
+    chat.switchSession.mockRejectedValueOnce(new Error('restore failed'));
+
+    expect(await coordinator.openOrResume()).toBeNull();
+    expect(store.sessionStatus()).toBe('error');
+    expect(chat.switchSession).toHaveBeenCalledWith(sdkId, {
+      targetTabId: rootId,
+    });
+
+    expect(await coordinator.openOrResume()).toBe(rootId);
+    expect(chat.switchSession).toHaveBeenCalledTimes(2);
+    expect(store.sessionStatus()).toBe('running');
+  });
+
+  it('refuses to resume an SDK session already open in another tab', async () => {
+    records.readActiveTabId.mockReturnValue(undefined);
+    records.readLastSession.mockReturnValue({ sdkSessionId: sdkId });
+    tabs.findTabBySessionId.mockReturnValue(other);
+
+    expect(await coordinator.openOrResume()).toBeNull();
+    expect(tabs.switchTab).toHaveBeenCalledWith(otherId);
+    expect(tabs.createCommandCenterTab).not.toHaveBeenCalled();
+    expect(tabs.attachSession).not.toHaveBeenCalled();
+    expect(chat.switchSession).not.toHaveBeenCalled();
+    expect(store.toast()?.message).toBe(
+      'This session is already open in another tab. Close it there to resume it in Command Center.',
+    );
   });
 
   it('creates a new marked tab when there is no prior session', async () => {
@@ -125,6 +162,29 @@ describe('CommandCenterSessionCoordinator', () => {
     expect(store.sessionStatus()).toBe('error');
   });
 
+  it('preserves the saved session when the successful list has no sessions array', async () => {
+    records.readActiveTabId.mockReturnValue(undefined);
+    records.readLastSession.mockReturnValue({ sdkSessionId: sdkId });
+    rpc.call.mockResolvedValue({ success: true, data: {} });
+
+    expect(await coordinator.openOrResume()).toBeNull();
+    expect(rpc.call).toHaveBeenCalledTimes(3);
+    expect(tabs.createCommandCenterTab).not.toHaveBeenCalled();
+    expect(store.sessionStatus()).toBe('error');
+  });
+
+  it('releases voice and resets meters when starting a new Command Center', async () => {
+    await coordinator.openOrResume();
+    const lock = TestBed.inject(CommandCenterSendLockService);
+    coordinator.startVoice();
+    store.updateLevels(0.8, 0.8);
+
+    expect(coordinator.newCommandCenter()).toBe(rootId);
+    expect(lock.isHeld(rootId)).toBe(false);
+    expect(store.voiceState()).toBe('idle');
+    expect([store.inputLevel(), store.outputLevel()]).toEqual([0, 0]);
+  });
+
   it('holds voice sends for nonowners and releases on mute and Stop', async () => {
     await coordinator.openOrResume();
     const lock = TestBed.inject(CommandCenterSendLockService);
@@ -139,12 +199,18 @@ describe('CommandCenterSessionCoordinator', () => {
         ownerToken: expect.any(String),
       }),
     );
+    store.updateLevels(0.8, 0.8);
     coordinator.mute();
     expect(lock.isHeld(rootId)).toBe(false);
+    expect(store.voiceState()).toBe('muted');
+    expect([store.inputLevel(), store.outputLevel()]).toEqual([0, 0]);
     coordinator.startVoice();
+    store.updateLevels(0.4, 0.6);
     await coordinator.stop();
     expect(rpc.call).toHaveBeenCalledWith('chat:abort', { sessionId: sdkId });
     expect(lock.isHeld(rootId)).toBe(false);
+    expect(store.voiceState()).toBe('stopped');
+    expect([store.inputLevel(), store.outputLevel()]).toEqual([0, 0]);
   });
 
   it('prepends status context only for a status turn', async () => {
