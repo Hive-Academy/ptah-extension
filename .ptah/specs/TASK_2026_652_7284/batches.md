@@ -609,7 +609,7 @@ Named follow-ups added by the re-review (outside this run's batches; Mode 3 list
 - After commit: the Phase 1 re-review is due, scoped to the Batch 16 commit. Done: accepted
   (code-logic-rereview.md, code-style-rereview.md). Formatting follow-up 8afe14ce5.
 
-## Batch 6: Direct New Project handoff in Setup Hub - PENDING
+## Batch 6: Direct New Project handoff in Setup Hub - COMPLETE (commit f576fd028)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: frontend-developer sub-agent
@@ -652,7 +652,7 @@ Named follow-ups added by the re-review (outside this run's batches; Mode 3 list
   `npx prettier --write` on exactly those files; the team-leader re-checks before commit.
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
 
-## Batch 7: Session-filtered proposal consumer, hydration and compatibility relay - PENDING
+## Batch 7: Session-filtered proposal consumer, hydration and compatibility relay - COMPLETE (commit 0365fdda0, after one orchestrator fix round F1-F4: batch-7-report.md)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: frontend-developer sub-agent
@@ -687,7 +687,7 @@ Task 7.1 (`sessionId` on `HarnessConfigProposedPayload`) moved to Batch 9 as Tas
 - Command: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/harness-builder --parallel=1`
   (shared is no longer changed here; it moved to Batch 9 with Task 9.0)
 
-## Batch 8: Frontend adopts the shared merge - PENDING
+## Batch 8: Frontend adopts the shared merge - COMPLETE (commit 0a9785d87)
 
 - Recommended executor: implementation CLI lane, one lane
 - Fallback executor: frontend-developer sub-agent
@@ -1642,13 +1642,37 @@ APPROVED (0 Blocking, 0 Serious, 0 Moderate, 1 new Minor). Review family opencod
 The four Batch 23 specs (`:880`, `:917`, `:937`, `:963`) run over the real checkpoint service
 and supervisor and fail on the pre-fix code. No follow-up number assigned; FU-17 stays free.
 
+## Phase 2F review disposition (2026-10-15, one fix round)
+
+Scope: `f576fd028~1..0a9785d87` (Batches 6-8). Review: `code-logic-review-phase-2f.md`, 6/10,
+APPROVED WITH FIXES (0 Serious, 3 Moderate, 4 Minor). Review family opencode (D11; antigravity
+showed no confirmed room). The orchestrator checked each finding against the code.
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| M1 abort-failure branch in `HarnessWorkflowRequestService` is unreachable: `abort()` reports a failed `chat:abort` through `failTurn` and resolves, so `abortAndDispose` still disposes | Moderate | Follow-up **FU-17**. Pre-existing: the deleted handler's `replaceActiveWorkflow` had the same dead branch. Making `abortAndDispose` reject would block "Start over" and the Setup Hub discard flow whenever `chat:abort` keeps failing (for example a dead session), which removes a capability (keep-and-fix rule). Needs a design choice: force-dispose with a warning vs. retry |
+| M2 reload hydrates only the head session: `PersistedWorkflow` stores only `sessionId()` | Moderate | Fix Batch 24 (persist `sessionIds`, restore earlier ids) |
+| M3 event for a session not yet appended is dropped without a log | Moderate | Fix Batch 24 (log; hydration of the appended session restores it from the store) |
+| Buffered replay loop outside try/catch | Minor | Fix Batch 24 |
+| Same-mode resume drops a fresh intake | Minor | Recorded. Pre-existing behavior; the Setup Hub asks for a discard confirmation before it starts New Project over an active workflow |
+| "Start over" now wipes builder state | Minor | Rejected. Pre-existing: `harness-builder-view.component.ts:761-762` called `state.reset()` before Batch 6 |
+| Hung `getProposal` delays live proposals | Minor | Recorded. Bounded by the RPC timeout; events are buffered, not lost |
+
+## Batch 24: Phase 2F fix - persisted session ids, unknown-session log, replay guard - COMPLETE (batch-24-report.md; 153 tests)
+
+- Executor: codex lane (frontend-developer role). Files: `harness-workflow.service.ts` and spec,
+  `harness-workflow-message.handler.ts` and spec (all `libs/frontend/harness-builder`).
+- Verification: `npx prettier --check` on the changed files;
+  `npx nx run-many -t typecheck,lint -p @ptah-extension/harness-builder --parallel=1`, then
+  `npx nx test @ptah-extension/harness-builder --parallel=1 --maxWorkers=2`.
+
 ---
 
 ## Phases
 
 Run order: 1 (with fix 16) → 2B → 3 → 4 → (wait for TASK_2026_629 and user) → 2F → Mode 3.
 Done: 1, 2B, 3, 4 (Phase 4 accepted 2026-10-14 after fix Batch 23 `4d5432f76` and the
-re-review). Next: wait for TASK_2026_629 and the user, then Batches 6-8 and the Phase 2F review.
+re-review). 629 merged (D13); 2F done (Batches 6-8, fix 24). Next: Mode 3.
 
 | Phase                            | Batches                                | Review                                                                                                                                                                                                                 | State                                                                                      | Reviewer (roster)                                                                                  |
 | -------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
@@ -1656,7 +1680,7 @@ re-review). Next: wait for TASK_2026_629 and the user, then Batches 6-8 and the 
 | 2B - MCP writer (backend)        | 9 (includes Task 9.0, D8), test fix 18 | code-logic                                                                                                                                                                                                             | ACCEPTED (code-logic-review-phase-2b.md); Batch 18 test-only fix                           | same                                                                                               |
 | 3 - Manifest v4 and freshness    | 10-13, fix 19-22                       | code-logic, plus style (new RPC, exported service). First review: both APPROVED WITH FIXES (`code-logic-review-phase-3.md`, `code-style-review-phase-3.md`). One re-review after Batch 22, scoped to the fix commits   | ACCEPTED (code-logic-rereview-phase-3.md, code-style-rereview-phase-3.md); fix round spent | same                                                                                               |
 | 4 - Self-gathering generation    | 14-15, fix 23                          | code-logic. First review APPROVED WITH FIXES (`code-logic-review-phase-4.md`); one re-review after Batch 23                                                                                                            | ACCEPTED (code-logic-rereview-phase-4.md); fix round spent                                 | same                                                                                               |
-| 2F - Builder adapters (frontend) | 6-8                                    | code-logic, after Batch 8                                                                                                                                                                                              | HELD until TASK_2026_629 merges and the user confirms (D7)                                 | same                                                                                               |
+| 2F - Builder adapters (frontend) | 6-8, fix 24 | code-logic, after Batch 8 (`code-logic-review-phase-2f.md`, 6/10 APPROVED WITH FIXES) | ACCEPTED after fix Batch 24 (no re-review: Moderate-only findings, all fixed or recorded; FU-17) | opencode (D11) |
 
 Mode 3 completion also needs:
 
