@@ -145,13 +145,16 @@ export class CommandVoiceLoop {
         if (!this.active || this.muted) return;
         if (playing) {
           this.store.setVoiceState('speaking');
-        } else if (
-          !this.playback.hasPending &&
-          !this.busy &&
-          !this.awaitingBoundary
-        ) {
-          this.store.setVoiceState('listening');
-          this.store.resetLevels();
+        } else if (!this.playback.hasPending) {
+          if (
+            this.store.pendingInput() !== null ||
+            (!this.busy && !this.awaitingBoundary)
+          ) {
+            this.store.setVoiceState('listening');
+            this.store.resetLevels();
+          } else {
+            this.store.setVoiceState('thinking');
+          }
         }
       },
     );

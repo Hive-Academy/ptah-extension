@@ -4,6 +4,7 @@ import {
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   effect,
   inject,
   signal,
@@ -76,13 +77,12 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         min-width: 0;
         min-height: 0;
         max-height: clamp(420px, calc(100vh - 280px), 620px);
-        overflow: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
       }
       .work-list-region {
         min-height: 0;
-        flex: 1 1 auto;
-        overflow-y: auto;
-        overscroll-behavior: contain;
+        flex: none;
       }
       .work-list-region:focus-visible {
         outline: 2px solid currentColor;
@@ -303,6 +303,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           </section>
         }
         <ptah-command-pending-input
+          #pendingCard
           [pending]="page.store.pendingInput()"
           [proposal]="page.shownProposal()"
           [choices]="page.ordinaryChoices()"
@@ -389,6 +390,11 @@ export class CommandCenterPageComponent {
   );
   private readonly overlay = viewChild(CommandOverlayComponent);
   private readonly workList = viewChild(CommandWorkListComponent);
+  private readonly pendingCard = viewChild<string, ElementRef<HTMLElement>>(
+    'pendingCard',
+    { read: ElementRef },
+  );
+  private lastPendingKey: string | null = null;
   private measuredProjection: ReturnType<
     CommandCenterPageController['projection']
   > | null = null;
@@ -408,7 +414,21 @@ export class CommandCenterPageComponent {
       this.overlay()?.closeCard();
       void this.page.exit();
     });
-    afterEveryRender(() => this.measureOverlay());
+    afterEveryRender(() => {
+      this.measureOverlay();
+      this.scrollToNewPendingCard();
+    });
+  }
+
+  private scrollToNewPendingCard(): void {
+    const inputId = this.page.store.pendingInput()?.id;
+    const proposalId = this.page.shownProposal()?.proposalId;
+    const key =
+      inputId || proposalId ? `${inputId ?? ''}:${proposalId ?? ''}` : null;
+    if (key === this.lastPendingKey) return;
+    this.lastPendingKey = key;
+    if (key)
+      this.pendingCard()?.nativeElement.scrollIntoView?.({ block: 'nearest' });
   }
 
   private measureOverlay(): void {

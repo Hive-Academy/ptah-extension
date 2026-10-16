@@ -1,6 +1,8 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
@@ -90,6 +92,7 @@ describe('CommandCenterPageComponent', () => {
     hoveredNodeId.set(null);
     canvasUnavailable.set(false);
     pendingProposal.set(null);
+    store.setPendingInput(null);
     recordWriteFailure.set(null);
     store.setProjection('root:session', nodes, []);
     store.select(null);
@@ -121,6 +124,50 @@ describe('CommandCenterPageComponent', () => {
         ],
       },
     });
+  });
+
+  it('keeps the two-column rail bounded as the single scroller', () => {
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const styles = readFileSync(
+      join(__dirname, 'command-center-page.component.ts'),
+      'utf8',
+    );
+    const rail = styles.match(/\.rail[^{}]*\{([^}]*)\}/)?.[1];
+    const workList = styles.match(/\.work-list-region[^{}]*\{([^}]*)\}/)?.[1];
+    expect(rail).toContain(
+      'max-height: clamp(420px, calc(100vh - 280px), 620px)',
+    );
+    expect(rail).toContain('overflow-y: auto');
+    expect(rail).toContain('overscroll-behavior: contain');
+    expect(rail).not.toContain('overflow: hidden');
+    expect(workList).toContain('flex: none');
+    expect(workList).not.toMatch(/overflow-y:\s*auto/);
+    fixture.destroy();
+  });
+
+  it('scrolls a newly pending card into view once per identity', async () => {
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector(
+      'ptah-command-pending-input',
+    ) as HTMLElement;
+    const scrollIntoView = jest.fn();
+    card.scrollIntoView = scrollIntoView;
+    store.setPendingInput({
+      id: 'question-1',
+      kind: 'question',
+      title: 'Choose',
+      description: 'Pick an option',
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    fixture.destroy();
   });
 
   it('shows both voice models, status and opens settings from the chip', () => {

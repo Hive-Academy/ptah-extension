@@ -14,11 +14,13 @@ describe('CommandVoiceLoop', () => {
     let resolveSpeech: () => void;
     let ended: () => void;
     let stopAudio: jest.Mock;
+    let pendingInput: ReturnType<CommandCenterStore['pendingInput']>;
 
     beforeEach(() => {
       state = 'thinking';
       ended = () => undefined;
       stopAudio = jest.fn();
+      pendingInput = null;
       Object.defineProperty(URL, 'createObjectURL', {
         configurable: true,
         value: () => 'blob:voice-state',
@@ -52,6 +54,7 @@ describe('CommandVoiceLoop', () => {
         setMuted: jest.fn(),
         updateLevels: jest.fn(),
         resetLevels: jest.fn(),
+        pendingInput: () => pendingInput,
       });
       const coordinator = Object.assign(
         Object.create(null) as CommandCenterSessionCoordinator,
@@ -104,6 +107,55 @@ describe('CommandVoiceLoop', () => {
       loop['onFrame'](silence, 100);
       expect(state).toBe('speaking');
       ended();
+      expect(state).toBe('listening');
+    });
+
+    it('listens after a pending prompt ends while the turn awaits its boundary', async () => {
+      const loop = createLoop();
+      pendingInput = {
+        id: 'question-1',
+        kind: 'question',
+        title: 'Choose',
+        description: 'Pick an option',
+      };
+      loop['busy'] = true;
+      loop['awaitingBoundary'] = true;
+      loop.onPendingPrompt('Choose an option.');
+      resolveSpeech();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(state).toBe('speaking');
+      ended();
+      expect(state).toBe('listening');
+    });
+
+    it('returns to thinking after status speech while a turn still runs', async () => {
+      const loop = createLoop();
+      loop['busy'] = true;
+      loop['awaitingBoundary'] = true;
+      loop.onPendingPrompt('Working on the request.');
+      resolveSpeech();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(state).toBe('speaking');
+      ended();
+      expect(state).toBe('thinking');
+    });
+
+    it('listens after barge-in during a busy turn with pending input', async () => {
+      const loop = createLoop();
+      pendingInput = {
+        id: 'question-2',
+        kind: 'question',
+        title: 'Choose',
+        description: 'Pick an option',
+      };
+      loop['busy'] = true;
+      loop['awaitingBoundary'] = true;
+      loop.onPendingPrompt('Choose an option.');
+      resolveSpeech();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(state).toBe('speaking');
+      loop.interruptSpeech();
+      expect(stopAudio).toHaveBeenCalledTimes(1);
       expect(state).toBe('listening');
     });
 
@@ -308,6 +360,7 @@ describe('CommandVoiceLoop', () => {
       setVoiceState: jest.fn(),
       updateLevels: jest.fn(),
       resetLevels: jest.fn(),
+      pendingInput: () => null,
     });
     const loop = new CommandVoiceLoop(
       store,
@@ -836,6 +889,7 @@ describe('CommandVoiceLoop', () => {
       updateLevels: jest.fn(),
       resetLevels: jest.fn(),
       setToast: jest.fn(),
+      pendingInput: () => null,
     });
     const loop = new CommandVoiceLoop(
       store,
