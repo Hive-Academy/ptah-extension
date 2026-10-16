@@ -14,7 +14,7 @@
         "tsConfig": "libs/backend/lane-outcomes/tsconfig.lib.json",
         "assets": [],
         "format": ["cjs"],
-        "external": ["tsyringe"]
+        "external": ["vscode", "tsyringe", "better-sqlite3", "sqlite-vec"]
       }
     },
     "test": {
