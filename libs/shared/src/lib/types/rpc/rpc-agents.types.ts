@@ -106,11 +106,20 @@ export type SubagentPromptCacheTtlEnvOverride =
  * `DecisionModelSelectionSchema` in `@ptah-extension/lane-routing`; this is
  * the plain mirror (the frontend cannot import that lib). Jev's `model` is
  * always present here; the service applies `jev-1.13.0` when a write omits it.
+ * `ollama-cloud` mirrors `OllamaCloudSelectionSchema` (the model is the
+ * canonical cloud id) and `custom` mirrors `CustomEndpointSelectionSchema`
+ * (`baseUrl` is the host-normalised base of a `/v1/systemone` endpoint).
  */
 export type DecisionModelSelectionDto =
   | { readonly kind: 'unset' }
   | { readonly kind: 'ollama'; readonly model: string }
+  | { readonly kind: 'ollama-cloud'; readonly model: string }
   | { readonly kind: 'jev'; readonly model: string }
+  | {
+      readonly kind: 'custom';
+      readonly baseUrl: string;
+      readonly model: string;
+    }
   | {
       readonly kind: 'structured';
       readonly providerId: string;
@@ -124,7 +133,13 @@ export type DecisionModelSelectionDto =
 export type DecisionModelSelectionInputDto =
   | { readonly kind: 'unset' }
   | { readonly kind: 'ollama'; readonly model: string }
+  | { readonly kind: 'ollama-cloud'; readonly model: string }
   | { readonly kind: 'jev'; readonly model?: string }
+  | {
+      readonly kind: 'custom';
+      readonly baseUrl: string;
+      readonly model: string;
+    }
   | {
       readonly kind: 'structured';
       readonly providerId: string;

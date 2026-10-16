@@ -37,7 +37,7 @@ import {
   sameDecisionSelection,
   type DecisionModelDraft,
   type DecisionModelKind,
-} from './provider-consumer-rows';
+} from './decision-model-row.view';
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 4/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 6/23
 
 ## Execution precondition (read first)
 
@@ -362,7 +362,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - No `vscode-core` import under `libs/backend/lane-routing/src`.
 - No per-batch review.
 
-## Batch 4: Jev key slot switch (atomic, cross-library) — PENDING
+## Batch 4: Jev key slot switch (atomic, cross-library) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -375,7 +375,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 1 | Phase review: code-logic (codex)
 - Criteria: 2.5 groundwork (slot snapshot and restore for Jev; 646 rollback specs unchanged), 6.1
 
-### Task 4.1: Replace the Jev key methods in lane-routing — PENDING
+### Task 4.1: Replace the Jev key methods in lane-routing — COMPLETE
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.config.ts` (delete
   `hasJevApiKey`, `readJevApiKey` and `setJevApiKey` at `:181-206`; `jevStatus` uses `keys.has('jev')`;
@@ -386,7 +386,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Validation notes: PD-2.
 - Implementation details: none beyond the rename.
 
-### Task 4.2: Move the rpc-handlers callers and mocks to the slot API — PENDING
+### Task 4.2: Move the rpc-handlers callers and mocks to the slot API — COMPLETE
 
 - Depends on: Task 4.1
 - Files: MODIFY `W\libs\backend\rpc-handlers\src\lib\handlers\agent-rpc.handlers.ts` (`Pick` at `:366-374`
@@ -407,7 +407,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `hasJevApiKey|readJevApiKey|setJevApiKey` appear nowhere under `libs/` or `apps/`.
 - No per-batch review.
 
-## Batch 5: Shared DTO widening and decision row view helpers (C1 widening, C12) — PENDING
+## Batch 5: Shared DTO widening and decision row view helpers (C1 widening, C12) — COMPLETE
 
 - Recommended executor: CLI lane, frontend-developer profile (non-codex)
 - Execution mode: sequential
@@ -420,7 +420,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 1 | Phase review: code-logic (codex)
 - Criteria: 1.1 (setup target), 2.1 (input building), 2.6 (row locality text), 3.2 (row messages), 4.4 (parse accepts any model)
 
-### Task 5.1: Widen the shared selection DTO unions — PENDING
+### Task 5.1: Widen the shared selection DTO unions — COMPLETE
 
 - File: MODIFY `W\libs\shared\src\lib\types\rpc\rpc-agents.types.ts` (`:110-131`: add
   `{ kind: 'ollama-cloud'; model }` and `{ kind: 'custom'; baseUrl; model }` to both unions)
@@ -430,7 +430,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Validation notes: run the rpc-handlers typecheck downstream guard. A wider shared union still
   accepts the narrower lane-routing DTO at `agent-rpc.handlers.ts:508`.
 
-### Task 5.2: Move the decision helpers to `decision-model-row.view.ts` (no behaviour change) — PENDING
+### Task 5.2: Move the decision helpers to `decision-model-row.view.ts` (no behaviour change) — COMPLETE
 
 - Files: CREATE `W\libs\frontend\chat\src\lib\settings\providers\decision-model-row.view.ts`,
   CREATE `...\decision-model-row.view.spec.ts` (moved cases), MODIFY `...\provider-consumer-rows.ts`
@@ -442,7 +442,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   (verified: `provider-consumer-assignments.component.ts` and `orchestration-settings.component.ts`
   import only non-decision symbols).
 
-### Task 5.3: Extend the view helpers for the new kinds — PENDING
+### Task 5.3: Extend the view helpers for the new kinds — COMPLETE
 
 - Depends on: Tasks 5.1, 5.2
 - Files: `decision-model-row.view.ts`, `decision-model-row.view.spec.ts`
