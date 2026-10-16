@@ -6,16 +6,13 @@ import type {
 import { OLLAMA_PROVIDER_ENTRY } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import {
-  buildProbeUrls,
-  checkVersion,
-  discriminate,
   errorMessage,
   keyOf,
   normaliseBaseUrl,
   toRowState,
-  type ProbeAnswer,
 } from './decision-model.probe';
 import { DECISION_MODEL_DETAIL } from './decision-model.detail';
+import { DecisionEndpointProber } from './decision-model.prober';
 import { DecisionModelKeys } from './decision-model.keys';
 import {
   isBlockedDecisionEndpoint,
@@ -72,8 +69,9 @@ interface LastCallFailure {
  * Decision-model setting, credential, locality and status
  * (`LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG`, plan part A §5).
  *
- * Status of an Ollama selection comes from a two-step probe sharing one
- * 1500 ms budget: `GET /api/version` (>= 0.35.0, 0.40.0 for `laya*`), then
+ * Status of an Ollama selection comes from a two-step probe
+ * (`DecisionEndpointProber`, built here from the `fetch` and
+ * `probeTimeoutMs` seams) sharing one 1500 ms budget: `GET /api/version` (>= 0.35.0, 0.40.0 for `laya*`), then
  * `POST /v1/systemone {}` and the same `POST` to a control path no server
  * serves, compared after normalisation (decision #42). A live 404/405 never
  * marks the endpoint by itself: `recheckAfterLiveNotFound` re-runs the probe,
@@ -94,9 +92,8 @@ interface LastCallFailure {
 export class DecisionModelConfig {
   /** Every key the decision model reads or writes (Component 4). */
   readonly keys: DecisionModelKeys;
-  private readonly fetchImpl: SystemOneFetch;
+  private readonly prober: DecisionEndpointProber;
   private readonly now: () => number;
-  private readonly probeTimeoutMs: number;
   private mark: DecisionModelUnsupportedMark | null;
   /** In memory only: cleared by a success, a selection change or a restart. */
   private lastCallFailure: LastCallFailure | null = null;
@@ -122,10 +119,11 @@ export class DecisionModelConfig {
     seams: DecisionModelConfigSeams = {},
   ) {
     this.keys = new DecisionModelKeys(secrets, logger);
-    this.fetchImpl = seams.fetch ?? fetch;
+    this.prober = new DecisionEndpointProber(logger, {
+      fetch: seams.fetch ?? fetch,
+      timeoutMs: seams.probeTimeoutMs ?? DECISION_MODEL_PROBE_TIMEOUT_MS,
+    });
     this.now = seams.now ?? Date.now;
-    this.probeTimeoutMs =
-      seams.probeTimeoutMs ?? DECISION_MODEL_PROBE_TIMEOUT_MS;
     this.mark = this.loadMark();
   }
 
@@ -249,7 +247,11 @@ export class DecisionModelConfig {
       case 'ollama': {
         const baseUrl = this.ollamaBaseUrl();
         const startedKey = keyOf(selection, baseUrl);
-        const probe = await this.probe(baseUrl, selection.model);
+        const probe = await this.prober.probe({
+          mode: 'daemon',
+          baseUrl,
+          model: selection.model,
+        });
         return this.applyProbe(
           selection,
           baseUrl,
@@ -496,7 +498,8 @@ export class DecisionModelConfig {
     if (pending) {
       return pending;
     }
-    const run = this.probe(baseUrl, model)
+    const run = this.prober
+      .probe({ mode: 'daemon', baseUrl, model })
       .then((result) => {
         this.recentRechecks.set(key, { startedAt, result });
         return result;
@@ -506,81 +509,6 @@ export class DecisionModelConfig {
       });
     this.inFlightRechecks.set(key, run);
     return run;
-  }
-
-  /**
-   * Version check, then the System One and control `POST {}` in parallel,
-   * all under one abort budget. Never rejects.
-   */
-  private async probe(
-    baseUrl: string,
-    model: string,
-  ): Promise<DecisionModelProbeResult> {
-    const urls = buildProbeUrls(baseUrl);
-    if (!urls) {
-      return {
-        outcome: 'unreachable',
-        detail: 'base url is not a valid absolute url',
-      };
-    }
-    const signal = AbortSignal.timeout(this.probeTimeoutMs);
-
-    const version = await this.send(urls.version, { method: 'GET' }, signal);
-    const versionResult = checkVersion(version, model);
-    if (versionResult) {
-      return this.loggedProbe(versionResult);
-    }
-
-    const init = {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
-    };
-    const [route, control] = await Promise.all([
-      this.send(urls.route, init, signal),
-      this.send(urls.control, init, signal),
-    ]);
-    return this.loggedProbe(discriminate(route, control));
-  }
-
-  private async send(
-    url: string,
-    init: { method: string; headers?: Record<string, string>; body?: string },
-    signal: AbortSignal,
-  ): Promise<ProbeAnswer> {
-    try {
-      const response = await this.fetchImpl(url, { ...init, signal });
-      const body = await response.text();
-      return { kind: 'answered', status: response.status, body };
-    } catch (error: unknown) {
-      // Classified by the abort signal, never by message (its only source is
-      // the probe budget). The message is untrusted (it can name the host)
-      // and goes to the log only; the row detail is fixed text. The URL is
-      // not logged: a base URL can carry userinfo credentials.
-      const timedOut = signal.aborted;
-      this.logger.warn('[lane-routing] decision model probe request failed', {
-        method: init.method,
-        timedOut,
-        timeoutMs: this.probeTimeoutMs,
-        error: errorMessage(error),
-      });
-      return {
-        kind: 'failed',
-        detail: timedOut
-          ? DECISION_MODEL_DETAIL.timedOut
-          : DECISION_MODEL_DETAIL.unreachable,
-      };
-    }
-  }
-
-  private loggedProbe(
-    result: DecisionModelProbeResult,
-  ): DecisionModelProbeResult {
-    this.logger.debug('[lane-routing] decision model probe', {
-      outcome: result.outcome,
-      detail: result.detail,
-    });
-    return result;
   }
 
   private loadMark(): DecisionModelUnsupportedMark | null {

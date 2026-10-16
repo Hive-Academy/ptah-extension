@@ -177,6 +177,40 @@ describe('SystemOneClient', () => {
     expect(calls[0].url).toBe('https://api.typesafe.ai/v1/systemone');
   });
 
+  it('keeps the base path when it joins the route (DC11)', async () => {
+    const { calls, fetch } = recordingFetch(200, successBody);
+    const client = new SystemOneClient(
+      { baseUrl: 'https://gateway.example.com/gw/', model: 'nimble' },
+      { fetch },
+    );
+
+    await client.decide(payload);
+
+    expect(calls[0].url).toBe('https://gateway.example.com/gw/v1/systemone');
+  });
+
+  it('sends a custom endpoint key as a Bearer header to that endpoint only', async () => {
+    const { calls, fetch } = recordingFetch(200, successBody);
+    const client = new SystemOneClient(
+      {
+        baseUrl: 'https://gateway.example.com/gw',
+        model: 'gpt-oss:120b',
+        apiKey: 'custom-key-7',
+      },
+      { fetch },
+    );
+
+    requireSuccess(await client.decide(payload));
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe('https://gateway.example.com/gw/v1/systemone');
+    expect(calls[0].init.headers).toEqual({
+      'content-type': 'application/json',
+      authorization: 'Bearer custom-key-7',
+    });
+    expect(calls[0].init.body ?? '').not.toContain('custom-key-7');
+  });
+
   it('flags a plain-text 404 as not-found without the body text', async () => {
     const { fetch } = recordingFetch(404, '404 page not found');
     const client = new SystemOneClient(

@@ -1,4 +1,5 @@
 import type { LaneRoutingLogger } from '../lane-routing-logger';
+import { originOf, systemOneUrl } from './decision-endpoint.url';
 import type { DecisionPayload } from './decision-payload';
 import {
   SystemOneResultSchema,
@@ -73,7 +74,11 @@ export interface SystemOneClientOptions {
   readonly baseUrl: string;
   /** Decision model id (`nimble`, `jev-1.13`, ...). */
   readonly model: string;
-  /** Bearer key; sent only when present (TypeSafe Jev). An Ollama call passes none. */
+  /**
+   * Bearer key bound to `baseUrl` by the endpoint resolver; sent only when
+   * present (Jev, Ollama Cloud, a custom endpoint with a key). A local
+   * Ollama call passes none.
+   */
   readonly apiKey?: string;
   /** Per-request abort budget; defaults to `SYSTEM_ONE_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
@@ -119,10 +124,9 @@ export class SystemOneClient {
       );
     }
 
-    let url: string;
-    try {
-      url = new URL(SYSTEM_ONE_PATH, this.options.baseUrl).toString();
-    } catch {
+    // Path-preserving join (DC11): `https://host/gw` keeps its `/gw` prefix.
+    const url = systemOneUrl(this.options.baseUrl, SYSTEM_ONE_PATH);
+    if (!URL.canParse(url)) {
       return this.logged(
         this.failure('unreachable', 'base url is not a valid absolute url'),
       );
@@ -136,8 +140,9 @@ export class SystemOneClient {
     if (this.options.apiKey) {
       headers['authorization'] = `Bearer ${this.options.apiKey}`;
     }
+    // Origin only: a configured Ollama base URL may carry userinfo.
     this.logger?.debug('[lane-routing] system one request', {
-      url,
+      origin: originOf(url),
       model: this.options.model,
       questions: Object.keys(payload.questions).length,
       bodyBytes,

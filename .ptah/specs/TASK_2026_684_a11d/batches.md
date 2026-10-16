@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 8/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 9/23
 
 ## Execution precondition (read first)
 
@@ -539,7 +539,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 
 - `T`, `TC` and `L` on `@ptah-extension/lane-routing`; degradation-audit.
 
-## Batch 8: Prober and path-preserving URL joins (C6 prober, C7 client join) — PENDING
+## Batch 8: Prober and path-preserving URL joins (C6 prober, C7 client join) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -552,7 +552,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 2 | Phase review: code-logic (codex)
 - Criteria: 3.1, 2.3 (path join and header), 1.2 (client header case)
 
-### Task 8.1: `DecisionEndpointProber` — PENDING
+### Task 8.1: `DecisionEndpointProber` — COMPLETE
 
 - Files: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.prober.ts`,
   CREATE `...\decision-model.prober.spec.ts`, MODIFY `...\decision-model.config.ts` (`probe` and
@@ -564,7 +564,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   version floor (0.35.0, and 0.40.0 for `laya*`).
 - Validation notes: the probe never sends request text and never logs a key.
 
-### Task 8.2: Client URL join — PENDING
+### Task 8.2: Client URL join — COMPLETE
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\system-one.client.ts` (`:124`, and
   the `apiKey` doc comment), MODIFY `...\system-one.client.spec.ts` (path-join and custom-key header cases)

@@ -2,10 +2,11 @@
  * Ollama readiness probe helpers (decision #42, part A §5).
  *
  * Moved out of `decision-model.config.ts` (FE-12a) with no behaviour change.
- * The config class owns the fetch, the budget and the mark; these functions
- * only classify answers.
+ * `DecisionEndpointProber` owns the fetch and the budget, the config class
+ * owns the mark; these functions only build URLs and classify answers.
  */
 import { z } from 'zod';
+import { systemOneUrl } from './decision-endpoint.url';
 import {
   OLLAMA_MIN_LAYA_VERSION,
   OLLAMA_MIN_SYSTEM_ONE_VERSION,
@@ -135,16 +136,20 @@ export function discriminate(
     : { outcome: 'ready', detail: null };
 }
 
+/**
+ * Probe URLs under the base, keeping its path (DC11): `https://host/gw`
+ * probes `https://host/gw/v1/systemone`. `null` when the base does not parse.
+ */
 export function buildProbeUrls(
   baseUrl: string,
 ): { version: string; route: string; control: string } | null {
-  if (!URL.canParse(baseUrl)) {
+  if (!URL.canParse(baseUrl.trim())) {
     return null;
   }
   return {
-    version: new URL(OLLAMA_VERSION_PATH, baseUrl).toString(),
-    route: new URL(SYSTEM_ONE_PATH, baseUrl).toString(),
-    control: new URL(SYSTEM_ONE_CONTROL_PATH, baseUrl).toString(),
+    version: systemOneUrl(baseUrl, OLLAMA_VERSION_PATH),
+    route: systemOneUrl(baseUrl, SYSTEM_ONE_PATH),
+    control: systemOneUrl(baseUrl, SYSTEM_ONE_CONTROL_PATH),
   };
 }
 

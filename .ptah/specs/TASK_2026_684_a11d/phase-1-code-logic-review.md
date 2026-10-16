@@ -1,6 +1,6 @@
 # Phase 1 code logic review — Batches 1–5
 
-**Score: 7/10. Verdict: REVISE.** The key storage and rollback paths are sound, but two new validation rules reject a valid loopback setup or accept an effectively empty model. This is above the 5–6 band because neither defect corrupts a key or changes the existing Jev path; it is below 8 because both contradict explicit acceptance behavior once the new kinds are wired in Batch 9.
+**Score: 9/10. Verdict: APPROVED.** Both Phase 1 findings were closed in commit `13f539e85`; the remaining end-to-end wiring belongs to later batches.
 
 ## Defects
 
@@ -25,3 +25,10 @@
 - Orchestrator-reported scoped typecheck, lint, tests and degradation audit passed. `ptah_get_diagnostics` found no diagnostics in the requested URL and view files; it also returned unrelated sibling spec errors, so it was not treated as a clean project-wide check. No heavy test was rerun.
 
 **Remaining uncertainty:** Phase 1 does not yet route or persist the two new selection kinds. End-to-end key transport, status, and rollback for the custom kind belong to later batches and cannot be approved from this diff alone.
+
+## Re-review (round 1)
+
+1. **CLOSED — loopback key transport.** `libs/backend/lane-routing/src/lib/decision-model/decision-endpoint.url.ts:23-35,123-137` and `libs/frontend/chat/src/lib/settings/providers/decision-model-row.view.ts:355-361,381-388` now agree on `localhost`, `localhost.`, `[::1]`, and the normalized IPv4 `127/8` range. The added tests cover `127.0.0.2`, `127.255.255.254`, abbreviated and hexadecimal IPv4, plus lookalike domains. WHATWG URL parsing rejects out-of-range numeric octets such as `127.256.1.1`, so the regex does not admit them. `decision-model.probe.ts:20,151-155` retains an older locality-only helper, but `isLocalUrl` has no call sites; active locality and key transport use `isLoopbackBase` in `decision-model.target.ts:198-206,224-225`.
+2. **CLOSED — whitespace model IDs.** `libs/backend/lane-routing/src/lib/decision-model/decision-model.types.ts:47-52,62-68` trims before checking minimum and maximum length for both custom and Ollama Cloud selections. The added URL spec rejects blank and whitespace-only model IDs and verifies padded valid IDs are trimmed. This does not widen the active selection union.
+
+No new defect found in the fix diff. Orchestrator-reported verification: URL spec 94/94, chat settings/providers 712/712, lane-routing and chat typecheck/lint passed, audit TOTAL 294. No heavy command was rerun.
