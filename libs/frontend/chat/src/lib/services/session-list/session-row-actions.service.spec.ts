@@ -69,7 +69,7 @@ describe('SessionRowActionsService', () => {
   let confirmDelete: jest.Mock;
   let renameSession: jest.Mock;
   let deleteSession: jest.Mock;
-  let logger: { error: jest.Mock };
+  let logger: { error: jest.Mock; warn: jest.Mock };
   let organizer: { closeIfShowing: jest.Mock };
   let service: SessionRowActionsService;
 
@@ -97,7 +97,7 @@ describe('SessionRowActionsService', () => {
     confirmDelete = jest.fn();
     renameSession = jest.fn();
     deleteSession = jest.fn();
-    logger = { error: jest.fn() };
+    logger = { error: jest.fn(), warn: jest.fn() };
     organizer = { closeIfShowing: jest.fn() };
 
     TestBed.configureTestingModule({
@@ -131,21 +131,50 @@ describe('SessionRowActionsService', () => {
   });
 
   describe('openSession', () => {
-    it('switches to the session tab in single layout', () => {
-      service.openSession({ id: TAGGED, name: 'Tagged' });
+    it('switches to the session tab in single layout and resolves opened', async () => {
+      await expect(
+        service.openSession({ id: TAGGED, name: 'Tagged' }),
+      ).resolves.toBe('opened');
 
       expect(chatStore.switchSession).toHaveBeenCalledWith(TAGGED);
       expect(appState.requestCanvasSession).not.toHaveBeenCalled();
     });
 
-    it('asks the canvas for a tile in grid layout', () => {
+    it('resolves opened in single layout without awaiting the history load', async () => {
+      chatStore.switchSession.mockReturnValueOnce(new Promise(() => undefined));
+
+      await expect(
+        service.openSession({ id: TAGGED, name: 'Tagged' }),
+      ).resolves.toBe('opened');
+    });
+
+    it('asks the canvas for a tile in grid layout and resolves opened', async () => {
       layoutMode.set('grid');
 
-      service.openSession({ id: TAGGED, name: 'Tagged' });
+      await expect(
+        service.openSession({ id: TAGGED, name: 'Tagged' }),
+      ).resolves.toBe('opened');
 
       expect(appState.requestCanvasSession).toHaveBeenCalledWith(
         TAGGED,
         'Tagged',
+      );
+      expect(chatStore.switchSession).not.toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('resolves failed and warns when the canvas drops the grid request', async () => {
+      layoutMode.set('grid');
+      appState.requestCanvasSession.mockResolvedValueOnce(false);
+
+      await expect(
+        service.openSession({ id: TAGGED, name: 'Tagged' }),
+      ).resolves.toBe('failed');
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        'SessionRowActions',
+        'Canvas did not open the session',
+        { sessionId: TAGGED },
       );
       expect(chatStore.switchSession).not.toHaveBeenCalled();
     });
@@ -154,7 +183,7 @@ describe('SessionRowActionsService', () => {
       const error = new Error('load failed');
       chatStore.switchSession.mockRejectedValueOnce(error);
 
-      service.openSession({ id: TAGGED, name: 'Tagged' });
+      await service.openSession({ id: TAGGED, name: 'Tagged' });
       await Promise.resolve();
 
       expect(logger.error).toHaveBeenCalledWith(

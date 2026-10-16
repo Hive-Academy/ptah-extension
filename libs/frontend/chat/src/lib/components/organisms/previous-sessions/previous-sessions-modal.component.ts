@@ -49,10 +49,14 @@ import { SkeletonBlockComponent } from '@ptah-extension/chat-ui';
 import type { WorkflowKind } from '@ptah-extension/chat-types';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
+import { SessionDisplayUtils } from '../../../services/session-display-utils.service';
 import { PreviousSessionsDialogService } from '../../../services/session-list/previous-sessions-dialog.service';
 import { SessionListViewStore } from '../../../services/session-list/session-list-view.store';
 import { SessionOrganizerService } from '../../../services/session-list/session-organizer.service';
-import { SessionRowActionsService } from '../../../services/session-list/session-row-actions.service';
+import {
+  SessionRowActionsService,
+  type SessionOpenResult,
+} from '../../../services/session-list/session-row-actions.service';
 import { wrapTabWithin } from '../../../utils/focus-wrap.utils';
 import { PreviousSessionsToolbarComponent } from '../../molecules/previous-sessions-toolbar/previous-sessions-toolbar.component';
 import {
@@ -180,6 +184,7 @@ export class PreviousSessionsModalComponent {
   private readonly organizer = inject(SessionOrganizerService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
   private readonly actions = inject(SessionRowActionsService);
+  private readonly displayUtils = inject(SessionDisplayUtils);
   private readonly logger = inject(LoggingService);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
@@ -254,6 +259,8 @@ export class PreviousSessionsModalComponent {
   private lastRowCount: number | null = null;
   /** The last pointerdown in the modal landed on the scrim. */
   private pointerDownOnScrim = false;
+  /** A row's open is in flight; further opens are ignored until it settles. */
+  private opening = false;
   private destroyed = false;
 
   constructor() {
@@ -349,8 +356,7 @@ export class PreviousSessionsModalComponent {
   }
 
   protected onOpened(session: ChatSessionSummary): void {
-    this.actions.openSession(session);
-    this.close();
+    void this.openRow(session);
   }
 
   protected onOrganize(session: ChatSessionSummary): void {
@@ -405,6 +411,41 @@ export class PreviousSessionsModalComponent {
   private endRename(): void {
     this.editingSessionId.set(null);
     this.editingSessionName.set('');
+  }
+
+  /**
+   * Open a row's session, one at a time. The modal closes only once the
+   * session opened; a grid open the canvas dropped keeps it open and says so
+   * on the status line.
+   */
+  private async openRow(session: ChatSessionSummary): Promise<void> {
+    if (this.opening) return;
+    this.opening = true;
+    let result: SessionOpenResult;
+    try {
+      result = await this.actions.openSession(session);
+    } finally {
+      this.opening = false;
+    }
+    if (this.destroyed || !this.dialog.isOpen()) return;
+    if (result === 'opened') {
+      this.close();
+      return;
+    }
+    const name = this.displayUtils.getSessionDisplayName(session);
+    this.announce(`Couldn't open "${name}". Try again.`);
+    // Focus is left where it is unless it fell out of the panel (e.g. to
+    // <body>); a layer above the modal keeps its own focus.
+    this.afterRender(() => {
+      if (this.nestedLayerOpen()) return;
+      const active = this.document.activeElement;
+      if (active !== null && this.panel().nativeElement.contains(active)) {
+        return;
+      }
+      const target = this.rowAction(session.id, 'open');
+      if (target) target.focus();
+      else this.focusSearch();
+    });
   }
 
   private async deleteRow(session: ChatSessionSummary): Promise<void> {

@@ -191,7 +191,7 @@ describe('PreviousSessionsModalComponent', () => {
     store = createStore();
     layoutMode.set('single');
     isBooting.set(false);
-    requestCanvasSession.mockReset().mockResolvedValue(undefined);
+    requestCanvasSession.mockReset().mockResolvedValue(true);
     workflowForSession.mockReset().mockReturnValue(null);
     forgetWorkflowSession.mockReset();
     rpc.call
@@ -448,7 +448,7 @@ describe('PreviousSessionsModalComponent', () => {
     });
 
     describe('focus returns to the opener (Req 2.5)', () => {
-      const paths: ReadonlyArray<[string, () => void]> = [
+      const paths: ReadonlyArray<[string, () => void | Promise<void>]> = [
         [
           'Close',
           () =>
@@ -467,14 +467,21 @@ describe('PreviousSessionsModalComponent', () => {
             scrim.click();
           },
         ],
-        ['select', () => action('a', 'open').click()],
+        [
+          'select',
+          async () => {
+            action('a', 'open').click();
+            // The modal closes once the open has resolved.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          },
+        ],
       ];
 
       it.each(paths)('after %s', async (_name, closeBy) => {
         await open([session('a', 'Alpha')]);
         expect(document.activeElement).not.toBe(opener());
 
-        closeBy();
+        await closeBy();
         render();
 
         expect(modal()).toBeNull();
@@ -694,10 +701,26 @@ describe('PreviousSessionsModalComponent', () => {
   // ------------------------------------------------------- rows (D-1, D-2)
 
   describe('row verbs', () => {
+    /** Let a row's open settle (its promise chain), then render. */
+    async function drain(): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      render();
+    }
+
+    /** A grid open whose canvas answer the test gives. */
+    function deferCanvas(): (opened: boolean) => void {
+      let answer: (opened: boolean) => void = () => undefined;
+      requestCanvasSession.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => (answer = resolve)),
+      );
+      return answer;
+    }
+
     it('opens the session in the grid and closes (D-1)', async () => {
       layoutMode.set('grid');
       await open([session('a', 'Alpha')]);
       action('a', 'open').click();
+      await drain();
 
       expect(requestCanvasSession).toHaveBeenCalledWith('a', 'Alpha');
       expect(store.switchSession).not.toHaveBeenCalled();
@@ -707,10 +730,93 @@ describe('PreviousSessionsModalComponent', () => {
     it('switches the tab in single layout and closes (D-1)', async () => {
       await open([session('a', 'Alpha')]);
       action('a', 'open').click();
+      await drain();
 
       expect(store.switchSession).toHaveBeenCalledWith('a');
       expect(requestCanvasSession).not.toHaveBeenCalled();
       expect(isOpen()).toBe(false);
+    });
+
+    it('stays open and says so when the canvas does not open the session', async () => {
+      layoutMode.set('grid');
+      await open([session('a', 'Alpha')]);
+      const close = jest.spyOn(
+        TestBed.inject(PreviousSessionsDialogService),
+        'close',
+      );
+      requestCanvasSession.mockResolvedValueOnce(false);
+      action('a', 'open').focus();
+      action('a', 'open').click();
+      await drain();
+
+      expect(isOpen()).toBe(true);
+      expect(close).not.toHaveBeenCalled();
+      expect(status()).toBe(`Couldn't open "Alpha". Try again.`);
+      // Focus was still in the panel: it stays on the row.
+      expect(document.activeElement).toBe(action('a', 'open'));
+
+      // The guard is released: the user can try again.
+      action('a', 'open').click();
+      await drain();
+      expect(requestCanvasSession).toHaveBeenCalledTimes(2);
+      expect(isOpen()).toBe(false);
+    });
+
+    it('returns focus to the row after a failed open when focus left the panel', async () => {
+      layoutMode.set('grid');
+      await open([session('a', 'Alpha'), session('b', 'Beta')]);
+      const answer = deferCanvas();
+      action('b', 'open').click();
+      (document.activeElement as HTMLElement | null)?.blur();
+      expect(document.activeElement).toBe(document.body);
+
+      answer(false);
+      await drain();
+
+      expect(isOpen()).toBe(true);
+      expect(document.activeElement).toBe(action('b', 'open'));
+    });
+
+    it('ignores a second open while the first is pending', async () => {
+      layoutMode.set('grid');
+      await open([session('a', 'Alpha'), session('b', 'Beta')]);
+      const answer = deferCanvas();
+      action('a', 'open').click();
+      action('b', 'open').click();
+      await drain();
+
+      expect(requestCanvasSession).toHaveBeenCalledTimes(1);
+      expect(requestCanvasSession).toHaveBeenCalledWith('a', 'Alpha');
+      expect(isOpen()).toBe(true);
+
+      answer(true);
+      await drain();
+      expect(isOpen()).toBe(false);
+    });
+
+    it('does nothing with an open result that arrives after the modal closed', async () => {
+      layoutMode.set('grid');
+      await open([session('a', 'Alpha')]);
+      const answer = deferCanvas();
+      action('a', 'open').click();
+      await drain();
+      expect(isOpen()).toBe(true);
+
+      // Closed while pending, then opened again: a new modal instance.
+      TestBed.inject(PreviousSessionsDialogService).close();
+      render();
+      await reopen();
+      const close = jest.spyOn(
+        TestBed.inject(PreviousSessionsDialogService),
+        'close',
+      );
+
+      answer(true);
+      await drain();
+
+      expect(isOpen()).toBe(true);
+      expect(close).not.toHaveBeenCalled();
+      expect(status()).toBe('');
     });
 
     it('renames on Enter, once, and returns focus to Rename', async () => {

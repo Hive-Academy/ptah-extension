@@ -16,6 +16,7 @@ import { SessionOrganizerService } from './session-organizer.service';
 /** Longest session name a rename sends; longer input is cut to this. */
 export const SESSION_NAME_MAX_LENGTH = 200;
 
+export type SessionOpenResult = 'opened' | 'failed';
 export type SessionRenameResult = 'renamed' | 'unchanged' | 'failed';
 export type SessionDeleteResult = 'deleted' | 'cancelled' | 'failed';
 
@@ -43,15 +44,30 @@ export class SessionRowActionsService {
   /**
    * Open a session in the current layout: grid asks the canvas to open or
    * focus its tile, single switches to the session's tab.
+   *
+   * Grid resolves `'failed'` when the canvas drops the request (invalid id,
+   * or not taken within its timeout). Single resolves `'opened'` once the
+   * switch has started; the history load is not awaited, and its failure is
+   * logged.
    */
-  openSession(session: Pick<ChatSessionSummary, 'id' | 'name'>): void {
+  async openSession(
+    session: Pick<ChatSessionSummary, 'id' | 'name'>,
+  ): Promise<SessionOpenResult> {
     if (this.appState.layoutMode() === 'grid') {
-      void this.appState.requestCanvasSession(session.id, session.name);
-      return;
+      const opened = await this.appState.requestCanvasSession(
+        session.id,
+        session.name,
+      );
+      if (opened) return 'opened';
+      this.logger.warn(LOG_CONTEXT, 'Canvas did not open the session', {
+        sessionId: session.id,
+      });
+      return 'failed';
     }
     this.chatStore.switchSession(session.id).catch((error: unknown) => {
       this.logger.error(LOG_CONTEXT, 'Failed to open session', error);
     });
+    return 'opened';
   }
 
   /**

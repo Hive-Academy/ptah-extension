@@ -202,6 +202,39 @@ describe('SessionOrganizerService', () => {
       render();
       expect(restore).toHaveBeenCalledTimes(1);
     });
+
+    it('cancels the restore of a close when another editor opens before it renders', () => {
+      sessions.set([row(A, 'Alpha'), row(B, 'Beta')]);
+      const restoreA = jest.fn();
+      const restoreB = jest.fn();
+      service.open(A, restoreA);
+      service.close();
+
+      service.open(B, restoreB);
+      render();
+
+      expect(restoreA).not.toHaveBeenCalled();
+      expect(service.session()?.id).toBe(B);
+
+      service.close();
+      render();
+      expect(restoreA).not.toHaveBeenCalled();
+      expect(restoreB).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels the restore of a close when openForSession reopens before it renders', async () => {
+      sessions.set([row(A, 'Alpha'), row(B, 'Beta')]);
+      const restoreA = jest.fn();
+      service.open(A, restoreA);
+      service.close();
+
+      await expect(service.openForSession(B, 'Beta', jest.fn())).resolves.toBe(
+        'opened',
+      );
+      render();
+
+      expect(restoreA).not.toHaveBeenCalled();
+    });
   });
 
   describe('openForSession (a persisted session outside the loaded list)', () => {
@@ -413,7 +446,9 @@ describe('SessionOrganizerService', () => {
     it('reads again when a push for the in-flight id arrives, so the stale result never opens', async () => {
       const stale = deferred<Read>();
       const fresh = deferred<Read>();
-      call.mockReturnValueOnce(stale.promise).mockReturnValueOnce(fresh.promise);
+      call
+        .mockReturnValueOnce(stale.promise)
+        .mockReturnValueOnce(fresh.promise);
 
       const pending = service.openForSession(A, 'Rail', jest.fn());
       service.onOrganizationChanged([A]);
@@ -497,7 +532,9 @@ describe('SessionOrganizerService', () => {
       await openFetched(organization());
       const older = deferred<Read>();
       const newer = deferred<Read>();
-      call.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+      call
+        .mockReturnValueOnce(older.promise)
+        .mockReturnValueOnce(newer.promise);
 
       service.onOrganizationChanged([A]);
       service.onOrganizationChanged([A]);

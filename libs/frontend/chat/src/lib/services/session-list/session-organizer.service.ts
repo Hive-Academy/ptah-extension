@@ -6,6 +6,7 @@ import {
   inject,
   linkedSignal,
   signal,
+  type AfterRenderRef,
 } from '@angular/core';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import type {
@@ -25,10 +26,7 @@ import { ChatStore } from '../chat.store';
  *   before it resolved; the editor was not opened for it.
  */
 export type SessionOrganizerOpenResult =
-  | 'opened'
-  | 'unavailable'
-  | 'failed'
-  | 'cancelled';
+  'opened' | 'unavailable' | 'failed' | 'cancelled';
 
 /** One in-flight `session:getOrganization` read started by `openForSession`. */
 interface PendingOpen {
@@ -83,6 +81,9 @@ export class SessionOrganizerService {
   /** Focus restore for the open editor, run after the close renders. */
   private restoreFocus: (() => void) | null = null;
 
+  /** The single-shot restore scheduled by the last `close()`; `open()` cancels it. */
+  private pendingRestore: AfterRenderRef | null = null;
+
   /** Latest-request-wins: only this read may open the editor. */
   private pendingOpen: PendingOpen | null = null;
 
@@ -134,6 +135,9 @@ export class SessionOrganizerService {
   open(sessionId: SessionId, restoreFocus: () => void): void {
     this.pendingOpen = null;
     this.pendingRefresh = null;
+    // A restore from a close that has not rendered yet belongs to the last
+    // editor; it must not move focus while this one is open.
+    this.cancelPendingRestore();
     if (this.fetched()?.id !== sessionId) {
       this.fetched.set(null);
     }
@@ -155,7 +159,14 @@ export class SessionOrganizerService {
     this.sessionId.set(null);
     this.fetched.set(null);
     if (restore) {
-      afterNextRender(() => restore(), { injector: this.injector });
+      this.cancelPendingRestore();
+      this.pendingRestore = afterNextRender(
+        () => {
+          this.pendingRestore = null;
+          restore();
+        },
+        { injector: this.injector },
+      );
     }
   }
 
@@ -233,6 +244,11 @@ export class SessionOrganizerService {
     ) {
       void this.refresh(shown);
     }
+  }
+
+  private cancelPendingRestore(): void {
+    this.pendingRestore?.destroy();
+    this.pendingRestore = null;
   }
 
   private async refresh(shown: ChatSessionSummary): Promise<void> {
