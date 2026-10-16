@@ -568,8 +568,14 @@ export class ChatMessageHandler implements MessageHandler {
       const boundSessionId = sessionId ?? event.sessionId;
       if (excludeTabIds?.size && boundSessionId) {
         for (const tab of this.tabManager.tabs()) {
-          if (tab.claudeSessionId !== boundSessionId || excludeTabIds.has(tab.id)) continue;
-          this.chatStore.processStreamEvent(event, tab.id, boundSessionId, { fanOut: false });
+          if (
+            tab.claudeSessionId !== boundSessionId ||
+            excludeTabIds.has(tab.id)
+          )
+            continue;
+          this.chatStore.processStreamEvent(event, tab.id, boundSessionId, {
+            fanOut: false,
+          });
         }
       } else {
         this.chatStore.processStreamEvent(event, tabId, sessionId);
@@ -588,16 +594,28 @@ export class ChatMessageHandler implements MessageHandler {
     const snapshot = this.parseStreamSnapshot(payload);
     if (!snapshot) return;
     if (snapshot.resyncRequired) {
-      const sessionId = snapshot.sessionId ?? this.tabsSessionId(snapshot.tabId);
+      const sessionId =
+        snapshot.sessionId ?? this.tabsSessionId(snapshot.tabId);
       if (sessionId) {
-        if (snapshot.liveSeed !== undefined || snapshot.liveSeedBlocks !== undefined) {
+        if (
+          snapshot.liveSeed !== undefined ||
+          snapshot.liveSeedBlocks !== undefined
+        ) {
           void this.chatStore.resyncStream(snapshot.tabId, sessionId, {
             events: snapshot.liveSeed ?? [],
             apply: (events) => {
               for (const event of events) {
-                this.chatStore.processStreamEvent(event, snapshot.tabId, sessionId, { fanOut: false });
+                this.chatStore.processStreamEvent(
+                  event,
+                  snapshot.tabId,
+                  sessionId,
+                  { fanOut: false },
+                );
                 const originTabId = TabId.safeParse(snapshot.tabId);
-                this.streamRouter.routeStreamEvent(event, originTabId ?? undefined);
+                this.streamRouter.routeStreamEvent(
+                  event,
+                  originTabId ?? undefined,
+                );
               }
             },
             liveSeedBlocks: snapshot.liveSeedBlocks,
@@ -642,21 +660,35 @@ export class ChatMessageHandler implements MessageHandler {
       return null;
     }
     if (
-      (value.liveSeed !== undefined && (!Array.isArray(value.liveSeed) || value.resyncRequired !== true ||
-        value.liveSeed.some((event: unknown) => event === null || typeof event !== 'object' ||
-          typeof (event as { eventType?: unknown }).eventType !== 'string')))
-    ) return null;
+      value.liveSeed !== undefined &&
+      (!Array.isArray(value.liveSeed) ||
+        value.resyncRequired !== true ||
+        value.liveSeed.some(
+          (event: unknown) =>
+            event === null ||
+            typeof event !== 'object' ||
+            typeof (event as { eventType?: unknown }).eventType !== 'string',
+        ))
+    )
+      return null;
     if (value.liveSeedBlocks !== undefined) {
       const blocks = value.liveSeedBlocks;
       if (
         value.resyncRequired !== true ||
-        !blocks || typeof blocks !== 'object' || Array.isArray(blocks) ||
+        !blocks ||
+        typeof blocks !== 'object' ||
+        Array.isArray(blocks) ||
         Object.getPrototypeOf(blocks) !== Object.prototype ||
-        Object.entries(blocks).some(([key, count]) =>
-          key.length === 0 || !Number.isSafeInteger(count) || count < 0)
+        Object.entries(blocks).some(
+          ([key, count]) =>
+            key.length === 0 || !Number.isSafeInteger(count) || count < 0,
+        )
       ) {
         console.warn('[ChatMessageHandler] Ignoring malformed liveSeedBlocks');
-        return { ...value, liveSeedBlocks: undefined } as ChatStreamSnapshotPayload;
+        return {
+          ...value,
+          liveSeedBlocks: undefined,
+        } as ChatStreamSnapshotPayload;
       }
     }
     return value as ChatStreamSnapshotPayload;
@@ -686,12 +718,6 @@ export class ChatMessageHandler implements MessageHandler {
     if (surfaceMode === true) {
       return;
     }
-
-    console.error('[ChatMessageHandler] Chat error:', {
-      tabId,
-      sessionId,
-      error,
-    });
 
     this.chatStore.handleChatError({
       tabId,

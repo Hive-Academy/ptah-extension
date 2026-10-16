@@ -23,7 +23,7 @@ import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.c
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
-import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
+import type { ProviderConsumerId } from '../providers/provider-consumer-rows';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 
 @Component({
@@ -34,11 +34,11 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
 })
 class ConsumerStub {
   readonly disabled = input(false);
-  readonly initialEditingConsumerId = input<BackgroundConsumerId | null>(null);
+  readonly initialEditingConsumerId = input<ProviderConsumerId | null>(null);
   readonly setupProviderRequested = output<string>();
-  readonly deepLinkOpened = output<BackgroundConsumerId>();
+  readonly deepLinkOpened = output<ProviderConsumerId>();
   readonly assignmentSaved = output<{
-    id: BackgroundConsumerId;
+    id: ProviderConsumerId;
     provider: string;
     model: string;
   }>();
@@ -331,7 +331,16 @@ describe('OrchestrationSettingsComponent', () => {
       'background-roles-summary',
     );
     expect(summary?.textContent).toContain('Background Model Roles');
-    expect(summary?.textContent).toContain('6 roles');
+    // TASK_2026_646 Req 1.1: the Decision model row is the seventh role.
+    expect(summary?.textContent).toContain('7 roles');
+    expect(
+      summary
+        ?.querySelector('[data-testid="background-roles-list"]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe(
+      'Memory curator, archaeologist, synthesis, judge, replay, judging, decision',
+    );
     const list = Array.from(summary?.querySelectorAll('span') ?? []).find(
       (span) => span.textContent?.includes('archaeologist'),
     );

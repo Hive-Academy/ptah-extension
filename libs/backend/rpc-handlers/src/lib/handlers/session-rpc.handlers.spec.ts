@@ -2884,6 +2884,7 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
         VALID_SESSION_ID,
         WORKSPACE,
+        undefined,
       );
       expect(h.sdkAdapter.rewindFiles).toHaveBeenCalled();
       expect(result.canRewind).toBe(true);

@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -298,6 +299,7 @@ function createEventsDb(): BetterSqliteDb {
     CREATE INDEX idx_skill_inv_events_task
       ON skill_invocation_events(skill_slug, task_id);
   `);
+  db.exec(MIGRATIONS.find((m) => m.version === 55)?.sql ?? '');
   return db;
 }
 

@@ -27,6 +27,7 @@ import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
+import { LucideAngularModule, PanelRight } from 'lucide-angular';
 import {
   checkRailGeometry,
   railAnchorScrollTop,
@@ -65,6 +66,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     CanvasFocusAreaComponent,
     SessionInspectorComponent,
     ProjectSetupCardComponent,
+    LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [RailTranscriptRetentionCoordinator, InspectorShellController, StatsTileExpansionState],
@@ -225,12 +227,13 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           } @else {
             <button
               type="button"
-              class="btn btn-ghost w-11 shrink-0 border-l border-base-content/10"
+              class="btn btn-ghost btn-xs btn-square w-11 shrink-0 border-l border-base-content/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               aria-label="Open details"
-              aria-expanded="false"
+              title="Session details"
+              [attr.aria-expanded]="detailsOpen()"
               (click)="toggleDetails()"
             >
-              i
+              <lucide-angular [img]="detailsIcon" class="size-4" aria-hidden="true" />
             </button>
           }
         } @else if (!splitDisplayed() && !compactSheet()) {
@@ -241,7 +244,10 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             [class.w-[296px]]="band() === 'md'"
           >
             @if (focusedId(); as id) {
-              <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
+              <!-- Every inspector reference is deferred so it stays out of the initial bundle. -->
+              @defer (on idle) {
+                <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
+              }
             }
           </aside>
         }
@@ -262,6 +268,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   `,
 })
 export class CanvasRailBoardComponent {
+  readonly detailsIcon = PanelRight;
   readonly sides = ['left', 'right'] as const;
   readonly workspacePath = input.required<string>();
   readonly visible = input.required<boolean>();

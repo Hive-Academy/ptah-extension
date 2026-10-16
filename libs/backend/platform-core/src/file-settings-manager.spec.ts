@@ -240,6 +240,30 @@ describe('PtahFileSettingsManager', () => {
       ]);
     });
 
+    // TASK_2026_646_136a. The decision-model selection is an object. Without
+    // the whole-value rule, the reload would flatten it into `.kind` /
+    // `.model` leaves and the key itself would read back as unset.
+    it('round-trips the object-valued decision-model selection whole', async () => {
+      const key = 'agentOrchestration.decisionModel';
+      const selection = { kind: 'ollama', model: 'tev1' };
+      const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      await writer.set(key, selection);
+
+      const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) as {
+        agentOrchestration: Record<string, unknown>;
+      };
+      expect(parsed.agentOrchestration['decisionModel']).toEqual(selection);
+
+      const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(reader.get(key)).toEqual(selection);
+      expect(reader.get(`${key}.kind`)).toBeUndefined();
+    });
+
+    it('reads an unset decision-model selection as null', () => {
+      const mgr = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(mgr.get('agentOrchestration.decisionModel')).toBeNull();
+    });
+
     it('preserves boolean + null tier values', async () => {
       const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       await writer.set('agentOrchestration.copilotAutoApprove', false);

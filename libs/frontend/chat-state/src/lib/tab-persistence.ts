@@ -113,6 +113,9 @@ export function projectTabForPersist(tab: TabState): TabState {
   return {
     ...tab,
     workflow: isWorkflowKind(tab.workflow) ? tab.workflow : undefined,
+    firstMessagePreamble: isWorkflowKind(tab.workflow)
+      ? tab.firstMessagePreamble
+      : null,
     // Persist the once-only marker with the title. Without it, a reload could
     // mistake an auto-titled session for an untouched default and derive again.
     // Only recognized placeholder/generated names on a pre-feature empty draft
@@ -215,6 +218,23 @@ function restoredAgentOrigin(tab: TabState): TabAgentOrigin | undefined {
   };
 }
 
+/** A persisted marker is trusted only after all of its fields are checked. */
+export function validCommandCenterOrigin(
+  value: unknown,
+): value is NonNullable<TabState['commandCenterOrigin']> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const marker = value as Record<string, unknown>;
+  return (
+    isNonEmptyString(marker['workspaceId']) &&
+    typeof marker['createdAt'] === 'number' &&
+    Number.isFinite(marker['createdAt']) &&
+    marker['createdAt'] >= 0 &&
+    marker['version'] === 1
+  );
+}
+
 /**
  * Bring one stored tab back to a state the running app can own.
  *
@@ -236,9 +256,17 @@ export function sanitizeRestoredTab(tab: TabState): TabState {
   const sanitized: TabState & { compactHeightUnits?: unknown } = {
     ...tab,
     workflow: isWorkflowKind(tab.workflow) ? tab.workflow : undefined,
+    firstMessagePreamble:
+      isWorkflowKind(tab.workflow) &&
+      typeof tab.firstMessagePreamble === 'string'
+        ? tab.firstMessagePreamble
+        : null,
     // Persisted, but external input on the way back: a malformed record is
     // dropped and the tab restores as an ordinary one.
     agentOrigin: restoredAgentOrigin(tab),
+    commandCenterOrigin: validCommandCenterOrigin(tab.commandCenterOrigin)
+      ? tab.commandCenterOrigin
+      : undefined,
     viewMode: restoredViewMode(tab),
     // Mirror projectTabForPersist explicitly. Only a recognized placeholder or
     // generated name on an empty draft is safe to treat as default.

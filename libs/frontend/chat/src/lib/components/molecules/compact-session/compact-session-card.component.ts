@@ -49,6 +49,7 @@ import {
   sessionWorkingRoot,
 } from '../../../services/session-git-stats/session-git-stats.store';
 import {
+  RAIL_TRANSCRIPT_RETENTION,
   SESSION_CARD_ACTIONS,
   SESSION_CONTEXT,
   SESSION_FORCED_CARD,
@@ -147,15 +148,21 @@ function sameLaneSummary(
         class="flex h-full min-h-0 flex-col overflow-hidden border border-base-content/10 bg-base-100"
         data-testid="compact-session-card"
       >
+        @if (!canvasHost || needsYouCount() > 0) {
         <div
           class="flex shrink-0 items-center justify-between gap-2 border-b border-base-content/10 px-3 py-2"
         >
-          <span class="min-w-0 truncate text-sm font-semibold text-base-content" data-testid="compact-session-title">{{ tab().title || 'New Chat' }}</span>
+          @if (!canvasHost) {
+            <span class="min-w-0 truncate text-sm font-semibold text-base-content" data-testid="compact-session-title">{{ tab().title || 'New Chat' }}</span>
+          }
           @if (needsYouCount() > 0) {
             <span class="shrink-0 text-xs font-semibold" style="color: var(--state-ink-need)">{{ needsYouCount() }} needs you</span>
           }
-          <button type="button" class="shrink-0 rounded px-2 py-1 text-xs text-base-content-muted hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content" (click)="openFullView()">Full view</button>
+          @if (!canvasHost) {
+            <button type="button" class="shrink-0 rounded px-2 py-1 text-xs text-base-content-muted hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content" (click)="openFullView()">Full view</button>
+          }
         </div>
+        }
         @if (tab().viewMode === 'compact' && activityLanes() === null && summary().marks.length === 0) {
           <div class="flex min-h-0 flex-1 flex-col justify-between" data-testid="compact-session-empty">
             <div class="px-3 py-3">
@@ -204,6 +211,9 @@ export class CompactSessionCardComponent {
   });
   private readonly sessionContext = inject(SESSION_CONTEXT, { optional: true });
   private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
+  // Canvas is the only production binder of retainRailTranscript (canvas-detail-transcript.component.ts:29).
+  // SESSION_EMBED_CHROME cannot replace it: Canvas focus gets 'full' like any embed, the Rail card none.
+  protected readonly canvasHost = inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) === true;
 
   readonly tab = input.required<TabState>();
   readonly needsYouCount = input(0);

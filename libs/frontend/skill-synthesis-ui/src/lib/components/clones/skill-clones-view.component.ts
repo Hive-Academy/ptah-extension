@@ -51,6 +51,7 @@ import { VSCodeService } from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import { NativeTab, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type {
+  AgentOutcomeSignals,
   AgentScorecard,
   CloneSummary,
   ScorecardInvocationRow,
@@ -311,6 +312,9 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                     <ptah-clone-card
                       [clone]="c"
                       [scorecard]="scorecardFor(c.slug)"
+                      [outcomeSignals]="outcomeSignalsFor(c.slug)"
+                      [outcomeWindowDays]="outcomeWindowDays()"
+                      [outcomeStatus]="outcomeStatus()"
                       [busy]="busySlug() === c.slug || bulk.running()"
                       [syncChips]="chipsFor(c)"
                       [notOwned]="isNotOwned(c)"
@@ -351,6 +355,9 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
         [history]="history()"
         [detailLoading]="detailLoading()"
         [scorecard]="selectedScorecard()"
+        [outcomeSignals]="selectedOutcomeSignals()"
+        [outcomeWindowDays]="outcomeWindowDays()"
+        [outcomeStatus]="outcomeStatus()"
         [scorecardRows]="selectedScorecardRows()"
         [scorecardFindings]="selectedScorecardFindings()"
         [scorecardLoading]="selectedScorecardLoading()"
@@ -527,6 +534,9 @@ export class SkillClonesViewComponent implements OnInit {
   public readonly error = this.state.error;
   public readonly detailLoading = this.state.detailLoading;
   public readonly scorecards = this.state.scorecards;
+  public readonly agentOutcomeSignals = this.state.agentOutcomeSignals;
+  public readonly outcomeWindowDays = this.state.outcomeWindowDays;
+  public readonly outcomeStatus = this.state.outcomeStatus;
 
   /** Which kind tab is showing. Two-way bound to the tab group. */
   public readonly activeKind = signal<string | null>('skill');
@@ -971,6 +981,17 @@ export class SkillClonesViewComponent implements OnInit {
   protected scorecardFor(slug: string): AgentScorecard | null {
     return this.scorecards()[slug] ?? null;
   }
+
+  /** Signals for one agent slug. Missing means "no data yet", never zeros. */
+  protected outcomeSignalsFor(slug: string): AgentOutcomeSignals | null {
+    return this.agentOutcomeSignals()[slug] ?? null;
+  }
+
+  protected readonly selectedOutcomeSignals =
+    computed<AgentOutcomeSignals | null>(() => {
+      const c = this.selected();
+      return c === null ? null : (this.agentOutcomeSignals()[c.slug] ?? null);
+    });
 
   protected readonly selectedScorecard = computed<AgentScorecard | null>(() => {
     const c = this.selected();

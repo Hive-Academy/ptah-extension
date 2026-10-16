@@ -89,6 +89,7 @@ interface Harness {
   /** Session ids that have a live SDK record (what `isSessionActive` sees). */
   live: Set<string>;
   interruptSession: jest.Mock;
+  onTurnAborted: jest.Mock;
 }
 
 function makeHarness(): Harness {
@@ -122,6 +123,7 @@ function makeHarness(): Harness {
     interruptSession,
     isSessionActive: (sessionId: string) => live.has(sessionId),
   };
+  const onTurnAborted = jest.fn();
 
   const service = new ChatSessionService(
     logger as unknown as Logger,
@@ -174,9 +176,12 @@ function makeHarness(): Harness {
     new SessionMcpStatusRegistry(),
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     sessionEndEvents as never,
+    null,
+    null,
+    { onTurnAborted } as never,
   );
 
-  return { service, registry, store, live, interruptSession };
+  return { service, registry, store, live, interruptSession, onTurnAborted };
 }
 
 function interruptedRecord(
@@ -216,6 +221,7 @@ describe('ChatSessionService.abortSession — durable resumable-subagent list', 
     const first = await h.service.abortSession({ sessionId: SESSION });
 
     expect(first.success).toBe(true);
+    expect(h.onTurnAborted).toHaveBeenCalledWith(SESSION);
     expect(first.resumableSubagents?.map((r) => r.toolCallId)).toEqual([
       'tool-1',
     ]);

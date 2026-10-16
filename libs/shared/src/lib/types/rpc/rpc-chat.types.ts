@@ -125,6 +125,8 @@ export interface ChatStartResult {
 }
 
 export interface ChatContinueParams {
+  /** Per-tab persona for an inactive SDK resume; ignored by an active turn. */
+  systemPrompt?: string;
   /** Message content to send */
   prompt: string;
   /** Session ID to continue (REQUIRED - must be real SDK UUID for resume) */
@@ -243,6 +245,8 @@ export interface ChatPendingQuestionsResult {
 
 /** Parameters for chat:resume RPC method */
 export interface ChatResumeParams {
+  /** Per-tab persona for an inactive SDK resume; ignored by an active turn. Applies only with activate: true. */
+  systemPrompt?: string;
   /** Session ID to resume */
   sessionId: SessionId;
   /**

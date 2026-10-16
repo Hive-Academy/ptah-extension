@@ -55,6 +55,15 @@ import {
   createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
 import {
+  LANE_ROUTING_TOKENS,
+  registerLaneRoutingServices,
+} from '@ptah-extension/lane-routing';
+import {
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+  startAndRegisterLaneOutcomes,
+} from '@ptah-extension/lane-outcomes';
+import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
 } from '@ptah-extension/agent-generation';
@@ -302,6 +311,16 @@ export function registerPhase2Libraries(
     useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
   });
   registerCuratorAuthServices(container, logger);
+  // Before phase 3 registerVsCodeLmToolsServices and wire-runtime
+  // registerRpcSurface. AgentRpcHandlers injects DECISION_MODEL_CONFIG.
+  registerLaneRoutingServices(container, logger);
+  registerLaneOutcomeServices(container, logger);
+  container.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+    useToken: LANE_OUTCOME_TOKENS.READER,
+  });
+  container.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+    useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+  });
   registerCliAgentRuntimeServices(container, logger);
 
   wireAgentAdapterAliases(container);
@@ -402,6 +421,7 @@ export function registerPhase2Libraries(
       },
     );
   }
+  startAndRegisterLaneOutcomes(container, logger);
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);
   // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/

@@ -3,9 +3,10 @@ import {
   LucideAngularModule,
   ArrowLeft,
   Scale,
+  Mic,
   ChevronRight,
 } from 'lucide-angular';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { AnalyticsCardComponent } from '../analytics-card/analytics-card.component';
 import { BuildersCardComponent } from '../builders-card/builders-card.component';
 import { HarnessCardComponent } from '../harness-card/harness-card.component';
@@ -64,10 +65,16 @@ import { SkillSelectionCardComponent } from '../skill-selection-card/skill-selec
 })
 export class DashboardGridComponent {
   private readonly appState = inject(AppStateManager);
+  private readonly vscode = inject(VSCodeService);
 
   readonly ArrowLeftIcon = ArrowLeft;
   readonly ScaleIcon = Scale;
+  readonly MicIcon = Mic;
   readonly ChevronRightIcon = ChevronRight;
+
+  get isElectron(): boolean {
+    return this.vscode.isElectron;
+  }
 
   navigateBack(): void {
     this.appState.setCurrentView('chat');
@@ -75,5 +82,9 @@ export class DashboardGridComponent {
 
   conveneTribunal(): void {
     this.appState.setCurrentView('tribunal');
+  }
+
+  openCommandCenter(): void {
+    this.appState.setCurrentView('command-center');
   }
 }

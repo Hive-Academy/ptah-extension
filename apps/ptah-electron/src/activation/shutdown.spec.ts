@@ -134,4 +134,38 @@ describe('will-quit — the run-check kill', () => {
     expect(deps.deferQuit).not.toHaveBeenCalled();
     expect(order).toEqual(['sqliteConnection', 'diagnostics']);
   });
+
+  it('awaits agent reap, lane outcomes, then SQLite close before re-issuing quit', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    const refs = minimalRefs(order);
+    refs.laneOutcomesDisposer = {
+      dispose: () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+          order.push('lane outcomes');
+        }),
+    };
+    refs.agentProcessManager = {
+      disposeAll: async () => {
+        order.push('agent reap');
+      },
+    };
+    const deps = quitDeps(refs);
+
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['agent reap', 'lane outcomes']);
+    expect(deps.quit).not.toHaveBeenCalled();
+
+    finish();
+    await flushMicrotasks();
+    expect(order).toEqual([
+      'agent reap',
+      'lane outcomes',
+      'sqliteConnection',
+      'diagnostics',
+    ]);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+  });
 });

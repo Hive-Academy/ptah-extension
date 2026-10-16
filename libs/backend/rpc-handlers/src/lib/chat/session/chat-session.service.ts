@@ -106,6 +106,7 @@ import type {
   SessionMcpStatusRegistry,
 } from './session-mcp-status.registry';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
+import { HarnessProposalTurnAttributionService } from '../../harness/config/harness-proposal-turn-attribution.service';
 
 /**
  * Minimal shape consumed by {@link ChatSessionService.autoResumeIfInactive}.
@@ -119,6 +120,7 @@ import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
  * path uses the separate `prompt` positional arg, not this field).
  */
 interface AutoResumePreflight {
+  systemPrompt?: ChatContinueParams['systemPrompt'];
   sessionId: SessionId;
   tabId: string;
   workspacePath?: string;
@@ -270,6 +272,8 @@ export class ChatSessionService {
      */
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
     private readonly sessionBudget: ChatSessionBudget | null = null,
+    @inject(HarnessProposalTurnAttributionService, { isOptional: true })
+    private readonly turnAttribution: HarnessProposalTurnAttributionService | null = null,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -1190,6 +1194,7 @@ export class ChatSessionService {
               sessionId,
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
+              systemPrompt: params.systemPrompt,
               ptahUiFence: params.ptahUiFence,
             },
           );
@@ -1288,6 +1293,8 @@ export class ChatSessionService {
       // no-op ('already-ended').
       const hadLiveRecord = this.sdkAdapter.isSessionActive(sessionId);
       await this.sdkAdapter.interruptSession(sessionId);
+      // A user interrupt skips the Stop hook, so end the turn here (D9).
+      this.turnAttribution?.onTurnAborted(sessionId);
 
       const resumableSubagents = this.subagentRegistry.getResumableBySession(
         sessionId as string,
@@ -1411,6 +1418,7 @@ export class ChatSessionService {
     sessionId: SessionId,
     tabId: string,
     workspacePath: string,
+    systemPrompt?: string,
   ): Promise<
     | { alreadyActive: true }
     | { resumed: true }
@@ -1424,6 +1432,7 @@ export class ChatSessionService {
       sessionId,
       tabId,
       workspacePath,
+      systemPrompt,
     });
 
     if ('error' in outcome) {
@@ -1592,6 +1601,7 @@ export class ChatSessionService {
         prompt,
         providerProfile,
         ...outputStyle,
+        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
         ...(params.mcpToolProfile
           ? { mcpToolProfile: params.mcpToolProfile }
           : {}),

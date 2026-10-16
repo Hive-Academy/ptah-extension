@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
+  AgentOutcomeSignals,
   AgentScorecard,
   CloneSummary,
   SkillCloneHistoryEntry,
@@ -38,6 +39,22 @@ export class SkillClonesStateService {
    * never as zeros (R6.3).
    */
   public readonly scorecards = signal<Record<string, AgentScorecard>>({});
+  /**
+   * Slug-keyed outcome signals for agent-kind clones, populated by ONE
+   * `getAgentOutcomeSignals` call after each `refreshClones`. A slug absent
+   * from the map has no records in the window — consumers must treat
+   * missing as "no data yet", never as a rate (Req 9.2).
+   */
+  public readonly agentOutcomeSignals = signal<
+    Record<string, AgentOutcomeSignals>
+  >({});
+  /** Window echoed by that call. `null` until it succeeds. */
+  public readonly outcomeWindowDays = signal<number | null>(null);
+  public readonly outcomeStatus = signal<
+    'loading' | 'ready' | 'unavailable' | 'not-persistent'
+  >('loading');
+  /** Count failed reads without retaining or displaying their raw messages. */
+  public readonly outcomeReadFailures = signal(0);
   /** Lazily-loaded, per-slug scorecard detail (rows + findings excerpt). */
   public readonly scorecardDetails = signal<
     Record<string, SkillSynthesisGetScorecardDetailResult>
@@ -55,7 +72,10 @@ export class SkillClonesStateService {
     try {
       const list = await this.rpc.listClones();
       this.clones.set(list);
-      await this.loadScorecards(list);
+      await Promise.all([
+        this.loadScorecards(list),
+        this.loadAgentOutcomeSignals(list),
+      ]);
     } catch (err) {
       this.error.set(this.toMessage(err));
     } finally {
@@ -80,6 +100,33 @@ export class SkillClonesStateService {
       this.scorecards.set(map);
     } catch {
       this.scorecards.set({});
+    }
+  }
+
+  /**
+   * One batched outcome-signal fetch for every agent-kind slug. Runs in
+   * the same post-list step as {@link loadScorecards}.
+   * Skills and commands are not part of the request.
+   */
+  private async loadAgentOutcomeSignals(list: CloneSummary[]): Promise<void> {
+    const slugs = list.filter((c) => c.kind === 'agent').map((c) => c.slug);
+    if (slugs.length === 0) {
+      this.agentOutcomeSignals.set({});
+      this.outcomeWindowDays.set(null);
+      this.outcomeStatus.set('ready');
+      return;
+    }
+    this.outcomeStatus.set('loading');
+    try {
+      const result = await this.rpc.getAgentOutcomeSignals(slugs);
+      this.agentOutcomeSignals.set(result.signals);
+      this.outcomeWindowDays.set(result.windowDays);
+      this.outcomeStatus.set(result.persistent ? 'ready' : 'not-persistent');
+    } catch {
+      // degradation-audit: reported — outcomeStatus and outcomeReadFailures
+      // carry the failure; keep the last good figures during a transient read.
+      this.outcomeReadFailures.update((count) => count + 1);
+      this.outcomeStatus.set('unavailable');
     }
   }
 

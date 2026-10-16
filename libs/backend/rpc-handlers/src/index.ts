@@ -8,6 +8,7 @@
 
 export {
   AgentRpcHandlers,
+  AgentOutcomeRpcHandlers,
   CommandRpcHandlers,
   FileSystemRpcHandlers,
   FilePickerRpcHandlers,

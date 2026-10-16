@@ -529,6 +529,71 @@ function broadcastsFor(
   return out;
 }
 
+describe('ChatStreamBroadcaster zero-event failures', () => {
+  // eslint-disable-next-line require-yield -- the stream fails before its first event
+  async function* failingStream(
+    message: string,
+  ): AsyncGenerator<FlatStreamEventUnion> {
+    throw new Error(message);
+  }
+
+  it('reports a failed start with the original error', async () => {
+    const h = makeHarness();
+
+    await h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      failingStream('spawn ENOTDIR'),
+      SESSION_ID,
+    );
+
+    expect(broadcastsFor(h, 'chat:error')).toEqual([
+      {
+        tabId: SESSION_ID,
+        sessionId: SESSION_ID,
+        error: 'The session could not start: spawn ENOTDIR',
+      },
+    ]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('failed to start (0 events)'),
+    );
+    expect(h.sdkAdapter.endSession).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it('keeps the resume message for a different session id', async () => {
+    const h = makeHarness();
+
+    await h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      failingStream('resume failed'),
+      TAB_ID,
+    );
+
+    expect(broadcastsFor(h, 'chat:error')).toEqual([
+      {
+        tabId: TAB_ID,
+        sessionId: SESSION_ID,
+        error:
+          'Session could not be resumed. The conversation data may be corrupted. Please start a new session.',
+      },
+    ]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('failed during resume (0 events)'),
+    );
+  });
+
+  it('does not emit CHAT_ERROR for a zero-event user abort', async () => {
+    const h = makeHarness();
+
+    await h.broadcaster.streamEventsToWebview(
+      SESSION_ID,
+      failingStream('Request aborted by user'),
+      SESSION_ID,
+    );
+
+    expect(broadcastsFor(h, 'chat:error')).toEqual([]);
+  });
+});
+
 /** Ordered list of the message types the transport saw, batches expanded. */
 function deliveredTypes(h: Harness): string[] {
   const out: string[] = [];

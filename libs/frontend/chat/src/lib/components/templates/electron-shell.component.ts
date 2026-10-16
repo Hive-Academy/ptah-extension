@@ -131,10 +131,13 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
 
         <!-- Navbar tabs (DaisyUI tabs-lifted, fixed navigation) -->
         @if (layout.hasWorkspaceFolders()) {
-          <div role="tablist" class="tabs tabs-lifted electron-tabs no-drag">
+          <div
+            role="tablist"
+            class="tabs tabs-lifted electron-tabs no-drag min-w-0 overflow-x-auto"
+          >
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'chat'"
               [attr.aria-selected]="appState.currentView() === 'chat'"
               title="Chat"
@@ -145,7 +148,17 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
+              [class.tab-active]="appState.currentView() === 'command-center'"
+              [attr.aria-selected]="appState.currentView() === 'command-center'"
+              title="Command Center"
+              (click)="openCommandCenter()"
+            >
+              Command Center
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'apps'"
               [attr.aria-selected]="appState.currentView() === 'apps'"
               title="Apps"
@@ -156,7 +169,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'tasks'"
               [attr.aria-selected]="appState.currentView() === 'tasks'"
               title="Tasks"
@@ -167,7 +180,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'tribunal'"
               [attr.aria-selected]="appState.currentView() === 'tribunal'"
               title="Tribunal"
@@ -178,7 +191,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'analytics'"
               [attr.aria-selected]="appState.currentView() === 'analytics'"
               title="Analytics"
@@ -191,7 +204,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
                  harness address the Setup hub surface by it. -->
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               data-test="config-menu-item-setup-hub"
               [class.tab-active]="
                 appState.openConfigurationSurface() === 'setup-hub'
@@ -272,7 +285,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         <div class="flex-1 min-h-0 overflow-hidden"><router-outlet /></div>
       } @else {
         <!-- 3-Panel Content Area -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 min-h-0 overflow-hidden">
           <!-- Workspace sidebar (toggleable) -->
           @if (layout.workspaceSidebarVisible()) {
             <ptah-workspace-sidebar [width]="layout.workspaceSidebarWidth()" />
@@ -291,7 +304,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             #configurationSurfaceHost
             data-test="configuration-surface-host"
             tabindex="-1"
-            class="flex-1 min-w-[400px] overflow-hidden outline-none"
+            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none"
           >
             <ptah-app-shell class="h-full w-full" />
           </div>
@@ -457,6 +470,10 @@ export class ElectronShellComponent {
 
   openApps(): void {
     this.appState.setCurrentView('apps');
+  }
+
+  public openCommandCenter(): void {
+    this.appState.setCurrentView('command-center');
   }
 
   openSetupHub(): void {

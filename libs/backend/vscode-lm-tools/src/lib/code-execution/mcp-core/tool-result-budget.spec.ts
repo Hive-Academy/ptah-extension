@@ -58,7 +58,12 @@ function spoolDir(base = root): string {
 
 function spooledFiles(base = root): string[] {
   const dir = spoolDir(base);
-  return fsSync.existsSync(dir) ? fsSync.readdirSync(dir).filter((n) => n !== '.gitignore').sort() : [];
+  return fsSync.existsSync(dir)
+    ? fsSync
+        .readdirSync(dir)
+        .filter((n) => n !== '.gitignore')
+        .sort()
+    : [];
 }
 
 function call(
@@ -121,6 +126,7 @@ describe('budget tables', () => {
   it('overrides only the tools whose description documents a bound', () => {
     expect(Object.keys(TOOL_RESULT_BUDGET_OVERRIDES).sort()).toEqual([
       'ptah_browser_content',
+      'ptah_route_decide',
       'ptah_session_read',
       'ptah_surface_get_state',
     ]);
@@ -140,12 +146,17 @@ describe('budget tables', () => {
       'ptah_session_status',
       'ptah_session_stop',
       'ptah_session_handoff',
+      'ptah_outcome_report',
     ]) {
       expect(getToolResultBudget(name)).toEqual(DEFAULT);
     }
     expect(getToolResultBudget('ptah_surface_get_state')).toEqual({
       chars: SURFACE_LIMITS.maxStateReadBytes,
       tokens: SURFACE_LIMITS.maxStateReadBytes / 4,
+    });
+    expect(getToolResultBudget('ptah_route_decide')).toEqual({
+      chars: 64_000,
+      tokens: 25_600,
     });
   });
 
@@ -177,6 +188,8 @@ describe('budget tables', () => {
       ptah_session_read: 'preformatted',
       ptah_session_stop: 'preformatted',
       ptah_session_handoff: 'preformatted',
+      ptah_route_decide: 'preformatted',
+      ptah_outcome_report: 'preformatted',
       ptah_task_list: 'preformatted',
     });
   });
@@ -620,16 +633,15 @@ describe('applyToolResultBudget', () => {
       code: 'EACCES',
     });
     const real = fsSync.promises.writeFile.bind(fsSync.promises);
-    jest.spyOn(fsSync.promises, 'writeFile').mockImplementation(((
-      file: unknown,
-      ...rest: unknown[]
-    ) =>
-      String(file).endsWith('.gitignore')
-        ? Promise.reject(eacces)
-        : (real as (...a: unknown[]) => Promise<void>)(
-            file,
-            ...rest,
-          )) as never);
+    jest
+      .spyOn(fsSync.promises, 'writeFile')
+      .mockImplementation(((file: unknown, ...rest: unknown[]) =>
+        String(file).endsWith('.gitignore')
+          ? Promise.reject(eacces)
+          : (real as (...a: unknown[]) => Promise<void>)(
+              file,
+              ...rest,
+            )) as never);
     const raw = 'word '.repeat(4000);
     await call(raw, { output, requestId: 11 });
     await call(raw, { output, requestId: 12 });

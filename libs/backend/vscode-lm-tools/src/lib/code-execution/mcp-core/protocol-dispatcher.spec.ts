@@ -680,6 +680,28 @@ describe('harness tools', () => {
     expect(text).not.toContain('private workspace path');
   });
 
+  it('asks the user to reopen a proposal workspace that is not open', async () => {
+    const error = Object.assign(new Error('private workspace path'), {
+      code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN',
+    });
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'X' } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('workspace folder is not open in Ptah');
+    expect(text).toContain(
+      'Do not retry; ask the user to reopen the workspace.',
+    );
+    expect(text).not.toContain('private workspace path');
+  });
+
   it('reports a file-system error code without exposing its path', async () => {
     const error = Object.assign(new Error('EACCES: denied C:\\secret\\path'), {
       code: 'EACCES',
@@ -3481,6 +3503,25 @@ describe('protocol-handlers › ptah_agent_spawn shared schema', () => {
     status: 'running',
     startedAt: '2026-09-13T00:00:00Z',
   };
+
+  it('forwards routing fields and leaves them undefined when absent', async () => {
+    const spawn = jest.fn().mockResolvedValue(spawned);
+    await handleMCPRequest(
+      spawnRequest({
+        task: 'Review',
+        taskKind: 'review',
+        routingSource: 'ranking',
+      }),
+      spawnDeps(spawn),
+    );
+    await handleMCPRequest(spawnRequest({ task: 'Review' }), spawnDeps(spawn));
+    expect(spawn.mock.calls[0]?.[0]).toMatchObject({
+      taskKind: 'review',
+      routingSource: 'ranking',
+    });
+    expect(spawn.mock.calls[1]?.[0].taskKind).toBeUndefined();
+    expect(spawn.mock.calls[1]?.[0].routingSource).toBeUndefined();
+  });
 
   it('accepts boolean force but does not forward it to the spawn API', async () => {
     const spawn = jest.fn().mockResolvedValue(spawned);
@@ -7840,7 +7881,15 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       expect(await list('admin')).toEqual(coding);
       // +3: agent_wait, run_check and HTTP-only run_check_wait. +1:
       // ptah_session_handoff, always-on (TASK_2026_655).
-      expect(coding).toHaveLength(hasIDECapabilities ? 63 : 60);
+      expect(coding).toHaveLength(hasIDECapabilities ? 65 : 62);
+      expect(coding.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining(['ptah_route_decide', 'ptah_outcome_report']),
+      );
+      expect(
+        coding.find((tool) => tool.name === 'ptah_outcome_report')?._meta?.[
+          'anthropic/alwaysLoad'
+        ],
+      ).toBeUndefined();
       expect(
         apps.filter((tool) => !APPS_ONLY_TOOL_NAMES.has(tool.name)),
       ).toEqual(coding);
@@ -8296,6 +8345,99 @@ describe('protocol-handlers › ptah_session_handoff', () => {
     const { text, isError } = agentToolResult(res);
     expect(isError).toBe(true);
     expect(text).toMatch(/Session handoff is unavailable/);
+  });
+});
+
+describe('protocol-handlers › route and outcome registration', () => {
+  it('keeps route listed after handoff with agent disabled and outcome deferred', async () => {
+    const response = await handleMCPRequest(
+      makeRequest({ method: 'tools/list' }),
+      buildDeps({ disabledMcpNamespaces: ['agent'] }),
+    );
+    const tools = (
+      response.result as {
+        tools: Array<{ name: string; _meta?: Record<string, unknown> }>;
+      }
+    ).tools;
+    const names = tools.map((tool) => tool.name);
+    expect(names[names.indexOf('ptah_session_handoff') + 1]).toBe(
+      'ptah_route_decide',
+    );
+    expect(names).toContain('ptah_outcome_report');
+    expect(
+      tools.find((tool) => tool.name === 'ptah_outcome_report')?._meta?.[
+        'anthropic/alwaysLoad'
+      ],
+    ).toBeUndefined();
+  });
+
+  it('dispatches route and outcome through their handlers', async () => {
+    const decide = jest
+      .fn()
+      .mockResolvedValue({ taskType: 'FEATURE', depth: 'Full' });
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({ route: { decide } }),
+    });
+    const route = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        params: {
+          name: 'ptah_route_decide',
+          arguments: { stage: 'pre-flight', request: 'ship the parser' },
+        },
+      }),
+      deps,
+    );
+    expect(decide).toHaveBeenCalledWith({
+      stage: 'pre-flight',
+      request: 'ship the parser',
+    });
+    expect(agentToolResult(route).isError).toBeFalsy();
+
+    const outcome = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        params: {
+          name: 'ptah_outcome_report',
+          arguments: {
+            kind: 'review',
+            target: { runId: 'subagent:a1' },
+            verdict: 'approved',
+          },
+        },
+      }),
+      deps,
+    );
+    expect(agentToolResult(outcome).isError).toBeFalsy();
+    expect(agentToolResult(outcome).text).toContain(
+      'outcome store unavailable',
+    );
+  });
+
+  it('answers a throwing outcome store resolver with a tool error, not a JSON-RPC error (P6 re-review N-2)', async () => {
+    const response = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        params: {
+          name: 'ptah_outcome_report',
+          arguments: {
+            kind: 'review',
+            target: { runId: 'subagent:a1' },
+            verdict: 'approved',
+          },
+        },
+      }),
+      buildDeps({
+        resolveOutcomeReport: () => {
+          throw new Error('STATE_STORAGE is not registered');
+        },
+      }),
+    );
+    expect(response.error).toBeUndefined();
+    expect(agentToolResult(response)).toEqual({
+      isError: true,
+      text: expect.stringContaining('STATE_STORAGE is not registered'),
+    });
   });
 });
 

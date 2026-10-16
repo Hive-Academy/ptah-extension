@@ -65,6 +65,18 @@ import {
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 
+/**
+ * File-based keys that `settings:set` refuses. Each one has its own RPC that
+ * validates the value; the generic writer cannot, so it would save a shape
+ * the owning service later reads as unset and still report success.
+ * - `agentOrchestration.decisionModel`: saved by `agent:setConfig` through
+ *   `DecisionModelConfig.setSelection`, which checks it against
+ *   `DecisionModelSelectionSchema` (TASK_2026_646_136a).
+ */
+const SETTINGS_SET_DENIED_KEYS: ReadonlySet<string> = new Set([
+  'agentOrchestration.decisionModel',
+]);
+
 @injectable()
 export class SettingsRpcHandlers {
   static readonly METHODS = [
@@ -142,7 +154,8 @@ export class SettingsRpcHandlers {
    *
    * The `isFileBasedSettingKey` guard is the write allow-list: only a key the
    * registry knows about may be written, so a renderer cannot mint arbitrary
-   * entries in `~/.ptah/settings.json`.
+   * entries in `~/.ptah/settings.json`. A key in `SETTINGS_SET_DENIED_KEYS`
+   * is refused too: it must be saved through its own validating RPC.
    *
    * A key with an `ADVANCED_SETTINGS` descriptor is also value-checked: a
    * wrong type or an out-of-range value is refused with the descriptor's
@@ -160,6 +173,12 @@ export class SettingsRpcHandlers {
         return {
           success: false,
           error: `Setting key '${params.key}' is not writable`,
+        };
+      }
+      if (SETTINGS_SET_DENIED_KEYS.has(params.key)) {
+        return {
+          success: false,
+          error: `Setting key '${params.key}' is not writable through settings:set; save it from its own settings row`,
         };
       }
       let value: unknown = params.value;

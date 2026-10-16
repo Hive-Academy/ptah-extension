@@ -581,7 +581,7 @@ describe('ptah mcp-serve', () => {
   });
 
   describe('session.describe / session.methods introspection (Phase 5)', () => {
-    it('returns mode=mcp-serve with 10 MCP tool entries and capability=mcp', async () => {
+    it('returns mode=mcp-serve with 12 MCP tool entries and capability=mcp', async () => {
       const h = makeHarness();
       const promise = execute(NO_OPTS, baseGlobals, h.hooks);
       await flushAsync();
@@ -610,7 +610,7 @@ describe('ptah mcp-serve', () => {
       expect(result.mode).toBe('mcp-serve');
       expect(result.schemaVersion).toBe(JSONRPC_SCHEMA_VERSION);
       expect(result.version).toBe('0.2.32');
-      expect(result.catalog.tools).toHaveLength(10);
+      expect(result.catalog.tools).toHaveLength(12);
       expect(result.catalog.tools.map((t) => t.name)).toEqual([
         'agent_spawn',
         'agent_status',
@@ -621,6 +621,8 @@ describe('ptah mcp-serve', () => {
         'agent_list',
         'agent_wait',
         'run_check',
+        'route_decide',
+        'outcome_report',
         'session_submit',
       ]);
       expect(result.catalog.methods).toEqual(

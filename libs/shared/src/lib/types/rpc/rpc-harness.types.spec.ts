@@ -9,9 +9,113 @@
 
 import {
   HarnessConfigUpdatesSchema,
+  HarnessProposalSchema,
   formatHarnessConfigIssue,
   normalizeHarnessSkillSelection,
 } from './rpc-harness.schemas';
+import type { HarnessConfigProposedPayload } from '../messages/payload-map';
+
+describe('HarnessProposalSchema revisions', () => {
+  const legacy = {
+    version: 1,
+    workspaceRoot: '/workspace',
+    sessionId: 'sdk-session',
+    configUpdates: {
+      prompt: { systemPrompt: 'Review changes.', enhancedSections: {} },
+    },
+    isConfigComplete: false,
+    updatedAt: '2026-10-15T10:02:00.000Z',
+  } as const;
+
+  it('turns an old merged-only record into one unattributed revision', () => {
+    const parsed = HarnessProposalSchema.parse(legacy);
+    expect(parsed.revisions).toEqual([
+      {
+        id: 'legacy:sdk-session:2026-10-15T10:02:00.000Z',
+        configUpdates: legacy.configUpdates,
+        isConfigComplete: false,
+        updatedAt: legacy.updatedAt,
+      },
+    ]);
+    expect(parsed.configUpdates).toEqual(legacy.configUpdates);
+  });
+
+  it('retains a saved attributed revision on the push path', () => {
+    const revision = {
+      id: 'revision-1',
+      configUpdates: legacy.configUpdates,
+      isConfigComplete: true,
+      updatedAt: '2026-10-15T10:03:00.000Z',
+      turnStartedAt: '2026-10-15T10:00:00.000Z',
+    };
+    const parsed = HarnessProposalSchema.parse({
+      ...legacy,
+      revisions: [revision],
+    });
+    expect(parsed.revisions).toEqual([revision]);
+    const payload = {
+      sessionId: legacy.sessionId,
+      configUpdates: revision.configUpdates,
+      isConfigComplete: revision.isConfigComplete,
+      revision: parsed.revisions?.[0],
+    } satisfies HarnessConfigProposedPayload;
+    expect(payload.revision?.turnStartedAt).toBe(revision.turnStartedAt);
+  });
+
+  it('allows an unattributed new revision without inventing a turn start', () => {
+    const parsed = HarnessProposalSchema.parse({
+      ...legacy,
+      revisions: [
+        {
+          id: 'revision-2',
+          configUpdates: {},
+          isConfigComplete: false,
+          updatedAt: legacy.updatedAt,
+        },
+      ],
+    });
+    expect(parsed.revisions?.[0].turnStartedAt).toBeUndefined();
+  });
+
+  it.each<{ revisions: unknown }>([
+    {
+      revisions: [
+        {
+          id: '',
+          configUpdates: {},
+          isConfigComplete: false,
+          updatedAt: legacy.updatedAt,
+        },
+      ],
+    },
+    {
+      revisions: [
+        {
+          id: 'bad-time',
+          configUpdates: {},
+          isConfigComplete: false,
+          updatedAt: legacy.updatedAt,
+          turnStartedAt: 'yesterday',
+        },
+      ],
+    },
+    {
+      revisions: [
+        {
+          id: 'bad-update',
+          configUpdates: { unknown: true },
+          isConfigComplete: false,
+          updatedAt: legacy.updatedAt,
+        },
+      ],
+    },
+    { revisions: [] },
+  ])('rejects malformed revision data %#', ({ revisions }) => {
+    expect(
+      HarnessProposalSchema.safeParse({ ...legacy, revisions }).success,
+    ).toBe(false);
+  });
+});
 
 describe('normalizeHarnessSkillSelection', () => {
   it('passes a legacy string[] through unchanged with no refs', () => {

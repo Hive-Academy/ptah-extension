@@ -11,10 +11,11 @@
  *   - `initialize` returns a stable `serverInfo` so the MCP handshake can
  *     complete BEFORE `withEngine` finishes bootstrapping the agent SDK
  *     (Risk Register item #4).
- *   - `tools/list` returns the 8 MVP tool definitions with their MCP-wire
+ *   - `tools/list` returns the 12 MVP tool definitions with their MCP-wire
  *     names (no `ptah_` prefix).
- *   - `tools/call` routes to the {@link AgentToolDispatcher} for the seven
- *     `agent_*` wrapper tools and to an injected {@link ISessionSubmitHandler}
+ *   - `tools/call` routes to the {@link AgentToolDispatcher} for the eleven
+ *     dispatcher tools (`agent_*`, `run_check`, `route_decide`,
+ *     `outcome_report`) and to an injected {@link ISessionSubmitHandler}
  *     for the composite `session_submit` tool. The CLI command supplies the
  *     handler via {@link setSessionSubmitHandler} after `withEngine`
  *     resolves; the dispatcher is constructed once on first
@@ -59,7 +60,7 @@ export interface StdioMcpServerConfig {
   transport: IMcpServer;
   serverInfo: StdioMcpServerInfo;
   /**
-   * Optional override of the tool catalog. Defaults to the full 10-tool MVP
+   * Optional override of the tool catalog. Defaults to the full 12-tool MVP
    * list — the `--allow-tools` flag narrows this in `mcp-serve.ts`.
    */
   allowedTools?: readonly string[];
@@ -157,7 +158,7 @@ export class StdioMcpServerService {
 
   /**
    * Dispatch a `tools/call` invocation through the agent-wrapper dispatcher
-   * (nine tools) or the session-submit handler (one tool). Falls back to an
+   * (eleven tools) or the session-submit handler (one tool). Falls back to an
    * `isError: true` envelope when the tool name is not in the MVP catalog or
    * when the session-submit handler has not yet been registered.
    */
@@ -465,6 +466,12 @@ export class StdioMcpServerService {
         this.logger,
         callerSessionId,
         callerAgentId,
+        () => Date.now(),
+        () => process.cwd(),
+        () =>
+          typeof this.apiBuilder.outcomeReportDependencies === 'function'
+            ? this.apiBuilder.outcomeReportDependencies()
+            : undefined,
       );
     }
     return this.agentDispatcher;

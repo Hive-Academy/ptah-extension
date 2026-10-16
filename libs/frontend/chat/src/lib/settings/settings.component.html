@@ -169,18 +169,23 @@
     <!-- ============================================ -->
     <!-- Tab 2: Agent Orchestration                  -->
     <!-- ============================================ -->
+    <!-- Tabs 2, 3 and 4 are deferred into their own chunks (the eager route is at its bundle budget);
+         the aria-busy placeholder keeps the harness waitForSettled waiting until they load.
+         Deep links still apply: the tab reads focusTarget once its chunk renders. -->
     @if (activeSettingsTab() === 'orchestration') {
-      <ptah-orchestration-settings
-        [focusTarget]="orchestrationTarget()"
-        (focusTargetConsumed)="orchestrationTarget.set(null)"
-      />
+      @defer (on immediate) {
+        <ptah-orchestration-settings
+          [focusTarget]="orchestrationTarget()"
+          (focusTargetConsumed)="orchestrationTarget.set(null)"
+        />
+      } @placeholder {
+        <div class="min-h-24" aria-busy="true"></div>
+      }
     }
 
     <!-- ============================================ -->
     <!-- Tab 3: Advanced (membership, agent behaviour, output style, MCP, VS Code LM) -->
     <!-- ============================================ -->
-    <!-- Tabs 3 and 4 are deferred into their own chunks (the eager route is at its bundle budget);
-         the aria-busy placeholder keeps the harness waitForSettled waiting until they load. -->
     @if (activeSettingsTab() === 'pro-features') {
       @defer (on immediate) {
         <ptah-advanced-settings (modelChanged)="onModelChanged()" />

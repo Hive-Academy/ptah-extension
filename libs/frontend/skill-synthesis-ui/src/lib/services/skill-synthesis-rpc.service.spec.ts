@@ -406,6 +406,45 @@ describe('SkillSynthesisRpcService', () => {
     );
   });
 
+  it('getAgentOutcomeSignals() calls agent:outcomeSignals and returns the result', async () => {
+    const payload = {
+      signals: {
+        planner: {
+          slug: 'planner',
+          windowDays: 30,
+          runCount: 5,
+          delivered: { numerator: 4, denominator: 5 },
+          reviewPass: { numerator: 3, denominator: 4 },
+          avgReviseRounds: 1.5,
+          topFailureClass: 'timeout' as const,
+        },
+      },
+      windowDays: 30,
+      persistent: true,
+    };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.getAgentOutcomeSignals([
+      'planner',
+      'reviewer',
+    ]);
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'agent:outcomeSignals',
+      { slugs: ['planner', 'reviewer'] },
+      expect.objectContaining({ timeout: 10_000 }),
+    );
+    expect(result).toEqual(payload);
+  });
+
+  it('getAgentOutcomeSignals() throws the RPC error instead of an empty map', async () => {
+    rpcCall.mockResolvedValue(errResult('store down'));
+
+    await expect(service.getAgentOutcomeSignals(['planner'])).rejects.toThrow(
+      'store down',
+    );
+  });
+
   describe('PAUSED refusals from the manual runs', () => {
     const paused = {
       ...errResult('Skill synthesis is paused'),

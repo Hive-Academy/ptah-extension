@@ -37,6 +37,7 @@ import {
 import {
   TabManagerService,
   isValidSessionStatsSnapshot,
+  commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
 import {
   SessionHistoryReplayer,
@@ -991,6 +992,13 @@ export class SessionLoaderService {
         {
           sessionId,
           tabId: resolvedTabId,
+          ...(opts?.activate === true
+            ? (() => {
+                const tab = this.tabManager.findTabByIdAcrossWorkspaces(resolvedTabId)?.tab;
+                const systemPrompt = tab && commandCenterPersonaFor(tab);
+                return systemPrompt ? { systemPrompt } : {};
+              })()
+            : {}),
           workspacePath,
           historyPage: this.historyPaging.tailRequest(),
           ...(replayClaim && (isResync || opts?.reason === 'compaction')

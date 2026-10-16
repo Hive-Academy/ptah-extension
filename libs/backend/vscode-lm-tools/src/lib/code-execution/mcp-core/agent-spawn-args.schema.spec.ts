@@ -1,4 +1,4 @@
-import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import { OUTCOME_TASK_KINDS, SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import {
   AgentSpawnArgsSchema,
   MAX_EFFORT_LENGTH,
@@ -102,6 +102,8 @@ describe('AgentSpawnArgsSchema', () => {
       resume_session_id: 's-1',
       role: 'architect',
       effort: 'high',
+      taskKind: 'review',
+      routingSource: 'ranking',
       force: true,
     });
     expect(parsed.success).toBe(true);
@@ -150,5 +152,43 @@ describe('AgentSpawnArgsSchema', () => {
     expect(AgentSpawnArgsSchema.safeParse({ task: 't', effort }).success).toBe(
       false,
     );
+  });
+
+  it.each([...OUTCOME_TASK_KINDS])('accepts taskKind: %s', (taskKind) => {
+    const parsed = AgentSpawnArgsSchema.safeParse({ task: 't', taskKind });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.taskKind).toBe(taskKind);
+  });
+
+  it('rejects a taskKind outside OUTCOME_TASK_KINDS', () => {
+    expect(
+      AgentSpawnArgsSchema.safeParse({ task: 't', taskKind: 'deploy' }).success,
+    ).toBe(false);
+  });
+
+  it.each(['model', 'ranking', 'pin'])(
+    'accepts routingSource: %s',
+    (routingSource) => {
+      const parsed = AgentSpawnArgsSchema.safeParse({
+        task: 't',
+        routingSource,
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.routingSource).toBe(routingSource);
+    },
+  );
+
+  it("rejects routingSource: 'not-routed' — that value is recorded at write time", () => {
+    expect(
+      AgentSpawnArgsSchema.safeParse({ task: 't', routingSource: 'not-routed' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('leaves taskKind and routingSource unset when the caller did not route the lane', () => {
+    const parsed = AgentSpawnArgsSchema.safeParse({ task: 't' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.taskKind).toBeUndefined();
+    expect(parsed.success && parsed.data.routingSource).toBeUndefined();
   });
 });

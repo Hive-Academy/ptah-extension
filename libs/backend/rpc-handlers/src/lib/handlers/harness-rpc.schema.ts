@@ -72,9 +72,13 @@ export const HarnessWorkspacePinParamsSchema = z
     workspaceRoot: z
       .string()
       .min(1)
-      .refine((wr) => path.isAbsolute(wr), {
-        message: 'workspaceRoot must be an absolute path',
-      })
+      .refine(
+        (wr) =>
+          (process.platform === 'win32' ? path.win32 : path).isAbsolute(wr),
+        {
+          message: 'workspaceRoot must be an absolute path',
+        },
+      )
       // Reject `..` in the RAW value (checking both separators) so a traversal
       // segment can never slip through — `path.normalize` would otherwise
       // silently collapse interior `..` on an already-absolute path.
@@ -85,10 +89,18 @@ export const HarnessWorkspacePinParamsSchema = z
   })
   .passthrough();
 
-export const HarnessWorkflowPromptParamsSchema = z.object({
-  mode: z.literal('configure-harness'),
-  intent: z.string().min(1),
-});
+export const HarnessWorkflowPromptParamsSchema = z.union([
+  z.object({
+    mode: z.literal('configure-harness'),
+    intent: z.string().min(1),
+    contextOnly: z.never().optional(),
+  }),
+  z.object({
+    mode: z.literal('configure-harness'),
+    contextOnly: z.literal(true),
+    intent: z.never().optional(),
+  }),
+]);
 
 /**
  * The reconciler surface (TASK_2026_278 Batch 4).
@@ -193,7 +205,26 @@ export const HarnessRepairBlockedParamsSchema = z
 export const HarnessGetSkillSelectionParamsSchema = z.object({});
 
 export const HarnessGetProposalParamsSchema = z
-  .object({ sessionId: z.string().trim().min(1).max(256) })
+  .object({
+    sessionId: z.string().trim().min(1).max(256),
+    workspaceRoot:
+      HarnessWorkspacePinParamsSchema.shape.workspaceRoot.transform((root) =>
+        root === undefined
+          ? undefined
+          : (process.platform === 'win32' ? path.win32 : path).normalize(root),
+      ),
+  })
+  .strict();
+
+export const HarnessInitializeParamsSchema = z
+  .object({
+    workspaceRoot:
+      HarnessWorkspacePinParamsSchema.shape.workspaceRoot.transform((root) =>
+        root === undefined
+          ? undefined
+          : (process.platform === 'win32' ? path.win32 : path).normalize(root),
+      ),
+  })
   .strict();
 
 /**

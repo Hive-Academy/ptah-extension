@@ -9,13 +9,24 @@ How to run any lane (discovery, addressing, prompts, resume, review, revise cap)
 
 ## Who spawns
 
-| Actor | May spawn |
-| --- | --- |
-| **Orchestrator** | Every subagent, every batch executor (subagent or lane), every lane a phase is assigned to |
-| **Team-leader** | Nothing. It recommends executors in `batches.md`; you act on them |
+| Actor               | May spawn                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Orchestrator**    | Every subagent, every batch executor (subagent or lane), every lane a phase is assigned to                                                                    |
+| **Team-leader**     | Nothing. It recommends executors in `batches.md`; you act on them                                                                                             |
 | **Other subagents** | CLI lanes for their own sub-tasks, when Gate 0.1 left lanes `enabled` or `auto` and the role is not on the never list below. They own what their lanes return |
 
 ## Gate 0.1 outcome
+
+If `ptah_route_decide` is listed, call it once with `stage:'gate-0.1'`, the user
+`request`, chosen `taskType` and `depth`, and `phases` (`id`, `kind`, optional `role` and
+`reviews`). Pass explicit user `pins` and known `preferenceSource`/`preferences` when
+available. A current user pin wins. Use `roster` entries with `status:'chosen'` to
+select the reported executor and model; an `unavailable` entry follows the existing
+disclosed fallback. Show phase, executor, model, reason, source and confidence (`—`
+for null), plus `overallSource`, `overallConfidence` and reasons. Record the result
+in `decisions.md` with stage, source, confidence, reasons, fallback cause and any
+low-confidence model proposal. If the tool is not listed, skip it silently and use
+the live-list rules below.
 
 Record it in `context.md` under `## CLI Lanes`: the preference source, mode (`enabled` / `auto` / `disabled`), the
 approval mode (`Approval: lane-review` / `Approval: user`, per
@@ -24,6 +35,7 @@ prompt except team-leader:
 
 ```markdown
 ## CLI Lanes
+
 Mode: <enabled — delegate bounded work by default | auto — delegate when it clearly helps>
 Discovered lanes: <the ptah_agent_list rows>
 Run lanes per the agent-lanes skill. You own the synthesis: verify lane output before it enters your deliverable.
@@ -45,22 +57,22 @@ parallel lanes: [team-leader-modes.md](team-leader-modes.md#spawning-a-batch-exe
 
 ## What each role hands off
 
-| Role | Hands to a lane | A task line that works |
-| --- | --- | --- |
-| project-manager | Codebase surveys, dependency and file-structure analysis | "List every component under `<dir>` grouped by feature. Markdown table: name, path, inputs." |
-| software-architect | Pattern analysis in named modules, dependency checks, spikes | "In `<dir>`, list every DI token, its type, and where it is provided. Flag circular-dependency risks." |
-| backend-developer, frontend-developer | Test scaffolding, boilerplate inside the batch | "Create unit-test scaffolding for `<Class>` in `<absolute path>`: one describe per public method." |
-| devops-engineer | Config and script generation | "Write a multi-stage container file that installs with `npm ci`, builds, and ships a minimal image." |
-| senior-tester | One lane per module for test generation | "Write unit tests for `<file>`: happy path and error cases for every public method." |
-| code-style-reviewer, code-logic-reviewer | One lane per file across many files | "Review `<file>` for naming, error handling and type precision. Numbered issues with line references." |
-| researcher-expert | Separate aspects of one question in parallel | One lane on the external API surface, one on how this codebase already uses it. |
-| modernization-detector | One lane per module | "Analyze `<dir>` for deprecated APIs and outdated patterns. Prioritized list." |
-| technical-content-writer | Feature research and section drafts | "Read `<dir>` and summarize its capabilities and integration points for developer docs." |
+| Role                                     | Hands to a lane                                              | A task line that works                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| project-manager                          | Codebase surveys, dependency and file-structure analysis     | "List every component under `<dir>` grouped by feature. Markdown table: name, path, inputs."           |
+| software-architect                       | Pattern analysis in named modules, dependency checks, spikes | "In `<dir>`, list every DI token, its type, and where it is provided. Flag circular-dependency risks." |
+| backend-developer, frontend-developer    | Test scaffolding, boilerplate inside the batch               | "Create unit-test scaffolding for `<Class>` in `<absolute path>`: one describe per public method."     |
+| devops-engineer                          | Config and script generation                                 | "Write a multi-stage container file that installs with `npm ci`, builds, and ships a minimal image."   |
+| senior-tester                            | One lane per module for test generation                      | "Write unit tests for `<file>`: happy path and error cases for every public method."                   |
+| code-style-reviewer, code-logic-reviewer | One lane per file across many files                          | "Review `<file>` for naming, error handling and type precision. Numbered issues with line references." |
+| researcher-expert                        | Separate aspects of one question in parallel                 | One lane on the external API surface, one on how this codebase already uses it.                        |
+| modernization-detector                   | One lane per module                                          | "Analyze `<dir>` for deprecated APIs and outdated patterns. Prioritized list."                         |
+| technical-content-writer                 | Feature research and section drafts                          | "Read `<dir>` and summarize its capabilities and integration points for developer docs."               |
 
 ## Never on a lane
 
 - Requirements and plans that pass Gate 1 / Gate 2 (`task-description.md`, `implementation-plan.md`) as a
-  subagent's *own* deliverable — lanes may gather inputs, the subagent writes and owns the document.
+  subagent's _own_ deliverable — lanes may gather inputs, the subagent writes and owns the document.
   A phase assigned wholly to a lane (below) is the exception, and still passes Gate 1 / Gate 2.
 - Git commits, and anything that asks the user.
 - visual-reviewer work — it needs browser tools lanes do not have.
@@ -85,13 +97,13 @@ lane still respects the batch cap (≤6 files, ≤2 libs, one scoped verificatio
 per-lane tool-call ceiling (agent-lanes §8): an implement phase larger than one batch is spawned as
 several sequential lanes, each with its own file list, not one long lane.
 
-| Phase | Deliverable | Default lane when the user names none |
-| --- | --- | --- |
-| Plan | `task-description.md` | A strong-reasoning lane |
-| Architecture | `implementation-plan.md` | A strong-reasoning lane |
-| Implement | code in place + a report with evidence per task; **you** record `batches.md` after verifying it | A capable coding lane in the live list |
-| Review | `code-logic-review.md` | An independent capable lane from a different family than the implementer; same-family exception requires a specific reason and weaker-evidence label |
-| Document review | `<artifact-stem>-review.md` per plan, design and architecture artifact | The opposite execution side from the author, with the disclosed fallback in agent-lanes §6 |
+| Phase           | Deliverable                                                                                     | Default lane when the user names none                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plan            | `task-description.md`                                                                           | A strong-reasoning lane                                                                                                                              |
+| Architecture    | `implementation-plan.md`                                                                        | A strong-reasoning lane                                                                                                                              |
+| Implement       | code in place + a report with evidence per task; **you** record `batches.md` after verifying it | A capable coding lane in the live list                                                                                                               |
+| Review          | `code-logic-review.md`                                                                          | An independent capable lane from a different family than the implementer; same-family exception requires a specific reason and weaker-evidence label |
+| Document review | `<artifact-stem>-review.md` per plan, design and architecture artifact                          | The opposite execution side from the author, with the disclosed fallback in agent-lanes §6                                                           |
 
 ### The live roster
 
@@ -104,12 +116,12 @@ several sequential lanes, each with its own file list, not one long lane.
 
 Fill this roster from current `ptah_agent_list` rows, not a fixed vendor list:
 
-| Phase | Live lane row | Spawn args from row | Deliverable |
-| --- | --- | --- | --- |
-| Plan | `<spawnable capable row>` | `<listed identifier and supported model>` | `task-description.md` |
-| Architecture | `<spawnable capable row>` | `<listed identifier and supported model>` | `implementation-plan.md` |
-| Implement | `<spawnable capable row>` | `<listed identifier and supported model>` | code + report |
-| Review | `<independent eligible row>` | `<listed identifier and supported model>` | `code-logic-review.md` |
+| Phase        | Live lane row                | Spawn args from row                       | Deliverable              |
+| ------------ | ---------------------------- | ----------------------------------------- | ------------------------ |
+| Plan         | `<spawnable capable row>`    | `<listed identifier and supported model>` | `task-description.md`    |
+| Architecture | `<spawnable capable row>`    | `<listed identifier and supported model>` | `implementation-plan.md` |
+| Implement    | `<spawnable capable row>`    | `<listed identifier and supported model>` | code + report            |
+| Review       | `<independent eligible row>` | `<listed identifier and supported model>` | `code-logic-review.md`   |
 
 For shipping code, try `other family same capability`, then `same family other provider/model`,
 then an independent `subagent` when no eligible lane can review. The latter two require a

@@ -15,6 +15,10 @@ import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { RailTranscriptRetentionCoordinator } from '../../services/rail-transcript-retention-coordinator.service';
 import {
+  SESSION_EMBED_CHROME,
+  type SessionEmbedChrome,
+} from '../../tokens/session-embed-chrome.token';
+import {
   RAIL_TRANSCRIPT_RETENTION,
   SESSION_CARD_ACTIONS,
   SESSION_CONTEXT,
@@ -53,6 +57,7 @@ export class SessionEmbedComponent implements OnDestroy {
   private readonly parentActive = inject(SURFACE_ACTIVE, { optional: true });
 
   readonly tabId = input.required<string>();
+  readonly chrome = input<SessionEmbedChrome>('full');
   readonly visible = input(true);
   /** Hide transcript work while a lane covers it without hiding its session surface. */
   readonly contentVisible = input(true);
@@ -76,6 +81,7 @@ export class SessionEmbedComponent implements OnDestroy {
   readonly childInjector = createEnvironmentInjector(
     [
       { provide: SESSION_CONTEXT, useValue: this.context },
+      { provide: SESSION_EMBED_CHROME, useFactory: () => this.chrome() },
       { provide: SESSION_VISIBLE, useValue: this.sessionVisible },
       { provide: SESSION_FOCUSED, useValue: this.sessionFocused },
       { provide: RAIL_MIN_CONTENT_WIDTH, useValue: this.minContentWidth },

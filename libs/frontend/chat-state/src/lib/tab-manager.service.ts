@@ -37,6 +37,8 @@ import {
   type SessionBudgetState,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { CommandCenterRecordsService } from './command-center-records';
+import { CommandCenterSendLockService } from './command-center-send-lock.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
 import {
   TabWorkspacePartitionService,
@@ -61,6 +63,7 @@ import {
   persistBackoffMs,
   persistNeeded,
   sanitizeRestoredTabs,
+  validCommandCenterOrigin,
   type PersistFailure,
   type PersistedSnapshot,
 } from './tab-persistence';
@@ -71,6 +74,12 @@ import {
 } from './session-identity';
 
 export type { LiveModelStatsPayload };
+
+type CommandCenterRecordKind = 'activeTabId' | 'lastSession' | 'runManifest';
+export interface CommandCenterRecordWriteFailure {
+  workspacePath: string;
+  record: CommandCenterRecordKind;
+}
 
 export type TerminalTurnClassification = 'success' | 'error';
 
@@ -229,6 +238,8 @@ export class TabManagerService {
   // ============================================================================
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
+  private readonly commandCenterRecords = inject(CommandCenterRecordsService);
+  private readonly commandCenterSendLock = inject(CommandCenterSendLockService);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
   private readonly workflowIndex = inject(WorkflowSessionIndexService);
   /**
@@ -260,9 +271,16 @@ export class TabManagerService {
 
   private readonly _tabs = signal<TabState[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
+  private readonly _commandCenterRecordWriteFailure =
+    signal<CommandCenterRecordWriteFailure | null>(null);
+  readonly commandCenterRecordWriteFailure =
+    this._commandCenterRecordWriteFailure.asReadonly();
   private readonly _terminalTurnPulses = signal<readonly TerminalTurnPulse[]>(
     [],
   );
+  private readonly _lastTerminalPulseByTab = signal<
+    ReadonlyMap<string, TerminalTurnPulse>
+  >(new Map());
   private _terminalTurnPulseSeq = 0;
 
   /**
@@ -325,6 +343,11 @@ export class TabManagerService {
   }
 
   private emitTabClosed(event: ClosedTabEvent): void {
+    this._lastTerminalPulseByTab.update((current) => {
+      const next = new Map(current);
+      next.delete(event.tabId);
+      return next;
+    });
     this._closedTab.set(event);
     // Snapshotting keeps a nested close and listener teardown from changing
     // this event's recipient list. Each recipient is isolated so a view-level
@@ -430,6 +453,8 @@ export class TabManagerService {
   readonly tabs = this._tabs.asReadonly();
   readonly activeTabId = this._activeTabId.asReadonly();
   readonly terminalTurnPulses = this._terminalTurnPulses.asReadonly();
+  public readonly lastTerminalPulseByTab =
+    this._lastTerminalPulseByTab.asReadonly();
 
   /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
   readonly streamingTabIds = this._streamingTabIds.asReadonly();
@@ -1021,6 +1046,41 @@ export class TabManagerService {
     return id;
   }
 
+  /** Create an ordinary chat tab with a durable Command Center origin. */
+  createCommandCenterTab(name?: string): string {
+    const workspacePath = this.workspacePartition.activeWorkspacePath;
+    if (!workspacePath) throw new Error('An active workspace is required');
+    const tabId = this.createTab(name);
+    this.updateTabInternal(tabId, {
+      commandCenterOrigin: {
+        workspaceId: workspacePath,
+        createdAt: Date.now(),
+        version: 1,
+      },
+    });
+    this.recordCommandCenterWrite(
+      workspacePath,
+      'activeTabId',
+      this.commandCenterRecords.setActiveTabId(workspacePath, tabId),
+    );
+    return tabId;
+  }
+
+  private recordCommandCenterWrite(
+    workspacePath: string,
+    record: CommandCenterRecordKind,
+    succeeded: boolean,
+  ): void {
+    if (succeeded) {
+      this._commandCenterRecordWriteFailure.set(null);
+      return;
+    }
+    console.warn(
+      `[TabManagerService] Command Center ${record} record write failed for workspace ${workspacePath}`,
+    );
+    this._commandCenterRecordWriteFailure.set({ workspacePath, record });
+  }
+
   /**
    * Open the tab of a child session another session started with
    * `ptah_session_start` (TASK_2026_584).
@@ -1345,6 +1405,7 @@ export class TabManagerService {
 
     // Check if tab needs confirmation
     const needsConfirmation =
+      validCommandCenterOrigin(initialTab.commandCenterOrigin) ||
       initialTab.isDirty ||
       initialTab.status === 'streaming' ||
       initialTab.status === 'resuming' ||
@@ -1354,8 +1415,9 @@ export class TabManagerService {
     if (needsConfirmation) {
       const confirmed = await this.confirmationDialog.confirm({
         title: 'Close Tab?',
-        message:
-          'This session has unsaved changes, is streaming, or has background work running. Closing it ends the session. Close anyway?',
+        message: validCommandCenterOrigin(initialTab.commandCenterOrigin)
+          ? 'Closing this Command Center tab ends its active session. You can resume the last session later. Close anyway?'
+          : 'This session has unsaved changes, is streaming, or has background work running. Closing it ends the session. Close anyway?',
         confirmLabel: 'Close',
         cancelLabel: 'Keep Open',
         confirmStyle: 'error',
@@ -1372,6 +1434,19 @@ export class TabManagerService {
     const tabs = this._tabs();
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
+    if (
+      validCommandCenterOrigin(tab.commandCenterOrigin) &&
+      this.commandCenterRecords.readActiveTabId(
+        tab.commandCenterOrigin.workspaceId,
+      ) === tabId
+    ) {
+      const workspacePath = tab.commandCenterOrigin.workspaceId;
+      this.recordCommandCenterWrite(
+        workspacePath,
+        'activeTabId',
+        this.commandCenterRecords.setActiveTabId(workspacePath, null),
+      );
+    }
 
     // Abort any in-flight streaming RPC BEFORE tab state cleanup so the
     // registered abort listener (in MessageSender) can still read
@@ -1394,6 +1469,17 @@ export class TabManagerService {
 
     // Remove tab
     this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
+    if (validCommandCenterOrigin(tab.commandCenterOrigin)) {
+      this.commandCenterSendLock.clearForRoot(tabId);
+      this.recordCommandCenterWrite(
+        tab.commandCenterOrigin.workspaceId,
+        'runManifest',
+        this.commandCenterRecords.removeRunManifests(
+          tab.commandCenterOrigin.workspaceId,
+          tabId,
+        ),
+      );
+    }
 
     this.emitTabClosed({
       tabId,
@@ -1768,6 +1854,9 @@ export class TabManagerService {
         occurredAt: Date.now(),
       };
       this._terminalTurnPulses.update((pulses) => [...pulses, pulse]);
+      this._lastTerminalPulseByTab.update((current) =>
+        new Map(current).set(tabId, pulse),
+      );
     }
   }
 
@@ -1961,6 +2050,20 @@ export class TabManagerService {
     this.updateTabInternal(tabId, {
       claudeSessionId: SessionId.from(sessionId),
     });
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (tab && validCommandCenterOrigin(tab.commandCenterOrigin)) {
+      this.commandCenterSendLock.rekey(tabId, sessionId);
+      const workspacePath = tab.commandCenterOrigin.workspaceId;
+      this.recordCommandCenterWrite(
+        workspacePath,
+        'lastSession',
+        this.commandCenterRecords.writeLastSession(workspacePath, {
+          sdkSessionId: sessionId,
+          tabId,
+          updatedAt: Date.now(),
+        }),
+      );
+    }
   }
 
   /**
@@ -3048,7 +3151,6 @@ export class TabManagerService {
     this.visibleTabOwners.set(tabId, owners + 1);
     if (owners > 0) return;
     this._visibleTabIds.update((set) => {
-      if (set.has(tabId)) return set;
       return new Set([...set, tabId]);
     });
   }

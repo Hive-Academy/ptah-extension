@@ -52,8 +52,12 @@ export {
   LaneCompletionNotifier,
   buildSessionChildCompletionEnvelope,
   sessionChildVerdictOf,
+  checkLaneDeliverable,
 } from './lane-completion-notifier.service';
-export type { LaneCompletionContext } from './lane-completion-notifier.service';
+export type {
+  LaneCompletionContext,
+  DeliverableTarget,
+} from './lane-completion-notifier.service';
 export {
   renderLaneCompletionContract,
   type LaneCompletionContractInput,
