@@ -1,167 +1,128 @@
-# HANDOFF — TASK_2026_683_3c29 (motion), PR #739 (TASK_2026_674 + 681 leftovers), TASK_2026_685 (lane header)
+# HANDOFF 2 — TASK_2026_683_3c29 (motion), TASK_2026_685 + 633 (plan), TASK_2026_632 (child session)
 
-Written 2026-10-17 at the user's request (session token budget). Three worktrees. Read this file first,
-then `implementation-plan.md` (this folder; approved, U1-U6 and D1-D12 are binding).
+Written 2026-10-17 (second hand-off, session token budget). Read this file first, then
+`decisions.md` (this folder, O1-O12) and `implementation-plan.md` (approved; U1-U6 and D1-D12 are
+binding). The first hand-off is in git history (`git show c6a4cafca:.ptah/specs/TASK_2026_683_3c29/HANDOFF.md`).
 
 ## 0. Rules to keep
-- CLAUDE.md memory-safe checks: scoped `-p`, `--parallel=1`, Jest `--maxWorkers=2`, ONE heavy check at a time.
-  NEVER pass `--maxWorkers` to `typecheck` (ngc fails with TS5023).
-- Implementers = codex lanes (`ptah_agent_list` first; load the agent-lanes skill). Reviewers = Claude subagents.
-  Lanes never commit. Commit in the foreground; push (+ `gh pr create`) as ONE background command.
-- Electron is a shared slot. Announce "Electron: <task> launching, port <n>" to the other sessions (ListAgents ->
-  SendMessage) and "Electron: free" after. Live peers at hand-off: `ptah-ptah-extension-task-679-session-lis-56eb530000s402qggi70y0f`
-  (679 took the slot at ~21:00 and promised to send "Electron: free"), `...task-646-decision-mo-b0349f0000s402qggi70y0c`.
-- Build/e2e only as approved: U4 = one renderer build + the Electron perf spec, before (M0) and after (M1).
-- No local-only branch at the end: push + PR every finished branch and report the link.
+- CLAUDE.md memory-safe checks: scoped `-p`, `--parallel=1`, Jest `--maxWorkers=2`, ONE heavy check at
+  a time (other sessions run heavy jobs on this machine too). NEVER pass `--maxWorkers` to `typecheck`.
+- Implementers = codex CLI lanes (`ptah_agent_list` first; load the agent-lanes skill; never AT LIMIT).
+  Reviewers = Claude subagents. Lanes never commit. Commit in the foreground; `git push` +
+  `gh pr create` as ONE background command (pre-push runs di-lint + the Electron validate-deps gate).
+- Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; PR bodies end with
+  `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Scopes: `.commitlintrc.json`.
+- Electron is a shared slot. Before a launch: SendMessage "Electron: <task> launching" to the other
+  sessions (ListAgents); after: "Electron: free". Peers now: 679 = `ptah-ptah-extension-task-679-session-lis-57598a0000s402qggi70y0m`
+  (needs Electron later for e2e; it announces first), 685 docs = `ptah-docs-lane-header-proof-451ab2d3f2f3-179ec70000s402qggi70y0i`.
+  At hand-off: 679 sent "Electron: free" (01:3x); 683 told 679 it will announce before M1.
+- **Any Electron launch MUST set `NODE_ENV=development` and a private userData copy.** Without it the
+  userData override is ignored and the app opens the user's PRODUCTION profile (see section 5).
+- Build/e2e only as approved: U4 = one renderer build + the Electron perf spec (M1 still due).
+- No local-only branch at the end: push + PR every finished branch, report the link.
 - Ask the user only about removals, scope changes, irreversible actions.
 
-## 1. PR #739 — TASK_2026_674/675/676 + TASK_2026_681 leftovers (DONE, waiting for review/merge)
-- https://github.com/Hive-Academy/ptah-extension/pull/739, branch `fix/chat-transcript-followups`,
-  worktree `D:\projects\ptah-extension\.claude-worktrees\chat-transcript-followups`. Pushed head `9298b391e`. Clean.
-- Contains: the resync fixes (674/675/676), L1-L7, the TASK_2026_683 task spec + approved plan + reviews,
-  the TASK_2026_685 task spec, a merge of `main` (PR #736, `ff9ec5fec`), and the L2 decision.
-- Checks after the merge (all PASS): `typecheck,lint,test -p chat canvas`. Visual review PASS_WITH_NOTES
-  (`.ptah/specs/TASK_2026_674_fa33/visual-review.md`).
-- L2 (user chose "add to PR #739"): the switch to `SESSION_EMBED_CHROME` is NOT possible — Canvas focus gets
-  `'full'` like any embed, the Rail card gets no token (`canvas-detail-transcript.component.ts:22-29`,
-  `reports/batch-L2-signal.md`). Kept `RAIL_TRANSCRIPT_RETENTION`; comment updated (`9298b391e`). PR body updated.
-- Task statuses in the branch: 674/675/676 `in_review`, 677 `done`. After the merge: set 674/675/676 `done`.
+## 1. Done in this session
+- PR #739 merged (main `71820e0c0`). Its 2 CodeRabbit comments are fixed as the FIRST commit of the 683
+  branch (user request).
+- `feat/nav-session-motion` rebased onto main 71820e0c0 (decision O1). All 683 code committed, NOT pushed:
 
-## 2. TASK_2026_683_3c29 — smooth navigation and session-switch motion (IN PROGRESS)
-Worktree `D:\projects\ptah-extension\.claude-worktrees\nav-session-motion`, branch `feat/nav-session-motion`
-(= main 6c0490f1f, NO commits yet, everything uncommitted, task folder untracked). Local only.
+| Commit | Content |
+| --- | --- |
+| `824a75319` | fix(chat-streaming,chat): CodeRabbit review of PR #739 (`latestTodoWrite` copy; replayer skips owners missing from `messageEventIds`) |
+| `82b40f23f` | feat(core,webview): B1/B2 view transitions + motion tokens |
+| `bbc50dcb6` | feat(chat): B2 Electron surface name + B3 deferred URL correction (+ R5 finding 6 re-queue) |
+| `b11438470` | feat(chat): B4 visible-turn entrance + B7 first-frame scroll restore (`afterNextRender` write) |
+| `653054784` | feat(chat): B5 tab-keyed entrance, CV-2.1 removed (+ R5 findings 1, 2 tests) |
+| `8f9961208` | test(e2e): B0 perf recorder, probeVersion 3 (R5 findings 10, 11) |
+| `c6a4cafca` | docs(task-specs): reports, reviews, M0 (`m0.json` probe 3) |
+| `a3bc82d6a` | feat(canvas): B6 lane fade removed, `rail-pane-enter` on the new split pane |
+| `8a994c2a7` | docs(task-specs): TASK_2026_653 cancelled, 674/675/676 done, B6 docs |
 
-### Decisions (user, this session)
-- Plan approved at the review cap with U5 (visible-only cascade: `afterNextRender({earlyRead, write})`, pure
-  `selectVisibleEntrance`) and U6 (Electron-only measurement; VS Code S7 evidence = follow-up).
-- B0 extra fix pass beyond the cap: approved. B8 dropped (M0: F7 not seen). B7 NEEDED (M0: F6 confirmed).
-- Orchestrator decisions: restored `transition.skipTransition()` for same-surface / reduced-motion navigations
-  (plan D1); a lane had replaced it with 0 s transitions, which would snapshot every session switch. Dev builds log
-  the skipped transition's rejected `ready` promise (Router `transition.ready.catch(console.error)`); accepted.
-  Added the eslint-disable line to the `markdown` stub in `chat-transcript.session-enter.spec.ts` (same as siblings).
+- Reviews (Claude vs codex): B5+B3/B4fix+B0fix4+CR739 REVISE -> R5 fix round -> re-review APPROVED;
+  B7 APPROVED -> fix round (2 Moderate) -> re-review APPROVED; B6 APPROVED 8/10. Files:
+  `code-logic-review-B5-B3B4fix-B0fix4.md`, `-R5-fix.md`, `-B7.md`, `-B7-fix.md`, `-B6.md`.
+- Checks run on the final code (all PASS): `nx run-many -t test -p core chat chat-streaming`;
+  `typecheck,lint` for core, chat, chat-streaming, ptah-electron-e2e, ptah-extension-webview;
+  `nx run-many -t typecheck,lint,test -p canvas`; webview-routing spec 81/81; transcript Jest 20 suites /
+  241 tests. Finding-1 mutation (remove `clearTimeout` at chat-view.component.ts:701) fails the destroy
+  test (6/7); file restored identical.
+- M0 re-recorded with probe 3 on the BASE dist (6c0490f1f, pre-#739; decision O7): `complete: true`,
+  `probeVersion: 3`, 102 windows; F6 still present; 43/102 windows have a long task > 50 ms.
+  Frame strips (`measurements/m0-frames`, 220 MB) stay local (decision O8, `.gitignore` rule).
+- 685: pointer files removed; real-app capture done (18/19 + 2 extras, "71h" reproduced as ~74h);
+  docs branch pushed, **PR #742** https://github.com/Hive-Academy/ptah-extension/pull/742 (PNGs local).
+- TASK_2026_653 cancelled (user: sidebar-to-modal is done in another session). Folder kept (O10).
+- TASK_2026_632 runs in a child session (O11), see section 3.
 
-### Batch state
-| Batch | State | Evidence |
-| --- | --- | --- |
-| B0 recorder `apps/ptah-electron-e2e/src/specs/perf/nav-session-motion.perf.spec.ts` | written; probe fix 4 done (probeVersion 2), NOT yet reviewed; typecheck+lint PASS | reports/batch-B0*.md, code-logic-review-B0*.md, code-logic-review-B1B2.md (B0 section) |
-| M0 | `measurements/m0.json` (102 windows) is STALE: no probeVersion -> M1 rejects it. MUST be recorded again | measurements/m0-summary.md |
-| B1 router VT + tracker (`libs/frontend/core/src/lib/routing/surface-view-transitions.ts`, app.config.ts) | done + fix round 1 + orchestrator skip fix; core 16/16 VT spec, core tests 1267/1267, routing spec 75/75 | code-logic-review-B1B2.md, reports/batch-B1*.md |
-| B2 tokens + VT CSS + Electron naming (`styles.css`, `electron-shell.component.ts`) | done + fix (name only while `html.ptah-vt-active`; group durations); shell spec 3/3 | same |
-| B3 guarded URL correction (`chat-tab-route-sync.service.ts`) | done, spec 32/32; review APPROVED 8.5 | code-logic-review-B3B4.md |
-| B4 transcript entrance (`organisms/transcript/*`, `transcript-entrance.ts`) | done; transcript specs 19 suites / 229 tests; review APPROVED 8.5 | same |
-| B3/B4 fix (lane `0baf6f3e`) | SEE SECTION 2b | reports/batch-B3B4-fix.md |
-| B5 ChatView edge + CV-2.1 removal (lane `7dcfaab5`) | SEE SECTION 2b | reports/batch-B5.md |
-| B6 canvas motion | NOT STARTED — only after PR #739 merges (rebase on main; touches canvas-rail-board, canvas-lane-view) | plan "### B6" |
-| B7 F6 first-frame scroll | NOT STARTED — after the B3/B4 fix (owns chat-transcript.component.*) | plan "### B7", m0-summary.md |
-| M1 | NOT STARTED | plan "## Measurement plan" |
-Last combined checks: `typecheck` PASS for core + chat; `lint` chat 0 errors (51 warnings), core PASS.
+## 2. TASK_2026_683 — what is left (in order)
+1. **M1.** Announce "Electron: 683 launching" to 679, then from the 683 worktree (one heavy job at a time):
+   `npx nx build-dev ptah-electron --parallel=1 && npx nx copy-renderer-dev ptah-electron --parallel=1`
+   (approved build), then
+   `PTAH_MOTION_LABEL=m1 PTAH_MOTION_ASSERT=1 npx playwright test --config=apps/ptah-electron-e2e/playwright.config.ts src/specs/perf/nav-session-motion.perf.spec.ts > .ptah/tmp/m1-run.log 2>&1; echo "exit=$?" >> .ptah/tmp/m1-run.log`
+   (run in the background; read `exit=` and the soft-assert failures in the log). Check `m1.json`:
+   `complete: true`, `probeVersion: 3`, 102 windows. Send "Electron: free" after.
+2. **O12 check:** in the M1 S8 frames and layout-shift values, look for a scrollbar flash / shift from the
+   B6 `translateX(8px)` pane entrance. If present: fix (opacity only, or clip the container while entering)
+   on a codex lane, re-run canvas checks, one short review.
+3. **Visual review** (Claude `visual-reviewer`): M1 vs M0 frame strips, dark + light, reduced motion
+   (S6) and split pane (S8); write `visual-review.md` + `measurements/m1-summary.md`. Report long tasks
+   per U2 (state that M0 is pre-#739, O7).
+4. **Commit** m1.json + summaries + visual review (docs(task-specs)); set `task.md` status to `in_review`
+   (edit only the `status:` line).
+5. **Push + PR** (one background command), base main, title e.g.
+   `feat(chat,core,canvas): smooth navigation and session-switch motion`. Body: summary per batch, the
+   CodeRabbit commit first, M0/M1 numbers, test plan (checks above + M1), follow-ups below, decisions
+   O1-O12. Then message the 685 docs session the PR link (685 task A rebases on B6).
+6. Follow-ups for the PR body / new tasks: TASK_2026_629 row 74 (U2 render long tasks: S2 10/10 > 50 ms,
+   S4 3/3, S6 331 ms at probe 1); VS Code S7 evidence (U6); tracker timeout for a never-settling
+   transition (review finding 7); inspector rows do not restart on a second switch inside 400 ms
+   (finding 3); B7 Minor (stale-frame assertion `chat-transcript.component.spec.ts:218-220`);
+   `chat-view.component.ts` (2080) and `chat-transcript.component.ts` (1398) over the 700-line limit.
 
-### 2b. B3/B4 fix and B5
-Both ended before the hand-off; results are in "Lane results at hand-off" at the end of this file.
+## 3. Work in other places
+- **685 + 633 plan (architect pass, Claude `software-architect`, background at hand-off).** Worktree
+  `D:\projects\ptah-extension\.claude-worktrees\lane-execution-stream`, branch `feat/lane-execution-stream`
+  (from main 71820e0c0, no commits). Deliverable:
+  `D:\projects\ptah-extension\.claude-worktrees\lane-execution-stream\.ptah\specs\TASK_2026_685_64f4\implementation-plan.md`
+  (Phase A = 685 header + duration fix; Phase B = 685 live stream + 633; parity inventory for the approved
+  removals). If the file is missing or incomplete, run the pass again (brief: 685 visual-proof.md in the
+  docs-lane-header-proof worktree, 685 section 3b decisions in git history of this file, 633 task.md).
+  Then: cross-side review by a codex lane (`implementation-plan-review.md`), max 2 revise rounds, then
+  SHOW THE USER the plan before any code (user rule). Commit the plan on `feat/lane-execution-stream`
+  and open a docs PR (or keep it until implementation, but report the branch as local-only).
+- **685 docs.** PR #742 open (branch `docs/lane-header-proof`, 7 commits incl. `9994e2aa5`). The 685
+  session waits; it starts no more work on the branch. Task A rebases on B6 after the 683 PR is pushed.
+- **TASK_2026_632 child session** "632 budget stop reason", sessionId
+  `42eb22f6-656e-4c4f-9146-1a7057e29278`, branch `fix/budget-monitor-stop-reason`, worktree
+  `D:\projects\ptah-extension\.claude-worktrees\fix-budget-monitor-stop-reason-63e500ba965b`. Lanes:
+  codex/opencode/grok; reviews by its own Claude subagents. First report: fix in agent-sdk
+  (`system-message.transformer.ts:665` passes the SDK "stopped by user" summary into `agent_completed`;
+  the monitor will record a Ptah stop notice per taskId). It reports again with the PR link. The parent
+  session can check it with `ptah_session_status` (a new session is not its parent; read its tab).
 
-### Next steps (in order)
-1. Read the B3/B4-fix and B5 reports; verify: `chat-transcript.component.ts` <= 1398 lines (main size), the
-   removal grep of CV-2.1 names is empty, no `offsetWidth` left.
-2. One heavy check (from the worktree): 
-   `npx nx run-many -t typecheck,lint -p core chat --parallel=1` then
-   `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/transcript libs/frontend/chat/src/lib/components/templates/chat-view libs/frontend/chat/src/lib/services/chat-tab-route-sync.service.spec.ts --coverage=false --maxWorkers=2`
-   (finally `npx nx test chat --parallel=1 --maxWorkers=2` once before the commit).
-3. Claude `code-logic-reviewer` on B5 + the B3/B4 fix + the B0 probe fix (fix4).
-4. B7 (codex lane) after step 3: F6 first-frame scroll, plan "### B7"; evidence in m0-summary.md (S4: rAF 2 at
-   scrollTop 0, jump of 965-5755 px; frames s4-02-000..004). Then review.
-5. RE-RECORD M0 BEFORE ANY REBUILD. The Electron dist in this worktree (`dist/apps/ptah-electron`, built
-   2026-10-16 22:58) is still the BASE code. Wait for "Electron: free", announce, then:
-   `PTAH_MOTION_LABEL=m0 PTAH_MOTION_OVERWRITE=1 npx playwright test --config=apps/ptah-electron-e2e/playwright.config.ts src/specs/perf/nav-session-motion.perf.spec.ts`
-   (PTAH_MOTION_ASSERT unset). Check `m0.json`: `complete: true`, `probeVersion: 2`, 102 windows. Note: the
-   background task exit code is the `echo`; read `exit=` in the log.
-6. Commit the batches in the foreground (scopes from .commitlintrc.json: core, chat, webview, e2e, task-specs;
-   subject <= 72; body lines <= 100; end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`).
-7. After PR #739 merges: merge/rebase main into `feat/nav-session-motion`, then B6 (codex) + review.
-8. M1: `npx nx build-dev ptah-electron --parallel=1 && npx nx copy-renderer-dev ptah-electron --parallel=1`
-   (approved build), then `PTAH_MOTION_LABEL=m1 PTAH_MOTION_ASSERT=1 npx playwright test ...` (same spec).
-   Visual review of the frame strips (dark + light) vs M0. Report long tasks per U2.
-9. Push + `gh pr create --base main` (one background command); body ends with
-   `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Set task.md status.
+## 4. Key files (683)
+- Core: `libs/frontend/core/src/lib/routing/surface-view-transitions.ts`; `apps/ptah-extension-webview/src/app/app.config.ts`, `src/styles.css`.
+- Chat: `libs/frontend/chat/src/lib/services/chat-tab-route-sync.service.ts`;
+  `.../organisms/transcript/{chat-transcript.component.ts, transcript-session-entrance.ts, transcript-entrance.ts}`;
+  `.../templates/{chat-view.component.ts, electron-shell.component.ts}`.
+- Canvas: `libs/frontend/canvas/src/lib/canvas-detail/canvas-lane-view.component.ts`, `.../canvas-rail/canvas-rail-board.component.ts`.
+- Recorder: `apps/ptah-electron-e2e/src/specs/perf/nav-session-motion.perf.spec.ts` (probeVersion 3).
+- Task: `decisions.md`, `reports/batch-*.md`, `code-logic-review-*.md`, `measurements/{m0.json,m0-summary.md}`.
 
-### Follow-ups to record (PR body / tasks)
-- TASK_2026_629 row 74 (U2): render-caused long tasks on session switch before any motion code — S2 10/10 windows
-  > 50 ms (max 292 ms), S4 3/3 (303 ms), S6 reduced motion 331 ms; start 1-12 ms after the click.
-- VS Code S7 evidence (U6). Tracker has no timeout for a transition that never settles (review B3B4 minor).
-- `chat-view.component.ts` / `chat-transcript.component.ts` remain over the 700-line lint limit (pre-existing).
+## 5. Open problems for the user
+- **Production-profile incident (00:47-00:50).** The 685 screenshot agent's first launch omitted
+  `NODE_ENV=development`, so Electron ran ~3 min on `C:\Users\abdal\AppData\Roaming\Ptah` and
+  `~/.ptah/state/ptah.sqlite` while the user's Ptah ran. Read-only actions only; process killed. Logs:
+  `docs-lane-header-proof-451ab2d3f2f3\.ptah\specs\TASK_2026_685_64f4\screenshots\_harness\electron-INCIDENT-prod-launch.*`.
+  The user's Ptah still ran and wrote the DB at 01:18. No sqlite3 CLI, so no integrity check.
+- **Side effect found at hand-off:** at 00:48 that launch rewrote the ptah MCP entry in
+  `D:\projects\ptah-extension\.mcp.json`, `D:\projects\seshat\.mcp.json`, `D:\projects\nx-video\.mcp.json`
+  to port **51821**, but the production Ptah (PID 36432) listens on **51820**. 679's dev runs did the
+  same for `property-hub` and `ptah-final-run-ws` (51821). Not changed by this session (user config);
+  the user should reopen those workspaces in production Ptah (or set the port back to 51820).
 
-## 3. TASK_2026_685_64f4 — one execution header for CLI lanes and subagents (PROOF IN PROGRESS)
-- Task filed in PR #739 (`ff2dadef3`). Proof branch `docs/lane-header-proof`, worktree
-  `D:\projects\ptah-extension\.claude-worktrees\docs-lane-header-proof-451ab2d3f2f3`, 2 local commits
-  (`e24703b29` analysis + prototype, `6bf3ebeb9` capture list). LOCAL ONLY, no PR. Child session stopped.
-- Findings: duration "71h 18m" = restored CLI lane has no `completedAt` (`CliSessionReference` does not store it,
-  `agent-monitor.store.ts:1708-1736`), so card (`agent-card.component.ts:157-164`) and inspector (`:329-332`) show
-  `now - startedAt`. Proposed removals (USER APPROVAL NEEDED): header status badges, separate duration text,
-  subagent bubble header/footer in the lane view. Prototype: `.ptah/specs/TASK_2026_685_64f4/prototype/index.html`.
-- Next: (a) delete the two pointer files at `.ptah/specs/TASK_2026_685_64f4/.ptah/specs/TASK_2026_685_64f4/`
-  (wrong deliverable path artifacts); (b) when Electron is free (after M0), a `visual-reviewer` takes the 19
-  shots listed in `visual-proof.md` "## Screenshots" using the harness in
-  `.claude-worktrees/clean-session-followups/.ptah/tmp/` (`a1117-launcher.mjs`, private profile copy, port 9351) and
-  the CURRENT dist of `chat-transcript-followups` (do not build); (c) commit, push, open a docs PR; (d) show the
-  user the proof + proposed removals; implementation only after PR #739 merges and coordinated with 683 B6.
-
-### 3b. User scope decision for 685 (2026-10-17, made in the child session's tab; commit `c47a670ac`, not pushed)
-- CLI lanes and SDK subagents show the SAME real-time message stream while they run, rendered exactly like the main
-  agent (ExecutionNode tree, `ptah-execution-node`).
-- A subagent stays OUT of the main orchestration execution tree (memory/resources) and gets its own independent live
-  execution tree, shown in its lane.
-- APPROVED REMOVALS: the "View transcript" action (`inline-agent-bubble` :322-330 and :963-981, inspector actions menu
-  :38, `session-agent-tray.service` :101-108, `background-agent-strip` :331-337), the lane fallback "Live agent
-  unavailable. Showing saved transcript." (`canvas-lane-view` :155-163 + its load logic), and the
-  `subagent:transcript` overlay path.
-- Gap: today the lane finds the subagent node inside the tab's main tree (`canvas-lane-view` :245-257); the tree
-  builder nests subagent messages under the parent (`execution-tree-builder.service` :319). Open: a subagent from an
-  earlier session needs its own tree rebuilt from saved structured events (like `buildTreeFromSegments` for CLI
-  lanes), not from the text-only transcript.
-- This now overlaps TASK_2026_633 (live background subagent output after the parent turn). Plan 685 and 633 together
-  (one architect pass) before any code; both start after PR #739 merges. The prototype PNGs still show the old
-  transcript icon; the HTML prototype is updated.
-- The 685 branch now has 3 local commits (`e24703b29`, `6bf3ebeb9`, `c47a670ac`).
-
-## 4. Other chat UI candidates (user asked)
-632 (backend, any time); 633 after PR #739 merges; 685 implementation after #739; 653 after 679 and 683 merge.
-
-## Lane results at hand-off
-Nothing runs at hand-off: all lanes, subagents and the 685 child session have ended.
-
-- **B3/B4 fix** (codex `0baf6f3e`, CLI session `01a14689-ae14-7c10-9df2-0fa27bae014b`) — `reports/batch-B3B4-fix.md`. DONE, not yet
-  reviewed. B3-1: a correction invalidated by a later navigation is reconciled after NavigationCancel /
-  NavigationError (router idle, still on a mismatched chat URL). B4-1: specs for the real 6-slot cap, retained
-  A->B->A multi-slot, read-phase purity, cleanup on falling edge and destroy. File size: entrance logic moved to NEW
-  `libs/frontend/chat/src/lib/components/organisms/transcript/transcript-session-entrance.ts`;
-  `chat-transcript.component.ts` 1491 -> 1396 lines (main 1398). Minor: one visibility walk via the pure selector,
-  zero-height slots ignored, lazy rect reads capped at 24. Lane Jest: route-sync 34/34, transcript 234/234.
-  The lane also edited the pure `transcript-entrance.ts` (+ spec): the reviewer must confirm the U5 signature
-  is unchanged and the function is still pure. Left open by the lane (listed in its report): the tracker timeout
-  for a transition that never settles (core, out of its scope) and minor B3 coverage refinements.
-- **B5** (codex `7dcfaab5`, CLI session `01a14689-eade-7ab3-b9d1-ee441789ce03`) — `reports/batch-B5.md`. DONE, not yet reviewed. Tab-id keyed 400 ms outside-zone
-  `enteringTabId`, `[entering]` bound, inspector `.st-r` retimed to global tokens, CV-2.1 removed (removal grep and
-  `offsetWidth` grep: no hits). `chat-view.component.ts` 2110 -> 2075 lines. NEW
-  `templates/chat-view.session-enter.spec.ts` 5/5 — but the lane CHANGED two timer-count assertions after they
-  failed (126/128 first run): the reviewer must confirm the assertions were not weakened. The full chat-view spec
-  scope was not re-run after that change.
-- Unreviewed so far: B0 probe fix 4, B3/B4 fix, B5. One Claude `code-logic-reviewer` pass covers all three (step 3).
-- Lane CLI session IDs (resume with `resume_session_id` if a fix goes back to the same lane): B0 fix4
-  `01a14684-2371-7090-ad23-8ff85f6c7090`, B1/B2 fix `01a14683-f266-76c1-b7e2-b9015453bf21`, B3
-  `01a1467e-b79a-78a3-887e-47faebec000f`, B4 `01a1467e-fe4c-7331-834e-357c263d7773`. Resumes over ~60k tokens start a
-  fresh lane with a handoff brief, so always give complete instructions.
-
-### Uncommitted files in `feat/nav-session-motion` (all belong to this task)
-Modified: `apps/ptah-extension-webview/src/app/app.config.ts`, `.../webview-routing.spec.ts`, `.../styles.css`;
-`libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.{ts,html,css}`,
-`transcript-slot.directive.ts`; `libs/frontend/chat/src/lib/components/templates/chat-view.component.{ts,html,css}`,
-`electron-shell.component.ts`; `libs/frontend/chat/src/lib/components/organisms/message-bubble.component.html`;
-`libs/frontend/chat/src/lib/services/chat-tab-route-sync.service{,.spec}.ts`; `libs/frontend/core/src/lib/routing/index.ts`.
-New: `apps/ptah-electron-e2e/src/specs/perf/nav-session-motion.perf.spec.ts`; `core/.../routing/surface-view-transitions{,.spec}.ts`;
-`chat/.../transcript/{transcript-entrance{,.spec},transcript-session-entrance,chat-transcript.session-enter.spec}.ts`;
-`chat/.../templates/{chat-view.session-enter.spec,electron-shell.view-transition.spec}.ts`; task folder
-`.ptah/specs/TASK_2026_683_3c29/` (plan, reviews, reports/, measurements/ incl. ~1,400 PNG frames — decide before
-committing whether to commit the frame strips or only m0/m1 json + summaries; the 674 PR committed screenshots).
-
-### Local-only branches at hand-off (user rule: no orphaned branches)
-- `feat/nav-session-motion` — no commits yet (work uncommitted, in progress).
-- `docs/lane-header-proof` — 3 commits, not pushed; real-app screenshots still missing (section 3, 3b).
+## 6. Local-only branches at hand-off
+- `feat/nav-session-motion` — 9 commits, not pushed (push after M1, section 2).
+- `feat/lane-execution-stream` — no commits (architect plan in progress).
+- `fix/budget-monitor-stop-reason` — owned by the 632 child session (it pushes + opens its PR).
