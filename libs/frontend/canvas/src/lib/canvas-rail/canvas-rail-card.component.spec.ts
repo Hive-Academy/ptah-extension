@@ -502,6 +502,129 @@ describe('CanvasRailCardComponent', () => {
     expect(document.activeElement).toBe(trigger(host));
   });
 
+  describe('Rename in flight (M4, D74)', () => {
+    let resolveRename: (result: string) => void = () => undefined;
+
+    beforeEach(() => {
+      rename.mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveRename = resolve;
+          }),
+      );
+    });
+    afterEach(() => rename.mockResolvedValue('renamed'));
+
+    async function openRename(fixture: ReturnType<typeof mount>) {
+      const host = await openMenu(fixture);
+      item(host, 'rename').click();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      const input = host.querySelector<HTMLInputElement>('input[aria-label="Session name"]')!;
+      expect(document.activeElement).toBe(input);
+      input.value = 'Renamed';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return { host, input };
+    }
+    const saveButton = (host: HTMLElement) =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+        (button) => button.textContent?.trim() === 'Save',
+      ) as HTMLButtonElement;
+    const cancelButton = (host: HTMLElement) =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+        (button) => button.textContent?.trim() === 'Cancel',
+      ) as HTMLButtonElement;
+
+    async function finish(fixture: ReturnType<typeof mount>) {
+      resolveRename('renamed');
+      await settle();
+      fixture.detectChanges();
+      await settle();
+    }
+
+    it('sends one rename for two Enters before it resolves', async () => {
+      const fixture = mount();
+      const { input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      keydown(input, 'Enter');
+      expect(rename).toHaveBeenCalledTimes(1);
+      await finish(fixture);
+      expect(rename).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends one rename for Enter then Save', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      const save = saveButton(host);
+      keydown(input, 'Enter');
+      save.click();
+      expect(rename).toHaveBeenCalledTimes(1);
+      expect(rename).toHaveBeenCalledWith(sessionId, 'Alpha', 'Renamed');
+      await finish(fixture);
+    });
+
+    it('makes the field read-only and disables Save while pending', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      expect(input.readOnly).toBe(false);
+      expect(saveButton(host).disabled).toBe(false);
+      keydown(input, 'Enter');
+      fixture.detectChanges();
+      expect(input.readOnly).toBe(true);
+      expect(saveButton(host).disabled).toBe(true);
+      // Cancel stays available.
+      expect(cancelButton(host).disabled).toBe(false);
+      await finish(fixture);
+    });
+
+    it('closes the popover and focuses the trigger once the rename resolves', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      fixture.detectChanges();
+      await settle();
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+      await finish(fixture);
+      expect(host.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(trigger(host));
+    });
+
+    it('does not move focus when the rename resolves after a Cancel', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      cancelButton(host).click();
+      fixture.detectChanges();
+      await settle();
+      expect(host.querySelector('[role="dialog"]')).toBeNull();
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      elsewhere.focus();
+
+      await finish(fixture);
+
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+    });
+
+    it('lets a second rename through after the first resolves', async () => {
+      const fixture = mount();
+      const { input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      await finish(fixture);
+      expect(rename).toHaveBeenCalledTimes(1);
+
+      const again = await openRename(fixture);
+      expect(again.input.readOnly).toBe(false);
+      keydown(again.input, 'Enter');
+      expect(rename).toHaveBeenCalledTimes(2);
+      await finish(fixture);
+    });
+  });
+
   it('opens Organize for a loaded row and restores the menu trigger after editor close render (D30)', async () => {
     available.set(true);
     loaded = true;

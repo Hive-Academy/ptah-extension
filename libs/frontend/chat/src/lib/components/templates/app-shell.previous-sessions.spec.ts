@@ -8,7 +8,8 @@
  * shell row is inert while the modal is open (DP-8); the modal is created per
  * open; it closes without a focus restore when a standalone surface replaces
  * the chat view (DP-9); the organization editor renders what
- * `SessionOrganizerService` shows.
+ * `SessionOrganizerService` shows; while the modal chunk loads or after it
+ * fails, a stand-in surface outside the inert row offers Close (S1, D73).
  *
  * **How this is tested.** The REAL template and class render with every child
  * component left as an unknown element (`NO_ERRORS_SCHEMA`, imports reduced to
@@ -26,7 +27,13 @@ import {
   signal,
   type WritableSignal,
 } from '@angular/core';
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import {
+  DeferBlockBehavior,
+  DeferBlockState,
+  TestBed,
+  type ComponentFixture,
+  type DeferBlockFixture,
+} from '@angular/core/testing';
 import {
   AppStateManager,
   AuthStateService,
@@ -45,6 +52,7 @@ import {
 import { NotificationLedgerService } from '@ptah-extension/notification-center';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 import { AppShellComponent } from './app-shell.component';
+import { PreviousSessionsLoadStateComponent } from '../organisms/previous-sessions/previous-sessions-load-state.component';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
@@ -82,7 +90,11 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
   let layoutMode: WritableSignal<'single' | 'grid'>;
   let organizer: OrganizerStub;
 
-  function mount(host: Host): void {
+  /**
+   * `manualDefer` drives the defer blocks by hand and renders the real
+   * load-state surface (Fix round P3); otherwise defer blocks play through.
+   */
+  function mount(host: Host, { manualDefer = false } = {}): void {
     currentView = signal('chat');
     layoutMode = signal(host.layout);
     organizer = {
@@ -93,6 +105,9 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     };
 
     TestBed.configureTestingModule({
+      deferBlockBehavior: manualDefer
+        ? DeferBlockBehavior.Manual
+        : DeferBlockBehavior.Playthrough,
       providers: [
         {
           provide: AppStateManager,
@@ -148,7 +163,9 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     });
     TestBed.overrideComponent(AppShellComponent, {
       set: {
-        imports: [RetainedViewDirective],
+        imports: manualDefer
+          ? [RetainedViewDirective, PreviousSessionsLoadStateComponent]
+          : [RetainedViewDirective],
         providers: [],
         schemas: [NO_ERRORS_SCHEMA],
       },
@@ -381,6 +398,148 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
       await settle();
       expect(close).not.toHaveBeenCalled();
       expect(dialog().isOpen()).toBe(false);
+    });
+  });
+
+  describe('modal chunk loading or failed (S1, D73)', () => {
+    const SURFACE = '[data-testid="previous-sessions-load-state"]';
+    const CLOSE = '[data-testid="previous-sessions-load-close"]';
+
+    beforeEach(() =>
+      mount({ isElectron: false, layout: 'single' }, { manualDefer: true }),
+    );
+
+    /** The Previous sessions block: the third @defer in the template. */
+    async function previousSessionsBlock(): Promise<DeferBlockFixture> {
+      const blocks = await fixture.getDeferBlocks();
+      const block = blocks[2];
+      if (!block) throw new Error('previous sessions @defer missing');
+      return block;
+    }
+
+    async function openFromButton(): Promise<HTMLButtonElement> {
+      const previous = button();
+      if (!previous) throw new Error('navbar button missing');
+      previous.focus();
+      previous.click();
+      await settle();
+      return previous;
+    }
+
+    async function showState(
+      state: DeferBlockState.Loading | DeferBlockState.Error,
+    ): Promise<void> {
+      await (await previousSessionsBlock()).render(state);
+      await settle();
+    }
+
+    const surface = (): HTMLElement | null =>
+      page.querySelector<HTMLElement>(SURFACE);
+    const closeButton = (): HTMLButtonElement | null =>
+      page.querySelector<HTMLButtonElement>(CLOSE);
+
+    it.each([
+      ['Loading', DeferBlockState.Loading, 'Loading previous sessions...'],
+      [
+        'Error',
+        DeferBlockState.Error,
+        'Previous sessions could not load. Close this and reload the window to try again.',
+      ],
+    ] as const)(
+      'renders a named dialog outside the inert row with focus on Close (%s)',
+      async (_name, state, message) => {
+        await openFromButton();
+        await showState(state);
+
+        const panel = surface()?.querySelector<HTMLElement>('[role="dialog"]');
+        expect(panel).not.toBeNull();
+        expect(panel?.getAttribute('aria-modal')).toBe('true');
+        const titleId = panel?.getAttribute('aria-labelledby') ?? '';
+        expect(document.getElementById(titleId)?.textContent?.trim()).toBe(
+          'Previous sessions',
+        );
+        const messageId = panel?.getAttribute('aria-describedby') ?? '';
+        expect(
+          document
+            .getElementById(messageId)
+            ?.textContent?.replace(/\s+/g, ' ')
+            .trim(),
+        ).toBe(message);
+        expect(surface()?.classList).toContain('z-[990]');
+        expect(surface()?.closest('[inert]')).toBeNull();
+        expect(shellRow()?.hasAttribute('inert')).toBe(true);
+        expect(page.querySelector(MODAL)).toBeNull();
+        expect(closeButton()?.getAttribute('aria-label')).toBe(
+          'Close previous sessions',
+        );
+        expect(document.activeElement).toBe(closeButton());
+        // No Retry: a failed defer load is cached per template.
+        expect(surface()?.querySelectorAll('button')).toHaveLength(1);
+      },
+    );
+
+    it.each([
+      ['Loading', DeferBlockState.Loading],
+      ['Error', DeferBlockState.Error],
+    ] as const)(
+      'Close closes, drops inert and returns focus to the navbar trigger (%s)',
+      async (_name, state) => {
+        const previous = await openFromButton();
+        await showState(state);
+
+        closeButton()?.click();
+        await settle();
+
+        expect(dialog().isOpen()).toBe(false);
+        expect(surface()).toBeNull();
+        expect(shellRow()?.hasAttribute('inert')).toBe(false);
+        expect(document.activeElement).toBe(previous);
+      },
+    );
+
+    it('Escape closes and does not propagate', async () => {
+      const previous = await openFromButton();
+      await showState(DeferBlockState.Error);
+      const outside = jest.fn();
+      document.addEventListener('keydown', outside);
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+
+      closeButton()?.dispatchEvent(event);
+      await settle();
+      document.removeEventListener('keydown', outside);
+
+      expect(outside).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(true);
+      expect(dialog().isOpen()).toBe(false);
+      expect(surface()).toBeNull();
+      expect(document.activeElement).toBe(previous);
+    });
+
+    it('keeps Tab on the Close button', async () => {
+      await openFromButton();
+      await showState(DeferBlockState.Loading);
+      const event = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        bubbles: true,
+        cancelable: true,
+      });
+
+      closeButton()?.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(closeButton());
+    });
+
+    it('renders nothing for Loading or Error while the modal is closed', async () => {
+      await showState(DeferBlockState.Loading);
+      expect(surface()).toBeNull();
+      await showState(DeferBlockState.Error);
+      expect(surface()).toBeNull();
+      expect(shellRow()?.hasAttribute('inert')).toBe(false);
     });
   });
 

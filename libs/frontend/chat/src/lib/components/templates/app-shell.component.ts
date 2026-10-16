@@ -32,6 +32,7 @@ import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SessionOrganizationEditorComponent } from '../molecules/session-organization-editor/session-organization-editor.component';
 import { PreviousSessionsModalComponent } from '../organisms/previous-sessions/previous-sessions-modal.component';
+import { PreviousSessionsLoadStateComponent } from '../organisms/previous-sessions/previous-sessions-load-state.component';
 import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   SkeletonBlockComponent,
@@ -128,6 +129,7 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     NotificationAnnouncerComponent,
     SessionOrganizationEditorComponent,
     PreviousSessionsModalComponent,
+    PreviousSessionsLoadStateComponent,
   ],
   providers: [
     {

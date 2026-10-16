@@ -15,10 +15,20 @@
      below (VS Code single layout) or the canvas Rail footer. Deferred out of
      the initial bundle like the editor; the inner @if creates it per open, so
      each open starts at the top of the list (DP-2). It stacks under the
-     editor and the confirm dialog. -->
+     editor and the confirm dialog. The row below is inert while it is open,
+     so a slow or failed chunk shows a stand-in surface with a reachable Close
+     (D73); the defer state outlives a close, hence the @if in each block. -->
 @defer (when previousSessions.isOpen(); prefetch on idle) {
   @if (previousSessions.isOpen()) {
     <ptah-previous-sessions-modal />
+  }
+} @loading (after 150ms) {
+  @if (previousSessions.isOpen()) {
+    <ptah-previous-sessions-load-state state="loading" />
+  }
+} @error {
+  @if (previousSessions.isOpen()) {
+    <ptah-previous-sessions-load-state state="error" />
   }
 }
 
