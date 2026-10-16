@@ -181,3 +181,39 @@ rule is not implemented; see Decisions (41f).
 - No nx, jest or tsc run, per the brief.
 - `ptah_get_diagnostics` (TypeScript compiler, errors only), scoped to the two changed files:
   0 errors, coverage clean.
+
+## 41h (bounded correction)
+
+Closes the Moderate finding in `reviews/batch-41g-code-logic-review.md`: a selection-only
+save reported failure when `setSelection` rejected after the selection was stored (for
+example a throwing logger inside `clearMark`).
+
+- `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:862-874` (selection-only
+  branch of `writeDecisionModel`): on a rejected `setSelection`, the branch calls the
+  existing `storedSelectionState`. `'stored'` logs a warn with the error type and returns
+  success. `'not-stored'` or `'unreadable'` rethrows the original error, so the failure
+  result is unchanged. The combined key+selection path is unchanged. `setConfigQueue`
+  serialization is unchanged. The new catch rethrows and has the existing zone-2
+  `degradation-audit: reported` marker.
+- Same file, lines 848-849 and 913-915: doc comments only (`writeDecisionModel` bullet,
+  `storedSelectionState` caller contract).
+- `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.decision-model.spec.ts`:
+  - 681-728: two new specs. Selection-only save with a late rejection and the
+    selection stored gives success, and the other fields are written. Rejection with
+    the selection not stored keeps the `SettingsPersistError` failure and writes no
+    other fields.
+  - 494-499: `returns SettingsPersistError text when the service cannot store` now
+    stubs a stored selection that differs from the request. Before, the request
+    (`unset`) already equalled the double's default selection, so the read-back
+    correctly reported it as stored.
+
+### Verification (41h)
+
+- `npx jest -c libs/backend/rpc-handlers/jest.config.ts .../agent-rpc.handlers.decision-model.spec.ts --coverage=false --maxWorkers=2`:
+  1 suite, 35/35 passed.
+- `NX_NO_CLOUD=true npx nx run-many -t typecheck lint -p rpc-handlers --parallel=1`
+  (project `@ptah-extension/rpc-handlers`): typecheck pass, lint pass.
+- Degradation audit: `TOTAL 297 unsuppressed site(s)`, and every directory is within
+  its baseline (rpc-handlers 1, baseline 1). The audit gives the same TOTAL 297 with
+  the HEAD (`758f96fdc`) copy of `agent-rpc.handlers.ts` in place, so this change adds
+  no site. The brief expected 296; that difference was already present before 41h.

@@ -491,6 +491,12 @@ describe('agent:setConfig decision model', () => {
 
   it('returns SettingsPersistError text when the service cannot store', async () => {
     const h = makeHarness();
+    // The stored selection differs from the requested one, so the write
+    // really failed (41h: a stored request reports success).
+    h.decisionModel.getSelection.mockReturnValue({
+      kind: 'jev',
+      model: 'jev-1.13.0',
+    });
     h.decisionModel.setSelection.mockRejectedValue(
       new SettingsPersistError('EIO'),
     );
@@ -670,6 +676,54 @@ describe('agent:setConfig decision model', () => {
     ]);
     expect(logged).not.toContain(secret);
     expect(logged).not.toContain(previous);
+  });
+
+  it('reports success for a selection-only save whose selection was stored before its write rejected (41h)', async () => {
+    const h = makeHarness();
+    const selection = { kind: 'ollama' as const, model: 'tev1' };
+    h.decisionModel.getSelection.mockReturnValue(selection);
+    // e.g. a throwing logger inside clearMark after the selection was stored
+    h.decisionModel.setSelection.mockRejectedValue(
+      new Error('clearMark logger failed'),
+    );
+    const result = await h.setConfig({
+      decisionModel: selection,
+      piModel: 'openai/gpt-4o',
+    });
+    // The requested selection is stored, so the save took effect and the
+    // rest of the request is written too.
+    expect(result).toEqual({ success: true });
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.readJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:setConfig decision model selection was stored before its write failed',
+      { selectionErrorType: 'Error' },
+    );
+    expect(h.settings.size).toBe(1);
+  });
+
+  it('keeps the failure for a selection-only save whose selection was not stored (41h)', async () => {
+    const h = makeHarness();
+    h.decisionModel.getSelection.mockReturnValue({ kind: 'unset' });
+    h.decisionModel.setSelection.mockRejectedValue(
+      new SettingsPersistError('EIO'),
+    );
+    const result = await h.setConfig({
+      decisionModel: { kind: 'ollama', model: 'tev1' },
+      piModel: 'openai/gpt-4o',
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Settings could not be saved to disk (EIO)',
+    });
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.logger.warn).not.toHaveBeenCalledWith(
+      'RPC: agent:setConfig decision model selection was stored before its write failed',
+      expect.anything(),
+    );
+    expect(h.settings.size).toBe(0);
   });
 
   it('restores the previous key when the stored selection cannot be read after a failed write (41f)', async () => {

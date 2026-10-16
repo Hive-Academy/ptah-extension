@@ -845,6 +845,8 @@ export class AgentRpcHandlers {
    *   the save reports success (both fields hold the requested values), so
    *   the row never says "unchanged" for a save that took effect. If that
    *   check cannot read the selection, the key is put back as above.
+   * - A selection-only save applies the same check: a selection stored before
+   *   its write rejected reports success; otherwise the error propagates.
    * - If putting the key back fails too, the result says the key may have
    *   changed. Logs carry error types only; the key is never logged or
    *   echoed.
@@ -857,7 +859,19 @@ export class AgentRpcHandlers {
   ): Promise<string | undefined> {
     const config = this.decisionModelConfig;
     if (jevApiKey === undefined) {
-      if (selection !== undefined) await config.setSelection(selection);
+      if (selection === undefined) return undefined;
+      try {
+        await config.setSelection(selection);
+      } catch (selectionError: unknown) {
+        // degradation-audit: reported — a selection stored before a late rejection is a completed save; the error type is logged
+        if (this.storedSelectionState(selection) !== 'stored') {
+          throw selectionError;
+        }
+        this.logger.warn(
+          'RPC: agent:setConfig decision model selection was stored before its write failed',
+          { selectionErrorType: errorTypeOf(selectionError) },
+        );
+      }
       return undefined;
     }
     if (selection === undefined) {
@@ -896,8 +910,9 @@ export class AgentRpcHandlers {
 
   /**
    * Whether the stored selection equals `selection`. A failed read is logged
-   * and answers `'unreadable'`; the caller then restores the previous key,
-   * the safe choice when the stored selection is unknown.
+   * and answers `'unreadable'`; the caller then treats the save as failed
+   * (and restores the previous key when one was written), the safe choice
+   * when the stored selection is unknown.
    */
   private storedSelectionState(
     selection: DecisionModelSelection,
