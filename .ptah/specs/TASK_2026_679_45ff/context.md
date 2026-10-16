@@ -90,6 +90,9 @@ left accent for active or linked sessions).
 - 2026-10-16: TASK_2026_678 sent "Electron: free" (port 9334 closed). TASK_2026_681 asked to go next:
   before this task's Electron runs, check that 681 announced and released.
 - 2026-10-16: TASK_2026_674 sent "Electron: 674 launching, port 9351", then "Electron: free".
+- 2026-10-16 (end of session 2): the 674 session sent "Electron: 683 M0 launching" (Electron dev build in
+  `nav-session-motion`, then one Playwright Electron perf spec). No "free" received yet: the next session
+  must wait for its "Electron: free" before any Electron run.
 
 ## Implementation
 
@@ -99,3 +102,18 @@ left accent for active or linked sessions).
 
 - Team-leader Mode 1: batches.md, 13 batches in 4 phases (P1 B1-2 backend RPC; P2 B3-7 chat building blocks;
   P3 B8-11 entry points + sidebar removal + visual review; P4 B12-13 e2e). Implementers Claude; reviews codex.
+
+## Session 3 (2026-10-16, orchestrator continuation)
+
+- Gate 0.1: lanes `enabled` (D58). `ptah_agent_list` 20:08 UTC: codex confirmed room (weekly 45%,
+  reset 2026-10-22); opencode near limit (monthly 92%); grok, Glm, antigravity unknown; none AT LIMIT.
+- Team-leader MODE 2 on the Phase 2 reviews: fix round A1 = findings 1 + 3 (D59, D60); finding 2
+  accepted as DP-14 (D61); finding 4 -> FU-2, style items -> FU-3 (D62); merges D63, D64.
+- Wave A started 20:09 UTC: A1 fix round (Claude frontend-developer subagent, chat files) and
+  A2 Batch 8-9 (codex lane `dae2e3a0`, canvas files), file-disjoint, in parallel.
+- 2026-10-16 (session 3): the 674 session sent "Electron: free" (683 M0 run finished). It asked for the
+  next slot (TASK_2026_685 screenshots, port 9351): send "Electron: free" to it when this task closes.
+- Session 3 overlap check (step 5): `fix/clean-session-followups` (681) is merged to main (PR #737).
+  `git merge-tree HEAD main` conflicts in canvas-rail-board.component.ts and .spec.ts (main commit
+  `75ce4a6d1`: needs-you cue, sheet-scoped Tab trap, canvas-tile id). Plan: merge main into the
+  branch after the Phase 3 code reviews and before the visual review.

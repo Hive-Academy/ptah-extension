@@ -1,6 +1,7 @@
 # Batches - TASK_2026_679_45ff
 
-Total tasks: 26 | Batches: 13 | Complete: 7/13
+Total tasks: 31 (26 + fix A1.1-A1.2 + fix P3.1-P3.2 + merge M.1) | Batches: 14 (8+9 and 10+11 merged; Fix rounds A1 and P3, Main merge M added) | Complete: 11/14
+Status (2026-10-17): Fix round P3 COMPLETE (4c4e429b0) -> Main merge M IN_PROGRESS (`git merge main` started, Task M.1 resolver || codex re-review of P3) -> visual review -> Batches 12-13 (D72-D79)
 
 Worktree root (ROOT): `D:/projects/ptah-extension/.claude-worktrees/previous-sessions-modal`
 (branch `feat/previous-sessions-modal`, base `851846797`). Every path below is absolute under ROOT.
@@ -21,6 +22,13 @@ Plan line ranges refer to `implementation-plan.md` in this folder.
 - Batch size: at most 6 files and 2 projects. That is why the plan's advisory B0-B6 split into 13.
   Mapping: B0 -> 1, 2 | B1 -> 3, 4 (+ focus-wrap moved to 5) | B2 -> 5, 6 | B3 -> 7 | B5 -> 8, 9 |
   B4 -> 10, 11 | B6 -> 12, 13.
+- Update 2026-10-16 (D57, D58, D63, D64; supersedes the executor, sequential-only and batch-size
+  lines above from Batch 8 on): Batches 8+9 and 10+11 are merged (cap 10 files). Waves: A1 (Fix
+  round A1, Claude `frontend-developer`) || A2 (Batch 8-9, codex lane) -> A3 (codex re-review of A1)
+  -> B (Batch 10-11, Claude) -> Phase 3 review split by family + visual -> C (Batches 12 and 13
+  kept split, D64: written by a codex lane, runs by `senior-tester`). Executors run Jest only on
+  their changed specs; the team-leader runs the full gate once per batch, no `--skip-nx-cache`
+  unless a cached result is in doubt. No commit while any executor edits the worktree.
 - Task-folder documents (`.ptah/specs/TASK_2026_679_45ff/*`) are not staged with batch commits.
   The orchestrator commits them separately as `docs(task-specs): ...`.
 
@@ -234,6 +242,20 @@ Files (1):
 
 Phase review: code-logic + style (new public exports from `@ptah-extension/chat`: four services and
 `SESSION_NAME_MAX_LENGTH`), codex lane.
+
+Phase 2 reviews on `a83cf71cf..7c1ac3a32` (codex; implementer family Claude, reviewer family
+codex/OpenAI, no same-family exception):
+
+- `reviews/phase-2-code-style-review.md` — APPROVED 7/10 (1 Moderate -> FU-3, 1 Minor recorded in FU-3)
+- `reviews/phase-2-code-logic-review.md` — REVISE 6/10 (1 Serious, 3 Moderate)
+
+Fix round: Fix round A1 below (finding 1 Serious + finding 3 Moderate, D59-D60). Finding 2 is the
+accepted DP-14 (D61); finding 4 is FU-2 (D62). One codex re-review scoped to the A1 commit closes
+Phase 2.
+
+Phase 2 — COMPLETE. Re-review `reviews/phase-2-fix-rereview.md` (codex; implementer Claude) on
+`7be628b20..17de63f35`: APPROVED 8/10, findings 1 (Serious) and 3 (Moderate) fixed, no new
+defects (D68).
 
 ## Batch 3: Organizer and row-action services — COMPLETE (commit aad99feb6)
 
@@ -539,7 +561,7 @@ Accepted 2026-10-16 (team-leader):
   toolbar's `role="search"` is on the plain variant only (D31).
 - Minor, recorded and not fixed: the "worker failed to exit gracefully" warning (since Batch 3).
 
-## Batch 7: PreviousSessionsModalComponent — COMPLETE (commit 7c1ac3a32; Phase 2 review pending)
+## Batch 7: PreviousSessionsModalComponent — COMPLETE (commit 7c1ac3a32; Phase 2 reviews: style APPROVED, code-logic REVISE -> Fix round A1)
 
 - Recommended executor: Claude subagent `frontend-developer`
 - Execution mode: sequential
@@ -615,35 +637,145 @@ Accepted 2026-10-16 (team-leader):
   (shell `session-group-*` ids go with the sidebar).
 - Minor, recorded and not fixed: the "worker failed to exit gracefully" warning (since Batch 3).
 
----
+## Fix round A1: Phase 2 code-logic fixes — COMPLETE (commit 17de63f35; codex re-review APPROVED 8/10: reviews/phase-2-fix-rereview.md)
 
-## Phase 3: Entry points and sidebar removal (Batches 8-11)
-
-Phase review: code-logic (codex) + visual (visual-reviewer; Electron 1440/760/400 px, dark and light;
-checks listed at implementation-plan.md:1232-1240; D10 coordination; never ports 9333/9351).
-No style review: no new lib-level public API in this phase.
-
-## Batch 8: Rail footer "Previous sessions" button — PENDING
+Source: `reviews/phase-2-code-logic-review.md` (codex, REVISE 6/10). Fix-round decisions: D59-D62.
+Fixed here: finding 1 (Serious) and finding 3 (Moderate focus race, D59). Not fixed: finding 2
+(accepted DP-14, D61), finding 4 (FU-2, D62), style Moderate (FU-3, D62), style Minor (recorded in
+FU-3, D62).
 
 - Recommended executor: Claude subagent `frontend-developer`
 - Execution mode: sequential
-- Fallback order: fresh frontend-developer subagent -> CLI lane (implementation, non-reviewer family)
-- Subagent reason: user-pinned executor policy (D3)
-- Review family: different from implementer (codex)
-- Rationale: footer output plus the board wiring to the chat root service (DP-1); one coupled change
-- Tasks: 1 | Depends on: Batch 4 (exported `PreviousSessionsDialogService`)
-- Phase: 3 | Phase review: deferred to end of Batch 11
-- Plan components: 9 (footer part), D5
+- Fallback order: fresh frontend-developer subagent -> non-codex CLI lane (grok, then Glm; codex is
+  the re-reviewer)
+- Subagent reason: wave A1 is a Claude implementer so the codex re-review stays cross-family (D58);
+  the lane slot runs Batch 8-9 in parallel
+- Review family: codex (one code-logic re-review scoped to the A1 commit; resume codex session
+  `01a14637-9d0b-7c33-b3c5-1a8139a4b726`). Implementer Claude, reviewer codex/OpenAI.
+- Rationale: two independent fixes in Phase 2 chat files; file-disjoint from Batch 8-9 (D63), so
+  waves A1 and A2 run in parallel in the same worktree
+- Tasks: 2 | Depends on: Batch 7 (committed)
+- Phase: 2 (fix round) | Phase review: code-logic re-review of the A1 commit only (codex)
+- Projects: `@ptah-extension/chat`
+
+Files (6) — nothing else is edited (no barrel, no html, no other chat file):
+- MODIFY `ROOT/libs/frontend/chat/src/lib/services/session-list/session-row-actions.service.ts`
+- MODIFY `ROOT/libs/frontend/chat/src/lib/services/session-list/session-row-actions.service.spec.ts`
+- MODIFY `ROOT/libs/frontend/chat/src/lib/services/session-list/session-organizer.service.ts`
+- MODIFY `ROOT/libs/frontend/chat/src/lib/services/session-list/session-organizer.service.spec.ts`
+- MODIFY `ROOT/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.ts`
+- MODIFY `ROOT/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.spec.ts`
+
+### Task A1.1: A failed grid open keeps the modal open — COMPLETE
+
+- Files: `session-row-actions.service.ts` + spec, `previous-sessions-modal.component.ts` + spec
+- Finding 1: `session-row-actions.service.ts:47-50` discards the `Promise<boolean>` of
+  `AppStateManager.requestCanvasSession` (`libs/frontend/core/src/lib/services/app-state.service.ts:1235-1275`:
+  `false` for an invalid id or a request not consumed within 5 s); `previous-sessions-modal.component.ts:351-354`
+  closes at once.
+- Requirements (D60): `openSession` returns `Promise<SessionOpenResult>`,
+  `type SessionOpenResult = 'opened' | 'failed'` exported from the service file (not from a barrel,
+  D24). Grid: await `requestCanvasSession`; `true` -> `'opened'`, `false` -> `'failed'` with
+  `logger.warn`. Single: unchanged behaviour (start `chatStore.switchSession`, log a rejection as
+  today) and resolve `'opened'` without awaiting the history load. Modal `onOpened`: one open at a
+  time (further opens ignored while one is pending); close only on `'opened'`; on `'failed'` keep
+  the modal open, announce `Couldn't open "<display name>". Try again.` through the existing
+  `announce()` status line, and focus that row's open button after render when focus left the panel
+  (else leave focus alone); when the modal was destroyed or closed meanwhile, do nothing.
+- Specs: service — grid `true` -> `'opened'`, grid `false` -> `'failed'` + warn logged, single ->
+  `'opened'` and `switchSession` called. Modal — grid success closes; grid failure keeps the
+  dialog open, sets the status text and does not call `dialog.close()`; a second row click while the
+  first open is pending is ignored; a result arriving after the modal closed does nothing.
+
+### Task A1.2: A new organizer open cancels an old close's focus restore — COMPLETE
+
+- Files: `session-organizer.service.ts` + spec
+- Finding 3: `close()` schedules `restore` with `afterNextRender` (`:150-159`); `open()` (`:134-142`)
+  does not cancel it, so editor A's restore can run while editor B is open.
+- Requirements (D59): keep the `AfterRenderRef` returned in `close()`; `open()` destroys it and
+  clears the field (same pattern as `previous-sessions-dialog.service.ts:42-48,125-128`, D21). The
+  ref also clears itself when the callback runs. `openForSession` reaches the editor through
+  `open()`, so it is covered. Close-only behaviour, including the D30 callback order, is unchanged.
+- Specs: close A then open B before the render -> A's restore does not run; close only -> restore
+  runs once after the render (existing case stays green).
+
+### Fix round A1 verification
+
+- Exactly the six files changed (team-leader `git diff --name-only`)
+- Gate (team-leader, once, after A1 and Batch 8-9 both return):
+  `npx nx run-many -t typecheck,lint -p @ptah-extension/chat --parallel=1`, then
+  `npx nx run-many -t test -p @ptah-extension/chat --parallel=1 --maxWorkers=2`
+- Commit (before Batch 8-9's): `fix(chat): phase 2 fix round - grid open outcome, organizer focus`
+- Then NEEDS REVIEW: codex code-logic re-review scoped to the A1 commit
+- Result (team-leader, 2026-10-16): exactly the six files; combined gate with Batch 8-9
+  (`run-many -t typecheck,lint -p @ptah-extension/chat @ptah-extension/canvas`, then `-t test`,
+  header "Running target test for 2 projects") passed; committed `17de63f35`. Executor decisions
+  accepted as D65.
+
+### Phase 2 follow-ups (named later tasks, not in this run)
+
+- FU-2 "reversed date range indication" (Phase 2 logic finding 4, Moderate): when From is later
+  than To (`previous-sessions-toolbar.component.ts:135-168`, `session-list-view.store.ts:79-99`),
+  show an invalid-range message instead of "No matching sessions"
+  (`previous-sessions-modal.component.ts:224-229`, `.html:162-176`), or constrain the inputs' min/max.
+  Scope: `@ptah-extension/chat`; scoped Jest on the changed specs.
+- FU-3 "search focus hook and grouping comments" (Phase 2 style Moderate + Minor): add one behaviour
+  attribute `data-previous-sessions-search` on both search inputs
+  (`session-filter-bar.component.ts:131`, `previous-sessions-toolbar.component.ts:83`) and select it
+  in the modal (`previous-sessions-modal.component.ts:70-72,547-550`) instead of test IDs; reword
+  the "sidebar" comments in `organisms/previous-sessions/session-row-groups.ts:2-7,15,40-42`.
+  Scope: `@ptah-extension/chat`.
+
+---
+
+## Phase 3: Entry points and sidebar removal (Batches 8-9, 10-11)
+
+Batches 8+9 and 10+11 are merged (D57c, D63). Phase review: code-logic split by implementer family
+(D58): Batch 8-9 (codex-written) -> Claude `code-logic-reviewer` subagent; Batch 10-11
+(Claude-written) -> codex lane. Plus visual (visual-reviewer; Electron 1440/760/400 px, dark and
+light, against `prototype/` and D12; checks at implementation-plan.md:1232-1240; D10 coordination;
+never ports 9333/9334/9351 without a fresh "free"). No style review: no new lib-level public API.
+
+Phase 3 — FIX ROUND (all batches committed: `5202e97bc`, `0fe789fce`; range
+`17de63f35..0fe789fce`). Code-logic reviews in:
+
+- `reviews/phase-3-batch-8-9-code-logic-review.md` — Claude on codex-written Batch 8-9: APPROVED 7/10
+  (0 Blocking, 0 Serious, 4 Moderate, 5 Minor).
+- `reviews/phase-3-batch-10-11-code-logic-review.md` — codex on Claude-written Batch 10-11: REVISE 5/10
+  (0 Blocking, 2 Serious, 0 Moderate, 0 Minor).
+
+One fix round (D72): S1 and M4 in Fix round P3; S2 closed by Batch 12 (D77); M1, M2, M3 -> FU-4,
+FU-5, FU-6; Minor -> FU-7 (recorded). Then Main merge M, then the visual review on the merged head
+(D76). Phase 3 closes when the codex re-review of P3 accepts and the visual review passes.
+
+## Batch 8-9: Rail footer "Previous sessions" button, card Rename and Organize — COMPLETE (commit 5202e97bc)
+
+- Merged from Batches 8 and 9 (D63). Runs as wave A2 in parallel with Fix round A1.
+- Recommended executor: CLI lane, implementation capability, `role: frontend-developer` (codex
+  first per D58)
+- Execution mode: sequential (Task 8.1, then Task 9.1, in one lane)
+- Fallback order: other non-Claude family with room (grok, then Glm; never AT LIMIT) -> Claude
+  `frontend-developer` subagent (the reviewer then becomes codex)
+- Subagent reason: N/A
+- Review family: Claude `code-logic-reviewer` subagent (implementer codex/OpenAI, reviewer Claude)
+- Rationale: one project, seven files; consumes the Phase 2 chat services (`PreviousSessionsDialogService`,
+  `SessionOrganizerService`, `SessionRowActionsService.rename`) and edits none of them, so it is
+  file-disjoint from Fix round A1
+- Tasks: 2 | Depends on: Batches 3, 4 (committed)
+- Phase: 3 | Phase review: deferred to end of Batch 10-11
+- Plan components: 9, D5, D9, DP-6, Gate 2 option (a) card branch
 - Projects: `@ptah-extension/canvas`
 
-Files (5):
+Files (7):
 - MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail.component.ts`
 - MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail.component.spec.ts`
 - MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`
 - MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts`
 - MODIFY `ROOT/libs/frontend/canvas/src/lib/orchestra-canvas.component.ts` (comment only)
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.ts`
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.spec.ts`
 
-### Task 8.1: Footer button, output and board wiring — PENDING
+### Task 8.1: Footer button, output and board wiring — COMPLETE
 
 - Files: the five above
 - Plan reference: implementation-plan.md:736-760 (footer), 818-827 (seam), 838-845
@@ -656,31 +788,7 @@ Files (5):
   `PreviousSessionsDialogService` from `@ptah-extension/chat` and calls `open()`, and passes `isOpen()` to the
   footer's `aria-expanded` input.
 
-### Batch 8 verification
-
-- Every listed file exists
-- Gate: `npx nx run-many -t typecheck,lint -p @ptah-extension/canvas --parallel=1`, then
-  `npx nx run-many -t test -p @ptah-extension/canvas --parallel=1 --maxWorkers=2`
-- Commit: `feat(canvas): batch 8 - Rail footer Previous sessions button`
-
-## Batch 9: Rail card Rename and Organize — PENDING
-
-- Recommended executor: Claude subagent `frontend-developer`
-- Execution mode: sequential
-- Fallback order: fresh frontend-developer subagent -> CLI lane (implementation, non-reviewer family)
-- Subagent reason: user-pinned executor policy (D3)
-- Review family: different from implementer (codex)
-- Rationale: the D9 menu actions in one component and its spec; the hardest focus handoff in the task
-- Tasks: 1 | Depends on: Batches 3, 4
-- Phase: 3 | Phase review: deferred to end of Batch 11
-- Plan components: 9 (card part), D9, DP-6, Gate 2 option (a) card branch
-- Projects: `@ptah-extension/canvas`
-
-Files (2):
-- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.ts`
-- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.spec.ts`
-
-### Task 9.1: Rename popover and Organize menu items — PENDING
+### Task 9.1: Rename popover and Organize menu items — COMPLETE
 
 - Files: the two above
 - Plan reference: implementation-plan.md:760-837 (card), 828-837 (seam); design-spec 8
@@ -702,36 +810,55 @@ Files (2):
   `SessionRowActionsService.rename`, Escape cancels, focus returns to the trigger; Organize uses
   `organizer.open` for a loaded row and `openForSession` for a persisted card outside the loaded page;
   spec includes the excluded-from-page case.
+- Parallel-run note (D63): Fix round A1 edits `session-organizer.service.ts` and
+  `session-row-actions.service.ts` at the same time. It changes only `openSession` (no Rail caller)
+  and makes `open()` cancel a pending close restore; `rename`, `open`, `openForSession`, `close`,
+  `isOpen` signatures and the close-only D30 order stay as they are. Do not edit chat files.
 
-### Batch 9 verification
+### Batch 8-9 verification
 
-- Both files changed with real logic
-- Gate: `npx nx run-many -t typecheck,lint -p @ptah-extension/canvas --parallel=1`, then
-  `npx nx run-many -t test -p @ptah-extension/canvas --parallel=1 --maxWorkers=2`
-- Commit: `feat(canvas): batch 9 - Rail card Rename and Organize actions`
+- Exactly the seven files changed; real logic, no stubs
+- Gate (team-leader, once): `npx nx run-many -t typecheck,lint -p @ptah-extension/canvas --parallel=1`,
+  then `npx nx run-many -t test -p @ptah-extension/canvas --parallel=1 --maxWorkers=2`
+- Commit (after the A1 commit; no commit while any executor still edits the worktree, D58):
+  `feat(canvas): batch 8-9 - Rail Previous sessions and card actions`
+- Result (team-leader, 2026-10-16): exactly the seven files; no Delete in the card, chat imports
+  no canvas, no `any`/`as unknown as`/`console.*`/TODO; D16 (`claudeSessionId` passed as is),
+  D17/D18 (`cancelled`/`unavailable` silent, spec'd), D30 (microtask owner restore, spec
+  `canvas-rail-card.component.spec.ts:505`) verified; nothing removed beyond the footer height
+  class and one comment. The lane's 7 sibling diagnostics are pre-existing (D67). Combined gate
+  passed; committed `5202e97bc`. Executor decisions accepted as D66. Phase 3 code-logic review
+  (Claude `code-logic-reviewer`) deferred to the end of Batch 10-11.
 
-## Batch 10: Shell switch-over (sidebar out, modal in) — PENDING
+## Batch 10-11: Shell switch-over, dead files and session-only CSS — COMPLETE (commit 0fe789fce; codex code-logic REVISE 5/10 -> Fix round P3, S2 -> Batch 12)
 
+- Merged from Batches 10 and 11 (D63): ten files, task order 10.1 -> 10.2 -> 11.1.
 - Recommended executor: Claude subagent `frontend-developer`
 - Execution mode: sequential
-- Fallback order: fresh frontend-developer subagent -> CLI lane (implementation, non-reviewer family)
-- Subagent reason: user-pinned executor policy (D3)
-- Review family: different from implementer (codex)
-- Rationale: the Electron divider calls the shell's external-resize API, so both sides go in one commit
-- Tasks: 2 | Depends on: Batches 3-9
-- Phase: 3 | Phase review: deferred to end of Batch 11
-- Plan components: 10, 11
-- Projects: `@ptah-extension/chat`
+- Fallback order: fresh frontend-developer subagent -> non-codex CLI lane (grok, then Glm)
+- Subagent reason: highest-risk batch (shell switch-over; Electron divider and shell resize API go
+  in one change); HANDOFF wave B pins a Claude subagent so the codex review stays cross-family
+- Review family: codex (implementer Claude)
+- Rationale: the Electron divider calls the shell's external-resize API, so both sides go together;
+  the dead files and CSS have no importers only after 10.2
+- Tasks: 3 | Depends on: Fix round A1 and Batch 8-9 (both committed)
+- Phase: 3 (last batch) | Phase review: code-logic (split per D58) + visual on the Phase 3 diff
+- Plan components: 10, 11, 12
+- Projects: `@ptah-extension/chat`, `ptah-extension-webview` (CSS only)
 
-Files (6):
+Files (10):
 - MODIFY `ROOT/libs/frontend/chat/src/lib/components/templates/app-shell.component.ts`
 - MODIFY `ROOT/libs/frontend/chat/src/lib/components/templates/app-shell.component.html`
 - CREATE `ROOT/libs/frontend/chat/src/lib/components/templates/app-shell.previous-sessions.spec.ts`
 - DELETE `ROOT/libs/frontend/chat/src/lib/components/templates/app-shell.organization.spec.ts`
 - MODIFY `ROOT/libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts`
 - MODIFY `ROOT/libs/frontend/chat/src/lib/components/templates/electron-shell.activity-placement.spec.ts`
+- DELETE `ROOT/libs/frontend/chat/src/lib/components/templates/session-row-groups.ts`
+- DELETE `ROOT/libs/frontend/chat/src/lib/components/templates/session-sidebar-width.ts`
+- DELETE `ROOT/libs/frontend/chat/src/lib/components/templates/session-sidebar-width.spec.ts`
+- MODIFY `ROOT/apps/ptah-extension-webview/src/styles.css`
 
-### Task 10.1: Electron divider removal — PENDING
+### Task 10.1: Electron divider removal — COMPLETE
 
 - Files: `electron-shell.component.ts`, `electron-shell.activity-placement.spec.ts`
 - Plan reference: implementation-plan.md:919-942
@@ -741,7 +868,7 @@ Files (6):
 - Validation notes: removes the only external caller of the shell's resize API
 - Implementation details: deletion only; no shim.
 
-### Task 10.2: AppShellComponent sidebar removal, modal host, navbar entry — PENDING
+### Task 10.2: AppShellComponent sidebar removal, modal host, navbar entry — COMPLETE
 
 - Depends on: Task 10.1
 - Files: `app-shell.component.ts`, `.html`, `app-shell.previous-sessions.spec.ts` (new), delete
@@ -769,35 +896,7 @@ Files (6):
   - The carried shell tests now live in `previous-sessions-modal.component.spec.ts` (D55);
     deleting `app-shell.organization.spec.ts` drops no coverage beyond 322/345 (Batch 3 spec).
 
-### Batch 10 verification
-
-- Every listed file exists / is deleted; `T/session-row-groups.ts` and `T/session-sidebar-width*` are
-  untouched (deleted in Batch 11)
-- Gate: `npx nx run-many -t typecheck,lint -p @ptah-extension/chat --parallel=1`, then
-  `npx nx run-many -t test -p @ptah-extension/chat --parallel=1 --maxWorkers=2`
-- Canvas consumes chat through the alias: also `npx nx run-many -t typecheck -p @ptah-extension/canvas --parallel=1`
-- Commit: `feat(chat): batch 10 - replace session sidebar with modal entry`
-
-## Batch 11: Dead files and session-only CSS — PENDING
-
-- Recommended executor: Claude subagent `frontend-developer`
-- Execution mode: sequential
-- Fallback order: fresh frontend-developer subagent -> CLI lane (implementation, non-reviewer family)
-- Subagent reason: user-pinned executor policy (D3)
-- Review family: different from implementer (codex)
-- Rationale: these files have no importers only after Batch 10
-- Tasks: 1 | Depends on: Batch 10
-- Phase: 3 (last batch) | Phase review: code-logic (codex) + visual (visual-reviewer) on the Phase 3 diff
-- Plan components: 12, and the deletions of 10/11
-- Projects: `@ptah-extension/chat`, `ptah-extension-webview` (CSS only)
-
-Files (4):
-- DELETE `ROOT/libs/frontend/chat/src/lib/components/templates/session-row-groups.ts`
-- DELETE `ROOT/libs/frontend/chat/src/lib/components/templates/session-sidebar-width.ts`
-- DELETE `ROOT/libs/frontend/chat/src/lib/components/templates/session-sidebar-width.spec.ts`
-- MODIFY `ROOT/apps/ptah-extension-webview/src/styles.css`
-
-### Task 11.1: Delete dead files and session-only CSS; run the removed-symbol gate — PENDING
+### Task 11.1: Delete dead files and session-only CSS; run the removed-symbol gate — COMPLETE
 
 - Files: the four above
 - Plan reference: implementation-plan.md:943-962, 1186-1197; DP-3, DP-11
@@ -812,20 +911,164 @@ Files (4):
   - all must return nothing (matches outside `apps/`/`libs/` are informational). Also confirm no `console.`
   in new/changed lib code and no `@ptah-extension/canvas` import in chat.
 
-### Batch 11 verification
+### Batch 10-11 verification
 
-- Files deleted; grep gate output reported
-- Gate: `npx nx run-many -t typecheck,lint -p @ptah-extension/chat --parallel=1`, then
-  `npx nx run-many -t test -p @ptah-extension/chat --parallel=1 --maxWorkers=2`
+- Every listed file exists / is deleted; grep gate output (Task 11.1) reported
+- Gate (team-leader, once): `npx nx run-many -t typecheck,lint -p @ptah-extension/chat --parallel=1`,
+  then `npx nx run-many -t test -p @ptah-extension/chat --parallel=1 --maxWorkers=2`
+- Canvas consumes chat through the alias: also `npx nx run-many -t typecheck -p @ptah-extension/canvas --parallel=1`
 - `ptah-extension-webview`: CSS only, not built or tested here (covered by the visual review)
-- Commit: `refactor(chat,webview): batch 11 - delete sidebar width and CSS`
-- Then return NEEDS REVIEW for Phase 3 (code-logic codex + visual review under D10)
+- Commit: `feat(chat,webview): batch 10-11 - replace session sidebar with modal`
+- Then return NEEDS REVIEW for Phase 3 (code-logic split per D58 + visual review under D10)
+- Result (team-leader, 2026-10-16): 11 files (the 10 listed plus `app-shell.retained-chrome.spec.ts`,
+  whose `#shellRow` anchor the plan removes; re-anchored on `*ptahRetainWhile` with a single-row
+  guard, assertions unchanged, D69). Deletes complete: no `libs/` reference to the removed symbols
+  or files (only provenance comments in moved specs); the two remaining gate hits are e2e files
+  owned by Batch 12 (`perf-session-fixture.ts:437`) and Batch 13 (`editor-git.shot.ts:39`). No
+  `any`/`as unknown as`/new `console.*`/TODO on added lines; chat imports no canvas; both
+  `.sidebar-item-active` rules kept (R8). Parity: A-1 moved (navbar + Rail), A-2..A-8, A-11
+  scroll, A-12 approved removals (D6), A-9/A-10 and B-E rows moved (Batches 6-7), F-1 kept and
+  spec'd. lint-staged formats only `*.{ts,js,json,md}`, so `styles.css` and the template were not
+  reformatted (its older prettier drift at :146, :312-343 is untouched). Gate:
+  `run-many -t typecheck,lint -p @ptah-extension/chat @ptah-extension/canvas` passed (4/4), then
+  `run-many -t test -p @ptah-extension/chat` passed ("Running target test for project
+  @ptah-extension/chat", N=1). `ptah-extension-webview`: CSS only, not built (visual review).
+  Committed `0fe789fce`. Executor decisions accepted as D69-D70.
+
+## Fix round P3: Phase 3 code-logic fixes — COMPLETE (commit 4c4e429b0; codex re-review PENDING: reviews/phase-3-fix-rereview.md)
+
+Source: both Phase 3 code-logic reviews. Decisions D72-D76. Fixed here: Batch 10-11 S1 (Serious)
+and Batch 8-9 M4 (Moderate, data loss, D74). Not here: S2 (Batch 12, D77), M1/M2/M3 (FU-4..FU-6),
+Minor m1-m5 (FU-7).
+
+- Recommended executor: Claude subagent `frontend-developer`
+- Execution mode: sequential (Task P3.1, then Task P3.2, one executor)
+- Fallback order: fresh frontend-developer subagent -> non-codex CLI lane with implementation
+  capability (codex is the re-reviewer)
+- Subagent reason: S1 is in Claude-written shell code; one executor for both tasks keeps "one heavy
+  check at a time" and needs one re-review (D76)
+- Review family: codex lane, one code-logic re-review scoped to the P3 commit (fix author Claude,
+  reviewer codex/OpenAI; for the card part the original author was codex, but the re-review family
+  differs from the fix author, which is the rule)
+- Rationale: two small, independent fixes in two projects; 5 files (6 with the optional component)
+- Tasks: 2 | Depends on: Batch 10-11 (committed)
+- Phase: 3 (fix round) | Phase review: code-logic re-review of the P3 commit only (codex)
+- Projects: `@ptah-extension/chat`, `@ptah-extension/canvas`
+
+Files (5, plus at most 1 optional CREATE) — nothing else is edited:
+- MODIFY `ROOT/libs/frontend/chat/src/lib/components/templates/app-shell.component.html`
+- MODIFY `ROOT/libs/frontend/chat/src/lib/components/templates/app-shell.component.ts` (only if the
+  focus-on-render / Escape logic lives in the shell)
+- MODIFY `ROOT/libs/frontend/chat/src/lib/components/templates/app-shell.previous-sessions.spec.ts`
+- CREATE (optional, instead of growing the shell) `ROOT/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-load-state.component.ts`
+  (internal, not exported from `src/index.ts`; its cases stay in the shell spec)
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.ts`
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.spec.ts`
+
+### Task P3.1: Reachable close while the deferred modal loads or fails — COMPLETE
+
+- Files: the chat files above
+- Finding S1: `app-shell.component.html:19-23` has no `@loading`/`@error`; `:101-105` makes the row
+  inert as soon as `previousSessions.isOpen()`; the modal's close and Escape exist only in the
+  deferred chunk, so a failed or slow chunk leaves the chat surface inert with no reachable control.
+- Requirements (D73): `@loading (after 150ms)` and `@error` on that `@defer`, each wrapped in
+  `@if (previousSessions.isOpen())`; a modal surface (role dialog, aria-modal, name "Previous
+  sessions", z 990, same panel tokens as the modal) outside the inert row; the Close button takes
+  focus on render and calls `previousSessions.close()` (focus returns to the opener after render);
+  Escape closes with `stopPropagation()`. Loading copy "Loading previous sessions..."; error copy
+  "Previous sessions could not load. Close this and reload the window to try again." No Retry
+  (Angular caches a failed defer load per template). DP-2 per-open `@if` and DP-8 `inert` unchanged.
+- Specs (shell spec, `DeferBlockBehavior.Manual` describe): Loading and Error states each render the
+  surface outside the inert row with focus on Close; Close -> `isOpen()` false, row not inert, focus
+  back on the navbar trigger (`autoDetectChanges`, D54); Escape closes and stops propagation; nothing
+  renders for Loading/Error while closed. Existing shell specs stay green.
+
+### Task P3.2: Rename in-flight guard on the Rail card — COMPLETE
+
+- Depends on: Task P3.1 (same executor, sequential)
+- Files: the canvas files above
+- Finding M4: `canvas-rail-card.component.ts:296` (`keydown.enter`) and `:299` (Save) both call
+  `saveRename` (`:435-441`) with no guard; Enter repeat or Enter-edit-Save sends overlapping renames.
+- Requirements (D74): `renaming` signal; `saveRename` returns at once while set; input `readOnly`
+  and Save `disabled` while set; after the await, `cancelRename()` (close + focus) only if
+  `renameOpen()` is still true; clear the flag in `finally`. `'failed'` keeps today's close (D75).
+- Specs: two Enters before resolve -> one `rename` call; Enter then Save -> one call; input readOnly
+  and Save disabled while pending; resolve closes and focuses the trigger; Cancel while pending ->
+  no focus move on resolve; a later rename after resolve works.
+
+### Fix round P3 verification
+
+Result (team-leader, 2026-10-17): exactly the 5 listed files plus the optional internal
+`previous-sessions-load-state.component.ts` (no barrel change). No `any`, `as unknown as`,
+`console.*`, TODO or `class=""` + `[class]` on one element. S1: `@loading (after 150ms)`/`@error`
+each under `@if (previousSessions.isOpen())`, stand-in outside the inert row, Close focused on
+render, Escape stops propagation, no Retry. M4: `renaming` guard, readOnly/disabled, close only if
+still the same open (`renameOpenCount`, accepted as D78), `finally` clears. Gate: typecheck,lint
+4/4 passed; test "Running target test for 2 projects", passed. Executor specs: chat shell 24/24,
+canvas card 36/36. Committed `4c4e429b0`. Executor decisions accepted as D78-D79.
+
+- Only the listed files changed (team-leader `git status --short`, `git diff --name-only`)
+- Gate (team-leader, once): `npx nx run-many -t typecheck,lint -p @ptah-extension/chat @ptah-extension/canvas --parallel=1`,
+  then `npx nx run-many -t test -p @ptah-extension/chat @ptah-extension/canvas --parallel=1 --maxWorkers=2`
+  (header "Running target test for 2 projects")
+- Commit: `fix(chat,canvas): phase 3 fix round - modal load state, rename guard`
+- Then Main merge M (below), and NEEDS REVIEW: codex code-logic re-review scoped to the P3 commit,
+  run in parallel with the merge resolver (reviewer reads `git show <P3>`; no tests, no builds)
+
+## Main merge M: merge `main` (TASK_2026_681) into the branch — IN_PROGRESS
+
+- Why: `main` (`6c0490f1f`) carries TASK_2026_681; `git merge-tree --write-tree HEAD main` reports
+  content conflicts in exactly `canvas-rail-board.component.ts` and `.spec.ts` (main `75ce4a6d1`:
+  needs-you cue via `SessionInspectorStore`, sheet-scoped Tab trap, `data-testid="canvas-tile"`).
+  Main changes only `canvas`, `chat`, `chat-ui` (chat-ui untouched on this branch). Must land
+  before the visual review and the PR (D76). `git merge` (no history rewrite; branch local-only).
+- Step 1 (team-leader, after the P3 commit, worktree clean apart from task docs): `git merge main`.
+  If any file other than the two above conflicts, abort (`git merge --abort`) and report.
+- Step 2 (Claude `frontend-developer`, Brief merge-resolver): resolve exactly the two files, keeping
+  both sides' behaviour; no other edit; no git.
+- Step 3 (team-leader): no conflict markers (`git diff --check`, grep `<<<<<<<`), gate
+  `npx nx run-many -t typecheck,lint -p @ptah-extension/chat @ptah-extension/canvas --parallel=1`,
+  then `-t test` for the same two (`--maxWorkers=2`, header N=2); `git commit --no-edit`
+  (commitlint ignores `Merge ` subjects). The merge commit holds only the resolution.
+- Executor family: Claude; no separate code review (both sides were reviewed; the resolution is a
+  union checked by the gate and by the visual review on the merged head).
+
+### Task M.1: Resolve `canvas-rail-board` conflicts — IN_PROGRESS
+
+- Files: `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`,
+  `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts`
+- Keep from the branch: `PreviousSessionsDialogService` injection, `previousSessionsRequested`
+  handling and the footer `aria-expanded` binding (Batch 8-9). Keep from main: `SessionInspectorStore`
+  import/injection and the needs-you count in `closedDetailsDescription`, the `isTabbable`
+  inspector-dialog clause, `onSheetKeydown` using `event.currentTarget`, `data-testid="canvas-tile"`,
+  and main's new specs and providers. Both sides' specs pass.
+
+### Phase 3 follow-ups (named later tasks, not in this run)
+
+- FU-4 "Rail Organize focus-order spec" (Batch 8-9 M1): replace the mocked organizer in
+  `canvas-rail-card.component.spec.ts:505-523` with the real `SessionOrganizerService` and editor (or
+  an editor stub that restores focus in its own `afterNextRender`), assert the trigger holds focus
+  after the close render, and add the disconnected-trigger fallback case to `.rc-select`
+  (`canvas-rail-card.component.ts:455-460`). Scope: `@ptah-extension/canvas`.
+- FU-5 "Rail card announcement repeat" (M2): clear `announcement` before each Organize and stale
+  action so a repeated failure is re-announced (`canvas-rail-card.component.ts:338,364,453`).
+- FU-6 "Rename failure feedback on both surfaces" (M3): a design update to 8.7, then keep the draft
+  and announce on `'failed'` in the Rail card (`canvas-rail-card.component.ts:435-441`) and the modal
+  row (`previous-sessions-modal.component.ts:381-395`) together.
+- FU-7 "Rail card minors" (recorded, m1-m5): Organize item lacks `aria-haspopup="dialog"` (card.ts
+  :255-266); `keydown.enter` saves during IME composition (card.ts:296); no Tab trap in the Rename
+  panel, shared with the New session popover (`NativePopover` follow-up); board spec never drives
+  `isOpen` true (board.spec.ts:367,435); expanded footer fixed at 120 px could overflow a 3-line
+  reason (canvas-rail.component.ts:231).
 
 ---
 
 ## Phase 4: E2E alignment and approved runs (Batches 12-13)
 
 Phase review: none (test code only). Evidence is the D7/D14 runs recorded in `test-report.md` by senior-tester.
+Batches 12 and 13 stay split (D64): 12 files would exceed the 10-file merge cap, and Tasks 13.1-13.2 use
+the Task 12.1 helpers. Wave C may give both to one codex lane back to back (Batch 12 files first);
+the runs stay one at a time under D10, each batch committed on its own.
 Precondition for every Electron launch (D10, orchestrator-owned): TASK_2026_681 has sent "Electron: free";
 the orchestrator sends "Electron: TASK_2026_679 launching, port <n>" before and "Electron: free" after.
 Never ports 9333 or 9351. Runs one at a time; each spec run once. The Electron e2e target depends on
@@ -861,6 +1104,10 @@ Files (6):
   `[data-previous-sessions-trigger]`, dialog name "Previous sessions")
 - Validation notes: no test deleted (Req 9.2-9.3)
 - Implementation details: as the plan lists.
+- S2 closure (Phase 3 codex review, D72/D77): `sessionRowButton` (`perf-session-fixture.ts:433-437`)
+  no longer uses `.sidebar-scroll`; `prepareCanvasWithSessions` (`:444-458`) and the handle lookup
+  (`:481-484`) wait for rows in the modal list, not the sidebar; that setup stays outside any
+  measured window (the measured click that opens the modal stays as DP-13 discloses).
 
 ### Task 12.2: Update the four specs and run them — PENDING
 
@@ -870,6 +1117,9 @@ Files (6):
 - Pattern to follow: existing spec structure
 - Quality requirements: the perf spec header discloses that the measured window includes opening the modal
 - Validation notes: R13, R14
+- S2 callers to migrate (all of them, D77): `tile-open-longtask-budget.perf.spec.ts:288,451,519,526,605,607`;
+  `tile-load-older-history.spec.ts:41,70,375,391,420`; `change-set-card.spec.ts:136,192,237,270`;
+  `visual-review.spec.ts:1068,1072`.
 - Implementation details: after `npx nx run-many -t typecheck,lint -p ptah-electron-e2e --parallel=1` passes,
   run once each, one at a time (D7):
   `npx nx e2e ptah-electron-e2e -- src/specs/chat/tile-load-older-history.spec.ts`,
@@ -881,6 +1131,8 @@ Files (6):
 
 - `npx nx run-many -t typecheck,lint -p ptah-electron-e2e --parallel=1`
 - Four D7 runs reported (pass, or skip for the perf spec), output tailed
+- S2 closed: `sidebar-scroll` has zero matches in `apps/` and `libs/` (team-leader grep), and every
+  caller listed in Task 12.2 is migrated
 - Commit: `test(e2e): batch 12 - open sessions through Previous sessions modal`
 
 ## Batch 13: Canvas spec, docs shots and harness scenarios — PENDING
@@ -942,6 +1194,8 @@ Files (6):
 - `npx nx run-many -t typecheck,lint -p ptah-electron-e2e @ptah-extension/webview-e2e-harness --parallel=1`
 - D14 run, two docs-shot runs, three harness runs reported in `test-report.md`; A3 confirmed
 - Regenerated PNGs reverted before staging (DP-12)
+- The full Task 11.1 grep gate list returns zero matches in `apps/` and `libs/` (closes
+  `editor-git.shot.ts:39` "Toggle Sessions panel", D77)
 - Commit: `test(e2e,webview-e2e-harness): batch 13 - modal canvas, docs, harness`
 
 ---
