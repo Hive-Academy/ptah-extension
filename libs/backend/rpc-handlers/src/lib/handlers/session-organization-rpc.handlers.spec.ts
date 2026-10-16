@@ -9,7 +9,8 @@
  *  - with a fake service (the Electron/CLI shape): exactly one `onDidChange`
  *    subscription, validation before every service call, not-found,
  *    authorization, sanitized errors, the real `missing` flag, the
- *    `session:organizationChanged` push and `session:listForTasks` grouping.
+ *    `session:organizationChanged` push, `session:listForTasks` grouping and
+ *    the `session:getOrganization` read (TASK_2026_679).
  */
 import 'reflect-metadata';
 import { container } from 'tsyringe';
@@ -63,6 +64,7 @@ type FakeOrganization = jest.Mocked<
     | 'removeSessionPrLink'
     | 'listTaskLinks'
     | 'queryWorkspace'
+    | 'countChildren'
   >
 >;
 
@@ -119,6 +121,7 @@ function createFakes(): Fakes {
     removeSessionPrLink: jest.fn().mockResolvedValue(okResult()),
     listTaskLinks: jest.fn().mockReturnValue([]),
     queryWorkspace: jest.fn().mockReturnValue(new Map()),
+    countChildren: jest.fn().mockReturnValue(new Map()),
   } as unknown as FakeOrganization;
   return {
     logger: createMockLogger(),
@@ -242,7 +245,7 @@ function serviceMutations(fakes: Fakes): jest.Mock[] {
 }
 
 describe('SessionOrganizationRpcHandlers', () => {
-  it('owns exactly the six organization methods', () => {
+  it('owns exactly the seven organization methods', () => {
     expect([...SessionOrganizationRpcHandlers.METHODS]).toEqual([
       'session:setOrganization',
       'session:linkTask',
@@ -250,6 +253,7 @@ describe('SessionOrganizationRpcHandlers', () => {
       'session:addPrLink',
       'session:removePrLink',
       'session:listForTasks',
+      'session:getOrganization',
     ]);
   });
 
@@ -289,6 +293,19 @@ describe('SessionOrganizationRpcHandlers', () => {
       await expect(
         call(fakes, 'session:listForTasks', { workspacePath: WORKSPACE }),
       ).resolves.toEqual({ available: false });
+    });
+
+    it('session:getOrganization answers organization-unavailable', async () => {
+      const fakes = createFakes();
+      build(fakes, { withService: false });
+      await expect(
+        call(fakes, 'session:getOrganization', { sessionId: SESSION_A }),
+      ).resolves.toEqual({
+        ok: false,
+        reason: 'organization-unavailable',
+        message: expect.any(String),
+      });
+      expect(fakes.metadataStore.get).not.toHaveBeenCalled();
     });
 
     it('works without the task index and webview manager registered too', () => {
@@ -361,6 +378,7 @@ describe('SessionOrganizationRpcHandlers', () => {
       it.each([
         ...VALID_MUTATIONS.map(([method]) => [method] as const),
         ['session:listForTasks'] as const,
+        ['session:getOrganization'] as const,
       ])('%s rejects null params with INVALID_PARAMS', async (method) => {
         const fakes = createFakes();
         build(fakes);
@@ -851,6 +869,283 @@ describe('SessionOrganizationRpcHandlers', () => {
         expect(response.success).toBe(false);
         expect(response.error).toBe('session:listForTasks failed');
         expect(fakes.logger.error).toHaveBeenCalled();
+      });
+    });
+
+    describe('session:getOrganization', () => {
+      const storedRow = (
+        sessionId: string,
+        overrides: Partial<StoredOrganization> = {},
+      ): StoredOrganization => ({
+        sessionId,
+        priority: 'normal',
+        status: 'active',
+        pinned: false,
+        worktreePath: null,
+        branch: null,
+        parentSessionId: null,
+        forkOfSessionId: null,
+        startedBy: 'user',
+        updatedAt: 1_700_000_000_000,
+        tasks: [],
+        prLinks: [],
+        ...overrides,
+      });
+
+      it('answers the defaults for a session with no stored row', async () => {
+        const fakes = createFakes();
+        build(fakes);
+        const result = await call<SessionOrganizationMutationResult>(
+          fakes,
+          'session:getOrganization',
+          { sessionId: SESSION_A },
+        );
+        expect(result).toEqual({
+          ok: true,
+          organization: {
+            priority: 'normal',
+            status: 'active',
+            pinned: false,
+            worktreePath: null,
+            branch: null,
+            parentSessionId: null,
+            forkOfSessionId: null,
+            startedBy: 'user',
+            tasks: [],
+            prLinks: [],
+            childCount: 0,
+            updatedAt: null,
+          },
+        });
+        expect(fakes.organization.queryWorkspace).toHaveBeenCalledWith(
+          WORKSPACE,
+        );
+        expect(fakes.organization.countChildren).toHaveBeenCalledWith(
+          WORKSPACE,
+        );
+        expect(fakes.taskIndex.list).not.toHaveBeenCalled();
+      });
+
+      it("answers the session's stored values and its childCount", async () => {
+        const fakes = createFakes();
+        fakes.organization.queryWorkspace.mockReturnValue(
+          new Map([
+            [
+              SESSION_A,
+              storedRow(SESSION_A, {
+                priority: 'high',
+                status: 'in_review',
+                pinned: true,
+                branch: 'feat/x',
+                worktreePath: '/fake/workspace/.wt/x',
+                prLinks: [
+                  {
+                    url: PR_URL,
+                    number: 7,
+                    repo: 'acme/repo',
+                    state: 'open',
+                    source: 'user',
+                    createdAt: 5,
+                  },
+                ],
+                updatedAt: 42,
+              }),
+            ],
+            [SESSION_B, storedRow(SESSION_B, { priority: 'low' })],
+          ]),
+        );
+        fakes.organization.countChildren.mockReturnValue(
+          new Map([
+            [SESSION_A, 3],
+            [SESSION_B, 1],
+          ]),
+        );
+        build(fakes);
+        const result = await call<SessionOrganizationMutationResult>(
+          fakes,
+          'session:getOrganization',
+          { sessionId: SESSION_A },
+        );
+        expect(result).toEqual({
+          ok: true,
+          organization: {
+            priority: 'high',
+            status: 'in_review',
+            pinned: true,
+            worktreePath: '/fake/workspace/.wt/x',
+            branch: 'feat/x',
+            parentSessionId: null,
+            forkOfSessionId: null,
+            startedBy: 'user',
+            tasks: [],
+            prLinks: [
+              {
+                url: PR_URL,
+                number: 7,
+                repo: 'acme/repo',
+                state: 'open',
+                source: 'user',
+                createdAt: 5,
+              },
+            ],
+            childCount: 3,
+            updatedAt: 42,
+          },
+        });
+      });
+
+      it('marks linked tasks absent from the task index (one read)', async () => {
+        const fakes = createFakes();
+        fakes.organization.queryWorkspace.mockReturnValue(
+          new Map([
+            [
+              SESSION_A,
+              storedRow(SESSION_A, {
+                tasks: [
+                  {
+                    taskId: TASK_1,
+                    role: 'primary',
+                    source: 'user',
+                    createdAt: 1,
+                  },
+                  {
+                    taskId: TASK_2,
+                    role: 'related',
+                    source: 'agent',
+                    createdAt: 2,
+                  },
+                ],
+              }),
+            ],
+          ]),
+        );
+        fakes.taskIndex.list.mockResolvedValue({
+          tasks: [{ id: TASK_1 }],
+          excluded: [],
+        });
+        build(fakes);
+        const result = await call<SessionOrganizationMutationResult>(
+          fakes,
+          'session:getOrganization',
+          { sessionId: SESSION_A },
+        );
+        expect(fakes.taskIndex.list).toHaveBeenCalledTimes(1);
+        expect(fakes.taskIndex.list).toHaveBeenCalledWith(WORKSPACE);
+        expect(result.ok && result.organization.tasks).toEqual([
+          expect.objectContaining({ taskId: TASK_1, missing: false }),
+          expect.objectContaining({ taskId: TASK_2, missing: true }),
+        ]);
+      });
+
+      it('answers session-not-found for a session without metadata (not persisted yet)', async () => {
+        const fakes = createFakes();
+        build(fakes);
+        const result = await call<SessionOrganizationMutationResult>(
+          fakes,
+          'session:getOrganization',
+          { sessionId: SESSION_ORPHAN },
+        );
+        expect(result).toEqual({
+          ok: false,
+          reason: 'session-not-found',
+          message: expect.any(String),
+        });
+        expect(fakes.organization.queryWorkspace).not.toHaveBeenCalled();
+        expect(fakes.organization.countChildren).not.toHaveBeenCalled();
+      });
+
+      it('rejects a session whose workspace is not open', async () => {
+        const fakes = createFakes();
+        fakes.metadataStore.get.mockResolvedValue({
+          sessionId: SESSION_A,
+          name: 'x',
+          workspaceId: OTHER_WORKSPACE,
+        });
+        build(fakes);
+        const response = await callRaw(fakes, 'session:getOrganization', {
+          sessionId: SESSION_A,
+        });
+        expect(response.success).toBe(false);
+        expect(response.errorCode).toBe('UNAUTHORIZED_WORKSPACE');
+        expect(fakes.organization.queryWorkspace).not.toHaveBeenCalled();
+      });
+
+      it.each<[string, unknown]>([
+        ['a non-UUID session id', { sessionId: 'tab_123' }],
+        ['a missing session id', {}],
+        ['a non-string session id', { sessionId: 42 }],
+      ])('rejects %s with INVALID_PARAMS', async (_label, params) => {
+        const fakes = createFakes();
+        build(fakes);
+        const response = await callRaw(
+          fakes,
+          'session:getOrganization',
+          params,
+        );
+        expect(response.success).toBe(false);
+        expect(response.errorCode).toBe('INVALID_PARAMS');
+        expect(fakes.metadataStore.get).not.toHaveBeenCalled();
+        expect(fakes.organization.queryWorkspace).not.toHaveBeenCalled();
+      });
+
+      it('answers organization-unavailable while the store is closed', async () => {
+        const fakes = createFakes();
+        fakes.organization.isAvailable.mockReturnValue(false);
+        build(fakes);
+        await expect(
+          call(fakes, 'session:getOrganization', { sessionId: SESSION_A }),
+        ).resolves.toEqual({
+          ok: false,
+          reason: 'organization-unavailable',
+          message: expect.any(String),
+        });
+        expect(fakes.metadataStore.get).not.toHaveBeenCalled();
+        expect(fakes.organization.queryWorkspace).not.toHaveBeenCalled();
+      });
+
+      it('answers organization-unavailable, not defaults, when the store closes during the read', async () => {
+        const fakes = createFakes();
+        fakes.organization.isAvailable
+          .mockReturnValueOnce(true)
+          .mockReturnValue(false);
+        build(fakes);
+        await expect(
+          call(fakes, 'session:getOrganization', { sessionId: SESSION_A }),
+        ).resolves.toEqual({
+          ok: false,
+          reason: 'organization-unavailable',
+          message: expect.any(String),
+        });
+      });
+
+      it('changes nothing and pushes nothing', async () => {
+        const fakes = createFakes();
+        build(fakes);
+        await call(fakes, 'session:getOrganization', { sessionId: SESSION_A });
+        for (const mutation of serviceMutations(fakes)) {
+          expect(mutation).not.toHaveBeenCalled();
+        }
+        expect(fakes.webviewManager.broadcastMessage).not.toHaveBeenCalled();
+      });
+
+      it('sanitizes a read failure and logs the raw one', async () => {
+        const fakes = createFakes();
+        const raw = new Error('SQLITE_IOERR: /secret/path');
+        fakes.organization.queryWorkspace.mockImplementation(() => {
+          throw raw;
+        });
+        build(fakes);
+        const response = await callRaw(fakes, 'session:getOrganization', {
+          sessionId: SESSION_A,
+        });
+        expect(response.success).toBe(false);
+        expect(response.errorCode).toBeUndefined();
+        expect(response.error).toBe('session:getOrganization failed');
+        expect(response.error).not.toContain('SQLITE');
+        expect(fakes.logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('session:getOrganization failed'),
+          raw,
+        );
       });
     });
   });
