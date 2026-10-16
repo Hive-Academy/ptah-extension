@@ -3,6 +3,8 @@
  * Covers the kind switch, the five states with their detail text, the locality and no-confidence sentences, the
  * `agent:setConfig` payload per kind, the write-only Jev key (never echoed, explicit delete), a status read that
  * fails ("not reachable", saving still open) and the save error path through SettingsSaveFeedbackService.
+ * Batch 40b (P4 fix round): an unread selection offers no Undo, logs carry only an error type, the structured list is
+ * unfiltered with matching help text, Remove stored key follows the known key state, and the footer claims no false Undo.
  */
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -39,6 +41,7 @@ describe('DecisionModelRowComponent', () => {
   let fixture: ComponentFixture<DecisionModelRowComponent>;
   let call: jest.Mock;
   let listModels: jest.Mock;
+  let warn: jest.Mock;
   let feedback: SettingsSaveFeedbackService;
   let current: DecisionModelStatusDto;
   let setConfigResult: { success: boolean; error?: string };
@@ -119,12 +122,13 @@ describe('DecisionModelRowComponent', () => {
             ],
       totalCount: 2,
     }));
+    warn = jest.fn();
     TestBed.configureTestingModule({
       imports: [DecisionModelRowComponent],
       providers: [
         { provide: ClaudeRpcService, useValue: { call } },
         { provide: PROVIDER_MODELS_LOADER, useValue: { listModels } },
-        { provide: LoggingService, useValue: { warn: jest.fn() } },
+        { provide: LoggingService, useValue: { warn } },
         {
           provide: ProvidersSettingsStateService,
           useValue: { commit: signal({ status: 'idle' }) },
@@ -300,6 +304,9 @@ describe('DecisionModelRowComponent', () => {
         host().querySelectorAll('#decision-model-suggestions option'),
       ).map((o) => o.getAttribute('value'));
       expect(suggestions).toEqual(['tev1', 'laya']);
+      expect(text('decision-footer')).toBe(
+        'Unset saves at once and sends no decision request. Other choices save with Save. Undo puts the previous choice back.',
+      );
       expect(byTestId<HTMLButtonElement>('decision-save')?.disabled).toBe(true);
       await type('decision-model', 'clef-flash');
       await save();
@@ -313,7 +320,7 @@ describe('DecisionModelRowComponent', () => {
       });
     });
 
-    it('Structured: a configured provider, then a tool-use model of its catalogue', async () => {
+    it('Structured: a configured provider, then any model of its catalogue, with help text that matches the list (P4 M-4)', async () => {
       await create();
       await open();
       await pickKind('structured');
@@ -332,7 +339,11 @@ describe('DecisionModelRowComponent', () => {
         Array.from(
           host().querySelectorAll('#decision-model-suggestions option'),
         ).map((o) => o.getAttribute('value')),
-      ).toEqual(['with-tools']);
+      ).toEqual(['with-tools', 'no-tools']);
+      expect(text('decision-model-help')).toBe(
+        "Suggestions list this provider's models. Pick one that supports structured output (JSON schema); not every listed model does.",
+      );
+      expect(text('decision-model-help')).not.toContain('tool use');
       await type('decision-model', 'with-tools');
       await save();
       expect(setConfigCalls()).toEqual([
@@ -418,6 +429,41 @@ describe('DecisionModelRowComponent', () => {
       await flush();
       expect(setConfigCalls()).toEqual([{ decisionModelJevApiKey: '' }]);
     });
+
+    it('hides Remove stored key when the host reports no stored key, and says a key change has no Undo (P4 visual Minors)', async () => {
+      await create(
+        status({
+          selection: { kind: 'jev', model: 'jev-1.13.0' },
+          locality: 'remote',
+          state: 'no-credential',
+        }),
+      );
+      await open();
+      expect(byTestId('decision-jev-key')).not.toBeNull();
+      expect(byTestId('decision-jev-key-remove')).toBeNull();
+      expect(text('decision-footer')).toBe(
+        'Unset saves at once and sends no decision request. Other choices save with Save. Undo puts the previous choice back; a key change has no Undo.',
+      );
+    });
+
+    it('offers Remove stored key while the key state is unknown, then hides it once removed and focuses the key field', async () => {
+      await create(
+        status({
+          selection: { kind: 'ollama', model: 'tev1' },
+          locality: 'local',
+          state: 'ready',
+        }),
+      );
+      await open();
+      await pickKind('jev');
+      expect(byTestId('decision-jev-key-remove')).not.toBeNull();
+      byTestId<HTMLButtonElement>('decision-jev-key-remove')?.click();
+      await flush();
+      expect(setConfigCalls()).toEqual([{ decisionModelJevApiKey: '' }]);
+      expect(feedback.toast()?.canUndo).toBe(false);
+      expect(byTestId('decision-jev-key-remove')).toBeNull();
+      expect(document.activeElement).toBe(byTestId('decision-jev-key'));
+    });
   });
 
   it('a save the host refuses alerts through the feedback toast with a fixed sentence, never host text', async () => {
@@ -456,6 +502,113 @@ describe('DecisionModelRowComponent', () => {
     ]);
     // The write re-reads the status, which now answers.
     expect(text('consumer-tier-decision')).toBe('ready');
+  });
+
+  it('treats an unset selection the host could not read as not read: Retry, and a save offers no Undo that writes unset (40a D1)', async () => {
+    await create(
+      status({
+        state: 'unreachable',
+        detail: 'The saved decision model could not be read. It is unchanged.',
+      }),
+    );
+    expect(text('consumer-tier-decision')).toBe('not reachable');
+    expect(text('consumer-summary-decision')).toBe('Status not reachable');
+    expect(text('decision-state')).toContain(
+      'You can still choose and save a decision model.',
+    );
+    expect(byTestId('decision-retry')).not.toBeNull();
+    await open();
+    expect(text('decision-footer')).toContain(
+      'The saved choice could not be read, so a save offers no Undo.',
+    );
+    await pickKind('ollama');
+    await type('decision-model', 'tev1');
+    await save();
+    expect(setConfigCalls()).toEqual([
+      { decisionModel: { kind: 'ollama', model: 'tev1' } },
+    ]);
+    expect(feedback.toast()?.canUndo).toBe(false);
+    await feedback.undo();
+    await flush();
+    expect(setConfigCalls()).toHaveLength(1);
+    expect(setConfigCalls()).not.toContainEqual({
+      decisionModel: { kind: 'unset' },
+    });
+  });
+
+  describe('logs carry a fixed message and an error type, never the raw error (P4 S-3)', () => {
+    const SECRET = 'Bearer sk-secret-123 from the endpoint body';
+    const logged = (): string => JSON.stringify(warn.mock.calls);
+
+    it('a status read that throws', async () => {
+      call.mockImplementationOnce(async () => {
+        throw new Error(SECRET);
+      });
+      await create();
+      expect(warn).toHaveBeenCalledWith(
+        'DecisionModelRow',
+        'agent:getConfig failed',
+        { errorType: 'Error' },
+      );
+      expect(logged()).not.toContain('sk-secret');
+      expect(host().textContent).not.toContain('sk-secret');
+    });
+
+    it('a save that throws', async () => {
+      await create();
+      await open();
+      await pickKind('ollama');
+      await type('decision-model', 'tev1');
+      call.mockImplementationOnce(async () => {
+        throw new TypeError(SECRET);
+      });
+      await save();
+      expect(warn).toHaveBeenCalledWith(
+        'DecisionModelRow',
+        'agent:setConfig failed',
+        { errorType: 'TypeError' },
+      );
+      expect(feedback.toast()?.message).toBe(SAVE_FAILED);
+      expect(logged()).not.toContain('sk-secret');
+    });
+
+    it('a model listing that throws, or rejects with a non-Error', async () => {
+      listModels.mockImplementationOnce(async () => {
+        throw new Error(SECRET);
+      });
+      await create();
+      await open();
+      await pickKind('ollama');
+      expect(warn).toHaveBeenCalledWith(
+        'DecisionModelRow',
+        'model suggestions failed',
+        { errorType: 'Error' },
+      );
+      expect(text('decision-model-help')).toBe(
+        'Could not list models. Type a model name.',
+      );
+      listModels.mockImplementationOnce(() => Promise.reject(SECRET));
+      await pickKind('jev');
+      await pickKind('ollama');
+      expect(warn).toHaveBeenLastCalledWith(
+        'DecisionModelRow',
+        'model suggestions failed',
+        { errorType: 'string' },
+      );
+      expect(logged()).not.toContain('sk-secret');
+    });
+  });
+
+  it('forces a readable control border and placeholder over the light-theme input rule (P4 visual S1, S2)', async () => {
+    await create();
+    await open();
+    await pickKind('jev');
+    for (const id of ['decision-kind', 'decision-model', 'decision-jev-key'])
+      expect(byTestId(id)?.className).toContain('!border-base-content-muted');
+    for (const id of ['decision-model', 'decision-jev-key'])
+      expect(byTestId(id)?.className).toContain(
+        'placeholder:!text-base-content-muted',
+      );
   });
 
   it('closes on Close and returns focus to the cell', async () => {

@@ -42,8 +42,14 @@ const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
 const CELL = `flex w-full min-w-0 items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${FOCUS}`;
-const SELECT = `select select-bordered select-sm min-h-8 w-full border-base-content-muted bg-base-100 text-xs text-base-content ${FOCUS}`;
-const INPUT = `input input-bordered input-sm min-h-8 w-full min-w-0 border-base-content-muted bg-base-100 font-mono text-xs text-base-content ${FOCUS}`;
+/**
+ * The anubis-light `.input` / `.select` rule in styles.css sets the border to base-300 (1.21:1) and the placeholder to
+ * 50% base-content (3.28:1) at (0,2,0), which beats a plain utility; so both are forced, as the Advanced settings
+ * error border is. `base-content-muted` is >= 5.01:1 on base-100/200/300 in both eager themes (base-content-muted.spec.ts).
+ */
+const CONTROL_INK = '!border-base-content-muted';
+const SELECT = `select select-bordered select-sm min-h-8 w-full ${CONTROL_INK} bg-base-100 text-xs text-base-content ${FOCUS}`;
+const INPUT = `input input-bordered input-sm min-h-8 w-full min-w-0 ${CONTROL_INK} bg-base-100 font-mono text-xs text-base-content placeholder:!text-base-content-muted ${FOCUS}`;
 const LABEL = 'block text-xs font-semibold text-base-content-muted';
 const RPC_TIMEOUT_MS = 5_000;
 const SAVE_FAILED =
@@ -66,10 +72,13 @@ interface Suggestions {
  *   saves at once; the other kinds save with Save once their required fields are filled.
  * - Ollama's model is free text; its suggestions come from the page's `PROVIDER_MODELS_LOADER` for `ollama` (the
  *   catalogue the provider picker uses), never a list fixed in code (Req 1.2). A structured-output model is one of
- *   the configured providers (`providers`) and a model of its catalogue that supports tool use.
+ *   the configured providers (`providers`) and a model of its catalogue. The catalogue carries no structured-output
+ *   flag (`ProviderModelInfo`), so the list is unfiltered and the help text says the model must support it.
  * - The Jev key field is a password input that is never prefilled; a stored key is never shown. Removing the key is
- *   its own button, so an empty field never deletes it.
- * - A status read that fails shows "not reachable" and never blocks saving. Host `detail` is plain text.
+ *   its own button, so an empty field never deletes it; it is hidden while the host reports that no key is stored.
+ * - A status read that fails shows "not reachable" and never blocks saving. So does an `unset` selection the host
+ *   reports as `unreachable` (it could not read the stored selection): that save offers no Undo, so it can never
+ *   write `unset` over the real stored choice. Host `detail` is plain text. Logs carry fixed text and an error type.
  */
 @Component({
   selector: 'ptah-decision-model-row',
@@ -258,6 +267,7 @@ interface Suggestions {
                     >TypeSafe Jev API key</label
                   >
                   <input
+                    #jevKeyField
                     id="decision-model-jev-key"
                     type="password"
                     [class]="inputClass"
@@ -277,15 +287,17 @@ interface Suggestions {
                     Stored in this machine's secret storage. A stored key is
                     never shown here.
                   </p>
-                  <button
-                    type="button"
-                    [class]="action"
-                    [disabled]="busy() || disabled()"
-                    (click)="removeJevKey()"
-                    data-testid="decision-jev-key-remove"
-                  >
-                    Remove stored key
-                  </button>
+                  @if (keyMayBeStored()) {
+                    <button
+                      type="button"
+                      [class]="action"
+                      [disabled]="busy() || disabled()"
+                      (click)="removeJevKey()"
+                      data-testid="decision-jev-key-remove"
+                    >
+                      Remove stored key
+                    </button>
+                  }
                 }
                 @if (draft().kind !== 'unset') {
                   <button
@@ -301,9 +313,11 @@ interface Suggestions {
                     Save decision model
                   </button>
                 }
-                <p class="px-1 text-xs text-base-content-muted">
-                  Unset saves at once and sends no decision request. Other
-                  choices save with Save, with Undo.
+                <p
+                  class="px-1 text-xs text-base-content-muted"
+                  data-testid="decision-footer"
+                >
+                  {{ footer() }}
                 </p>
               </div>
             }
@@ -411,8 +425,12 @@ export class DecisionModelRowComponent implements OnInit {
     ids: [],
   });
   private suggestionRequest = 0;
+  /** Set after this row removed the key; a later key save or a host status that knows the key wins. */
+  private readonly keyRemoved = signal(false);
 
   private readonly cellRef = viewChild<ElementRef<HTMLButtonElement>>('cell');
+  private readonly jevKeyRef =
+    viewChild<ElementRef<HTMLInputElement>>('jevKeyField');
 
   /** Save triggers wait while any save runs (D3). */
   protected readonly busy = this.feedback.saving;
@@ -450,27 +468,56 @@ export class DecisionModelRowComponent implements OnInit {
     if (ids.length === 0) return 'No model suggestions. Type a model name.';
     return kind === 'ollama'
       ? 'Suggestions come from your Ollama endpoint. Any model name it serves works.'
-      : 'Suggestions list the models that support tool use, which structured output needs.';
+      : "Suggestions list this provider's models. Pick one that supports structured output (JSON schema); not every listed model does.";
+  });
+  /**
+   * Whether "Remove stored key" is offered. The status knows the key only for a saved Jev selection (`ready` = stored,
+   * `no-credential` = none); otherwise it is unknown and the button stays, unless this row has just removed the key.
+   */
+  protected readonly keyMayBeStored = computed(() => {
+    const status = this.status();
+    if (status?.selection.kind === 'jev') {
+      if (status.state === 'ready') return true;
+      if (status.state === 'no-credential') return false;
+    }
+    return !this.keyRemoved();
+  });
+  /** The editor footer: only claims an Undo the next save will really offer (see `save`). */
+  protected readonly footer = computed(() => {
+    const base =
+      'Unset saves at once and sends no decision request. Other choices save with Save.';
+    if (!this.status())
+      return `${base} The saved choice could not be read, so a save offers no Undo.`;
+    return this.draft().kind === 'jev'
+      ? `${base} Undo puts the previous choice back; a key change has no Undo.`
+      : `${base} Undo puts the previous choice back.`;
   });
 
   ngOnInit(): void {
     void this.reload();
   }
 
-  /** Reads the row's status. A failed read keeps the last status out of view and shows "not reachable". */
+  /**
+   * Reads the row's status. A failed read keeps the last status out of view and shows "not reachable". So does an
+   * unread selection (`unset` + `unreachable`, agent-rpc.handlers.ts `readDecisionModelStatus`): with no status, a
+   * save offers no Undo, so the row never writes `unset` over the real stored selection.
+   */
   protected async reload(): Promise<void> {
     if (!this.status()) this.load.set('loading');
     try {
       const result = await this.rpc.call('agent:getConfig', undefined, {
         timeout: RPC_TIMEOUT_MS,
       });
-      const status = result.isSuccess()
+      const parsed = result.isSuccess()
         ? parseDecisionModelStatus(result.data.decisionModel)
         : null;
+      const status = parsed && !selectionNotRead(parsed) ? parsed : null;
       this.status.set(status);
       this.load.set(status ? 'ready' : 'error');
     } catch (error: unknown) {
-      this.logger.warn('DecisionModelRow', 'agent:getConfig failed', error);
+      this.logger.warn('DecisionModelRow', 'agent:getConfig failed', {
+        errorType: errorTypeOf(error),
+      });
       this.status.set(null);
       this.load.set('error');
     }
@@ -530,7 +577,8 @@ export class DecisionModelRowComponent implements OnInit {
 
   /**
    * Saves the draft with Undo. A typed Jev key goes in the same write (trimmed; blank is never sent, so it cannot
-   * delete the stored key) and that save offers no Undo: a key cannot be put back.
+   * delete the stored key) and that save offers no Undo: a key cannot be put back. With no status read (`status`
+   * is `null`, including an unread selection) there is no Undo either: the previous choice is not known.
    */
   protected async save(): Promise<void> {
     const selection = this.pendingInput();
@@ -548,18 +596,28 @@ export class DecisionModelRowComponent implements OnInit {
           ? () => this.write({ decisionModel: previous }, SAVE_FAILED)
           : null,
     });
-    if (result === 'saved') this.jevKey.set('');
+    if (result !== 'saved') return;
+    this.jevKey.set('');
+    if (key) this.keyRemoved.set(false);
   }
 
-  /** The explicit delete: `decisionModelJevApiKey: ''` removes the stored key (no Undo). */
+  /**
+   * The explicit delete: `decisionModelJevApiKey: ''` removes the stored key (no Undo). The button then goes away,
+   * so focus moves to the key field.
+   */
   protected async removeJevKey(): Promise<void> {
     if (this.busy() || this.disabled()) return;
     this.jevKey.set('');
-    await this.feedback.saveGeneric({
+    const result = await this.feedback.saveGeneric({
       label: 'removal of the TypeSafe Jev API key',
       write: () =>
         this.write({ decisionModelJevApiKey: '' }, KEY_REMOVE_FAILED),
       undo: null,
+    });
+    if (result !== 'saved') return;
+    this.keyRemoved.set(true);
+    afterNextRender(() => this.jevKeyRef()?.nativeElement.focus(), {
+      injector: this.injector,
     });
   }
 
@@ -578,7 +636,9 @@ export class DecisionModelRowComponent implements OnInit {
       if (!result.isSuccess() || !result.data.success)
         return { ok: false, message: failed };
     } catch (error: unknown) {
-      this.logger.warn('DecisionModelRow', 'agent:setConfig failed', error);
+      this.logger.warn('DecisionModelRow', 'agent:setConfig failed', {
+        errorType: errorTypeOf(error),
+      });
       return { ok: false, message: failed };
     }
     await this.reload();
@@ -596,19 +656,18 @@ export class DecisionModelRowComponent implements OnInit {
     }
     this.suggestions.set({ status: 'loading', ids: [] });
     try {
+      // Unfiltered: the catalogue has no structured-output flag, and tool use is not what the adapter needs.
       const result = await this.loader.listModels(source);
-      const models =
-        kind === 'structured'
-          ? result.models.filter((model) => model.supportsToolUse)
-          : result.models;
       if (request === this.suggestionRequest) {
         this.suggestions.set({
           status: result.error ? 'error' : 'ready',
-          ids: models.map((model) => model.id),
+          ids: result.models.map((model) => model.id),
         });
       }
     } catch (error: unknown) {
-      this.logger.warn('DecisionModelRow', 'model suggestions failed', error);
+      this.logger.warn('DecisionModelRow', 'model suggestions failed', {
+        errorType: errorTypeOf(error),
+      });
       if (request === this.suggestionRequest)
         this.suggestions.set({ status: 'error', ids: [] });
     }
@@ -622,4 +681,17 @@ function suggestionSource(
 ): string | null {
   if (kind === 'ollama') return 'ollama';
   return kind === 'structured' && providerId ? providerId : null;
+}
+
+/**
+ * The host's answer when it could not read the stored selection (Batch 40a D1): an `unset` selection with state
+ * `unreachable`. A stored `unset` comes back with state `unset`, so this pair never describes a real choice.
+ */
+function selectionNotRead(status: DecisionModelStatusDto): boolean {
+  return status.selection.kind === 'unset' && status.state === 'unreachable';
+}
+
+/** A safe log classification: the constructor name, never the error's message, stack or fields (P4 S-3). */
+function errorTypeOf(error: unknown): string {
+  return error instanceof Error ? error.constructor.name : typeof error;
 }
