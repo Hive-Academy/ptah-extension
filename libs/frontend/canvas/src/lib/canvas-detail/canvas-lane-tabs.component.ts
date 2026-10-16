@@ -84,7 +84,7 @@ interface DockLayout {
       #dock
       role="tablist"
       aria-label="Lanes"
-      class="relative z-10 flex min-w-0 items-center gap-0.5 overflow-x-clip px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
+      class="relative z-10 flex min-w-0 items-center gap-0.5 overflow-x-clip border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
         @if (!first) {
