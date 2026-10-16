@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TASK_2026_685 — one execution header (prototype)</title>
+<!--
+  Static prototype. No build, no CDN: plain CSS with the app's theme tokens copied from
+  apps/ptah-extension-webview/tailwind.config.js (anubis, anubis-light) and
+  apps/ptah-extension-webview/src/styles.css (--surface-*). The disclosure row copies
+  turn-disclosure-row.component.ts (h-[30px], text-[13px], border-b surface-border, chevron,
+  meta ml-auto text-[11px]). Numbers in the "after" panels are illustrative sample values.
+-->
+<style>
+  :root, [data-theme="anubis"] {
+    --b1: #131317; --b2: #1a1a20; --b3: #242430; --bc: #e8e6e1;
+    --bcm: oklch(66.51% 0.0074 31.09);
+    --p: #2563eb; --s: #d4af37; --in: #3b82f6; --su: #16a34a; --wa: #f97316; --er: #dc2626;
+    --su-c: #e8e6e1;
+    --ink-run: #3b82f6; --ink-need: #f97316; --ink-err: #ef4444; --ink-done: #16a34a; --ink-idle: #9ca3af;
+  }
+  [data-theme="anubis-light"] {
+    --b1: oklch(97.788% 0.004 56.375); --b2: oklch(93.982% 0.007 61.449); --b3: oklch(91.586% 0.006 53.44);
+    --bc: oklch(23.574% 0.066 313.189); --bcm: oklch(48.955% 0.0448 348.48);
+    --p: oklch(85% 0.138 181.071); --s: oklch(58% 0.132 75); --in: oklch(68% 0.169 237.323);
+    --su: oklch(69% 0.17 162.48); --wa: oklch(72% 0.18 55); --er: oklch(71% 0.194 13.428);
+    --su-c: oklch(26% 0.051 172.552);
+    --ink-run: #2a56c6; --ink-need: #8f5200; --ink-err: #b4232a; --ink-done: #13713a; --ink-idle: #6b6570;
+  }
+  :root {
+    --surface-1: color-mix(in oklch, var(--b2) 88%, var(--b1));
+    --surface-3: color-mix(in oklch, var(--b3) 86%, var(--b2));
+    --border: color-mix(in oklch, var(--bc) 14%, transparent);
+    --border-strong: color-mix(in oklch, var(--bc) 22%, transparent);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.6 Inter, "Segoe UI", system-ui, sans-serif; background: var(--b1); color: var(--bc); }
+  header.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    padding: 10px 20px; background: var(--surface-1); border-bottom: 1px solid var(--border-strong); }
+  header.top h1 { font-size: 14px; margin: 0 auto 0 0; font-weight: 600; }
+  header.top h1 span { color: var(--s); }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 999px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; color: var(--bcm); padding: 3px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--s); color: #131317; }
+  main { padding: 20px; display: grid; gap: 28px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--s); margin: 0 0 8px; }
+  h3 { font-size: 12px; margin: 0 0 6px; color: var(--bcm); font-weight: 600; }
+  .muted { color: var(--bcm); }
+  .note { font-size: 12px; color: var(--bcm); margin: 0 0 10px; max-width: 900px; }
+  .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; }
+  .frame { background: var(--b1); border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; }
+  .frame.w760 { max-width: 760px; }
+  .frame.w1440 { max-width: 1440px; }
+  .frame .tag { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 11px; color: var(--bcm);
+    background: var(--surface-1); border-bottom: 1px solid var(--border); }
+  .lane { padding: 8px 12px 14px; }
+  .dock { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 38px; max-width: 220px; border: 1px solid var(--s);
+    border-radius: 999px; padding: 0 8px 0 5px; font-size: 12px; }
+  .chip.off { width: 38px; border-color: transparent; justify-content: center; padding: 0; }
+  .avatar { width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; font-size: 11px;
+    font-weight: 700; color: #fff; flex: none; position: relative; }
+  .avatar.codex { background: #10a37f; } .avatar.sub { background: #7c3aed; } .avatar.orch { background: var(--s); color:#131317; }
+  .avatar::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 99px;
+    border: 2px solid var(--b1); background: var(--dot, var(--ink-done)); }
+  .ink-done { color: var(--ink-done); } .ink-run { color: var(--ink-run); } .ink-idle { color: var(--ink-idle); }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* ---------- AFTER: unified header (main chat model) ---------- */
+  .xrow { display: flex; align-items: center; gap: 4px; min-width: 0; height: 30px; padding: 0 2px;
+    border-bottom: 1px solid var(--border); color: var(--bcm); font-size: 13px; }
+  .xrow > button.disc { all: unset; display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; height: 100%; cursor: pointer; }
+  .xrow > button.disc:hover { color: var(--bc); }
+  .xrow > button.disc:focus-visible { outline: 2px solid var(--s); outline-offset: -2px; }
+  .chev { width: 16px; height: 16px; flex: none; transition: transform .2s cubic-bezier(.22,.61,.36,1); }
+  .xrow[data-open="true"] .chev { transform: rotate(90deg); }
+  .pulse { width: 6px; height: 6px; border-radius: 99px; background: var(--ink-run); margin-right: 4px; animation: pulse 1.2s infinite; flex: none; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } .chev { transition: none; } }
+  .peek { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+  .meta { margin-left: auto; padding-left: 8px; font-size: 11px; white-space: nowrap; }
+  .actions { display: flex; gap: 2px; margin-left: 6px; flex: none; }
+  .act { all: unset; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; cursor: pointer; color: var(--bcm); }
+  .act:hover { background: color-mix(in oklch, var(--bc) 8%, transparent); color: var(--bc); }
+  .act:focus-visible { outline: 2px solid var(--s); }
+  .act svg { width: 14px; height: 14px; }
+  .act.resume { color: var(--ink-done); } .act.stop { color: var(--ink-err); }
+  .details { display: none; padding: 8px 2px 10px; border-bottom: 1px solid var(--border); }
+  .xrow[data-open="true"] + .details { display: block; }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-size: 11px; }
+  .facts dt { color: var(--bcm); } .facts dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+  .usage { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 11px var(--mono); color: var(--bcm); margin: 0 0 8px; }
+  .usage b { font-weight: 500; color: var(--bc); }
+  .content { padding: 10px 2px 0; font-size: 13px; }
+  .content code, .mono { font-family: var(--mono); font-size: 12px; }
+  .warmb { font: 10px/1 var(--mono); padding: 2px 5px; border-radius: 99px; background: color-mix(in oklch, var(--su) 22%, transparent); color: var(--ink-done); }
+
+  /* ---------- BEFORE: rebuilt from current source ---------- */
+  .badge { display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; white-space: nowrap; }
+  .badge.xs { height: 16px; padding: 0 6px; font-size: 9px; }
+  .badge.success { background: var(--su); color: var(--su-c); }
+  .badge.ghost { background: var(--b2); color: var(--bcm); font-family: var(--mono); font-size: 9px; }
+  .badge.outline { border: 1px solid var(--border-strong); }
+  .old-head { display: flex; align-items: center; gap: 6px; padding: 6px 0; }
+  .old-usage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font: 10px var(--mono); color: var(--bcm); padding: 4px 0; margin-bottom: 6px; }
+  .old-task { display: flex; gap: 6px; font-size: 10px; color: var(--bcm); padding: 2px 0; }
+  .bubble { border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; background: var(--b2); }
+  .bubble .bh { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+  .bubble .sr { display: flex; align-items: center; gap: 8px; padding: 4px 12px; font-size: 10px; border-top: 1px solid var(--border); }
+  .bubble .bf { display: flex; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--border); }
+  .sav { width: 24px; height: 24px; border-radius: 99px; background: #7c3aed; color: #fff; display: grid; place-items: center; font-size: 10px; font-weight: 700; }
+  .old-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 4px 8px; margin-bottom: 6px; border-radius: 4px;
+    background: color-mix(in oklch, var(--b2) 50%, transparent); border: 1px solid color-mix(in oklch, var(--bc) 5%, transparent); font: 10px var(--mono); color: var(--bcm); }
+  .dup { outline: 2px dashed var(--ink-err); outline-offset: 1px; border-radius: 4px; }
+  .legend { font-size: 11px; color: var(--bcm); }
+  .legend .dup { padding: 0 4px; }
+
+  table.map { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.map th, table.map td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.map th { color: var(--bcm); font-weight: 600; }
+  .pill { display: inline-block; padding: 0 7px; border-radius: 99px; font-size: 11px; }
+  .keep { background: color-mix(in oklch, var(--su) 22%, transparent); color: var(--ink-done); }
+  .move { background: color-mix(in oklch, var(--in) 22%, transparent); color: var(--ink-run); }
+  .del { background: color-mix(in oklch, var(--er) 22%, transparent); color: var(--ink-err); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>TASK_2026_685 — <span>one execution header</span> for CLI lanes and subagents</h1>
+  <span class="muted" style="font-size:12px">Theme</span>
+  <div class="seg" role="group" aria-label="Theme">
+    <button type="button" data-theme-set="anubis" aria-pressed="true">Dark</button>
+    <button type="button" data-theme-set="anubis-light" aria-pressed="false">Light</button>
+  </div>
+  <span class="muted" style="font-size:12px">Lane width</span>
+  <div class="seg" role="group" aria-label="Lane width">
+    <button type="button" data-width="w1440" aria-pressed="false">1440</button>
+    <button type="button" data-width="w760" aria-pressed="true">760</button>
+  </div>
+</header>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 3l14 9-14 9V3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-bg" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<main>
+<section>
+  <h2>1 · Before (current main) vs after (proposed)</h2>
+  <p class="note">The "before" panels are rebuilt from the current templates (agent-card-header, cli-lane-usage-summary,
+    agent-card &lt;details&gt;, subagent-usage-summary, inline-agent-bubble). The CLI values are the values from the
+    user's report. <span class="legend">Items with a <span class="dup">dashed red outline</span> are already shown in the tab chip, the hover card or the inspector.</span></p>
+
+  <div class="compare">
+    <!-- BEFORE CLI -->
+    <div class="frame lane-frame w760">
+      <div class="tag"><span>Before · CLI lane (codex)</span><span class="mono">ptah-agent-card presentation="flat"</span></div>
+      <div class="dock">
+        <span class="chip off"><span class="avatar orch">P</span></span>
+        <span class="chip"><span class="avatar codex" style="--dot:var(--ink-done)">C</span><span>codex</span><span class="ink-done dup">done</span></span>
+      </div>
+      <div class="lane">
+        <div class="old-head">
+          <span class="badge success dup">completed</span>
+          <span class="badge ghost">gpt-5.5-codex</span>
+          <span style="margin-left:auto" class="act resume" title="Resume session"><svg><use href="#i-play"/></svg></span>
+          <span class="muted dup" style="font-size:10px">71h 18m</span>
+        </div>
+        <div class="old-usage"><span>ctx —</span><span>in ≥ 11.9k</span><span>out ≥ 56</span><span style="margin-left:auto">—</span></div>
+        <div class="old-task"><span style="font-weight:500">Task</span><span style="margin-left:auto">Parent: 18e50e43…</span></div>
+        <div class="content">pong</div>
+      </div>
+    </div>
+
+    <!-- AFTER CLI -->
+    <div class="frame lane-frame w760">
+      <div class="tag"><span>After · CLI lane (codex)</span><span class="mono">ptah-execution-header kind="cli"</span></div>
+      <div class="dock">
+        <span class="chip off"><span class="avatar orch">P</span></span>
+        <span class="chip"><span class="avatar codex" style="--dot:var(--ink-done)">C</span><span>codex</span><span class="ink-done">done</span></span>
+      </div>
+      <div class="lane">
+        <div class="xrow" data-open="false">
+          <button type="button" class="disc" aria-expanded="false" aria-label="Worked, 1 tool. Show details">
+            <span>Worked</span><svg class="chev"><use href="#i-chev"/></svg>
+            <span class="meta tnum">1 tool · ≥ 12.0k tokens</span>
+          </button>
+          <span class="actions"><button type="button" class="act resume" title="Resume session" aria-label="Resume codex session"><svg><use href="#i-play"/></svg></button></span>
+        </div>
+        <div class="details">
+          <div class="usage"><span>ctx <b>—</b></span><span>in <b>≥ 11.9k</b></span><span>out <b>≥ 56</b></span><span>cost <b>—</b></span><span class="muted" title="From retained output, may be partial">≥ = from retained output</span></div>
+          <dl class="facts">
+            <dt>Model</dt><dd>gpt-5.5-codex</dd>
+            <dt>Task</dt><dd style="font-family:inherit">Reply with the single word pong.</dd>
+            <dt>CLI session</dt><dd>019a3c8e-…</dd>
+            <dt>Parent</dt><dd>18e50e43…</dd>
+          </dl>
+        </div>
+        <div class="content">pong</div>
+        <p class="note" style="margin-top:10px">Restored lane: no end time is stored, so the label is <b>Worked</b> with no time (the same rule as a main chat turn). No 71h value.</p>
+      </div>
+    </div>
+
+    <!-- BEFORE SUBAGENT -->
+    <div class="frame lane-frame w760">
+      <div class="tag"><span>Before · SDK subagent</span><span class="mono">subagent-usage-summary + inline-agent-bubble</span></div>
+      <div class="dock">
+        <span class="chip off"><span class="avatar orch">P</span></span>
+        <span class="chip"><span class="avatar sub" style="--dot:var(--ink-run)">E</span><span>Explore</span><span class="ink-run dup">running</span><span class="muted tnum dup">1m 05s</span></span>
+      </div>
+      <div class="lane">
+        <div class="old-sum dup"><span>ctx 24.1k</span><span class="badge xs success">warm</span><span style="color:var(--in)">cache read 18.2k</span><span style="color:var(--in)">cache write 3.1k</span><span>out 1.2k</span><span style="margin-left:auto;color:var(--wa)">$0.04</span></div>
+        <div class="bubble">
+          <div class="bh"><svg class="chev" style="transform:rotate(90deg)"><use href="#i-chev"/></svg><span class="sav dup">E</span><span class="dup" style="font-size:11px;font-weight:600;color:var(--bcm)">Explore</span><span class="muted" style="font-size:10px">Find the lane header files</span><span class="badge xs" style="margin-left:auto;background:var(--in);color:#fff">Streaming</span></div>
+          <div class="sr"><span class="badge xs dup" style="background:var(--in);color:#fff">● running</span><i class="muted" style="flex:1">Reading agent-card-header.component.ts</i>
+            <span class="act" title="Send to background"><svg><use href="#i-bg"/></svg></span><span class="act stop" title="Stop"><svg><use href="#i-stop"/></svg></span><span class="act" title="View transcript"><svg><use href="#i-doc"/></svg></span><span class="act" title="Message agent"><svg><use href="#i-msg"/></svg></span></div>
+          <div style="padding:8px 12px" class="muted">… tool calls …</div>
+          <div class="bf"><span class="badge ghost dup">25.3k tokens</span><span class="badge ghost dup">$0.04</span><span class="badge ghost dup">1m 05s</span><span class="muted" style="font-size:10px">(footer, after streaming)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AFTER SUBAGENT -->
+    <div class="frame lane-frame w760">
+      <div class="tag"><span>After · SDK subagent</span><span class="mono">ptah-execution-header kind="subagent"</span></div>
+      <div class="dock">
+        <span class="chip off"><span class="avatar orch">P</span></span>
+        <span class="chip"><span class="avatar sub" style="--dot:var(--ink-run)">E</span><span>Explore</span><span class="ink-run">running</span><span class="muted tnum">1m 05s</span></span>
+      </div>
+      <div class="lane">
+        <div class="xrow" data-open="true">
+          <button type="button" class="disc" aria-expanded="true" aria-label="Working, 4 tools. Hide details">
+            <span class="pulse" aria-hidden="true"></span><span>Working</span><svg class="chev"><use href="#i-chev"/></svg>
+            <span class="peek" aria-hidden="true">Reading agent-card-header.component.ts</span>
+            <span class="meta tnum">4 tools · 25.3k tokens</span>
+          </button>
+          <span class="actions">
+            <button type="button" class="act" title="Send to background" aria-label="Send Explore to background"><svg><use href="#i-bg"/></svg></button>
+            <button type="button" class="act stop" title="Stop" aria-label="Stop Explore"><svg><use href="#i-stop"/></svg></button>
+            <button type="button" class="act" title="View transcript" aria-label="View Explore transcript"><svg><use href="#i-doc"/></svg></button>
+            <button type="button" class="act" title="Message agent" aria-label="Message Explore"><svg><use href="#i-msg"/></svg></button>
+          </span>
+        </div>
+        <div class="details">
+          <div class="usage"><span>ctx <b>24.1k</b></span><span class="warmb">warm</span><span>cache read <b>18.2k</b></span><span>cache write <b>3.1k</b></span><span>out <b>1.2k</b></span><span>cost <b>$0.04</b></span></div>
+          <dl class="facts">
+            <dt>Model</dt><dd>claude-sonnet-5-5</dd>
+            <dt>Task</dt><dd style="font-family:inherit">Find the lane header files</dd>
+            <dt>Parent</dt><dd>af345289…</dd>
+          </dl>
+        </div>
+        <div class="content muted">… tool calls (ptah-execution-node children, no bubble chrome) …</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>2 · Header states (same component, both kinds)</h2>
+  <p class="note">Label rule = main chat <span class="mono">turnElapsedLabel</span>: live → <b>Working · {now − start}</b>; settled → <b>Worked for {end − start}</b> when both are known, else <b>Worked</b>. One formatter: <span class="mono">formatAgentDuration</span>. The status word never appears in the header; the tab chip, the hover card and the inspector keep it.</p>
+  <div class="frame lane-frame w760"><div class="lane" style="display:grid;gap:10px">
+    <div><h3>CLI · running</h3>
+      <div class="xrow"><button type="button" class="disc"><span class="pulse"></span><span>Working · 0m 42s</span><svg class="chev"><use href="#i-chev"/></svg><span class="peek">exec: rg "agent-card" libs</span><span class="meta tnum">3 tools</span></button>
+      <span class="actions"><button type="button" class="act stop" title="Stop agent" aria-label="Stop codex"><svg><use href="#i-stop"/></svg></button></span></div></div>
+    <div><h3>CLI · completed live this session (end time known)</h3>
+      <div class="xrow"><button type="button" class="disc"><span>Worked for 4m 12s</span><svg class="chev"><use href="#i-chev"/></svg><span class="meta tnum">6 tools · 3 files · 48.2k tokens</span></button>
+      <span class="actions"><button type="button" class="act resume" title="Resume session" aria-label="Resume codex session"><svg><use href="#i-play"/></svg></button></span></div></div>
+    <div><h3>CLI · failed (stop reason shown in the label meta, the status word stays in the chip)</h3>
+      <div class="xrow"><button type="button" class="disc"><span>Worked for 1m 03s</span><svg class="chev"><use href="#i-chev"/></svg><span class="meta tnum" style="color:var(--wa)">Stopped: tool-call limit reached</span></button>
+      <span class="actions"><button type="button" class="act resume" title="Resume session" aria-label="Resume codex session"><svg><use href="#i-play"/></svg></button></span></div></div>
+    <div><h3>Subagent · completed</h3>
+      <div class="xrow"><button type="button" class="disc"><span>Worked for 2m 31s</span><svg class="chev"><use href="#i-chev"/></svg><span class="meta tnum">9 tools · 31.0k tokens</span></button>
+      <span class="actions"><button type="button" class="act" title="View transcript" aria-label="View transcript"><svg><use href="#i-doc"/></svg></button></span></div></div>
+  </div></div>
+</section>
+
+<section>
+  <h2>3 · Where every item goes</h2>
+  <p class="note">Every row of context.md "Already shown elsewhere" plus the current header items. A <span class="pill del">proposed removal</span> needs the user's approval.</p>
+  <table class="map">
+    <thead><tr><th>Item</th><th>Today (lane view)</th><th>Also shown in</th><th>After</th></tr></thead>
+    <tbody>
+      <tr><td>Status badge (<span class="mono">completed</span> / subagent status row)</td><td>agent-card-header :75-85; inline-agent-bubble :197-264</td><td>Tab chip, avatar dot, hover card, inspector</td><td><span class="pill del">proposed removal</span> from the lane view</td></tr>
+      <tr><td>Duration</td><td>agent-card-header :143-148 (formatElapsed); bubble footer</td><td>Tab chip, hover card, inspector</td><td><span class="pill move">moved</span> into the label "Worked for X" (one formatter); <span class="pill del">proposed removal</span> of the separate badge</td></tr>
+      <tr><td>Resume (CLI)</td><td>agent-card-header :125-140</td><td>—</td><td><span class="pill keep">kept</span> in the shared action place</td></tr>
+      <tr><td>Stop (CLI running)</td><td>agent-card-header :107-122</td><td>Inspector actions menu</td><td><span class="pill keep">kept</span> in the shared action place</td></tr>
+      <tr><td>Subagent stop / background / transcript / message</td><td>inline-agent-bubble status row</td><td>Inspector actions menu</td><td><span class="pill keep">kept</span> in the shared action place</td></tr>
+      <tr><td>ctx / in / out / cache / cost</td><td>cli-lane-usage-summary; subagent-usage-summary</td><td>Inspector (totals only)</td><td><span class="pill move">moved</span> behind the disclosure; one token total in the row meta</td></tr>
+      <tr><td>Warm / cold cache badge (subagent)</td><td>subagent-usage-summary :54-65</td><td>—</td><td><span class="pill move">moved</span> behind the disclosure</td></tr>
+      <tr><td>"≥" partial marker</td><td>cli-lane-usage-summary :76-88</td><td>Inspector</td><td><span class="pill keep">kept</span> (row meta and details)</td></tr>
+      <tr><td>Model badge</td><td>agent-card-header :97-104</td><td>Inspector row</td><td><span class="pill move">moved</span> behind the disclosure</td></tr>
+      <tr><td>Task text</td><td>agent-card &lt;details&gt; :78-105; bubble agentDescription</td><td>Hover card / inspector (activity line, CLI only partly)</td><td><span class="pill move">moved</span> behind the disclosure</td></tr>
+      <tr><td>Parent ID</td><td>agent-card :86-93</td><td>—</td><td><span class="pill move">moved</span> behind the disclosure (alternative: <span class="pill del">proposed removal</span>)</td></tr>
+      <tr><td>CLI session ID</td><td>agent-card :101-103 (flat)</td><td>—</td><td><span class="pill move">moved</span> behind the disclosure</td></tr>
+      <tr><td>Guard stop reason</td><td>agent-card-header :87-94</td><td>—</td><td><span class="pill keep">kept</span> in the row meta</td></tr>
+      <tr><td>Subagent bubble header (chevron, avatar, name)</td><td>inline-agent-bubble :104-186</td><td>Tab chip, inspector</td><td><span class="pill del">proposed removal</span> in the lane view only (the main chat keeps the bubble)</td></tr>
+      <tr><td>Subagent progress line</td><td>inline-agent-bubble :267-277</td><td>Hover card activity</td><td><span class="pill move">moved</span> to the row peek (live only)</td></tr>
+      <tr><td>Subagent footer tokens / cost / duration</td><td>inline-agent-bubble :309-311</td><td>Tab chip, inspector</td><td><span class="pill del">proposed removal</span> in the lane view (values live in the row and the details)</td></tr>
+      <tr><td>Streaming / Background / Resumed / Interrupted badges</td><td>inline-agent-bubble :142-180</td><td>Tab chip (status word), background kind group</td><td>Streaming → pulse dot <span class="pill move">moved</span>; Background, Resumed, Interrupted → row meta <span class="pill keep">kept</span></td></tr>
+    </tbody>
+  </table>
+</section>
+</main>
+
+<script>
+  document.querySelectorAll('[data-theme-set]').forEach((b) => b.addEventListener('click', () => {
+    document.documentElement.dataset.theme = b.dataset.themeSet;
+    document.querySelectorAll('[data-theme-set]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  document.querySelectorAll('[data-width]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.lane-frame').forEach((f) => { f.classList.remove('w760', 'w1440'); f.classList.add(b.dataset.width); });
+    document.querySelectorAll('[data-width]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  document.querySelectorAll('.xrow > button.disc').forEach((b) => b.addEventListener('click', () => {
+    const row = b.parentElement; const open = row.dataset.open !== 'true';
+    row.dataset.open = String(open); b.setAttribute('aria-expanded', String(open));
+  }));
+  const q = new URLSearchParams(location.search);
+  if (q.get('theme')) document.querySelector('[data-theme-set="' + q.get('theme') + '"]')?.click();
+  if (q.get('w')) document.querySelector('[data-width="w' + q.get('w') + '"]')?.click();
+</script>
+</body>
+</html>
