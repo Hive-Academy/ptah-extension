@@ -16,4 +16,14 @@ export const DECISION_MODEL_DETAIL = {
   credentialStore: 'The credential store could not be read.',
   /** `StructuredDecisionCompleter.isReady` rejected. */
   providerCheck: 'The provider readiness check failed.',
+  /** The endpoint answered 401/403 to a request that carried a key. */
+  keyRefused: 'The endpoint refused the stored API key.',
+  /** The endpoint answered 401/403 to a request without a key. */
+  keyRequired: 'The endpoint requires an API key.',
+  /**
+   * A stored key would travel over plain http to a host that is not this
+   * computer (D4, DC6), so the key is not sent and the call is blocked.
+   */
+  keyNeedsHttps:
+    'An API key can be sent only over HTTPS or to this computer (localhost).',
 } as const;

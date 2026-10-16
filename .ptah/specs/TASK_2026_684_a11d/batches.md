@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 6/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 7/23
 
 ## Execution precondition (read first)
 
@@ -461,7 +461,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   `TC(@ptah-extension/chat)`; `L(@ptah-extension/chat)`; then `TC(@ptah-extension/rpc-handlers)` as the downstream guard.
 - No per-batch review.
 
-## Batch 6: Target resolver, standalone (C5) — PENDING
+## Batch 6: Target resolver, standalone (C5) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -474,7 +474,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 2 - Target resolution, probe and new kinds | Phase review: code-logic (codex)
 - Criteria: 1.2, 1.3, 1.4, 1.5, 2.3, 2.6, DC6, DC7, DC8, DC9
 
-### Task 6.1: `decision-model.target.ts` and its spec — PENDING
+### Task 6.1: `decision-model.target.ts` and its spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.target.ts`,
   CREATE `...\decision-model.target.spec.ts`
@@ -490,7 +490,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   between calls, and the blocked cases.
 - Implementation details: deps are the workspace reader, `DecisionModelKeys` and `ollamaBaseUrl()`.
 
-### Task 6.2: Remote timeout constant, fixed details and the slot export — PENDING
+### Task 6.2: Remote timeout constant, fixed details and the slot export — COMPLETE
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\routing-constants.ts`
   (`DECISION_REQUEST_TIMEOUT_REMOTE_MS = 3000`, with a comment citing plan Component 16;

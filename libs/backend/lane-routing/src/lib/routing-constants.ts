@@ -110,6 +110,14 @@ export const QUESTIONS_PER_REQUEST = 32;
 export const DECISION_REQUEST_TIMEOUT_MS = 3000;
 export const DECISION_RETURN_MARGIN_MS = 250;
 
+/**
+ * Per decision-model request to a `remote` target (DC8); `local` targets
+ * keep `DECISION_REQUEST_TIMEOUT_MS`. Starts equal to the local timeout.
+ * Plan Component 16 (remote timeout calibration) sets the final value from
+ * the first keyed live run against Ollama Cloud.
+ */
+export const DECISION_REQUEST_TIMEOUT_REMOTE_MS = 3000;
+
 /** Model lists for every row, each row raced on its own. */
 export const MODEL_LISTING_BUDGET_MS = 2000;
 
@@ -118,11 +126,15 @@ export const GATHER_BUDGET_MS = 2000;
 
 export const MAX_DECISION_REQUESTS = 2;
 
-/** `GATHER_BUDGET_MS + MAX_DECISION_REQUESTS * (timeout + margin)`. */
+/**
+ * `GATHER_BUDGET_MS + MAX_DECISION_REQUESTS * (timeout + margin)`, with the
+ * larger of the local and remote request timeouts.
+ */
 export const OVERALL_CALL_BUDGET_MS =
   GATHER_BUDGET_MS +
   MAX_DECISION_REQUESTS *
-    (DECISION_REQUEST_TIMEOUT_MS + DECISION_RETURN_MARGIN_MS);
+    (Math.max(DECISION_REQUEST_TIMEOUT_MS, DECISION_REQUEST_TIMEOUT_REMOTE_MS) +
+      DECISION_RETURN_MARGIN_MS);
 
 /** Falls back when `confidence < CONFIDENCE_THRESHOLD`. */
 export const CONFIDENCE_THRESHOLD = 0.5;
