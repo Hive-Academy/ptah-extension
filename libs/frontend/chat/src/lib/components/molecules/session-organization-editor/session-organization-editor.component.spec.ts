@@ -5,7 +5,17 @@
  * the dialog's record, `ok: false` and transport failures rendered inline,
  * the `https:`-only PR rule (input and stored links), and "Open worktree"
  * through `editor:openWorkspace` with "Copy path" beside it (Assumption A3).
+ *
+ * TASK_2026_679 (plan component 6b): Tab wraps inside the `.modal-box` (R3),
+ * Escape stops propagation (R4), and focus returns to the opener after the
+ * close renders and its container is no longer inert (R2).
  */
+import {
+  ApplicationRef,
+  ChangeDetectionStrategy,
+  Component,
+  signal,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
@@ -56,6 +66,35 @@ function ok<T>(data: T) {
 
 function transportFailure(error: string) {
   return { success: false, data: undefined, error, isSuccess: () => false };
+}
+
+/** The opener's container is inert while the editor is open, as the modal panel is. */
+@Component({
+  selector: 'ptah-session-organization-editor-test-host',
+  standalone: true,
+  imports: [SessionOrganizationEditorComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div data-testid="page" [attr.inert]="session() !== null ? '' : null">
+      <button type="button" data-testid="opener">Organize</button>
+    </div>
+    <ptah-session-organization-editor
+      [session]="session()"
+      (closed)="session.set(null)"
+    />
+  `,
+})
+class EditorTestHostComponent {
+  readonly session = signal<ChatSessionSummary | null>(null);
+}
+
+function keydown(key: string, options: KeyboardEventInit = {}): KeyboardEvent {
+  return new KeyboardEvent('keydown', {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...options,
+  });
 }
 
 describe('SessionOrganizationEditorComponent', () => {
@@ -361,5 +400,156 @@ describe('SessionOrganizationEditorComponent', () => {
     expect(httpsUrlOrNull('javascript:alert(1)')).toBeNull();
     expect(httpsUrlOrNull('not a url')).toBeNull();
     expect(httpsUrlOrNull(`https://x.dev/${'a'.repeat(2048)}`)).toBeNull();
+  });
+
+  describe('focus trap and restore', () => {
+    // jsdom hides `dialog:not([open])`; DaisyUI's `.modal { display: grid }`
+    // overrides that in the app, so the specs load the same rule.
+    let daisyModal: HTMLStyleElement;
+    beforeAll(() => {
+      daisyModal = document.createElement('style');
+      daisyModal.textContent = '.modal { display: grid; }';
+      document.head.appendChild(daisyModal);
+    });
+    afterAll(() => daisyModal.remove());
+
+    const render = (target: ComponentFixture<unknown>): void => {
+      target.detectChanges();
+      TestBed.inject(ApplicationRef).tick();
+    };
+
+    /** Enabled tab stops inside the panel, in DOM order. */
+    const tabStops = (root: HTMLElement): HTMLElement[] =>
+      Array.from(
+        root.querySelectorAll<HTMLElement>(
+          ['a[href]', 'button', 'input', 'select']
+            .map((tag) => `.modal-box ${tag}:not(:disabled)`)
+            .join(', '),
+        ),
+      ).filter((element) => element.tabIndex >= 0);
+
+    beforeEach(() => document.body.appendChild(host));
+    afterEach(() => host.remove());
+
+    it('wraps Tab from the last control to the first, and Shift+Tab back', async () => {
+      await open(organization());
+      render(fixture);
+      const stops = tabStops(host);
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      expect(first).toBe(el('session-org-close'));
+      expect(document.activeElement).toBe(first);
+
+      last.focus();
+      const forward = keydown('Tab');
+      last.dispatchEvent(forward);
+      expect(forward.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(first);
+
+      const backward = keydown('Tab', { shiftKey: true });
+      first.dispatchEvent(backward);
+      expect(backward.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(last);
+
+      first.focus();
+      const inner = keydown('Tab');
+      first.dispatchEvent(inner);
+      expect(inner.defaultPrevented).toBe(false);
+    });
+
+    it('emits closed on Escape without reaching document listeners', async () => {
+      await open(organization());
+      const closed = jest.fn();
+      fixture.componentInstance.closed.subscribe(closed);
+      const documentEscape = jest.fn();
+      document.addEventListener('keydown', documentEscape);
+      try {
+        const event = keydown('Escape');
+        el<HTMLButtonElement>('session-org-close').dispatchEvent(event);
+        expect(closed).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(true);
+        expect(documentEscape).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener('keydown', documentEscape);
+      }
+    });
+
+    describe('with the opener behind an inert container', () => {
+      let hostFixture: ComponentFixture<EditorTestHostComponent>;
+      let page: HTMLElement;
+
+      const query = <T extends HTMLElement>(selector: string): T => {
+        const found = page.querySelector<T>(selector);
+        if (!found) throw new Error(`Missing ${selector}`);
+        return found;
+      };
+      const opener = (): HTMLButtonElement =>
+        query<HTMLButtonElement>('[data-testid="opener"]');
+      const openFromOpener = (): void => {
+        opener().focus();
+        hostFixture.componentInstance.session.set(row(organization()));
+        render(hostFixture);
+      };
+
+      beforeEach(() => {
+        hostFixture = TestBed.createComponent(EditorTestHostComponent);
+        page = hostFixture.nativeElement as HTMLElement;
+        document.body.appendChild(page);
+        render(hostFixture);
+      });
+      afterEach(() => page.remove());
+
+      it('returns focus to the opener after the close renders and inert is gone', () => {
+        openFromOpener();
+        const container = query('[data-testid="page"]');
+        expect(container.hasAttribute('inert')).toBe(true);
+        expect(document.activeElement).toBe(
+          query('[data-testid="session-org-close"]'),
+        );
+
+        query<HTMLButtonElement>('[data-testid="session-org-close"]').click();
+        expect(document.activeElement).not.toBe(opener());
+
+        render(hostFixture);
+        expect(container.hasAttribute('inert')).toBe(false);
+        expect(
+          page.querySelector('[data-testid="session-organization-editor"]'),
+        ).toBeNull();
+        expect(document.activeElement).toBe(opener());
+      });
+
+      it('keeps the first opener when reopened before the close renders', () => {
+        openFromOpener();
+        hostFixture.componentInstance.session.set(null);
+        // Refresh the view without running after-render hooks: the close has
+        // been processed but its restore has not run yet.
+        hostFixture.componentRef.changeDetectorRef.detectChanges();
+        expect(document.activeElement).not.toBe(opener());
+        hostFixture.componentInstance.session.set(row(organization()));
+        render(hostFixture);
+        expect(document.activeElement).toBe(
+          query('[data-testid="session-org-close"]'),
+        );
+
+        hostFixture.componentInstance.session.set(null);
+        render(hostFixture);
+        expect(document.activeElement).toBe(opener());
+      });
+
+      it('does not move focus when the opener is gone', () => {
+        const elsewhere = document.createElement('button');
+        document.body.appendChild(elsewhere);
+        try {
+          openFromOpener();
+          opener().remove();
+          hostFixture.componentInstance.session.set(null);
+          elsewhere.focus();
+          render(hostFixture);
+          expect(document.activeElement).toBe(elsewhere);
+        } finally {
+          elsewhere.remove();
+        }
+      });
+    });
   });
 });
