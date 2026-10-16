@@ -20,8 +20,45 @@ import {
 import type { NewProjectIntake } from '@ptah-extension/shared';
 import {
   HarnessRepairBlockedParamsSchema,
+  HarnessWorkflowPromptParamsSchema,
   NewProjectIntakeSchema,
 } from './harness-rpc.schema';
+
+describe('HarnessWorkflowPromptParamsSchema', () => {
+  it('keeps nonempty intent for existing callers', () => {
+    expect(
+      HarnessWorkflowPromptParamsSchema.parse({
+        mode: 'configure-harness',
+        intent: 'configure my agents',
+      }),
+    ).toEqual({ mode: 'configure-harness', intent: 'configure my agents' });
+    expect(() =>
+      HarnessWorkflowPromptParamsSchema.parse({
+        mode: 'configure-harness',
+        intent: '',
+      }),
+    ).toThrow();
+  });
+
+  it('accepts only an explicitly context-only request without intent', () => {
+    expect(
+      HarnessWorkflowPromptParamsSchema.parse({
+        mode: 'configure-harness',
+        contextOnly: true,
+      }),
+    ).toEqual({ mode: 'configure-harness', contextOnly: true });
+    expect(() =>
+      HarnessWorkflowPromptParamsSchema.parse({ mode: 'configure-harness' }),
+    ).toThrow();
+    expect(() =>
+      HarnessWorkflowPromptParamsSchema.parse({
+        mode: 'configure-harness',
+        contextOnly: true,
+        intent: 'hidden user text',
+      }),
+    ).toThrow();
+  });
+});
 
 const BASE = {
   what: 'A booking tool for physiotherapy clinics',

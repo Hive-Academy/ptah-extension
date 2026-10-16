@@ -833,12 +833,23 @@ describe('electronOnlySurface', () => {
  * that the remap is one edit.
  */
 describe('app.routes', () => {
-  const paths = appRoutes
+  const allPaths = appRoutes
     .map((route) => route.path)
     .filter((path): path is string => path !== '' && path !== '**');
+  // Parameter routes (e.g. `harness-builder/:mode/:tabId`) are deep links
+  // into an existing surface, not surfaces of their own.
+  const paths = allPaths.filter((path) => !path.includes('/:'));
 
   it('declares exactly the surfaces in SURFACE_ROUTE_IDS, in the same order', () => {
     expect(paths).toEqual([...SURFACE_ROUTE_IDS]);
+  });
+
+  it('roots every parameter route in a declared surface', () => {
+    const paramRoutes = allPaths.filter((path) => path.includes('/:'));
+    expect(paramRoutes).toEqual(['harness-builder/:mode/:tabId']);
+    for (const path of paramRoutes) {
+      expect(SURFACE_ROUTE_IDS).toContain(path.split('/')[0]);
+    }
   });
 
   it('cannot drift from the HOST allow-list (F4)', () => {

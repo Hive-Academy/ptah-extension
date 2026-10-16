@@ -386,6 +386,7 @@ export class MessageSenderService {
     const images = options?.images;
     const effort = options?.effort;
     let activeTabId = options?.tabId ?? this.tabManager.activeTabId();
+    let consumedPreamble: string | null = null;
     try {
       const ready = await this.waitForServices(5000);
       if (!ready) {
@@ -435,6 +436,7 @@ export class MessageSenderService {
       // BACKEND prompt only; the visible bubble stays the user's plain text.
       const firstMessagePreamble =
         this.tabManager.consumeFirstMessagePreamble(activeTabId);
+      consumedPreamble = firstMessagePreamble;
       const backendPrompt = firstMessagePreamble
         ? `${firstMessagePreamble}\n\n${content}`
         : content;
@@ -483,6 +485,12 @@ export class MessageSenderService {
 
       const authFailed = this.handleAuthRequired(result);
       if (!result.success || authFailed || result.data?.success === false) {
+        if (consumedPreamble) {
+          this.tabManager.setFirstMessagePreamble(
+            activeTabId,
+            consumedPreamble,
+          );
+        }
         console.error(
           '[MessageSender] Failed to start chat:',
           result.data?.error ?? result.error,
@@ -510,6 +518,12 @@ export class MessageSenderService {
       console.error('[MessageSender] Failed to start new conversation:', error);
 
       if (activeTabId) {
+        if (consumedPreamble) {
+          this.tabManager.setFirstMessagePreamble(
+            activeTabId,
+            consumedPreamble,
+          );
+        }
         this.tabManager.markLoaded(activeTabId);
         // Same reason as the structural exit above: a throw before the stream
         // starts (e.g. AuthRequiredError out of startChatSession) leaves nothing

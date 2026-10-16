@@ -115,6 +115,19 @@ export const appRoutes: Routes = [
     component: DashboardGridComponent,
   },
   {
+    path: 'harness-builder/:mode/:tabId',
+    providers: [
+      {
+        provide: SURFACE_ACTIVE,
+        useFactory: surfaceActiveFor('harness-builder'),
+      },
+    ],
+    loadComponent: () =>
+      import('@ptah-extension/harness-builder').then(
+        (m) => m.HarnessBuilderViewComponent,
+      ),
+  },
+  {
     path: 'harness-builder',
     providers: [
       {

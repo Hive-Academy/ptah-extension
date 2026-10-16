@@ -20,7 +20,11 @@
 
 import 'reflect-metadata';
 
-import { isAuthorizedWorkspace } from './workspace-authorization';
+import {
+  findOpenWorkspaceRoot,
+  isAuthorizedWorkspace,
+  sameWorkspaceRoot,
+} from './workspace-authorization';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 function makeProvider(folders: string[]): IWorkspaceProvider {
@@ -32,6 +36,41 @@ function makeProvider(folders: string[]): IWorkspaceProvider {
 }
 
 const FOLDER = '/c/projects/my-repo';
+
+describe('sameWorkspaceRoot', () => {
+  it('matches Windows roots across case and trailing separators, preserving the open folder spelling', () => {
+    const folder = 'C:\\Users\\Ann\\MyApp';
+    expect(sameWorkspaceRoot('c:\\users\\ann\\myapp\\', folder, 'win32')).toBe(
+      true,
+    );
+    expect(
+      sameWorkspaceRoot('C:\\Users\\Ann\\MyApp\\child', folder, 'win32'),
+    ).toBe(false);
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+    try {
+      expect(
+        findOpenWorkspaceRoot(
+          'c:\\users\\ann\\myapp\\',
+          makeProvider([folder]),
+        ),
+      ).toBe(folder);
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: platform,
+        configurable: true,
+      });
+    }
+  });
+  it('keeps case significant on non-Windows hosts', () => {
+    expect(
+      sameWorkspaceRoot('/Users/Ann/MyApp', '/users/ann/myapp', 'linux'),
+    ).toBe(false);
+  });
+});
 
 describe('isAuthorizedWorkspace', () => {
   describe('early-out guards', () => {

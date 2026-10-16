@@ -68,8 +68,13 @@ export class HarnessRpcService {
    * Start a harness builder session.
    * Returns workspace context, available agents, skills, and presets.
    */
-  public async initialize(): Promise<HarnessInitializeResponse> {
-    const result = await this.rpcService.call('harness:initialize', {});
+  public async initialize(
+    workspaceRoot?: string,
+  ): Promise<HarnessInitializeResponse> {
+    const result = await this.rpcService.call(
+      'harness:initialize',
+      workspaceRoot ? { workspaceRoot } : {},
+    );
     if (result.isSuccess() && result.data) {
       return result.data;
     }
@@ -300,9 +305,11 @@ export class HarnessRpcService {
 
   public async getProposal(
     sessionId: string,
+    workspaceRoot?: string,
   ): Promise<HarnessGetProposalResult> {
     const result = await this.rpcService.call('harness:get-proposal', {
       sessionId,
+      ...(workspaceRoot ? { workspaceRoot } : {}),
     });
     if (result.isSuccess() && result.data) {
       return result.data;
