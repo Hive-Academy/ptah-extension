@@ -12,8 +12,12 @@
 import { PlatformLocation } from '@angular/common';
 import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { NavigationEnd, NavigationStart, Router } from '@angular/router';
-import { SurfaceRouterService, VSCodeService } from '@ptah-extension/core';
+import { NavigationCancel, NavigationEnd, NavigationStart, Router } from '@angular/router';
+import {
+  SurfaceRouterService,
+  SurfaceTransitionTracker,
+  VSCodeService,
+} from '@ptah-extension/core';
 import {
   provideSurfaceRouterTesting,
   settleSurfaceNavigation,
@@ -80,6 +84,38 @@ interface SetUpOptions {
 async function settle(): Promise<void> {
   await settleSurfaceNavigation();
   await settleSurfaceNavigation();
+}
+
+/** Keep the tracker busy without changing how the Router navigates in these specs. */
+function startTransition(): {
+  finish: () => Promise<void>;
+  reject: () => Promise<void>;
+} {
+  let resolveFinished: () => void = () => undefined;
+  let rejectFinished: (reason: Error) => void = () => undefined;
+  const finished = new Promise<void>((resolve, reject) => {
+    resolveFinished = resolve;
+    rejectFinished = reject;
+  });
+  TestBed.inject(SurfaceTransitionTracker).track({
+    ready: Promise.resolve(),
+    updateCallbackDone: Promise.resolve(),
+    finished,
+    types: new Set<string>(),
+    skipTransition: () => undefined,
+  });
+  return {
+    async finish(): Promise<void> {
+      resolveFinished();
+      await finished;
+      await Promise.resolve();
+    },
+    async reject(): Promise<void> {
+      rejectFinished(new Error('transition skipped'));
+      await finished.catch(() => undefined);
+      await Promise.resolve();
+    },
+  };
 }
 
 describe('ChatTabRouteSync', () => {
@@ -305,6 +341,176 @@ describe('ChatTabRouteSync', () => {
 
       expect(settledUrls).toEqual([]);
       expect(router.navigated).toBe(false);
+    });
+  });
+
+  describe('deferred URL correction during a page transition', () => {
+    it('issues an idle correction in the same effect turn', async () => {
+      setUp([TAB_A, TAB_B], TAB_A);
+      await router.navigateByUrl(`/chat/${TAB_A}`);
+      await settle();
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+      tabManager.activeTabId.set(TAB_B);
+      TestBed.tick();
+
+      expect(navigate).toHaveBeenCalledWith('chat', [TAB_B], { replaceUrl: true });
+      await settle();
+    });
+
+    it('waits for the transition and replaces once toward the latest tab', async () => {
+      setUp([TAB_A, TAB_B, TAB_C], TAB_A);
+      await router.navigateByUrl('/settings');
+      const transition = startTransition();
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+      await router.navigateByUrl('/chat');
+      tabManager.activeTabId.set(TAB_B);
+      TestBed.tick();
+      tabManager.activeTabId.set(TAB_C);
+      TestBed.tick();
+      expect(navigate).not.toHaveBeenCalled();
+
+      await transition.finish();
+      await settle();
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith('chat', [TAB_C], { replaceUrl: true });
+      expect(router.url).toBe(`/chat/${TAB_C}`);
+    });
+
+    it('discards a queued correction after chat to settings within 80 ms', async () => {
+      setUp([TAB_A], TAB_A);
+      await router.navigateByUrl('/settings');
+      const transition = startTransition();
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+      await router.navigateByUrl('/chat');
+      expect(navigate).not.toHaveBeenCalled();
+      expect(await router.navigateByUrl('/settings')).toBe(true);
+      await transition.finish();
+      await settle();
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(router.url).toBe('/settings');
+      expect(router.navigated).toBe(true);
+      expect(settledUrls).toEqual(['/settings', '/chat', '/settings']);
+    });
+
+    it('does not return to chat after a second transition to tasks', async () => {
+      setUp([TAB_A], TAB_A);
+      await router.navigateByUrl('/settings');
+      const first = startTransition();
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+      await router.navigateByUrl('/chat');
+      const second = startTransition();
+      expect(await router.navigateByUrl('/tasks')).toBe(true);
+      await first.finish();
+      expect(navigate).not.toHaveBeenCalled();
+      await second.finish();
+      await settle();
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(router.url).toBe('/tasks');
+    });
+
+    it('does not overwrite a newer chat navigation', async () => {
+      setUp([TAB_A, TAB_B], TAB_A);
+      await router.navigateByUrl('/settings');
+      const transition = startTransition();
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+      await router.navigateByUrl('/chat');
+      expect(await router.navigateByUrl(`/chat/${TAB_B}`)).toBe(true);
+      await transition.finish();
+      await settle();
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(router.url).toBe(`/chat/${TAB_B}`);
+      expect(tabManager.activeTabId()).toBe(TAB_B);
+    });
+
+    it.each(['cancel', 'error'] as const)(
+      'reconciles a dropped correction after a navigation %s',
+      async (outcome) => {
+        setUp([TAB_A], TAB_A);
+        await router.navigateByUrl('/settings');
+        const transition = startTransition();
+        await router.navigateByUrl('/chat');
+        router.resetConfig(router.config.map((route) => route.path === 'settings'
+          ? { ...route, canActivate: [() => outcome === 'cancel' ? false : Promise.reject(new Error('guard failed'))] }
+          : route));
+
+        if (outcome === 'cancel') {
+          expect(await router.navigateByUrl('/settings')).toBe(false);
+        } else {
+          await expect(router.navigateByUrl('/settings')).rejects.toThrow('guard failed');
+        }
+        await transition.finish();
+        await settle();
+
+        expect(router.url).toBe(`/chat/${TAB_A}`);
+        expect(replaceState).toHaveBeenCalledWith(
+          expect.anything(), expect.anything(), `/chat/${TAB_A}`,
+        );
+      },
+    );
+
+    it('retries a dropped correction after the pending surface clears in the next microtask', async () => {
+      setUp([TAB_A], TAB_A);
+      await router.navigateByUrl('/settings');
+      const transition = startTransition();
+      await router.navigateByUrl('/chat');
+      router.resetConfig(router.config.map((route) => route.path === 'settings'
+        ? { ...route, canActivate: [() => false] }
+        : route));
+      const sync = TestBed.inject(ChatTabRouteSync) as unknown as { reconcileDroppedCorrection: () => void };
+      const reconcile = jest.spyOn(sync, 'reconcileDroppedCorrection');
+      const pending = jest.spyOn(TestBed.inject(SurfaceRouterService), 'pendingSurface');
+      router.events.subscribe((event) => {
+        if (event instanceof NavigationCancel) {
+          pending.mockReturnValue('settings');
+          queueMicrotask(() => pending.mockReturnValue(null));
+        }
+      });
+
+      expect(await router.navigateByUrl('/settings')).toBe(false);
+      expect(reconcile).toHaveBeenCalledTimes(2);
+      await transition.finish();
+      await settle();
+
+      expect(router.url).toBe(`/chat/${TAB_A}`);
+      expect(replaceState).toHaveBeenCalledWith(
+        expect.anything(), expect.anything(), `/chat/${TAB_A}`,
+      );
+    });
+
+    it('does not issue a correction while another surface is pending', async () => {
+      setUp([TAB_A], TAB_A);
+      await router.navigateByUrl('/settings');
+      const transition = startTransition();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+
+      await router.navigateByUrl('/chat');
+      jest.spyOn(surfaceRouter, 'pendingSurface').mockReturnValue('settings');
+      await transition.finish();
+
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('flushes a correction when the transition finishes with rejection', async () => {
+      setUp([TAB_A], TAB_A);
+      await router.navigateByUrl('/settings');
+      const transition = startTransition();
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+      await router.navigateByUrl('/chat');
+      await transition.reject();
+      await settle();
+
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(router.url).toBe(`/chat/${TAB_A}`);
     });
   });
 

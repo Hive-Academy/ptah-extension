@@ -7,9 +7,13 @@ import {
   inject,
   untracked,
 } from '@angular/core';
-import { NavigationEnd, PRIMARY_OUTLET, Router } from '@angular/router';
+import { NavigationCancel, NavigationEnd, NavigationError, NavigationStart, PRIMARY_OUTLET, Router } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { SurfaceRouterService, VSCodeService } from '@ptah-extension/core';
+import {
+  SurfaceRouterService,
+  SurfaceTransitionTracker,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { TabId, TabManagerService } from '@ptah-extension/chat-state';
 import type { ViewType } from '@ptah-extension/shared';
 
@@ -67,6 +71,7 @@ interface Correction {
 export class ChatTabRouteSync {
   private readonly router = inject(Router);
   private readonly surfaceRouter = inject(SurfaceRouterService);
+  private readonly transitionTracker = inject(SurfaceTransitionTracker);
   private readonly tabManager = inject(TabManagerService);
   private readonly isElectron = inject(VSCodeService).isElectron;
   private readonly injector = inject(Injector);
@@ -89,6 +94,10 @@ export class ChatTabRouteSync {
 
   private held: HeldUrlTab | null = null;
   private correction: Correction | null = null;
+  /** Invalidates a deferred correction when navigation or another correction starts. */
+  private routeGeneration = 0;
+  private deferredCorrectionGeneration: number | null = null;
+  private correctionDropped = false;
   /** The active tab changed while a navigation was in flight. */
   private activeChangedInFlight = false;
   private lastActive: string | null = null;
@@ -108,10 +117,23 @@ export class ChatTabRouteSync {
     const subscription = this.router.events
       .pipe(
         filter(
-          (event): event is NavigationEnd => event instanceof NavigationEnd,
+          (event): event is NavigationStart | NavigationEnd | NavigationCancel | NavigationError =>
+            event instanceof NavigationStart || event instanceof NavigationEnd ||
+            event instanceof NavigationCancel || event instanceof NavigationError,
         ),
       )
-      .subscribe((event) => this.followUrl(event.urlAfterRedirects));
+      .subscribe((event) => {
+        if (event instanceof NavigationStart) {
+          this.routeGeneration++;
+          if (this.deferredCorrectionGeneration !== null) this.correctionDropped = true;
+        } else if (event instanceof NavigationEnd) {
+          this.correctionDropped = false;
+          this.followUrl(event.urlAfterRedirects);
+        } else if (this.correctionDropped) {
+          // The Router clears currentNavigation after emitting the terminal event.
+          queueMicrotask(() => this.reconcileDroppedCorrection());
+        }
+      });
     this.destroyRef.onDestroy(() => subscription.unsubscribe());
 
     effect(
@@ -175,7 +197,7 @@ export class ChatTabRouteSync {
     this.held = null;
     // A bare `/chat` with no active tab is already correct.
     if (urlTab === null && activeTabId === null) return;
-    void this.replaceChatUrl(activeTabId);
+    this.replaceChatUrl();
   }
 
   /** Reaction 2: a new active tab, or a newly ready tab set, reaches the URL. */
@@ -209,7 +231,7 @@ export class ChatTabRouteSync {
     if (this.resolveHeldUrlTab(urlTab, activeTabId, ready)) return;
 
     if (urlTab === activeTabId) return;
-    void this.replaceChatUrl(activeTabId);
+    this.replaceChatUrl();
   }
 
   /**
@@ -264,13 +286,55 @@ export class ChatTabRouteSync {
   /**
    * Replace the URL with `/chat/<id>`, or `/chat` when there is no active tab.
    *
+   * A page transition defers the replace until its animation settles. A later
+   * navigation or correction invalidates the queued work. Idle corrections
+   * still start during NavigationEnd, before Router clears its pending intent.
+   */
+  private replaceChatUrl(): void {
+    const deferred = this.transitionTracker.busy();
+    const generation = ++this.routeGeneration;
+    this.deferredCorrectionGeneration = deferred ? generation : null;
+    this.correctionDropped = false;
+    this.transitionTracker.afterTransition(() => {
+      if (deferred) {
+        if (generation !== this.routeGeneration || this.surfaceRouter.pendingSurface() !== null) {
+          if (this.deferredCorrectionGeneration === generation) {
+            this.deferredCorrectionGeneration = null;
+            this.correctionDropped = true;
+            this.reconcileDroppedCorrection();
+          }
+          return;
+        }
+        this.deferredCorrectionGeneration = null;
+        const currentTab = this.chatTabOf(this.router.url);
+        if (currentTab === undefined) return;
+        if (currentTab === this.tabManager.activeTabId()) return;
+      }
+      void this.issueCorrection(this.tabManager.activeTabId());
+    });
+  }
+
+  private reconcileDroppedCorrection(retryIfPending = true): void {
+    if (!this.correctionDropped) return;
+    if (this.surfaceRouter.pendingSurface() !== null) {
+      if (retryIfPending) queueMicrotask(() => this.reconcileDroppedCorrection(false));
+      return;
+    }
+    const currentTab = this.chatTabOf(this.router.url);
+    this.correctionDropped = false;
+    if (currentTab !== undefined && currentTab !== this.tabManager.activeTabId()) {
+      this.followActiveTab(this.tabManager.activeTabId(), this.tabsReady());
+    }
+  }
+
+  /**
    * The replace is remembered until it finishes, so its landing is recognised
    * as ours: `NavigationEnd` is emitted before `navigateByUrl` resolves. The
    * outcome is otherwise ignored: the tab state is already correct whatever
    * the navigation does, and a cancelled or failed replace is reconciled by
    * the next settle. `navigateToSurface` never rejects and logs a failure.
    */
-  private async replaceChatUrl(activeTabId: string | null): Promise<void> {
+  private async issueCorrection(activeTabId: string | null): Promise<void> {
     const correction: Correction = { tabId: activeTabId };
     this.correction = correction;
     try {
