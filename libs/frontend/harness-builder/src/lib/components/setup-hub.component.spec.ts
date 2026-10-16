@@ -157,6 +157,17 @@ describe('SetupHubComponent entry handoff', () => {
     });
   });
 
+  it('clears a stale Hub error when a session resumes', async () => {
+    requests.requestAndNavigate.mockResolvedValue('resumed');
+    requests.hubError.set('Previous error');
+    resumableMode.set('new-project');
+    fixture.detectChanges();
+    click('new-project-resume');
+    await fixture.whenStable();
+    expect(requests.dismissHubError).toHaveBeenCalled();
+    expect(requests.reportHubError).not.toHaveBeenCalled();
+  });
+
   it('shows persistent warning and malformed-relay error lines until dismissed', () => {
     requests.hubWarning.set('Previous session could not be stopped');
     requests.hubError.set('Invalid builder request');

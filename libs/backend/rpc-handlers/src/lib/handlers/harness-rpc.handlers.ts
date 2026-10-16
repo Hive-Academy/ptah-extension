@@ -28,7 +28,7 @@
  * the service registration order is documented in `../harness/di.ts`.
  */
 
-import * as path from 'node:path';
+import { findOpenWorkspaceRoot } from '../utils/workspace-authorization';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -372,18 +372,15 @@ export class HarnessRpcHandlers {
       async (params) => {
         const { workspaceRoot: requestedRoot } =
           HarnessInitializeParamsSchema.parse(params ?? {});
-        if (requestedRoot) {
-          const isOpen = this.workspaceProvider
-            .getWorkspaceFolders()
-            .some((folder) => path.normalize(folder) === requestedRoot);
-          if (!isOpen) {
-            throw new Error(
-              'Pinned workspace root is not an open workspace folder.',
-            );
-          }
-        }
+        const pinnedFolder = requestedRoot
+          ? findOpenWorkspaceRoot(requestedRoot, this.workspaceProvider)
+          : undefined;
+        if (requestedRoot && !pinnedFolder)
+          throw new Error(
+            'Pinned workspace root is not an open workspace folder.',
+          );
         const [workspaceContext, existingPresets] = await Promise.all([
-          this.workspaceContext.resolveWorkspaceContext(requestedRoot),
+          this.workspaceContext.resolveWorkspaceContext(pinnedFolder),
           this.configStore.loadPresetsFromDisk(),
         ]);
         const availableAgents = this.workspaceContext.getAvailableAgents();
@@ -392,7 +389,7 @@ export class HarnessRpcHandlers {
         // `harness:apply` calls echo this back, keeping file writes bound to the
         // workspace the build started in even after an Electron workspace switch.
         const workspaceRoot =
-          requestedRoot ?? this.workspaceProvider.getWorkspaceRoot() ?? null;
+          pinnedFolder ?? this.workspaceProvider.getWorkspaceRoot() ?? null;
         return {
           workspaceContext,
           availableAgents,
@@ -506,8 +503,13 @@ export class HarnessRpcHandlers {
         const config = this.configStore.normalizeHarnessConfig(params.config);
         const appliedPaths: string[] = [];
         const warnings: string[] = [];
-        const workspaceRoot =
-          requestedRoot ?? this.workspaceProvider.getWorkspaceRoot();
+        const workspaceRoot = requestedRoot
+          ? findOpenWorkspaceRoot(requestedRoot, this.workspaceProvider)
+          : this.workspaceProvider.getWorkspaceRoot();
+        if (requestedRoot && !workspaceRoot)
+          throw new Error(
+            'Pinned workspace root is not an open workspace folder.',
+          );
         const presetPath = await this.configStore.writePresetToDisk(
           config.name,
           config,
@@ -927,8 +929,15 @@ export class HarnessRpcHandlers {
       'harness:get-proposal',
       'registerGetProposal',
       async (params) => {
-        const { sessionId, workspaceRoot } =
+        const { sessionId, workspaceRoot: requestedRoot } =
           HarnessGetProposalParamsSchema.parse(params);
+        const workspaceRoot = requestedRoot
+          ? findOpenWorkspaceRoot(requestedRoot, this.workspaceProvider)
+          : undefined;
+        if (requestedRoot && !workspaceRoot)
+          throw new Error(
+            'Pinned workspace root is not an open workspace folder.',
+          );
         const store = this.resolveService<IHarnessProposalStore>(
           PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
           'HarnessProposalStore',

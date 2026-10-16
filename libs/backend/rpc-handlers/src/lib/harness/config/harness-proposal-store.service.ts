@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { sameWorkspaceRoot } from '../../utils/workspace-authorization';
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { serializeByKey, withFileLock } from '@ptah-extension/harness-sync';
@@ -163,13 +164,15 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     if (workspaceRoot !== undefined) {
       if (
         !workspaceRoot ||
-        !path.isAbsolute(workspaceRoot) ||
-        path.normalize(workspaceRoot) !== workspaceRoot ||
+        !(process.platform === 'win32' ? path.win32 : path).isAbsolute(
+          workspaceRoot,
+        ) ||
+        workspaceRoot.split(/[\\/]+/).includes('..') ||
         workspaceRoot.trim() !== workspaceRoot ||
         workspaceRoot.includes('\0')
       ) {
         throw new Error(
-          'Harness proposal workspace root must be a normalized absolute path.',
+          'Harness proposal workspace root must be an absolute path without traversal.',
         );
       }
       return workspaceRoot;
@@ -205,7 +208,7 @@ export class HarnessProposalStore implements IHarnessProposalStore {
       if (
         !result.success ||
         result.data.sessionId !== sessionId ||
-        result.data.workspaceRoot !== root
+        !sameWorkspaceRoot(result.data.workspaceRoot, root)
       ) {
         this.logger.warn('Ignoring invalid harness proposal record', { file });
         return null;

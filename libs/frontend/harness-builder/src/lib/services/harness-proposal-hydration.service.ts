@@ -364,7 +364,7 @@ export class HarnessProposalHydrationService {
       ),
     );
     const applyChoice = (field: HarnessChoiceField): void => {
-      if (!pending.delete(field)) return;
+      pending.delete(field);
       const value = this.snapshot?.configUpdates[field];
       if (value !== undefined) {
         const choice: Partial<HarnessConfig> = {};
@@ -380,6 +380,15 @@ export class HarnessProposalHydrationService {
         }
       }
       config = mergeBuilderUpdates(config, revision.configUpdates);
+      if (!revision.turnStartedAt) {
+        for (const field of HARNESS_CHOICE_FIELDS) {
+          if (
+            this.snapshot?.fields[field] !== undefined &&
+            revision.configUpdates[field] !== undefined
+          )
+            applyChoice(field);
+        }
+      }
       complete = revision.isConfigComplete;
     }
     for (const field of [...pending]) applyChoice(field);

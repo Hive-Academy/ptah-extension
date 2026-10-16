@@ -210,7 +210,19 @@ describe('HarnessWorkflowRequestService', () => {
       expect.stringContaining('Clinic scheduler'),
       'running',
     );
+    expect(service.resumedIntake()).toEqual({
+      tabId: 'running',
+      text: expect.stringContaining('Clinic scheduler'),
+    });
+    expect(service.hubError()).toBeNull();
     expect(rpc.startNewProject).not.toHaveBeenCalled();
+  });
+
+  it('keeps resumed intake available when the chat composer may already have typed text', async () => {
+    tabsSignal.set([{ id: 'running', workflow: 'harness-new-project' }]);
+    await service.requestAndNavigate({ mode: 'new-project', intake });
+    expect(service.resumedIntake()?.text).toContain('Clinic scheduler');
+    expect(service.resumedIntake()?.tabId).toBe('running');
   });
 
   it('copies validated intake before clearing intent and starts after the leave choice', async () => {

@@ -631,6 +631,34 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       ).not.toHaveBeenCalled();
     });
 
+    it('harness:initialize accepts a differently cased Windows folder with a trailing separator', async () => {
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
+      try {
+        const folder = 'C:\\Users\\Ann\\MyApp';
+        const suite = buildSuite([folder]);
+        suite.handlers.register();
+        const response = await getHandler(
+          suite.rpc,
+          'harness:initialize',
+        )({
+          workspaceRoot: 'c:\\users\\ann\\myapp\\',
+        });
+        expect(
+          suite.workspaceContext.resolveWorkspaceContext,
+        ).toHaveBeenCalledWith(folder);
+        expect(response).toMatchObject({ workspaceRoot: folder });
+      } finally {
+        Object.defineProperty(process, 'platform', {
+          value: platform,
+          configurable: true,
+        });
+      }
+    });
+
     it('harness:initialize resolves a pinned open folder while another folder is active', async () => {
       const activeRoot = join(tmpdir(), 'harness-active');
       const pinnedRoot = join(tmpdir(), 'harness-pinned');
@@ -1170,6 +1198,45 @@ describe('HarnessRpcHandlers (thin facade)', () => {
   });
 
   describe('harness:get-proposal', () => {
+    it('accepts the open Windows folder spelling and rejects another root before store access', async () => {
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
+      try {
+        const folder = 'C:\\Users\\Ann\\MyApp';
+        const suite = buildSuite([folder]);
+        const get = jest.fn().mockResolvedValue(null);
+        suite.container.__register(Symbol.for('PlatformHarnessProposalStore'), {
+          get,
+        });
+        suite.handlers.register();
+        await getHandler(
+          suite.rpc,
+          'harness:get-proposal',
+        )({
+          sessionId: 'session',
+          workspaceRoot: 'c:\\users\\ann\\myapp\\',
+        });
+        expect(get).toHaveBeenCalledWith('session', folder);
+        await expect(
+          getHandler(
+            suite.rpc,
+            'harness:get-proposal',
+          )({
+            sessionId: 'session',
+            workspaceRoot: 'C:\\Other',
+          }),
+        ).rejects.toThrow('not an open workspace folder');
+        expect(get).toHaveBeenCalledTimes(1);
+      } finally {
+        Object.defineProperty(process, 'platform', {
+          value: platform,
+          configurable: true,
+        });
+      }
+    });
     it.each([
       {},
       { sessionId: '' },
@@ -1190,7 +1257,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
     it('reads the proposal from the same workspace root used for the write', async () => {
       const root = await mkdtemp(join(tmpdir(), 'ptah-proposal-rpc-'));
       try {
-        const suite = buildSuite();
+        const suite = buildSuite([root]);
         const provider = createMockWorkspaceProvider({ folders: [root] });
         const store = new HarnessProposalStore(
           suite.logger as unknown as Logger,
@@ -1217,7 +1284,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
             sessionId: ' sdk-session ',
           }),
         ).resolves.toEqual({ proposal: written });
-        provider.__state.setFolders([join(root, 'other')]);
+        provider.__state.setFolders([root, join(root, 'other')]);
         await expect(
           getHandler(
             suite.rpc,
@@ -1385,7 +1452,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
     });
 
     it('explicit pinned workspaceRoot wins over the active workspace', async () => {
-      const suite = buildSuite();
+      const suite = buildSuite(['/ws', '/pinned/workspace']);
       const subagents = [
         {
           id: 'sentiment-watchdog',
@@ -1466,7 +1533,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
     });
 
     it('accepts a clean absolute workspaceRoot', async () => {
-      const suite = buildSuite();
+      const suite = buildSuite(['/ws', '/pinned/workspace']);
       const config = normalizedConfig();
       suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
       suite.handlers.register();

@@ -117,7 +117,9 @@ const reportAbortFailure = jest.fn();
 const cancelPendingIntent = jest.fn();
 const retryFirstSend = jest.fn(async () => true);
 const logError = jest.fn();
-let lookupRoot = '/workspace/a';
+let lookupRoot: string | null = '/workspace/a';
+let rawRoot = '/workspace/a';
+const resumedIntake = signal<{ tabId: string; text: string } | null>(null);
 const initialize = jest.fn(
   async (workspaceRoot: string | null = '/workspace/a') => ({
     workspaceRoot,
@@ -184,6 +186,10 @@ async function render() {
         provide: HarnessWorkflowRequestService,
         useValue: {
           workspaceRoot: '/workspace/a',
+          get rawWorkspaceRoot() {
+            return rawRoot;
+          },
+          resumedIntake,
           pendingIntent,
           entryErrors,
           cancelPendingIntent,
@@ -221,6 +227,8 @@ describe('HarnessBuilderViewComponent shared session host', () => {
       convertToParamMap({ mode: 'configure-harness', tabId: 'tab-a' }),
     );
     lookupRoot = '/workspace/a';
+    rawRoot = '/workspace/a';
+    resumedIntake.set(null);
     tabs.set([
       {
         id: 'tab-a',
@@ -294,6 +302,34 @@ describe('HarnessBuilderViewComponent shared session host', () => {
         .componentInstance.workspaceRoot(),
     ).toBe(originalRoot);
     expect(fixture.componentInstance.initialized()).toBe(true);
+  });
+
+  it('uses the raw active root when a VS Code tab has no workspace path', async () => {
+    lookupRoot = null;
+    rawRoot = 'C:\\Users\\Ann\\MyApp';
+    initialize.mockImplementationOnce(async () => ({
+      workspaceRoot: 'c:\\users\\ann\\myapp',
+      workspaceContext: {
+        projectName: 'MyApp',
+        projectType: 'app',
+        frameworks: [],
+        languages: [],
+      },
+      availableAgents: [],
+      availableSkills: [],
+      existingPresets: [],
+    }));
+    const fixture = await render();
+    expect(initialize).toHaveBeenCalledWith(rawRoot);
+    expect(fixture.componentInstance.initialized()).toBe(true);
+  });
+
+  it('shows a resumed intake on the builder page for review', async () => {
+    resumedIntake.set({ tabId: 'tab-a', text: 'Clinic scheduler intake' });
+    const fixture = await render();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Clinic scheduler intake',
+    );
   });
 
   it('queues the pinned tab for canvas adoption in grid mode', async () => {

@@ -55,6 +55,10 @@ export class HarnessWorkflowRequestService {
   private readonly _hubWarning = signal<string | null>(null);
   private readonly _hubError = signal<string | null>(null);
   private readonly _entryErrors = signal<Readonly<Record<string, string>>>({});
+  private readonly _resumedIntake = signal<{
+    tabId: string;
+    text: string;
+  } | null>(null);
   private readonly pendingFirstSends = new Map<
     string,
     {
@@ -71,10 +75,15 @@ export class HarnessWorkflowRequestService {
   readonly hubWarning = this._hubWarning.asReadonly();
   readonly hubError = this._hubError.asReadonly();
   readonly entryErrors = this._entryErrors.asReadonly();
+  readonly resumedIntake = this._resumedIntake.asReadonly();
 
   get workspaceRoot(): string {
-    return canonicalHarnessRoot(
-      this.tabs.activeWorkspacePath ?? this.vscode.config().workspaceRoot ?? '',
+    return canonicalHarnessRoot(this.rawWorkspaceRoot);
+  }
+
+  get rawWorkspaceRoot(): string {
+    return (
+      this.tabs.activeWorkspacePath ?? this.vscode.config().workspaceRoot ?? ''
     );
   }
 
@@ -243,15 +252,14 @@ export class HarnessWorkflowRequestService {
           data.mode === 'new-project' &&
           data.intake
         ) {
-          this.appState.requestComposerPrefill(
-            formatIntakeSummary(data.intake),
-            same,
-          );
-          this.reportHubError(
-            'Resumed your existing New Project session with the new intake in its composer.',
-          );
+          const text = formatIntakeSummary(data.intake);
+          // ChatInput ignores a prefill when its composer contains user text.
+          // Keep the intake visible on the builder in that case.
+          this._resumedIntake.set({ tabId: same, text });
+          this.appState.requestComposerPrefill(text, same);
           return 'resumed';
         }
+        if (outcome === 'landed') this._resumedIntake.set(null);
         return outcome;
       }
       if (data.mode === 'new-project' && !data.intake) {

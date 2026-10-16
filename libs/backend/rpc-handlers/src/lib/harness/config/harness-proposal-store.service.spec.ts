@@ -70,6 +70,30 @@ describe('HarnessProposalStore', () => {
     expect(await store.get('one')).toEqual(saved);
   });
 
+  it('reads a stored root with different Windows casing and a trailing separator', async () => {
+    const saved = await store.save('one', { name: 'First' }, false);
+    await fs.writeFile(
+      fileFor('one'),
+      JSON.stringify({
+        ...saved,
+        workspaceRoot: `${root.toUpperCase()}${path.sep}`,
+      }),
+    );
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+    try {
+      expect((await store.get('one', root))?.configUpdates.name).toBe('First');
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: platform,
+        configurable: true,
+      });
+    }
+  });
+
   it('persists one exact revision per save with a unique write identity', async () => {
     const first = await store.save('one', { name: 'First' }, false);
     const second = await store.save('one', { name: 'Second' }, true);
@@ -205,10 +229,10 @@ describe('HarnessProposalStore', () => {
   ])('rejects an invalid pinned root %j before writing', async (callerRoot) => {
     expect(() =>
       store.captureProposingTurnStartedAt('one', callerRoot),
-    ).toThrow(/normalized absolute path/);
+    ).toThrow(/absolute path without traversal/);
     await expect(
       store.save('one', {}, false, undefined, callerRoot),
-    ).rejects.toThrow(/normalized absolute path/);
+    ).rejects.toThrow(/absolute path without traversal/);
     await expect(fs.access(fileFor('one'))).rejects.toMatchObject({
       code: 'ENOENT',
     });

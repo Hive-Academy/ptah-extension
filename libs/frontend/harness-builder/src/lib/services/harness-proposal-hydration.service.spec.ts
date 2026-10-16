@@ -152,6 +152,30 @@ describe('HarnessProposalHydrationService', () => {
     expect(service.config().persona?.label).toBe('new');
   });
 
+  it.each([t1, t3])(
+    'keeps a user choice over a later unattributed revision after a turn at %s',
+    async (turnStart) => {
+      const snapshot: HarnessUserSnapshot = {
+        version: 1,
+        workspaceRoot: root,
+        tabId: 'tab',
+        configUpdates: { persona: persona('user') },
+        fields: { persona: { source: 'user', chosenAt: t2, updatedAt: t2 } },
+      };
+      rpc.getProposal.mockResolvedValue(
+        proposal('own', [
+          { ...revision('attributed', 'attributed', turnStart), updatedAt: t3 },
+          {
+            ...revision('unattributed', 'unattributed'),
+            updatedAt: '2026-10-15T13:00:00.000Z',
+          },
+        ]),
+      );
+      await service.bind(root, 'tab', ['own'], snapshot);
+      expect(service.config().persona?.label).toBe('user');
+    },
+  );
+
   it('buffers a push during the read and deduplicates it after hydration', async () => {
     const read = deferred<HarnessGetProposalResult>();
     const saved = revision('same', 'one', t1);

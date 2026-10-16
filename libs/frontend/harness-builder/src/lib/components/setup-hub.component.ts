@@ -1366,7 +1366,9 @@ export class SetupHubComponent implements OnInit {
   private reportEntryOutcome(
     outcome: 'landed' | 'resumed' | 'cancelled' | 'failed',
   ): void {
-    if (outcome === 'cancelled') {
+    if (outcome === 'landed' || outcome === 'resumed') {
+      this.workflowRequest.dismissHubError();
+    } else if (outcome === 'cancelled') {
       this.workflowRequest.reportHubError(
         'Finish the current builder switch before opening another.',
       );
@@ -1485,7 +1487,7 @@ export class SetupHubComponent implements OnInit {
       });
       if (outcome === 'landed' || outcome === 'resumed')
         this._showIntake.set(false);
-      if (outcome === 'cancelled') this.reportEntryOutcome(outcome);
+      if (outcome !== 'failed') this.reportEntryOutcome(outcome);
       if (outcome === 'failed')
         this._intakeError.set('The builder could not be opened. Try again.');
     } finally {
@@ -1507,7 +1509,7 @@ export class SetupHubComponent implements OnInit {
         );
         return;
       }
-      if (outcome === 'cancelled') this.reportEntryOutcome(outcome);
+      this.reportEntryOutcome(outcome);
       if (outcome === 'landed' || outcome === 'resumed')
         this._showIntake.set(false);
     } catch {

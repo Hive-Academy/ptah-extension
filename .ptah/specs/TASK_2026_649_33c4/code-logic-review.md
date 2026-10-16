@@ -349,3 +349,92 @@ step 4); this review did not render it.
   deserve one design decision (busy state in the dialog, per-tab state). Re-review scoped to the touched
   files plus a test for each Serious item: interrupt-then-continue ordering, retry-with-preamble,
   destroy-with-intent, get-proposal under another active root.
+
+## Re-review of 66e4227d6
+
+Scope: `git show 66e4227d6 -- libs apps` read for the backend, shared, chat-state, message-sender,
+hydration, request service, view and Hub changes. Orchestrator-verified checks were not re-run. No source
+edited, no git write.
+
+### Per-finding status
+
+| ID | Status | Evidence | Remaining or new risk |
+| --- | --- | --- | --- |
+| S1 | Fixed | `chat-session.service.ts:1294-1295` calls `turnAttribution?.onTurnAborted` after `interruptSession`; `harness-proposal-turn-attribution.service.ts:107-109` reuses `onTurnEnd` (clears `active` and `ambiguous`). The order key is `turnStartedAt ?? updatedAt`, then `updatedAt`, then stable position, identical in `harness-proposal-store.service.ts:48-57` and `harness-proposal-hydration.service.ts` `orderedRevisions`. My Stop-then-continue scenario now yields `[R1, R2]` and the merged `isConfigComplete` is R2's | Introduces N2. Other interrupt sites (`chat-session.service.ts:1515,1683`, `chat-slash-command-router.service.ts:93`) do not clear attribution; the next prompt is then `ambiguous`, which is benign now (ordered by write time) |
+| S2 | Fixed | `message-sender.service.ts:375,423,470-475,503-508` restores the consumed preamble on both the structural failure and the throw path; `pendingFirstSends` keeps `preamble` and `retryFirstSend` re-sets it only when the tab has none; `tab-persistence.ts:116-118,242-246` persists it for workflow tabs only and sanitizes on restore | Restore runs only on failure and the next success consumes it once, so no double apply. A throw after a successful `chat:start` would restore a used preamble; no such throw exists today (minor) |
+| S3 | Fixed | `requestAndNavigate` drops a pending intent when the source tab is gone or `router.currentSurface() !== 'harness-builder'`; the view's `ngOnDestroy` cancels when `!transition && dialogOpen && source == tab`. Live flows hold: a relay or Hub call while the builder page with the dialog is displayed keeps the intent (`'cancelled'`); the Hub cannot be the displayed surface while the dialog is open; the landing window is covered by the `transitioning` check that runs first. A `wrong`/`missing` page whose dialog never opened is handled by the surface rule | Residual: the surface check does not compare which builder tab is displayed, so a stale intent for tab A survives while the user sits on builder B. `'cancelled'` from a superseded navigation or a double click now shows "Finish the current builder switch before opening another" (misleading, minor) |
+| S4 | Partly fixed | `harness-rpc.schema.ts` get-proposal and initialize take a validated `workspaceRoot`; `harness-proposal-store.service.ts` `get(sessionId, workspaceRoot?)`; hydration passes `originalWorkspaceRoot`; `initializeBuilder` passes `pinnedWorkspaceRoot()`. Works when the tab's `workspacePath` is the same string the session was started with (Electron) | N1 breaks it when `workspacePath` is `null` (VS Code panel) on Windows; N4 |
+| S5 | Fixed | The AppState workflow-request API is removed with no remaining references (grep); `unit5-message-routing.spec.ts` provides `SURFACE_ACTIVE` and asserts the request flow (orchestrator ran 7/7) | none |
+| M10 | Partly fixed | The view keeps the original path (`pinnedWorkspaceRoot`) for the sidebar, Apply, initialize and get-proposal; the canonical form is for keys only | The fallback `lookup.workspacePath ?? this.requests.workspaceRoot` is still the canonical (lowercased, slash-normalized) form, see N1 |
+| M11 | Partly fixed | A same-mode request now lands on the existing tab, prefills its composer with `formatIntakeSummary(intake)` and returns `'resumed'`; the Hub closes the intake modal for `landed`/`resumed` | N3: the prefill overwrites text already in that composer; the notice goes through the Hub error line |
+
+### New findings
+
+#### N1 - Serious - pinned-root fallback sends the lowercased canonical root; initialize rejects it and the proposal read misses (VS Code, Windows)
+
+- Files: `libs/frontend/harness-builder/src/lib/components/harness-builder-view.component.ts`
+  (`pinnedWorkspaceRoot`: `lookup.workspacePath ?? this.requests.workspaceRoot`);
+  `harness-workflow-request.service.ts:73-77` (the `workspaceRoot` getter returns `canonicalHarnessRoot(...)`);
+  `harness-rpc.handlers.ts` initialize (`path.normalize(folder) === requestedRoot`);
+  `harness-proposal-store.service.ts:190-210` (`read` rejects `result.data.workspaceRoot !== root`).
+- `TabLookupResult.workspacePath` is `null` in the VS Code panel (`tab-workspace-partition.service.ts:21-27`), so
+  the fallback runs. `canonicalHarnessRoot` lowercases the whole path for drive-letter and UNC roots.
+- Scenario: VS Code on Windows, folder `C:\Users\Ann\MyApp`. The page sends `c:/users/ann/myapp` to
+  `harness:initialize`. The handler compares `c:\users\ann\myapp` with `C:\Users\Ann\MyApp` using `===`: no
+  match, so "Pinned workspace root is not an open workspace folder." is thrown. `initError` is permanent and
+  Apply, presets and AI helpers are unavailable. Before this commit initialize took no argument and worked.
+  Likewise `get-proposal` finds the file (case-insensitive FS) but `read` rejects the record because its stored
+  `workspaceRoot` differs by case, returns null, and the preview shows `unavailable` after reload. Even in
+  Electron, a difference in drive-letter case or trailing separator between the tab's `workspacePath` and
+  `getWorkspaceFolders()` triggers the same.
+- Fix: send the raw `tabs.activeWorkspacePath ?? vscode.config().workspaceRoot` as the fallback (not the
+  canonical getter), and compare roots on the backend with one helper that is case-insensitive on win32 and
+  tolerant of trailing separators (the existing `isPathWithinRoots`, or an equality variant), for the
+  open-folder check in initialize and for the stored-versus-requested check in `read`.
+
+#### N2 - Moderate - D9 user-choice precedence is lost for unattributed revisions that sort after an attributed one
+
+- File: `harness-proposal-hydration.service.ts` `recompute` (a choice is applied just before the first
+  revision whose `turnStartedAt > chosenAt`), combined with the new `turnStartedAt ?? updatedAt` ordering.
+- Scenario: the user picks `agents` at 10:00. Turn T2 starts 10:05 and an attributed revision R is written. A
+  later unattributed revision U (a mid-turn queued prompt marked `ambiguous`, or a provider that fires no hook)
+  is written at 10:07 for the same field. Order `[R, U]`: the choice is applied before R, then R and U
+  overwrite it. D9 says a record without a stored start leaves the user's choice winning; it now loses
+  whenever an attributed revision with a later start precedes it. Before the fix unattributed revisions sorted
+  first, so the choice always won over them.
+- Fix: in `recompute`, re-apply the user choice after any unattributed revision that touches the chosen
+  field (or apply the choice last for fields whose latest revision is unattributed).
+
+#### N3 - Moderate - the M11 resume overwrites the composer and reports through the Hub error line
+
+- Files: `harness-workflow-request.service.ts` (`requestComposerPrefill(formatIntakeSummary(...), same)` then
+  `reportHubError('Resumed your existing New Project session...')`); `chat-view.component.ts:1376-1388`
+  (`restoreContentToInput` replaces the composer text).
+- Scenario: the user has half-typed a reply in the open New Project session, goes to the Hub and submits a new
+  intake. The reply is replaced by the intake summary with no undo. The informational message is stored as
+  `hubError` (error styling), shown only on the Hub the user just left, and appears later as a stale red line.
+- Fix: append to, or confirm before replacing, non-empty composer text; show the notice as a status on the
+  builder page or through a Hub status signal, not the error channel.
+
+#### N4 - Minor - get-proposal accepts any absolute root and prunes under it
+
+- Files: `harness-rpc.handlers.ts` get-proposal (no open-folder check, unlike initialize) and
+  `harness-proposal-store.service.ts` `prune` (unlinks expired or invalid hash-named files under the supplied
+  root). The schema rejects relative and `..` paths and the input comes from the webview, so the reach is
+  small, but the two RPCs validate differently. Fix: share the open-folder check.
+
+### Other observations
+
+- M1, M2, M3 and M5-M9 were outside this fix scope and remain open. With the new ordering an unattributed
+  first proposal (M1) is placed by write time, so its impact dropped.
+- `reportEntryOutcome` is applied to `openHarnessBuilder`, `resumeNewProject` and both intake paths, which
+  closes M8 for the Hub cards.
+
+### Updated verdict
+
+- S1, S2, S3 and S5 are fixed. S4 and M10 are fixed for Electron and any host whose tab has a `workspacePath`,
+  and regress on VS Code for Windows paths with uppercase letters (N1).
+- Open Serious: N1. New Moderate: N2, N3.
+- Score 7/10. Verdict: APPROVED WITH FIXES (no Blocking). Fix N1 before the PR; N2 and N3 can follow in the
+  same round if cheap. Tests to add: initialize and get-proposal with a mixed-case Windows root and a null tab
+  `workspacePath`; hydration with `[choice, attributed R, unattributed U]`.

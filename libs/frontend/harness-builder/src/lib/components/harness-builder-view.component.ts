@@ -206,6 +206,16 @@ import { HarnessRpcService } from '../services/harness-rpc.service';
             </button>
           </div>
         }
+        @if (resumedIntake(); as intake) {
+          <details
+            class="shrink-0 border-b border-base-300 bg-surface-1 px-4 py-2.5 text-xs"
+          >
+            <summary>
+              New intake for this session — review before sending
+            </summary>
+            <p class="mt-2 whitespace-pre-wrap">{{ intake }}</p>
+          </details>
+        }
         @if (narrow()) {
           <button
             #peekButton
@@ -327,6 +337,10 @@ export class HarnessBuilderViewComponent implements OnDestroy {
   readonly saveFailed = signal(false);
   readonly retryingEntry = signal(false);
   readonly draftNotice = signal(false);
+  readonly resumedIntake = computed(() => {
+    const intake = this.requests.resumedIntake();
+    return intake?.tabId === this.tabId() ? intake.text : null;
+  });
   readonly leaveContext = signal<HarnessLeaveContext>('start-over');
   readonly leaveTrigger = signal<HTMLElement | null>(null);
   readonly lookup = computed(() => {
@@ -342,7 +356,7 @@ export class HarnessBuilderViewComponent implements OnDestroy {
     if (!tabId || !lookup) return '';
     const known = this.pinnedRoots.get(tabId);
     if (known) return known;
-    const root = lookup.workspacePath ?? this.requests.workspaceRoot;
+    const root = lookup.workspacePath ?? this.requests.rawWorkspaceRoot;
     if (root) this.pinnedRoots.set(tabId, root);
     return root;
   });
