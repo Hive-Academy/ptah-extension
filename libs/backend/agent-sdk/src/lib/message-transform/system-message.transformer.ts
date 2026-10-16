@@ -662,7 +662,10 @@ export class SystemMessageTransformer {
       parentToolUseId,
       taskId: msg.task_id,
       status: msg.status,
-      summary: msg.summary,
+      summary:
+        msg.status === 'stopped'
+          ? (helpers.stopNotices.noticeFor(msg.task_id) ?? msg.summary)
+          : msg.summary,
       outputFile: msg.output_file,
       totalTokens: msg.usage?.total_tokens,
       toolUses: msg.usage?.tool_uses,

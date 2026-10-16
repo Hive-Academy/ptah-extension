@@ -82,6 +82,7 @@ export const SDK_TOKENS = {
    * (TASK_2026_597 A8). Singleton.
    */
   SDK_SUBAGENT_BUDGET_MONITOR: Symbol.for('SdkSubagentBudgetMonitor'),
+  SDK_SUBAGENT_STOP_NOTICES: Symbol.for('SdkSubagentStopNotices'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
   SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(

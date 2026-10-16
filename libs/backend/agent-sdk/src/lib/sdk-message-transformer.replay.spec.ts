@@ -32,6 +32,7 @@ import {
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
 import { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
+import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
 
 const SESSION_ID = 'b5399ba8-e06d-417c-bac4-aba5add0555c';
 
@@ -78,6 +79,7 @@ function build(): {
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
       new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
     ),
   };
 }

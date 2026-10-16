@@ -108,6 +108,7 @@ import {
 import {
   handoffMessage,
   nearBudgetWarning,
+  stopNotice,
   type HandoffSubject,
   type HandoffUsage,
   type StopReason,
@@ -122,6 +123,7 @@ import {
   type SubagentHandoffRecords,
 } from './subagent-handoff-record';
 import type { SubagentHandoffIndex } from './subagent-handoff-index';
+import { SubagentStopNotices } from './subagent-stop-notices';
 
 /** The handoff file operations the monitor uses. */
 export type SubagentHandoffFilesPort = Pick<
@@ -399,7 +401,8 @@ export class SubagentBudgetMonitor {
     private readonly handoffFiles: SubagentHandoffFilesPort,
     private readonly records: SubagentHandoffRecordsPort,
     private readonly index: SubagentHandoffIndexPort,
-    private readonly budgetStopCallbacks?: SubagentBudgetStopCallbackRegistry,
+    private readonly budgetStopCallbacks: SubagentBudgetStopCallbackRegistry,
+    private readonly stopNotices: SubagentStopNotices,
   ) {
     this.delivery = new SubagentHandoffDelivery(logger, dispatcher, (id) => {
       const current = this.currentSessionId(id);
@@ -657,6 +660,7 @@ export class SubagentBudgetMonitor {
     }
     this.sessions.delete(sessionId);
     this.records.forget(new Set([...stale, sessionId]));
+    for (const id of [...stale, sessionId]) this.stopNotices.forgetSession(id);
     this.index.forgetCursor(ownerHash(sessionId));
   }
 
@@ -956,6 +960,17 @@ export class SubagentBudgetMonitor {
     }
 
     let stopFailure: { readonly errorType: string } | undefined;
+    this.stopNotices.record(
+      live.sessionId,
+      taskId,
+      stopNotice(prepared.handoff.subject, {
+        reason,
+        contextTokens: preparedState.contextTokens,
+        weightedUsed: preparedState.weightedUsed,
+        handoffTokens: limits.handoffTokens,
+        stopWeightedTokens: limits.stopWeightedTokens,
+      }),
+    );
     try {
       await this.dispatcher.stopSubagent(live.sessionId, taskId);
     } catch (error: unknown) {
