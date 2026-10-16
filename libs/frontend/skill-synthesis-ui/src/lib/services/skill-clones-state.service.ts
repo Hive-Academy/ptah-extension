@@ -50,6 +50,11 @@ export class SkillClonesStateService {
   >({});
   /** Window echoed by that call. `null` until it succeeds. */
   public readonly outcomeWindowDays = signal<number | null>(null);
+  public readonly outcomeStatus = signal<
+    'loading' | 'ready' | 'unavailable' | 'not-persistent'
+  >('loading');
+  /** Count failed reads without retaining or displaying their raw messages. */
+  public readonly outcomeReadFailures = signal(0);
   /** Lazily-loaded, per-slug scorecard detail (rows + findings excerpt). */
   public readonly scorecardDetails = signal<
     Record<string, SkillSynthesisGetScorecardDetailResult>
@@ -100,8 +105,7 @@ export class SkillClonesStateService {
 
   /**
    * One batched outcome-signal fetch for every agent-kind slug. Runs in
-   * the same post-list step as {@link loadScorecards}. A failure degrades
-   * to no signals — cards then say "no data yet" and never invent a rate.
+   * the same post-list step as {@link loadScorecards}.
    * Skills and commands are not part of the request.
    */
   private async loadAgentOutcomeSignals(list: CloneSummary[]): Promise<void> {
@@ -109,15 +113,20 @@ export class SkillClonesStateService {
     if (slugs.length === 0) {
       this.agentOutcomeSignals.set({});
       this.outcomeWindowDays.set(null);
+      this.outcomeStatus.set('ready');
       return;
     }
+    this.outcomeStatus.set('loading');
     try {
       const result = await this.rpc.getAgentOutcomeSignals(slugs);
       this.agentOutcomeSignals.set(result.signals);
       this.outcomeWindowDays.set(result.windowDays);
+      this.outcomeStatus.set(result.persistent ? 'ready' : 'not-persistent');
     } catch {
-      this.agentOutcomeSignals.set({});
-      this.outcomeWindowDays.set(null);
+      // degradation-audit: reported — outcomeStatus and outcomeReadFailures
+      // carry the failure; keep the last good figures during a transient read.
+      this.outcomeReadFailures.update((count) => count + 1);
+      this.outcomeStatus.set('unavailable');
     }
   }
 

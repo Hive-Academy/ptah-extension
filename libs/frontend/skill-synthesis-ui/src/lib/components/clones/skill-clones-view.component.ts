@@ -314,6 +314,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                       [scorecard]="scorecardFor(c.slug)"
                       [outcomeSignals]="outcomeSignalsFor(c.slug)"
                       [outcomeWindowDays]="outcomeWindowDays()"
+                      [outcomeStatus]="outcomeStatus()"
                       [busy]="busySlug() === c.slug || bulk.running()"
                       [syncChips]="chipsFor(c)"
                       [notOwned]="isNotOwned(c)"
@@ -356,6 +357,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
         [scorecard]="selectedScorecard()"
         [outcomeSignals]="selectedOutcomeSignals()"
         [outcomeWindowDays]="outcomeWindowDays()"
+        [outcomeStatus]="outcomeStatus()"
         [scorecardRows]="selectedScorecardRows()"
         [scorecardFindings]="selectedScorecardFindings()"
         [scorecardLoading]="selectedScorecardLoading()"
@@ -534,6 +536,7 @@ export class SkillClonesViewComponent implements OnInit {
   public readonly scorecards = this.state.scorecards;
   public readonly agentOutcomeSignals = this.state.agentOutcomeSignals;
   public readonly outcomeWindowDays = this.state.outcomeWindowDays;
+  public readonly outcomeStatus = this.state.outcomeStatus;
 
   /** Which kind tab is showing. Two-way bound to the tab group. */
   public readonly activeKind = signal<string | null>('skill');

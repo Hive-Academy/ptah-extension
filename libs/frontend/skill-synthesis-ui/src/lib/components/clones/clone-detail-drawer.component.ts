@@ -178,6 +178,25 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
             </p>
           }
 
+          @if (m.clone.kind === 'agent' && outcomeStatus() === 'unavailable') {
+            <p
+              class="text-xs text-warning"
+              data-testid="drawer-outcome-unavailable"
+            >
+              Outcome data unavailable.
+            </p>
+          }
+          @if (
+            m.clone.kind === 'agent' && outcomeStatus() === 'not-persistent'
+          ) {
+            <p
+              class="text-xs text-base-content-muted"
+              data-testid="drawer-outcome-not-persistent"
+            >
+              Outcome data is not stored durably on this host.
+            </p>
+          }
+
           @if (m.actions.upstreamNote; as note) {
             <p
               class="rounded-lg bg-base-300/40 px-3 py-2 text-xs text-base-content-muted"
@@ -451,6 +470,9 @@ export class CloneDetailDrawerComponent {
   public readonly outcomeSignals = input<AgentOutcomeSignals | null>(null);
   /** Window echoed by `agent:outcomeSignals`. `null` until that call returns. */
   public readonly outcomeWindowDays = input<number | null>(null);
+  public readonly outcomeStatus = input<
+    'loading' | 'ready' | 'unavailable' | 'not-persistent'
+  >('ready');
   public readonly scorecardRows = input<ScorecardInvocationRow[]>([]);
   public readonly scorecardFindings = input<string | null>(null);
   public readonly scorecardLoading = input<boolean>(false);
@@ -589,7 +611,13 @@ export class CloneDetailDrawerComponent {
     } else {
       const raw = this.outcomeSignals();
       const signals = raw !== null && raw.slug === clone.slug ? raw : null;
-      out.push(...formatAgentOutcomeSignals(signals, this.outcomeWindowDays()));
+      out.push(
+        ...formatAgentOutcomeSignals(
+          signals,
+          this.outcomeWindowDays(),
+          this.outcomeStatus(),
+        ),
+      );
     }
     if (clone.lastEnhancedAt !== null) {
       out.push({

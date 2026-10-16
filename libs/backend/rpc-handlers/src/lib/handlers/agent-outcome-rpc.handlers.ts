@@ -2,19 +2,20 @@
  * Agents-tab outcome signals (TASK_2026_646 B7).
  *
  * `agent:outcomeSignals` validates `{ slugs }` and asks the lane-outcomes
- * reader once for the whole list. Hosts register `LANE_OUTCOME_TOKENS` in a
- * later batch, so this class must not `@inject` the reader (decision #73).
- * It resolves the token at call time. No reader → an empty, non-persistent
- * result. A reader rejection is logged by error name and rethrown.
+ * reader once for the whole list. It resolves the token at call time.
+ * No reader yields an empty, non-persistent result. Reader failures are
+ * logged and mapped to a fixed, coded RPC error.
  */
 
 import { inject, injectable, type DependencyContainer } from 'tsyringe';
 import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import {
+  LANE_OUTCOME_TOKENS,
+  type LaneOutcomeQueries,
+} from '@ptah-extension/lane-outcomes';
 import type {
-  AgentOutcomeSignals,
   AgentOutcomeSignalsParams,
   AgentOutcomeSignalsResult,
   RpcMethodName,
@@ -33,13 +34,10 @@ const WINDOW_DAYS = 30;
  * The slice of {@link LaneOutcomeQueries} this method calls. Resolved by
  * token; the class is not a constructor dependency.
  */
-interface OutcomeSignalReader {
-  agentSignals(
-    slugs: readonly string[],
-    windowDays: number,
-  ): Promise<Record<string, AgentOutcomeSignals>>;
-  isPersistent(): boolean;
-}
+type OutcomeSignalReader = Pick<
+  LaneOutcomeQueries,
+  'agentSignals' | 'isPersistent'
+>;
 
 @injectable()
 export class AgentOutcomeRpcHandlers {
@@ -88,12 +86,16 @@ export class AgentOutcomeRpcHandlers {
         persistent: reader.isPersistent(),
       };
     } catch (error: unknown) {
-      // Ids only: a reader message can quote a path. The rejection is the
-      // RPC error result; this log does not replace it.
-      this.logger.error('RPC: agent:outcomeSignals failed', {
-        code: error instanceof Error ? error.name : 'UNKNOWN',
-      });
-      throw error;
+      this.logger.error(
+        'RPC: agent:outcomeSignals failed',
+        error instanceof Error
+          ? error
+          : new Error('Unknown outcome read failure'),
+      );
+      throw new RpcUserError(
+        'Outcome signals are unavailable.',
+        'PERSISTENCE_UNAVAILABLE',
+      );
     }
   }
 }

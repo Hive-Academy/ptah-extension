@@ -240,6 +240,8 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
   async function render(
     entry: CloneSummary,
     outcomeSignals: AgentOutcomeSignals | null = null,
+    outcomeStatus:
+      'loading' | 'ready' | 'unavailable' | 'not-persistent' = 'ready',
   ): Promise<Fixture> {
     await TestBed.configureTestingModule({
       imports: [CloneDetailDrawerComponent],
@@ -248,6 +250,7 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
     fixture.componentRef.setInput('clone', entry);
     fixture.componentRef.setInput('body', '# live body');
     fixture.componentRef.setInput('outcomeSignals', outcomeSignals);
+    fixture.componentRef.setInput('outcomeStatus', outcomeStatus);
     fixture.componentRef.setInput(
       'outcomeWindowDays',
       outcomeSignals === null ? null : 30,
@@ -367,5 +370,38 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
       find(fixture, 'clone-metric-outcome-empty')?.textContent?.trim(),
     ).toBe('no data yet');
     expect(find(fixture, 'drawer-scorecard')).toBeTruthy();
+  });
+
+  it('shows loading while the first drawer outcome read is pending', async () => {
+    const fixture = await render(
+      clone({ kind: 'agent', slug: 'planner' }),
+      null,
+      'loading',
+    );
+    expect(find(fixture, 'clone-metric-outcome-loading')).not.toBeNull();
+    expect(find(fixture, 'clone-metric-outcome-empty')).toBeNull();
+  });
+
+  it('shows unavailable without replacing existing drawer figures', async () => {
+    const fixture = await render(
+      clone({ kind: 'agent', slug: 'planner' }),
+      signals(),
+      'unavailable',
+    );
+    expect(find(fixture, 'clone-metric-outcome-delivered')).not.toBeNull();
+    expect(find(fixture, 'drawer-outcome-unavailable')?.textContent).toContain(
+      'Outcome data unavailable',
+    );
+  });
+
+  it('shows a non-durable host note in the drawer', async () => {
+    const fixture = await render(
+      clone({ kind: 'agent', slug: 'planner' }),
+      null,
+      'not-persistent',
+    );
+    expect(
+      find(fixture, 'drawer-outcome-not-persistent')?.textContent,
+    ).toContain('not stored durably');
   });
 });

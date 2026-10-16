@@ -54,6 +54,7 @@ describe('CloneCardComponent', () => {
       busy?: boolean;
       outcomeSignals?: AgentOutcomeSignals | null;
       outcomeWindowDays?: number | null;
+      outcomeStatus?: 'loading' | 'ready' | 'unavailable' | 'not-persistent';
     } = {},
   ): void {
     fixture = TestBed.createComponent(CloneCardComponent);
@@ -67,6 +68,10 @@ describe('CloneCardComponent', () => {
     fixture.componentRef.setInput(
       'outcomeWindowDays',
       opts.outcomeWindowDays ?? null,
+    );
+    fixture.componentRef.setInput(
+      'outcomeStatus',
+      opts.outcomeStatus ?? 'ready',
     );
     fixture.detectChanges();
   }
@@ -326,6 +331,47 @@ describe('CloneCardComponent', () => {
   });
 
   // ── Outcome signals (Req 9) ──────────────────────────────────────────────
+
+  it('shows loading instead of no data while the first outcome read is pending', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'loading',
+    });
+    expect(q('clone-metric-outcome-loading')?.textContent).toContain(
+      'Loading outcome data',
+    );
+    expect(q('clone-metric-outcome-empty')).toBeNull();
+  });
+
+  it('shows a safe unavailable state without raw errors', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'unavailable',
+    });
+    expect(q('clone-metric-outcome-unavailable')?.textContent).toContain(
+      'Outcome data unavailable',
+    );
+    expect(q('clone-outcome-unavailable')?.textContent).toContain(
+      'Outcome data unavailable',
+    );
+    expect(q('clone-metric-outcome-empty')).toBeNull();
+  });
+
+  it('keeps figures visible with an unavailable note after a failed refresh', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeSignals: signals(),
+      outcomeStatus: 'unavailable',
+    });
+    expect(q('clone-metric-outcome-delivered')?.textContent).toContain('4');
+    expect(q('clone-outcome-unavailable')).not.toBeNull();
+  });
+
+  it('shows a non-durable host note for outcome data', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'not-persistent',
+    });
+    expect(q('clone-outcome-not-persistent')?.textContent).toContain(
+      'not stored durably',
+    );
+  });
 
   it('keeps Success on a skill card', () => {
     render(

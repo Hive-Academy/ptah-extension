@@ -86,6 +86,8 @@ interface StateStub {
     typeof signal<Record<string, AgentOutcomeSignals>>
   >;
   readonly outcomeWindowDays: ReturnType<typeof signal<number | null>>;
+  readonly outcomeStatus: SkillClonesStateService['outcomeStatus'];
+  readonly outcomeReadFailures: ReturnType<typeof signal<number>>;
   readonly scorecardDetails: ReturnType<
     typeof signal<Record<string, SkillSynthesisGetScorecardDetailResult>>
   >;
@@ -107,6 +109,10 @@ function makeStateStub(initial: CloneSummary[] = []): StateStub {
     scorecards: signal<Record<string, AgentScorecard>>({}),
     agentOutcomeSignals: signal<Record<string, AgentOutcomeSignals>>({}),
     outcomeWindowDays: signal<number | null>(null),
+    outcomeStatus: signal<
+      'loading' | 'ready' | 'unavailable' | 'not-persistent'
+    >('ready'),
+    outcomeReadFailures: signal(0),
     scorecardDetails: signal<
       Record<string, SkillSynthesisGetScorecardDetailResult>
     >({}),

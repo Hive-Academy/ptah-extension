@@ -145,7 +145,7 @@ describe('AgentOutcomeRpcHandlers', () => {
     expect(agentSignals).not.toHaveBeenCalled();
   });
 
-  it('logs the error name and rejects when the reader throws', async () => {
+  it('returns a fixed coded error and logs the real reader Error', async () => {
     const failure = new Error('store unavailable at /secret/ptah.db');
     failure.name = 'OutcomeReadError';
     const slug = 'planner';
@@ -154,15 +154,24 @@ describe('AgentOutcomeRpcHandlers', () => {
       reject: failure,
     });
 
-    await expect(call({ slugs: [slug] })).rejects.toBe(failure);
+    let caught: unknown;
+    try {
+      await call({ slugs: [slug] });
+    } catch (error: unknown) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RpcUserError);
+    if (!(caught instanceof RpcUserError)) return;
+    expect(caught.message).toBe('Outcome signals are unavailable.');
+    expect(caught.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+    expect(caught.message).not.toContain('/secret/ptah.db');
     expect(agentSignals).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledWith(
       'RPC: agent:outcomeSignals failed',
-      { code: 'OutcomeReadError' },
+      failure,
     );
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain(slug);
-    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('ptah.db');
   });
 
   it('calls the reader once for many slugs', async () => {

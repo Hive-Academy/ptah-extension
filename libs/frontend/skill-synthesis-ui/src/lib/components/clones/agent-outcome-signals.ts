@@ -15,6 +15,9 @@ export interface CloneMetric {
   readonly testId: string;
 }
 
+export type OutcomeStatus =
+  'loading' | 'ready' | 'unavailable' | 'not-persistent';
+
 /**
  * Window the RPC contract uses when the handler has not answered yet
  * (`AgentOutcomeSignalsResult.windowDays`, fixed at 30).
@@ -32,8 +35,27 @@ const DEFAULT_WINDOW_DAYS = 30;
 export function formatAgentOutcomeSignals(
   signals: AgentOutcomeSignals | null | undefined,
   windowDays: number | null,
+  status: OutcomeStatus = 'ready',
 ): CloneMetric[] {
   const days = resolveWindowDays(windowDays, signals);
+  if (signals == null && status === 'loading') {
+    return [
+      {
+        label: 'Outcomes',
+        value: 'Loading outcome data…',
+        testId: 'clone-metric-outcome-loading',
+      },
+    ];
+  }
+  if (signals == null && status === 'unavailable') {
+    return [
+      {
+        label: 'Outcomes',
+        value: 'Outcome data unavailable',
+        testId: 'clone-metric-outcome-unavailable',
+      },
+    ];
+  }
   if (signals == null || signals.runCount === 0) {
     return [
       {

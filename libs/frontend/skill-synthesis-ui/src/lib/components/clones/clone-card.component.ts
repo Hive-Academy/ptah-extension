@@ -189,6 +189,23 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
         </dl>
       }
 
+      @if (clone().kind === 'agent' && outcomeStatus() === 'unavailable') {
+        <p
+          class="mt-2 text-xs text-warning"
+          data-testid="clone-outcome-unavailable"
+        >
+          Outcome data unavailable.
+        </p>
+      }
+      @if (clone().kind === 'agent' && outcomeStatus() === 'not-persistent') {
+        <p
+          class="mt-2 text-xs text-base-content-muted"
+          data-testid="clone-outcome-not-persistent"
+        >
+          Outcome data is not stored durably on this host.
+        </p>
+      }
+
       @if (clone().kind === 'agent') {
         <ptah-scorecard-badge [scorecard]="scorecard()" />
       }
@@ -319,6 +336,9 @@ export class CloneCardComponent {
   public readonly outcomeSignals = input<AgentOutcomeSignals | null>(null);
   /** Window echoed by `agent:outcomeSignals`. `null` until that call returns. */
   public readonly outcomeWindowDays = input<number | null>(null);
+  public readonly outcomeStatus = input<
+    'loading' | 'ready' | 'unavailable' | 'not-persistent'
+  >('ready');
   /** An action for this entry is in flight. */
   public readonly busy = input<boolean>(false);
   /**
@@ -432,7 +452,13 @@ export class CloneCardComponent {
     } else {
       const raw = this.outcomeSignals();
       const signals = raw !== null && raw.slug === c.slug ? raw : null;
-      out.push(...formatAgentOutcomeSignals(signals, this.outcomeWindowDays()));
+      out.push(
+        ...formatAgentOutcomeSignals(
+          signals,
+          this.outcomeWindowDays(),
+          this.outcomeStatus(),
+        ),
+      );
     }
 
     if (c.lastEnhancedAt !== null) {
