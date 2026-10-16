@@ -1,4 +1,25 @@
-# HANDOFF - TASK_2026_646_136a (2026-10-16, end of session 9)
+# HANDOFF - TASK_2026_646_136a (2026-10-16, session 10 update; session 9 text below)
+
+## Session 10 result (read first)
+
+All batches are committed and pushed: 39a b5e38c780, 39b 40dcfb9ae, 39c 7f8f93adf, 39d 81c1f5af9, 40a 86c2954a7,
+38c f4cd90768, 40b 438bd3118, 40c f5d28d2f4 (Mode 2 in `batches.md`). Final reviews (each phase's last allowed review):
+
+| Phase | Review | Verdict | Open defects (orchestrator-verified) |
+| --- | --- | --- | --- |
+| P6 | `reviews/p6-final-code-logic-review.md` (codex) | NEEDS_REVISION 6/10 | Moderate: `lane-outcomes/src/lib/di/start.ts:111-114` a throwing `logger.warn` makes `dispose()` reject; Electron then skips SQLite close (`shutdown.ts:282-295`) |
+| P4 | `reviews/p4-final-code-logic-review.md` (codex) | NEEDS_REVISION 5.5/10 | Serious: `agent-rpc.handlers.ts:653-660` key stored, then a failed or invalid selection write leaves the new Jev key active while the row says "unchanged". Defect 2 (persisted raw mark) only affects dev builds of this branch (not on `main`): orchestrator rates it Minor |
+| P4 | `reviews/p4-final-visual-review.md` | APPROVED 9/10 | none (borders 6.04/5.07:1, placeholders 6.04/6.05:1) |
+| P5 | `reviews/p5-final-code-logic-review.md` | NEEDS_REVISION 7/10 | Serious: `outcome-report.tool.ts:68-71` ignores VS Code `FileNotFound`, so a missing deliverable is refused on VS Code |
+| P5 | `reviews/p5-final-code-style-review.md` | NEEDS_REVISION 7.5/10 | Moderate D1: `outcome-report.tool.ts:42-66` published schema drops per-kind required fields; duplicates `flattenOperationUnion` |
+| P5 | `reviews/p5-visual-review.md` | NEEDS_FIX 6/10 | Serious: `clone-card.component.ts:183` `truncate` cuts the outcome cell to "no ..." |
+
+Per the fix-round rule these were reported to the user; no fix was made. CI on PR #731 also fails since before session 10
+(`945e9ce9e`/`d8675a544`; `main` is green): CLI bundle resolves `vscode` through `vscode-core` (7 errors), webview initial
+bundle 5.25 kB over the 3.70 MB budget, stale `content-manifest.json`. Awaiting the user's decision: one more fix batch for
+the Serious/Moderate defects + CI (recommended), or CI fixes only with the defects recorded as later tasks.
+Visual evidence: `visual/batch-40-recheck/` (guarded capture script: unseeded scenarios use the refused port
+`127.0.0.1:1`), `visual/batch-8-after/` (+ `settled/`).
 
 Status at handoff: branch `feat/decision-model-routing` pushed and in sync with origin at `d8675a544`, plus a docs-only
 handoff commit on top (see "Done"). The worktree HAS UNCOMMITTED CODE: the P5 fix round (Batches 39a-39d) and the P4 fix
