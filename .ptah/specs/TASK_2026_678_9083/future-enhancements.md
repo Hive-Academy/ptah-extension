@@ -105,3 +105,13 @@ were in scope. F-1, F-3, F-4, F-5 and F-7 of the round 1 review are fixed in the
   Minor-1 a Confirm in the stale window still answers the discovery question on the old tab (`transport.answer`
   unguarded); Minor-2 `send` with no marked tab can send to workspace A if the workspace changes during
   `openOrResume`; Minor-3 the guard toast always says "switching".
+- Console errors seen by the user (not captured by the r3/r6 visual reviews): FIXED in `ee719b838` (D56): the
+  Electron bootstrap accepts only an existing directory as the argv workspace, a never-started session reports
+  "The session could not start: <reason>", and each CHAT_ERROR is logged once. Still open: an invalid workspace
+  entry already stored in a profile (`main.mjs` in the Ptah Dev profile) stays until the user removes it; future
+  visual reviews must capture and report the renderer console (errors and warnings).
+- r7 review (code-logic-review-phase-e-r7.md, APPROVED 8/10) Minors: a stale `true` from `send` can arm a typed
+  voice turn if voice restarted on the new binding mid-flight (`controller.ts:556,585`; return a richer result);
+  no feedback when a send landed on the previous workspace's session, and a repeated Enter while `submitting` gets
+  no cue; a rejected argv workspace is dropped without a log and the `bootstrap.ts` audit comment says "reported";
+  no spec pins the single renderer log (B3) or the `statSync` adapter.
