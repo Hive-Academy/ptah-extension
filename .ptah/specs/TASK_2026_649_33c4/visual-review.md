@@ -295,3 +295,88 @@ Contrast (computed colours, composited backgrounds):
 - Recommendation: REVISE (CHANGES REQUIRED)
 - Confidence: HIGH (the key defect was reproduced five times with DOM evidence, and the root cause is visible in the code)
 - Key concern: after the leave dialog is dismissed the builder header, including the narrow peek bar, is permanently inert (finding 1). Fix the double inert ownership and the misleading "Saved configuration unavailable" card (finding 2), then the select contrast (finding 3). D11 passed and the Hub home is unchanged.
+
+## Re-check of F3 (2fb6a76d4)
+
+Scope: the three items fixed in `batch-F3-report.md` (leave-dialog inert, hydration notice, preset
+select edge and focus), in the dark theme `anubis` and the light theme `anubis-light`.
+
+Method and environment:
+
+- App: the same worktree's dev build, renderer URL
+  `file:///D:/projects/ptah-extension/.claude-worktrees/task-647-setup-hub-chat-sessions/dist/apps/ptah-electron/renderer/index.html`,
+  driven through CDP `http://127.0.0.1:9336` (Playwright `connectOverCDP`). The renderer bundle
+  was written at 18:54, after the fix commit (18:34) and the merge (18:45), and it contains the new
+  class `!border-base-content/50`. Nothing was built, started or closed. Scripts:
+  `D:\tmp\ptah-649-visual\scripts` (`*2.js`, `item1*.js`, `item3.js`, `i2*.js`, `c*.js`).
+- Theme switch: the theme buttons ("Anubis" / "Anubis Light") in the app shell, as before. Real mouse
+  clicks (`page.mouse.click` at the button centre) were used for every "Start over" re-open.
+- Safety: `D:\tmp\ptah-649-visual\ws` was registered with `workspace:registerFolder` and selected from the rail
+  (a page reload was needed before the rail showed it). Nothing was applied or saved and no preset was loaded.
+  Two short real chat turns in total.
+- Cleanup: the builder session I created was discarded via Start over -> Discard, the active workspace is back to
+  `ptah-final-run-ws`, the `ws` entry was removed from the rail, the theme is back to `anubis`, the
+  Chat tab is selected again, and the viewport emulation was dropped (the window reads 892x735 again).
+  Not restorable by me: session history records. The earlier "AI Team Builder" x2 and "New Project" records from the
+  previous run were still listed under `ws` (not from this run), and my own discarded session may remain in that
+  workspace's stored history. I did not touch the app's data folders.
+- Screenshots: `visual/f3-*.png`.
+
+### Result table
+
+| # | Item | Dark | Light | Result | Screenshots | Measured values |
+| - | ---- | ---- | ----- | ------ | ----------- | --------------- |
+| 1 | Leave dialog inert (wide 1280x800) | PASS | PASS | PASS | `f3-dark-after-cancel`, `f3-dark-after-escape`, `f3-dark-after-backdrop`, `f3-light-after-cancel`, `f3-light-after-escape`, `f3-light-after-backdrop`, `f3-*-started-after-*`, `f3-dark-started-dialog` | For Cancel, Escape and backdrop (each on a fresh and on a started session): `document.querySelectorAll('[inert]')` is empty after dismissal, `document.activeElement` is the "Start over" button, a real mouse click on "Start over" opens the dialog again, and after closing that dialog the inert list is still empty. While the dialog is open the header, the chat row, main and the sidebar are inert (4 nodes), as intended. The Back (x) button navigates to Chat without a dialog in this state, so there is no dialog to dismiss from it; after returning to the builder the inert list is empty. |
+| 1n | Leave dialog inert, narrow 700x600 with the sheet | PASS | PASS | PASS | `f3-dark-narrow-closed`, `f3-dark-narrow-sheet-open`, `f3-dark-narrow-sheet-dialog`, `f3-dark-narrow-sheet-after-cancel`, `f3-dark-narrow-closed-after`, same set with `f3-light-` | Sheet closed: dialog open inert = header, chat row, main; after Cancel inert = none, focus on Start over, peek opens the sheet (main inert = 1 node). Sheet open: dialog open inert = header, chat row, main, sheet; after Cancel or Escape inert = main only (sheet still open), focus on Start over; peek click closes the sheet and the inert list is empty. Back at 1280: empty. Identical in both themes. |
+| 2 | Hydration notice: "No configuration yet" on re-entry | PASS | PASS | PASS | `f3-dark-hydr-typed`, `f3-dark-hydr-running`, `f3-dark-hydr-hub-while-running`, `f3-dark-hydr-reenter-idle`, `f3-dark-hydr-running-same-view`, `f3-dark-hydr-reenter-idle3`, `f3-light-hydr-reenter-idle`, `f3-light-hydr-reenter-running` | Turn 1 ("Hi, what can you configure? Do not propose anything yet.") produced no proposal. After leaving to the Hub and re-entering, the Preview reads "No configuration yet. Start by telling the agent ..." in dark idle, light idle, light with the agent still running (Stop generating button present) and dark after a second re-entry. The strings `unavailable`, `expired` and `cleared` are absent in all reads. Gap: in dark I did not read the sidebar at the instant of a mid-run re-entry (the read came after the run ended); the dark mid-run Preview on the same view was neutral (`f3-dark-hydr-running-same-view`). |
+| 3a | Preset select edge contrast (`#builder-preset`) | PASS | PASS | PASS | `f3-dark-preset-idle`, `f3-light-preset-idle` | Computed `border-top-color`: dark `oklch(0.925 0.007 88.6 / 0.5)` 1 px, 4.39:1 against the sidebar surface `rgb(25,25,31)` (4.65:1 against the select fill); light `oklch(0.236 0.066 313.2 / 0.5)` 1 px, 3.18:1 against the surface `rgb(240,236,232)` (3.51:1 against the fill). Both clear 3:1; the light edge has little headroom. |
+| 3b | Preset select keyboard focus ring matches the other sidebar controls | FAIL | FAIL | FAIL | `f3-dark-preset-focus-kbd`, `f3-light-preset-focus-kbd`, `f3-dark-preset-focus-mouse`, `f3-light-preset-focus-mouse` | Tab from the previous control lands on the select with `outline: solid 2px`, offset 2 px (shape matches), but the colour comes from `focus-visible:!outline-primary`: dark `oklch(0.546 0.215 262.9)` (blue), 3.39:1 on the surface; light `oklch(0.85 0.138 181.1)` (pale teal), 1.27:1 on `rgb(240,236,232)`. Neighbouring controls (Save as preset, More helpers, Generate document, Session toggle, Git toggle): dark `oklch(0.7665 0.1387 91.06)` gold, light `oklch(0.48 0.12 70)` deep gold. The ring is visible and 2 px in dark but the wrong colour; in light it is far under 3:1 (WCAG 1.4.11, 2.4.7, 2.4.11). Mouse focus: the select matches `:focus-visible` after a mouse click too, so the same ring shows after a click and stays after the popup closes with Escape (buttons show no ring on a mouse click). |
+
+Per item: 1 PASS (dark, light); 2 PASS (dark, light); 3 FAIL (edge PASS in both themes, focus ring FAIL in both).
+
+### New defect (introduced by F3)
+
+#### 9. The preset select focus ring uses the DaisyUI `primary` colour, not the app's gold or deep-gold ring
+
+- File: `libs/frontend/harness-builder/src/lib/components/sidebar/builder-presets-section.component.ts:44`
+  (`focus-visible:!outline-primary` on the `select`).
+- Severity: Serious in light (ring is 1.27:1 against the surface, under the 3:1 non-text minimum); Moderate in dark
+  (3.39:1, visible, but a different colour from every other sidebar control).
+- Viewports: all; both themes. Screenshots: `f3-light-preset-focus-kbd.png`, `f3-light-preset-focus-mouse.png`,
+  `f3-dark-preset-focus-kbd.png`.
+- Cause: the app's global ring is `outline: 2px solid oklch(var(--s))` with offset 2 px
+  (`apps/ptah-extension-webview/src/styles.css:759-768`), switched to `--ptah-gold-strong` for `anubis-light`
+  (`styles.css:779-784`) and to `--ptah-accent-ink` for the stock themes (`styles.css:795-800`). The `!important`
+  `outline-primary` utility overrides all of them, and `primary` is blue in `anubis` and pale teal in `anubis-light`.
+- Fix: drop `focus-visible:!outline-primary` and give the select the same per-theme colours as the global rule, with
+  a specificity that beats DaisyUI's `.select:focus` (for example a `select.select:focus-visible` rule in `styles.css`
+  after the three rules above that sets `outline-color: oklch(var(--s))`, with the `--ptah-gold-strong` and
+  `--ptah-accent-ink` variants on the same selectors). Re-measure: target dark `oklch(0.7665 0.1387 91.06)`, light
+  `oklch(0.48 0.12 70)`.
+
+### Re-check verdict
+
+Findings 1 and 2 are fixed in both themes. Finding 3 is half fixed: the edge now clears 3:1 in both themes
+(4.39:1 dark, 3.18:1 light), but the focus ring now has the wrong colour, and in the light theme it is still under
+3:1 (1.27:1). Recommendation: REVISE for defect 9 only.
+
+### Re-check of defect 9
+
+Build: renderer reloaded over CDP (port 9336, app not restarted). The select class string in the DOM is now
+`select select-sm select-bordered w-full !border-base-content/50 focus:!border-base-content/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]`,
+so the rebuilt bundle is the code under review. Item 3 only; no chat turns, nothing applied or saved. A fresh builder
+session in the throwaway workspace `ws` was used and discarded afterwards; workspace (`ptah-final-run-ws`), rail
+(`ws` removed), theme (`anubis`), Chat tab and viewport (892x735) are restored.
+
+| Check | Dark (`anubis`) | Light (`anubis-light`) | Result |
+| ----- | --------------- | ---------------------- | ------ |
+| Border `border-top-color` vs surface | `oklch(0.925 0.007 88.6 / 0.5)` on `rgb(25,25,31)`: 4.39:1 | `oklch(0.236 0.066 313.2 / 0.5)` on `rgb(240,236,232)`: 3.18:1 | PASS both |
+| Keyboard focus (Tab from the previous control) | `solid 2px`, offset 2 px, `oklch(0.7665 0.1387 91.06)` gold, 8.32:1 vs surface | `solid 2px`, offset 2 px, `oklch(0.48 0.12 70)` deep gold, 5.73:1 vs surface | PASS both |
+| Same as other sidebar controls | Save as preset, More helpers, Generate document, Session toggle, Git toggle all `oklch(0.7665 0.1387 91.06)`: identical | Same controls all `oklch(0.48 0.12 70)`: identical | PASS both |
+| Mouse click focus | Same gold ring (select matches `:focus-visible` on click); stays after the popup is closed with Escape | Same deep-gold ring, same behaviour | Observation: native `<select>` behaviour in Chromium, not a defect |
+
+Screenshots: `f3b-dark-preset-idle`, `f3b-dark-preset-focus-kbd`, `f3b-dark-preset-focus-mouse`, `f3b-dark-preset-next-ref`,
+`f3b-light-preset-idle`, `f3b-light-preset-focus-kbd`, `f3b-light-preset-focus-mouse`, `f3b-light-preset-next-ref`, `f3b-cleanup-final`.
+
+Defect 9 is fixed in both themes. Item 3 now PASSES dark and light, so all three F3 items pass. The light border has
+only 0.18 of headroom over 3:1 (3.18:1), unchanged and acceptable. Recommendation: APPROVE for F3.

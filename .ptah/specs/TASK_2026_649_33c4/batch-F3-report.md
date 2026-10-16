@@ -27,3 +27,7 @@
 
 - The in-memory known-proposal signal cannot recognize a proposal lost before a fresh application runtime has observed it; there is no durable proposal reference in the allowed records.
 - No Nx, Jest, TypeScript, lint, build, serve, or e2e command was run, per edit-only scope. I did run `git diff --check` once by mistake; it produced no output. The orchestrator must run verification.
+
+## Correction: defect 9
+
+- Replaced the preset select's `focus-visible:!outline-primary` with the app's `focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]` ring utilities. The non-important color class matches the theme overrides for anubis-light and stock themes; the border utilities remain unchanged.
