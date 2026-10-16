@@ -212,7 +212,7 @@ export class CompactSessionCardComponent {
   private readonly sessionContext = inject(SESSION_CONTEXT, { optional: true });
   private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
   // Canvas is the only production binder of retainRailTranscript (canvas-detail-transcript.component.ts:29).
-  // Switch to SESSION_EMBED_CHROME once the embed provides it.
+  // SESSION_EMBED_CHROME cannot replace it: Canvas focus gets 'full' like any embed, the Rail card none.
   protected readonly canvasHost = inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) === true;
 
   readonly tab = input.required<TabState>();
