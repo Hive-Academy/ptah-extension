@@ -70,3 +70,24 @@ were in scope. F-1, F-3, F-4, F-5 and F-7 of the round 1 review are fixed in the
 - Visual Minors: no FPS meter compared with the prototype; Stop is not red; Ptah plate ~22 px right of the sphere
   centre in idle; plate tooltip card overlaps neighbours; Setup hub card focus ring differs from the Tribunal card;
   "Status" sends a billed status turn without saying so.
+
+## After Phase E rounds 3 and 4 (code-logic-review-phase-e-r3.md, code-logic-review-phase-e-r4.md; visual-review-phase-e-r1.md)
+
+- R3-3: no bound on a turn that never receives its terminal `turn_state`; S-E relies on delivery.
+- F-2 (narrowed): the canvas detail transcript registers skip-if-present, so it loses visibility only if the page
+  leaves first on the same tab.
+- R3-4: a focused plate that becomes `visibility: hidden` by a relayout drops focus to the body.
+- R3-5: the conductor tile reads `correlationId()` at register and at destroy; a changed id leaks a count.
+- R3-6: after a stored `stopped`/`error`, a turn that begins without `send` keeps showing the stored status.
+- R3-7: an abort started outside the page shows "could not finish" as an error.
+- R3-8: the first send after an error shows the old `error`/`stopped` until the send acks.
+- R4-2: after a mid-turn question is answered on the card, the HUD stays `listening` while the turn resumes.
+- R4-3: a transient null then the same pending id re-scrolls the rail (`command-center-page.component.ts`
+  `scrollToNewPendingCard`); clear the key only when the card resolves.
+- R4-4: in the two-column layout `.work-list-region` keeps `tabindex="0"` but no longer scrolls (extra tab stop).
+- Visual M-r1-2: light focus ring `oklch(0.72 0.18 55)` is 2.2-2.5:1 on light surfaces.
+- Visual M-r1-4: shell tab strip scrollbar overlays labels at 892/900. M-r1-5: disabled control contrast.
+- Visual M-r1-6: at 900x800 with 24 nodes the Ptah plate sits far from its sphere (`scene-layout.ts` root-plate
+  fallback). M-r1-7: the "+1 completed" overflow chip has a square backing (`command-scene-renderer.ts:299-302`).
+- Visual Minors (r1): header wraps at 892; chip status is colour only on screen; pending description scroll clips
+  the last line; the session input outline is cut at the send button; session badge 10 px.
