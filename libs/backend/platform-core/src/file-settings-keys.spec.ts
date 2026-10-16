@@ -2,6 +2,7 @@ import {
   ENHANCE_TIMEOUT_DEFAULT_MS,
   ENHANCE_TIMEOUT_MAX_MS,
   ENHANCE_TIMEOUT_MIN_MS,
+  FILE_BASED_OBJECT_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
   isFileBasedSettingKey,
@@ -298,6 +299,31 @@ describe('isFileBasedSettingKey', () => {
         appScopable: false,
         supportedTargets: ['global'],
       });
+    });
+  });
+
+  describe('decision-model selection key (TASK_2026_646_136a)', () => {
+    // Written by `DecisionModelConfig.setSelection`. VS Code has no schema for
+    // it, so an unrouted write is rejected there.
+    const key = 'agentOrchestration.decisionModel';
+
+    it('is file-based and defaults to null (read as unset)', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(
+        Object.prototype.hasOwnProperty.call(FILE_BASED_SETTINGS_DEFAULTS, key),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBeNull();
+    });
+
+    it('is stored as a whole object', () => {
+      expect(FILE_BASED_OBJECT_SETTINGS_KEYS.has(key)).toBe(true);
+    });
+
+    it('lists only file-based keys as whole-object keys', () => {
+      for (const objectKey of FILE_BASED_OBJECT_SETTINGS_KEYS) {
+        expect(FILE_BASED_SETTINGS_KEYS.has(objectKey)).toBe(true);
+      }
     });
   });
 

@@ -2232,7 +2232,7 @@ Implementer families: Anthropic subagents and orchestrator; reviewer family: Ope
   both; rpc-handlers decision-model spec 35/35 + typecheck + lint; DI guards Electron 59/59, VS Code 62/62. Degradation
   audit TOTAL 297 = clean `origin/main` (the extra site comes from `main`; no baseline changed).
 
-## Batch 41i (W1): VS Code decision-model selection write path — PENDING (found by Mode 3 write-path trace)
+## Batch 41i (W1): VS Code decision-model selection write path — IMPLEMENTED (not committed) (found by Mode 3 write-path trace)
 
 - Recommended executor: CLI lane backend capability (sequential, 1-2 files + spec). Subagent reason: N/A.
 - Review family: different from implementer. Phase review: code-logic, scoped to the fix commit.
@@ -2259,6 +2259,31 @@ Implementer families: Anthropic subagents and orchestrator; reviewer family: Ope
   contribute `ptah.agentOrchestration.decisionModel` as an object setting in `package.json`. Evidence: the sibling
   background-role keys are file-based; (a) makes all three hosts read and write the same `~/.ptah/settings.json`;
   (b) leaves Electron/CLI on a different store. The feature is unreleased, so no migration is needed. Reversible: yes.
+
+### 41i — implementation (backend-developer, session 11; not committed)
+
+- Routing: `'agentOrchestration.decisionModel'` added to `FILE_BASED_SETTINGS_KEYS`
+  (`libs/backend/platform-core/src/file-settings-keys.ts:216-219`), default `null` in
+  `FILE_BASED_SETTINGS_DEFAULTS` (`:547-549`). `PtahFileSettingsManager.get` returns a registered `null`
+  as `null` (`file-settings-manager.ts:103-111`), and `getSelection` reads `null` as `{ kind: 'unset' }`
+  with no warning (`decision-model.config.ts:134-136`).
+- Second defect found and fixed: routing alone did not persist the selection. The manager flattens every
+  nested object on load and on the cross-process reload (`flattenObject`, `file-settings-manager.ts:665-690`),
+  so `{ kind, model }` came back as `agentOrchestration.decisionModel.kind` / `.model` leaves and the key read
+  as `null` (unset) after a restart. Proved by the new round-trip spec failing before the fix
+  (`Expected {"kind":"ollama","model":"tev1"}, Received: null`). Fix: new
+  `FILE_BASED_OBJECT_SETTINGS_KEYS` (`file-settings-keys.ts:493-505`), and `flattenObject` keeps those keys'
+  values whole (`file-settings-manager.ts:25,679`). The on-disk JSON shape is unchanged.
+- Specs: `file-settings-keys.spec.ts:305-328` (file-based, default `null`, whole-object key, list subset of
+  file-based keys); `file-settings-manager.spec.ts:243-265` (writer -> disk -> fresh reader round-trip of the
+  object, no `.kind` leaf; unset reads `null`).
+- Other keys of this task (step 2): only `provider.ollama.baseUrl` is read through `getConfiguration`
+  (`decision-model.config.ts:231-234`, read-only), and it is file-based via `PROVIDER_BASE_URL_PATTERN`. Every
+  other key the branch adds (`ptah.laneOutcomes.*`, `ptah.decisionModel.unsupported.v1`,
+  `laneRouting.rotation.v1`) goes through `IStateStorage`, not configuration. No further key needs a fix.
+- Checks: `nx test @ptah-extension/platform-core` 47/47 suites, 1098 passed + 4 todo; `nx run-many -t typecheck
+  lint -p @ptah-extension/platform-core` success; prettier unchanged; degradation audit TOTAL 297 (= origin/main).
+  No lane-routing source changed.
 
 ## Mode 3 completion (team-leader, 2026-10-16, session 11)
 
