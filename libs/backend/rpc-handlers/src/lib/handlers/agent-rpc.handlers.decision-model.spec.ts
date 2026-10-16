@@ -30,6 +30,7 @@ import { createMockRpcHandler } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { AgentOrchestrationConfig } from '@ptah-extension/shared';
 import type {
+  DecisionModelLocality,
   DecisionModelSelection,
   DecisionModelStatusDto,
 } from '@ptah-extension/lane-routing';
@@ -94,6 +95,8 @@ const UNSUPPORTED_ENDPOINT: DecisionModelStatusDto = {
 
 interface DecisionModelDouble {
   getStatus: jest.Mock<Promise<DecisionModelStatusDto>, []>;
+  getSelection: jest.Mock<DecisionModelSelection, []>;
+  localityOf: jest.Mock<DecisionModelLocality | null, [DecisionModelSelection]>;
   setSelection: jest.Mock<Promise<DecisionModelSelection>, [unknown]>;
   setJevApiKey: jest.Mock<Promise<void>, [string | null]>;
 }
@@ -103,6 +106,11 @@ function decisionModelDouble(
 ): DecisionModelDouble {
   return {
     getStatus: jest.fn(() => Promise.resolve(status)),
+    getSelection: jest.fn((): DecisionModelSelection => status.selection),
+    localityOf: jest.fn(
+      (_selection: DecisionModelSelection): DecisionModelLocality | null =>
+        status.locality,
+    ),
     setSelection: jest.fn((_input: unknown): Promise<DecisionModelSelection> =>
       Promise.resolve({ kind: 'unset' as const }),
     ),
@@ -164,6 +172,9 @@ function makeHarness(status: DecisionModelStatusDto = UNSET_STATUS) {
     { type: 'electron', extensionPath: '/ptah-app' } as never,
     {
       getStatus: () => decisionModel.getStatus(),
+      getSelection: () => decisionModel.getSelection(),
+      localityOf: (selection: DecisionModelSelection) =>
+        decisionModel.localityOf(selection),
       setSelection: (input: unknown) => decisionModel.setSelection(input),
       setJevApiKey: (key: string | null) => decisionModel.setJevApiKey(key),
     },
@@ -247,6 +258,125 @@ describe('agent:getConfig decision model', () => {
       expect((await h.getConfig()).decisionModel).toEqual(status);
     },
   );
+});
+
+describe('agent:getConfig decision model status failure (P4 S-1)', () => {
+  const JEV_READY: DecisionModelStatusDto = {
+    selection: { kind: 'jev', model: 'jev-1.13.0' },
+    locality: 'remote',
+    reportsConfidence: true,
+    state: 'ready',
+    detail: null,
+  };
+  const RAW_ERROR_TEXT = 'secret store EIO at /home/u/.ptah/secrets';
+
+  it('returns the other fields and an unreachable row for the stored selection when getStatus rejects', async () => {
+    const h = makeHarness(JEV_READY);
+    const failure = new Error(RAW_ERROR_TEXT);
+    h.decisionModel.getStatus.mockRejectedValue(failure);
+
+    const config = await h.getConfig();
+
+    expect(config.detectedClis).toEqual([]);
+    expect(config.maxConcurrentAgents).toBe(5);
+    expect(config.piModel).toBe('');
+    expect(config.workflowsDisabled).toBe(false);
+    expect(config.decisionModel).toEqual({
+      selection: { kind: 'jev', model: 'jev-1.13.0' },
+      locality: 'remote',
+      reportsConfidence: true,
+      state: 'unreachable',
+      detail: 'The status could not be read. The saved choice is unchanged.',
+    });
+    expect(DECISION_MODEL_STATES).toContain(config.decisionModel.state);
+    expect(JSON.stringify(config)).not.toContain(RAW_ERROR_TEXT);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('decision model status failed'),
+      failure,
+    );
+    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
+    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+  });
+
+  it('reports a structured selection without confidence when getStatus rejects', async () => {
+    const structured: DecisionModelStatusDto = {
+      selection: {
+        kind: 'structured',
+        providerId: 'openrouter',
+        model: 'gpt-4o',
+      },
+      locality: 'remote',
+      reportsConfidence: false,
+      state: 'ready',
+      detail: null,
+    };
+    const h = makeHarness(structured);
+    h.decisionModel.getStatus.mockRejectedValue(new Error(RAW_ERROR_TEXT));
+
+    const { decisionModel } = await h.getConfig();
+
+    expect(decisionModel.selection).toEqual(structured.selection);
+    expect(decisionModel.reportsConfidence).toBe(false);
+    expect(decisionModel.state).toBe('unreachable');
+  });
+
+  it('keeps a stored unset selection unset when getStatus rejects', async () => {
+    const h = makeHarness(UNSET_STATUS);
+    h.decisionModel.getStatus.mockRejectedValue(new Error(RAW_ERROR_TEXT));
+
+    expect((await h.getConfig()).decisionModel).toEqual(UNSET_STATUS);
+    expect(h.decisionModel.localityOf).not.toHaveBeenCalled();
+  });
+
+  it('returns an unset unreachable row with fixed detail when the selection cannot be read either', async () => {
+    const h = makeHarness(JEV_READY);
+    const statusFailure = new Error(RAW_ERROR_TEXT);
+    const selectionFailure = new Error(`${RAW_ERROR_TEXT} (settings)`);
+    h.decisionModel.getStatus.mockRejectedValue(statusFailure);
+    h.decisionModel.getSelection.mockImplementation(() => {
+      throw selectionFailure;
+    });
+
+    const config = await h.getConfig();
+
+    expect(config.maxConcurrentAgents).toBe(5);
+    expect(config.decisionModel).toEqual({
+      selection: { kind: 'unset' },
+      locality: null,
+      reportsConfidence: false,
+      state: 'unreachable',
+      detail: 'The saved decision model could not be read. It is unchanged.',
+    });
+    expect(JSON.stringify(config)).not.toContain(RAW_ERROR_TEXT);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('decision model status failed'),
+      statusFailure,
+    );
+    expect(h.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('selection could not be read'),
+      selectionFailure,
+    );
+    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
+  });
+
+  it('returns the row without a locality when localityOf throws', async () => {
+    const h = makeHarness(JEV_READY);
+    const localityFailure = new Error(RAW_ERROR_TEXT);
+    h.decisionModel.getStatus.mockRejectedValue(new Error(RAW_ERROR_TEXT));
+    h.decisionModel.localityOf.mockImplementation(() => {
+      throw localityFailure;
+    });
+
+    const { decisionModel } = await h.getConfig();
+
+    expect(decisionModel.selection).toEqual(JEV_READY.selection);
+    expect(decisionModel.locality).toBeNull();
+    expect(decisionModel.state).toBe('unreachable');
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('locality could not be read'),
+      localityFailure,
+    );
+  });
 });
 
 describe('agent:setConfig decision model', () => {
@@ -335,6 +465,61 @@ describe('agent:setConfig decision model', () => {
       success: false,
       error: 'Settings could not be saved to disk (EIO)',
     });
+    expect(h.settings.size).toBe(0);
+  });
+
+  it('writes the Jev key before the selection (P4 S-2)', async () => {
+    const h = makeHarness();
+    expect(
+      await h.setConfig({
+        decisionModel: { kind: 'jev' },
+        decisionModelJevApiKey: 'jev-secret-value-9f3a',
+      }),
+    ).toEqual({ success: true });
+    const [keyOrder] = h.decisionModel.setJevApiKey.mock.invocationCallOrder;
+    const [selectionOrder] =
+      h.decisionModel.setSelection.mock.invocationCallOrder;
+    expect(keyOrder).toBeLessThan(selectionOrder);
+  });
+
+  it('does not write the selection when the Jev key write fails (P4 S-2)', async () => {
+    const h = makeHarness();
+    const secret = 'jev-secret-value-9f3a';
+    h.decisionModel.setJevApiKey.mockRejectedValue(
+      new Error(`secret store refused ${secret}`),
+    );
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: secret,
+      piModel: 'openai/gpt-4o',
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not save the orchestration settings.',
+    });
+    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
+    expect(h.settings.size).toBe(0);
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain(secret);
+  });
+
+  it('returns success false when the selection write fails after the key was stored (P4 S-2)', async () => {
+    const h = makeHarness();
+    h.decisionModel.setSelection.mockRejectedValue(
+      new SettingsPersistError('EIO'),
+    );
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: 'jev-secret-value-9f3a',
+      piModel: 'openai/gpt-4o',
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Settings could not be saved to disk (EIO)',
+    });
+    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
     expect(h.settings.size).toBe(0);
   });
 

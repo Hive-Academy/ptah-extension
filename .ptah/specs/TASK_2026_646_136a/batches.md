@@ -2142,6 +2142,15 @@ comments), LT-P5-9 style M3 (metrics branch duplicated), LT-P5-10 style M5 (noti
 Executor: CLI lanes codex (OpenAI), at most 3 at once; re-review Anthropic. 39b changes the Agents tab, so the P5 visual
 review (B8 after screenshots against `visual/batch-8-before/`) runs after 39b.
 
+Status 39a-39d: COMPLETE (orchestrator Mode 2, 2026-10-16, session 10; commits b5e38c780 39a, 40dcfb9ae 39b, 7f8f93adf
+39c, 81c1f5af9 39d). Verified: nx test skill-synthesis + skill-synthesis-ui (2 projects) pass, vscode-lm-tools,
+rpc-handlers, agent-sdk, cli-agent-runtime pass (session 9); typecheck + lint pass for all 6 projects; VS Code `src/di`
+Jest 62/62, Electron `src/di` Jest 59/59, ptah-cli Jest 67 suites pass; app `tsc --noEmit` for Electron, VS Code and
+ptah-cli pass; degradation TOTAL 296 no FAIL. Orchestrator fixes in session 10: `register.spec.ts` and the Electron and
+CLI `container.smoke.spec.ts` register `PERSISTENCE_TOKENS.VEC_STATUS` (+ `TOKENS.LOGGER` in the smoke specs);
+`skill-synthesis-tab.component.spec.ts` stub gains `outcomeStatus` + `outcomeReadFailures`; the 39b suppression marker in
+`skill-clones-state.service.ts` now uses the `reported — <reason>` form (it counted as `bare-suppression`, TOTAL 297).
+
 ## P4 review triage (orchestrator, 2026-10-16, decision #104)
 
 Review: `reviews/p4-code-logic-review.md` (codex, OpenAI) NEEDS_REVISION 5/10 (0 Blocking, 3 Serious, 3 Moderate), read at
@@ -2152,7 +2161,7 @@ raw caught errors to `LoggingService.warn`) is real. M-4 (structured-output sugg
 false help sentence) is in the same file as S-3 and comes with it. Later tasks P4c: LT-P4-1 M-5 (abort does not bound every
 structured-adapter stage), LT-P4-2 M-6 (a hung shared discovery promise is reused).
 
-## Batch 40a (P4f-a): P4 fix round, config RPC — IN PROGRESS (subagent backend-developer, Anthropic)
+## Batch 40a (P4f-a): P4 fix round, config RPC — COMPLETE (orchestrator Mode 2 2026-10-16, session 10; subagent backend-developer, Anthropic; rpc-handlers test + typecheck + lint pass; degradation TOTAL 296; re-review pending, codex)
 
 - Items: S-1 (a `getStatus()` failure never fails the rest of `agent:getConfig`; the row gets a five-state DTO), S-2 (the
   Jev key is written before the selection, so a failed key write leaves the selection unchanged, as the UI says)

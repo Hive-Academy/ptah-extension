@@ -108,6 +108,8 @@ function makeHarness(): Harness {
           state: 'unset' as const,
           detail: null,
         }),
+      getSelection: () => ({ kind: 'unset' as const }),
+      localityOf: () => null,
       setSelection: () => Promise.resolve({ kind: 'unset' as const }),
       setJevApiKey: () => Promise.resolve(),
     },

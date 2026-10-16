@@ -51,6 +51,9 @@ import {
 import {
   LANE_ROUTING_TOKENS,
   type DecisionModelConfig,
+  type DecisionModelLocality,
+  type DecisionModelSelection,
+  type DecisionModelStatusDto,
 } from '@ptah-extension/lane-routing';
 import { z } from 'zod';
 import type {
@@ -274,6 +277,16 @@ function isSubagentPromptCacheTtlSetting(
   );
 }
 
+/**
+ * Fixed `detail` texts for a decision-model row whose status read failed.
+ * Never the raw error: provider and storage errors can carry paths or
+ * credentials. The real Error goes to the host log only.
+ */
+const DECISION_STATUS_UNREAD_DETAIL =
+  'The status could not be read. The saved choice is unchanged.';
+const DECISION_SELECTION_UNREAD_DETAIL =
+  'The saved decision model could not be read. It is unchanged.';
+
 @injectable()
 export class AgentRpcHandlers {
   /**
@@ -324,7 +337,11 @@ export class AgentRpcHandlers {
     @inject(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)
     private readonly decisionModelConfig: Pick<
       DecisionModelConfig,
-      'getStatus' | 'setSelection' | 'setJevApiKey'
+      | 'getStatus'
+      | 'getSelection'
+      | 'localityOf'
+      | 'setSelection'
+      | 'setJevApiKey'
     >,
   ) {}
 
@@ -459,7 +476,7 @@ export class AgentRpcHandlers {
                 'workflows.disabled',
                 false,
               ) ?? false,
-            decisionModel: await this.decisionModelConfig.getStatus(),
+            decisionModel: await this.readDecisionModelStatus(),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -477,6 +494,71 @@ export class AgentRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * The `decisionModel` field of `agent:getConfig`. A status failure stays
+   * local to this field, so the rest of the config is still returned. The
+   * fallback reads the stored selection without the probe and reports it as
+   * `unreachable` with fixed detail; a stored `unset` stays `unset`, since an
+   * unset selection sends no request that could be unreachable.
+   */
+  private async readDecisionModelStatus(): Promise<DecisionModelStatusDto> {
+    try {
+      return await this.decisionModelConfig.getStatus();
+    } catch (error: unknown) {
+      this.logger.error(
+        'RPC: agent:getConfig decision model status failed; returning the stored selection',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+    let selection: DecisionModelSelection;
+    try {
+      selection = this.decisionModelConfig.getSelection();
+    } catch (error: unknown) {
+      this.logger.error(
+        'RPC: agent:getConfig decision model selection could not be read',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      // No `unknown` selection exists in the contract (decision #46), so the
+      // row reads as unset with the fixed "could not be read" detail. Loading
+      // never writes: only a user save changes the stored selection.
+      return {
+        selection: { kind: 'unset' },
+        locality: null,
+        reportsConfidence: false,
+        state: 'unreachable',
+        detail: DECISION_SELECTION_UNREAD_DETAIL,
+      };
+    }
+    if (selection.kind === 'unset') {
+      return {
+        selection,
+        locality: null,
+        reportsConfidence: false,
+        state: 'unset',
+        detail: null,
+      };
+    }
+    let locality: DecisionModelLocality | null = null;
+    try {
+      locality = this.decisionModelConfig.localityOf(selection);
+    } catch (error: unknown) {
+      // The row stays readable without a locality line; the cause is logged.
+      this.logger.warn(
+        'RPC: agent:getConfig decision model locality could not be read',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+    return {
+      selection,
+      locality,
+      // Same rule as the service's status rows: structured reports none.
+      reportsConfidence:
+        selection.kind === 'ollama' || selection.kind === 'jev',
+      state: 'unreachable',
+      detail: DECISION_STATUS_UNREAD_DETAIL,
+    };
   }
 
   private registerSetConfig(): void {
@@ -564,13 +646,17 @@ export class AgentRpcHandlers {
       // Decision-model writes go through the service, which validates the
       // selection before it stores anything. Run them before the other
       // writes so an invalid selection leaves those fields unchanged.
-      if (params.decisionModel !== undefined) {
-        await this.decisionModelConfig.setSelection(params.decisionModel);
-      }
+      // The Jev key goes first: a failed key write then leaves the selection
+      // unchanged, as the row's failure message says. A selection write that
+      // fails after the key was stored still returns `success: false`; the
+      // key alone changes no routing. The key is never logged or echoed.
       if (params.decisionModelJevApiKey !== undefined) {
         await this.decisionModelConfig.setJevApiKey(
           params.decisionModelJevApiKey,
         );
+      }
+      if (params.decisionModel !== undefined) {
+        await this.decisionModelConfig.setSelection(params.decisionModel);
       }
       if (params.preferredAgentOrder !== undefined) {
         await this.setAgentCfg(
