@@ -60,4 +60,7 @@ export {
   registerLaneOutcomeServices,
   LANE_OUTCOME_PIPELINE,
 } from './lib/di/register';
-export { startLaneOutcomes } from './lib/di/start';
+export {
+  startLaneOutcomes,
+  startAndRegisterLaneOutcomes,
+} from './lib/di/start';

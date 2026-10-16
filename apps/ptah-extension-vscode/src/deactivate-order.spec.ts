@@ -59,15 +59,16 @@ describe('deactivate() teardown order', () => {
     expect(deactivateBody).toContain(`await ${AGENT_DISPOSE}`);
   });
 
-  it('awaits lane outcomes before clearing the container', () => {
-    expect(deactivateBody).toContain(
-      'await DIContainer.resolve<() => Promise<void>>(laneOutcomesDisposer)()',
+  it('awaits the bounded lane-outcomes drain before clearing the container', () => {
+    const drainCall =
+      'DIContainer.resolve<() => Promise<void>>(laneOutcomesDisposer)()';
+    const race = deactivateBody.indexOf('await Promise.race([');
+    expect(race).toBeGreaterThan(-1);
+    expect(deactivateBody.indexOf(drainCall)).toBeGreaterThan(race);
+    expect(deactivateBody).toContain('LANE_OUTCOME_DRAIN_BUDGET_MS');
+    expect(deactivateBody.indexOf(drainCall)).toBeLessThan(
+      deactivateBody.indexOf('DIContainer.clear()'),
     );
-    expect(
-      deactivateBody.indexOf(
-        'await DIContainer.resolve<() => Promise<void>>(laneOutcomesDisposer)()',
-      ),
-    ).toBeLessThan(deactivateBody.indexOf('DIContainer.clear()'));
   });
 
   it('starts the bounded run-check kill beside the agent reap and awaits it after the metadata flush', () => {

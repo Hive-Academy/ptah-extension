@@ -4,10 +4,8 @@ import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
-  startLaneOutcomes,
+  startAndRegisterLaneOutcomes,
 } from '@ptah-extension/lane-outcomes';
-
-export const LANE_OUTCOMES_DISPOSER = Symbol.for('PtahLaneOutcomesDisposer');
 
 export function wireLaneOutcomes(
   container: DependencyContainer,
@@ -26,14 +24,5 @@ export function startCliLaneOutcomes(
   container: DependencyContainer,
   logger: Logger,
 ): void {
-  try {
-    const disposeLaneOutcomes = startLaneOutcomes(container, logger);
-    container.register(LANE_OUTCOMES_DISPOSER, {
-      useValue: disposeLaneOutcomes,
-    });
-  } catch (error: unknown) {
-    logger.warn('[CLI DI] Lane outcomes start failed (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  startAndRegisterLaneOutcomes(container, logger);
 }

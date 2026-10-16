@@ -1,6 +1,6 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 47 | Batches: 40 (Batches 37 and 37b P3 fix round added, decisions #93, #94) | Complete: 39/40 | Phases accepted: P1, P2 (decision #85), P3 (decision #96) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit pending | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91) | P3 ACCEPTED (user, decision #96) after fix round Batch 37 and correction 37b
+Total tasks: 47 | Batches: 46 (Batches 37 and 37b P3 fix round added, decisions #93, #94) | Complete: 42/46 (Batches 38a, 38b P6 fix round added, decision #100; Batches 39a-39d P5 fix round, decision #102) | Phases accepted: P1, P2 (decision #85), P3 (decision #96) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit DONE (p2-fix2, APPROVED 7.5/10, decision #99) | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91) | P3 ACCEPTED (user, decision #96) after fix round Batch 37 and correction 37b
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -1229,7 +1229,7 @@ state)` (`rotation.store.ts:203`). The value is `{ version: 1, entries: [{ key, 
 
 - `npx nx test @ptah-extension/lane-routing --parallel=1`, then `npx nx lint @ptah-extension/lane-routing`, then `npx nx typecheck @ptah-extension/lane-routing`
 
-## Batch 22 (A12): Decision model settings row — PENDING
+## Batch 22 (A12): Decision model settings row — COMPLETE (orchestrator Mode 2 2026-10-16, decision #99; actual executor: subagent frontend-developer, Anthropic; report `reports/batch-22-report.md`; verified: chat Jest 5 suites / 150 tests, `nx lint @ptah-extension/chat` 0 errors (assignments component max-lines 766 -> 774, pre-existing), typecheck pass, degradation TOTAL 296; before screenshots `visual/batch-22-before.md`; after screenshots pending)
 
 - Recommended executor: CLI lane antigravity (Google) — Angular frontend
 - Execution mode: sequential
@@ -1240,7 +1240,7 @@ state)` (`rotation.store.ts:203`). The value is `{ version: 1, entries: [{ key, 
 - Tasks: 1 | Depends on: Batch 18
 - Phase: P4 Decision-model settings | Phase review: code-logic + visual
 
-### Task 22.1: Decision-model row in orchestration settings — PENDING
+### Task 22.1: Decision-model row in orchestration settings — COMPLETE
 
 - File: CREATE `decision-model-row.component.ts` (+ spec) under `W\libs\frontend\chat\src\lib\`; MODIFY `provider-consumer-rows.ts` (+ spec), `provider-consumer-assignments.component.ts`, `orchestration-settings.component.ts` (+ spec)
 - Plan reference: implementation-plan.md:756; part-a:936, §11
@@ -2084,3 +2084,60 @@ store.applyReportWithReceipt(reviseReport, now, resolve)])` leaves the row with
 - Last correction for P3 (agent-lanes §6). One short codex re-review follows; if it still finds
   defects, report them to the user and stop. Codex sessions: logic 01a14105-24d0-7732-b30c-11bcada27ac6,
   style 01a14105-4526-76f0-bd65-1dc323897ddd
+
+## P6 review triage (orchestrator, 2026-10-16, decision #100)
+
+Reviews: `reviews/p6-code-logic-review.md` NEEDS_REVISION 6/10, `reviews/p6-code-style-review.md` NEEDS_REVISION 6/10.
+Fix round: Batches 38a and 38b (file-disjoint, codex lanes). Later tasks P6c: LT-P6-1 stdio `route_decide`
+invalid-args code `mcp_tool_failed` (logic M); LT-P6-2 stdio resolves outcome deps outside `try` -> `-32603` (logic M);
+LT-P6-3 hand-written `ptah_outcome_report` input schema lacks `taskKind`/`routingSource` enums (logic M);
+LT-P6-4 `let builtAgent` assigned in an object literal, `ptah-api-builder.service.ts:554,670,785` (style M);
+LT-P6-5 `limitKey` duplicates `laneCandidateId`, stale header in `route-namespace.builder.ts` (style M);
+LT-P6-6 `typeof ... === 'function'` guards at `http-mcp-server.service.ts:406`, `stdio-mcp-server.service.ts:472` (style M);
+LT-P6-7 smoke tests re-register the aliases themselves (style M). Minors recorded in the review, not fixed.
+
+## Batch 38a (P6f-a): P6 fix round, MCP side — COMPLETE (orchestrator Mode 2 2026-10-16; codex lane + orchestrator budget correction #101; full `nx test @ptah-extension/vscode-lm-tools` 95 suites / 3070 tests, typecheck, lint 0 errors)
+
+- Executor: CLI lane codex (OpenAI); review family Anthropic (re-review)
+- Items: logic S-1 (ptahCliId spawn branch passes `taskKind`/`routingSource`), S-2 (`ptah_route_decide` result over its
+  24,000-char budget must never be returned as a truncated success), S-3 (`ptah_outcome_report` with no resolved
+  workspace returns an error result, never `resolve('')`), style S1 (outcome-report glue in one handler module like
+  `RouteToolReply`; one logger adapter; reuse one `describeZodIssues`)
+- Files: `libs/backend/vscode-lm-tools/**` only. Report `T\reports\batch-38a-report.md`
+- Verification (orchestrator): `J(libs/backend/vscode-lm-tools, <changed specs>)`, `npx nx typecheck @ptah-extension/vscode-lm-tools`,
+  `npx nx lint @ptah-extension/vscode-lm-tools`
+
+## Batch 38b (P6f-b): P6 fix round, host side — COMPLETE (orchestrator Mode 2 2026-10-16, decisions #101, #103; codex lane; lane-outcomes test 14 suites / 120 tests + typecheck + lint, cli-engine test 24 suites / 233 tests + typecheck + lint, Electron shutdown + quit-path Jest 37 tests, VS Code src/di + deactivate-order Jest, ptah-cli Jest 67 suites, app tsc --noEmit for Electron and VS Code, degradation TOTAL 296)
+
+- Executor: CLI lane codex (OpenAI); review family Anthropic (re-review)
+- Items: logic S-4 (lane-outcomes drain after the last outcome write and before the store closes, on VS Code, Electron and
+  CLI), style S2 (disposer token in `LANE_OUTCOME_TOKENS`; one start-and-register helper instead of copies), style S3
+  (Electron `shutdown.ts`: through `BootRefs`, a named `*_BUDGET_MS` constant, restored invariant text), logic Moderate
+  (partial `startLaneOutcomes` failure: dispose what started, still register a disposer), style Moderate 1
+  (`shutdown-host-runtime.ts` uses `disposeSubsystem`, header text)
+- Files: `libs/backend/lane-outcomes/src/lib/di/**`, `src/index.ts`, the VS Code and Electron `phase-2-libraries.ts`,
+  `apps/ptah-extension-vscode/src/main.ts`, `apps/ptah-electron/src/activation/shutdown.ts`,
+  `libs/backend/cli-engine/src/lib/{bootstrap/shutdown-host-runtime.ts,lane-outcomes-wiring.ts}` and their specs.
+  Report `T\reports\batch-38b-report.md`
+
+## P5 review triage (orchestrator, 2026-10-16, decision #102)
+
+Reviews: `reviews/p5-code-logic-review.md` NEEDS_REVISION 6/10 (0 Blocking, 3 Serious, 9 Moderate, 7 Minor),
+`reviews/p5-code-style-review.md` NEEDS_REVISION 6.5/10 (0 Blocking, 5 Serious, 7 Moderate, 8 Minor).
+Fix round (one, lean rule 4): every Serious, plus logic M-2 (row dropped), M-6 (false "missing" fact stored), M-8
+(drive-relative path passes the workspace fence) and style M4 (same code as M-6). Style S1 equals LT-P6-3, which is
+removed from P6c and fixed here. Later tasks P5c: LT-P5-1 logic M-1 (subagent mtime), LT-P5-2 M-3 (caller check),
+LT-P5-3 M-4 (revise idempotency), LT-P5-4 M-5 (stopped lane class), LT-P5-5 M-7 (continuation turns), LT-P5-6 M-9
+(2,000-row cap marker), LT-P5-7 style M1 (redundant catch-log-rethrow), LT-P5-8 style M2 (stale "later batch"
+comments), LT-P5-9 style M3 (metrics branch duplicated), LT-P5-10 style M5 (notifier thunk), LT-P5-11 style M6
+(barrel exports), LT-P5-12 style M7 (client 500-slug chunking, with logic m-2). Minors recorded, not fixed.
+
+| Batch | Lib(s) | Items |
+| --- | --- | --- |
+| 39a | vscode-lm-tools | logic M-2 (parse `taskKind`/`routingSource` at `agent-namespace.builder.ts`), M-6 + style M4 (`outcome-report.tool.ts:121-130`), M-8 (drive-relative path), style S1 (input schema from Zod) |
+| 39b | rpc-handlers, skill-synthesis-ui | logic S-1 (coded `RpcUserError`, fixed text), style S3 (`Pick<LaneOutcomeQueries, ...>`), logic S-2 (error / non-durable state distinct from "no data yet"; a failed refresh keeps shown figures) |
+| 39c | cli-agent-runtime | logic S-3 (auth classifier: no bare `401`/"unauthorized" match in the stdout tail), style S4 (one `limits/` directory) |
+| 39d | agent-sdk, skill-synthesis | style S2 (post-tool-use hook log regression + unbounded Set), style S5 (no raw SQL on foreign tables; use the owning stores, validated) |
+
+Executor: CLI lanes codex (OpenAI), at most 3 at once; re-review Anthropic. 39b changes the Agents tab, so the P5 visual
+review (B8 after screenshots against `visual/batch-8-before/`) runs after 39b.

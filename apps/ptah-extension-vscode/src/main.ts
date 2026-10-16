@@ -32,6 +32,7 @@ import {
   type ISessionSpawner,
 } from '@ptah-extension/cli-agent-runtime';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 import { killRunningChecks } from '@ptah-extension/vscode-lm-tools';
 import { DIContainer } from './di/container';
 import { PtahExtension } from './core/ptah-extension';
@@ -41,6 +42,9 @@ import { registerPostInit } from './activation/post-init';
 
 let ptahExtension: PtahExtension | undefined;
 let diagnostics: DiagnosticsHandle | undefined;
+
+/** Maximum time deactivate waits for pending lane outcome writes. */
+const LANE_OUTCOME_DRAIN_BUDGET_MS = 2000;
 
 /**
  * Activation API surface returned from `activate()`. Consumed by the
@@ -199,14 +203,25 @@ export async function deactivate(): Promise<void> {
   // instead of merely starting it (TASK_2026_324 finding 3).
   await flushSessionMetadataStores();
 
-  const laneOutcomesDisposer = Symbol.for('PtahLaneOutcomesDisposer');
+  const laneOutcomesDisposer = LANE_OUTCOME_TOKENS.DISPOSER;
   if (DIContainer.isRegistered(laneOutcomesDisposer)) {
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await DIContainer.resolve<() => Promise<void>>(laneOutcomesDisposer)();
+      await Promise.race([
+        DIContainer.resolve<() => Promise<void>>(laneOutcomesDisposer)(),
+        new Promise<void>((_, reject) => {
+          drainTimer = setTimeout(
+            () => reject(new Error('Lane outcomes drain timed out')),
+            LANE_OUTCOME_DRAIN_BUDGET_MS,
+          );
+        }),
+      ]);
     } catch (error: unknown) {
       logger.warn('Lane outcomes dispose failed (non-fatal)', {
         reason: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      if (drainTimer) clearTimeout(drainTimer);
     }
   }
 

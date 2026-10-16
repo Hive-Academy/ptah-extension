@@ -34,7 +34,7 @@ import {
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
-  startLaneOutcomes,
+  startAndRegisterLaneOutcomes,
 } from '@ptah-extension/lane-outcomes';
 import {
   registerVsCodeLmToolsServices,
@@ -233,16 +233,7 @@ export function registerPhase2Libraries(
     useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
   });
   registerCliAgentRuntimeServices(container, logger);
-  try {
-    const disposeLaneOutcomes = startLaneOutcomes(container, logger);
-    container.register(Symbol.for('PtahLaneOutcomesDisposer'), {
-      useValue: disposeLaneOutcomes,
-    });
-  } catch (error: unknown) {
-    logger.warn('[DI] Lane outcomes start failed (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  startAndRegisterLaneOutcomes(container, logger);
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
     { useClass: VscodeCopilotAuthService },

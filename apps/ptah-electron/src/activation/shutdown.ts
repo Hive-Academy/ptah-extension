@@ -2,10 +2,7 @@ import {
   killRunningChecks,
   runningCheckPids,
 } from '@ptah-extension/vscode-lm-tools';
-import { ElectronDIContainer } from '../di/container';
 import type { BootRefs } from './boot-coordinator';
-
-const LANE_OUTCOMES_DISPOSER = Symbol.for('PtahLaneOutcomesDisposer');
 
 /**
  * The `will-quit` sequence, extracted from `main.ts` (TASK_2026_331 B1.T6).
@@ -30,7 +27,7 @@ const LANE_OUTCOMES_DISPOSER = Symbol.for('PtahLaneOutcomesDisposer');
  * the meantime is still disposed.
  *
  * A quit is ALSO deferred when the chain has something to await — today that is
- * exactly one thing, `GatewayService.stop()`, whose outbound drain persists to
+ * several things, including `GatewayService.stop()` and the lane outcomes drain, which persist to
  * the same database `SQLite close` is about to shut (TASK_2026_347). Electron
  * stops waiting the moment a synchronous listener returns, so an unawaited stop
  * is a lost write; the deferral is what buys the chain the microtasks that drain
@@ -86,6 +83,9 @@ export const GATEWAY_STOP_BUDGET_MS = 2000;
  * buys the staging its microtasks — it is not waiting on a process to die.
  */
 export const AGENT_REAP_BUDGET_MS = 2000;
+
+/** Maximum time for pending lane outcome writes to drain before SQLite closes. */
+export const LANE_OUTCOME_DRAIN_BUDGET_MS = 2000;
 
 /**
  * How long the chain may wait for the FINAL metadata flush.
@@ -236,10 +236,11 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
 }
 
 /**
- * The tail of the LIFO chain: `SQLite close` and everything after it.
+ * The tail of the LIFO chain: agent reap, outcome drain, SQLite close, and later disposal.
  *
- * Nothing in here may run before {@link stopMessagingGateway} has SETTLED —
- * The lane-outcomes drain and gateway writes finish before `SQLite close`.
+ * `SQLite close` must not run before {@link stopMessagingGateway} has settled.
+ * The agent reap can create outcome writes, so reap and the lane outcomes drain
+ * must also settle before `SQLite close` (TASK_2026_347 invariant).
  *
  * **Diagnostics is LAST**, mirroring its position as the FIRST thing armed in
  * the pre-window phase. Beyond LIFO correctness this keeps lag warnings coming
@@ -255,36 +256,24 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
 async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   const { refs } = deps;
 
-  if (ElectronDIContainer.isRegistered(LANE_OUTCOMES_DISPOSER)) {
+  // Child sessions stop before agents, and the reap can stage outcome writes.
+  nonFatal('Session spawner dispose', () => refs.sessionSpawner?.dispose());
+  const manager = refs.agentProcessManager;
+  if (manager !== null) {
+    await reapAgents(manager, deps.agentReapBudgetMs ?? AGENT_REAP_BUDGET_MS);
+  }
+
+  if (refs.laneOutcomesDisposer !== null) {
     await withBudget(
       'Lane outcomes dispose',
-      () =>
-        ElectronDIContainer.resolve<() => Promise<void>>(
-          LANE_OUTCOMES_DISPOSER,
-        )(),
-      2000,
+      refs.laneOutcomesDisposer,
+      LANE_OUTCOME_DRAIN_BUDGET_MS,
       'quitting with pending outcome writes.',
     );
   }
 
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
-  // Child sessions BEFORE the agents (TASK_2026_584): synchronous, so it holds
-  // its place on a path Electron does not wait for. It ends every live child
-  // (`host-shutdown`) and clears its timers, so nothing is pushed into a parent
-  // that is going away.
-  nonFatal('Session spawner dispose', () => refs.sessionSpawner?.dispose());
-
-  // The guard is HERE rather than inside `reapAgents`, and that placement is
-  // the whole reason the undeferred path still works. `await f()` suspends even
-  // when `f` returns immediately, so hiding the null check inside an async
-  // helper would push `cliRegistry` and `diagnostics` into a microtask — and on
-  // a path Electron does not wait for, a microtask is never.
-  const manager = refs.agentProcessManager;
-  if (manager !== null) {
-    await reapAgents(manager, deps.agentReapBudgetMs ?? AGENT_REAP_BUDGET_MS);
-  }
-
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
   // Captured pre-window beside `cliRegistry`, so disposed beside it. Nothing
   // consumes it yet (Batch 11 moves the git watcher onto it, and that consumer
@@ -421,7 +410,7 @@ async function withBudget(
  */
 export function requiresDeferredDisposal(refs: BootRefs): boolean {
   return (
-    ElectronDIContainer.isRegistered(LANE_OUTCOMES_DISPOSER) ||
+    refs.laneOutcomesDisposer !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
     runningCheckPids().length > 0
@@ -525,7 +514,7 @@ async function runDeferredDisposal(
  *    tears the process down the moment a synchronous `will-quit` listener
  *    returns, so anything after an `await` would run — if at all — against a
  *    dying process. `GatewayService.stop()`'s drain writes to SQLite, and
- *    `SQLite close` is the next thing in the chain: without the deferral the
+ *    `SQLite close` follows the agent reap and outcome drain: without deferral the
  *    close wins the race and the final delivery is lost.
  */
 export function handleWillQuit(deps: QuitSequenceDeps): boolean {

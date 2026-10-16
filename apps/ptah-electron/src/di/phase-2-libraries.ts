@@ -61,7 +61,7 @@ import {
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
-  startLaneOutcomes,
+  startAndRegisterLaneOutcomes,
 } from '@ptah-extension/lane-outcomes';
 import {
   registerAgentGenerationServices,
@@ -421,16 +421,7 @@ export function registerPhase2Libraries(
       },
     );
   }
-  try {
-    const disposeLaneOutcomes = startLaneOutcomes(container, logger);
-    container.register(Symbol.for('PtahLaneOutcomesDisposer'), {
-      useValue: disposeLaneOutcomes,
-    });
-  } catch (error: unknown) {
-    logger.warn('[Electron DI] Lane outcomes start failed (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  startAndRegisterLaneOutcomes(container, logger);
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);
   // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/

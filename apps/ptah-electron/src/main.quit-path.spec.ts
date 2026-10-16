@@ -281,11 +281,13 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'memoryCurator',
   'chatBridge',
   'messagingGateway',
-  'sqliteConnection',
-  'disposeVoiceWorker',
-  // Child sessions end BEFORE the agents are reaped (TASK_2026_584).
+  // Child sessions end BEFORE the agents are reaped (TASK_2026_584), and the
+  // reap runs BEFORE the SQLite close because an agent exit stages a lane
+  // outcome write into that connection (TASK_2026_646 Batch 38b).
   'sessionSpawner',
   'agentProcessManager',
+  'sqliteConnection',
+  'disposeVoiceWorker',
   'cliRegistry',
   // The watch host (TASK_2026_437 C8): captured pre-window beside
   // `cliRegistry`, killed after its consumer stopped; writes nothing.

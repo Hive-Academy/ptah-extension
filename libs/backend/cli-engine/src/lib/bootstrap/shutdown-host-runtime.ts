@@ -1,7 +1,7 @@
 /**
  * Host-runtime teardown — end the OS-level resources a `ptah` process owns.
  *
- * Three subsystems hold things the operating system will not reclaim for us, or
+ * Four subsystems hold resources or pending writes the operating system will not reclaim for us, or
  * reclaims only late, when the event loop is abandoned:
  *
  *   1. `AgentProcessManager` — spawned CLI agent subprocesses. They are
@@ -14,6 +14,7 @@
  *      watch host (TASK_2026_437 C9). The host also exits on its own when this
  *      process's IPC channel closes; disposing here ends it and its timers
  *      deterministically instead of relying on that.
+ *   4. Lane outcomes drains pending writes before persistence closes.
  *
  * **Agents first, then proxies.** An agent subprocess speaks to its provider
  * *through* the proxy; ending the proxy first strands a live child on a dead
@@ -28,6 +29,10 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+
+/** Maximum time to wait for a pending outcome drain during CLI teardown. */
+const LANE_OUTCOME_DRAIN_BUDGET_MS = 2000;
 
 /**
  * `TOKENS.AGENT_PROCESS_MANAGER` from `@ptah-extension/vscode-core`, resolved
@@ -54,7 +59,7 @@ const WORKSPACE_WATCHER_TOKEN = Symbol.for('PlatformWorkspaceWatcher');
 type ContainerLike = Pick<DependencyContainer, 'resolve' | 'isRegistered'>;
 
 /** The teardown verbs the subsystems expose; only the return type differs. */
-type TeardownVerb = 'disposeAll' | 'dispose';
+type TeardownVerb = 'disposeAll' | 'dispose' | 'call';
 type DisposableSubsystem = Record<TeardownVerb, () => void | Promise<void>>;
 
 /**
@@ -82,7 +87,25 @@ async function disposeSubsystem(
     ) {
       return;
     }
-    await container.resolve<DisposableSubsystem>(token)[verb]();
+    if (verb === 'call') {
+      const drain = container.resolve<() => Promise<void>>(token);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          drain(),
+          new Promise<void>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('drain timed out')),
+              LANE_OUTCOME_DRAIN_BUDGET_MS,
+            );
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } else {
+      await container.resolve<DisposableSubsystem>(token)[verb]();
+    }
   } catch (error: unknown) {
     // Reported on stderr rather than through the logger: this also runs from
     // signal handlers, mid-teardown, where the logger lives in the very
@@ -141,9 +164,8 @@ export async function shutdownWorkspaceWatcher(
 }
 
 /**
- * The whole host-runtime teardown, in the one order that is safe: agent
- * subprocesses, then the proxies they were speaking through, then the
- * workspace watcher.
+ * The whole host-runtime teardown: agent subprocesses, proxies, lane outcome
+ * drain, then the workspace watcher.
  *
  * Never throws, and never short-circuits — if the agent half rejects, its
  * rejection is absorbed by {@link disposeSubsystem} and the proxy half still
@@ -154,17 +176,12 @@ export async function shutdownHostRuntime(
 ): Promise<void> {
   await shutdownAgentProcesses(container);
   await shutdownPtahCliProxies(container);
-  if (container) {
-    try {
-      const token = Symbol.for('PtahLaneOutcomesDisposer');
-      if (container.isRegistered?.(token)) {
-        await container.resolve<() => Promise<void>>(token)();
-      }
-    } catch (error: unknown) {
-      process.stderr.write(
-        `[ptah] lane outcomes disposal failed: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-    }
-  }
+  if (container)
+    await disposeSubsystem(
+      container,
+      LANE_OUTCOME_TOKENS.DISPOSER,
+      'lane outcomes',
+      'call',
+    );
   await shutdownWorkspaceWatcher(container);
 }
