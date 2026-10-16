@@ -28,6 +28,7 @@
  * the service registration order is documented in `../harness/di.ts`.
  */
 
+import * as path from 'node:path';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -110,6 +111,7 @@ import {
 import {
   HarnessGetSkillSelectionParamsSchema,
   HarnessGetProposalParamsSchema,
+  HarnessInitializeParamsSchema,
   HarnessHealthParamsSchema,
   HarnessReconcileParamsSchema,
   HarnessRemoveParamsSchema,
@@ -367,9 +369,21 @@ export class HarnessRpcHandlers {
     this.wire<HarnessInitializeParams, HarnessInitializeResponse>(
       'harness:initialize',
       'registerInitialize',
-      async () => {
+      async (params) => {
+        const { workspaceRoot: requestedRoot } =
+          HarnessInitializeParamsSchema.parse(params ?? {});
+        if (requestedRoot) {
+          const isOpen = this.workspaceProvider
+            .getWorkspaceFolders()
+            .some((folder) => path.normalize(folder) === requestedRoot);
+          if (!isOpen) {
+            throw new Error(
+              'Pinned workspace root is not an open workspace folder.',
+            );
+          }
+        }
         const [workspaceContext, existingPresets] = await Promise.all([
-          this.workspaceContext.resolveWorkspaceContext(),
+          this.workspaceContext.resolveWorkspaceContext(requestedRoot),
           this.configStore.loadPresetsFromDisk(),
         ]);
         const availableAgents = this.workspaceContext.getAvailableAgents();
@@ -377,7 +391,8 @@ export class HarnessRpcHandlers {
         // Return the resolved workspace root so the frontend can PIN it. Later
         // `harness:apply` calls echo this back, keeping file writes bound to the
         // workspace the build started in even after an Electron workspace switch.
-        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? null;
+        const workspaceRoot =
+          requestedRoot ?? this.workspaceProvider.getWorkspaceRoot() ?? null;
         return {
           workspaceContext,
           availableAgents,
@@ -912,12 +927,13 @@ export class HarnessRpcHandlers {
       'harness:get-proposal',
       'registerGetProposal',
       async (params) => {
-        const { sessionId } = HarnessGetProposalParamsSchema.parse(params);
+        const { sessionId, workspaceRoot } =
+          HarnessGetProposalParamsSchema.parse(params);
         const store = this.resolveService<IHarnessProposalStore>(
           PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
           'HarnessProposalStore',
         );
-        return { proposal: await store.get(sessionId) };
+        return { proposal: await store.get(sessionId, workspaceRoot) };
       },
     );
   }

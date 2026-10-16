@@ -117,6 +117,7 @@ const reportAbortFailure = jest.fn();
 const cancelPendingIntent = jest.fn();
 const retryFirstSend = jest.fn(async () => true);
 const logError = jest.fn();
+let lookupRoot = '/workspace/a';
 const initialize = jest.fn(
   async (workspaceRoot: string | null = '/workspace/a') => ({
     workspaceRoot,
@@ -152,7 +153,7 @@ async function render() {
           resetTabToFresh: jest.fn(),
           findTabByIdAcrossWorkspaces: (id: string) => {
             const tab = tabs().find((item) => item.id === id);
-            return tab ? { tab, workspacePath: '/workspace/a' } : null;
+            return tab ? { tab, workspacePath: lookupRoot } : null;
           },
           switchTab: jest.fn(),
           markTabIdle: jest.fn(),
@@ -219,6 +220,7 @@ describe('HarnessBuilderViewComponent shared session host', () => {
     params.next(
       convertToParamMap({ mode: 'configure-harness', tabId: 'tab-a' }),
     );
+    lookupRoot = '/workspace/a';
     tabs.set([
       {
         id: 'tab-a',
@@ -261,6 +263,37 @@ describe('HarnessBuilderViewComponent shared session host', () => {
       ['session-a'],
       null,
     );
+  });
+
+  it('uses the original pinned UNC path for setup, hydration and sidebar actions', async () => {
+    const originalRoot = '\\\\wsl.localhost\\Ubuntu\\home\\User\\Proj';
+    lookupRoot = originalRoot;
+    initialize.mockImplementationOnce(async () => ({
+      workspaceRoot: originalRoot,
+      workspaceContext: {
+        projectName: 'Proj',
+        projectType: 'app',
+        frameworks: [],
+        languages: [],
+      },
+      availableAgents: [],
+      availableSkills: [],
+      existingPresets: [],
+    }));
+    const fixture = await render();
+    expect(initialize).toHaveBeenCalledWith(originalRoot);
+    expect(bind).toHaveBeenCalledWith(
+      originalRoot,
+      'tab-a',
+      ['session-a'],
+      null,
+    );
+    expect(
+      fixture.debugElement
+        .query(By.directive(SidebarStub))
+        .componentInstance.workspaceRoot(),
+    ).toBe(originalRoot);
+    expect(fixture.componentInstance.initialized()).toBe(true);
   });
 
   it('queues the pinned tab for canvas adoption in grid mode', async () => {
@@ -403,6 +436,16 @@ describe('HarnessBuilderViewComponent shared session host', () => {
     await fixture.componentInstance.chooseLeave('cancel');
     expect(abort).not.toHaveBeenCalled();
     expect(closeTab).not.toHaveBeenCalled();
+    expect(cancelPendingIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels an open pending handoff when the view is destroyed', async () => {
+    const fixture = await render();
+    pendingIntent.set({ sourceTabId: 'tab-a', targetMode: 'new-project' });
+    fixture.detectChanges();
+    TestBed.flushEffects();
+    expect(fixture.componentInstance.dialogOpen()).toBe(true);
+    fixture.destroy();
     expect(cancelPendingIntent).toHaveBeenCalledTimes(1);
   });
 

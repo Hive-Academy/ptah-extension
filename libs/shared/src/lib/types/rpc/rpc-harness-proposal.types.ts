@@ -26,6 +26,7 @@ export interface HarnessProposal {
 
 export interface HarnessGetProposalParams {
   sessionId: string;
+  workspaceRoot?: string;
 }
 
 export interface HarnessGetProposalResult {

@@ -92,6 +92,17 @@ describe('HarnessProposalTurnAttributionService', () => {
     capture.release();
   });
 
+  it('attributes the next prompt after abort while a live mid-turn prompt stays ambiguous', () => {
+    submit(T1);
+    submit(T3);
+    expect(attribution.capture('session', root).turnStartedAt).toBeUndefined();
+    attribution.onTurnAborted('session');
+    submit(T3 + 1);
+    expect(attribution.capture('session', root).turnStartedAt).toBe(
+      new Date(T3 + 1).toISOString(),
+    );
+  });
+
   it('retains a frozen value through a failed turn and releases subscriptions', () => {
     submit(T1);
     const capture = attribution.capture('session', root);

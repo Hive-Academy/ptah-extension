@@ -201,7 +201,22 @@ export const HarnessRepairBlockedParamsSchema = z
 export const HarnessGetSkillSelectionParamsSchema = z.object({});
 
 export const HarnessGetProposalParamsSchema = z
-  .object({ sessionId: z.string().trim().min(1).max(256) })
+  .object({
+    sessionId: z.string().trim().min(1).max(256),
+    workspaceRoot:
+      HarnessWorkspacePinParamsSchema.shape.workspaceRoot.transform((root) =>
+        root === undefined ? undefined : path.normalize(root),
+      ),
+  })
+  .strict();
+
+export const HarnessInitializeParamsSchema = z
+  .object({
+    workspaceRoot:
+      HarnessWorkspacePinParamsSchema.shape.workspaceRoot.transform((root) =>
+        root === undefined ? undefined : path.normalize(root),
+      ),
+  })
   .strict();
 
 /**

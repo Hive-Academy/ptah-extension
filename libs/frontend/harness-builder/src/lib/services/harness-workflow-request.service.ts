@@ -4,6 +4,7 @@ import { ChatStore } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   LoggingService,
+  AppStateManager,
   SurfaceRouterService,
   VSCodeService,
   surfaceNavigationLanded,
@@ -21,7 +22,8 @@ import {
 import { HarnessRpcService } from './harness-rpc.service';
 import { formatIntakeSummary } from './new-project-intake';
 
-export type HarnessWorkflowRequestOutcome = 'landed' | 'cancelled' | 'failed';
+export type HarnessWorkflowRequestOutcome =
+  'landed' | 'resumed' | 'cancelled' | 'failed';
 
 export interface PendingHarnessIntent {
   readonly targetMode: HarnessBuilderMode;
@@ -47,6 +49,7 @@ export class HarnessWorkflowRequestService {
   private readonly router = inject(SurfaceRouterService);
   private readonly vscode = inject(VSCodeService);
   private readonly logger = inject(LoggingService);
+  private readonly appState = inject(AppStateManager);
   private readonly visibleTabs$ = toObservable(this.tabs.visibleTabIds);
   private readonly _pendingIntent = signal<PendingHarnessIntent | null>(null);
   private readonly _hubWarning = signal<string | null>(null);
@@ -57,6 +60,7 @@ export class HarnessWorkflowRequestService {
     {
       root: string;
       content: string;
+      preamble: string;
       failedMessageId?: string;
     }
   >();
@@ -144,6 +148,9 @@ export class HarnessWorkflowRequestService {
       );
       pending.failedMessageId = undefined;
     }
+    if (!located.tab.firstMessagePreamble && pending.preamble) {
+      this.tabs.setFirstMessagePreamble(tabId, pending.preamble);
+    }
     return this.sendFirstMessage(tabId, pending.content);
   }
 
@@ -208,7 +215,17 @@ export class HarnessWorkflowRequestService {
   async requestAndNavigate(
     data: HarnessOpenWorkflowPayload,
   ): Promise<HarnessWorkflowRequestOutcome> {
-    if (this.transitioning || this._pendingIntent()) return 'cancelled';
+    if (this.transitioning) return 'cancelled';
+    const pending = this._pendingIntent();
+    if (pending) {
+      if (
+        this.router.currentSurface() === 'harness-builder' &&
+        this.tabs.findTabByIdAcrossWorkspaces(pending.sourceTabId)
+      ) {
+        return 'cancelled';
+      }
+      this._pendingIntent.set(null);
+    }
     const root = this.workspaceRoot;
     if (!root) {
       this.reportHubError(
@@ -219,7 +236,24 @@ export class HarnessWorkflowRequestService {
     this.transitioning = true;
     try {
       const same = this.findResumableTab(data.mode, root);
-      if (same) return await this.navigateToBuilder(data.mode, same);
+      if (same) {
+        const outcome = await this.navigateToBuilder(data.mode, same);
+        if (
+          outcome === 'landed' &&
+          data.mode === 'new-project' &&
+          data.intake
+        ) {
+          this.appState.requestComposerPrefill(
+            formatIntakeSummary(data.intake),
+            same,
+          );
+          this.reportHubError(
+            'Resumed your existing New Project session with the new intake in its composer.',
+          );
+          return 'resumed';
+        }
+        return outcome;
+      }
       if (data.mode === 'new-project' && !data.intake) {
         this.reportHubError('The New Project request is missing its intake.');
         return 'failed';
@@ -388,7 +422,7 @@ export class HarnessWorkflowRequestService {
       if (mode === 'new-project' && intake) {
         const targetId = tabId;
         const content = formatIntakeSummary(intake);
-        this.pendingFirstSends.set(targetId, { root, content });
+        this.pendingFirstSends.set(targetId, { root, content, preamble });
         await firstValueFrom(
           this.visibleTabs$.pipe(
             filter((ids) => ids.has(targetId)),

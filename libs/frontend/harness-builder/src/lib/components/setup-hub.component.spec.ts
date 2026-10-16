@@ -14,6 +14,7 @@ describe('SetupHubComponent entry handoff', () => {
     hasResumableMode: jest.Mock;
     dismissHubWarning: jest.Mock;
     dismissHubError: jest.Mock;
+    reportHubError: jest.Mock;
     hubWarning: ReturnType<typeof signal<string | null>>;
     hubError: ReturnType<typeof signal<string | null>>;
   };
@@ -45,6 +46,9 @@ describe('SetupHubComponent entry handoff', () => {
       hasResumableMode: jest.fn((mode: string) => resumableMode() === mode),
       dismissHubWarning: jest.fn(),
       dismissHubError: jest.fn(),
+      reportHubError: jest.fn((message: string) =>
+        requests.hubError.set(message),
+      ),
       hubWarning: signal<string | null>(null),
       hubError: signal<string | null>(null),
     };
@@ -79,6 +83,24 @@ describe('SetupHubComponent entry handoff', () => {
     expect(requests.requestAndNavigate).toHaveBeenCalledWith({
       mode: 'configure-harness',
     });
+  });
+
+  it('shows the existing Hub alert when a builder switch is cancelled', async () => {
+    requests.requestAndNavigate.mockResolvedValueOnce('cancelled');
+    await fixture.componentInstance.openHarnessBuilder();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Finish the current builder switch',
+    );
+  });
+
+  it('shows the existing Hub alert when navigation fails', async () => {
+    requests.requestAndNavigate.mockResolvedValueOnce('failed');
+    await fixture.componentInstance.resumeNewProject();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'The builder could not be opened',
+    );
   });
 
   it('submits validated intake to the adapter without calling start in the Hub', async () => {

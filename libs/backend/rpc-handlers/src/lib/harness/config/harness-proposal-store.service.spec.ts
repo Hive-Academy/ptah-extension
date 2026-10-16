@@ -131,19 +131,19 @@ describe('HarnessProposalStore', () => {
       'one',
       { name: 'Attributed' },
       true,
-      '2026-10-15T10:04:00.000Z',
+      new Date(Date.parse(saved.updatedAt) + 60_000).toISOString(),
     );
     expect(next.revisions).toHaveLength(2);
     expect(next.revisions?.[0].turnStartedAt).toBeUndefined();
     expect(next.configUpdates.name).toBe('Attributed');
   });
 
-  it('keeps an unattributed late write before an attributed turn', async () => {
+  it('lets a newer unattributed write override an older attributed turn', async () => {
     await store.save('one', { name: 'T3' }, true, '2026-10-15T10:03:00.000Z');
     const late = await store.save('one', { name: 'Unknown' }, false);
-    expect(late.revisions?.[0].turnStartedAt).toBeUndefined();
-    expect(late.configUpdates.name).toBe('T3');
-    expect(late.isConfigComplete).toBe(true);
+    expect(late.revisions?.[1].turnStartedAt).toBeUndefined();
+    expect(late.configUpdates.name).toBe('Unknown');
+    expect(late.isConfigComplete).toBe(false);
   });
 
   it('isolates sessions in the same workspace', async () => {
@@ -177,6 +177,7 @@ describe('HarnessProposalStore', () => {
     capture.release();
     expect(getWorkspaceRoot).not.toHaveBeenCalled();
     expect(saved.workspaceRoot).toBe(callerRoot);
+    expect(await pinnedStore.get('one', callerRoot)).toEqual(saved);
     expect(
       JSON.parse(
         await fs.readFile(

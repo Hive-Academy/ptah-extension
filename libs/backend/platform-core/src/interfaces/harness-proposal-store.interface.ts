@@ -20,5 +20,8 @@ export interface IHarnessProposalStore {
     workspaceRoot?: string,
   ): Promise<HarnessProposal>;
 
-  get(sessionId: string): Promise<HarnessProposal | null>;
+  get(
+    sessionId: string,
+    workspaceRoot?: string,
+  ): Promise<HarnessProposal | null>;
 }

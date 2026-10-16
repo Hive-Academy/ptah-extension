@@ -233,7 +233,9 @@ export interface HarnessPreset {
 }
 
 /** harness:initialize — Start a harness builder session */
-export type HarnessInitializeParams = Record<string, never>;
+export interface HarnessInitializeParams {
+  workspaceRoot?: string;
+}
 export interface HarnessInitializeResponse {
   workspaceContext: HarnessWorkspaceContext;
   availableAgents: AvailableAgent[];

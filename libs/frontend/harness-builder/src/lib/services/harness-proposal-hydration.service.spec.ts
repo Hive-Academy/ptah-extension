@@ -85,19 +85,49 @@ describe('HarnessProposalHydrationService', () => {
     service = TestBed.inject(HarnessProposalHydrationService);
   });
 
-  it('orders attributed turns instead of save time, with unattributed revisions first', async () => {
+  it('orders by turn start or write time and restores a newer unattributed revision', async () => {
     rpc.getProposal.mockResolvedValue(
       proposal('own', [
-        revision('late-write-t1', 'old', t1),
-        revision('t3', 'new', t3),
-        revision('legacy', 'unattributed'),
+        { ...revision('new', 'new'), updatedAt: t3, isConfigComplete: true },
+        {
+          ...revision('old', 'old', t1),
+          updatedAt: t2,
+          isConfigComplete: false,
+        },
       ]),
     );
     await service.bind(root, 'tab', ['own']);
     expect(service.config().persona?.label).toBe('new');
+    expect(service.isConfigComplete()).toBe(true);
     expect(service.status()).toBe('ready');
-    service.handlePush(push('own', revision('late-write-t1', 'old', t1)));
+    service.handlePush(
+      push('own', { ...revision('older', 'older', t1), updatedAt: t2 }),
+    );
     expect(service.config().persona?.label).toBe('new');
+  });
+
+  it('keeps a newer unattributed live revision after an older attributed revision', async () => {
+    rpc.getProposal.mockResolvedValue(
+      proposal('own', [
+        {
+          ...revision('old', 'old', t1),
+          updatedAt: t2,
+          isConfigComplete: false,
+        },
+      ]),
+    );
+    await service.bind(root, 'tab', ['own']);
+    service.handlePush(
+      push('own', { ...revision('new', 'new'), updatedAt: t3 }),
+    );
+    expect(service.config().persona?.label).toBe('new');
+    expect(service.isConfigComplete()).toBe(true);
+  });
+
+  it('reads proposals from the bound original workspace path', async () => {
+    const originalRoot = '\\\\wsl.localhost\\Ubuntu\\home\\User\\Proj';
+    await service.bind(originalRoot, 'tab', ['own']);
+    expect(rpc.getProposal).toHaveBeenCalledWith('own', originalRoot);
   });
 
   it('keeps a user choice against older and unattributed proposals, then accepts a later turn', async () => {

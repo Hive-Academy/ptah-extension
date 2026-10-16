@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { ChatStore } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  AppStateManager,
   LoggingService,
   SurfaceRouterService,
   VSCodeService,
@@ -23,7 +24,10 @@ describe('HarnessWorkflowRequestService', () => {
   const activeId = signal<string | null>(null);
   const visible = signal<ReadonlySet<string>>(new Set(['new-tab']));
   let service: HarnessWorkflowRequestService;
-  let router: { navigateToSurface: jest.Mock };
+  let router: {
+    navigateToSurface: jest.Mock;
+    currentSurface: ReturnType<typeof signal<string>>;
+  };
   let tabs: {
     createTab: jest.Mock;
     setWorkflow: jest.Mock;
@@ -39,12 +43,16 @@ describe('HarnessWorkflowRequestService', () => {
     clearTab: jest.Mock;
   };
   let chat: { sendOrQueueMessage: jest.Mock };
+  let appState: { requestComposerPrefill: jest.Mock };
 
   beforeEach(() => {
     tabsSignal.set([]);
     activeId.set(null);
     visible.set(new Set(['new-tab']));
-    router = { navigateToSurface: jest.fn().mockResolvedValue('navigated') };
+    router = {
+      navigateToSurface: jest.fn().mockResolvedValue('navigated'),
+      currentSurface: signal('harness-builder'),
+    };
     tabs = {
       createTab: jest.fn().mockReturnValue('new-tab'),
       setWorkflow: jest.fn(),
@@ -76,6 +84,7 @@ describe('HarnessWorkflowRequestService', () => {
     chat = {
       sendOrQueueMessage: jest.fn().mockResolvedValue({ success: true }),
     };
+    appState = { requestComposerPrefill: jest.fn() };
     TestBed.configureTestingModule({
       providers: [
         HarnessWorkflowRequestService,
@@ -90,6 +99,7 @@ describe('HarnessWorkflowRequestService', () => {
           },
         },
         { provide: ChatStore, useValue: chat },
+        { provide: AppStateManager, useValue: appState },
         { provide: HarnessRpcService, useValue: rpc },
         { provide: HarnessBuilderRecordsService, useValue: records },
         { provide: SurfaceRouterService, useValue: router },
@@ -147,6 +157,10 @@ describe('HarnessWorkflowRequestService', () => {
         source,
         'old',
       ]);
+      tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
+        tab: { id: 'old', workflow },
+        workspacePath: 'C:/work',
+      });
       expect(await service.requestAndNavigate(request)).toBe('cancelled');
       expect(rpc.startNewProject).not.toHaveBeenCalled();
       expect(tabs.createTab).not.toHaveBeenCalled();
@@ -158,6 +172,44 @@ describe('HarnessWorkflowRequestService', () => {
     await service.requestAndNavigate({ mode: 'new-project', intake });
     service.cancelPendingIntent();
     expect(service.pendingIntent()).toBeNull();
+    expect(rpc.startNewProject).not.toHaveBeenCalled();
+  });
+
+  it('replaces a pending intent after its source tab closes', async () => {
+    tabsSignal.set([{ id: 'old', workflow: 'harness-configure' }]);
+    await service.requestAndNavigate({ mode: 'new-project', intake });
+    expect(service.pendingIntent()?.sourceTabId).toBe('old');
+    tabsSignal.set([]);
+    expect(
+      await service.requestAndNavigate({ mode: 'configure-harness' }),
+    ).toBe('landed');
+    expect(service.pendingIntent()).toBeNull();
+  });
+
+  it('replaces a pending intent after leaving the builder surface', async () => {
+    tabsSignal.set([{ id: 'old', workflow: 'harness-configure' }]);
+    await service.requestAndNavigate({ mode: 'new-project', intake });
+    tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
+      tab: { id: 'old', workflow: 'harness-configure' },
+      workspacePath: 'C:/work',
+    });
+    router.currentSurface.set('setup-hub');
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('landed');
+    expect(service.pendingIntent()?.sourceTabId).toBe('old');
+    expect(router.navigateToSurface).toHaveBeenCalledTimes(2);
+  });
+
+  it('prefills a resumed New Project tab with a fresh intake', async () => {
+    tabsSignal.set([{ id: 'running', workflow: 'harness-new-project' }]);
+    expect(
+      await service.requestAndNavigate({ mode: 'new-project', intake }),
+    ).toBe('resumed');
+    expect(appState.requestComposerPrefill).toHaveBeenCalledWith(
+      expect.stringContaining('Clinic scheduler'),
+      'running',
+    );
     expect(rpc.startNewProject).not.toHaveBeenCalled();
   });
 
@@ -224,6 +276,10 @@ describe('HarnessWorkflowRequestService', () => {
 
     chat.sendOrQueueMessage.mockResolvedValueOnce({ success: false });
     expect(await service.retryFirstSend('new-tab')).toBe(false);
+    expect(tabs.setFirstMessagePreamble).toHaveBeenLastCalledWith(
+      'new-tab',
+      'hidden seed',
+    );
     expect(service.entryErrors()['new-tab']).toContain('could not be sent');
 
     expect(await service.retryFirstSend('new-tab')).toBe(true);

@@ -104,7 +104,7 @@ export type HarnessUserSnapshot = z.infer<typeof snapshotSchema>;
 export type HarnessDraftPointer = z.infer<typeof draftSchema>;
 export type HarnessStackProfileRecord = z.infer<typeof stackProfileSchema>;
 
-/** The tab's pinned root is normalized once, before keys or records are made. */
+/** Normalize roots for record keys and comparisons; keep the original path for RPC targets. */
 export function canonicalHarnessRoot(root: string): string {
   const normalized = root.trim().replace(/\\/g, '/');
   if (/^[a-z]:\/$/i.test(normalized)) return normalized.toLowerCase();

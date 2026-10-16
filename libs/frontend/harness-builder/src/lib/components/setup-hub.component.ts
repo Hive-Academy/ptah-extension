@@ -1337,9 +1337,10 @@ export class SetupHubComponent implements OnInit {
   }
 
   async openHarnessBuilder(): Promise<void> {
-    await this.workflowRequest.requestAndNavigate({
+    const outcome = await this.workflowRequest.requestAndNavigate({
       mode: 'configure-harness',
     });
+    this.reportEntryOutcome(outcome);
   }
 
   conveneTribunal(): void {
@@ -1356,7 +1357,24 @@ export class SetupHubComponent implements OnInit {
   }
 
   async resumeNewProject(): Promise<void> {
-    await this.workflowRequest.requestAndNavigate({ mode: 'new-project' });
+    const outcome = await this.workflowRequest.requestAndNavigate({
+      mode: 'new-project',
+    });
+    this.reportEntryOutcome(outcome);
+  }
+
+  private reportEntryOutcome(
+    outcome: 'landed' | 'resumed' | 'cancelled' | 'failed',
+  ): void {
+    if (outcome === 'cancelled') {
+      this.workflowRequest.reportHubError(
+        'Finish the current builder switch before opening another.',
+      );
+    } else if (outcome === 'failed') {
+      this.workflowRequest.reportHubError(
+        'The builder could not be opened. Try again.',
+      );
+    }
   }
 
   openIntake(): void {
@@ -1465,7 +1483,9 @@ export class SetupHubComponent implements OnInit {
         mode: 'new-project',
         intake,
       });
-      if (outcome === 'landed') this._showIntake.set(false);
+      if (outcome === 'landed' || outcome === 'resumed')
+        this._showIntake.set(false);
+      if (outcome === 'cancelled') this.reportEntryOutcome(outcome);
       if (outcome === 'failed')
         this._intakeError.set('The builder could not be opened. Try again.');
     } finally {
@@ -1487,7 +1507,9 @@ export class SetupHubComponent implements OnInit {
         );
         return;
       }
-      if (outcome === 'landed') this._showIntake.set(false);
+      if (outcome === 'cancelled') this.reportEntryOutcome(outcome);
+      if (outcome === 'landed' || outcome === 'resumed')
+        this._showIntake.set(false);
     } catch {
       // degradation-audit: reported - the intake dialog shows this failure.
       this._intakeError.set('Failed to open the builder. Try again.');

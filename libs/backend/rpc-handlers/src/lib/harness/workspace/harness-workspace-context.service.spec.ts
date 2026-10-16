@@ -235,6 +235,29 @@ describe('HarnessWorkspaceContextService.resolveWorkspaceContext', () => {
     });
   });
 
+  it('reads the requested root when another workspace is active', async () => {
+    const pinnedRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'harness-context-pinned-'),
+    );
+    try {
+      await fs.writeFile(
+        path.join(pinnedRoot, 'package.json'),
+        JSON.stringify({ dependencies: { react: '19.0.0' } }),
+        'utf-8',
+      );
+      const { service } = buildService(root);
+
+      expect(await service.resolveWorkspaceContext(pinnedRoot)).toEqual({
+        projectName: path.basename(pinnedRoot),
+        projectType: 'react',
+        frameworks: ['React'],
+        languages: ['TypeScript'],
+      });
+    } finally {
+      await fs.rm(pinnedRoot, { recursive: true, force: true });
+    }
+  });
+
   // The regression bar: a TypeScript workspace must resolve exactly as it did
   // before the registry existed.
   it('reports TypeScript plus frameworks for a Node workspace', async () => {

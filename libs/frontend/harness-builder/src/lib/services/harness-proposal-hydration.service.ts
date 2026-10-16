@@ -18,6 +18,7 @@ import { HarnessRpcService } from './harness-rpc.service';
 
 interface BoundProposalTab {
   readonly workspaceRoot: string;
+  readonly originalWorkspaceRoot: string;
   readonly tabId: string;
   readonly sessionIds: ReadonlySet<string>;
 }
@@ -109,18 +110,23 @@ export function mergeBuilderUpdates(
 function orderedRevisions(
   revisions: Iterable<ScopedRevision>,
 ): ScopedRevision[] {
-  return [...revisions].sort((left, right) => {
-    const a = left.revision.turnStartedAt;
-    const b = right.revision.turnStartedAt;
-    if (a === undefined && b !== undefined) return -1;
-    if (b === undefined && a !== undefined) return 1;
-    const turnOrder = (a ?? '').localeCompare(b ?? '');
-    return (
-      turnOrder ||
-      left.revision.id.localeCompare(right.revision.id) ||
-      left.sessionId.localeCompare(right.sessionId)
-    );
-  });
+  return [...revisions]
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => {
+      const a =
+        left.entry.revision.turnStartedAt ?? left.entry.revision.updatedAt;
+      const b =
+        right.entry.revision.turnStartedAt ?? right.entry.revision.updatedAt;
+      const turnOrder = a.localeCompare(b);
+      return (
+        turnOrder ||
+        left.entry.revision.updatedAt.localeCompare(
+          right.entry.revision.updatedAt,
+        ) ||
+        left.index - right.index
+      );
+    })
+    .map(({ entry }) => entry);
 }
 
 @Injectable({ providedIn: 'root' })
@@ -156,6 +162,7 @@ export class HarnessProposalHydrationService {
       root && tabId.trim()
         ? {
             workspaceRoot: root,
+            originalWorkspaceRoot: workspaceRoot,
             tabId,
             sessionIds: new Set(sessionIds.filter(Boolean)),
           }
@@ -171,10 +178,14 @@ export class HarnessProposalHydrationService {
     }
     this.loading = true;
     this._status.set('loading');
+    const bound = this.bound;
     try {
       const reads = await Promise.all(
-        [...this.bound.sessionIds].map(async (sessionId) => {
-          const result = await this.rpc.getProposal(sessionId);
+        [...bound.sessionIds].map(async (sessionId) => {
+          const result = await this.rpc.getProposal(
+            sessionId,
+            bound.originalWorkspaceRoot,
+          );
           return { sessionId, proposal: result.proposal };
         }),
       );
@@ -225,7 +236,9 @@ export class HarnessProposalHydrationService {
       const reads = await Promise.all(
         [...bound.sessionIds].map(async (sessionId) => ({
           sessionId,
-          proposal: (await this.rpc.getProposal(sessionId)).proposal,
+          proposal: (
+            await this.rpc.getProposal(sessionId, bound.originalWorkspaceRoot)
+          ).proposal,
         })),
       );
       if (generation !== this.generation) return;
@@ -320,8 +333,13 @@ export class HarnessProposalHydrationService {
     sessionId: string,
     generation: number,
   ): Promise<void> {
+    const bound = this.bound;
+    if (!bound) return;
     try {
-      const result = await this.rpc.getProposal(sessionId);
+      const result = await this.rpc.getProposal(
+        sessionId,
+        bound.originalWorkspaceRoot,
+      );
       if (generation !== this.generation) return;
       this.addProposal(sessionId, result.proposal);
       this.recompute();

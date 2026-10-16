@@ -104,6 +104,10 @@ export class HarnessProposalTurnAttributionService {
     this.trimSessions();
   }
 
+  onTurnAborted(sessionId: string): void {
+    this.onTurnEnd(sessionId);
+  }
+
   private onTurnEnd(sessionId: string): void {
     const state = this.sessions.get(sessionId);
     if (!state) return;

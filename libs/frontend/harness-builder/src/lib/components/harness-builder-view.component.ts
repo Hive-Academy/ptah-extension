@@ -77,9 +77,7 @@ import { HarnessRpcService } from '../services/harness-rpc.service';
           } @else {
             <h1 class="text-base font-semibold">
               This session is not a
-              {{
-                mode() === 'new-project' ? 'New Project' : 'AI Team Builder'
-              }}
+              {{ mode() === 'new-project' ? 'New Project' : 'AI Team Builder' }}
               session.
             </h1>
             <p class="mt-2 text-sm text-base-content-muted">
@@ -242,7 +240,7 @@ import { HarnessRpcService } from '../services/harness-rpc.service';
           >
             <ptah-harness-builder-sidebar
               [tabId]="tabId()"
-              [workspaceRoot]="pinnedRoot()"
+              [workspaceRoot]="pinnedWorkspaceRoot()"
               [mode]="mode()"
               [initialized]="initialized()"
               [initError]="initError()"
@@ -260,7 +258,7 @@ import { HarnessRpcService } from '../services/harness-rpc.service';
           >
             <ptah-harness-builder-sidebar
               [tabId]="tabId()"
-              [workspaceRoot]="pinnedRoot()"
+              [workspaceRoot]="pinnedWorkspaceRoot()"
               [mode]="mode()"
               [initialized]="initialized()"
               [initError]="initError()"
@@ -338,18 +336,19 @@ export class HarnessBuilderViewComponent implements OnDestroy {
       : null;
   });
   readonly tab = computed(() => this.lookup()?.tab ?? null);
-  readonly pinnedRoot = computed(() => {
+  readonly pinnedWorkspaceRoot = computed(() => {
     const tabId = this.tabId();
     const lookup = this.lookup();
     if (!tabId || !lookup) return '';
     const known = this.pinnedRoots.get(tabId);
     if (known) return known;
-    const root = canonicalHarnessRoot(
-      lookup.workspacePath ?? this.requests.workspaceRoot,
-    );
+    const root = lookup.workspacePath ?? this.requests.workspaceRoot;
     if (root) this.pinnedRoots.set(tabId, root);
     return root;
   });
+  readonly pinnedRoot = computed(() =>
+    canonicalHarnessRoot(this.pinnedWorkspaceRoot()),
+  );
   readonly pageState = computed<'ready' | 'missing' | 'wrong'>(() => {
     const tab = this.tab();
     if (!tab) return 'missing';
@@ -365,7 +364,9 @@ export class HarnessBuilderViewComponent implements OnDestroy {
       : 'wrong';
   });
   readonly workspaceName = computed(
-    () => this.pinnedRoot().split('/').filter(Boolean).at(-1) ?? 'workspace',
+    () =>
+      this.pinnedWorkspaceRoot().split(/[\\/]/).filter(Boolean).at(-1) ??
+      'workspace',
   );
   readonly workspaceSwitched = computed(() => {
     this.tabs.tabs();
@@ -410,7 +411,7 @@ export class HarnessBuilderViewComponent implements OnDestroy {
       if (key !== this.hydrationKey) {
         this.hydrationKey = key;
         void this.hydration.bind(
-          root,
+          this.pinnedWorkspaceRoot(),
           tabId,
           sessionId ? [sessionId] : [],
           this.records.readSnapshot(root, tabId),
@@ -421,11 +422,11 @@ export class HarnessBuilderViewComponent implements OnDestroy {
         if (this.appState.layoutMode() === 'grid') {
           this.appState.requestCanvasTab(
             tabId,
-            root,
+            this.pinnedWorkspaceRoot(),
             this.mode() === 'new-project' ? 'New Project' : 'AI Team Builder',
           );
         }
-        this.state.bindTab(root, tabId);
+        this.state.bindTab(this.pinnedWorkspaceRoot(), tabId);
         this.draftNotice.set(
           this.records.readDraft(root, this.mode())?.tabId === tabId,
         );
@@ -449,13 +450,20 @@ export class HarnessBuilderViewComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();
+    if (
+      !this.transition &&
+      this.dialogOpen() &&
+      this.requests.pendingIntent()?.sourceTabId === this.tabId()
+    ) {
+      this.requests.cancelPendingIntent();
+    }
   }
   async initializeBuilder(): Promise<void> {
     const root = this.pinnedRoot();
     const tabId = this.tabId();
     this.initError.set(false);
     try {
-      const response = await this.rpc.initialize();
+      const response = await this.rpc.initialize(this.pinnedWorkspaceRoot());
       if (!response.workspaceRoot) {
         throw new Error('Builder setup returned no workspace root');
       }
@@ -520,7 +528,7 @@ export class HarnessBuilderViewComponent implements OnDestroy {
         this.tabs.activeWorkspacePath &&
         canonicalHarnessRoot(this.tabs.activeWorkspacePath) !== root
       ) {
-        this.tabs.switchWorkspace(root);
+        this.tabs.switchWorkspace(this.pinnedWorkspaceRoot());
       }
       const sessionId = this.tab()?.claudeSessionId;
       if (sessionId) {
@@ -580,7 +588,7 @@ export class HarnessBuilderViewComponent implements OnDestroy {
       this.tabs.activeWorkspacePath &&
       canonicalHarnessRoot(this.tabs.activeWorkspacePath) !== this.pinnedRoot()
     ) {
-      this.tabs.switchWorkspace(this.pinnedRoot());
+      this.tabs.switchWorkspace(this.pinnedWorkspaceRoot());
     }
     if (this.tabId()) this.tabs.switchTab(this.tabId());
     await this.router.navigateToSurface('chat');

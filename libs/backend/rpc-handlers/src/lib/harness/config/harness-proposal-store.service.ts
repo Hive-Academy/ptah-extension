@@ -49,13 +49,11 @@ function compareRevisions(
   left: HarnessProposalRevision,
   right: HarnessProposalRevision,
 ): number {
-  // Unknown starts precede every known turn; write time cannot establish a turn.
-  if (!left.turnStartedAt && right.turnStartedAt) return -1;
-  if (left.turnStartedAt && !right.turnStartedAt) return 1;
-  const byTurn = (left.turnStartedAt ?? '').localeCompare(
-    right.turnStartedAt ?? '',
+  // Array.sort is stable, so equal turn/write timestamps retain array order.
+  const byTurn = (left.turnStartedAt ?? left.updatedAt).localeCompare(
+    right.turnStartedAt ?? right.updatedAt,
   );
-  return byTurn || left.id.localeCompare(right.id);
+  return byTurn || left.updatedAt.localeCompare(right.updatedAt);
 }
 
 @injectable()
@@ -150,9 +148,12 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     });
   }
 
-  async get(sessionId: string): Promise<HarnessProposal | null> {
+  async get(
+    sessionId: string,
+    workspaceRoot?: string,
+  ): Promise<HarnessProposal | null> {
     sessionId = HarnessSessionIdSchema.parse(sessionId);
-    const root = this.requireRoot();
+    const root = this.requireRoot(workspaceRoot);
     const directory = this.directory(root);
     await this.prune(directory);
     return this.read(this.file(directory, sessionId), root, sessionId);
