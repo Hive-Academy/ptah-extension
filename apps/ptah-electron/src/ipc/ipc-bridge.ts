@@ -560,7 +560,7 @@ export class IpcBridge {
           this.activeStateWorkspace(),
         );
         if (pending) {
-          event.returnValue = pending.state;
+          event.returnValue = pending.state ?? {};
           return;
         }
         const state =

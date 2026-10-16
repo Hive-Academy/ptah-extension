@@ -592,3 +592,38 @@ Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lanes. Read-o
 ### Verdict
 
 APPROVED WITH FIXES. Score 7/10. No Blocking or Serious defects. Fix M1 before merge, or consciously defer it with a note. M2 is for CI to confirm.
+
+## Review of b36dbd648 and aa4c55562 (F7)
+
+Review family: reviewer Claude, implementer codex CLI lanes.
+
+Read-only review of both diffs plus the surrounding files. I ran two jest specs, one at a time: `ipc-bridge.state.spec.ts` (2/2 pass) and `vscode.service.spec.ts` (33/33 pass). No build or e2e was run.
+
+### Verified
+
+- **M1 (F5/F6) is fixed.** `vscode.service.ts:75-80, 168-170, 230-234, 261-275` now stores `{root, state}`. The snapshot is read and merged only when `root === config().workspaceRoot`. It is dropped when `updateWorkspaceRoot` is given a different root. The new spec "reads and merges the new workspace state after an Electron workspace switch" covers A to B. The edited spec "keeps an Electron route..." relies on the same-root call being a no-op, which works because the fixture root is already `/my/workspace` (spec line 45).
+- **(a) The reload does see the pending entry, as far as the unit evidence goes.** In the `set-state` handler, `pendingWebviewStates.set(...)` runs synchronously (`ipc-bridge.ts:578-580`) before the first `await`. Whenever Electron dispatches the old renderer's `set-state` before the new renderer's `sendSync('get-state')`, `get-state` serves the pending entry (`:559-565`). Both messages travel over the same renderer-to-main IPC channel, and the new document's sync call blocks until it is answered. I could not verify ordering across the document swap with real Electron IPC. It holds in practice for a same-site reload, which keeps the same RenderFrameHost. CI e2e `new-project.spec.ts:324` is the only real proof, and the lane did not run it.
+- **(b) The keying is correct.** `PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE` is registered as the `WorkspaceAwareStorage` instance (`phase-1-infra.ts:161-163`). It exposes `getActiveWorkspacePath()` (`workspace-aware-state-storage.ts:215`). `activeStateWorkspace()` (`ipc-bridge.ts:596-601`) is called in the same synchronous tick as `stateStorage.update(...)`. `WorkspaceAwareStateStorage.update` resolves `getActiveStorage()` synchronously before its first await. The pending key and the actual write target therefore cannot diverge, even if the workspace is switched mid-write. A pending A write cannot land in B's store, and B's `get-state` is not served A's entry. The null key (default storage) is handled the same way.
+- **Workspace switch ordering.** The renderer calls `updateWorkspaceRoot` only after the `workspace:switch` RPC has succeeded (`electron-layout.service.ts:489-506, 545`), so main's active workspace changes before the renderer's root does. `get-state` after a switch reads B's pending or committed state, and the renderer's own A snapshot is already dropped by b36dbd648.
+- **Overlapping writes.** `pending` is compared by identity (`:589`), so an earlier write settling does not remove a later pending entry. `'webview-state'` has no other writer (grep: only `ipc-bridge.ts:567, 582`).
+- **Cache refresh before cleanup.** `ElectronStateStorage.update` refreshes `this.data` in its own `finally` (`electron-state-storage.ts:163-165`), before the bridge's `finally` deletes the pending entry. There is no window where the entry is gone but the cache is still old.
+- **(c) Failed write: acceptable.** On a failed write the entry is deleted and `get-state` returns the committed, older state. That matches what is persisted. Persistence failures are still only a `console.error`, which predates this change. The renderer's in-session snapshot still holds the newer value until reload.
+- **(d) The two layers are consistent.** The renderer snapshot covers writes within one page lifetime, keyed by renderer root. The bridge map covers the page-reload gap, keyed by main's active workspace. They answer different questions and do not conflict. After a reload the snapshot is empty and the bridge answers.
+- **(e) The e2e change keeps the intent.** The assertion that the workflow panel has zero question cards still runs first (`new-project-question-routing.spec.ts:242-244`). The final assertion is still scoped to `ptah-chat-transcript[data-tab-id=foreignTabId]`, so the question must have landed in the foreign session. Clicking the rail card (`data-rail-card` and `data-tab-id` exist at `canvas-rail-card.component.ts:58-59`; `canvas.spec.ts` uses the same locator) matches what a user does to see a non-focused session. The cost is that "visible only after the tab is focused" is no longer checked, which is acceptable.
+- **Bundle budget** raised to 3.75 mb (`apps/ptah-extension-webview/project.json`), a user decision and not questioned.
+
+### Findings
+
+No Blocking, Serious or Moderate defects.
+
+**Minor m1: the pending branch is not guarded the way the committed branch is.** `ipc-bridge.ts:564` returns `pending.state` raw, while the committed path returns `state ?? {}` (`:569`). A `set-state` payload of `undefined` or `null` makes `get-state` return that value. In this case `update('webview-state', undefined)` deletes the key, so the committed read would be `{}`. Electron's sync-IPC behaviour for an `undefined` `returnValue` is unverified, and a missing reply blocks the renderer. The renderer only ever sends objects, so this is not reachable today. Fix: `event.returnValue = pending.state ?? {}`.
+
+**Minor m2: the spec misses the failure and overlap cases.** `ipc-bridge.state.spec.ts` covers pending-then-committed and workspace scoping. It does not cover a rejected `update` (entry removed, committed state served), two overlapping writes (the earlier settling must not clear the later entry, the identity guard at `:589`), or a payload of `undefined`. Add these three tests.
+
+**Minor m3: the A to B window between the `workspace:switch` RPC and `updateWorkspaceRoot`.** `electron-layout.service.ts:489-545` runs the RPC first. Between the main-side switch and the renderer's `updateWorkspaceRoot`, a renderer write still merges A's snapshot (`vscode.service.ts:261-275`) and sends it to main, where B is now active, so A's keys can be written into B. The window is one RPC round-trip wide and the problem predates this change. It is worth recording in TASK_2026_682_f705 alongside the earlier Minors. One possible fix is to drop the snapshot when the switch RPC starts.
+
+**Residual risk r1: no real-IPC proof of reload ordering.** The unit test calls the listeners directly. Unless CI e2e `new-project.spec.ts:324` goes green, the claim that a real reload reads the pending entry is unproven. If it still fails, the next suspect is dispatch order across the document swap, not the bridge logic.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 8/10. The fixes are m1 (a one-line guard) and m2 (three tests), neither of which blocks merge. m3 and r1 are for the follow-up task and CI respectively.
