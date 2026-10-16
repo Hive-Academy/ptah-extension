@@ -99,7 +99,14 @@ binding). The first hand-off is in git history (`git show c6a4cafca:.ptah/specs/
   and open a docs PR (or keep it until implementation, but report the branch as local-only).
 - **685 docs.** PR #742 open (branch `docs/lane-header-proof`, 7 commits incl. `9994e2aa5`). The 685
   session waits; it starts no more work on the branch. Task A rebases on B6 after the 683 PR is pushed.
-- **TASK_2026_632 child session** "632 budget stop reason", sessionId
+- **TASK_2026_632: DONE, PR #743** https://github.com/Hive-Academy/ptah-extension/pull/743 (commits
+  `32f54f26a` code + `03aeee47c` task-specs; pushed; review NEEDS_REVISION -> one codex fix round ->
+  APPROVED). agent-sdk typecheck/lint PASS, tests 3459 pass; 4 suites / 3 tests fail only from the
+  environment: worktree Jest maps `marked` to a missing `<worktree>/node_modules/marked` (affects every
+  worktree Jest run; also blocks the agent-sdk DI smoke spec and the auth-providers codex-stream-parity
+  spec) -> CI must confirm. Open items: default `compaction.subagentHandoffTokens` 150k may be low
+  (scope change, not done); the Ptah stop notice is in memory only (replay after restart shows the SDK
+  text). Earlier details of the child session: sessionId
   `42eb22f6-656e-4c4f-9146-1a7057e29278`, branch `fix/budget-monitor-stop-reason`, worktree
   `D:\projects\ptah-extension\.claude-worktrees\fix-budget-monitor-stop-reason-63e500ba965b`. Lanes:
   codex/opencode/grok; reviews by its own Claude subagents. First report: fix in agent-sdk
@@ -131,4 +138,4 @@ binding). The first hand-off is in git history (`git show c6a4cafca:.ptah/specs/
 ## 6. Local-only branches at hand-off
 - `feat/nav-session-motion` — 9 commits, not pushed (push after M1, section 2).
 - `feat/lane-execution-stream` — no commits (architect plan in progress).
-- `fix/budget-monitor-stop-reason` — owned by the 632 child session (it pushes + opens its PR).
+- `fix/budget-monitor-stop-reason` — pushed, PR #743 (not local-only).
