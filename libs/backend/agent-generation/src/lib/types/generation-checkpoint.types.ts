@@ -22,6 +22,12 @@ export interface GenerationAgentCheckpoint {
 export interface GenerationCheckpointManifest {
   version: 1;
   runId: string;
+  tabBinding?: import('@ptah-extension/shared').SetupGenerationTabBinding;
+  workspaceRoot?: string;
+  source?: import('@ptah-extension/shared').GenerationContextSource;
+  effectiveProvider?: string;
+  effectiveModel?: string;
+  enhancedPromptsUsed?: boolean;
   analysisRunId?: string;
   analysisDirectory?: string;
   createdAt: string;
@@ -172,6 +178,36 @@ const GenerationAgentCheckpointSchema = z.object({
 export const GenerationCheckpointManifestSchema = z.object({
   version: z.literal(1),
   runId: z.string(),
+  tabBinding: z
+    .object({
+      tabId: z.string(),
+      workflow: z.literal('setup-agent-generation'),
+      workspacePath: z.string(),
+    })
+    .optional(),
+  workspaceRoot: z.string().optional(),
+  source: z
+    .discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('verified-analysis'),
+        analysisRunId: z.string(),
+        analysisDir: z.string(),
+      }),
+      z.object({
+        kind: z.literal('workspace-discovery'),
+        reason: z.enum([
+          'missing',
+          'stale',
+          'not-latest',
+          'unreadable',
+          'lookup-failed',
+        ]),
+      }),
+    ])
+    .optional(),
+  effectiveProvider: z.string().optional(),
+  effectiveModel: z.string().optional(),
+  enhancedPromptsUsed: z.boolean().optional(),
   analysisRunId: z.string().optional(),
   analysisDirectory: z.string().optional(),
   createdAt: z.string(),

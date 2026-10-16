@@ -9,6 +9,7 @@ import type {
   SetupGenerationRunBinding,
   WizardCancelParams,
   WizardGetGenerationRunStateParams,
+  WizardPreviewGenerationParams,
   WizardRetryItemParams,
   WizardSubmitSelectionParams,
   WizardSubmitSelectionResponse,
@@ -33,8 +34,16 @@ type _OldGuidanceSuccessRequired = Assert<
   Equal<EnhancedPromptsRunWizardResponse['success'], boolean>
 >;
 type _BindingOptional = Assert<
-  Equal<WizardSubmitSelectionParams['tabBinding'],
-    import('./rpc-setup.types').SetupGenerationTabBinding | undefined>
+  Equal<
+    WizardSubmitSelectionParams['tabBinding'],
+    import('./rpc-setup.types').SetupGenerationTabBinding | undefined
+  >
+>;
+type _PreviewBindingOptional = Assert<
+  Equal<
+    WizardPreviewGenerationParams['tabBinding'],
+    import('./rpc-setup.types').SetupGenerationTabBinding | undefined
+  >
 >;
 type _BoundCancelRequired = Assert<
   Equal<EnhancedPromptsCancelParams['tabBinding'], SetupGenerationRunBinding>
@@ -62,39 +71,69 @@ const accepted: SetupGenerationAccepted = {
 describe('setup generation compatibility contract', () => {
   it('keeps tabless requests and awaited result shapes valid', () => {
     const submit: WizardSubmitSelectionParams = { selectedAgentIds: ['agent'] };
-    const guidance: EnhancedPromptsRunWizardParams = { workspacePath: '/workspace' };
-    const regenerate: EnhancedPromptsRegenerateParams = { workspacePath: '/workspace' };
+    const guidance: EnhancedPromptsRunWizardParams = {
+      workspacePath: '/workspace',
+    };
+    const regenerate: EnhancedPromptsRegenerateParams = {
+      workspacePath: '/workspace',
+    };
     const cancel: WizardCancelParams = { saveProgress: true };
     const retry: WizardRetryItemParams = { itemId: 'agent' };
     const result: WizardSubmitSelectionResponse = { success: true };
-    expect([submit.tabBinding, guidance.tabBinding, regenerate.tabBinding,
-      cancel.tabBinding, retry.tabBinding, result.accepted]).toEqual([
-      undefined, undefined, undefined, undefined, undefined, undefined,
+    expect([
+      submit.tabBinding,
+      guidance.tabBinding,
+      regenerate.tabBinding,
+      cancel.tabBinding,
+      retry.tabBinding,
+      result.accepted,
+    ]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
     ]);
   });
 
   it('types bound starts, lookups and progress while preserving legacy envelopes', () => {
     const submit: WizardSubmitSelectionParams = {
-      selectedAgentIds: ['agent'], tabBinding: binding,
+      selectedAgentIds: ['agent'],
+      tabBinding: binding,
     };
     const result: WizardSubmitSelectionResponse = { success: true, accepted };
     const cancel: WizardCancelParams = { tabBinding: binding };
-    const retry: WizardRetryItemParams = { itemId: 'agent', tabBinding: binding };
+    const retry: WizardRetryItemParams = {
+      itemId: 'agent',
+      tabBinding: binding,
+    };
     const guidanceCancel: EnhancedPromptsCancelParams = { tabBinding: binding };
-    const guidanceLookup: EnhancedPromptsGetRunStateParams = { tabBinding: binding };
-    const agentLookup: WizardGetGenerationRunStateParams = { tabBinding: binding };
+    const guidanceLookup: EnhancedPromptsGetRunStateParams = {
+      tabBinding: binding,
+    };
+    const agentLookup: WizardGetGenerationRunStateParams = {
+      tabBinding: binding,
+    };
     const oldProgress: GenerationProgressPayload = {
       progress: { phase: 'rendering', percentComplete: 50 },
     };
     const boundProgress: GenerationProgressPayload = {
-      ...oldProgress, tabBinding: binding, lifecycle: 'running',
+      ...oldProgress,
+      tabBinding: binding,
+      lifecycle: 'running',
     };
     const stream: GenerationStreamPayload = {
-      kind: 'text', content: 'Generating', timestamp: 1,
-      tabBinding: binding, lifecycle: 'running',
+      kind: 'text',
+      content: 'Generating',
+      timestamp: 1,
+      tabBinding: binding,
+      lifecycle: 'running',
     };
     const guidanceStream: EnhancedGenerationStreamPayload = {
-      kind: 'text', content: 'Generating guidance', timestamp: 2,
+      kind: 'text',
+      content: 'Generating guidance',
+      timestamp: 2,
       tabBinding: { ...binding, workflow: 'setup-project-prompt' },
       lifecycle: 'running',
     };
@@ -113,15 +152,21 @@ describe('setup generation compatibility contract', () => {
       tabBinding: binding,
       terminalStatus: 'completed',
       result: {
-        status: 'completed', success: true, source,
-        effectiveProvider: 'anthropic', effectiveModel: 'claude-sonnet',
+        status: 'completed',
+        success: true,
+        source,
+        effectiveProvider: 'anthropic',
+        effectiveModel: 'claude-sonnet',
         enhancedPromptsUsed: true,
       },
     };
     expect(submit.tabBinding?.tabId).toBe('tab-1');
     expect(result.accepted?.source).toEqual(source);
-    expect([cancel, retry, guidanceCancel, guidanceLookup, agentLookup]
-      .every((value) => value.tabBinding?.tabId === 'tab-1')).toBe(true);
+    expect(
+      [cancel, retry, guidanceCancel, guidanceLookup, agentLookup].every(
+        (value) => value.tabBinding?.tabId === 'tab-1',
+      ),
+    ).toBe(true);
     expect(cancel.tabBinding?.runId).toBe('run-1');
     expect(oldProgress.tabBinding).toBeUndefined();
     expect(boundProgress.lifecycle).toBe('running');
@@ -133,6 +178,8 @@ describe('setup generation compatibility contract', () => {
 });
 
 type _TerminalStatus = Assert<
-  Equal<GenerationCompletePayload['terminalStatus'],
-    import('./rpc-setup.types').SetupGenerationTerminalStatus | undefined>
+  Equal<
+    GenerationCompletePayload['terminalStatus'],
+    import('./rpc-setup.types').SetupGenerationTerminalStatus | undefined
+  >
 >;

@@ -46,6 +46,28 @@ import {
 } from './wizard-generation-rpc.schema';
 
 describe('wizard-generation-rpc.schema', () => {
+  it('rejects malformed tab bindings at the RPC boundary', () => {
+    expect(
+      WizardSubmitSelectionParamsSchema.safeParse({
+        selectedAgentIds: ['agent'],
+        tabBinding: {
+          tabId: '../other',
+          workflow: 'setup-project-prompt',
+          workspacePath: '/ws',
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      WizardCancelParamsSchema.safeParse({
+        tabBinding: {
+          tabId: 'tab-1',
+          workflow: 'setup-agent-generation',
+          workspacePath: '/ws',
+          runId: 'not-a-uuid',
+        },
+      }).success,
+    ).toBe(false);
+  });
   describe('WizardAgentIdSchema', () => {
     it.each(['backend-developer', 'code_logic.reviewer', 'a1'])(
       'accepts %s',

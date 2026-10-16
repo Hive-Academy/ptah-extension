@@ -219,6 +219,340 @@ function outcome(
   };
 }
 
+// Bound-run integration cases use the real checkpoint and supervisor with the
+// existing in-memory storage fake.
+describe('wizard generation tab ownership and recovery', () => {
+  const tab = {
+    tabId: 'tab-one',
+    workflow: 'setup-agent-generation' as const,
+    workspacePath: WORKSPACE,
+  };
+
+  beforeEach(() => {
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) => String(value));
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  async function previewAndSubmit(
+    h: Harness,
+    params: Record<string, unknown> = {},
+  ) {
+    h.handlers.register();
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    return call<{
+      success: boolean;
+      accepted?: { runId: string; source: unknown };
+      rejection?: unknown;
+      error?: string;
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+      ...params,
+    });
+  }
+
+  it.each([
+    [
+      'missing',
+      { state: 'missing', reason: 'missing', analysisDir: null },
+      'missing',
+    ],
+    [
+      'stale',
+      { state: 'stale', reason: 'changed', analysisDir: '.ptah/analysis/acme' },
+      'stale',
+    ],
+    [
+      'unreadable',
+      { state: 'stale', reason: 'unreadable', analysisDir: null },
+      'unreadable',
+    ],
+  ])(
+    'uses workspace discovery for %s analysis',
+    async (_name, status, reason) => {
+      const h = makeHarness();
+      h.freshness.getStatus.mockResolvedValue(status);
+      const response = await previewAndSubmit(h, {
+        analysisData: VALID_ANALYSIS,
+      });
+      expect(response.accepted?.source).toEqual({
+        kind: 'workspace-discovery',
+        reason,
+      });
+      expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
+      expect(manifestAt(h).input.analysisData).toBeUndefined();
+      await settle();
+    },
+  );
+
+  it('uses the latest fresh analysis with its verified run identity', async () => {
+    const h = makeHarness();
+    h.storage.loadManifest.mockResolvedValue({ runId: 'verified-run' });
+    const response = await previewAndSubmit(h, {
+      analysisDir: ANALYSIS_DIR,
+      analysisData: VALID_ANALYSIS,
+    });
+    expect(response.accepted?.source).toEqual({
+      kind: 'verified-analysis',
+      analysisDir: ANALYSIS_DIR,
+      analysisRunId: 'verified-run',
+    });
+    expect(manifestAt(h, ANALYSIS_DIR).input.analysisData).toBeUndefined();
+    expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
+    await settle();
+  });
+
+  it('falls back from an older analysis directory and from a throwing freshness lookup', async () => {
+    const older = `${WORKSPACE}/.ptah/analysis/older`;
+    const h = makeHarness();
+    const response = await previewAndSubmit(h, { analysisDir: older });
+    expect(response.accepted?.source).toEqual({
+      kind: 'workspace-discovery',
+      reason: 'not-latest',
+    });
+    const h2 = makeHarness();
+    h2.freshness.getStatus.mockRejectedValue(
+      new Error('private lookup detail'),
+    );
+    const failed = await previewAndSubmit(h2);
+    expect(failed.accepted?.source).toEqual({
+      kind: 'workspace-discovery',
+      reason: 'lookup-failed',
+    });
+    await settle();
+  });
+
+  it('rejects a foreign directory and workspace mismatch before freshness or checkpoint I/O', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const foreign = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+        analysisDir: '/foreign/analysis',
+      },
+    );
+    expect(foreign.rejection?.reason).toBe('foreign-directory');
+    expect(h.freshness.getStatus).not.toHaveBeenCalled();
+    expect(h.storage.writeGenerationManifest).not.toHaveBeenCalled();
+    const mismatch = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: { ...tab, workspacePath: '/elsewhere' },
+      },
+    );
+    expect(mismatch.rejection?.reason).toBe('workspace-mismatch');
+    expect(h.freshness.getStatus).not.toHaveBeenCalled();
+    const malformed = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: { tabId: '' },
+      },
+    );
+    expect(malformed.rejection?.reason).toBe('invalid-binding');
+  });
+
+  it('returns the prepared run id before work settles and recovers a lost start response', async () => {
+    const h = makeHarness();
+    h.orchestrator.generateAgents.mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const response = await previewAndSubmit(h);
+    expect(response.accepted?.runId).toBe(manifestAt(h).runId);
+    const found = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(found.run?.binding.runId).toBe(response.accepted?.runId);
+    expect(found.run?.status).toBe('running');
+    const wrong = await h.handlers.getGenerationRunState({
+      tabBinding: { ...tab, tabId: 'other' },
+    });
+    expect(wrong.run).toBeNull();
+  });
+
+  it('reports an orphaned in-progress checkpoint as unconfirmed, without a terminal result', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'running' },
+      {
+        lifecycle: 'running',
+        tabBinding: tab,
+      },
+    );
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.status).toBe('starting');
+    expect(state.run?.result).toBeUndefined();
+  });
+
+  it('finds a bound checkpoint beside an older analysis after a newer one exists', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'written' },
+      {
+        lifecycle: 'completed',
+        tabBinding: tab,
+      },
+    );
+    h.storage.list.mockResolvedValue([
+      { filename: 'newer' },
+      { filename: 'acme' },
+    ]);
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.binding.runId).toBe('run-prev');
+    expect(state.run?.status).toBe('completed');
+  });
+
+  it('keeps a cancelled bound run cancelled when completion arrives late', async () => {
+    const h = makeHarness();
+    let finish: ((value: Result<GenerationSummary, Error>) => void) | undefined;
+    h.orchestrator.generateAgents.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const accepted = await previewAndSubmit(h);
+    const cancelled = await call<{ cancelled: boolean }>(
+      h,
+      'wizard:cancel',
+      {},
+    );
+    expect(cancelled.cancelled).toBe(true);
+    finish?.(Result.ok(makeSummary([outcome('agent-a', 'written')])));
+    await settle();
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.binding.runId).toBe(accepted.accepted?.runId);
+    expect(state.run?.status).toBe('cancelled');
+    expect(state.run?.result?.success).toBe(false);
+    expect(completeBroadcasts(h)).toHaveLength(1);
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('cancelled');
+  });
+
+  it('binds an old checkpoint only on an authorized resume and retains its outcomes and model', async () => {
+    const h = makeHarness();
+    seedCheckpoint(h, { 'agent-a': 'written', 'agent-b': 'failed' });
+    h.storage.resumable = {
+      slugDir: ANALYSIS_DIR,
+      manifest: {},
+      generation: manifestAt(h, ANALYSIS_DIR),
+    };
+    h.handlers.register();
+    const wrong = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: [],
+        resume: true,
+        tabBinding: { ...tab, workspacePath: '/elsewhere' },
+      },
+    );
+    expect(wrong.rejection?.reason).toBe('workspace-mismatch');
+    expect(manifestAt(h, ANALYSIS_DIR).tabBinding).toBeUndefined();
+    const accepted = await previewAndSubmit(h, { resume: true });
+    expect(accepted.accepted?.runId).toBe('run-prev');
+    expect(manifestAt(h, ANALYSIS_DIR).tabBinding).toEqual(tab);
+    expect(manifestAt(h, ANALYSIS_DIR).input.model).toBe(
+      'model-from-checkpoint',
+    );
+    expect(manifestAt(h, ANALYSIS_DIR).agents['agent-a'].status).toBe(
+      'written',
+    );
+    await settle();
+  });
+
+  it('rejects bound retry without its run and reuses the matching checkpoint model', async () => {
+    const h = makeHarness();
+    const runId = '11111111-1111-4111-8111-111111111111';
+    seedCheckpoint(h, { 'agent-a': 'failed' }, { tabBinding: tab, runId });
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    h.handlers.register();
+    const wrong = await call<{
+      success: boolean;
+      rejection?: { reason: string };
+    }>(h, 'wizard:retry-item', {
+      itemId: 'agent-a',
+      tabBinding: { ...tab, runId: '22222222-2222-4222-8222-222222222222' },
+    });
+    expect(wrong.rejection?.reason).toBe('not-running');
+    const retried = await call<{ success: boolean }>(h, 'wizard:retry-item', {
+      itemId: 'agent-a',
+      tabBinding: { ...tab, runId },
+    });
+    expect(retried.success).toBe(true);
+    expect(firstOptions(h).model).toBe('model-from-checkpoint');
+  });
+
+  it('does not report completed when checkpoint finalization fails', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, []);
+    h.storage.updateGenerationManifest.mockImplementation(async () => null);
+    await previewAndSubmit(h);
+    await settle();
+    const completion = completeBroadcasts(h)[0];
+    expect(completion.success).toBe(false);
+    expect(completion.terminalStatus).toBe('failed');
+    expect(manifestAt(h).lifecycle).toBe('running');
+  });
+
+  it('blocks a second tab with only the owner tab id, and keeps owner ids private across workspaces', async () => {
+    const h = makeHarness();
+    h.orchestrator.generateAgents.mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    await previewAndSubmit(h);
+    const second = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+      accepted?: unknown;
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: { ...tab, tabId: 'other' },
+    });
+    expect(second.rejection).toEqual({
+      reason: 'blocked',
+      ownerTabId: tab.tabId,
+    });
+    expect(second.accepted).toBeUndefined();
+    const foreign = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+      accepted?: unknown;
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: { ...tab, workspacePath: '/elsewhere' },
+    });
+    expect(foreign.rejection?.ownerTabId).toBeUndefined();
+    expect(foreign.accepted).toBeUndefined();
+
+    const tabless = makeHarness();
+    tabless.handlers.register();
+    await call(tabless, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+    });
+    const hidden = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+      accepted?: unknown;
+    }>(tabless, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    expect(hidden.rejection).toEqual({ reason: 'blocked' });
+    expect(hidden.accepted).toBeUndefined();
+  });
+});
+
 function makeSummary(
   outcomes: GenerationAgentOutcome[],
   overrides: Partial<GenerationSummary> = {},
@@ -321,11 +655,12 @@ interface StorageFake {
   loadGenerationManifest: jest.Mock;
   updateGenerationManifest: jest.Mock;
   findLatestResumableRun: jest.Mock;
+  list: jest.Mock;
   loadManifest: jest.Mock;
 }
 
 const manifestKey = (ws: string, dir: string | null): string =>
-  `${ws}|${dir ?? ''}`;
+  `${ws}|${(dir ?? '').replace(/\\/g, '/')}`;
 
 function createStorageFake(): StorageFake {
   const manifests = new Map<string, GenerationCheckpointManifest>();
@@ -370,6 +705,7 @@ function createStorageFake(): StorageFake {
       },
     ),
     findLatestResumableRun: jest.fn(async () => fake.resumable),
+    list: jest.fn(async () => []),
     loadManifest: jest.fn(async () => null),
   };
   return fake;
@@ -432,7 +768,7 @@ function makeHarness(
   const storage = createStorageFake();
   storage.resolveAuthorizedAnalysisDir.mockImplementation(
     (ws: string, candidate: string): string | null => {
-      const absolute = path.posix.resolve(ws, candidate);
+      const absolute = path.posix.resolve(ws, candidate.replace(/\\/g, '/'));
       const root = path.posix.resolve(ws, '.ptah/analysis');
       const relative = path.posix.relative(root, absolute);
       return relative === '' ||
@@ -464,6 +800,10 @@ function makeHarness(
   maybeSet(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, setupWizard);
   maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, storage);
   maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE, freshness);
+  maybeSet(Symbol.for('SdkProviderModels'), {
+    resolveActiveProviderId: jest.fn().mockReturnValue('anthropic'),
+    getModelTiers: jest.fn().mockReturnValue({ sonnet: 'sonnet' }),
+  });
   maybeSet(TOKENS.WEBVIEW_MANAGER, webviewManager);
   maybeSet(HARNESS_SYNC_TOKENS.PROPAGATION, propagation);
   maybeSet(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, {

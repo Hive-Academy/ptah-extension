@@ -8,8 +8,7 @@ import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
 import type { HarnessTargetId } from '../harness-sync.types';
 
 export type SetupGenerationWorkflow =
-  | 'setup-agent-generation'
-  | 'setup-project-prompt';
+  'setup-agent-generation' | 'setup-project-prompt';
 
 export interface SetupGenerationTabBinding {
   tabId: string;
@@ -26,11 +25,7 @@ export type GenerationContextSource =
   | {
       kind: 'workspace-discovery';
       reason:
-        | 'missing'
-        | 'stale'
-        | 'not-latest'
-        | 'unreadable'
-        | 'lookup-failed';
+        'missing' | 'stale' | 'not-latest' | 'unreadable' | 'lookup-failed';
     };
 
 export type SetupGenerationRunLifecycle =
@@ -57,7 +52,13 @@ export interface SetupGenerationAccepted {
 
 export type SetupGenerationRejection =
   | { reason: 'blocked'; ownerTabId?: string }
-  | { reason: 'invalid-binding' | 'workspace-mismatch' | 'foreign-directory' | 'not-running' };
+  | {
+      reason:
+        | 'invalid-binding'
+        | 'workspace-mismatch'
+        | 'foreign-directory'
+        | 'not-running';
+    };
 
 export interface SetupGenerationResultFacts {
   status: SetupGenerationTerminalStatus;
@@ -316,6 +317,8 @@ export interface WizardSubmitSelectionResponse {
 export interface WizardPreviewGenerationParams {
   /** Agent ids the user is about to generate (same rule as submit-selection). */
   selectedAgentIds: string[];
+  /** Tab and workspace requesting this pre-run preview. */
+  tabBinding?: SetupGenerationTabBinding;
 }
 
 /**

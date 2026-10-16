@@ -23,6 +23,8 @@ import type {
   GenerationAgentOutcome,
   GenerationCompletePayload,
   Result,
+  SetupGenerationRunBinding,
+  GenerationContextSource,
 } from '@ptah-extension/shared';
 import type {
   GenerationSummary,
@@ -65,6 +67,11 @@ export interface GenerationOrchestrator {
 }
 
 export interface GenerationRunRequest {
+  tabBinding?: SetupGenerationRunBinding;
+  source?: GenerationContextSource;
+  effectiveProvider?: string;
+  effectiveModel?: string;
+  enhancedPromptsUsed?: boolean;
   orchestrator: GenerationOrchestrator;
   /** Options WITHOUT `abortSignal`; the supervisor attaches its own. */
   options: OrchestratorGenerationOptions;
@@ -150,6 +157,7 @@ export function buildCompletePayload(
   return {
     success:
       failure === null &&
+      abortReason === null &&
       (lifecycle === null || lifecycle === 'completed') &&
       failedCount === 0,
     outputDirectory: summary?.outputDirectory ?? input.outputDirectory,
@@ -171,12 +179,29 @@ export function buildCompletePayload(
 @injectable()
 export class GenerationRunSupervisor {
   private activeController: AbortController | null = null;
+  private activeBinding: SetupGenerationRunBinding | null = null;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /** True from launch until the completion payload has gone out. */
   get isActive(): boolean {
     return this.activeController !== null;
+  }
+
+  get binding(): SetupGenerationRunBinding | null {
+    return this.activeBinding;
+  }
+
+  abortBound(binding: SetupGenerationRunBinding, reason: string): boolean {
+    const active = this.activeBinding;
+    if (
+      !active ||
+      active.tabId !== binding.tabId ||
+      active.workspacePath !== binding.workspacePath ||
+      active.runId !== binding.runId
+    )
+      return false;
+    return this.abort(reason);
   }
 
   /**
@@ -203,6 +228,7 @@ export class GenerationRunSupervisor {
     }
     const controller = new AbortController();
     this.activeController = controller;
+    this.activeBinding = request.tabBinding ?? null;
     const startTime = Date.now();
     const timeoutMs = request.timeoutMs ?? GENERATION_TIMEOUT_MS;
     const watchdog = setTimeout(() => {
@@ -265,16 +291,50 @@ export class GenerationRunSupervisor {
         try {
           await request.onSettled(settled);
         } catch (error: unknown) {
-          this.logger.warn('Post-settlement step failed; broadcasting anyway', {
-            error: error instanceof Error ? error.message : String(error),
-          });
+          this.logger.error(
+            'Post-settlement step failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          settled.payload = {
+            ...settled.payload,
+            success: false,
+            errors: settled.payload.success
+              ? ['Generation finalization failed. Please retry or resume.']
+              : settled.payload.errors,
+          };
         }
+      }
+      if (request.tabBinding) {
+        const status = settled.payload.success
+          ? 'completed'
+          : abortReason === GENERATION_TIMEOUT_REASON
+            ? 'timed-out'
+            : abortReason === GENERATION_CANCEL_REASON
+              ? 'cancelled'
+              : 'failed';
+        settled.payload = {
+          ...settled.payload,
+          tabBinding: request.tabBinding,
+          terminalStatus: status,
+          result: {
+            status,
+            success: settled.payload.success,
+            source: request.source ?? {
+              kind: 'workspace-discovery',
+              reason: 'missing',
+            },
+            effectiveProvider: request.effectiveProvider ?? 'anthropic',
+            effectiveModel: request.effectiveModel ?? 'sonnet',
+            enhancedPromptsUsed: request.enhancedPromptsUsed,
+          },
+        };
       }
       await this.broadcastCompletion(request.broadcaster, settled.payload);
       return settled;
     } finally {
       clearTimeout(watchdog);
       this.activeController = null;
+      this.activeBinding = null;
     }
   }
 
