@@ -40,6 +40,15 @@ export class HarnessProposalWorkspaceError extends Error {
   }
 }
 
+export class HarnessProposalWorkspaceNotOpenError extends Error {
+  readonly code = 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN';
+
+  constructor() {
+    super('Harness proposal workspace root is not an open workspace folder.');
+    this.name = 'HarnessProposalWorkspaceNotOpenError';
+  }
+}
+
 function isErrno(error: unknown, code: string): boolean {
   return (
     typeof error === 'object' &&
@@ -64,6 +73,7 @@ function compareRevisions(
 /**
  * Stores proposals under the pinned caller root when supplied, merging each update.
  * Rejects with HarnessProposalWorkspaceError (HARNESS_PROPOSAL_NO_WORKSPACE),
+ * HarnessProposalWorkspaceNotOpenError (HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN),
  * ZodError for an invalid session id, FileLockTimeoutError from
  * @ptah-extension/harness-sync on contention, or a file system error.
  */
@@ -183,9 +193,7 @@ export class HarnessProposalStore implements IHarnessProposalStore {
         this.workspaceProvider,
       );
       if (!openRoot) {
-        throw new Error(
-          'Harness proposal workspace root is not an open workspace folder.',
-        );
+        throw new HarnessProposalWorkspaceNotOpenError();
       }
       return openRoot;
     }

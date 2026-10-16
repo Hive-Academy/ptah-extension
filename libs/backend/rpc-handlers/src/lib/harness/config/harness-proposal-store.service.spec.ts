@@ -10,6 +10,7 @@ import { FileLockTimeoutError } from '@ptah-extension/harness-sync';
 import {
   HarnessProposalStore,
   HarnessProposalWorkspaceError,
+  HarnessProposalWorkspaceNotOpenError,
 } from './harness-proposal-store.service';
 
 describe('HarnessProposalStore', () => {
@@ -245,13 +246,20 @@ describe('HarnessProposalStore', () => {
     const closedRoot = path.join(root, 'closed');
     expect(() =>
       store.captureProposingTurnStartedAt('one', closedRoot),
-    ).toThrow(/not an open workspace folder/);
+    ).toThrow(HarnessProposalWorkspaceNotOpenError);
+    try {
+      store.captureProposingTurnStartedAt('one', closedRoot);
+    } catch (error: unknown) {
+      expect(error).toMatchObject({
+        code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN',
+      });
+    }
     await expect(
       store.save('one', {}, false, undefined, closedRoot),
-    ).rejects.toThrow(/not an open workspace folder/);
-    await expect(store.get('one', closedRoot)).rejects.toThrow(
-      /not an open workspace folder/,
-    );
+    ).rejects.toMatchObject({ code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN' });
+    await expect(store.get('one', closedRoot)).rejects.toMatchObject({
+      code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN',
+    });
     await expect(
       fs.access(path.join(closedRoot, '.ptah')),
     ).rejects.toMatchObject({ code: 'ENOENT' });

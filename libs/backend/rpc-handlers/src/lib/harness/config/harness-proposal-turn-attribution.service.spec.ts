@@ -92,6 +92,32 @@ describe('HarnessProposalTurnAttributionService', () => {
     capture.release();
   });
 
+  it('attributes a prompt with a trailing separator in its workspace root', () => {
+    submit(T1, `${root}${path.sep}`);
+    const capture = attribution.capture('session', root);
+    expect(capture.turnStartedAt).toBe(new Date(T1).toISOString());
+    capture.release();
+  });
+
+  it('attributes a prompt with different Windows root casing', () => {
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+    try {
+      submit(T1, root.toUpperCase());
+      const capture = attribution.capture('session', root);
+      expect(capture.turnStartedAt).toBe(new Date(T1).toISOString());
+      capture.release();
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: platform,
+        configurable: true,
+      });
+    }
+  });
+
   it('attributes the next prompt after abort while a live mid-turn prompt stays ambiguous', () => {
     submit(T1);
     submit(T3);

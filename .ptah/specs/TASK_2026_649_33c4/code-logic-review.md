@@ -523,3 +523,40 @@ No Blocking or Serious defects.
 ### Verdict
 
 APPROVED. Score 8/10: the three defects are fixed with no regressions found. The 2 points are the cold-start `unavailable` loss (Moderate) and small leftovers.
+
+## Review of eb9ad03a2 and 0dd82604a (F4)
+
+Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lanes. Different family; read-only review of `git show` output and worktree files. No tests or checks were run.
+
+### Per-item status
+
+| Item | Status |
+| --- | --- |
+| 1. `requireRoot` requires an open folder (save, get, capture) | OK with two Moderate gaps (M1, M2) |
+| 2. `name` and `claudeMd` as choice fields | OK, no defect found |
+| 3. `builderPreviewSummary`, Session summary | OK, no defect found |
+| e2e: the 10 updated specs | OK, no weakened assertion; one unverifiable runtime assumption (M3) |
+
+### Checked and fine
+
+- Callers of the store: `proposeConfig` (`harness-namespace.builder.ts:1112-1127`, root from `getPolicyWorkspaceRoot`) and `get-proposal` (`harness-rpc.handlers.ts:932-945`, which already required an open folder). Save and read now resolve the same open spelling, and `read()` compares with `sameWorkspaceRoot`, so reads and writes key consistently (`harness-proposal-store.service.ts:160-206`). A throw in `getProposingTurnStartedAt` happens before `try/finally` in `proposeConfig`, so no capture reference leaks. With no `workspaceRoot` the old `getWorkspaceRoot()` path is unchanged, so hosts with a single provider root are not affected.
+- Item 2: the snapshot schema (`harness-builder-records.service.ts:34-66`) only widens the allowed keys, so old records still parse. `name` is `z.string()` and `claudeMd` is a partial strict object in `HarnessConfigUpdatesSchema` (`rpc-harness.schemas.ts:374-455`), so a preset's name and claudeMd cannot make `writeSnapshot` fail. Fields are set only when `updates[field] !== undefined` (`builder-sidebar-helpers.ts:78-82`), so a user who never touched them is unaffected. The D9 order in `recompute()` (`harness-proposal-hydration.service.ts:376-415`) treats them like the other fields: an agent revision from a later turn overrides the choice, and an unattributed revision loses to it. As a side effect the AI helper `generate-claude-md` result now persists, where it was silently dropped before.
+- Item 3: `builderPreviewSummary` (`builder-sidebar-helpers.ts:21-29`) uses the same formulas as `agentCount` and `skillCount` in `harness-config-preview.component.ts:313-336`. The `Context —` branch is correct.
+- e2e: the reload helper `prepare()` is a real `webContents.reload()` (`ui-driver.ts:199-211`) that re-seeds `initialView: 'chat'`. `injectInitialNavigation` (`initial-navigation.ts:111-125`) takes the saved `ptahRoute` when the host deep link equals the stored seed, which holds here. So a reload landing on the builder tab is what the app is designed to do, not a test fiction. The new locator `ptah-harness-builder-view ptah-chat-transcript[data-tab-id=...]` is stricter than `ptah-harness-builder-view` alone: the view host renders even in the `missing` page state (`harness-builder-view.component.ts:67-76`), but the transcript renders only in the ready state. So the assertion fails closed if the tab is not restored. The tab-id, one-`chat:start`, and intake-in-transcript checks are kept. Replacing the URL check is required (MemoryPlatformLocation). `toContain(seedPrompt)` replacing `toBe` is required because `chat:start` now carries the intake preamble. The "foreign session" test has a positive card assertion on the foreign tab that covers the immediate-pass `toHaveCount(0)`.
+
+### Findings
+
+**M1 (Moderate): turn attribution now compares the open-folder spelling with the session's spelling.**
+`harness-proposal-store.service.ts:79-92` passes `requireRoot()`'s open-folder string to `turnAttribution.capture`, and `harness-proposal-turn-attribution.service.ts:52` compares it with `===` against `payload.workspaceRoot` recorded at prompt submit. Before this commit both came from the caller's own root string. Scenario: the session workspace is recorded as `D:\Proj\` or `d:\proj`, the open folder is `D:\Proj`; `capture` returns no `turnStartedAt`, the revision is saved unattributed, and D9 ordering falls back to `updatedAt` for that revision. There is no error, only silent loss of attribution (a user choice made during the turn can then win over the agent's proposal, or the reverse). Fix: compare with `sameWorkspaceRoot` at `harness-proposal-turn-attribution.service.ts:52`, and add a spec with a trailing-slash or case variant.
+
+**M2 (Moderate): a non-open root surfaces as a retry-able, generic failure.**
+`requireRoot` throws a plain `Error` (`harness-proposal-store.service.ts:181-190`). `harnessProposalErrorMessage` (`protocol-dispatcher.ts:2740-2767`) maps it to "Harness proposal could not be saved. Retry if the session and storage are available." The agent is told to retry something that cannot succeed until the folder is open again (Electron workspace switch mid-session, a declared-caller root from the MCP URL that is not an open folder). Fix: throw a coded error (for example `HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN`, as `HarnessProposalWorkspaceError` does) and add a dispatcher branch with a non-retry message.
+
+**M3 (Moderate, unverified): the reload spec depends on tab and route persistence the lane could not run.**
+`new-project.spec.ts:365-377` asserts the same builder transcript after `prepare()`. It needs both `ptahRoute` restore (Electron `set-state` is async fire-and-forget) and restoration of the workflow tab with `workflow === 'harness-new-project'` and the intake message in its transcript. I could not confirm the second from code. If the tab is not restored the test fails visibly (the page shows "no longer open"), so it is not vacuous; but the earlier visual review that landed on Chat after a reload is consistent with exactly that failure, so treat CI as the deciding evidence. The same applies to the unverified `session:id-resolved` payload in `new-project-question-routing.spec.ts:~185`.
+
+**Minor:** dotnet and routing specs still assert `prompt` content that the test itself supplies through the `harness:start-new-project` mock, so those `toContain` / `not.toContain` checks prove transport, not prompt construction. This is unchanged from the original specs.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 7/10. No Blocking or Serious defects. M1 and M2 are small, low-probability regressions from the stricter root check and should be fixed (or consciously deferred) before merge; M3 is for CI to confirm.

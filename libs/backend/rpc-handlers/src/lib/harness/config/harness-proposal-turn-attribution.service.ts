@@ -5,6 +5,7 @@ import {
   UserPromptSubmitCallbackRegistry,
   type UserPromptSubmitPayload,
 } from '@ptah-extension/agent-sdk';
+import { sameWorkspaceRoot } from '../../utils/workspace-authorization';
 
 interface CapturedTurn {
   readonly workspaceRoot: string;
@@ -49,7 +50,10 @@ export class HarnessProposalTurnAttributionService {
   } {
     const state = this.sessions.get(sessionId);
     const turn =
-      state && !state.ambiguous && state.active?.workspaceRoot === workspaceRoot
+      state &&
+      !state.ambiguous &&
+      state.active &&
+      sameWorkspaceRoot(state.active.workspaceRoot, workspaceRoot)
         ? state.active
         : undefined;
     if (turn) turn.references += 1;

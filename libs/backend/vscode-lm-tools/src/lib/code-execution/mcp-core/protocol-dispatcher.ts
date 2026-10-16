@@ -2760,6 +2760,13 @@ function harnessProposalErrorMessage(error: unknown): string {
   if (
     error instanceof Error &&
     'code' in error &&
+    error.code === 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN'
+  ) {
+    return 'Harness proposal could not be saved because its workspace folder is not open in Ptah. Do not retry; ask the user to reopen the workspace.';
+  }
+  if (
+    error instanceof Error &&
+    'code' in error &&
     typeof error.code === 'string'
   ) {
     return `Harness proposal could not be saved due to a file-system error (${error.code}). Retry after fixing file access.`;
