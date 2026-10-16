@@ -49,10 +49,14 @@ fixed in 649 (batch F3).
 | F6-m1 | Minor | `harness-workflow-message.handler.ts`: a failed lazy-chunk load of the request or hydration service is only logged; the user sees nothing |
 | F6-m2 | Minor | `vscode.service.ts`: after a swallowed `set-state` failure in the Electron main process, `getState` keeps serving the unsaved value until reload |
 | F7-m2 | Minor | `apps/ptah-electron/src/ipc/ipc-bridge.state.spec.ts`: no tests for a rejected `update`, overlapping writes (the identity guard) or an `undefined` payload |
+| F8-M1 | Moderate (latent) | `app-state.service.ts:879`: boot-workspace adoption is detected by `previousPath === ''`, not by a one-shot "first workspace of this boot" flag; a later `switchWorkspace('')` then a switch to a known workspace would skip its restore navigation (no reachable Electron path found) |
+| F8-m2 | Minor | `app-state.service.spec.ts:679-726`: the settled-route case does not prove settlement ownership (add an A→B→A round trip) |
+| F8-m3 | Minor | `new-project-question-routing.spec.ts:252`: pin the card text with `hasText: 'Unrelated session question'` |
 | F7-m3 | Minor | `vscode.service.ts:261-275`: between the main-side `workspace:switch` and the renderer's `updateWorkspaceRoot` (one RPC round-trip), a renderer write can merge A's snapshot into B's store (predates F7) |
 
 F6 items come from "Review of 79af325bc, 5bbb40bac, adf6aa5d6 (F5/F6)" in
 `../TASK_2026_649_33c4/code-logic-review.md` (M1 was fixed in 649). F7 items come from
-"Review of b36dbd648 and aa4c55562 (F7)" in the same file (m1 was fixed in 649).
+"Review of b36dbd648 and aa4c55562 (F7)" in the same file (m1 was fixed in 649). F8 items come
+from "Review of e8875508c (F8)" in the same file.
 
 F3 items come from "Review of ff2ea4f81 (F3)" in `../TASK_2026_649_33c4/code-logic-review.md`.

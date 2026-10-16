@@ -627,3 +627,26 @@ No Blocking, Serious or Moderate defects.
 ### Verdict
 
 APPROVED WITH FIXES. Score 8/10. The fixes are m1 (a one-line guard) and m2 (three tests), neither of which blocks merge. m3 and r1 are for the follow-up task and CI respectively.
+
+## Review of e8875508c (F8)
+
+Reviewer: Claude (code-logic). Implementer: codex lane. Scope: `app-state.service.ts` `switchWorkspace` (875-950), the new spec cases (`app-state.service.spec.ts:679-726`), and the e2e locator change. No builds or e2e were run; the reload e2e remains unverified locally.
+
+### Verified
+
+- (a) `_activeWorkspacePath` does not return to `''` on any production path I found. `coordinateWorkspaceCleared` -> `WorkspaceCoordinatorService.clearWorkspace` (`workspace-coordinator.service.ts:245-251`) never calls `appState.switchWorkspace`, and `removeWorkspaceState` only revokes ownership (`app-state.service.ts:982-985`). After "close all, then add a folder" `previousPath` is the last real path, so the normal navigating branch still runs and nobody is stranded. Only a boot with no folders keeps `''`; the first folder then adopts, and the screen already shows the sentinel slice's surface, which is equivalent to the old restore.
+- (b) Order is correct. `_settlementOwner = newPath` (908) is set before `_activeWorkspacePath.set(newPath)`, and the sentinel -> newPath slice migration (913-927) still runs before the early return at 939. The constructor effect (`:563`) then stamps the settled boot route under the real workspace, because owner equals active. In the pending case this ownership is what lets the stamp happen at all; before the fix the owner was `null` and the effect dropped it.
+- (c) VS Code: the webview never switches workspaces (`:433-435`), so the active path stays `''`. The only production caller there is `NotificationFocusCoordinator.run` (`notification-focus-coordinator.service.ts:41`), which calls `setCurrentView('chat')` right after the switch, so skipping the navigation is harmless. Boot behaviour is unchanged for VS Code.
+- (d) The spec is a real red/green test. The pending case asserts `pendingSurface() === 'harness-builder'` before the switch and holds the guard open. Pre-fix `requestSurface` supersedes that navigation. The settled case lands the URL first; pre-fix `requestSurface('harness-builder')` shortens it to `/harness-builder`. Only the pending case proves the new ownership: the sentinel slice starts with `chat`, so `openViews` containing `harness-builder` requires the effect to stamp under `/ws/a`. In the settled case `openViews` already held it via the migrated slice.
+- (e) The locator keeps the intent. Each `ptah-chat-view` is a separate component instance: the app-shell instance and the session-embed tile/builder instances. A card inside the builder's embed cannot pair with the foreign tab's transcript, and the main instance returns no questions in grid mode (`chat-view.component.ts:1362-1364`). So this locator cannot match the builder's card. The preceding `ptah-harness-builder-view ptah-question-card` count of 0 stays.
+
+### Findings
+
+1. Moderate (latent) - `app-state.service.ts:879`. The adoption test is `previousPath === ''`, not "first workspace of this boot". If `switchWorkspace('')` ever runs after boot (for example a notification target with an empty `workspacePath`), a later switch from `''` to a workspace X that already has a slice skips the restore navigation (939 returns early). It also makes X own whatever surface is on screen, which the effect then stamps over X's remembered surface. Not reachable from the Electron layout service paths I traced. Suggested fix: also require `!this._viewSlices().has(newPath)` (the no-slice case is the only one the sentinel migration serves), or track a one-shot `bootAdopted` flag.
+2. Minor - the settled spec case does not prove ownership (see (d)). Add one assertion that discriminates: switch `/ws/a` -> `/ws/b` -> `/ws/a` and expect the builder route back, or read the slice stamped under `/ws/a`.
+3. Minor - `new-project-question-routing.spec.ts:252`. The locator can match any chat view that retains the foreign transcript and does not assert which question the card shows. Add `{ hasText: 'Unrelated session question' }` on `ptah-question-card` so it pins the routed request.
+4. Residual risk, not a defect in the diff - adopting leaves the restored `/harness-builder/<mode>/<tabId>` in place while `tabManager.switchWorkspace(newPath)` loads that workspace's tabs. If the persisted route came from a different workspace than the one the backend activates, the builder opens on a tab id that does not exist. F8 says the view does not redirect to Chat in that case. The state-snapshot scoping in b36dbd648 mitigates this, and only the e2e can confirm it.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 8/10. No blocking or serious issues. Finding 1 is a cheap hardening and finding 3 is a one-line tightening; 2 and 4 are optional.
