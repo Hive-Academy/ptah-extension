@@ -41,3 +41,32 @@ S-1, guard M-1 and guard M-2 from `code-logic-review-phase-d-guard.md` are CLOSE
 - Minor: `requestStatus` bypasses the send gate; `skipNextPulse` reads `tabs()` (active workspace
   only) and checks only `'streaming'`; a second untagged question waits while one is undeclined.
 - From the guard review: `confirmProposal` clears a newer request's nonce (M-3), and its 2 Minors.
+
+## After Phase E revise round 1 (code-logic-review-phase-e-r1.md, APPROVED 7.5/10; visual-review-phase-e.md)
+
+Deferred by the user's round 1 scope (2026-10-16): only S-1, M-1..M-3, N1..N5 and the overlapping Moderates
+were in scope. F-1, F-3, F-4, F-5 and F-7 of the round 1 review are fixed in the follow-up pass (r1b).
+
+- Logic M-4 (Phase E): typed error kinds `stt`/`tts`/`playback`/`chat` are declared but never produced; voice-loop
+  failures show only a toast; mic errors still link to Voice settings.
+- Logic M-5 (Phase E): a pinned card hidden for lack of space keeps an invisible pinned state
+  (`command-overlay-positioner.ts:134-141`). Fall back to the least-overlapping position, or unpin.
+- Logic M-6 (Phase E) and F-8 (r1): dense grid searches inside a reactive effect (`scene-layout.ts` compact packing
+  and the root-plate fallback search, up to ~10k candidates at 1600x1000); the root plate fallback can land far from
+  the sphere with no leader. Memoize per projection/viewport, coarse-to-fine grid, search outward from the root.
+- Logic Minors m-1..m-6 (Phase E): Setup hub card Space key; `startVoice` clears unrelated toasts; Escape focus
+  restore for the root plate; BOM in two files; root state derived twice; m-6 is closed by the r1 layout lane.
+- F-2 (r1): visible-tab registration is not ref-counted (`tab-manager.service.ts:3091-3106`); a page that
+  registered first and unregisters can hide a tab another surface needs; Start new while the old turn streams
+  drops the old tab from the viewport. Counted register/unregister, or release the old tab only after it stops.
+- F-6 (r1): the chip says "Voice unavailable" while the config loads; `open()` fetches the config only after
+  `openOrResume()` succeeds; the chip aria-label does not contain its visible text (label-in-name).
+- F-9 (r1): a new plate is laid out once with the guessed size and then jumps; a plate hidden because nothing fit
+  keeps a stale size.
+- F-10 (r1): with N5 fixed, Command Center turns add completion ledger entries and notifications; confirm no
+  notification sound plays over the spoken reply.
+- Visual M-e: the shell tab-strip scrollbar overlays the tab labels at 892/900 (`electron-shell.component.ts:150-157`).
+- Visual M-g: disabled controls are 1.76:1 / 1.46:1 (carried M6).
+- Visual Minors: no FPS meter compared with the prototype; Stop is not red; Ptah plate ~22 px right of the sphere
+  centre in idle; plate tooltip card overlaps neighbours; Setup hub card focus ring differs from the Tribunal card;
+  "Status" sends a billed status turn without saying so.
