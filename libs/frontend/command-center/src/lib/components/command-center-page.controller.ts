@@ -311,7 +311,7 @@ export class CommandCenterPageController {
     effect(() => {
       const tabId = this.store.markedTabId();
       if (this.previousMarkedTabId && tabId !== this.previousMarkedTabId) {
-        this.teardownSessionState();
+        this.teardownSessionState(false);
         // degradation-audit: reported — voice exit failure is shown through the safe toast
         void this.voice.exit().catch(() =>
           this.store.setToast({
@@ -613,16 +613,17 @@ export class CommandCenterPageController {
     return this.voice.getLatencyMarks();
   }
   public exit(): Promise<void> {
-    this.teardownSessionState();
+    this.teardownSessionState(true);
     return this.voice.exit();
   }
-  private teardownSessionState(): void {
+  private teardownSessionState(pageLeave: boolean): void {
     this.clearInvalidDecline();
     this.clearArmedTurns();
     this.clearRosterTimeout();
     this.expectedRequest.set(null);
     this.tribunal.pageExit();
-    this.tribunalTransport.pageExit();
+    if (pageLeave) this.tribunalTransport.pageExit();
+    else this.tribunalTransport.cancelDiscovery();
     this.pendingProposal.set(null);
     this.rosterTimedOut.set(false);
     this.voice.onRosterResolved();

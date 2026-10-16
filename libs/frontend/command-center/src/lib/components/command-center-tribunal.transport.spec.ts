@@ -149,6 +149,28 @@ describe('CommandCenterTribunalTransport', () => {
     await expect(complete).rejects.toThrow('Page exited');
   });
 
+  it('allows discovery after a Start new cancellation until page exit', async () => {
+    const oldWait = transport.discoveryComplete();
+    transport.cancelDiscovery();
+    await expect(oldWait).rejects.toThrow('Discovery cancelled');
+
+    store.setSession('new-tab', 'new-session', '/workspace');
+    const nextWait = transport.discoveryComplete();
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'new-tab',
+          { ...pulse(1), tabId: 'new-tab', sessionId: 'new-session' },
+        ],
+      ]),
+    );
+    TestBed.tick();
+    await expect(nextWait).resolves.toBeUndefined();
+
+    transport.pageExit();
+    await expect(transport.discoveryComplete()).rejects.toThrow('Page exited');
+  });
+
   it('rejects a pending discovery waiter when Decline cancels confirmation', async () => {
     transport.answer('q1', 'roster', 'Discovery turn ended.');
     const complete = transport.discoveryComplete();

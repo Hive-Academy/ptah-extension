@@ -1448,6 +1448,20 @@ describe('CommandCenterPageController', () => {
     expect(order).toEqual(['pageExit', 'voiceExit']);
   });
 
+  it('cancels discovery on Start new and exits transport only on page exit', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    TestBed.tick();
+
+    page.coordinator.newCommandCenter();
+    TestBed.tick();
+    expect(transport.cancelDiscovery).toHaveBeenCalledTimes(1);
+    expect(transport.pageExit).not.toHaveBeenCalled();
+
+    jest.spyOn(page.voice, 'exit').mockResolvedValue(undefined);
+    await page.exit();
+    expect(transport.pageExit).toHaveBeenCalledTimes(1);
+  });
+
   it('clears a pending roster timer and card on exit', async () => {
     jest.useFakeTimers();
     try {
