@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_681_738f
-status: in_progress
+status: in_review
 type: BUGFIX
 title: "TASK_2026_677 follow-ups: clean session view review leftovers"
 depends_on:
