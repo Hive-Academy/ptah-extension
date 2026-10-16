@@ -330,6 +330,9 @@ describe('route decide gate', () => {
       systemOneClientOptions({
         baseUrl: 'http://127.0.0.1:11434',
         model: 'nimble',
+        probe: 'daemon',
+        locality: 'local',
+        timeoutMs: DECISION_REQUEST_TIMEOUT_MS,
       }).timeoutMs,
     ).toBe(DECISION_REQUEST_TIMEOUT_MS);
   });

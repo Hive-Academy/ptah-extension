@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 7/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 8/23
 
 ## Execution precondition (read first)
 
@@ -505,7 +505,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 
 - `T`, `TC` and `L` on `@ptah-extension/lane-routing`; degradation-audit.
 
-## Batch 7: Wire the resolver into the call path, per-target timeout (C5 wiring, C7 timeout) — PENDING
+## Batch 7: Wire the resolver into the call path, per-target timeout (C5 wiring, C7 timeout) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -517,7 +517,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 2 | Phase review: code-logic (codex)
 - Criteria: 5.2 plumbing, 5.4, 1.5 (DC7 wired)
 
-### Task 7.1: Delegate `resolveSystemOneTarget` and `localityOf` — PENDING
+### Task 7.1: Delegate `resolveSystemOneTarget` and `localityOf` — COMPLETE
 
 - File: MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.config.ts`;
   MODIFY `...\decision-model.config.spec.ts` only if an existing locality case changes under DC7
@@ -525,7 +525,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Quality requirements: `SystemOneTarget` becomes the endpoint shape, with `timeoutMs` required.
   A blocked result returns `null` to callers. `localityOf` calls `localityOfSelection` (sync, PD-5).
 
-### Task 7.2: Pass the target timeout through the pipeline — PENDING
+### Task 7.2: Pass the target timeout through the pipeline — COMPLETE
 
 - Depends on: Task 7.1
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\pipeline\model-refine.ts` (`:89-101`, use `target.timeoutMs`),

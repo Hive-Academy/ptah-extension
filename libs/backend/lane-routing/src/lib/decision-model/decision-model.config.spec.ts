@@ -7,6 +7,7 @@ import {
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
+import { DECISION_REQUEST_TIMEOUT_REMOTE_MS } from '../routing-constants';
 import { DecisionModelConfig } from './decision-model.config';
 import {
   DECISION_MODEL_JEV_SECRET_KEY,
@@ -733,6 +734,9 @@ describe('DecisionModelConfig credential, locality and other kinds', () => {
       baseUrl: JEV_BASE_URL,
       model: 'jev-1.13.0',
       apiKey: 'ts-key',
+      probe: 'none',
+      locality: 'remote',
+      timeoutMs: DECISION_REQUEST_TIMEOUT_REMOTE_MS,
     });
 
     await h.config.keys.set('jev', null);

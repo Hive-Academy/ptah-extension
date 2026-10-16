@@ -10,7 +10,6 @@ import {
   checkVersion,
   discriminate,
   errorMessage,
-  isLocalUrl,
   keyOf,
   normaliseBaseUrl,
   toRowState,
@@ -18,6 +17,12 @@ import {
 } from './decision-model.probe';
 import { DECISION_MODEL_DETAIL } from './decision-model.detail';
 import { DecisionModelKeys } from './decision-model.keys';
+import {
+  isBlockedDecisionEndpoint,
+  localityOfSelection,
+  resolveDecisionEndpoint,
+  type DecisionEndpoint,
+} from './decision-model.target';
 import {
   DECISION_MODEL_CONFIG_KEY,
   DECISION_MODEL_CONFIG_SECTION,
@@ -38,13 +43,11 @@ import {
 import type { StructuredDecisionCompleter } from './structured-decision.port';
 import type { SystemOneFetch } from './system-one.client';
 
-/** Where a System One call goes for the current selection. */
-export interface SystemOneTarget {
-  readonly baseUrl: string;
-  readonly model: string;
-  /** Present only for TypeSafe Jev with a stored key. */
-  readonly apiKey?: string;
-}
+/**
+ * Where a System One call goes for the current selection: the resolved
+ * endpoint (Component 5), with its per-request `timeoutMs` (DC8).
+ */
+export type SystemOneTarget = DecisionEndpoint;
 
 /** Test seams; the DI factory leaves the defaults. */
 export interface DecisionModelConfigSeams {
@@ -182,21 +185,18 @@ export class DecisionModelConfig {
   // ----------------------------------------------------------- credential
 
   /**
-   * Base URL, model and (Jev) key for a System One call, or `null` when the
-   * selection does not use System One (`unset`, `structured`).
+   * The resolved endpoint for a System One call, or `null` when the
+   * selection does not use System One (`unset`, `structured`) or the
+   * resolver blocks it (a key would cross plain http, D4). Callers already
+   * treat `null` as "no call". A rejected secret read propagates.
    */
   async resolveSystemOneTarget(): Promise<SystemOneTarget | null> {
-    const selection = this.getSelection();
-    if (selection.kind === 'ollama') {
-      return { baseUrl: this.ollamaBaseUrl(), model: selection.model };
-    }
-    if (selection.kind === 'jev') {
-      const apiKey = await this.keys.get('jev');
-      return apiKey
-        ? { baseUrl: JEV_BASE_URL, model: selection.model, apiKey }
-        : { baseUrl: JEV_BASE_URL, model: selection.model };
-    }
-    return null;
+    const resolution = await resolveDecisionEndpoint(this.getSelection(), {
+      workspace: this.workspace,
+      keys: this.keys,
+      ollamaBaseUrl: () => this.ollamaBaseUrl(),
+    });
+    return isBlockedDecisionEndpoint(resolution) ? null : resolution;
   }
 
   // ------------------------------------------------------------- locality
@@ -213,21 +213,14 @@ export class DecisionModelConfig {
     return normaliseBaseUrl(OLLAMA_PROVIDER_ENTRY.baseUrl);
   }
 
-  /** Req 1.4: where the request text and lane data go. */
+  /**
+   * Req 1.4: where the request text and lane data go. Sync and key-free
+   * (PD-5), so the status DTO can use it; same rule as the resolver (DC7).
+   */
   localityOf(selection: DecisionModelSelection): DecisionModelLocality | null {
-    switch (selection.kind) {
-      case 'unset':
-        return null;
-      case 'jev':
-        return 'remote';
-      case 'ollama':
-        return isLocalUrl(this.ollamaBaseUrl()) ? 'local' : 'remote';
-      case 'structured':
-        return selection.providerId === 'ollama' &&
-          isLocalUrl(this.ollamaBaseUrl())
-          ? 'local'
-          : 'remote';
-    }
+    return localityOfSelection(selection, {
+      ollamaBaseUrl: () => this.ollamaBaseUrl(),
+    });
   }
 
   // --------------------------------------------------------------- status
