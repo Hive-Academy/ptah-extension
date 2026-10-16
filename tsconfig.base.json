@@ -30,11 +30,19 @@
         "./libs/backend/auth-providers-tokens/src/index.ts"
       ],
       "@ptah-extension/canvas": ["./libs/frontend/canvas/src/index.ts"],
+      "@ptah-extension/tribunal-panel/phase": [
+        "./libs/frontend/tribunal-panel/src/phase.ts"
+      ],
+      "@ptah-extension/tribunal-panel/discovery": [
+        "./libs/frontend/tribunal-panel/src/discovery.ts"
+      ],
       "@ptah-extension/tribunal-panel": [
         "./libs/frontend/tribunal-panel/src/index.ts"
       ],
       "@ptah-extension/chat": ["./libs/frontend/chat/src/index.ts"],
-      "@ptah-extension/chat/inspector": ["./libs/frontend/chat/src/inspector.ts"],
+      "@ptah-extension/chat/inspector": [
+        "./libs/frontend/chat/src/inspector.ts"
+      ],
       "@ptah-extension/chat-types": ["./libs/frontend/chat-types/src/index.ts"],
       "@ptah-extension/chat-state": ["./libs/frontend/chat-state/src/index.ts"],
       "@ptah-extension/chat-execution-tree": [
@@ -191,6 +199,9 @@
       "@ptah-extension/declarative-dashboard": [
         "./libs/frontend/declarative-dashboard/src/index.ts"
       ],
+      "@ptah-extension/command-center": [
+        "./libs/frontend/command-center/src/index.ts"
+      ],
       "@ptah-extension/mcp-apps-page": [
         "./libs/frontend/mcp-apps-page/src/index.ts"
       ],
@@ -219,6 +230,9 @@
       ],
       "@ptah-extension/ui": ["./libs/frontend/ui/src/index.ts"],
       "@ptah-extension/ui/brand-mark": ["./libs/frontend/ui/src/brand-mark.ts"],
+      "@ptah-extension/ui/provider-brand-art": [
+        "./libs/frontend/ui/src/provider-brand-art.ts"
+      ],
       "@ptah-extension/workspace-indexing": [
         "./libs/frontend/workspace-indexing/src/index.ts"
       ],

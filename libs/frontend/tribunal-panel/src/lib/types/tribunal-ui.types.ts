@@ -1,7 +1,16 @@
 import type { CliType } from '@ptah-extension/shared';
 import type { TileLayout } from '@ptah-extension/canvas';
 
-export type TribunalMove = 'council' | 'forge' | 'race' | 'relay' | 'crucible';
+export const TRIBUNAL_MAX_VENDOR_TILES = 8;
+
+export const TRIBUNAL_MOVES = [
+  'council',
+  'forge',
+  'race',
+  'relay',
+  'crucible',
+] as const;
+export type TribunalMove = (typeof TRIBUNAL_MOVES)[number];
 
 /**
  * Relay's phases, in pipeline order (`references/relay.md:45-50`).

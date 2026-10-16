@@ -19,13 +19,14 @@ import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
 import type { TileLayout } from '@ptah-extension/canvas';
 import {
   NO_PROGRESS,
+  TRIBUNAL_MAX_VENDOR_TILES,
   type TribunalMove,
   type TribunalProgress,
   type TribunalTile,
   type VendorLane,
 } from '../types/tribunal-ui.types';
 
-export const TRIBUNAL_MAX_VENDOR_TILES = 8;
+export { TRIBUNAL_MAX_VENDOR_TILES } from '../types/tribunal-ui.types';
 
 /**
  * Sentinel active-slice key used before any real workspace path has arrived

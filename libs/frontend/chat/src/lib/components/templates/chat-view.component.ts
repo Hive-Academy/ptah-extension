@@ -89,6 +89,7 @@ import {
   TabSessionBinding,
   TabId,
   ConfirmationDialogService,
+  commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
@@ -925,7 +926,8 @@ export class ChatViewComponent implements OnDestroy {
    */
   protected readonly forcedCard = computed(() => this._forcedCard?.() ?? false);
   protected readonly userCompact = computed(
-    () => !this.forcedCard() && this.resolvedActiveTab()?.viewMode === 'compact',
+    () =>
+      !this.forcedCard() && this.resolvedActiveTab()?.viewMode === 'compact',
   );
   protected readonly showCompactCard = computed(
     () => this.forcedCard() || this.userCompact(),
@@ -1102,10 +1104,7 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Only the full main panel hosts the inspector. */
   protected readonly hostsInspector = computed(
-    () =>
-      !this.bareChrome &&
-      !this._sessionContext &&
-      !this.showCompactCard(),
+    () => !this.bareChrome && !this._sessionContext && !this.showCompactCard(),
   );
 
   /** Agent rows open lanes only where the host has a lane surface. */
@@ -1830,11 +1829,16 @@ export class ChatViewComponent implements OnDestroy {
       : (this._tabManager.activeWorkspacePath ?? '');
     const anchorId = this.resolveAnchorId(messageId);
     const anchorHint = this.buildAnchorHint(messageId);
+    const rewindTab = this._tabManager.findTabBySessionId(sessionId);
+    const systemPrompt = rewindTab
+      ? commandCenterPersonaFor(rewindTab)
+      : undefined;
     const dryRun = await this._claudeRpc.rewindFiles(
       sessionId,
       anchorId,
       true,
       anchorHint,
+      systemPrompt,
     );
 
     if (!dryRun.isSuccess()) {
@@ -1915,6 +1919,7 @@ export class ChatViewComponent implements OnDestroy {
         anchorId,
         false,
         anchorHint,
+        systemPrompt,
       );
       if (!commit.isSuccess()) {
         const errMsg = commit.error ?? 'unknown error';

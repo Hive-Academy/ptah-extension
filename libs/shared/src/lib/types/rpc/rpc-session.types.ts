@@ -546,6 +546,8 @@ export interface SessionForkResult {
 
 /** Parameters for session:rewindFiles RPC method */
 export interface SessionRewindParams {
+  /** Per-tab persona for an inactive SDK resume; ignored by an active turn. */
+  systemPrompt?: string;
   /** Active session whose tracked files should be rewound */
   sessionId: SessionId;
   /** UUID of the user message to rewind file state to */

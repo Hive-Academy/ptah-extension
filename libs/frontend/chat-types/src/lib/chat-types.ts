@@ -629,6 +629,13 @@ export interface TabState {
    */
   agentOrigin?: TabAgentOrigin;
 
+  /** Persisted origin of a Command Center tab; never carries live voice state. */
+  commandCenterOrigin?: {
+    workspaceId: string;
+    createdAt: number;
+    version: 1;
+  };
+
   /** User-provided or auto-generated session name */
   name: string;
 

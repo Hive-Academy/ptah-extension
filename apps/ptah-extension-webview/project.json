@@ -23,6 +23,11 @@
             "glob": "worker-portable.js",
             "input": "node_modules/@pierre/diffs/dist/worker",
             "output": "/assets/pierre"
+          },
+          {
+            "glob": "pcm-capture.worklet.js",
+            "input": "libs/frontend/command-center/src/assets",
+            "output": "/assets/command-center"
           }
         ],
         "styles": [
