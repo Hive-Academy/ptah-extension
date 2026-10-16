@@ -1,105 +1,114 @@
-# HANDOFF - TASK_2026_646_136a (2026-10-16, end of session 8)
+# HANDOFF - TASK_2026_646_136a (2026-10-16, end of session 9)
 
-Status at handoff: worktree clean, branch in sync with origin at `2777dfb34`, no lanes or subagents running.
-PR #731 stays a draft: Batch 22 is not built and phases P4, P5, P6 (plus the P2 36b re-review) are not accepted.
+Status at handoff: branch `feat/decision-model-routing` pushed and in sync with origin at `d8675a544`, plus a docs-only
+handoff commit on top (see "Done"). The worktree HAS UNCOMMITTED CODE: the P5 fix round (Batches 39a-39d) and the P4 fix
+40a, with two spec suites still red (see "In progress"). No lane or subagent of this task is running. Draft PR
+https://github.com/Hive-Academy/ptah-extension/pull/731 stays a draft.
 
 ## Goal
 
-An optional decision model for orchestration routing, plus a lane evaluation loop:
-- A "Decision model" background role (Ollama, TypeSafe Jev via `/v1/systemone`, or any structured-output model).
-- A `ptah_route_decide` MCP tool (HTTP and stdio dispatchers).
-- A lane and subagent outcome record, with `ptah_outcome_report`.
-- A capability matrix as data (`source`, `asOf`).
-- A spread rule across every spawnable lane.
+An optional decision model for orchestration routing, plus a lane evaluation loop: a "Decision model" background role
+(Ollama, TypeSafe Jev via `/v1/systemone`, or a structured-output model), the `ptah_route_decide` MCP tool, lane and subagent
+outcome records with `ptah_outcome_report`, a capability matrix as data, and a spread rule across lanes.
+Requirements: `task-description.md` (rev 3). Plan: `implementation-plan.md` (+ part-a, part-b). Work list: `batches.md`.
+Final user decisions (do not reopen): #12, #13, #18 (as amended by #22), #19, #96. Keep `skillSynthesis.enabled=false` in
+`~/.ptah/settings.json`. Leave memory untouched.
 
-Approved requirements: `task-description.md` (revision 3). Approved plan: `implementation-plan.md` (+ part-a, part-b),
-Gate 2 PASSED (decision #52). Work is in `batches.md` (40 batches, incl. P3 fix batches 37 and 37b).
+## Done this session (all pushed)
 
-Final user decisions (do not reopen): #12, #13, #18 (as amended by #22), #19, #96 (P3 accepted, LT-P3-5 deferred).
-Keep `skillSynthesis.enabled=false` in `~/.ptah/settings.json`. Leave memory untouched. Lanes: mode `enabled`,
-Approval `lane-review`. User preference (#82): use CLI lanes for parallel work where possible.
-
-## Lane rule
-
-The temporary "no Claude subagents" rule EXPIRED 2026-10-16 00:00 local time. The team-leader, reviewer and
-visual-reviewer subagent flow may resume. CLI lanes still need confirmed room; run `ptah_agent_list` before each spawn.
-At handoff (2026-10-16): codex Weekly 30% (confirmed room), opencode Monthly 92% (near limit), grok unknown
-(API key, no plan), antigravity unknown (reader failed), Glm AT LIMIT.
-
-## Done
-
-Branch `feat/decision-model-routing`, worktree `D:\projects\ptah-extension\.claude-worktrees\decision-model-routing`,
-draft PR https://github.com/Hive-Academy/ptah-extension/pull/731 (keep it a draft until the task is complete).
-Batch count: **39/40 COMPLETE**. Phases accepted: **P1, P2** (#85), **P3** (#96).
-
-Commits this session (orchestrator Mode 2 and commits; decisions #91-#98):
-
-| Commit | What | Executor (family) |
+| Commit | What | Executor |
 | --- | --- | --- |
-| 3ce35ddb9 | Batch 30a - lane-routing host registration | grok (xAI) |
-| d2de2093f | Batch 18 - decision-model config RPC | grok (xAI) |
-| 3f932ea7d | Batch 27 - failure classifier (+ #91 spec fix) | grok (xAI) + orchestrator |
-| cc34e1624 | Batch 25 - `agent:outcomeSignals` handler; P3 reviews | grok (xAI) |
-| 8d29af556 | Batch 37 - P3 fix round | grok (xAI) |
-| 623644993 | Batch 37b - P3 bounded correction | grok (xAI) |
-| f08e93af5 | Batch 29 - MCP registration of both tools; P3 accepted | grok (partial) + codex (OpenAI) |
-| 4b2da5a97 | Batch 31 - skill text | codex (OpenAI) |
-| e082c0cbe | Batch 30 - host wiring of lane-outcomes (+ #98 spec fixes) | codex (OpenAI) + orchestrator |
+| 4a3b758c9 | Batch 22 - Decision model settings row (chat) + R-10 before screenshots | subagent frontend-developer (Anthropic) |
+| 149440c89 | Batch 38a - P6 fix round, MCP side (+ orchestrator budget correction, decision #101) | codex lane |
+| d8675a544 | Batch 38b - P6 fix round, host shutdown/wiring; P5 + P6 review files; decisions #99-#103 | codex lane + orchestrator spec fixes (#103) |
 
-| 2777dfb34 | Session 8 handoff | orchestrator |
+Reviews written: `reviews/p4-code-logic-review.md` (codex, NEEDS_REVISION 5/10), `reviews/p4-visual-review.md` (NEEDS_FIX
+7/10), `reviews/p5-code-logic-review.md` (NEEDS_REVISION 6/10), `reviews/p5-code-style-review.md` (NEEDS_REVISION 6.5/10),
+`reviews/p6-code-{logic,style}-review.md` (both NEEDS_REVISION 6/10), `reviews/p6-fix-code-logic-review.md` (APPROVED 7/10),
+`reviews/p6-fix-code-style-review.md` (NEEDS_REVISION 6.5/10). Visual evidence: `visual/batch-22-before*`, `visual/batch-22-after*`.
+The "Anthropic re-review of 36b" was already done (`p2-fix2`, APPROVED; decision #99).
+Phases accepted: P1, P2, P3. Not accepted: P4, P5, P6 (P7 docs needs no review).
 
-All pushed and confirmed in sync with origin.
+Triage records (read them): `batches.md` sections "P6 review triage", "P5 review triage", "P4 review triage",
+"P6 re-review triage", and batch sections 38a/38b/38c/40a/40b; `decisions.md` #99-#105.
 
-## Open
+## In progress (uncommitted in the worktree)
 
-- **Batch 22 (A12, UI decision-model settings row)** - PENDING. Needs R-10 "before" screenshots (dark + light) of
-  orchestration settings from c57a9a1e7 by the visual-reviewer subagent, and the TASK_2026_658 overlap check first.
-- **Reviews due:**
-  - P4 (14, 18, 19, 22): codex lane (code-logic) + visual review, after Batch 22.
-  - P5 (8, 23, 24, 25, 28, 32): Anthropic subagents (code-logic + code-style + visual). Notes for it in `batches.md`
-    Batch 25 (`logger.error` context object; local reader interface).
-  - P6 (26, 29, 30, 30a): **Anthropic** subagent now (decision #95; codex implemented 29 and 30). Notes in
-    `batches.md` Batch 29 (~55 adapter lines in `protocol-dispatcher.ts`) and Batch 30 (inline disposer
-    `Symbol.for`).
-  - Anthropic code-logic re-review of the 36b commit (P2) is still listed as pending in `batches.md` line 3.
-- **Later tasks:** P2c (LT-P2-17, -18, -19: `lane-outcomes:build` cannot resolve `vscode`, verify only with a build the
-  user asks for), P3c (LT-P3-1..5), FE-21a, FE-23a/b/c, FE-24a/b/c/d.
-- P4 review notes (TL-59 run): `getStatus()` rejection fails the whole `agent:getConfig`; the decision-model spec's
-  state-set guard checks lane-routing's DTO, not the shared mirror type.
+1. **Batches 39a-39d (P5 fix round, codex lanes, reports `reports/batch-39{a,b,c,d}-report.md`)** and **Batch 40a (P4 fix,
+   subagent backend-developer, `reports/batch-40a-report.md`)**. Orchestrator spec/type fixes already applied: 39a
+   `outcome-report.tool.ts` failure narrowing; 39d `skill-telemetry-seam.adapter.spec.ts` logger built on the `noopLogger`
+   prototype and `di/register.spec.ts` registers `TOKENS.LOGGER`; 39b `skill-clones-view.component.spec.ts` stub gained
+   `outcomeStatus` + `outcomeReadFailures`.
+   Last run (`nx run-many -t test -p vscode-lm-tools rpc-handlers skill-synthesis-ui skill-synthesis`): vscode-lm-tools and
+   rpc-handlers PASS; agent-sdk and cli-agent-runtime PASSED in the run before. STILL RED:
+   - `libs/backend/skill-synthesis/src/lib/di/register.spec.ts`: resolving the seam now needs `Symbol(PtahVecStatus)`
+     (SkillCandidateStore position #2). Register a VecStatus stub instance under that token in the spec (find the token
+     export; spec-only fix). Then check the host guard specs still resolve the seam (VS Code `src/di`, Electron
+     container smoke via Jest, ptah-cli Jest).
+   - `libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.spec.ts`: its state stub lacks
+     `outcomeStatus` (same fix as the view spec).
+2. Not started: **Batch 38c** (P6 bounded correction, decision #105), **Batch 40b** (P4 UI fix), **Batch 40c** (new, see below).
 
-## Lessons from this session
+## Open problems and decisions
 
-- `nx test ptah-cli` runs ~36 dependency `build` tasks. Do not use it. Use
-  `PTAH_ALLOW_SKIP_UNBUILT=1 npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src --coverage=false --maxWorkers=2`.
-- `apps/ptah-cli` and `libs/backend/cli-engine` Jest configs are `jest.config.cjs`.
-- Do not commit while any lane edits the worktree (lint-staged hides unstaged files during the hook).
-- Codex lanes take messages only as `queue-next-turn`; a brief error needs a stop and a re-spawn, not a message.
-- Never start a push with a shell `&`; use the Bash tool's background mode.
+- Process error (#103): `nx test ptah-electron` starts 6 `build-*` dependency tasks. Never use it. Use Jest + tsc (below).
+- P6: one fix round spent; ONE bounded correction allowed (38c), then an independent codex review; if that review finds
+  defects, report them to the user and stop (agent-lanes §6).
+- P4 visual review (Serious): light-theme control borders 1.21:1 (`decision-model-row.component.ts:45-46` SELECT/INPUT
+  classes) and placeholders 3.28:1. Moderate 1 "Detail: fetch failed" is a raw backend string from
+  `libs/backend/lane-routing/src/lib/decision-model/decision-model.config.ts` (`errorMessage(error)` into `detail` at ~:398,
+  ~:433 and the probe catch ~:574) -> Batch 40c (new): fixed safe detail text, real error still logged. Visual Moderates 2-3
+  are inherited from the shared popover (record as later tasks). Minors: "Remove stored key" always shown; footer says
+  "with Undo" but a key write has no Undo.
+- 40a note for 40b: when the selection cannot be read, the host returns `unset` + `unreachable`; the row must treat that as
+  "not read" and offer no Undo that would write `unset` over the real stored selection.
+- The visual-reviewer's first run probed the machine's real local Ollama (read-only status probe, no request text); those
+  shots were deleted and re-taken with the isolated seed. Tell the user.
+- Later tasks: P2c, P3c, P4c (LT-P4-1, -2), P5c (LT-P5-1..12), P6c (LT-P6-1, -2, -4..-9; LT-P6-3 moved into 39a), FE-*.
+- Worktrees: `646-base-shots` (c57a9a1e7 build) and `646-after-shots` (detached d8675a544, has a dev build) stay for visual
+  re-checks. To re-check later: `git -C .claude-worktrees/646-after-shots checkout --detach <new sha>`, then rebuild there.
 
 ## Key files
 
-- Task folder: `.ptah/specs/TASK_2026_646_136a/` - `task-description.md`, `implementation-plan.md` (+ part-a/b),
-  `batches.md`, `decisions.md` (#1-#98), `reviews/`, `reports/`.
-- Libs: `libs/backend/lane-routing/`, `libs/backend/lane-outcomes/`.
-- MCP: `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-handlers/protocol-dispatcher.ts` (+ mcp-stdio).
-- Hosts: `apps/{ptah-extension-vscode,ptah-electron}/src/di/phase-2-libraries.ts`,
-  `libs/backend/cli-engine/src/lib/{container.ts,lane-outcomes-wiring.ts}`.
-- Batch 22 target lib: `libs/frontend/chat` (orchestration settings).
+- Task folder `T` = `D:\projects\ptah-extension\.claude-worktrees\decision-model-routing\.ptah\specs\TASK_2026_646_136a`.
+- Batch 22 UI: `libs/frontend/chat/src/lib/settings/providers/decision-model-row.component.ts`, `provider-consumer-rows.ts`.
+- Config RPC: `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts`; outcome RPC: `agent-outcome-rpc.handlers.ts`.
+- MCP: `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/{route-tool-handlers.ts,tool-result-budget.ts,tools/outcome-report.{tool,handler}.ts,protocol-dispatcher.ts}`, `mcp-stdio/agent-tool.dispatcher.ts`.
+- Shutdown: `apps/ptah-electron/src/activation/{shutdown.ts,wire-runtime.ts}`, `apps/ptah-extension-vscode/src/main.ts`,
+  `libs/backend/cli-engine/src/lib/bootstrap/{with-engine.ts,shutdown-host-runtime.ts}`, `libs/backend/lane-outcomes/src/lib/di/start.ts`.
+- Visual scripts: `T\visual\batch-22-after\capture-*.cjs` (Electron + Playwright, isolated profile; see `visual/batch-22-after.md`).
+
+## Next steps (in order)
+
+1. `git -C <W> status -sb`; confirm only the files listed in "In progress" are dirty.
+2. Fix the two red specs (above). Re-run `NX_NO_CLOUD=true npx nx run-many -t test -p @ptah-extension/skill-synthesis
+   @ptah-extension/skill-synthesis-ui --parallel=1 --maxWorkers=2` (header must say 2 projects). Then, one at a time:
+   `npx nx typecheck <p> --parallel=1` and `npx nx lint <p> --parallel=1` for each of vscode-lm-tools, rpc-handlers,
+   skill-synthesis-ui, cli-agent-runtime, agent-sdk, skill-synthesis; host guards: `npx jest -c apps/ptah-extension-vscode/jest.config.ts
+   apps/ptah-extension-vscode/src/di --coverage=false --maxWorkers=2`, Electron `npx jest -c apps/ptah-electron/jest.config.ts
+   apps/ptah-electron/src/di --coverage=false --maxWorkers=2`, ptah-cli Jest (below); degradation audit TOTAL 296.
+3. Commit in the foreground, separately: 39a (vscode-lm-tools), 39b (rpc-handlers outcome handler + skill-synthesis-ui),
+   39c (cli-agent-runtime), 39d (agent-sdk + skill-synthesis), 40a (rpc-handlers agent-rpc.handlers*). Update the batch
+   headers in `batches.md`. Push in the background.
+4. Spawn in parallel (file-disjoint, max 3): Batch 38c (subagent backend-developer, `batches.md` "Batch 38c"), Batch 40b
+   (subagent frontend-developer: P4 S-3 UI part, M-4, visual Serious 1-2, the 40a "not read" note, the two visual Minors),
+   Batch 40c (subagent backend-developer: safe detail text in `decision-model.config.ts` + spec). No Nx/Jest inside them.
+5. Mode 2 for 38c/40b/40c, commit, push. Visual re-check of the Decision model card (dark + light) in `646-after-shots`
+   at the new commit (decision #58 allows `build-dev` + `copy-renderer-dev` there; one heavy process at a time).
+6. Reviews (one fix round already spent for P4/P5/P6, so each is the final review; on defects report to the user and stop):
+   - P6: codex independent review of the 38c commit.
+   - P5: Anthropic code-logic + code-style re-review scoped to the 39a-39d commits; P5 visual (B8 Agents tab after shots vs
+     `visual/batch-8-before/`, Electron script `visual/batch-8-before/capture-agents-tab.cjs`, prefix `after`).
+   - P4: codex re-review scoped to the 40a/40b/40c commits + the visual re-check.
+7. Team-leader Mode 3 completion (write-path trace inputs in `reports/batch-30-report.md`). Mark PR #731 ready only when
+   P4, P5 and P6 are accepted.
 
 ## Verification commands (one at a time, prefix `NX_NO_CLOUD=true`)
 
-- Lib tests: `npx nx test <project> --parallel=1` (e.g. `lane-routing`, `lane-outcomes`, `rpc-handlers`, `chat`).
-- Specs only: `npx jest -c <lib>/jest.config.ts <spec...> --coverage=false --maxWorkers=2`.
-- CLI app: `PTAH_ALLOW_SKIP_UNBUILT=1 npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src --coverage=false --maxWorkers=2`.
-- Audits: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` must stay `TOTAL 296` with no `FAIL`; di-lint runs on pre-push.
-
-## Next steps (from 2026-10-16)
-
-1. Read this file, `batches.md` rules (21-60) and the Batch 22 section, and `decisions.md` #91-#98. `git status -sb`.
-2. Batch 22: visual-reviewer "before" screenshots, then a frontend lane or subagent, then Mode 2
-   (`J(libs/frontend/chat, <changed specs>)`, `npx nx lint @ptah-extension/chat`), then "after" screenshots.
-3. P4 review (codex) after Batch 22; P5 and P6 reviews (Anthropic subagents). One fix round each (lean rule 4).
-4. Completion (team-leader Mode 3): write-path trace inputs are in `reports/batch-30-report.md`; then mark PR #731
-   ready only when every phase is accepted.
-5. Checks per changed project only, one heavy check at a time, `NX_NO_CLOUD=true`; commit in the foreground,
-   push in the background; never `--no-verify`; never raise a degradation baseline (TOTAL 296).
+- Lib: `npx nx test <project> --parallel=1 --maxWorkers=2`, `npx nx typecheck <project> --parallel=1`, `npx nx lint <project> --parallel=1`.
+- Specs: `npx jest -c <lib>/jest.config.ts <specs> --coverage=false --maxWorkers=2` (`ptah-cli`, `cli-engine`: `jest.config.cjs`).
+- ptah-cli: `PTAH_ALLOW_SKIP_UNBUILT=1 npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src --coverage=false --maxWorkers=2`. Never `nx test ptah-cli`.
+- Electron/VS Code apps: Jest on the specs + `npx tsc -p apps/<app>/tsconfig.app.json --noEmit`. Never `nx test ptah-electron`.
+- Audits: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` must stay `TOTAL 296`, no FAIL; di-lint runs on pre-push.
+- Save long outputs to a file (`> /tmp/x.txt 2>&1`) and grep it; do not re-run a check only to read its output.
+- Never commit while a lane or subagent edits the worktree. Commit in the foreground, push in the background, never `--no-verify`.

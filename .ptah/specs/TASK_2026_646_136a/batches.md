@@ -2141,3 +2141,40 @@ comments), LT-P5-9 style M3 (metrics branch duplicated), LT-P5-10 style M5 (noti
 
 Executor: CLI lanes codex (OpenAI), at most 3 at once; re-review Anthropic. 39b changes the Agents tab, so the P5 visual
 review (B8 after screenshots against `visual/batch-8-before/`) runs after 39b.
+
+## P4 review triage (orchestrator, 2026-10-16, decision #104)
+
+Review: `reviews/p4-code-logic-review.md` (codex, OpenAI) NEEDS_REVISION 5/10 (0 Blocking, 3 Serious, 3 Moderate), read at
+the batch snapshots. Orchestrator check at HEAD d8675a544: S-1 (`agent-rpc.handlers.ts:462` awaits `getStatus()` inside the
+whole `agent:getConfig`) and S-2 (`:570-572` stores the selection before the Jev key) are real. S-3 backend part is closed
+at HEAD by the P3 fixes (Batches 37/37b: `system-one.client.ts` builds `detail` from fixed text); its UI part (the row passes
+raw caught errors to `LoggingService.warn`) is real. M-4 (structured-output suggestions filtered by `supportsToolUse`, with a
+false help sentence) is in the same file as S-3 and comes with it. Later tasks P4c: LT-P4-1 M-5 (abort does not bound every
+structured-adapter stage), LT-P4-2 M-6 (a hung shared discovery promise is reused).
+
+## Batch 40a (P4f-a): P4 fix round, config RPC — IN PROGRESS (subagent backend-developer, Anthropic)
+
+- Items: S-1 (a `getStatus()` failure never fails the rest of `agent:getConfig`; the row gets a five-state DTO), S-2 (the
+  Jev key is written before the selection, so a failed key write leaves the selection unchanged, as the UI says)
+- Files: `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` + its decision-model spec. Re-review: codex
+
+## Batch 40b (P4f-b): P4 fix round, Decision model row — PENDING (subagent frontend-developer, after the P4 visual review)
+
+- Items: S-3 UI part (no raw error object or text to `LoggingService.warn`), M-4 (suggestion filter and help text), plus
+  the P4 visual review findings that need a fix. Files: `libs/frontend/chat/src/lib/settings/providers/decision-model-row.component.ts` (+ spec)
+
+## P6 re-review triage (orchestrator, 2026-10-16, decision #105)
+
+Re-reviews (Anthropic): `reviews/p6-fix-code-logic-review.md` APPROVED 7/10 (S-1, S-3, S-4, partial-start CLOSED; S-2
+PARTIAL = N-1), `reviews/p6-fix-code-style-review.md` NEEDS_REVISION 6.5/10 (S1, S2, M1 CLOSED; S3 PARTIAL). The one fix
+round is spent, so per agent-lanes §6 ONE bounded correction, Batch 38c, then an independent review (codex); if that review
+still finds defects, the orchestrator reports them to the user and stops. Later tasks: LT-P6-8 logic N-3 (CLI gateway, cron
+and triggers outlive the agent reap), LT-P6-9 logic N-4 (quit during Electron boot skips the drain). Other Minors recorded.
+
+## Batch 38c (P6f-c): P6 bounded correction — PENDING (subagent backend-developer, after Batches 39a-39d commit)
+
+- Items: logic N-1 (route gate measures tokens with `countTokensPiecewise` as well as chars; the route token budget fits a
+  100-phase result), logic N-2 (HTTP and stdio resolve the outcome-report store inside the handler's `try`), style N1 (one
+  self-bounded drain registered by `startAndRegisterLaneOutcomes`; the three host constants and two `Promise.race` copies go),
+  style N2 (no drain-specific verb in `disposeSubsystem`), style N3 + S3 (restore or correct the load-bearing comments in
+  Electron `shutdown.ts` and CLI `with-engine.ts`), and the comment-only Minors in the same files
