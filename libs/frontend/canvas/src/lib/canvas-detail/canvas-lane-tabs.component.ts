@@ -343,7 +343,7 @@ export class CanvasLaneTabsComponent {
   protected onPointerLeave(key: string): void {
     if (this.tabHoveredKey === key) this.tabHoveredKey = null;
     this.clearCardTimer();
-    this.queueCardClose(key);
+    this.queueCardClose(this.cardKey() ?? key);
   }
 
   protected onTabFocus(event: FocusEvent, key: string): void {
@@ -413,7 +413,7 @@ export class CanvasLaneTabsComponent {
   private closeCardIfIdle(key: string): void {
     if (this.cardKey() !== key || this.cardHovered || this.tabHoveredKey === key) return;
     const tab = document.getElementById(this.tabDomId(key));
-    if (tab?.matches(':focus')) return;
+    if (tab?.matches(':focus-visible')) return;
     this.closeCard();
   }
 

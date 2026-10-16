@@ -565,4 +565,73 @@ describe('CanvasLaneTabsComponent', () => {
       jest.useRealTimers();
     }
   });
+
+  it('closes the card after the pointer leaves the tab and card without keyboard focus', () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.detectChanges();
+      const tab: HTMLElement | null = fixture.nativeElement.querySelector('[role="tab"]');
+      expect(tab).not.toBeNull();
+      if (!tab) return;
+      tab.focus();
+      const matches = HTMLElement.prototype.matches;
+      jest.spyOn(tab, 'matches').mockImplementation((selector) =>
+        selector === ':focus-visible' ? false : matches.call(tab, selector),
+      );
+      const pointer = (type: string) => new MouseEvent(type, { bubbles: true });
+      tab.dispatchEvent(Object.defineProperty(pointer('pointerenter'), 'pointerType', { value: 'mouse' }));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      const card: HTMLElement | null = fixture.nativeElement.querySelector('[role="tooltip"]');
+      expect(card).not.toBeNull();
+      if (!card) return;
+
+      tab.dispatchEvent(pointer('pointerleave'));
+      card.dispatchEvent(pointer('pointerenter'));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[role="tooltip"]')).not.toBeNull();
+
+      card.dispatchEvent(pointer('pointerleave'));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[role="tooltip"]')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('closes the open card after a quick pointer sweep across two tabs', () => {
+    jest.useFakeTimers();
+    try {
+      agents.set([
+        cli({ agentId: 'b', parentSessionId: 'owner', cli: 'Codex' }),
+      ]);
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.detectChanges();
+      const tabs: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[role="tab"]');
+      expect(tabs).toHaveLength(2);
+      const [tabA, tabB] = [...tabs];
+      const pointer = (type: string) => new MouseEvent(type, { bubbles: true });
+      const enter = () => Object.defineProperty(pointer('pointerenter'), 'pointerType', { value: 'mouse' });
+
+      tabA.dispatchEvent(enter());
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[role="tooltip"]')).not.toBeNull();
+
+      tabA.dispatchEvent(pointer('pointerleave'));
+      tabB.dispatchEvent(enter());
+      jest.advanceTimersByTime(100);
+      tabB.dispatchEvent(pointer('pointerleave'));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[role="tooltip"]')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
