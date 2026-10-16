@@ -65,6 +65,7 @@ describe('CommandCenterPageComponent', () => {
     recordWriteFailure,
     latestReply: signal<string | null>(null),
     turnAbortable: signal(false),
+    shownSessionStatus: computed(() => store.sessionStatus()),
     rosterTimedOut: signal(false),
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),

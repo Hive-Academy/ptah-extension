@@ -15,6 +15,7 @@ describe('CommandCenterSessionCoordinator', () => {
   const otherId = '33333333-3333-4333-8333-333333333333';
   const root = {
     id: rootId,
+    status: 'loaded',
     claudeSessionId: sdkId,
     messages: [{}],
     hasLiveSession: false,
@@ -114,7 +115,7 @@ describe('CommandCenterSessionCoordinator', () => {
     });
   });
 
-  it('retries an unfinished marked-tab restore before reporting running', async () => {
+  it('retries an unfinished marked-tab restore before reporting idle', async () => {
     const unfinished = { ...root, messages: [], hasLiveSession: false };
     tabs.tabs.mockReturnValue([unfinished, other]);
     chat.switchSession.mockRejectedValueOnce(new Error('restore failed'));
@@ -127,7 +128,12 @@ describe('CommandCenterSessionCoordinator', () => {
 
     expect(await coordinator.openOrResume()).toBe(rootId);
     expect(chat.switchSession).toHaveBeenCalledTimes(2);
-    expect(store.sessionStatus()).toBe('running');
+    expect(store.sessionStatus()).toBe('idle');
+  });
+
+  it('resumes an idle marked tab as idle', async () => {
+    expect(await coordinator.openOrResume()).toBe(rootId);
+    expect(store.sessionStatus()).toBe('idle');
   });
 
   it('refuses to resume an SDK session already open in another tab', async () => {

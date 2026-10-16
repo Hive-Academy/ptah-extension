@@ -33,6 +33,7 @@ import { type TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 import {
+  shownSessionStatus,
   trackMarkedTabVisibility,
   trackTurnStatus,
 } from './command-center-turn-status';
@@ -63,6 +64,10 @@ export class CommandCenterPageController {
         .some((tab) => tab.id === tabId && tab.status === 'streaming')
     );
   });
+  public readonly shownSessionStatus = shownSessionStatus(
+    this.tabs,
+    this.store,
+  );
   private readonly expectedRequest = signal<{
     nonce: string;
     rootSessionId: string;
@@ -306,8 +311,14 @@ export class CommandCenterPageController {
     effect(() => {
       const tabId = this.store.markedTabId();
       if (this.previousMarkedTabId && tabId !== this.previousMarkedTabId) {
-        this.clearArmedTurns();
-        void this.voice.exit();
+        this.teardownSessionState();
+        // degradation-audit: reported — voice exit failure is shown through the safe toast
+        void this.voice.exit().catch(() =>
+          this.store.setToast({
+            message: 'Could not stop voice capture.',
+            tone: 'error',
+          }),
+        );
       }
       this.previousMarkedTabId = tabId;
     });
@@ -602,6 +613,10 @@ export class CommandCenterPageController {
     return this.voice.getLatencyMarks();
   }
   public exit(): Promise<void> {
+    this.teardownSessionState();
+    return this.voice.exit();
+  }
+  private teardownSessionState(): void {
     this.clearInvalidDecline();
     this.clearArmedTurns();
     this.clearRosterTimeout();
@@ -609,8 +624,8 @@ export class CommandCenterPageController {
     this.tribunal.pageExit();
     this.tribunalTransport.pageExit();
     this.pendingProposal.set(null);
+    this.rosterTimedOut.set(false);
     this.voice.onRosterResolved();
-    return this.voice.exit();
   }
   private tryInvalidDecline(id: string, question: string): void {
     this.invalidDeclineAttempts += 1;

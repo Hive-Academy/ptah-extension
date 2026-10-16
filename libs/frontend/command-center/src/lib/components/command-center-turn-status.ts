@@ -1,6 +1,26 @@
-import { effect, untracked, type Signal } from '@angular/core';
+import { computed, effect, untracked, type Signal } from '@angular/core';
 import type { TabManagerService } from '@ptah-extension/chat-state';
-import type { CommandCenterStore } from '../model/command-center.store';
+import type {
+  CommandCenterStore,
+  CommandSessionStatus,
+} from '../model/command-center.store';
+
+export function shownSessionStatus(
+  tabs: TabManagerService,
+  store: CommandCenterStore,
+): Signal<CommandSessionStatus> {
+  return computed(() => {
+    const root = tabs.tabs().find((tab) => tab.id === store.markedTabId());
+    if (
+      root?.status === 'streaming' ||
+      root?.status === 'awaiting-background' ||
+      root?.status === 'sleeping'
+    )
+      return 'running';
+    const stored = store.sessionStatus();
+    return stored === 'running' ? 'idle' : stored;
+  });
+}
 
 /**
  * Keeps the marked tab in the stream viewport while the page lives: off the chat surface the host
@@ -41,7 +61,13 @@ export function trackTurnStatus(
     const pulse = tabId ? tabs.lastTerminalPulseByTab().get(tabId) : undefined;
     if (!pulse || pulse.seq <= statusPulseSeq) return;
     statusPulseSeq = pulse.seq;
-    if (!turnAbortable() && store.sessionStatus() === 'running')
+    const root = tabs.tabs().find((tab) => tab.id === tabId);
+    if (
+      !turnAbortable() &&
+      root?.status !== 'awaiting-background' &&
+      root?.status !== 'sleeping' &&
+      store.sessionStatus() === 'running'
+    )
       store.setSessionStatus(
         pulse.classification === 'success' ? 'idle' : 'error',
       );
@@ -52,6 +78,8 @@ export function trackTurnStatus(
     if (
       previousTurnAbortable &&
       !streaming &&
+      root?.status !== 'awaiting-background' &&
+      root?.status !== 'sleeping' &&
       store.sessionStatus() === 'running'
     ) {
       store.setSessionStatus(

@@ -1,5 +1,6 @@
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { CommandCenterStore } from '../model/command-center.store';
+import { summarizeVoiceProviders } from '../model/voice-provider-summary';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { EnergyVad } from './vad';
 import {
@@ -189,7 +190,7 @@ export class CommandVoiceLoop {
       );
     } catch {
       // degradation-audit: reported — provider failure is shown as a safe settings prompt
-      this.store.setProvider({ transcription: false, synthesis: false });
+      this.store.setProvider(summarizeVoiceProviders(null));
       this.store.setToast({
         message: 'Voice provider unavailable. Open voice settings or use text.',
         tone: 'error',
@@ -197,7 +198,7 @@ export class CommandVoiceLoop {
       return false;
     }
     if (!config.success || !config.data?.ok) {
-      this.store.setProvider({ transcription: false, synthesis: false });
+      this.store.setProvider(summarizeVoiceProviders(null));
       this.store.setToast({
         message: 'Voice provider unavailable. Open voice settings or use text.',
         tone: 'error',

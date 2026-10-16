@@ -67,6 +67,11 @@ describe('CommandCenterPageController', () => {
   >([]);
   const coordinator = {
     openOrResume: jest.fn(async () => 'root-tab'),
+    newCommandCenter: jest.fn(() => {
+      page.store.setSession('new-tab', null, '/workspace');
+      page.store.setSessionStatus('idle');
+      return 'new-tab';
+    }),
     setStatusContextProvider: jest.fn(),
     answerQuestion: jest.fn(),
     send: jest.fn(async (_content: string) => true),
@@ -243,7 +248,7 @@ describe('CommandCenterPageController', () => {
       tts: {
         providerId: 'elevenlabs',
         providerLabel: 'ElevenLabs',
-        modelLabel: 'ElevenLabs voice',
+        modelLabel: 'No voice chosen',
         ready: false,
         status: 'No key',
       },
@@ -457,6 +462,54 @@ describe('CommandCenterPageController', () => {
     expect(page.store.sessionStatus()).toBe('error');
   });
 
+  it('shows the live tab status after resume and on a later stream without send', () => {
+    tabs.set([{ id: 'root-tab', status: 'loaded' }]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    TestBed.tick();
+    expect(page.shownSessionStatus()).toBe('idle');
+
+    page.store.setSessionStatus('idle');
+    tabs.set([{ id: 'root-tab', status: 'streaming' }]);
+    TestBed.tick();
+    expect(page.shownSessionStatus()).toBe('running');
+
+    tabs.set([{ id: 'root-tab', status: 'awaiting-background' }]);
+    TestBed.tick();
+    expect(page.shownSessionStatus()).toBe('running');
+    tabs.set([{ id: 'root-tab', status: 'sleeping' }]);
+    TestBed.tick();
+    expect(page.shownSessionStatus()).toBe('running');
+  });
+
+  it('keeps background work running when streaming ends or a pulse arrives', () => {
+    tabs.set([{ id: 'root-tab', status: 'streaming' }]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    TestBed.tick();
+
+    tabs.set([{ id: 'root-tab', status: 'awaiting-background' }]);
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('running');
+    const pulse: TerminalTurnPulse = {
+      tabId: 'root-tab',
+      seq: 1,
+      sessionId: 'session',
+      workspacePath: '/workspace',
+      revision: 1,
+      phase: 'idle',
+      terminalReason: 'completed',
+      lastAssistantMessage: null,
+      classification: 'success',
+      title: 'Command Center',
+      occurredAt: Date.now(),
+    };
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse]]));
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('running');
+    expect(page.shownSessionStatus()).toBe('running');
+  });
+
   it('ends the voice loop and clears mute when the marked session changes', async () => {
     tabs.set([{ id: 'root-tab', status: 'loaded' }]);
     page.store.setSession('root-tab', null, '/workspace');
@@ -472,6 +525,18 @@ describe('CommandCenterPageController', () => {
     expect(page.store.muted()).toBe(false);
     expect(page.store.voiceState()).toBe('idle');
     expect(page.voice['muted']).toBe(false);
+  });
+
+  it('reports a voice exit failure on marked-tab change', async () => {
+    page.store.setSession('root-tab', null, '/workspace');
+    TestBed.tick();
+    jest
+      .spyOn(page.voice, 'exit')
+      .mockRejectedValue(new Error('capture stop failed'));
+    page.store.setSession('new-tab', null, '/workspace');
+    TestBed.tick();
+    await Promise.resolve();
+    expect(page.store.toast()?.message).toBe('Could not stop voice capture.');
   });
 
   it('registers the marked tab for this page lifetime and releases it on change and destroy', () => {
@@ -1401,6 +1466,36 @@ describe('CommandCenterPageController', () => {
       transport.answer.mockClear();
       jest.advanceTimersByTime(120_000);
       expect(transport.answer).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('clears the old roster card on Start new and ignores its later Confirm', async () => {
+    jest.useFakeTimers();
+    try {
+      tabs.set([{ id: 'root-tab', status: 'loaded' }]);
+      page.store.setSession('root-tab', 'session', '/workspace');
+      TestBed.tick();
+      await page.sendCommand('Council review');
+      const nonce =
+        /"nonce":"([^"]+)"/.exec(
+          coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+        )?.[1] ?? '';
+      offer(roster(nonce));
+      expect(page.shownProposal()?.proposalId).toBe('p1');
+
+      tabs.set([{ id: 'new-tab', status: 'loaded' }]);
+      page.coordinator.newCommandCenter();
+      TestBed.tick();
+      expect(page.pendingProposal()).toBeNull();
+      expect(page.shownProposal()).toBeNull();
+      expect(page.shownInput()?.title).not.toBe('Tribunal proposal');
+      transport.answer.mockClear();
+      await page.confirmProposal('p1');
+      jest.advanceTimersByTime(120_000);
+      expect(transport.answer).not.toHaveBeenCalled();
+      expect(page.rosterTimedOut()).toBe(false);
     } finally {
       jest.useRealTimers();
     }

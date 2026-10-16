@@ -7,6 +7,50 @@ describe('CommandVoiceLoop', () => {
   const frames = new Float32Array(128).fill(0.2);
   const silence = new Float32Array(128);
 
+  it.each(['rejects', 'fails'] as const)(
+    'clears stale provider labels when config RPC %s',
+    async (failure) => {
+      const store = new CommandCenterStore();
+      store.setProvider({
+        transcription: true,
+        synthesis: true,
+        stt: {
+          providerId: 'local',
+          providerLabel: 'Local',
+          modelLabel: 'whisper',
+          ready: true,
+          status: 'Ready',
+        },
+        tts: {
+          providerId: 'elevenlabs',
+          providerLabel: 'ElevenLabs',
+          modelLabel: 'Voice',
+          ready: true,
+          status: 'Ready',
+        },
+      });
+      const rpc = {
+        call:
+          failure === 'rejects'
+            ? jest.fn().mockRejectedValue(new Error('offline'))
+            : jest.fn().mockResolvedValue({ success: false }),
+      };
+      const loop = new CommandVoiceLoop(
+        store,
+        Object.create(null) as CommandCenterSessionCoordinator,
+        Object.assign(Object.create(null) as ClaudeRpcService, rpc),
+        { sendTranscript: async () => true },
+      );
+      await expect(loop.start()).resolves.toBe(false);
+      expect(store.provider()).toEqual({
+        transcription: false,
+        synthesis: false,
+        stt: null,
+        tts: null,
+      });
+    },
+  );
+
   it('ignores Mute before voice has started', async () => {
     const store = new CommandCenterStore();
     const mute = jest.fn();

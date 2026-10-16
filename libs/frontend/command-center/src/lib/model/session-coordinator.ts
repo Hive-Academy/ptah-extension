@@ -92,7 +92,13 @@ export class CommandCenterSessionCoordinator {
           return null;
         }
       }
-      this.store.setSessionStatus('running');
+      this.store.setSessionStatus(
+        existing.status === 'streaming' ||
+          existing.status === 'awaiting-background' ||
+          existing.status === 'sleeping'
+          ? 'running'
+          : 'idle',
+      );
       return existing.id;
     }
     const last = this.records.readLastSession(workspace);
@@ -120,7 +126,14 @@ export class CommandCenterSessionCoordinator {
           targetTabId: TabId.from(tabId),
         });
         this.store.setSession(tabId, last.sdkSessionId, workspace);
-        this.store.setSessionStatus('running');
+        const restored = this.tabs.tabs().find((tab) => tab.id === tabId);
+        this.store.setSessionStatus(
+          restored?.status === 'streaming' ||
+            restored?.status === 'awaiting-background' ||
+            restored?.status === 'sleeping'
+            ? 'running'
+            : 'idle',
+        );
         return tabId;
       } catch {
         // degradation-audit: reported — restore failure is shown through the safe fail message

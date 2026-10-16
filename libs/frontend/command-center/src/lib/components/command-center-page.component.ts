@@ -138,7 +138,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         </button>
         <span class="badge badge-outline min-h-8 text-[11px]" role="status"
           >Session {{ page.store.sessionId()?.slice(0, 8) ?? 'new' }} ·
-          {{ page.store.sessionStatus() }}</span
+          {{ page.shownSessionStatus() }}</span
         >
         <button
           type="button"
@@ -182,7 +182,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
                 Live orchestration
               </p>
               <p class="mt-1 text-xs text-base-content-muted">
-                {{ page.store.sessionStatus() }} ·
+                {{ page.shownSessionStatus() }} ·
                 {{ page.projection().nodes.length }} nodes
               </p>
             </div>
@@ -312,7 +312,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         />
         <ptah-command-session-controls
           class="min-w-0 flex-[1_1_26rem]"
-          [sessionStatus]="page.store.sessionStatus()"
+          [sessionStatus]="page.shownSessionStatus()"
           (newSession)="page.coordinator.newCommandCenter()"
           (requestStatus)="page.coordinator.sendStatusTurn('Status')"
           (commandSubmit)="page.sendCommand($event)"

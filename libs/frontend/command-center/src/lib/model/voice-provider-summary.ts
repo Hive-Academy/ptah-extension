@@ -4,7 +4,7 @@ import type {
   CommandProviderReadiness,
 } from './command-center.store';
 
-/** Same provider, model and status labels as Settings > Voice (`voice-config.component.ts`). */
+/** Voice chip labels, with the short Local provider name. */
 function providerDirection(
   config: VoiceProviderConfigDto,
   direction: 'stt' | 'tts',
@@ -33,7 +33,9 @@ function providerDirection(
         : ttsVoice
       : direction === 'stt'
         ? config.elevenlabs.sttModelId
-        : 'ElevenLabs voice';
+        : config.elevenlabs.voiceId
+          ? 'ElevenLabs voice'
+          : 'No voice chosen';
   return {
     providerId,
     providerLabel: providerId === 'local' ? 'Local' : 'ElevenLabs',
