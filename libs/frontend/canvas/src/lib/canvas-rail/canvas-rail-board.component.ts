@@ -80,6 +80,12 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     '(keydown)': 'onTabKey($event)',
     '(document:keydown.escape)': 'onDocumentEscape($event)',
   },
+  styles: [`
+    @keyframes rail-pane-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+    @media (prefers-reduced-motion: no-preference) {
+      .rail-pane-enter { animation: rail-pane-enter 180ms var(--ptah-ease-soft) both; }
+    }
+  `],
   template: `
     @if (visible()) {
       <div class="relative flex h-full min-h-0 min-w-0">
@@ -159,7 +165,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
-                <section class="relative overflow-y-auto" data-testid="canvas-tile" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
+                <section class="relative overflow-y-auto" data-testid="canvas-tile" [animate.enter]="splitDisplayed() ? 'rail-pane-enter' : ''" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
                   [class.border-base-content-muted]="splitDisplayed()"
                   [class.border-l]="splitDisplayed() && !splitStacked() && paneNumber(side) === 2"
                   [class.border-t]="splitDisplayed() && splitStacked() && paneNumber(side) === 2"

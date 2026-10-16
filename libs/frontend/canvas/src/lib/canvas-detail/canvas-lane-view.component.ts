@@ -51,9 +51,7 @@ import { CanvasDetailService } from './canvas-detail.service';
   styles: [`
     @keyframes rail-lane-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     @media (prefers-reduced-motion: no-preference) {
-      .rail-lane-enter { animation: rail-lane-enter 180ms ease-out; }
-      .rail-focus-fade { transition: opacity 180ms ease-out, transform 180ms ease-out; }
-      .rail-fade-start { opacity: 0; transform: translateY(4px); }
+      .rail-lane-enter { animation: rail-lane-enter 180ms var(--ptah-ease-soft); }
     }
   `],
   template: `
@@ -62,8 +60,7 @@ import { CanvasDetailService } from './canvas-detail.service';
       role="tabpanel"
       tabindex="-1"
       [attr.aria-labelledby]="panelId() + '-tab-' + laneKey()"
-      class="rail-focus-fade h-full min-h-0"
-      [class.rail-fade-start]="fade()"
+      class="h-full min-h-0"
     >
       <div [class.hidden]="selectedKind() !== 'orchestrator'" class="h-full">
         <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" [paneFocused]="paneFocused()" [splitDisplayed]="splitDisplayed()" />
@@ -189,7 +186,6 @@ export class CanvasLaneViewComponent {
   readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
-  readonly fade = signal(false);
   private readonly parsed = computed(() => parseLaneKey(this.laneKey()));
   readonly selectedCli = computed(() =>
     this.parsed()?.kind === 'cli'
@@ -282,13 +278,6 @@ export class CanvasLaneViewComponent {
         }
       }
       previousKind = kind;
-    });
-    effect((onCleanup) => {
-      this.tabId();
-      this.fade.set(true);
-      const frame = globalThis.requestAnimationFrame?.(() => this.fade.set(false));
-      if (frame !== undefined) onCleanup(() => globalThis.cancelAnimationFrame(frame));
-      else this.fade.set(false);
     });
     let previousCliId: string | null = null;
     effect(() => {

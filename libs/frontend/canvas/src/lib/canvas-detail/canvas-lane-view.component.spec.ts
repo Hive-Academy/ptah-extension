@@ -685,6 +685,27 @@ describe('CanvasLaneViewComponent', () => {
     expect(document.activeElement).toBe(focused);
   });
 
+  it('does not request a frame or add a focus fade when tabId changes', () => {
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'first');
+    fixture.detectChanges();
+    const originalRequestFrame = globalThis.requestAnimationFrame;
+    const requestFrame = jest.spyOn(globalThis, 'requestAnimationFrame');
+    const frameStacks: string[] = [];
+    requestFrame.mockImplementation((callback) => {
+      frameStacks.push(new Error().stack ?? '');
+      return originalRequestFrame(callback);
+    });
+    try {
+      fixture.componentRef.setInput('tabId', 'second');
+      fixture.detectChanges();
+      expect(frameStacks.filter((stack) => stack.includes('canvas-lane-view.component.ts'))).toEqual([]);
+      expect(fixture.nativeElement.querySelector('[role="tabpanel"]')?.className).toBe('h-full min-h-0');
+    } finally {
+      requestFrame.mockRestore();
+    }
+  });
+
   it('does not move focus on first mount with a lane already open', async () => {
     subagents.set(
       new Map([
