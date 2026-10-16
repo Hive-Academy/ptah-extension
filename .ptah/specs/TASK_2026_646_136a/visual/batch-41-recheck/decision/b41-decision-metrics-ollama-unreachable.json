@@ -1,0 +1,534 @@
+[
+  {
+    "scenario": "ollama-unreachable",
+    "theme": "dark",
+    "width": 1100,
+    "seed": {
+      "model": {
+        "kind": "ollama",
+        "model": "tev1"
+      },
+      "baseUrl": "http://127.0.0.1:1"
+    },
+    "cardText": "Decision model\nnot reachable\nStatus not reachable\n\nThe decision model status is not reachable. You can still choose and save a decision model.\n\nRetry",
+    "measure": [
+      {
+        "kind": "text",
+        "el": "h3#consumer-name-decision",
+        "text": "Decision model",
+        "fontPx": "12px",
+        "weight": "700",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-tier-decision",
+        "text": "not reachable",
+        "fontPx": "9px",
+        "weight": "400",
+        "fg": "#e8e6e1",
+        "bg": "#242430",
+        "ratio": 12.29
+      },
+      {
+        "kind": "target",
+        "el": "button#consumer-edit-decision",
+        "label": "Decision model: Status not reachable. Change",
+        "w": 202.7,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89,
+        "w": 24
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-summary-decision",
+        "text": "Status not reachable",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#989291",
+        "bg": "#1a1a20",
+        "ratio": 5.65,
+        "w": 12
+      },
+      {
+        "kind": "text",
+        "el": "p#decision-state",
+        "text": "The decision model status is not reachable. You can still choose and s",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89
+      },
+      {
+        "kind": "text",
+        "el": "button#decision-retry",
+        "text": "Retry",
+        "fontPx": "11px",
+        "weight": "500",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89
+      },
+      {
+        "kind": "target",
+        "el": "button#decision-retry",
+        "label": "Retry reading the decision model status",
+        "w": 37.9,
+        "h": 24,
+        "disabled": false
+      }
+    ],
+    "overflow": {
+      "box": {
+        "x": 307,
+        "y": 533,
+        "w": 228.7,
+        "h": 167
+      },
+      "docScrollW": 1100,
+      "innerW": 1100,
+      "clipped": []
+    },
+    "styleCompare": {
+      "synthesis": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.220459 0.011628 285.407)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 83,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "h": 16,
+          "w": 86
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.265698 0.022253 284.785)",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 49.1
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 202.7
+        }
+      },
+      "decision": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.220459 0.011628 285.407)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 167,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "h": 16,
+          "w": 90
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.265698 0.022253 284.785)",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 68.3
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 202.7
+        }
+      }
+    }
+  },
+  {
+    "scenario": "ollama-unreachable",
+    "theme": "dark",
+    "width": 1100,
+    "editor": "editor",
+    "measure": [
+      {
+        "kind": "target",
+        "el": "button#consumer-close-decision",
+        "label": "Close",
+        "w": 24,
+        "h": 24,
+        "disabled": false
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#e8e6e1",
+        "bg": "#23232e",
+        "ratio": 12.46,
+        "w": 12
+      },
+      {
+        "kind": "text",
+        "el": "label",
+        "text": "Decision model",
+        "fontPx": "12px",
+        "weight": "600",
+        "fg": "#989291",
+        "bg": "#23232e",
+        "ratio": 5.07
+      },
+      {
+        "kind": "control-text",
+        "el": "select#decision-kind",
+        "value": "unset",
+        "fontPx": "12px",
+        "fg": "#e8e6e1",
+        "bg": "#131317",
+        "ratio": 14.86,
+        "borderHex": "#989291",
+        "borderVsSurround": 5.07,
+        "borderWidth": "1px"
+      },
+      {
+        "kind": "target",
+        "el": "select#decision-kind",
+        "label": "Unset  Ollama decision model  TypeSafe J",
+        "w": 416,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "kind": "text",
+        "el": "p#decision-footer",
+        "text": "Unset saves at once and sends no decision request. Other choices save ",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#989291",
+        "bg": "#23232e",
+        "ratio": 5.07
+      }
+    ],
+    "overflow": {
+      "box": {
+        "x": 329,
+        "y": 417,
+        "w": 432,
+        "h": 136
+      },
+      "docScrollW": 1100,
+      "innerW": 1100,
+      "clipped": []
+    },
+    "kindOptions": [
+      " Unset ",
+      " Ollama decision model ",
+      " TypeSafe Jev ",
+      " Structured-output model "
+    ],
+    "selectedKind": "unset"
+  },
+  {
+    "scenario": "ollama-unreachable",
+    "theme": "light",
+    "width": 1100,
+    "seed": {
+      "model": {
+        "kind": "ollama",
+        "model": "tev1"
+      },
+      "baseUrl": "http://127.0.0.1:1"
+    },
+    "cardText": "Decision model\nnot reachable\nStatus not reachable\n\nThe decision model status is not reachable. You can still choose and save a decision model.\n\nRetry",
+    "measure": [
+      {
+        "kind": "text",
+        "el": "h3#consumer-name-decision",
+        "text": "Decision model",
+        "fontPx": "12px",
+        "weight": "700",
+        "fg": "#291334",
+        "bg": "#efeae6",
+        "ratio": 14.21
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-tier-decision",
+        "text": "not reachable",
+        "fontPx": "9px",
+        "weight": "400",
+        "fg": "#291334",
+        "bg": "#e6e2df",
+        "ratio": 13.18
+      },
+      {
+        "kind": "target",
+        "el": "button#consumer-edit-decision",
+        "label": "Decision model: Status not reachable. Change",
+        "w": 200.7,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#291334",
+        "bg": "#faf7f5",
+        "ratio": 15.92,
+        "w": 24
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-summary-decision",
+        "text": "Status not reachable",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#291334",
+        "bg": "#faf7f5",
+        "ratio": 15.92
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#745665",
+        "bg": "#faf7f5",
+        "ratio": 6.04,
+        "w": 12
+      },
+      {
+        "kind": "text",
+        "el": "p#decision-state",
+        "text": "The decision model status is not reachable. You can still choose and s",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#291334",
+        "bg": "#efeae6",
+        "ratio": 14.21
+      },
+      {
+        "kind": "text",
+        "el": "button#decision-retry",
+        "text": "Retry",
+        "fontPx": "11px",
+        "weight": "500",
+        "fg": "#291334",
+        "bg": "#efeae6",
+        "ratio": 14.21
+      },
+      {
+        "kind": "target",
+        "el": "button#decision-retry",
+        "label": "Retry reading the decision model status",
+        "w": 37.9,
+        "h": 24,
+        "disabled": false
+      }
+    ],
+    "overflow": {
+      "box": {
+        "x": 307,
+        "y": 532,
+        "w": 228.7,
+        "h": 168
+      },
+      "docScrollW": 1100,
+      "innerW": 1100,
+      "clipped": []
+    },
+    "styleCompare": {
+      "synthesis": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.93982 0.007 61.449)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 84,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "h": 16,
+          "w": 86
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.91586 0.006 53.44)",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 49.1
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 200.7
+        }
+      },
+      "decision": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.93982 0.007 61.449)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 168,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "h": 16,
+          "w": 90
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.91586 0.006 53.44)",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 68.3
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 200.7
+        }
+      }
+    }
+  },
+  {
+    "scenario": "ollama-unreachable",
+    "theme": "light",
+    "width": 1100,
+    "editor": "editor",
+    "measure": [
+      {
+        "kind": "target",
+        "el": "button#consumer-close-decision",
+        "label": "Close",
+        "w": 24,
+        "h": 24,
+        "disabled": false
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#291334",
+        "bg": "#faf7f5",
+        "ratio": 15.92,
+        "w": 12
+      },
+      {
+        "kind": "text",
+        "el": "label",
+        "text": "Decision model",
+        "fontPx": "12px",
+        "weight": "600",
+        "fg": "#745665",
+        "bg": "#faf7f5",
+        "ratio": 6.04
+      },
+      {
+        "kind": "control-text",
+        "el": "select#decision-kind",
+        "value": "unset",
+        "fontPx": "12px",
+        "fg": "#291334",
+        "bg": "#faf7f5",
+        "ratio": 15.92,
+        "borderHex": "#745665",
+        "borderVsSurround": 6.04,
+        "borderWidth": "1px"
+      },
+      {
+        "kind": "target",
+        "el": "select#decision-kind",
+        "label": "Unset  Ollama decision model  TypeSafe J",
+        "w": 414,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "kind": "text",
+        "el": "p#decision-footer",
+        "text": "Unset saves at once and sends no decision request. Other choices save ",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#745665",
+        "bg": "#faf7f5",
+        "ratio": 6.04
+      }
+    ],
+    "overflow": {
+      "box": {
+        "x": 330,
+        "y": 415,
+        "w": 432,
+        "h": 138
+      },
+      "docScrollW": 1100,
+      "innerW": 1100,
+      "clipped": []
+    },
+    "kindOptions": [
+      " Unset ",
+      " Ollama decision model ",
+      " TypeSafe Jev ",
+      " Structured-output model "
+    ],
+    "selectedKind": "unset"
+  }
+]

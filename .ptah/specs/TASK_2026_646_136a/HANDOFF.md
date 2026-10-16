@@ -1,30 +1,9 @@
-# HANDOFF - TASK_2026_646_136a (2026-10-16, session 10 update; session 9 text below)
+# HANDOFF - TASK_2026_646_136a (2026-10-16, end of session 10)
 
-## Session 10 result (read first)
-
-All batches are committed and pushed: 39a b5e38c780, 39b 40dcfb9ae, 39c 7f8f93adf, 39d 81c1f5af9, 40a 86c2954a7,
-38c f4cd90768, 40b 438bd3118, 40c f5d28d2f4 (Mode 2 in `batches.md`). Final reviews (each phase's last allowed review):
-
-| Phase | Review | Verdict | Open defects (orchestrator-verified) |
-| --- | --- | --- | --- |
-| P6 | `reviews/p6-final-code-logic-review.md` (codex) | NEEDS_REVISION 6/10 | Moderate: `lane-outcomes/src/lib/di/start.ts:111-114` a throwing `logger.warn` makes `dispose()` reject; Electron then skips SQLite close (`shutdown.ts:282-295`) |
-| P4 | `reviews/p4-final-code-logic-review.md` (codex) | NEEDS_REVISION 5.5/10 | Serious: `agent-rpc.handlers.ts:653-660` key stored, then a failed or invalid selection write leaves the new Jev key active while the row says "unchanged". Defect 2 (persisted raw mark) only affects dev builds of this branch (not on `main`): orchestrator rates it Minor |
-| P4 | `reviews/p4-final-visual-review.md` | APPROVED 9/10 | none (borders 6.04/5.07:1, placeholders 6.04/6.05:1) |
-| P5 | `reviews/p5-final-code-logic-review.md` | NEEDS_REVISION 7/10 | Serious: `outcome-report.tool.ts:68-71` ignores VS Code `FileNotFound`, so a missing deliverable is refused on VS Code |
-| P5 | `reviews/p5-final-code-style-review.md` | NEEDS_REVISION 7.5/10 | Moderate D1: `outcome-report.tool.ts:42-66` published schema drops per-kind required fields; duplicates `flattenOperationUnion` |
-| P5 | `reviews/p5-visual-review.md` | NEEDS_FIX 6/10 | Serious: `clone-card.component.ts:183` `truncate` cuts the outcome cell to "no ..." |
-
-Per the fix-round rule these were reported to the user; no fix was made. CI on PR #731 also fails since before session 10
-(`945e9ce9e`/`d8675a544`; `main` is green): CLI bundle resolves `vscode` through `vscode-core` (7 errors), webview initial
-bundle 5.25 kB over the 3.70 MB budget, stale `content-manifest.json`. Awaiting the user's decision: one more fix batch for
-the Serious/Moderate defects + CI (recommended), or CI fixes only with the defects recorded as later tasks.
-Visual evidence: `visual/batch-40-recheck/` (guarded capture script: unseeded scenarios use the refused port
-`127.0.0.1:1`), `visual/batch-8-after/` (+ `settled/`).
-
-Status at handoff: branch `feat/decision-model-routing` pushed and in sync with origin at `d8675a544`, plus a docs-only
-handoff commit on top (see "Done"). The worktree HAS UNCOMMITTED CODE: the P5 fix round (Batches 39a-39d) and the P4 fix
-40a, with two spec suites still red (see "In progress"). No lane or subagent of this task is running. Draft PR
-https://github.com/Hive-Academy/ptah-extension/pull/731 stays a draft.
+Status at handoff: branch `feat/decision-model-routing` in worktree
+`D:\projects\ptah-extension\.claude-worktrees\decision-model-routing`. All code is committed. HEAD is `d4dcdc6c1` plus
+one docs commit with this file (pushed at the end of session 10; check with `git status -sb`). No lane, subagent or
+Electron instance of this task is running. Draft PR https://github.com/Hive-Academy/ptah-extension/pull/731 stays a draft.
 
 ## Goal
 
@@ -35,101 +14,98 @@ Requirements: `task-description.md` (rev 3). Plan: `implementation-plan.md` (+ p
 Final user decisions (do not reopen): #12, #13, #18 (as amended by #22), #19, #96. Keep `skillSynthesis.enabled=false` in
 `~/.ptah/settings.json`. Leave memory untouched.
 
-## Done this session (all pushed)
+The user's goal for the next session: PR #731 tested, pushed, CI green, marked ready, merged.
 
-| Commit | What | Executor |
-| --- | --- | --- |
-| 4a3b758c9 | Batch 22 - Decision model settings row (chat) + R-10 before screenshots | subagent frontend-developer (Anthropic) |
-| 149440c89 | Batch 38a - P6 fix round, MCP side (+ orchestrator budget correction, decision #101) | codex lane |
-| d8675a544 | Batch 38b - P6 fix round, host shutdown/wiring; P5 + P6 review files; decisions #99-#103 | codex lane + orchestrator spec fixes (#103) |
+## Done in session 10 (all committed; all pushed up to d4dcdc6c1 except where noted)
 
-Reviews written: `reviews/p4-code-logic-review.md` (codex, NEEDS_REVISION 5/10), `reviews/p4-visual-review.md` (NEEDS_FIX
-7/10), `reviews/p5-code-logic-review.md` (NEEDS_REVISION 6/10), `reviews/p5-code-style-review.md` (NEEDS_REVISION 6.5/10),
-`reviews/p6-code-{logic,style}-review.md` (both NEEDS_REVISION 6/10), `reviews/p6-fix-code-logic-review.md` (APPROVED 7/10),
-`reviews/p6-fix-code-style-review.md` (NEEDS_REVISION 6.5/10). Visual evidence: `visual/batch-22-before*`, `visual/batch-22-after*`.
-The "Anthropic re-review of 36b" was already done (`p2-fix2`, APPROVED; decision #99).
-Phases accepted: P1, P2, P3. Not accepted: P4, P5, P6 (P7 docs needs no review).
+| Commit | What |
+| --- | --- |
+| b5e38c780 / 40dcfb9ae / 7f8f93adf / 81c1f5af9 | Batches 39a-39d (P5 fix round) + orchestrator spec fixes (VecStatus/Logger in DI specs, tab stub, audit marker form) |
+| 86c2954a7 | Batch 40a (P4 config RPC) |
+| f4cd90768 | Batch 38c (P6 bounded correction) + VS Code deactivate-order spec fix |
+| 438bd3118 / f5d28d2f4 | Batches 40b (Decision model row) and 40c (fixed detail text; orchestrator log-meta correction) |
+| b8c74c9e8 | Final P4/P5/P6 reviews + visual re-checks (docs) |
+| 8253977e8 | CI: lane-outcomes esbuild `external` += vscode, better-sqlite3, sqlite-vec; content-manifest refreshed |
+| e6c030f5b | 41d: lane-outcomes drain never rejects when the logger throws (P6 final Moderate) |
+| dbccd23e4 | 41a: setConfig validates selection first, key rollback, shared `DECISION_MODEL_KEY_MAY_HAVE_CHANGED` shown by the row (P4 final Serious) |
+| 0547f3da8 | 41b: outcome report accepts VS Code `FileNotFound`/`FileNotADirectory`; schema via `flattenOperationUnion` with per-kind notes (P5 Serious + style D1) |
+| 27829fedf | 41c: Agents-tab outcome cell full row, container-query grid, titles, single "unavailable" (P5 visual Serious) |
+| c779018ad | 41e: Orchestration settings tab in `@defer (on immediate)`; initial bundle -88 kB (CI budget) |
+| cda1eb30e | 41f (revise round 1): keep the new key when the selection was stored; spec pins `setConfigQueue` serialization |
+| d4dcdc6c1 | 41g (revise round 2): a stored selection after a late rejection reports success (combined key + selection path) |
 
-Triage records (read them): `batches.md` sections "P6 review triage", "P5 review triage", "P4 review triage",
-"P6 re-review triage", and batch sections 38a/38b/38c/40a/40b; `decisions.md` #99-#105.
+Batch 41 was user-approved ("Fix all, then merge") after the final P4/P5/P6 reviews found defects.
 
-## In progress (uncommitted in the worktree)
-
-1. **Batches 39a-39d (P5 fix round, codex lanes, reports `reports/batch-39{a,b,c,d}-report.md`)** and **Batch 40a (P4 fix,
-   subagent backend-developer, `reports/batch-40a-report.md`)**. Orchestrator spec/type fixes already applied: 39a
-   `outcome-report.tool.ts` failure narrowing; 39d `skill-telemetry-seam.adapter.spec.ts` logger built on the `noopLogger`
-   prototype and `di/register.spec.ts` registers `TOKENS.LOGGER`; 39b `skill-clones-view.component.spec.ts` stub gained
-   `outcomeStatus` + `outcomeReadFailures`.
-   Last run (`nx run-many -t test -p vscode-lm-tools rpc-handlers skill-synthesis-ui skill-synthesis`): vscode-lm-tools and
-   rpc-handlers PASS; agent-sdk and cli-agent-runtime PASSED in the run before. STILL RED:
-   - `libs/backend/skill-synthesis/src/lib/di/register.spec.ts`: resolving the seam now needs `Symbol(PtahVecStatus)`
-     (SkillCandidateStore position #2). Register a VecStatus stub instance under that token in the spec (find the token
-     export; spec-only fix). Then check the host guard specs still resolve the seam (VS Code `src/di`, Electron
-     container smoke via Jest, ptah-cli Jest).
-   - `libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.spec.ts`: its state stub lacks
-     `outcomeStatus` (same fix as the view spec).
-2. Not started: **Batch 38c** (P6 bounded correction, decision #105), **Batch 40b** (P4 UI fix), **Batch 40c** (new, see below).
+Reviews: `reviews/p6-final-code-logic-review.md`, `p4-final-code-logic-review.md`, `p4-final-visual-review.md` (APPROVED 9/10),
+`p5-final-code-logic-review.md`, `p5-final-code-style-review.md`, `p5-visual-review.md`, `batch-41-code-logic-review.md`,
+`batch-41f-code-logic-review.md`, `batch-41g-code-logic-review.md`, `batch-41-visual-review.md` (APPROVED 8/10).
+Reports: `reports/batch-38c..41e-report.md` (41f is in `batch-41a-report.md`).
 
 ## Open problems and decisions
 
-- Process error (#103): `nx test ptah-electron` starts 6 `build-*` dependency tasks. Never use it. Use Jest + tsc (below).
-- P6: one fix round spent; ONE bounded correction allowed (38c), then an independent codex review; if that review finds
-  defects, report them to the user and stop (agent-lanes §6).
-- P4 visual review (Serious): light-theme control borders 1.21:1 (`decision-model-row.component.ts:45-46` SELECT/INPUT
-  classes) and placeholders 3.28:1. Moderate 1 "Detail: fetch failed" is a raw backend string from
-  `libs/backend/lane-routing/src/lib/decision-model/decision-model.config.ts` (`errorMessage(error)` into `detail` at ~:398,
-  ~:433 and the probe catch ~:574) -> Batch 40c (new): fixed safe detail text, real error still logged. Visual Moderates 2-3
-  are inherited from the shared popover (record as later tasks). Minors: "Remove stored key" always shown; footer says
-  "with Undo" but a key write has no Undo.
-- 40a note for 40b: when the selection cannot be read, the host returns `unset` + `unreachable`; the row must treat that as
-  "not read" and offer no Undo that would write `unset` over the real stored selection.
-- The visual-reviewer's first run probed the machine's real local Ollama (read-only status probe, no request text); those
-  shots were deleted and re-taken with the isolated seed. Tell the user.
-- Later tasks: P2c, P3c, P4c (LT-P4-1, -2), P5c (LT-P5-1..12), P6c (LT-P6-1, -2, -4..-9; LT-P6-3 moved into 39a), FE-*.
-- Worktrees: `646-base-shots` (c57a9a1e7 build) and `646-after-shots` (detached d8675a544, has a dev build) stay for visual
-  re-checks. To re-check later: `git -C .claude-worktrees/646-after-shots checkout --detach <new sha>`, then rebuild there.
+1. **41g review: NEEDS_REVISION 7/10, one Moderate (revise cap reached).** A selection-ONLY save
+   (`agent-rpc.handlers.ts:857-860`, branch `jevApiKey === undefined`) still reports failure ("unchanged") when
+   `setSelection` rejects after the selection was stored. Trigger: only a throwing logger inside `clearMark`
+   (`decision-model.config.ts:700-706`; `persistMark` already catches storage errors). Both revise rounds are used: per
+   agent-lanes §6 the next session may make ONE bounded correction (apply the same `storedSelectionState` read-back to the
+   selection-only branch + spec), then one independent codex review; if it still finds defects, report to the user and stop.
+   Ask the user first, or present it with the CI fixes below.
+2. **CI at c779018ad: CI and Content Manifest PASS; two E2E suites FAIL on outdated expectations** (not product bugs):
+   - CLI E2E (run 38943465967): `mcp_tools_list_returns_seven` expects 7 tools, now 10 (`Expected length: 10`), and
+     `mcp_session_describe_introspection` fails. Update the CLI e2e spec expectations to the new tool set
+     (find them: `grep -rn "mcp_tools_list_returns_seven" apps libs`).
+   - Webview E2E (run 38943465955): 6 failures in
+     `libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings-orchestration.e2e.spec.ts` (around :351-362):
+     expects "6 roles" / count 6 (now 7 with the Decision model card) and `consumer-table` hidden; the tab is now behind
+     `@defer`, so scenes may also need to wait for `[data-testid="provider-consumer-assignments"]`.
+   - CI for 41f/41g (cda1eb30e, d4dcdc6c1) was not read yet.
+3. **The branch is behind `main`** (`main` raised the webview budget to 3.70 MB; this branch's `project.json` still has
+   3.50 MB). CI builds the merge ref. Before marking ready: `git merge origin/main` (no rebase, no force push), resolve
+   conflicts, re-run scoped checks.
+4. Later tasks (record, do not fix here): P4 defect 2 (a persisted unsupported mark from a dev build can hold raw text;
+   not on `main`), P5 Minors (logic 2-4, style D2-D8 except those fixed in 41c), drawer shows "Outcome data unavailable"
+   twice (`clone-detail-drawer.component.ts:181-188`), `outcomeReadFailures` never read, `route-tools.ts:49` private
+   flattener copy, visual M1 (cold-start `agent:getConfig` 5 s timeout `decision-model-row.component.ts:55`), visual m1/m2,
+   plus the older LT-P4/P5/P6 lists in `batches.md`.
+5. Electron is shared with other sessions (649, 678, 681): before any launch send "Electron: <session> launching" to the
+   live peers (`ListAgents`), after close send "Electron: free". Never use port 9333 (stale).
+6. Visual worktrees `646-base-shots` and `646-after-shots` (detached `c779018ad`, has a dev build) stay. Capture scripts
+   with the Ollama guard (unseeded scenarios use `127.0.0.1:1`): `visual/batch-40-recheck/capture-decision-card.cjs`,
+   `visual/batch-8-after/capture-agents-tab-settled.cjs`. Screenshots are git-ignored (`.gitignore:141`).
 
 ## Key files
 
-- Task folder `T` = `D:\projects\ptah-extension\.claude-worktrees\decision-model-routing\.ptah\specs\TASK_2026_646_136a`.
-- Batch 22 UI: `libs/frontend/chat/src/lib/settings/providers/decision-model-row.component.ts`, `provider-consumer-rows.ts`.
-- Config RPC: `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts`; outcome RPC: `agent-outcome-rpc.handlers.ts`.
-- MCP: `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/{route-tool-handlers.ts,tool-result-budget.ts,tools/outcome-report.{tool,handler}.ts,protocol-dispatcher.ts}`, `mcp-stdio/agent-tool.dispatcher.ts`.
-- Shutdown: `apps/ptah-electron/src/activation/{shutdown.ts,wire-runtime.ts}`, `apps/ptah-extension-vscode/src/main.ts`,
-  `libs/backend/cli-engine/src/lib/bootstrap/{with-engine.ts,shutdown-host-runtime.ts}`, `libs/backend/lane-outcomes/src/lib/di/start.ts`.
-- Visual scripts: `T\visual\batch-22-after\capture-*.cjs` (Electron + Playwright, isolated profile; see `visual/batch-22-after.md`).
+- Config RPC: `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` (`writeDecisionModel`, `storedSelectionState`,
+  `setConfigQueue`) + `agent-rpc.handlers.decision-model.spec.ts`; shared text `libs/shared/src/lib/types/rpc/rpc-agents.types.ts`.
+- Decision model: `libs/backend/lane-routing/src/lib/decision-model/{decision-model.config.ts,decision-model.detail.ts}`.
+- Row: `libs/frontend/chat/src/lib/settings/providers/decision-model-row.component.ts`; tab `settings.component.{html,ts}`.
+- MCP: `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/{tools/outcome-report.tool.ts,surface-tools.ts,route-tool-handlers.ts}`.
+- Drain: `libs/backend/lane-outcomes/src/lib/di/start.ts`; build config `libs/backend/lane-outcomes/project.json`.
+- Agents tab: `libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-card.component.ts`.
 
 ## Next steps (in order)
 
-1. `git -C <W> status -sb`; confirm only the files listed in "In progress" are dirty.
-2. Fix the two red specs (above). Re-run `NX_NO_CLOUD=true npx nx run-many -t test -p @ptah-extension/skill-synthesis
-   @ptah-extension/skill-synthesis-ui --parallel=1 --maxWorkers=2` (header must say 2 projects). Then, one at a time:
-   `npx nx typecheck <p> --parallel=1` and `npx nx lint <p> --parallel=1` for each of vscode-lm-tools, rpc-handlers,
-   skill-synthesis-ui, cli-agent-runtime, agent-sdk, skill-synthesis; host guards: `npx jest -c apps/ptah-extension-vscode/jest.config.ts
-   apps/ptah-extension-vscode/src/di --coverage=false --maxWorkers=2`, Electron `npx jest -c apps/ptah-electron/jest.config.ts
-   apps/ptah-electron/src/di --coverage=false --maxWorkers=2`, ptah-cli Jest (below); degradation audit TOTAL 296.
-3. Commit in the foreground, separately: 39a (vscode-lm-tools), 39b (rpc-handlers outcome handler + skill-synthesis-ui),
-   39c (cli-agent-runtime), 39d (agent-sdk + skill-synthesis), 40a (rpc-handlers agent-rpc.handlers*). Update the batch
-   headers in `batches.md`. Push in the background.
-4. Spawn in parallel (file-disjoint, max 3): Batch 38c (subagent backend-developer, `batches.md` "Batch 38c"), Batch 40b
-   (subagent frontend-developer: P4 S-3 UI part, M-4, visual Serious 1-2, the 40a "not read" note, the two visual Minors),
-   Batch 40c (subagent backend-developer: safe detail text in `decision-model.config.ts` + spec). No Nx/Jest inside them.
-5. Mode 2 for 38c/40b/40c, commit, push. Visual re-check of the Decision model card (dark + light) in `646-after-shots`
-   at the new commit (decision #58 allows `build-dev` + `copy-renderer-dev` there; one heavy process at a time).
-6. Reviews (one fix round already spent for P4/P5/P6, so each is the final review; on defects report to the user and stop):
-   - P6: codex independent review of the 38c commit.
-   - P5: Anthropic code-logic + code-style re-review scoped to the 39a-39d commits; P5 visual (B8 Agents tab after shots vs
-     `visual/batch-8-before/`, Electron script `visual/batch-8-before/capture-agents-tab.cjs`, prefix `after`).
-   - P4: codex re-review scoped to the 40a/40b/40c commits + the visual re-check.
-7. Team-leader Mode 3 completion (write-path trace inputs in `reports/batch-30-report.md`). Mark PR #731 ready only when
-   P4, P5 and P6 are accepted.
+1. `git -C D:\projects\ptah-extension\.claude-worktrees\decision-model-routing status -sb` (expect clean, in sync).
+2. Read CI for the HEAD commit: `gh run list --branch feat/decision-model-routing --limit 12` and `gh run view <id> --log-failed`.
+3. Fix the E2E expectations (open problem 2) via a subagent or CLI lane (frontend/devops), in this worktree.
+4. Ask the user whether to use the one bounded correction for open problem 1, or record it as a later task.
+5. `git fetch origin && git merge origin/main` in the worktree; resolve conflicts; scoped checks for touched projects.
+6. Commit in the foreground, push in the background, wait for CI green.
+7. Team-leader Mode 3 completion (write-path trace inputs in `reports/batch-30-report.md`), then `gh pr ready 731`.
+   The user merges (or asks you to).
 
-## Verification commands (one at a time, prefix `NX_NO_CLOUD=true`)
+## Verification commands (one heavy check at a time, prefix `NX_NO_CLOUD=true`)
 
-- Lib: `npx nx test <project> --parallel=1 --maxWorkers=2`, `npx nx typecheck <project> --parallel=1`, `npx nx lint <project> --parallel=1`.
-- Specs: `npx jest -c <lib>/jest.config.ts <specs> --coverage=false --maxWorkers=2` (`ptah-cli`, `cli-engine`: `jest.config.cjs`).
-- ptah-cli: `PTAH_ALLOW_SKIP_UNBUILT=1 npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src --coverage=false --maxWorkers=2`. Never `nx test ptah-cli`.
-- Electron/VS Code apps: Jest on the specs + `npx tsc -p apps/<app>/tsconfig.app.json --noEmit`. Never `nx test ptah-electron`.
-- Audits: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` must stay `TOTAL 296`, no FAIL; di-lint runs on pre-push.
-- Save long outputs to a file (`> /tmp/x.txt 2>&1`) and grep it; do not re-run a check only to read its output.
-- Never commit while a lane or subagent edits the worktree. Commit in the foreground, push in the background, never `--no-verify`.
+- Libs: `npx nx run-many -t test -p <A> <B> --parallel=1 --maxWorkers=2` (header must say N projects), then
+  `npx nx run-many -t typecheck lint -p <A> <B> --parallel=1`.
+- Specs: `npx jest -c <lib>/jest.config.ts <specs> --coverage=false --maxWorkers=2`.
+- ptah-cli: `PTAH_ALLOW_SKIP_UNBUILT=1 npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src --coverage=false --maxWorkers=2`.
+  Never `nx test ptah-cli` or `nx test ptah-electron`.
+- Apps: `npx tsc -p apps/<app>/tsconfig.app.json --noEmit`; DI guards
+  `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di --coverage=false --maxWorkers=2` (same for
+  `apps/ptah-extension-vscode/src/di`).
+- Audit: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` must say `TOTAL 296`, no FAIL.
+- Manifest: `npm run manifest:check`.
+- Builds only to reproduce CI (user approved for CI fixes): `npx nx build @ptah-extension/lane-outcomes`,
+  `npx nx build ptah-extension-webview` (at most one at a time).
+- Never commit while a lane or subagent edits the worktree; never `--no-verify`; never raise a degradation baseline.
