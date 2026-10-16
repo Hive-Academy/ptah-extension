@@ -145,7 +145,19 @@ tab chip. If the user wants no duration in the lane at all, the label becomes `W
 
 ## Proposed Removals
 
-Each item needs the user's approval before implementation.
+**Approved by the user on 2026-10-17: items 1–8, with the defaults below** (item 7: the parent ID
+moves behind the disclosure, it is not deleted).
+
+Approved plan for implementation (two tasks):
+
+- **Task A — one header + duration fix** (frontend, M). One disclosure-row header for both lane
+  kinds, one action place, one duration helper and `formatAgentDuration` everywhere, "finished
+  without end time" shows `Worked` (fixes 71h). The duration fix can ship first on its own.
+  Starts after PR #739 merges, coordinated with TASK_2026_683 B6 (`canvas-lane-view.component.ts`).
+- **Task B — one live stream** (frontend + backend, L, architect plan first). Subagents out of
+  the main tree, each with its own live `ExecutionNode` tree and the same renderer as CLI lanes
+  and the main agent. Remove "View transcript" and the text-only fallback. Persist structured
+  subagent events so a subagent from an earlier session can be rebuilt. Keep the memory savings.
 
 1. Status badge in the CLI lane header (`agent-card-header.component.ts:75-85`). Kept in: tab
    chip, avatar dot, hover card, inspector.
