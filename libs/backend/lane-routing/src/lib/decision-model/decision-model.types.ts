@@ -1,4 +1,6 @@
+import { PROVIDER_KEY_SECRET_PREFIX } from '@ptah-extension/platform-core';
 import { z } from 'zod';
+import { EndpointBaseUrlSchema } from './decision-endpoint.url';
 
 /**
  * Decision-model setting (Req 1) and its status row, per the contract at
@@ -37,6 +39,37 @@ export type DecisionModelSelectionInput = z.input<
   typeof DecisionModelSelectionSchema
 >;
 
+/**
+ * Ollama Cloud selection (D1): the model id is the canonical cloud id
+ * (DC5). Not yet a member of `DecisionModelSelectionSchema`: the union widens
+ * together with every consumer that switches on `kind` (PD-1).
+ */
+export const OllamaCloudSelectionSchema = z
+  .object({
+    kind: z.literal('ollama-cloud'),
+    model: z.string().min(1).max(128),
+  })
+  .strict();
+
+export type OllamaCloudSelection = z.infer<typeof OllamaCloudSelectionSchema>;
+
+/**
+ * Custom `/v1/systemone` endpoint selection (D2, DC2). `baseUrl` is
+ * normalised by `EndpointBaseUrlSchema`. Not yet a member of
+ * `DecisionModelSelectionSchema` (PD-1).
+ */
+export const CustomEndpointSelectionSchema = z
+  .object({
+    kind: z.literal('custom'),
+    baseUrl: EndpointBaseUrlSchema,
+    model: z.string().min(1).max(128),
+  })
+  .strict();
+
+export type CustomEndpointSelection = z.infer<
+  typeof CustomEndpointSelectionSchema
+>;
+
 export type DecisionModelKind = DecisionModelSelection['kind'];
 
 export type DecisionModelLocality = 'local' | 'remote';
@@ -54,6 +87,11 @@ export interface DecisionModelStatusDto {
   readonly state: DecisionModelState;
   /** For example `Ollama 0.34.2 < 0.35.0` or `last call failed: <error>`. */
   readonly detail: string | null;
+  /**
+   * Whether a key is stored for this selection (DC13). Set for `jev` and
+   * `custom` only; never the key itself.
+   */
+  readonly apiKeyStored?: boolean;
 }
 
 /**
@@ -100,6 +138,22 @@ export const DECISION_MODEL_CONFIG_KEY = 'agentOrchestration.decisionModel';
 
 /** `ISecretStorage` key of the TypeSafe Jev API key (part A §5). */
 export const DECISION_MODEL_JEV_SECRET_KEY = 'ptah.laneRouting.jevApiKey';
+
+/**
+ * `ISecretStorage` key of the custom endpoint key (DC3). The value is JSON
+ * `{ origin, key }`; the key goes only to that origin.
+ */
+export const DECISION_MODEL_CUSTOM_SECRET_KEY =
+  'ptah.laneRouting.customEndpointApiKey';
+
+/**
+ * `ISecretStorage` key of the shared Ollama Cloud provider key (D1, DC1).
+ * The decision model reads it and never writes it.
+ */
+export const OLLAMA_CLOUD_SECRET_KEY = `${PROVIDER_KEY_SECRET_PREFIX}ollama-cloud`;
+
+/** Ollama Cloud base URL override: section `ptah`, key below (DC6). */
+export const OLLAMA_CLOUD_BASE_URL_CONFIG_KEY = 'provider.ollama-cloud.baseUrl';
 
 /** TypeSafe Jev base URL (part A §5). */
 export const JEV_BASE_URL = 'https://api.typesafe.ai';

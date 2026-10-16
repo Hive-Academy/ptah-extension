@@ -17,6 +17,7 @@ import {
   type ProbeAnswer,
 } from './decision-model.probe';
 import { DECISION_MODEL_DETAIL } from './decision-model.detail';
+import { DecisionModelKeys } from './decision-model.keys';
 import {
   DECISION_MODEL_CONFIG_KEY,
   DECISION_MODEL_CONFIG_SECTION,
@@ -89,6 +90,8 @@ interface LastCallFailure {
  * `isRegistered(STRUCTURED_DECISION, true)`.
  */
 export class DecisionModelConfig {
+  /** Every key the decision model reads or writes (Component 4). */
+  readonly keys: DecisionModelKeys;
   private readonly fetchImpl: SystemOneFetch;
   private readonly now: () => number;
   private readonly probeTimeoutMs: number;
@@ -116,6 +119,7 @@ export class DecisionModelConfig {
     private readonly structured?: StructuredDecisionCompleter,
     seams: DecisionModelConfigSeams = {},
   ) {
+    this.keys = new DecisionModelKeys(secrets, logger);
     this.fetchImpl = seams.fetch ?? fetch;
     this.now = seams.now ?? Date.now;
     this.probeTimeoutMs =

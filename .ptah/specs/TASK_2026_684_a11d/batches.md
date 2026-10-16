@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 1/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 4/23
 
 ## Execution precondition (read first)
 
@@ -233,7 +233,7 @@ Drift table (Task 0.2, 2026-10-17, merged tree `096f014bc`):
 
 Material findings: none. No design, decision, batch scope or acceptance criterion changes.
 
-## Batch 1: Cloud model id helpers move to shared (C2) — PENDING
+## Batch 1: Cloud model id helpers move to shared (C2) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -246,7 +246,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 1 - Contracts, keys and view helpers | Phase review: code-logic (codex)
 - Criteria: supports 1.3, 4.1 and 6.10 (`toCloudId`); 6.1 (moved cases still pass)
 
-### Task 1.1: Move `isCloudTag` and `toCloudId` to `@ptah-extension/shared` — PENDING
+### Task 1.1: Move `isCloudTag` and `toCloudId` to `@ptah-extension/shared` — COMPLETE
 
 - Files (6; the spec is a `git mv`, so it counts once):
   - CREATE `W\libs\shared\src\lib\providers\ollama-cloud-model-id.ts`
@@ -269,7 +269,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `isCloudTag` and `toCloudId` are not defined anywhere under `libs/backend/auth-providers/src`.
 - No per-batch review.
 
-## Batch 2: Additive shared contracts (C1, non-widening part) — PENDING
+## Batch 2: Additive shared contracts (C1, non-widening part) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -281,7 +281,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 1 | Phase review: code-logic (codex)
 - Criteria: 2.2 (field-named constants, DC12), 2.4 (write-only field type), 2.7/DC13 (`apiKeyStored?`), 4.x (catalog types)
 
-### Task 2.1: Add the key field, status indicator, error constants and catalog types — PENDING
+### Task 2.1: Add the key field, status indicator, error constants and catalog types — COMPLETE
 
 - Files:
   - MODIFY `W\libs\shared\src\lib\types\rpc\rpc-agents.types.ts`: `DecisionModelStatusDto.apiKeyStored?: boolean`;
@@ -304,7 +304,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `TC(@ptah-extension/shared)`; `L(@ptah-extension/shared)`; then `TC(@ptah-extension/rpc-handlers)` as a downstream guard.
 - No per-batch review.
 
-## Batch 3: Endpoint URL policy, decision keys and member schemas (C3 additive part, C4) — PENDING
+## Batch 3: Endpoint URL policy, decision keys and member schemas (C3 additive part, C4) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -316,7 +316,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 1 | Phase review: code-logic (codex)
 - Criteria: 2.2 (URL rules and D4), 2.3 (path join, origin), 1.6 (keys sentinel), 7.3 (literal slot), DC3, DC11
 
-### Task 3.1: `decision-endpoint.url.ts` and its spec — PENDING
+### Task 3.1: `decision-endpoint.url.ts` and its spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-endpoint.url.ts`,
   CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-endpoint.url.spec.ts`
@@ -328,7 +328,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Validation notes: no secret may be carried inside a stored base URL.
 - Implementation details: a table-driven spec of accepted and refused URLs, loopback hosts, the transport rule and the path join.
 
-### Task 3.2: `DecisionModelKeys` and its spec — PENDING
+### Task 3.2: `DecisionModelKeys` and its spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.keys.ts`,
   CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.keys.spec.ts`
@@ -341,7 +341,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Validation notes: 1.6. Search logger calls and thrown errors for a sentinel key. Assert the literal slot string (7.3).
 - Implementation details: in-memory `ISecretStorage` in the spec.
 
-### Task 3.3: Constants, member schemas and `config.keys` — PENDING
+### Task 3.3: Constants, member schemas and `config.keys` — COMPLETE
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.types.ts`,
   MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.config.ts`
