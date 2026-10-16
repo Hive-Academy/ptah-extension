@@ -18,10 +18,18 @@ function provider(id: string | null | undefined): string | undefined {
   return id && Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ? id : undefined;
 }
 
+const RUN_LAUNCH_WINDOW_MS = 2 * 60 * 1000;
+
 export function runState(
   agents: readonly { readonly status: string }[],
+  startedAt: number,
+  now: number,
 ): CommandWorkState {
-  if (agents.length === 0) return 'starting';
+  if (agents.length === 0)
+    return startedAt - now <= RUN_LAUNCH_WINDOW_MS &&
+      Math.max(0, now - startedAt) < RUN_LAUNCH_WINDOW_MS
+      ? 'starting'
+      : 'unknown';
   const states = agents.map((agent) => workStateForStatus(agent.status));
   if (states.includes('running')) return 'running';
   if (states.includes('failed')) return 'failed';
@@ -41,7 +49,10 @@ export class CommandCenterProjectionSource {
   private readonly monitor = inject(AgentMonitorStore);
   private readonly records = inject(CommandCenterRecordsService);
 
-  public input(root: { tabId: string; sessionId: string }): ProjectionInput {
+  public input(
+    root: { tabId: string; sessionId: string },
+    now: number,
+  ): ProjectionInput {
     const tabs = this.tabs.tabs();
     const sessions = this.chat.sessions();
     const rootTab = tabs.find((tab) => tab.id === root.tabId);
@@ -178,7 +189,7 @@ export class CommandCenterProjectionSource {
               runId: manifest.runId,
               rootSessionId: root.sessionId,
               phase,
-              state: runState(runAgents),
+              state: runState(runAgents, manifest.startedAt, now),
               updatedAt: manifest.startedAt,
             };
           })

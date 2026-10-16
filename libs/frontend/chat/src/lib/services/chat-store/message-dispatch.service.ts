@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, effect, inject, untracked } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -124,6 +124,33 @@ export class MessageDispatchService {
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly sendLock = inject(CommandCenterSendLockService);
+
+  constructor() {
+    let previous = this.sendLock.state();
+    effect(() => {
+      const current = this.sendLock.state();
+      const released = previous;
+      previous = current;
+      if (!released?.active || this.sendLock.isHeld(released.rootTabId)) return;
+
+      untracked(() => {
+        const tab = this.tabManager.findTabByIdAcrossWorkspaces(
+          released.rootTabId,
+        )?.tab;
+        if (
+          !tab?.queuedContent?.trim() ||
+          isTabBusyGenerating({
+            status: tab.status,
+            streamingState: tab.streamingState,
+            isStreamingTab: this.tabManager.isTabStreaming(released.rootTabId),
+          })
+        ) {
+          return;
+        }
+        void this.sendQueuedMessage(released.rootTabId, tab.queuedContent);
+      });
+    });
+  }
 
   /**
    * SDK-native slash commands whose output is only correct on a first-party

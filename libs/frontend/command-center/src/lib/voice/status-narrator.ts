@@ -14,6 +14,7 @@ export class StatusNarrator {
   private readonly delivered = new Set<string>();
   private pending: PendingNarration[] = [];
   private root: string | null = null;
+  private baselined = false;
 
   public observe(root: string, nodes: readonly CommandWorkNode[]): void {
     if (this.root !== root) {
@@ -21,6 +22,7 @@ export class StatusNarrator {
       this.previous.clear();
       this.delivered.clear();
       this.pending = [];
+      this.baselined = false;
     }
     const remaining = new Map(nodes.map((node) => [node.id, node]));
     const owned = new Map<string, CommandWorkNode>();
@@ -35,6 +37,12 @@ export class StatusNarrator {
           grew = true;
         }
       }
+    }
+    if (!this.baselined) {
+      if (!rootNode) return;
+      for (const [id, node] of owned) this.previous.set(id, node);
+      this.baselined = true;
+      return;
     }
     this.pending = this.pending.filter(
       (item) => owned.get(item.workId)?.state === item.state,
@@ -99,5 +107,6 @@ export class StatusNarrator {
     this.previous.clear();
     this.delivered.clear();
     this.root = null;
+    this.baselined = false;
   }
 }

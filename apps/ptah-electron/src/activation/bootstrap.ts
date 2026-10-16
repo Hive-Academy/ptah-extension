@@ -207,10 +207,11 @@ export async function bootstrapElectron(
     process.argv,
     (candidate) => {
       try {
-        return (
-          fs.statSync(candidate, { throwIfNoEntry: false })?.isDirectory() ===
-          true
-        );
+        if (!fs.statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
+          return false;
+        }
+        fs.accessSync(candidate, fs.constants.R_OK | fs.constants.X_OK);
+        return true;
       } catch {
         // degradation-audit: reported — an inaccessible path is not a usable workspace.
         return false;

@@ -63,6 +63,7 @@ type PendingBase = Readonly<Omit<ProposalReceiveContext, 'availability'>> & {
 };
 export interface PendingProposal extends PendingBase {
   state: 'open' | 'answered' | 'launched' | 'declined' | 'cancelled';
+  discoveryCompleted?: boolean;
   specTaskId?: string;
   runId?: string;
 }
@@ -165,12 +166,15 @@ export class TribunalRunCoordinator {
       }
       entry.state = 'answered';
     }
-    try {
-      await this.transport.discoveryComplete();
-    } catch {
-      // degradation-audit: reported — a failed discovery leaves the answered proposal available for retry
-      if (this.isCancelled(id, entry)) return this.cancel(entry);
-      return this.failure('discovery-failed', true);
+    if (!entry.discoveryCompleted) {
+      try {
+        await this.transport.discoveryComplete();
+        entry.discoveryCompleted = true;
+      } catch {
+        // degradation-audit: reported — a failed discovery leaves the answered proposal available for retry
+        if (this.isCancelled(id, entry)) return this.cancel(entry);
+        return this.failure('discovery-failed', true);
+      }
     }
     if (this.isCancelled(id, entry)) return this.cancel(entry);
     const proposal = entry.proposal;

@@ -35,6 +35,7 @@ describe('Command Center dispatch lock', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    root.status = 'loaded';
     TestBed.configureTestingModule({
       providers: [
         MessageDispatchService,
@@ -80,6 +81,7 @@ describe('Command Center dispatch lock', () => {
     lock = TestBed.inject(CommandCenterSendLockService);
     dispatch = TestBed.inject(MessageDispatchService);
     lock.engage('root', 'sdk-1', 'owner');
+    TestBed.tick();
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -103,6 +105,26 @@ describe('Command Center dispatch lock', () => {
     await dispatch.sendOrQueueMessage('other text', { tabId: 'other' });
     expect(send).toHaveBeenCalledTimes(2);
     await dispatch.sendQueuedMessage('root', 'saved');
+    expect(flush).not.toHaveBeenCalled();
+  });
+
+  it('flushes a queued prompt when the lock is released while the root is idle', () => {
+    lock.release('owner');
+    TestBed.tick();
+
+    expect(clear).toHaveBeenCalledWith('root');
+    expect(flush).toHaveBeenCalledWith('saved', 'sdk-1', {
+      tabId: 'root',
+      ownerToken: undefined,
+    });
+  });
+
+  it('leaves the queued prompt for turn-end when the root is still streaming', () => {
+    root.status = 'streaming';
+    lock.release('owner');
+    TestBed.tick();
+
+    expect(clear).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();
   });
 });

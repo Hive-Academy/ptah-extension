@@ -50,7 +50,7 @@ describe('Command Center Tribunal confirmation integration', () => {
     const { fixture, questions, transport, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
-    await page.sendCommand('Relay review');
+    await page.sendCommand('run relay review');
     questions.set([
       {
         id: 'wrong',
@@ -98,7 +98,7 @@ describe('Command Center Tribunal confirmation integration', () => {
       const { fixture, questions, transport, sender } = createHarness();
       const page = fixture.componentInstance.page;
       await page.open();
-      await page.sendCommand('Relay review');
+      await page.sendCommand('run relay review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(
           sender.send.mock.calls.at(-1)?.[0] ?? '',
@@ -168,7 +168,7 @@ describe('Command Center Tribunal confirmation integration', () => {
       const { fixture, questions, transport, sender } = createHarness();
       const page = fixture.componentInstance.page;
       await page.open();
-      await page.sendCommand('Relay review');
+      await page.sendCommand('run relay review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(
           sender.send.mock.calls.at(-1)?.[0] ?? '',
@@ -209,7 +209,7 @@ describe('Command Center Tribunal confirmation integration', () => {
       const { fixture, questions, transport, sender } = createHarness();
       const page = fixture.componentInstance.page;
       await page.open();
-      await page.sendCommand('Relay review');
+      await page.sendCommand('run relay review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(
           sender.send.mock.calls.at(-1)?.[0] ?? '',

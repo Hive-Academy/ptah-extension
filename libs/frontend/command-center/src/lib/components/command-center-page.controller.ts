@@ -27,7 +27,8 @@ import {
   rootWorkState,
 } from '../model/work-projection';
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
-import { TRIBUNAL_MOVES } from '@ptah-extension/tribunal-panel/phase';
+import { hasTribunalIntent } from './command-center-tribunal-intent';
+import { commandCenterClock } from './command-center-clock';
 import { TribunalRunCoordinator } from '../model/tribunal-run-coordinator';
 import { type TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
@@ -58,6 +59,7 @@ export class CommandCenterPageController {
   private readonly chat = inject(ChatStore);
   private readonly tribunalTransport = inject(CommandCenterTribunalTransport);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
+  private readonly now = commandCenterClock();
   public readonly tribunal = new TribunalRunCoordinator(this.tribunalTransport);
   public readonly pendingProposal = signal<TribunalRosterProposal | null>(null);
   public readonly rosterTimedOut = signal(false);
@@ -233,10 +235,10 @@ export class CommandCenterPageController {
         edges: [],
       };
     return projectOwnedWork({
-      ...this.projectionSource.input({
-        tabId: root.id,
-        sessionId: rootSessionId,
-      }),
+      ...this.projectionSource.input(
+        { tabId: root.id, sessionId: rootSessionId },
+        this.now(),
+      ),
       rootTabStatus: root.status,
       rootQuestionPending,
     });
@@ -547,11 +549,7 @@ export class CommandCenterPageController {
       });
       return false;
     }
-    const movePattern = new RegExp(
-      `\\b(?:${TRIBUNAL_MOVES.join('|')})\\b`,
-      'i',
-    );
-    if (!movePattern.test(content)) {
+    if (!hasTribunalIntent(content)) {
       const sent = await this.coordinator.send(content);
       if (sent && source === 'text') this.voice.armTypedTurn();
       return sent;
@@ -590,7 +588,7 @@ export class CommandCenterPageController {
     this.clearRosterTimeout();
     const result = await this.tribunal.confirm(id);
     this.expectedRequest.set(null);
-    if (result.ok) this.pendingProposal.set(null);
+    if (result.ok || !result.retryable) this.pendingProposal.set(null);
     this.voice.onRosterResolved();
   }
   public declineProposal(id: string): void {

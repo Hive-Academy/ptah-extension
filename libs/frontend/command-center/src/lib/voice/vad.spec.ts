@@ -35,4 +35,48 @@ describe('EnergyVad', () => {
     expect(vad.processFrame(frame(0.1), 200, true)).toBeNull();
     expect(vad.processFrame(frame(0.1), 500, true)).toBe('start');
   });
+
+  it.each([false, true])(
+    'keeps onset through mid-band dips during playbackMode=%s',
+    (playbackMode) => {
+      const vad = new EnergyVad();
+      const onset = playbackMode ? 300 : 120;
+      expect(vad.processFrame(frame(0.1), 0, playbackMode)).toBeNull();
+      expect(vad.processFrame(frame(0.01), 60, playbackMode)).toBeNull();
+      expect(vad.processFrame(frame(0.1), 120, playbackMode)).toBe(
+        playbackMode ? null : 'start',
+      );
+      if (!playbackMode) return;
+      expect(vad.processFrame(frame(0.1), onset, playbackMode)).toBe('start');
+    },
+  );
+
+  it.each([false, true])(
+    'does not start from a stale onset after sustained mid-band noise during playbackMode=%s',
+    (playbackMode) => {
+      const vad = new EnergyVad();
+      expect(vad.processFrame(frame(0.1), 0, playbackMode)).toBeNull();
+      for (let time = 50; time < 2000; time += 50) {
+        expect(vad.processFrame(frame(0.01), time, playbackMode)).toBeNull();
+      }
+      expect(vad.processFrame(frame(0.1), 2000, playbackMode)).toBeNull();
+    },
+  );
+
+  it('requires a new onset after an utterance ends through mid-band hangover', () => {
+    const vad = new EnergyVad();
+    expect(vad.processFrame(frame(0.1), 0)).toBeNull();
+    expect(vad.processFrame(frame(0.1), 120)).toBe('start');
+    expect(vad.processFrame(frame(0.01), 400)).toBeNull();
+    expect(vad.processFrame(frame(0.01), 1100)).toBe('end');
+    expect(vad.processFrame(frame(0.1), 1110)).toBeNull();
+  });
+
+  it('resets onset when a frame falls below the noise floor', () => {
+    const vad = new EnergyVad();
+    expect(vad.processFrame(frame(0.1), 0)).toBeNull();
+    expect(vad.processFrame(frame(0), 60)).toBeNull();
+    expect(vad.processFrame(frame(0.1), 120)).toBeNull();
+    expect(vad.processFrame(frame(0.1), 240)).toBe('start');
+  });
 });

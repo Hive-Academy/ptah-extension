@@ -322,7 +322,3 @@ function tally(
 ): number {
   return defects.filter((defect) => defect.severity === severity).length;
 }
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
