@@ -5,7 +5,6 @@ import {
   output,
   computed,
   signal,
-  effect,
   ChangeDetectionStrategy,
   inject,
 } from '@angular/core';
@@ -13,7 +12,7 @@ import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import {
   LucideAngularModule,
-  User,
+  Activity,
   FileText,
   Image,
   Folder,
@@ -35,10 +34,9 @@ import {
   TypingCursorComponent,
   StreamingQuotesComponent,
   CopyButtonComponent,
-  TokenBadgeComponent,
-  CostBadgeComponent,
-  DurationBadgeComponent,
+  formatAgentDuration,
 } from '@ptah-extension/chat-ui';
+import { formatUsdCost } from '@ptah-extension/shared';
 import type {
   ExecutionChatMessage,
   PermissionRequest,
@@ -47,21 +45,66 @@ import type {
 } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
+import type { SessionAgent } from '../../services/session-agents/session-agent-roster';
 import {
-  extractMessageSummary,
-  type MessageSummary,
-} from '../../utils/message-summary.utils';
+  splitTurnMessage,
+  type TurnMessageSplit,
+} from '../../utils/turn-answer-split.utils';
+import {
+  summarizeTurnMetrics,
+  turnElapsedLabel,
+  type TurnContext,
+  type TurnElapsedLabel,
+} from '../../utils/turn-facts.utils';
+import { TurnDisclosureRowComponent } from '../molecules/turn/turn-disclosure-row.component';
+import { TurnActivityPanelComponent } from '../molecules/turn/turn-activity-panel.component';
+import { TurnLiveLineComponent } from '../molecules/turn/turn-live-line.component';
+import { TurnAgentChipsComponent } from '../molecules/turn/turn-agent-chips.component';
+
+/** The disclosure toggle of a turn, emitted for the transcript's per-turn flag. */
+export interface TurnLogToggle {
+  readonly turnId: string;
+  readonly open: boolean;
+}
 
 /**
- * MessageBubbleComponent - Chat message with DaisyUI styling
+ * True when the turn's activity panel would show at least one item, under
+ * the panel's own rules (`TurnActivityPanelComponent`): the settled turn
+ * duration, or any message's duration, tokens, priced cost, tool calls or
+ * changed files. The `Show activity` button is hidden otherwise (§3.11).
+ */
+function turnHasActivityData(turn: TurnContext): boolean {
+  const { startTs, settledEndTs } = turn;
+  if (
+    startTs !== null &&
+    settledEndTs !== null &&
+    formatAgentDuration(settledEndTs - startTs) !== null
+  ) {
+    return true;
+  }
+  return turn.messages.some(
+    (m) =>
+      m.duration !== undefined ||
+      m.tokens !== undefined ||
+      formatUsdCost(m.cost) !== null ||
+      m.toolCount > 0 ||
+      m.filesChanged > 0,
+  );
+}
+
+/**
+ * MessageBubbleComponent - one transcript message.
  *
- * Complexity Level: 2 (Organism with composition)
- * Patterns: DaisyUI chat component, Role-based rendering
+ * Assistant messages render the clean turn (design-spec §3): disclosure row,
+ * collapsible work log, answer, agent chips, action row (copy, `Show
+ * activity`), activity panel and live line. Turn-level rows sit on the turn's
+ * first (disclosure) or last (chips, actions, panel, live line) assistant
+ * message; the transcript supplies the turn facts, the per-turn log flag,
+ * the live clock, the needs-you count and the turn's agents. Every log and
+ * answer row renders through the unchanged `ptah-execution-node`.
  *
- * Renders user messages as right-aligned bubbles (chat-end) with rawContent.
- * Renders assistant messages as left-aligned bubbles (chat-start) with ExecutionNode tree.
- *
- * Uses DaisyUI chat classes for consistent message styling.
+ * User messages keep today's right-aligned bubble inside
+ * `<article aria-label="You">`.
  */
 @Component({
   selector: 'ptah-message-bubble',
@@ -74,9 +117,10 @@ import {
     TypingCursorComponent,
     StreamingQuotesComponent,
     CopyButtonComponent,
-    TokenBadgeComponent,
-    CostBadgeComponent,
-    DurationBadgeComponent,
+    TurnDisclosureRowComponent,
+    TurnActivityPanelComponent,
+    TurnLiveLineComponent,
+    TurnAgentChipsComponent,
     LucideAngularModule,
   ],
   templateUrl: './message-bubble.component.html',
@@ -128,11 +172,35 @@ export class MessageBubbleComponent {
       : null;
   });
 
-  /** Position of this message in the messages array */
-  readonly messageIndex = input<number>(0);
+  /**
+   * This assistant message's place in its turn (from the transcript's
+   * `buildTurnContexts`). `null` for a user message and for a host that
+   * renders a message on its own: it then shows as a single-message turn
+   * without a disclosure row or `Show activity`.
+   */
+  readonly turn = input<TurnContext | null>(null);
 
-  /** Total number of messages in the current conversation */
-  readonly totalMessages = input<number>(0);
+  /** The tab's density preference (design-spec §3.8). */
+  readonly viewMode = input<'full' | 'compact'>('full');
+
+  /**
+   * The user's open choice for this turn's work log; `null` until the user
+   * toggles it, which leaves the auto rule (open only while streaming, in
+   * `full` mode; §3.1, §3.8).
+   */
+  readonly logOpen = input<boolean | null>(null);
+
+  /** The turn is streaming or an agent it owns is still running. */
+  readonly turnLive = input<boolean>(false);
+
+  /** The transcript's one live clock (Unix ms); a constant for settled turns. */
+  readonly now = input<number>(0);
+
+  /** The session's needs-you aggregate, fed to the live turn only. */
+  readonly needsYouCount = input<number>(0);
+
+  /** The roster entries of the agents this turn spawned, in dock order. */
+  readonly agents = input<readonly SessionAgent[]>([]);
 
   /**
    * Whether the parent tab's session is currently active in the SDK
@@ -159,7 +227,7 @@ export class MessageBubbleComponent {
    * binding to `unavailable`.
    */
   readonly ptahUiSnapshot = input<TurnSourceSnapshot | null>(null);
-  readonly UserIcon = User;
+  readonly ActivityIcon = Activity;
   readonly FileTextIcon = FileText;
   readonly ImageIcon = Image;
   readonly FolderIcon = Folder;
@@ -181,15 +249,118 @@ export class MessageBubbleComponent {
    * Wired in chat-view to dry-run + confirm + commit a file rewind.
    */
   readonly rewindRequested = output<string>();
-  readonly ptahIconUri = this.vscode.getPtahIconUri();
-  readonly ptahUserIconUri = this.vscode.getPtahUserIconUri();
 
-  /** Summary metadata extracted from the ExecutionNode tree */
-  readonly messageSummary = computed((): MessageSummary | null => {
-    const msg = this.message();
-    if (msg.role !== 'assistant') return null;
-    return extractMessageSummary(msg.streamingState, msg.cost, msg.duration);
+  /** The user opened or closed this turn's work log (disclosure row). */
+  readonly logToggled = output<TurnLogToggle>();
+
+  /** An agent chip asked to open its lane; emits the `SessionAgent.key`. */
+  readonly laneRequested = output<string>();
+
+  /** Local, per bubble: the activity panel is closed by default (§3.11). */
+  protected readonly activityOpen = signal(false);
+
+  /** Without a turn the message stands alone, so it is its turn's last. */
+  private readonly isLastOfTurn = computed(
+    () => this.turn()?.isLastAssistant ?? true,
+  );
+
+  /**
+   * Work log and answer of this message's tree (`splitTurnMessage`); `null`
+   * without a tree (raw, system or error text), which renders as the answer.
+   */
+  protected readonly split = computed((): TurnMessageSplit | null => {
+    const root = this.message().streamingState;
+    if (!root) return null;
+    return splitTurnMessage(root, {
+      isLastAssistant: this.isLastOfTurn(),
+      streaming: this.isStreaming(),
+    });
   });
+
+  /**
+   * Id of the root's last child. A text child with a later sibling is
+   * complete (`textClosed`), the rule of the root `'message'` case of
+   * `ptah-execution-node`, which the log and answer rows replicate.
+   */
+  protected readonly lastChildId = computed((): string | null => {
+    const children = this.message().streamingState?.children ?? [];
+    return children.length > 0 ? children[children.length - 1].id : null;
+  });
+
+  protected readonly hasLog = computed(
+    () => (this.split()?.log.length ?? 0) > 0,
+  );
+
+  /** `aria-controls` target of the disclosure row: the first message's log. */
+  protected readonly logDomId = computed((): string | null => {
+    const turn = this.turn();
+    if (!turn) return null;
+    return turn.isFirstAssistant
+      ? `turn-log-${turn.turnId}`
+      : `turn-log-${turn.turnId}-${turn.index}`;
+  });
+
+  /** `aria-controls` target of `Show activity`. */
+  protected readonly panelId = computed(
+    () => `turn-activity-${this.turn()?.turnId ?? this.message().id}`,
+  );
+
+  /** The user's per-turn choice, else open only while streaming in `full`. */
+  protected readonly logExpanded = computed(
+    () =>
+      this.logOpen() ?? (this.isStreaming() && this.viewMode() === 'full'),
+  );
+
+  /** Disclosure row: first message of a turn with any non-text row. */
+  protected readonly disclosureLabel = computed(
+    (): TurnElapsedLabel | null => {
+      const turn = this.turn();
+      if (!turn || !turn.isFirstAssistant || !turn.hasActivity) return null;
+      return turnElapsedLabel(turn, this.turnLive(), this.now());
+    },
+  );
+
+  /** Count meta of the disclosure row, summed over the turn (B-4). */
+  protected readonly turnCounts = computed(() => {
+    const turn = this.turn();
+    if (!turn) return { tools: 0, files: 0 };
+    const totals = summarizeTurnMetrics(turn);
+    return { tools: totals.toolCount.value, files: totals.filesChanged.value };
+  });
+
+  /** Compact mode, live turn: the newest log row as a one-line peek (§3.8). */
+  protected readonly disclosurePeek = computed((): string | null =>
+    this.viewMode() === 'compact' && this.turnLive()
+      ? (this.split()?.peek ?? null)
+      : null,
+  );
+
+  /** Chips: last message of the turn, once it stops streaming (§3.1). */
+  protected readonly showChips = computed(
+    () =>
+      this.isLastOfTurn() && this.agents().length > 0 && !this.isStreaming(),
+  );
+
+  /** Action row: last message of a settled turn (§3.6). */
+  protected readonly showActions = computed(
+    () => this.isLastOfTurn() && !this.turnLive() && !this.isStreaming(),
+  );
+
+  /** `Show activity` is hidden when every panel item is unknown (§3.11). */
+  protected readonly canShowActivity = computed(() => {
+    const turn = this.turn();
+    return turn !== null && turnHasActivityData(turn);
+  });
+
+  /** Live line: last message of a live turn (§3.7). */
+  protected readonly showLiveLine = computed(
+    () => this.turn() !== null && this.isLastOfTurn() && this.turnLive(),
+  );
+
+  /** Streaming quotes (B-13): while streaming and the log has no row yet. */
+  protected readonly showStreamingQuotes = computed(
+    () => this.isStreaming() && !this.hasLog(),
+  );
 
   /**
    * `ptah-ui` fence rendering context for the execution tree: built only for
@@ -212,20 +383,6 @@ export class MessageBubbleComponent {
     { equal: samePtahUiContext },
   );
 
-  /** Whether this message should auto-collapse on load */
-  readonly shouldAutoCollapse = computed((): boolean => {
-    const msg = this.message();
-    if (msg.role !== 'assistant') return false;
-    if (this.isStreaming()) return false;
-    if (!msg.streamingState) return false;
-    const index = this.messageIndex();
-    const total = this.totalMessages();
-    return index < total - 4;
-  });
-
-  /** Local collapse state, initialized from shouldAutoCollapse */
-  readonly isCollapsed = signal(false);
-
   /**
    * True for the user message the Claude SDK injects after `/compact`:
    *   "This session is being continued from a previous conversation …"
@@ -243,42 +400,6 @@ export class MessageBubbleComponent {
 
   /** Collapse state for the compaction continuation user bubble. Defaults to collapsed. */
   readonly isContinuationCollapsed = signal(true);
-
-  /**
-   * Whether the user has manually toggled collapse state.
-   * Deliberately NOT a signal — the auto-collapse effect reads shouldAutoCollapse()
-   * but must NOT re-trigger when userToggled changes. Using a plain boolean
-   * ensures Angular's effect tracking ignores this field.
-   */
-  private userToggled = false;
-
-  /** Tracks message identity to reset userToggled on component reuse */
-  private previousMessageId: string | null = null;
-
-  /** Whether collapsed footer has any data to show */
-  readonly hasCollapsedFooterData = computed(() => {
-    const summary = this.messageSummary();
-    if (!summary) return false;
-    return (
-      this.message().tokens !== undefined || summary.duration !== undefined
-    );
-  });
-
-  constructor() {
-    effect(() => {
-      const id = this.message().id;
-      if (this.previousMessageId !== null && id !== this.previousMessageId) {
-        this.userToggled = false;
-      }
-      this.previousMessageId = id;
-    });
-    effect(() => {
-      const shouldCollapse = this.shouldAutoCollapse();
-      if (!this.userToggled) {
-        this.isCollapsed.set(shouldCollapse);
-      }
-    });
-  }
 
   /**
    * User message display content with <system-reminder> tags stripped.
@@ -349,10 +470,15 @@ export class MessageBubbleComponent {
     this.rewindRequested.emit(this.message().id);
   }
 
-  /** Toggle the collapsed state of this message bubble */
-  protected toggleCollapse(): void {
-    this.userToggled = true;
-    this.isCollapsed.update((v) => !v);
+  /** Disclosure row: report the requested open state for this turn. */
+  protected onLogToggled(open: boolean): void {
+    const turn = this.turn();
+    if (turn) this.logToggled.emit({ turnId: turn.turnId, open });
+  }
+
+  /** `Show activity`: toggle the panel; focus stays on the button (§3.6). */
+  protected toggleActivity(): void {
+    this.activityOpen.update((open) => !open);
   }
 
   /** Toggle the collapsed state of the compaction-continuation user bubble. */

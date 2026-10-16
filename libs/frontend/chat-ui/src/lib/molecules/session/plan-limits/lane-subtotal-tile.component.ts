@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { LANE_ROW_FILL } from './stats-tile.styles';
 import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
 
@@ -18,7 +18,7 @@ import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
   host: { class: 'block min-w-0' },
   template: `
     @let t = tile();
-    <div [class]="faceClass" data-testid="lane-subtotal-tile">
+    <div [class]="faceClass()" data-testid="lane-subtotal-tile">
       <div class="flex min-w-0 items-center gap-2">
         <span class="min-w-16 shrink-0 text-xs text-base-content"
           >Subtotal</span
@@ -50,8 +50,11 @@ import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
 })
 export class LaneSubtotalTileComponent {
   readonly tile = input.required<LaneSubtotalTileModel>();
+  readonly variant = input<'strip' | 'inspector'>('strip');
   /** The section header already shows this row's caption. */
   readonly captionShared = input<boolean>(false);
 
-  protected readonly faceClass = `rounded-sm border-l-2 pl-1.5 pr-5 py-1 ${LANE_ROW_FILL} border-base-content/40`;
+  protected readonly faceClass = computed(() => this.variant() === 'inspector'
+    ? 'border-t border-surface-border pt-2 text-base-content'
+    : `rounded-sm border-l-2 pl-1.5 pr-5 py-1 ${LANE_ROW_FILL} border-base-content/40`);
 }

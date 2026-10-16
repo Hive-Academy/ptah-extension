@@ -8,10 +8,12 @@ import {
   untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, Zap, ZapOff, ChevronDown } from 'lucide-angular';
+import { LucideAngularModule, Shield, Zap, ZapOff } from 'lucide-angular';
 import { AutopilotStateService } from '@ptah-extension/core';
 import { type PermissionLevel, type SessionId } from '@ptah-extension/shared';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
+
+let nextApprovalPopoverId = 0;
 
 @Component({
   selector: 'ptah-autopilot-popover',
@@ -19,45 +21,43 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
   template: `
     <ptah-native-dropdown
       [isOpen]="isOpen()"
+      [panelRole]="null"
       [closeOnBackdropClick]="true"
       (closed)="closeDropdown()"
       (backdropClicked)="closeDropdown()"
     >
-      <!-- Trigger Button -->
-      <!-- Composer status-line pill (h-6). Colour lives on the icon only. -->
+      <!-- Trigger: composer approval chip (design-spec §6.3). The whole chip
+           takes the mode's state ink; hover and open tint it at 10%. -->
       <button
         trigger
-        class="inline-flex items-center gap-1 h-6 px-1.5 rounded-full text-xs font-normal min-w-0 text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30 disabled:opacity-50 disabled:pointer-events-none"
-        [class.bg-base-300]="isOpen()"
-        [class.text-base-content]="isOpen()"
+        [class]="triggerClasses()"
         type="button"
         (click)="toggleDropdown()"
         [disabled]="autopilotState.isPending()"
+        aria-haspopup="dialog"
         [attr.aria-expanded]="isOpen()"
-        [title]="'Autopilot: ' + tabStatusText()"
+        [attr.aria-controls]="isOpen() ? popoverId : null"
+        [attr.aria-label]="'Approval mode: ' + tabStatusText()"
+        [title]="'Approval mode: ' + tabStatusText()"
+        data-testid="composer-approval-chip"
       >
         @if (autopilotState.isPending()) {
-          <span class="loading loading-spinner loading-xs"></span>
-        } @else if (tabEnabled()) {
-          <lucide-angular
-            [img]="ZapIcon"
-            class="w-3.5 h-3.5 flex-shrink-0 text-primary"
-          />
+          <span
+            class="loading loading-spinner loading-xs"
+            aria-hidden="true"
+          ></span>
         } @else {
           <lucide-angular
-            [img]="ZapOffIcon"
+            [img]="ShieldIcon"
             class="w-3.5 h-3.5 flex-shrink-0"
+            aria-hidden="true"
           />
         }
         <span class="ptah-composer-label truncate">{{ tabStatusText() }}</span>
-        <lucide-angular
-          [img]="ChevronDownIcon"
-          class="w-3 h-3 flex-shrink-0 opacity-60"
-        />
       </button>
 
       <!-- Dropdown Content -->
-      <div content class="w-72 flex flex-col">
+      <div content class="w-72 flex flex-col" role="dialog" aria-label="Approval mode settings" [id]="popoverId">
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300 flex items-center gap-2">
           <lucide-angular
@@ -138,6 +138,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
 
             <button
               class="btn btn-primary btn-xs w-full gap-1.5"
+              type="button"
               [disabled]="autopilotState.isPending()"
               (click)="enableAutopilot()"
             >
@@ -169,6 +170,7 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
 
             <button
               class="btn btn-ghost btn-xs w-full gap-1.5"
+              type="button"
               [disabled]="autopilotState.isPending()"
               (click)="disableAutopilot()"
             >
@@ -184,10 +186,18 @@ import { NativeDropdownComponent } from '@ptah-extension/ui';
       </div>
     </ptah-native-dropdown>
   `,
-  styles: [],
+  styles: [
+    `
+      .approval-chip:hover:not(:disabled),
+      .approval-chip[aria-expanded='true'] {
+        background-color: color-mix(in oklch, currentColor 10%, transparent);
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AutopilotPopoverComponent {
+  protected readonly popoverId = `ptah-approval-popover-${++nextApprovalPopoverId}`;
   readonly autopilotState = inject(AutopilotStateService);
 
   /**
@@ -210,6 +220,32 @@ export class AutopilotPopoverComponent {
     this.autopilotState.statusTextFor(this.tabState()),
   );
 
+  /**
+   * Chip ink per mode (design-spec §6.3): manual and plan are idle,
+   * auto-edit is "need", full auto (yolo) is "err". Agent plan mode wins,
+   * as it does for the status text.
+   */
+  readonly tabInk = computed(() => {
+    const state = this.tabState();
+    if (this.autopilotState.agentPlanMode() || !state.enabled) {
+      return 'text-state-idle';
+    }
+    switch (state.permissionLevel) {
+      case 'auto-edit':
+        return 'text-state-need';
+      case 'yolo':
+        return 'text-state-err';
+      default:
+        return 'text-state-idle';
+    }
+  });
+
+  readonly triggerClasses = computed(
+    () =>
+      'approval-chip inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-xs font-medium min-w-0 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] disabled:opacity-50 disabled:pointer-events-none ' +
+      this.tabInk(),
+  );
+
   constructor() {
     // Read the tab's live level whenever the tab gets (or switches) session.
     effect(() => {
@@ -220,7 +256,7 @@ export class AutopilotPopoverComponent {
 
   readonly ZapIcon = Zap;
   readonly ZapOffIcon = ZapOff;
-  readonly ChevronDownIcon = ChevronDown;
+  readonly ShieldIcon = Shield;
 
   private readonly _isOpen = signal(false);
   readonly isOpen = this._isOpen.asReadonly();

@@ -44,19 +44,31 @@
           renderWindow.isMounted(slot.id) ||
           prependAnchor.isForcedMounted(slot.id)
         ) {
+          <!-- Turn facts per assistant message; a user message has none.
+               Only the live turn reads the clock: settled bubbles get a
+               constant and do not re-render each second. -->
+          @let turn = turnContexts().get(slot.id) ?? null;
+          @let turnLive = turn !== null && liveTurnIds().has(turn.turnId);
           <ptah-message-bubble
             class="block px-2 pb-3"
             [message]="slot.record()"
             [agentTileMode]="true"
             [ptahUiOrderKey]="ptahUiOrderKeys().get(slot.id) ?? 0"
             [ptahUiSnapshot]="ptahUiSnapshots().get(slot.id) ?? null"
-            [messageIndex]="i"
-            [totalMessages]="vm().totalCount"
             [isStreaming]="i >= vm().streamingBoundary"
             [isFinalizing]="motionSuppressed()"
             [isSessionActive]="vm().isSessionActive"
+            [turn]="turn"
+            [viewMode]="viewMode()"
+            [logOpen]="logOpenFor(turn)"
+            [turnLive]="turnLive"
+            [now]="turnLive ? liveNow() : 0"
+            [needsYouCount]="turnLive ? needsYouCount() : 0"
+            [agents]="turn ? (turnAgents().get(turn.turnId) ?? noAgents) : noAgents"
             (branchRequested)="branchRequested.emit($event)"
             (rewindRequested)="rewindRequested.emit($event)"
+            (logToggled)="onLogToggled($event)"
+            (laneRequested)="onLaneRequested($event)"
           />
         } @else {
           <div

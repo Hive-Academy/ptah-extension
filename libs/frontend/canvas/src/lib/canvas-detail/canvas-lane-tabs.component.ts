@@ -13,210 +13,302 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { laneKey } from '@ptah-extension/chat';
+import type { SessionAgent } from '@ptah-extension/chat';
+import { SessionAgentRosterService } from '@ptah-extension/chat';
 import {
-  AgentMonitorStore,
-  BackgroundAgentStore,
-} from '@ptah-extension/chat-streaming';
-import { ownedBySession } from './lane-owner';
+  AgentAvatarComponent,
+  agentAccessibleLabel,
+  type AgentKind,
+} from '@ptah-extension/chat-ui';
+import { FloatingUIService } from '@ptah-extension/ui';
+import { AgentDockCardComponent } from './agent-dock-card.component';
+import { AgentDockMenuComponent } from './agent-dock-menu.component';
+import {
+  agentDurationMs,
+  agentDurationText,
+  agentStatusInk,
+  dockCapacity,
+  planDockOverflow,
+} from './dock-overflow';
 
-interface LaneTab {
+const CARD_OPEN_MS = 220;
+const DOCK_KINDS: readonly AgentKind[] = [
+  'orchestrator',
+  'subagent',
+  'cli',
+  'background',
+];
+
+interface DockChipModel {
   readonly key: string;
+  readonly agent: SessionAgent;
+  readonly selected: boolean;
   readonly label: string;
-  readonly status: string;
-}
-interface LaneGroup {
-  readonly label: string;
-  readonly tabs: readonly LaneTab[];
+  readonly durationText: string | null;
+  readonly statusInk: string;
+  readonly tabDomId: string;
 }
 
+interface DockGroupModel {
+  readonly kind: AgentKind;
+  readonly chips: readonly DockChipModel[];
+}
+
+interface DockLayout {
+  readonly groups: readonly DockGroupModel[];
+  readonly hidden: readonly SessionAgent[];
+  readonly compact: boolean;
+  readonly cardId: string;
+}
+
+/**
+ * Main-view agent dock. Same selector and tablist keyboard model as the lane
+ * strip it replaced: one pill for the selected agent, avatar chips for the
+ * rest, and an overflow menu for whoever does not fit.
+ */
 @Component({
   selector: 'ptah-canvas-lane-tabs',
   standalone: true,
+  imports: [
+    AgentAvatarComponent,
+    AgentDockCardComponent,
+    AgentDockMenuComponent,
+  ],
+  providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(document:keydown.escape)': 'onDocumentEscape($event)' },
   template: `
+    @let view = layout();
     <div
-      #strip
+      #dock
       role="tablist"
       aria-label="Lanes"
-      class="relative flex items-center gap-0.5 overflow-x-auto px-2 bg-base-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      (scroll)="updateEdges()"
-      [style.mask-image]="edgeMask()"
+      class="relative flex min-w-0 items-center gap-0.5 overflow-x-clip px-2"
     >
-      @for (group of groups(); track group.label) {
-        @if (group.label !== 'Orchestrator') {
+      @for (group of view.groups; track group.kind; let first = $first) {
+        @if (!first) {
           <span
-            role="presentation"
-            class="self-center px-2 text-[10px] font-semibold uppercase tracking-wider text-base-content-muted whitespace-nowrap"
-            >{{ group.label }}</span
-          >
+            class="mx-1 h-5 w-px shrink-0 self-center bg-[var(--surface-border-strong)]"
+            aria-hidden="true"
+            data-testid="dock-divider"
+          ></span>
         }
-        @for (tab of group.tabs; track tab.key) {
-          <button
-            type="button"
-            role="tab"
-            [id]="tabId(tab.key)"
-            class="inline-flex items-center gap-1.5 h-9 px-2.5 border-b-2 whitespace-nowrap text-xs hover:text-base-content"
-            [class.border-primary]="selectedKey() === tab.key"
-            [class.border-transparent]="selectedKey() !== tab.key"
-            [class.text-base-content]="selectedKey() === tab.key"
-            [class.text-base-content-muted]="selectedKey() !== tab.key"
-            [attr.aria-selected]="selectedKey() === tab.key"
-            [attr.aria-controls]="panelId()"
-            [tabIndex]="selectedKey() === tab.key ? 0 : -1"
-            [attr.title]="tab.status"
-            (click)="laneSelected.emit(tab.key)"
-            (keydown)="onKeydown($event, tab.key)"
-          >
-            {{ tab.label
-            }}<span
-              class="w-1.5 h-1.5 rounded-full bg-current"
-              aria-hidden="true"
-            ></span>
-          </button>
+        @for (chip of group.chips; track chip.key) {
+          @if (chip.selected) {
+            <button
+              type="button"
+              role="tab"
+              [id]="chip.tabDomId"
+              class="inline-flex h-[38px] max-w-[180px] shrink-0 items-center gap-1.5 rounded-full border border-secondary px-1.5 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              [attr.aria-selected]="true"
+              [attr.aria-controls]="panelId()"
+              [attr.aria-label]="chip.label"
+              [attr.aria-describedby]="cardKey() === chip.key ? view.cardId : null"
+              [tabIndex]="0"
+              (click)="onTabClick(chip.key)"
+              (keydown)="onKeydown($event, chip.key)"
+              (pointerenter)="onPointerEnter($event, chip.key)"
+              (pointerleave)="onPointerLeave(chip.key)"
+              (focus)="onTabFocus($event, chip.key)"
+              (blur)="onTabBlur(chip.key)"
+            >
+              <ptah-agent-avatar
+                [kind]="chip.agent.kind"
+                [status]="chip.agent.status"
+                [size]="28"
+                [cliId]="chip.agent.cliId"
+                [agentType]="chip.agent.agentType"
+              />
+              <span class="min-w-0 truncate">{{ chip.agent.name }}</span>
+              @if (chip.agent.status) {
+                <span class="shrink-0 {{ chip.statusInk }}">{{
+                  chip.agent.status
+                }}</span>
+              }
+              @if (chip.durationText; as duration) {
+                <span class="shrink-0 tabular-nums text-base-content-muted">{{
+                  duration
+                }}</span>
+              }
+            </button>
+          } @else {
+            <button
+              type="button"
+              role="tab"
+              [id]="chip.tabDomId"
+              class="inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              [attr.aria-selected]="false"
+              [attr.aria-controls]="panelId()"
+              [attr.aria-label]="chip.label"
+              [attr.aria-describedby]="cardKey() === chip.key ? view.cardId : null"
+              [tabIndex]="-1"
+              (click)="onTabClick(chip.key)"
+              (keydown)="onKeydown($event, chip.key)"
+              (pointerenter)="onPointerEnter($event, chip.key)"
+              (pointerleave)="onPointerLeave(chip.key)"
+              (focus)="onTabFocus($event, chip.key)"
+              (blur)="onTabBlur(chip.key)"
+            >
+              <ptah-agent-avatar
+                [kind]="chip.agent.kind"
+                [status]="chip.agent.status"
+                [size]="28"
+                [cliId]="chip.agent.cliId"
+                [agentType]="chip.agent.agentType"
+              />
+            </button>
+          }
         }
+      }
+      <ptah-agent-dock-menu
+        [agents]="agents()"
+        [hidden]="view.hidden"
+        [selectedKey]="selectedKey()"
+        [compact]="view.compact"
+        [now]="now()"
+        (agentSelect)="onMenuSelect($event)"
+      />
+      @if (cardAgent(); as agent) {
+        <ptah-agent-dock-card
+          [agent]="agent"
+          [durationText]="cardDuration()"
+          [cardId]="view.cardId"
+          (hovered)="onCardHovered($event)"
+        />
       }
     </div>
   `,
 })
 export class CanvasLaneTabsComponent {
-  private readonly monitor = inject(AgentMonitorStore);
-  private readonly background = inject(BackgroundAgentStore);
+  private readonly roster = inject(SessionAgentRosterService);
+  private readonly floatingUI = inject(FloatingUIService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly strip = viewChild.required<ElementRef<HTMLElement>>('strip');
-  private readonly cutLeft = signal(false);
-  private readonly cutRight = signal(false);
-  readonly edgeMask = computed(
-    () =>
-      `linear-gradient(to right, ${this.cutLeft() ? 'transparent' : 'black'} 0, black 32px, black calc(100% - 32px), ${this.cutRight() ? 'transparent' : 'black'} 100%)`,
-  );
-  readonly sessionId = input<string | null>(null);
+  private readonly dock = viewChild.required<ElementRef<HTMLElement>>('dock');
+
+  readonly tabId = input<string | null>(null);
   readonly panelId = input('canvas-lane-panel');
   readonly laneKey = input('orchestrator');
   readonly laneSelected = output<string>();
-  readonly groups = computed<readonly LaneGroup[]>(() => {
-    const sessionId = this.sessionId();
-    const subagents = ownedBySession(
-      [...this.monitor.subagents().values()],
-      sessionId,
-      (a) => a.parentSessionId,
-    );
-    const cli = ownedBySession(
-      this.monitor.agents(),
-      sessionId,
-      (a) => a.parentSessionId,
-    );
-    const background = ownedBySession(
-      this.background.agents(),
-      sessionId,
-      (a) => a.sessionId,
-    );
-    return [
-      {
-        label: 'Orchestrator',
-        tabs: [
-          { key: 'orchestrator', label: 'Orchestrator', status: 'running' },
-        ],
-      },
-      {
-        label: 'Sub-agents',
-        tabs: subagents
-          .filter((a) => a.status !== 'background')
-          .map((a) => ({
-            key: laneKey('subagent', a.parentToolUseId),
-            label:
-              a.teammateName || a.agentType || a.description || 'Sub-agent',
-            status: a.status,
-          })),
-      },
-      {
-        label: 'CLI lanes',
-        tabs: cli.map((a) => ({
-          key: laneKey('cli', a.agentId),
-          label: a.cli,
-          status: a.status,
-        })),
-      },
-      {
-        label: 'Background',
-        tabs: [
-          ...subagents
-            .filter((a) => a.status === 'background')
-            .map((a) => ({
-              key: laneKey('background', a.parentToolUseId),
-              label: a.teammateName || a.agentType || 'Background agent',
-              status: a.status,
-            })),
-          ...background
-            .filter(
-              (a) => !subagents.some((s) => s.parentToolUseId === a.toolCallId),
-            )
-            .map((a) => ({
-              key: laneKey('background', a.toolCallId),
-              label: a.teammateName || a.agentType || 'Background agent',
-              status: a.status,
-            })),
-        ],
-      },
-    ].filter((g) => g.tabs.length > 0);
-  });
+
+  /** Measured dock width. `Infinity` until a ResizeObserver reports one. */
+  private readonly width = signal(Number.POSITIVE_INFINITY);
+  protected readonly now = signal(Date.now());
+  /** Agent whose hover / focus card is open, if any. */
+  protected readonly cardKey = signal<string | null>(null);
+  private cardTimer: ReturnType<typeof setTimeout> | null = null;
+  private cardHovered = false;
+  private tabHoveredKey: string | null = null;
+
+  readonly agents = computed(() => this.roster.roster(this.tabId()));
+
   readonly selectedKey = computed(() => {
     const key = this.laneKey();
-    const keys = this.groups().flatMap((group) => group.tabs.map((tab) => tab.key));
+    const keys = this.agents().map((agent) => agent.key);
     if (keys.includes(key)) return key;
-    const alternateKey = key.startsWith('sub:') ? `bg:${key.slice(4)}`
-      : key.startsWith('bg:') ? `sub:${key.slice(3)}` : null;
+    const alternateKey = key.startsWith('sub:')
+      ? `bg:${key.slice(4)}`
+      : key.startsWith('bg:')
+        ? `sub:${key.slice(3)}`
+        : null;
     return alternateKey && keys.includes(alternateKey) ? alternateKey : 'orchestrator';
+  });
+
+  protected readonly layout = computed((): DockLayout => {
+    const now = this.now();
+    const selected = this.selectedKey();
+    const panelId = this.panelId();
+    const width = this.width();
+    const { visible, hidden } = planDockOverflow(
+      this.agents(),
+      selected,
+      dockCapacity(width),
+    );
+    const chips = new Map<AgentKind, DockChipModel[]>();
+    for (const agent of visible) {
+      const durationMs = agentDurationMs(agent, now);
+      const chip: DockChipModel = {
+        key: agent.key,
+        agent,
+        selected: agent.key === selected,
+        label: agentAccessibleLabel({
+          name: agent.name,
+          kind: agent.kind,
+          status: agent.status,
+          durationMs,
+        }),
+        durationText: agentDurationText(agent, now),
+        statusInk: agentStatusInk(agent.status),
+        tabDomId: `${panelId}-tab-${agent.key}`,
+      };
+      const group = chips.get(agent.kind);
+      if (group) group.push(chip);
+      else chips.set(agent.kind, [chip]);
+    }
+    return {
+      groups: DOCK_KINDS.filter((kind) => chips.has(kind)).map((kind) => ({
+        kind,
+        chips: chips.get(kind) ?? [],
+      })),
+      hidden,
+      compact: Number.isFinite(width) && width < 480,
+      cardId: `${panelId}-agent-card`,
+    };
+  });
+
+  protected readonly cardAgent = computed(() => {
+    const key = this.cardKey();
+    if (!key) return null;
+    return this.agents().find((agent) => agent.key === key) ?? null;
+  });
+
+  protected readonly cardDuration = computed(() => {
+    const agent = this.cardAgent();
+    return agent ? agentDurationText(agent, this.now()) : null;
   });
 
   constructor() {
     effect(() => {
-      if (this.laneKey() !== this.selectedKey())
+      if (this.laneKey() !== this.selectedKey()) {
         this.laneSelected.emit(this.selectedKey());
+      }
     });
-    effect(() => {
-      this.selectedKey();
-      this.groups();
-      this.revealSelected();
+    effect((onCleanup) => {
+      const ticking = this.agents().some(
+        (agent) =>
+          agent.status === 'running' && typeof agent.startedAt === 'number',
+      );
+      if (!ticking) return;
+      const timer = setInterval(() => this.now.set(Date.now()), 1000);
+      onCleanup(() => clearInterval(timer));
     });
+    this.destroyRef.onDestroy(() => this.clearCardTimer());
     afterNextRender(() => {
-      this.updateEdges();
+      const root = this.dock().nativeElement;
       if (typeof ResizeObserver === 'undefined') return;
-      const observer = new ResizeObserver(() => {
-        this.updateEdges();
-        this.revealSelected();
+      const observer = new ResizeObserver((entries) => {
+        const measured = entries[0]?.contentRect.width ?? root.clientWidth;
+        this.width.set(measured);
       });
-      observer.observe(this.strip().nativeElement);
+      observer.observe(root);
       this.destroyRef.onDestroy(() => observer.disconnect());
     });
   }
 
-  updateEdges(): void {
-    const strip = this.strip().nativeElement;
-    this.cutLeft.set(strip.scrollLeft > 0);
-    this.cutRight.set(
-      strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1,
-    );
+  protected onTabClick(key: string): void {
+    this.laneSelected.emit(key);
   }
 
-  private revealSelected(): void {
-    afterNextRender(
-      () => {
-        const selected = this.strip().nativeElement.querySelector<HTMLElement>(
-          '[role="tab"][aria-selected="true"]',
-        );
-        selected?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-        this.updateEdges();
-      },
-      { injector: this.injector },
-    );
+  protected onMenuSelect(key: string): void {
+    this.laneSelected.emit(key);
+    this.focusTab(key);
   }
 
-  onKeydown(event: KeyboardEvent, key: string): void {
-    const keys = this.groups().flatMap((group) =>
-      group.tabs.map((tab) => tab.key),
+  protected onKeydown(event: KeyboardEvent, key: string): void {
+    const keys = this.layout().groups.flatMap((group) =>
+      group.chips.map((chip) => chip.key),
     );
+    if (keys.length === 0) return;
     const index = keys.indexOf(key);
     const next =
       event.key === 'ArrowRight'
@@ -231,14 +323,109 @@ export class CanvasLaneTabsComponent {
     if (next < 0) return;
     event.preventDefault();
     event.stopPropagation();
-    this.laneSelected.emit(keys[next]);
-    const tabs = (event.currentTarget as HTMLElement)
-      .closest('[role="tablist"]')
-      ?.querySelectorAll<HTMLElement>('[role="tab"]');
-    tabs?.[next]?.focus();
+    const nextKey = keys[next];
+    this.laneSelected.emit(nextKey);
+    this.focusTab(nextKey);
   }
 
-  tabId(key: string): string {
+  protected onPointerEnter(event: PointerEvent, key: string): void {
+    if (event.pointerType === 'touch') return;
+    this.tabHoveredKey = key;
+    this.clearCardTimer();
+    if (this.cardKey() === key) return;
+    this.cardTimer = setTimeout(() => {
+      this.cardTimer = null;
+      this.openCard(key);
+    }, CARD_OPEN_MS);
+  }
+
+  protected onPointerLeave(key: string): void {
+    if (this.tabHoveredKey === key) this.tabHoveredKey = null;
+    this.clearCardTimer();
+    this.queueCardClose(key);
+  }
+
+  protected onTabFocus(event: FocusEvent, key: string): void {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLElement) || !target.matches(':focus-visible')) return;
+    this.clearCardTimer();
+    this.openCard(key);
+  }
+
+  protected onTabBlur(key: string): void {
+    this.queueCardClose(key);
+  }
+
+  protected onCardHovered(hovered: boolean): void {
+    this.cardHovered = hovered;
+    if (hovered) this.clearCardTimer();
+    else this.queueCardClose(this.cardKey());
+  }
+
+  /** Closes a hover-opened card. Selection and focus stay where they are. */
+  protected onDocumentEscape(event: Event): void {
+    if (this.cardKey() === null) return;
+    event.stopPropagation();
+    this.closeCard();
+  }
+
+  private focusTab(key: string): void {
+    afterNextRender(
+      () => {
+        document.getElementById(this.tabDomId(key))?.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private tabDomId(key: string): string {
     return `${this.panelId()}-tab-${key}`;
+  }
+
+  private openCard(key: string): void {
+    this.cardKey.set(key);
+    afterNextRender(
+      () => {
+        const tab = document.getElementById(this.tabDomId(key));
+        const card = document.getElementById(`${this.panelId()}-agent-card`);
+        if (!tab || !card) return;
+        const boundary = this.dock().nativeElement.closest<HTMLElement>('[data-pane-side]');
+        void this.floatingUI.position(tab, card, {
+          placement: 'bottom-start',
+          offset: 0,
+          boundary: boundary ?? undefined,
+        });
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private queueCardClose(key: string | null): void {
+    if (!key || this.cardKey() !== key) return;
+    this.clearCardTimer();
+    this.cardTimer = setTimeout(() => {
+      this.cardTimer = null;
+      this.closeCardIfIdle(key);
+    }, CARD_OPEN_MS);
+  }
+
+  private closeCardIfIdle(key: string): void {
+    if (this.cardKey() !== key || this.cardHovered || this.tabHoveredKey === key) return;
+    const tab = document.getElementById(this.tabDomId(key));
+    if (tab?.matches(':focus')) return;
+    this.closeCard();
+  }
+
+  private closeCard(): void {
+    this.clearCardTimer();
+    this.cardHovered = false;
+    this.cardKey.set(null);
+    this.floatingUI.cleanup();
+  }
+
+  private clearCardTimer(): void {
+    if (this.cardTimer === null) return;
+    clearTimeout(this.cardTimer);
+    this.cardTimer = null;
   }
 }

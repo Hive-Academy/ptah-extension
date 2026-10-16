@@ -13,7 +13,8 @@ import {
 } from '@angular/core';
 import {
   LucideAngularModule,
-  Send,
+  ArrowUp,
+  GitBranch,
   Zap,
   Square,
   X,
@@ -52,6 +53,11 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { VoiceInputService } from '../../../services/voice-input.service';
+import {
+  SessionGitStatsStore,
+  sessionBranch,
+  sessionWorkingRoot,
+} from '../../../services/session-git-stats/session-git-stats.store';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
 import {
@@ -92,18 +98,28 @@ interface PastedImage extends ComposerDraftImage {
 
 type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
 
+/** Per-instance suffix for the textarea id (several composers can mount). */
+let nextComposerId = 0;
+
+/** Last path segment of a working root (`/a/b/` and `C:\a\b` -> `b`). */
+function folderName(root: string): string {
+  const parts = root.split(/[\\/]+/).filter((part) => part.length > 0);
+  return parts[parts.length - 1] ?? root;
+}
+
 /**
  * ChatInputComponent - Enhanced message input with bottom bar controls
  *
  * Complexity Level: 2 (Input with model selector and autopilot toggle)
  * Patterns: Signal-based state, Composition
  *
- * Layout ("card + status line"):
- * - One rounded card holds attachments, a borderless textarea and a toolbar
- *   (`+` attach menu, model, effort | voice, stop, round send). The card's
- *   1px border carries the plan-mode / autopilot tint.
- * - A quiet status line under the card holds autopilot, MCP, peer send and
- *   the auth method label.
+ * Layout ("card + status line", design-spec §6):
+ * - One `<form aria-label="Message composer">` card holds the workspace /
+ *   branch hint strip, attachments, a borderless textarea and a toolbar
+ *   (`+` attach menu, approval chip | model + effort, voice, stop, round
+ *   send). The card's 1px border carries the plan-mode / autopilot tint.
+ * - A quiet status line under the card holds MCP, peer send and the auth
+ *   method label.
  *
  * Features:
  * - Shift+Enter for newlines, Enter to send
@@ -155,13 +171,20 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
         </div>
       }
 
-      <!-- Composer card: attachments, textarea, toolbar. The border carries
-           the mode tint (plan = info, autopilot = primary). -->
-      <div [class]="cardClasses()">
+      <!-- Composer card (design-spec §6): workspace / branch hints, attachments,
+           textarea, toolbar. A form landmark; sending stays on the Send click
+           and Enter handlers, so a native submit is always prevented. The
+           border carries the mode tint (plan = info, autopilot = primary). -->
+      <form
+        [class]="cardClasses()"
+        aria-label="Message composer"
+        data-testid="chat-composer-form"
+        (submit)="$event.preventDefault()"
+      >
         <!-- Compaction overlay on the card -->
         @if (resolvedIsCompacting()) {
           <div
-            class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-2xl"
+            class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-xl"
           >
             <div
               class="flex items-center gap-2 text-base-content-muted text-sm font-medium"
@@ -174,7 +197,7 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
         <!-- Drop zone overlay -->
         @if (isDraggingOver()) {
           <div
-            class="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 border border-dashed border-primary rounded-2xl pointer-events-none"
+            class="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 border border-dashed border-primary rounded-xl pointer-events-none"
           >
             <div
               class="flex items-center gap-2 text-primary text-sm font-medium"
@@ -182,6 +205,48 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
               <lucide-angular [img]="ImageIconRef" class="w-5 h-5" />
               <span>Drop image here</span>
             </div>
+          </div>
+        }
+
+        <!-- Top strip: workspace and branch hints. Non-interactive (no tab
+             stops, design D8); absent when neither is known. -->
+        @if (workspaceName() || branchName()) {
+          <div
+            class="h-[38px] flex items-center gap-3.5 px-3 min-w-0 border-b border-surface-border text-xs text-base-content-muted"
+            data-testid="composer-top-strip"
+          >
+            @if (workspaceName(); as name) {
+              <span
+                class="inline-flex items-center gap-1.5 min-w-0 flex-shrink"
+                [title]="workspaceRoot() ?? name"
+                data-testid="composer-workspace-hint"
+              >
+                <lucide-angular
+                  [img]="FolderHintIcon"
+                  class="w-3.5 h-3.5 flex-shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="ptah-composer-workspace-label truncate">{{
+                  name
+                }}</span>
+              </span>
+            }
+            @if (branchName(); as branch) {
+              <span
+                class="inline-flex items-center gap-1.5 min-w-0 flex-shrink"
+                [title]="'Branch ' + branch"
+                data-testid="composer-branch-hint"
+              >
+                <lucide-angular
+                  [img]="GitBranchIcon"
+                  class="w-3.5 h-3.5 flex-shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="truncate font-mono text-[11.5px]">{{
+                  branch
+                }}</span>
+              </span>
+            }
           </div>
         }
 
@@ -224,17 +289,22 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
 
         <!-- Textarea + Suggestions Dropdown -->
         <div class="relative">
+          <label class="sr-only" [attr.for]="inputId"
+            >Message the orchestrator</label
+          >
           <!-- Auto-resize is pure CSS (field-sizing: content), so typing never
-               forces a document layout. The min-height keeps the old rows="2"
-               resting height, which field-sizing ignores. -->
+               forces a document layout. The min-height is the 60 px resting
+               field (design-spec §2.2, which field-sizing ignores); it grows
+               to 8 lines, then scrolls. -->
           <textarea
             #inputElement
+            [id]="inputId"
             style="field-sizing: content"
-            class="block w-full min-h-[calc(2lh+1rem)] max-h-[10rem] overflow-y-auto resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-sm leading-relaxed text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
+            class="block w-full min-h-[60px] max-h-[calc(8lh+1rem)] overflow-y-auto resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-[13px] leading-[1.6] text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
             [placeholder]="
               attachedReadOnly()
                 ? 'Session is attached to messaging — read-only'
-                : 'Ask a question or describe a task...'
+                : 'Ask the orchestrator to plan, build or review...'
             "
             [value]="currentMessage()"
             [readonly]="attachedReadOnly()"
@@ -274,10 +344,10 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
           }
         </div>
 
-        <!-- In-card toolbar -->
-        <div class="flex items-center gap-1 px-2 pb-2 pt-1 min-w-0">
-          <!-- Left: attach menu, model, effort -->
-          <div class="flex items-center gap-0.5 min-w-0 flex-1">
+        <!-- In-card toolbar (design-spec §6.3 order): + -> approval chip ->
+             spacer -> model / effort group -> mic -> stop / send -->
+        <div class="flex items-center gap-1 px-2 pr-2.5 pb-2 min-w-0">
+          <div class="flex items-center gap-1 min-w-0 flex-1">
             <ptah-native-popover
               [isOpen]="attachMenuOpen()"
               [placement]="'top-start'"
@@ -287,18 +357,22 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
             >
               <button
                 trigger
-                class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30"
-                [class.bg-base-300]="attachMenuOpen()"
+                class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-md text-base-content-muted hover:text-base-content hover:bg-surface-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+                [class.bg-surface-2]="attachMenuOpen()"
                 [class.text-base-content]="attachMenuOpen()"
                 (click)="toggleAttachMenu()"
                 type="button"
                 title="Attach"
-                aria-label="Attach files or images"
+                aria-label="Attach files or add context"
                 aria-haspopup="menu"
                 [attr.aria-expanded]="attachMenuOpen()"
                 data-testid="chat-attach-btn"
               >
-                <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+                <lucide-angular
+                  [img]="PlusIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
               </button>
 
               <div content class="w-44 p-1 flex flex-col" role="menu">
@@ -329,16 +403,31 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
               </div>
             </ptah-native-popover>
 
-            <ptah-model-selector class="min-w-0" />
-
-            <ptah-effort-selector
+            <!-- Approval chip (moved from the status line; data unchanged:
+                 AutopilotStateService.stateFor(sessionId)) -->
+            <ptah-autopilot-popover
               class="min-w-0"
-              (effortChanged)="onEffortChange($event)"
+              [sessionId]="tabSessionId()"
             />
           </div>
 
-          <!-- Right: voice, stop, send -->
-          <div class="flex items-center gap-1 flex-shrink-0">
+          <!-- Right: model / effort, voice, stop, send -->
+          <div class="flex items-center gap-1 min-w-0 flex-shrink">
+            <!-- Both existing controls kept (Decision A2-5); below 640 px the
+                 effort label hides and its icon trigger stays. -->
+            <div
+              role="group"
+              aria-label="Model and effort"
+              class="inline-flex items-center h-7 min-w-0 rounded-md text-xs text-base-content-muted"
+            >
+              <ptah-model-selector class="min-w-0" />
+              <span class="px-0.5" aria-hidden="true">·</span>
+              <ptah-effort-selector
+                class="min-w-0 flex-shrink-0"
+                (effortChanged)="onEffortChange($event)"
+              />
+            </div>
+
             @if (isElectron) {
               @if (isRecording()) {
                 <span class="text-xs text-error tabular-nums px-0.5">{{
@@ -347,10 +436,10 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
               }
               <button
                 [class]="
-                  'inline-flex items-center justify-center h-7 w-7 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30 disabled:opacity-50 ' +
+                  'inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-md transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] disabled:opacity-50 ' +
                   (isRecording()
                     ? 'text-error bg-error/10 animate-pulse'
-                    : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5')
+                    : 'text-base-content-muted hover:text-base-content hover:bg-surface-2')
                 "
                 [disabled]="isTranscribing()"
                 (click)="handleVoiceButton()"
@@ -359,47 +448,63 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
                     ? 'Stop recording'
                     : isTranscribing()
                       ? 'Transcribing...'
-                      : 'Record voice'
+                      : 'Dictate'
                 "
                 [attr.aria-label]="
                   isRecording()
                     ? 'Stop recording'
                     : isTranscribing()
                       ? 'Transcribing...'
-                      : 'Record voice'
+                      : 'Dictate'
                 "
                 type="button"
                 data-testid="chat-voice-btn"
               >
                 @if (isTranscribing()) {
-                  <span class="loading loading-spinner loading-xs"></span>
+                  <span
+                    class="loading loading-spinner loading-xs"
+                    aria-hidden="true"
+                  ></span>
                 } @else if (isRecording()) {
-                  <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
+                  <lucide-angular
+                    [img]="SquareIcon"
+                    class="w-3.5 h-3.5"
+                    aria-hidden="true"
+                  />
                 } @else {
-                  <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
+                  <lucide-angular
+                    [img]="MicIcon"
+                    class="w-4 h-4"
+                    aria-hidden="true"
+                  />
                 }
               </button>
             }
 
-            <!-- Stop Button (streaming only). Gated on the same busy predicate
-                 the dispatcher queues on, so a queued send always has a Stop
-                 to drain it. -->
+            <!-- Stop Button (streaming only), same 28 px circle as Send.
+                 Gated on the same busy predicate the dispatcher queues on, so
+                 a queued send always has a Stop to drain it. -->
             @if (isActiveTabStreaming()) {
               <button
-                class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-error/15 text-error hover:bg-error/25 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-error"
+                class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full bg-error/15 text-error hover:bg-error/25 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
                 (click)="handleStop()"
                 title="Stop generating"
                 aria-label="Stop generating"
                 type="button"
                 data-testid="chat-stop-btn"
               >
-                <lucide-angular [img]="SquareIcon" class="w-3.5 h-3.5" />
+                <lucide-angular
+                  [img]="SquareIcon"
+                  class="w-3.5 h-3.5"
+                  aria-hidden="true"
+                />
               </button>
             }
 
-            <!-- Send Button (always functional - queues message during streaming) -->
+            <!-- Send Button (always functional - queues message during
+                 streaming). Neutral inverse circle, design D1. -->
             <button
-              class="btn btn-circle btn-primary btn-sm min-h-0 h-8 w-8"
+              class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full bg-base-content text-base-100 transition-transform enabled:hover:scale-105 enabled:active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               [disabled]="!canSend() || attachedReadOnly()"
               (click)="handleSend()"
               type="button"
@@ -407,20 +512,21 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
               aria-label="Send message"
               data-testid="chat-send-btn"
             >
-              <lucide-angular [img]="SendIcon" class="w-4 h-4" />
+              <lucide-angular
+                [img]="ArrowUpIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
             </button>
           </div>
         </div>
-      </div>
+      </form>
 
-      <!-- Status line under the card -->
-      <div class="flex items-center gap-2 px-1 mt-1.5 min-w-0">
+      <!-- Status line under the card: MCP, peer send, auth (unchanged) -->
+      <div
+        class="flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full max-w-[758px] mx-auto"
+      >
         <div class="flex items-center gap-0.5 min-w-0">
-          <ptah-autopilot-popover
-            class="min-w-0"
-            [sessionId]="tabSessionId()"
-          />
-
           <!-- MCP status (host is display: contents; renders nothing when the
                session reports no servers) -->
           <ptah-mcp-status-chip
@@ -448,12 +554,21 @@ type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
   // labels on the child pill triggers (effort, autopilot, peer — each marked
   // `ptah-composer-label`) collapse to icon-only so the rows never wrap. The
   // model name is not hidden; it truncates. `::ng-deep` is required because
-  // those labels live in child component views.
+  // those labels live in child component views. Below 640px (design-spec
+  // §2.1) the workspace hint shows its icon only and the effort selector its
+  // icon-only trigger; both stay rendered.
   styles: [
     `
       .ptah-composer {
         container-type: inline-size;
         container-name: ptah-composer;
+      }
+
+      @container ptah-composer (max-width: 639px) {
+        .ptah-composer-workspace-label,
+        :host ::ng-deep ptah-effort-selector .ptah-composer-label {
+          display: none;
+        }
       }
 
       @container ptah-composer (max-width: 400px) {
@@ -478,6 +593,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly gitStore = inject(SessionGitStatsStore);
   readonly voiceInput = inject(VoiceInputService);
   readonly filePicker = inject(FilePickerService);
   private readonly composerTriggerCacheEnabled = inject(
@@ -576,6 +692,45 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   });
 
   /**
+   * Working root of this composer's session for the top-strip workspace
+   * hint: the same `sessionWorkingRoot` call the session details use
+   * (worktree, else the tab's workspace partition, else the webview root).
+   * With no tab yet, the webview root, where a new session starts.
+   */
+  protected readonly workspaceRoot = computed<string | null>(() => {
+    const fallback = this.vscodeService.config().workspaceRoot || undefined;
+    const tab = this.resolvedTab();
+    if (!tab) return fallback ?? null;
+    return sessionWorkingRoot(
+      tab,
+      this.tabManager.findTabByIdAcrossWorkspaces(tab.id)?.workspacePath ??
+        null,
+      fallback,
+    );
+  });
+
+  protected readonly workspaceName = computed(() => {
+    const root = this.workspaceRoot();
+    return root ? folderName(root) : null;
+  });
+
+  /**
+   * Branch hint: the agent-origin branch, else the last known branch of the
+   * working root. Reads the git state only; the composer never starts git
+   * tracking, so the hint shows once another surface (the inspector) tracks
+   * the root.
+   */
+  protected readonly branchName = computed(() =>
+    sessionBranch(
+      this.resolvedTab(),
+      this.gitStore.stateFor(this.workspaceRoot()),
+    ),
+  );
+
+  /** Ties the visually hidden label to the textarea. */
+  protected readonly inputId = `ptah-composer-input-${nextComposerId++}`;
+
+  /**
    * Tab and session ids of the tab this composer belongs to, resolved exactly
    * as `ChatViewComponent` resolves them: a canvas tile scopes to its own tab
    * via SESSION_CONTEXT, the main panel falls back to the global active tab.
@@ -637,7 +792,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private readonly dropdownRef = viewChild<UnifiedSuggestionsDropdownComponent>(
     'suggestionsDropdown',
   );
-  readonly SendIcon = Send;
+  readonly ArrowUpIcon = ArrowUp;
+  readonly FolderHintIcon = FolderIcon;
+  readonly GitBranchIcon = GitBranch;
   readonly ZapIcon = Zap;
   readonly SquareIcon = Square;
   readonly XIcon = X;
@@ -652,14 +809,15 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   readonly attachMenuOpen = this._attachMenuOpen.asReadonly();
 
   /**
-   * Composer card classes. The 1px border doubles as the mode indicator:
-   * info while plan mode is active (agent plan mode or the `plan` permission
-   * level), primary while autopilot is on, neutral otherwise — the same
-   * conditions the textarea's former `border-info` / `border-primary` used.
+   * Composer card classes (design-spec §6 card line: surface-1, 12 px radius,
+   * hairline, inset highlight + elevation). The 1px border doubles as the
+   * mode indicator: info while plan mode is active (agent plan mode or the
+   * `plan` permission level), primary while autopilot is on, else the
+   * neutral hairline that strengthens on focus-within.
    */
   readonly cardClasses = computed(() => {
     const base =
-      'surface-2 relative flex flex-col rounded-2xl transition-colors';
+      'relative flex flex-col w-full max-w-[758px] mx-auto rounded-xl border bg-surface-1 shadow-[inset_0_1px_0_var(--surface-highlight),var(--elev-shadow)] transition-colors';
     if (
       this.autopilotState.agentPlanMode() ||
       this.autopilotState.permissionLevel() === 'plan'
@@ -669,7 +827,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     if (this.autopilotState.enabled()) {
       return `${base} border-primary/40 focus-within:border-primary/60`;
     }
-    return `${base} border-base-content/10 focus-within:border-base-content/25`;
+    return `${base} border-surface-border focus-within:border-[var(--surface-border-strong)]`;
   });
 
   private _lastSessionId: string | null = null;

@@ -1,7 +1,8 @@
 /**
- * BackgroundAgentTrayComponent — row mapping from the stores to the strip
+ * SessionAgentTrayService — row mapping from the stores to the strip
  * view-model: labels, tidy summaries, stats fields and the effective status of
- * a background agent whose subagent record already finished.
+ * a background agent whose subagent record already finished. (Moved from the
+ * deleted background-agent tray component spec, TASK_2026_677 R2; same cases.)
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -13,8 +14,11 @@ import {
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
-import { BackgroundAgentTrayComponent } from './background-agent-tray.component';
+import { SubagentTranscriptViewerService } from '../subagent-transcript-viewer.service';
+import { SessionAgentTrayService } from './session-agent-tray.service';
+
+/** A resolved session scope: every record below is unattributed, so visible. */
+const SCOPE = 'session-a';
 
 function record(
   parentToolUseId: string,
@@ -38,13 +42,12 @@ function background(
   } as BackgroundAgentEntry;
 }
 
-describe('BackgroundAgentTrayComponent — entry mapping', () => {
+describe('SessionAgentTrayService — entry mapping', () => {
   function entriesFor(
     records: SubagentRecord[],
     backgrounds: BackgroundAgentEntry[] = [],
   ) {
     TestBed.configureTestingModule({
-      imports: [BackgroundAgentTrayComponent],
       providers: [
         {
           provide: AgentMonitorStore,
@@ -71,9 +74,8 @@ describe('BackgroundAgentTrayComponent — entry mapping', () => {
         },
       ],
     });
-    return TestBed.createComponent(
-      BackgroundAgentTrayComponent,
-    ).componentInstance.entries();
+    const contexts = TestBed.inject(SessionAgentTrayService).contextsFor(SCOPE);
+    return Array.from(contexts.values(), (ctx) => ctx.entry);
   }
 
   afterEach(() => TestBed.resetTestingModule());

@@ -15,13 +15,16 @@ import {
   WorkflowBadgeComponent,
   TabManagerService,
 } from '@ptah-extension/chat';
-import type { CompactRailState } from '@ptah-extension/chat-ui';
+import { ContextRingComponent, limitAwareDot, type CompactRailState, type SessionLimitSummary } from '@ptah-extension/chat-ui';
 import type { TabViewMode } from '@ptah-extension/chat-types';
+import { CanvasLayoutService } from '../canvas-layout.service';
+
+let nextDetailsDescriptionId = 0;
 
 @Component({
   selector: 'ptah-canvas-focus-header',
   standalone: true,
-  imports: [SendToMessagingComponent, WorkflowBadgeComponent],
+  imports: [SendToMessagingComponent, WorkflowBadgeComponent, ContextRingComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -70,6 +73,28 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
      */
       .pane-quiet .text-base-content-muted {
         color: oklch(var(--bcm, var(--bc)));
+      }
+      .details-dot {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 7px;
+        height: 7px;
+        border-radius: 9999px;
+        box-shadow: 0 0 0 2px oklch(var(--b1));
+        pointer-events: none;
+      }
+      [data-dot='need'] > .details-dot {
+        background-color: var(--state-ink-need, oklch(var(--wa)));
+      }
+      [data-dot='err'] > .details-dot {
+        background-color: var(--state-ink-err, oklch(var(--er)));
+      }
+      [data-limit='near'] {
+        border-color: color-mix(in oklch, var(--state-ink-need, oklch(var(--wa))) 55%, transparent);
+      }
+      [data-limit='at'] {
+        border-color: color-mix(in oklch, var(--state-ink-err, oklch(var(--er))) 55%, transparent);
       }
     `,
   ],
@@ -163,19 +188,42 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
           {{ viewMode() === 'full' ? 'Compact' : 'Full' }}
         }
       </button>
-      @if (splitDisplayed()) {
+      @if (splitDisplayed() || compactDetails()) {
+        @if (shownLimit(); as limit) {
+          <span
+            role="status"
+            class="inline-flex h-[22px] shrink-0 items-center rounded-md border px-2 text-[11px] font-medium"
+            [class.text-state-need]="limit.state === 'near'"
+            [class.text-state-err]="limit.state === 'at'"
+            [attr.data-limit]="limit.state"
+            [attr.title]="limit.fullText"
+          >
+            {{ limit.state === 'at' ? 'At limit' : 'Limit near' }}
+            @if (limit.fullText) { <span class="sr-only">: {{ limit.fullText }}</span> }
+          </span>
+        }
         <button
           type="button"
-          class="btn btn-ghost btn-xs"
+          class="btn btn-ghost btn-xs relative"
           data-details
           aria-label="Open details"
           title="Session details"
           aria-haspopup="dialog"
           [attr.aria-expanded]="detailsOpen()"
+          [attr.aria-describedby]="shownDescription() ? descriptionId : null"
+          [attr.data-dot]="detailsDot()"
           (click)="detailsRequested.emit()"
         >
+          @if (detailsDot()) { <span class="details-dot" aria-hidden="true"></span> }
+          @let percent = shownRingPercent();
+          @if (percent !== null) {
+            <ptah-context-ring class="pointer-events-none absolute inset-0" [percent]="percent" [size]="28" />
+          }
           ⓘ
         </button>
+        @if (shownDescription()) {
+          <span class="sr-only" [id]="descriptionId">{{ shownDescription() }}</span>
+        }
       }
       <button
         #overflow
@@ -247,6 +295,7 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
 })
 export class CanvasFocusHeaderComponent implements DoCheck {
   private readonly tabs = inject(TabManagerService);
+  private readonly layout = inject(CanvasLayoutService, { optional: true });
   readonly workflow = computed(
     () => this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab.workflow,
   );
@@ -259,10 +308,25 @@ export class CanvasFocusHeaderComponent implements DoCheck {
   readonly running = input(false);
   readonly viewMode = input<TabViewMode>('full');
   readonly band = input<'xl' | 'lg' | 'md' | 'sm'>('lg');
+  readonly compactDetails = computed(() => {
+    const width = this.layout?.containerWidth() ?? 0;
+    return width > 0 && width < 400;
+  });
   /** Two panes are shown: the header offers Details and the split actions. */
   readonly splitDisplayed = input(false);
   /** The split Details overlay is open on this pane (drives `aria-expanded`). */
   readonly detailsOpen = input(false);
+  readonly limitCue = input<SessionLimitSummary | null>(null);
+  readonly contextRingPercent = input<number | null>(null);
+  readonly toggleDescription = input('');
+  readonly descriptionId = `rail-details-description-${++nextDetailsDescriptionId}`;
+  readonly shownLimit = computed(() => {
+    const cue = this.limitCue();
+    return !this.detailsOpen() && cue?.state !== 'none' ? cue : null;
+  });
+  readonly shownRingPercent = computed(() => this.detailsOpen() ? null : this.contextRingPercent());
+  readonly shownDescription = computed(() => this.detailsOpen() ? '' : this.toggleDescription());
+  readonly detailsDot = computed(() => limitAwareDot(null, this.detailsOpen(), this.limitCue()));
   /** Split only: this pane is the active one (accent) or not (quiet). */
   readonly paneFocused = input(true);
   /** Split only: the pane's visual position, 1 for left/top, 2 for right/bottom. */

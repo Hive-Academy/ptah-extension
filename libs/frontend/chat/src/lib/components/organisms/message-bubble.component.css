@@ -9,20 +9,29 @@
    scroll up through a long session. */
 
 /* ---------------------------------------------------------------------------
-   Smooth collapse/expand of the bubble body using CSS grid `0fr/1fr` rows.
-   Animates height implicitly without measuring in JS — same pattern as the
-   chat-view input collapse wrapper. The `inner` element provides the
-   `min-height: 0; overflow: hidden` clipping so children can be tall.
+   Work-log collapse (design-spec §3.3) using CSS grid `0fr/1fr` rows: animates
+   height without measuring in JS. The `inner` element clips (`min-height: 0;
+   overflow: hidden`). A closed log turns `visibility: hidden` once the 260 ms
+   transition ends, so its rows are neither focusable nor read.
    --------------------------------------------------------------------------- */
 
 :host ::ng-deep .bubble-collapse-wrapper {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  visibility: visible;
+  transition:
+    grid-template-rows 260ms
+      var(--ptah-ease-soft, cubic-bezier(0.22, 0.61, 0.36, 1)),
+    visibility 0s linear 0s;
 }
 
 :host ::ng-deep .bubble-collapse-wrapper.bubble-collapsed {
   grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows 260ms
+      var(--ptah-ease-soft, cubic-bezier(0.22, 0.61, 0.36, 1)),
+    visibility 0s linear 260ms;
 }
 
 :host ::ng-deep .bubble-collapse-inner {
@@ -30,45 +39,32 @@
   overflow: hidden;
 }
 
-/* Per-bubble fade keyframes (badges/footer enter/leave). Kept local so
-   they coexist with the global chat-view animations without leaking. */
-@keyframes bubbleFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Final answer (§3.4): paragraph gap 12 px (8 px in compact density) and the
+   inline-code pill. Block code, lists and headings keep the prose styles. */
+:host ::ng-deep .cs-answer markdown p {
+  margin-bottom: 12px;
 }
 
-@keyframes bubbleFadeOut {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
+:host ::ng-deep .cs-compact .cs-answer markdown p {
+  margin-bottom: 8px;
 }
 
-:host ::ng-deep .bubble-fade-enter {
-  animation: bubbleFadeIn 240ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+:host ::ng-deep .cs-answer markdown p:last-child {
+  margin-bottom: 0;
 }
 
-:host ::ng-deep .bubble-fade-leave {
-  animation: bubbleFadeOut 160ms cubic-bezier(0.4, 0, 0.2, 1) both;
+:host ::ng-deep .cs-answer markdown :not(pre) > code {
+  font-size: 11.5px;
+  padding: 1px 6px;
+  background-color: var(--surface-3);
+  border: 1px solid var(--surface-border);
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :host ::ng-deep .bubble-collapse-wrapper {
+  :host ::ng-deep .bubble-collapse-wrapper,
+  :host ::ng-deep .bubble-collapse-wrapper.bubble-collapsed {
     transition: none !important;
-  }
-  :host ::ng-deep .bubble-fade-enter,
-  :host ::ng-deep .bubble-fade-leave {
-    animation: none !important;
   }
 }
 

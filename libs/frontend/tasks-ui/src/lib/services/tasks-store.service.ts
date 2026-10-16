@@ -44,13 +44,13 @@ import {
   type TasksUpdateMetadataResult,
 } from '@ptah-extension/shared';
 import { isTaskExclusionReason } from '../task-presentation';
+import { TASKS_CHANGED_MESSAGE_TYPE } from '../tasks-changed';
 
 /**
- * Raw webview message type broadcast by the backend `TasksRpcHandlers` whenever
- * the on-disk `.ptah/specs` index changes (write / watcher / reindex). Dispatched
- * by `MessageRouterService` purely by type string — mirrors `git:worktreeChanged`.
+ * Re-exported under its original name so `services.ts` and every existing
+ * importer keep working; the constant itself lives in `../tasks-changed`.
  */
-export const TASKS_CHANGED_MESSAGE_TYPE = 'tasks:changed';
+export { TASKS_CHANGED_MESSAGE_TYPE };
 
 /** Full scans may cover hundreds of task folders and need a batch-sized budget. */
 const REINDEX_TIMEOUT_MS = 120_000;

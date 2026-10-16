@@ -27,8 +27,11 @@ import type {
   imports: [LucideAngularModule],
   template: `
     <button
-      class="btn btn-xs btn-ghost btn-square"
+      [class]="turnActionSize()
+        ? 'inline-grid h-7 w-7 place-items-center rounded-md text-base-content-muted hover:bg-base-content/[.08] hover:text-base-content'
+        : 'btn btn-xs btn-ghost btn-square'"
       [class.text-success]="isCopied()"
+      type="button"
       aria-label="Copy message"
       [title]="isCopied() ? 'Copied!' : 'Copy'"
       (click)="copyMessage()"
@@ -46,6 +49,8 @@ export class CopyButtonComponent {
 
   /** The message to copy content from */
   readonly message = input.required<ExecutionChatMessage>();
+  /** Match the 28 px turn actions; other copy buttons retain their current size. */
+  readonly turnActionSize = input<boolean>(false);
 
   /** Lucide icons */
   readonly CopyIcon = Copy;

@@ -600,8 +600,8 @@ describe('ChatInputComponent', () => {
 
     it('uses a neutral border when no mode is active', () => {
       const classes = component.cardClasses();
-      expect(classes).toContain('surface-2');
-      expect(classes).toContain('border-base-content/10');
+      expect(classes).toContain('bg-surface-1');
+      expect(classes).toContain('border-surface-border');
       expect(classes).not.toContain('border-2');
     });
 

@@ -39,6 +39,8 @@ import {
  * Configuration options for positioning floating elements.
  */
 export interface FloatingUIOptions {
+  /** Element whose visible bounds constrain flip and shift. */
+  boundary?: HTMLElement;
   /**
    * Placement of the floating element relative to reference.
    * @default 'bottom-start'
@@ -136,11 +138,12 @@ export class FloatingUIService {
       flip: enableFlip = true,
       shift: enableShift = true,
       shiftPadding = 8,
+      boundary,
     } = options;
     const middleware = [
       offset(offsetValue),
-      ...(enableFlip ? [flip()] : []),
-      ...(enableShift ? [shift({ padding: shiftPadding })] : []),
+      ...(enableFlip ? [flip({ boundary })] : []),
+      ...(enableShift ? [shift({ boundary, padding: shiftPadding })] : []),
     ];
     // `fixed` matches the `position: fixed` that applyPosition writes: with the default `absolute`, `x`/`y` carry
     // the page scroll, and a scrolled page put the CLI matrix Cursor panel hundreds of px off. Set it first:

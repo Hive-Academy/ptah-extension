@@ -15,13 +15,9 @@ import { test, expect } from '../../support/fixtures';
  *    `message_complete` for that delivery with NOTHING between them. After
  *    the fix it emits nothing at all for a content-free delivery.
  * 3. `execution-tree-builder.service.ts`'s `buildMessageNode` builds a node
- *    for ANY `message_start` it can find, regardless of child count — it has
- *    no empty-node guard and none is being added here (that would be a
- *    `libs/backend` change, out of scope for this spec). So the ONLY thing
- *    standing between "no visible node" and a permanent "Assistant response"
- *    bubble is whether the naked envelope reaches the frontend at all.
- * 4. `message-summary.utils.ts` falls back to the literal title
- *    'Assistant response' for a finalized message with no text content.
+ *    for ANY `message_start` it can find, regardless of child count. The
+ *    naked envelope therefore produces an empty assistant turn in the clean
+ *    transcript if it reaches the frontend.
  *
  * Method: this harness has no way to drive the real SDK, so these specs
  * inject `chat:chunk` (`MESSAGE_TYPES.CHAT_CHUNK`) payloads directly on the
@@ -35,14 +31,10 @@ import { test, expect } from '../../support/fixtures';
  * exactly how a brand-new canvas chat tile picks up its first turn in
  * production.
  *
- * Observable: `[data-testid="chat-tool-output"]` is the assistant bubble's
- * own stable test id (`message-bubble.component.html`); the two things
- * checked on it are (a) literal visible text — the real assistant reply —
- * and (b) the literal fallback title string `'Assistant response'`
- * (`message-summary.utils.ts`'s only fallback branch, shown once the
- * message is finalized and its collapsible header renders). Both are
- * evidence a human reading the UI can also see, not an implementation
- * artifact.
+ * Observable: `[data-testid="chat-tool-output"]` is the assistant turn's
+ * stable test id (`message-bubble.component.html`). A naked envelope leaves
+ * a visible assistant article with its settled-turn action row but no answer
+ * or work log. The real delivery produces one article with answer text.
  */
 
 const CHAT_CHUNK = 'chat:chunk';
@@ -143,22 +135,21 @@ test.describe('Empty assistant-bubble envelope (backend fix, TASK_2026_366)', ()
     await expect(bubble).toHaveCount(1);
     await expect(bubble).toContainText(REAL_TEXT_MARKER);
 
-    // Finalize the turn so the collapsible header (which would show the
-    // 'Assistant response' fallback title, were this message empty) renders.
+    // Finalize the turn so its settled clean-turn presentation renders.
     await ui.pushEvent(turnStateIdle(sessionId, t0 + 5));
 
     // Assertion 1: no separate/leftover empty assistant node exists — there
     // is exactly one bubble, sharing `messageId`'s single root, and it is
-    // the real one, not the fallback placeholder.
+    // the real one, with an answer instead of an empty turn.
     await expect(bubble).toHaveCount(1);
     await expect(bubble).toContainText(REAL_TEXT_MARKER);
-    await expect(bubble).not.toContainText('Assistant response');
+    await expect(bubble.locator('.cs-answer')).toContainText(REAL_TEXT_MARKER);
 
     await ui.goto('dashboard');
     await expect(page.locator('ptah-dashboard-grid')).toBeVisible();
   });
 
-  test('the naked envelope alone (no follow-up ever) reproduces the pre-fix empty "Assistant response" bubble — proving the assertions above are falsifiable', async ({
+  test('the naked envelope alone (no follow-up ever) reproduces the pre-fix empty assistant turn — proving the assertions above are falsifiable', async ({
     ui,
   }) => {
     const page = ui.page;
@@ -179,12 +170,14 @@ test.describe('Empty assistant-bubble envelope (backend fix, TASK_2026_366)', ()
     await expect(bubble).toHaveCount(1);
     await expect(bubble).not.toContainText(REAL_TEXT_MARKER);
 
-    // Finalize — this is the moment the historical bug report describes: "a
-    // message group with no text, no tools and no files, titled 'Assistant
-    // response'".
+    // Finalize: the clean turn now renders an empty assistant article instead
+    // of the former "Assistant response" header.
     await ui.pushEvent(turnStateIdle(sessionId, t0 + 2));
 
-    await expect(bubble).toContainText('Assistant response');
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toHaveAttribute('aria-label', 'Assistant');
+    await expect(bubble.locator('[data-testid="turn-action-row"]')).toBeVisible();
+    await expect(bubble.locator('.cs-answer, .cs-log')).toHaveCount(0);
     await expect(bubble).not.toContainText(REAL_TEXT_MARKER);
 
     await ui.goto('dashboard');

@@ -3,7 +3,12 @@ import type {
   MonitoredAgent,
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
+import {
+  cliLaneStatusWord,
+  subagentStatusWord,
+} from '@ptah-extension/chat-ui';
 import type {
+  AgentStatusWord,
   CompactLaneKind,
   CompactLaneRow,
   CompactLaneStatus,
@@ -40,12 +45,29 @@ export function parseLaneKey(
   return kind ? { kind, id: key.slice(colon + 1) } : null;
 }
 
-function laneStatus(status: string, waiting: boolean): CompactLaneStatus {
-  if (waiting || status === 'pending' || status === 'paused') return 'waiting';
-  if (status === 'failed' || status === 'timeout') return 'error';
-  if (status === 'completed') return 'done';
-  if (status === 'stopped' || status === 'killed') return 'stopped';
-  return 'running';
+/**
+ * Compact rows keep their five states: `failed` reads `error`, `queued` reads
+ * `waiting`. The shared mapper reads a status outside its type as `stopped`;
+ * compact rows have always shown such a status as `running` (`pending` /
+ * `paused` as `waiting`, `timeout` as `error`), so only a real `stopped` /
+ * `killed` stays `stopped`.
+ */
+function toCompactLaneStatus(
+  word: AgentStatusWord,
+  status: string,
+): CompactLaneStatus {
+  switch (word) {
+    case 'failed':
+      return 'error';
+    case 'queued':
+      return 'waiting';
+    case 'stopped':
+      if (status === 'stopped' || status === 'killed') return 'stopped';
+      if (status === 'timeout') return 'error';
+      return status === 'pending' || status === 'paused' ? 'waiting' : 'running';
+    default:
+      return word;
+  }
 }
 
 /** Use strict ownership for canvas-scoped cards; other callers keep tolerant CLI visibility. */
@@ -67,13 +89,19 @@ export function buildLaneSummary(
         id: laneKey('cli', agent.agentId),
         name: agent.displayName || agent.cli,
         kind: 'cli',
-        status: laneStatus(agent.status, agent.permissionQueue.length > 0),
+        status: toCompactLaneStatus(
+          cliLaneStatusWord(agent.status, agent.permissionQueue.length),
+          agent.status,
+        ),
         startedAt: agent.startedAt,
         endedAt: agent.completedAt ?? null,
       })),
     ...subagents.map((agent): CompactLaneRow => {
       const kind = agent.status === 'background' ? 'background' : 'subagent';
-      const status = laneStatus(agent.status, false);
+      const status = toCompactLaneStatus(
+        subagentStatusWord(agent.status, false),
+        agent.status,
+      );
       return {
         id: laneKey(kind, agent.parentToolUseId),
         name:
