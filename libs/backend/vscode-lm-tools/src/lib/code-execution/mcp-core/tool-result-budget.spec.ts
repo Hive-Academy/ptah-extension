@@ -156,7 +156,7 @@ describe('budget tables', () => {
     });
     expect(getToolResultBudget('ptah_route_decide')).toEqual({
       chars: 64_000,
-      tokens: 16_000,
+      tokens: 25_600,
     });
   });
 

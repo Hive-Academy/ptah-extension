@@ -169,7 +169,7 @@ describe('ptah_outcome_report', () => {
     const submit = jest.spyOn(f.pipeline, 'submit');
     const reply = await handleOutcomeReportToolCall(
       deliverables({ runId: 'subagent:A' }, 'missing.txt'),
-      { ...f.deps, workspaceRoot: '' },
+      () => ({ ...f.deps, workspaceRoot: '' }),
       {} as Logger,
     );
 
@@ -182,6 +182,22 @@ describe('ptah_outcome_report', () => {
     expect(new KeyValueOutcomeJournal(f.storage).snapshot()).toEqual(before);
     expect(await f.store.get('subagent:A')).toBeNull();
     await f.pipeline.dispose();
+  });
+
+  it('returns a tool error, not a rejection, when the store resolver throws (P6 re-review N-2)', async () => {
+    const reply = await handleOutcomeReportToolCall(
+      { kind: 'review', target: { runId: 'subagent:A' }, verdict: 'approved' },
+      () => {
+        throw new Error('STATE_STORAGE is not registered');
+      },
+      {} as Logger,
+    );
+
+    expect(reply).toEqual({
+      isError: true,
+      invalidArguments: false,
+      text: 'ptah_outcome_report failed: STATE_STORAGE is not registered',
+    });
   });
 
   it.each(['runId', 'agentId'] as const)(

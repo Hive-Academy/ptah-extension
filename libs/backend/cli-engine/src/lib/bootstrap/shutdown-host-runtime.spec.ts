@@ -309,10 +309,12 @@ describe('shutdownHostRuntime', () => {
     const order: string[] = [];
     const container = {
       isRegistered: jest.fn((candidate: symbol) => candidate === token),
-      resolve: jest.fn(() => async () => {
-        order.push('lane outcomes');
-        throw new Error('journal drain failed');
-      }),
+      resolve: jest.fn(() => ({
+        dispose: async () => {
+          order.push('lane outcomes');
+          throw new Error('journal drain failed');
+        },
+      })),
     } as unknown as DependencyContainer;
 
     await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
@@ -342,8 +344,10 @@ describe('shutdownHostRuntime', () => {
             },
           };
         if (token === LANE_OUTCOME_TOKENS.DISPOSER)
-          return async () => {
-            order.push('outcomes');
+          return {
+            dispose: async () => {
+              order.push('outcomes');
+            },
           };
         if (token === WORKSPACE_WATCHER_TOKEN)
           return {

@@ -428,8 +428,17 @@ export async function withEngine<T>(
         );
       }
     }
-    // Agents can stage lane outcomes while they exit. Drain them before Thoth
-    // closes the SQLite connection used by the outcome store.
+    // Before the SDK adapter, because a spawned CLI agent is a child of this
+    // process and `process.exit` orphans anything still live. A completed
+    // continuation-capable agent holds its subprocess open on purpose, so
+    // nothing else in this chain ends it (TASK_2026_323 B11). The same call
+    // then stops the ptah-cli proxy leases those agents were speaking through,
+    // which nothing in the CLI or TUI used to do at all (TASK_2026_326).
+    //
+    // Also before Thoth: an agent's exit stages a lane-outcome write, and the
+    // same call then drains those writes (bounded by the drain itself), so
+    // they land before `disposeThoth` closes the SQLite connection the
+    // outcome store writes through (TASK_2026_646 P6).
     await shutdownHostRuntime(ctx.container);
     if (ctx.thothRefs) {
       try {

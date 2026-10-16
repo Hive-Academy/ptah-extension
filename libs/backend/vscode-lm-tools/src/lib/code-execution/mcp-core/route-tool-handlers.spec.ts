@@ -1,6 +1,14 @@
 import 'reflect-metadata';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { RouteDecideResult } from '@ptah-extension/lane-routing';
-import { ROUTE_DECIDE_RESULT_MAX_CHARS } from './tool-result-budget';
+import { countTokens } from '@ptah-extension/tool-output-reducers';
+import {
+  applyToolResultBudget,
+  getToolResultBudget,
+  ROUTE_DECIDE_RESULT_BUDGET,
+} from './tool-result-budget';
 import {
   ROUTING_UNAVAILABLE_MESSAGE,
   RoutingUnavailableError,
@@ -116,10 +124,36 @@ describe('handleRouteToolCall', () => {
     kind: 'implement' as const,
   }));
 
+  const MAX_CHARS = ROUTE_DECIDE_RESULT_BUDGET.chars;
+  const MAX_TOKENS = ROUTE_DECIDE_RESULT_BUDGET.tokens;
+
   function hundredPhaseResult(reasonRepeats: number): RouteDecideResult {
+    return withReasons(() =>
+      'Selected by the routing policy. '.repeat(reasonRepeats),
+    );
+  }
+
+  const CLIS = ['codex', 'grok', 'gemini', 'copilot', 'ptah-cli'];
+
+  /**
+   * A reason as `compile-reasons` writes it: scores, ranks and quota numbers
+   * that differ per phase. Such text is token-dense (about 2.4 chars/token),
+   * far denser than the 4 chars/token a char-derived budget assumes.
+   */
+  function scoredReason(phase: number, length: number): string {
+    let text = '';
+    let k = phase * 31 + 7;
+    while (text.length < length) {
+      text += `${CLIS[k % CLIS.length]} ${(k * 37) % 100}/${(k * 11) % 97}=0.${(k * 7919) % 1000}; `;
+      k++;
+    }
+    return text.slice(0, length);
+  }
+
+  function withReasons(reason: (phase: number) => string): RouteDecideResult {
     return {
       stage: 'gate-0.1',
-      roster: hundredPhases.map((phase) => ({
+      roster: hundredPhases.map((phase, index) => ({
         phaseId: phase.id,
         status: 'chosen' as const,
         executor: {
@@ -136,7 +170,7 @@ describe('handleRouteToolCall', () => {
         confidence: 0.8,
         fallbackCause: null,
         modelProposal: null,
-        reason: 'Selected by the routing policy. '.repeat(reasonRepeats),
+        reason: reason(index),
       })),
       overallSource: 'ranking',
       overallConfidence: 0.8,
@@ -169,7 +203,7 @@ describe('handleRouteToolCall', () => {
     const result = hundredPhaseResult(8);
     const measuredChars = JSON.stringify(result).length;
     expect(measuredChars).toBe(54_375);
-    expect(measuredChars).toBeLessThanOrEqual(ROUTE_DECIDE_RESULT_MAX_CHARS);
+    expect(measuredChars).toBeLessThanOrEqual(MAX_CHARS);
 
     const reply = await callWith(result);
     expect(reply.isError).toBe(false);
@@ -178,9 +212,7 @@ describe('handleRouteToolCall', () => {
 
   it('returns a tool error, never a cut prefix, for an over-limit route result', async () => {
     const result = hundredPhaseResult(32);
-    expect(JSON.stringify(result).length).toBeGreaterThan(
-      ROUTE_DECIDE_RESULT_MAX_CHARS,
-    );
+    expect(JSON.stringify(result).length).toBeGreaterThan(MAX_CHARS);
 
     const reply = await callWith(result);
     expect(reply).toMatchObject({
@@ -188,6 +220,58 @@ describe('handleRouteToolCall', () => {
       text: expect.stringContaining('result exceeds'),
     });
     expect(() => JSON.parse(reply.text)).toThrow();
+  });
+
+  describe('token-dense 100-phase results (P6 re-review N-1)', () => {
+    let spoolRoot: string;
+
+    beforeAll(() => {
+      spoolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'route-budget-'));
+    });
+
+    afterAll(() => {
+      fs.rmSync(spoolRoot, { recursive: true, force: true });
+    });
+
+    it('returns a varied-reason result whole on success and through the tool budget', async () => {
+      const result = withReasons((phase) => scoredReason(phase, 300));
+      const text = JSON.stringify(result);
+      expect(text.length).toBe(58_775);
+      expect(text.length).toBeLessThanOrEqual(MAX_CHARS);
+      // Over a 4 chars/token budget (16,000 tokens), within the route budget.
+      expect(countTokens(text)).toBeGreaterThan(MAX_CHARS / 4);
+      expect(countTokens(text)).toBeLessThanOrEqual(MAX_TOKENS);
+
+      const reply = await callWith(result);
+      expect(reply).toEqual({ isError: false, text });
+
+      expect(getToolResultBudget('ptah_route_decide')).toBe(
+        ROUTE_DECIDE_RESULT_BUDGET,
+      );
+      const budgeted = await applyToolResultBudget({
+        text: reply.text,
+        toolName: 'ptah_route_decide',
+        requestId: 'route-n1',
+        spoolRoot,
+      });
+      expect(budgeted.truncated).toBe(false);
+      expect(budgeted.reduced).toBe(false);
+      expect(budgeted.text).toBe(text);
+      expect(JSON.parse(budgeted.text)).toEqual(result);
+    });
+
+    it('returns a tool error for a result under the char limit but over the token limit', async () => {
+      const result = withReasons((phase) => scoredReason(phase, 340));
+      const text = JSON.stringify(result);
+      expect(text.length).toBeLessThanOrEqual(MAX_CHARS);
+      expect(countTokens(text)).toBeGreaterThan(MAX_TOKENS);
+
+      const reply = await callWith(result);
+      expect(reply).toEqual({
+        isError: true,
+        text: `ptah_route_decide failed: result exceeds the ${MAX_CHARS}-character / ${MAX_TOKENS}-token tool limit`,
+      });
+    });
   });
 
   it('returns the F9 sentence when routing is not registered', async () => {

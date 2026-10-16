@@ -59,15 +59,23 @@ describe('deactivate() teardown order', () => {
     expect(deactivateBody).toContain(`await ${AGENT_DISPOSE}`);
   });
 
-  it('awaits the bounded lane-outcomes drain before clearing the container', () => {
-    const drainCall =
-      'DIContainer.resolve<() => Promise<void>>(laneOutcomesDisposer)()';
-    const race = deactivateBody.indexOf('await Promise.race([');
-    expect(race).toBeGreaterThan(-1);
-    expect(deactivateBody.indexOf(drainCall)).toBeGreaterThan(race);
-    expect(deactivateBody).toContain('LANE_OUTCOME_DRAIN_BUDGET_MS');
-    expect(deactivateBody.indexOf(drainCall)).toBeLessThan(
-      deactivateBody.indexOf('DIContainer.clear()'),
+  it('awaits the self-bounded lane-outcomes drain after the reap and before clearing the container', () => {
+    // The budget lives in `startAndRegisterLaneOutcomes` (P6 re-review style
+    // N1): this host awaits `dispose()` and owns no timer or constant of its
+    // own.
+    const drainCall = 'await DIContainer.resolve<LaneOutcomesDisposer>(';
+    const drainIndex = deactivateBody.indexOf(drainCall);
+    expect(drainIndex).toBeGreaterThan(-1);
+    expect(deactivateBody.split(drainCall)).toHaveLength(2);
+    expect(drainIndex).toBeGreaterThan(
+      deactivateBody.indexOf('await agentsReaped;'),
+    );
+    // The statement, not the comment above the drain that names it.
+    expect(drainIndex).toBeLessThan(
+      deactivateBody.indexOf('DIContainer.clear();'),
+    );
+    expect(fs.readFileSync(MAIN_TS_PATH, 'utf-8')).not.toContain(
+      'LANE_OUTCOME_DRAIN_BUDGET_MS',
     );
   });
 

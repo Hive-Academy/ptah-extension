@@ -1316,8 +1316,10 @@ describe('withEngine', () => {
               },
             };
           if (token === LANE_OUTCOME_TOKENS.DISPOSER)
-            return async () => {
-              order.push('lane outcomes');
+            return {
+              dispose: async () => {
+                order.push('lane outcomes');
+              },
             };
           return fake.__sdkAdapter;
         });

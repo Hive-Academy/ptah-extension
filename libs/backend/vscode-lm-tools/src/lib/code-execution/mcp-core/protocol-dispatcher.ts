@@ -2805,7 +2805,7 @@ async function outcomeReportResponse(
 ): Promise<MCPResponse> {
   const reply = await handleOutcomeReportToolCall(
     args,
-    deps.resolveOutcomeReport?.(),
+    deps.resolveOutcomeReport,
     deps.logger,
   );
   return reply.isError

@@ -124,6 +124,37 @@ describe('AgentToolDispatcher — agent_spawn schema', () => {
     });
     expect(toolResult(outcome).isError).toBeFalsy();
   });
+
+  it('answers a throwing outcome store resolver with a tool error (P6 re-review N-2)', async () => {
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    const dispatcher = new AgentToolDispatcher(
+      {} as PtahAPI,
+      logger,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        throw new Error('STATE_STORAGE is not registered');
+      },
+    );
+    const response = await dispatcher.dispatch('outcome_report', request, {
+      kind: 'review',
+      target: { runId: 'subagent:a1' },
+      verdict: 'approved',
+    });
+    expect(response?.error).toBeUndefined();
+    expect(toolResult(response)).toMatchObject({
+      isError: true,
+      structuredContent: { ptah_code: 'mcp_tool_failed' },
+    });
+  });
+
   it('accepts boolean force without forwarding it to the spawn API', async () => {
     const { dispatcher, spawn } = createHarness();
     const response = await dispatcher.dispatch('agent_spawn', request, {

@@ -13,13 +13,14 @@ import {
   RouteDecideArgsSchema,
   type RouteDecideResult,
 } from '@ptah-extension/lane-routing';
+import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
 import type { ZodError } from 'zod';
 import {
   ROUTING_UNAVAILABLE_MESSAGE,
   type RouteNamespace,
 } from '../namespace-builders/route-namespace.builder';
 import { ROUTE_DECIDE_TOOL_NAME } from './route-tools';
-import { ROUTE_DECIDE_RESULT_MAX_CHARS } from './tool-result-budget';
+import { ROUTE_DECIDE_RESULT_BUDGET } from './tool-result-budget';
 
 /** What the dispatcher needs to build a success or an `isError` result. */
 export interface RouteToolReply {
@@ -40,7 +41,11 @@ const SECRET_SHAPES: readonly RegExp[] = [
   /\b[A-Za-z0-9+/_-]{40,}={0,2}\b/g,
 ];
 
-/** One line naming each offending field. Same shape as the dispatcher. */
+/**
+ * One line naming each offending field (`a.b: message; (root): message`).
+ * The one Zod issue formatter of this server: the dispatcher's other tools
+ * and `ptah_outcome_report` import it from here.
+ */
 export function describeZodIssues(error: ZodError): string {
   return error.issues
     .map((issue) => {
@@ -76,6 +81,17 @@ export function routeFailureText(error: unknown): string {
   return `${ROUTE_DECIDE_TOOL_NAME} failed: ${redact(raw)}`;
 }
 
+/**
+ * Whether the budget step (`applyOutputBudget`) returns `text` byte-for-byte:
+ * the same two checks it makes, chars first, then the piecewise token count
+ * against {@link ROUTE_DECIDE_RESULT_BUDGET}. A text that fails either would
+ * be cut and spooled under a success flag, so the caller makes it an error.
+ */
+function returnedWhole(text: string): boolean {
+  const { chars, tokens } = ROUTE_DECIDE_RESULT_BUDGET;
+  return text.length <= chars && countTokensPiecewise(text, tokens) <= tokens;
+}
+
 function invalidArguments(error: ZodError): RouteToolReply {
   return {
     isError: true,
@@ -100,10 +116,11 @@ export async function handleRouteToolCall(
   try {
     const result: RouteDecideResult = await route.decide(parsed.data);
     const text = JSON.stringify(result);
-    if (text.length > ROUTE_DECIDE_RESULT_MAX_CHARS) {
+    if (!returnedWhole(text)) {
+      const { chars, tokens } = ROUTE_DECIDE_RESULT_BUDGET;
       return {
         isError: true,
-        text: `${ROUTE_DECIDE_TOOL_NAME} failed: result exceeds the ${ROUTE_DECIDE_RESULT_MAX_CHARS}-character tool limit`,
+        text: `${ROUTE_DECIDE_TOOL_NAME} failed: result exceeds the ${chars}-character / ${tokens}-token tool limit`,
       };
     }
     return { isError: false, text };

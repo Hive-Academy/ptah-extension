@@ -64,3 +64,4 @@ export {
   startLaneOutcomes,
   startAndRegisterLaneOutcomes,
 } from './lib/di/start';
+export type { LaneOutcomesDisposer } from './lib/di/start';

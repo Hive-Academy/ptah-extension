@@ -1,8 +1,8 @@
 /**
  * Host-runtime teardown — end the OS-level resources a `ptah` process owns.
  *
- * Four subsystems hold resources or pending writes the operating system will not reclaim for us, or
- * reclaims only late, when the event loop is abandoned:
+ * Four subsystems hold resources or pending writes the operating system will
+ * not reclaim for us, or reclaims only late, when the event loop is abandoned:
  *
  *   1. `AgentProcessManager` — spawned CLI agent subprocesses. They are
  *      children of this process, and `process.exit` orphans anything still
@@ -14,25 +14,26 @@
  *      watch host (TASK_2026_437 C9). The host also exits on its own when this
  *      process's IPC channel closes; disposing here ends it and its timers
  *      deterministically instead of relying on that.
- *   4. Lane outcomes drains pending writes before persistence closes.
+ *   4. `LANE_OUTCOME_TOKENS.DISPOSER` — the lane-outcomes write drain. An
+ *      agent's exit stages an outcome write, so the drain runs after the
+ *      agents are ended and before Thoth closes SQLite (`with-engine.ts`).
+ *      The drain bounds itself (`startAndRegisterLaneOutcomes`).
  *
  * **Agents first, then proxies.** An agent subprocess speaks to its provider
  * *through* the proxy; ending the proxy first strands a live child on a dead
  * endpoint, where it will either hang or spew connection errors while it is
  * being killed anyway. This is the same order `apps/ptah-electron` uses on
- * `will-quit`. The watcher is independent of both and goes last.
+ * `will-quit`. The outcome drain follows them, and the watcher, independent of
+ * all three, goes last.
  *
  * Each step is guarded by `isRegistered` and wrapped in its own `try/catch`, so
  * a failure in one cannot stop the other and a bootstrap that never registered
- * a subsystem (`mode: 'minimal'` registers neither) pays nothing and warns
- * about nothing.
+ * a subsystem (`mode: 'minimal'` registers none of them) pays nothing and
+ * warns about nothing.
  */
 
 import type { DependencyContainer } from 'tsyringe';
 import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
-
-/** Maximum time to wait for a pending outcome drain during CLI teardown. */
-const LANE_OUTCOME_DRAIN_BUDGET_MS = 2000;
 
 /**
  * `TOKENS.AGENT_PROCESS_MANAGER` from `@ptah-extension/vscode-core`, resolved
@@ -59,7 +60,7 @@ const WORKSPACE_WATCHER_TOKEN = Symbol.for('PlatformWorkspaceWatcher');
 type ContainerLike = Pick<DependencyContainer, 'resolve' | 'isRegistered'>;
 
 /** The teardown verbs the subsystems expose; only the return type differs. */
-type TeardownVerb = 'disposeAll' | 'dispose' | 'call';
+type TeardownVerb = 'disposeAll' | 'dispose';
 type DisposableSubsystem = Record<TeardownVerb, () => void | Promise<void>>;
 
 /**
@@ -87,25 +88,7 @@ async function disposeSubsystem(
     ) {
       return;
     }
-    if (verb === 'call') {
-      const drain = container.resolve<() => Promise<void>>(token);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          drain(),
-          new Promise<void>((_, reject) => {
-            timer = setTimeout(
-              () => reject(new Error('drain timed out')),
-              LANE_OUTCOME_DRAIN_BUDGET_MS,
-            );
-          }),
-        ]);
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    } else {
-      await container.resolve<DisposableSubsystem>(token)[verb]();
-    }
+    await container.resolve<DisposableSubsystem>(token)[verb]();
   } catch (error: unknown) {
     // Reported on stderr rather than through the logger: this also runs from
     // signal handlers, mid-teardown, where the logger lives in the very
@@ -148,6 +131,23 @@ export async function shutdownPtahCliProxies(
 }
 
 /**
+ * Drain pending lane-outcome writes. Never throws, and settles within the
+ * drain's own budget (`startAndRegisterLaneOutcomes` registers a bounded
+ * disposer). No-op when lane outcomes were never started (`mode: 'minimal'`).
+ */
+export async function shutdownLaneOutcomes(
+  container: ContainerLike | undefined,
+): Promise<void> {
+  if (!container) return;
+  await disposeSubsystem(
+    container,
+    LANE_OUTCOME_TOKENS.DISPOSER,
+    'lane outcomes',
+    'dispose',
+  );
+}
+
+/**
  * Stop the workspace watcher and its forked host. Never throws. No-op when the
  * host never registered one.
  */
@@ -176,12 +176,6 @@ export async function shutdownHostRuntime(
 ): Promise<void> {
   await shutdownAgentProcesses(container);
   await shutdownPtahCliProxies(container);
-  if (container)
-    await disposeSubsystem(
-      container,
-      LANE_OUTCOME_TOKENS.DISPOSER,
-      'lane outcomes',
-      'call',
-    );
+  await shutdownLaneOutcomes(container);
   await shutdownWorkspaceWatcher(container);
 }

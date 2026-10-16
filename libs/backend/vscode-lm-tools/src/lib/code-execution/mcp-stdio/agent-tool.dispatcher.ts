@@ -344,7 +344,7 @@ export class AgentToolDispatcher {
   ): Promise<MCPResponse> {
     const reply = await handleOutcomeReportToolCall(
       args,
-      this.resolveOutcomeReport?.(),
+      this.resolveOutcomeReport,
       this.logger,
     );
     return reply.isError

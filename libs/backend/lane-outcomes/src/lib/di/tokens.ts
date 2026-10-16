@@ -11,6 +11,9 @@ export const LANE_OUTCOME_TOKENS = {
   FAILURE_CLASSIFIER: Symbol.for('PtahLaneOutcomeFailureClassifier'),
   /** Host logger registered by this library. */
   LOGGER: Symbol.for('PtahLaneOutcomeLogger'),
-  /** Awaited shutdown drain installed by the host. */
+  /**
+   * Bounded shutdown drain (`LaneOutcomesDisposer`), registered by
+   * `startAndRegisterLaneOutcomes`; each host's shutdown calls `dispose()`.
+   */
   DISPOSER: Symbol.for('PtahLaneOutcomesDisposer'),
 } as const;

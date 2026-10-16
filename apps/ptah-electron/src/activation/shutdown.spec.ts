@@ -139,11 +139,13 @@ describe('will-quit — the run-check kill', () => {
     const order: string[] = [];
     let finish!: () => void;
     const refs = minimalRefs(order);
-    refs.laneOutcomesDisposer = () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-        order.push('lane outcomes');
-      });
+    refs.laneOutcomesDisposer = {
+      dispose: () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+          order.push('lane outcomes');
+        }),
+    };
     refs.agentProcessManager = {
       disposeAll: async () => {
         order.push('agent reap');

@@ -14,7 +14,10 @@ import type {
   Logger,
 } from '@ptah-extension/vscode-core';
 import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
-import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import {
+  LANE_OUTCOME_TOKENS,
+  type LaneOutcomesDisposer,
+} from '@ptah-extension/lane-outcomes';
 import {
   AGENT_GENERATION_TOKENS,
   EnhancedPromptsService,
@@ -551,7 +554,7 @@ function captureShutdownHandles(
     coordinator.refs.laneOutcomesDisposer = container.isRegistered(
       LANE_OUTCOME_TOKENS.DISPOSER,
     )
-      ? container.resolve<() => Promise<void>>(LANE_OUTCOME_TOKENS.DISPOSER)
+      ? container.resolve<LaneOutcomesDisposer>(LANE_OUTCOME_TOKENS.DISPOSER)
       : null;
   } catch (error: unknown) {
     console.warn(

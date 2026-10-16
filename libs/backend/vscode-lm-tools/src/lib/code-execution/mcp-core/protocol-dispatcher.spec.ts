@@ -8271,6 +8271,32 @@ describe('protocol-handlers › route and outcome registration', () => {
       'outcome store unavailable',
     );
   });
+
+  it('answers a throwing outcome store resolver with a tool error, not a JSON-RPC error (P6 re-review N-2)', async () => {
+    const response = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        params: {
+          name: 'ptah_outcome_report',
+          arguments: {
+            kind: 'review',
+            target: { runId: 'subagent:a1' },
+            verdict: 'approved',
+          },
+        },
+      }),
+      buildDeps({
+        resolveOutcomeReport: () => {
+          throw new Error('STATE_STORAGE is not registered');
+        },
+      }),
+    );
+    expect(response.error).toBeUndefined();
+    expect(agentToolResult(response)).toEqual({
+      isError: true,
+      text: expect.stringContaining('STATE_STORAGE is not registered'),
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -34,16 +34,24 @@ function outcomeReportErrorText(error: unknown): string {
   return `${OUTCOME_REPORT_TOOL_NAME} failed: unknown error`;
 }
 
+/**
+ * The one `ptah_outcome_report` call path of the HTTP and stdio surfaces.
+ * `resolve` runs inside the `try`, so a store or pipeline factory that throws
+ * becomes a tool error like any other failure, never a rejected promise that
+ * the transport reports as a protocol error. Absent, or returning
+ * `undefined`: arguments are still parsed, and a valid call answers
+ * `outcome store unavailable`.
+ */
 export async function handleOutcomeReportToolCall(
   args: unknown,
-  resolved: OutcomeReportDependencies | undefined,
+  resolve: (() => OutcomeReportDependencies | undefined) | undefined,
   logger: Logger,
 ): Promise<OutcomeReportReply> {
-  const deps: OutcomeReportDependencies = resolved ?? {
-    workspaceRoot: '',
-    logger: adaptOutcomeLogger(logger),
-  };
   try {
+    const deps: OutcomeReportDependencies = resolve?.() ?? {
+      workspaceRoot: '',
+      logger: adaptOutcomeLogger(logger),
+    };
     const result = await runOutcomeReport(args, deps);
     return {
       isError: false,

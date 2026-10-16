@@ -75,22 +75,33 @@ function charBudget(chars: number): TextBudget {
 }
 
 /**
+ * `ptah_route_decide` returns one JSON roster that is useless once cut, so
+ * `handleRouteToolCall` turns a reply over either limit into a tool error
+ * before this budget runs, with the same two checks the budget engine makes
+ * before it returns a text whole. The chars fit a 100-phase result (the
+ * schema maximum, measured in route-tool-handlers.spec). The tokens are not
+ * derived at 4 chars/token: roster JSON with score- and id-heavy reasons
+ * measures about 2.4 chars/token, so a 100-phase result of 58,775 chars is
+ * 24,655 tokens. 25,600 tokens is the char ceiling at 2.5 chars/token.
+ */
+export const ROUTE_DECIDE_RESULT_BUDGET: TextBudget = Object.freeze({
+  tokens: 25_600,
+  chars: 64_000,
+});
+
+/**
  * Tools whose own description documents a larger bound. Nothing else is
  * overridden. `ptah_surface_get_state` promises that the whole answer stays
  * within `maxStateReadBytes` UTF-8 bytes; a UTF-16 length never exceeds the
  * UTF-8 byte length of the same text, so the byte bound is a valid char bound.
  */
-export const ROUTE_DECIDE_RESULT_MAX_CHARS = 64_000;
-
 export const TOOL_RESULT_BUDGET_OVERRIDES: Readonly<
   Record<string, TextBudget>
 > = Object.freeze({
   ptah_browser_content: charBudget(BROWSER_CONTENT_CHARS),
   ptah_session_read: charBudget(SESSION_READ_CHARS),
   ptah_surface_get_state: charBudget(SURFACE_LIMITS.maxStateReadBytes),
-  // Fits a 100-phase result (schema maximum, measured in route-tool-handlers.spec);
-  // a larger reply becomes a tool error before budgeting, never a cut prefix.
-  ptah_route_decide: charBudget(ROUTE_DECIDE_RESULT_MAX_CHARS),
+  ptah_route_decide: ROUTE_DECIDE_RESULT_BUDGET,
 });
 
 /**
