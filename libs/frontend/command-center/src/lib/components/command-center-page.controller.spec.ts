@@ -17,7 +17,9 @@ describe('CommandCenterPageController', () => {
     workspacePath: string;
     record: 'lastSession';
   } | null>(null);
-  const tabs = signal([]);
+  const tabs = signal<
+    { id: string; status: string; claudeSessionId?: string }[]
+  >([]);
   const terminalTurnPulses = signal<readonly TerminalTurnPulse[]>([]);
   const lastTerminalPulseByTab = signal<ReadonlyMap<string, TerminalTurnPulse>>(
     new Map(),
@@ -91,6 +93,7 @@ describe('CommandCenterPageController', () => {
     recordWriteFailure.set(null);
     terminalTurnPulses.set([]);
     lastTerminalPulseByTab.set(new Map());
+    tabs.set([]);
     permissionRequests.set([]);
     rpc.call.mockReset();
     questionRequests.set([]);
@@ -671,6 +674,49 @@ describe('CommandCenterPageController', () => {
     expect(transport.answer).not.toHaveBeenCalled();
   });
 
+  it('keeps a Tribunal request through the terminal pulse of a turn already running at send', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    tabs.set([
+      { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+    ]);
+    await page.sendCommand('run a council on X');
+    const nonce =
+      /"nonce":"([^"]+)"/.exec(
+        coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+      )?.[1] ?? '';
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'root-tab',
+          {
+            seq: 1,
+            tabId: 'root-tab',
+            sessionId: 'session',
+            workspacePath: '/workspace',
+            revision: 1,
+            phase: 'idle',
+            terminalReason: 'completed',
+            lastAssistantMessage: 'Earlier turn complete',
+            classification: 'success',
+            title: 'Command Center',
+            occurredAt: Date.now(),
+          },
+        ],
+      ]),
+    );
+    TestBed.tick();
+    offer(roster(nonce));
+    expect(page.pendingProposal()?.proposalId).toBe('p1');
+    expect(page.store.toast()?.message ?? '').not.toContain(
+      'Invalid Tribunal proposal',
+    );
+    expect(transport.answer).not.toHaveBeenCalledWith(
+      'q-roster',
+      expect.any(String),
+      'Decline',
+    );
+  });
+
   it('declines deviating untagged output on the root session while Tribunal is outstanding', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
     await page.sendCommand('Council review');
@@ -702,7 +748,7 @@ describe('CommandCenterPageController', () => {
     expect(coordinator.answerQuestion).not.toHaveBeenCalled();
   });
 
-  it('retries a failed automatic Decline and reports success only after answer succeeds', async () => {
+  it('blocks text and voice sends after a failed Decline until an explicit retry succeeds', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
     await page.sendCommand('Council review');
     transport.answer.mockReturnValueOnce(false);
@@ -722,10 +768,42 @@ describe('CommandCenterPageController', () => {
     TestBed.tick();
     expect(page.store.toast()?.message).toContain('could not be declined');
     expect(transport.answer).toHaveBeenCalledTimes(1);
-    questionRequests.set([{ ...request }]);
-    TestBed.tick();
+    coordinator.send.mockClear();
+    expect(await page.sendCommand('yes')).toBe(false);
+    expect(await page.voice['options'].sendTranscript('yes')).toBe(false);
+    expect(coordinator.send).not.toHaveBeenCalled();
+    expect(page.store.toast()?.message).toContain('Retry the Decline');
+    page.retryInvalidDecline();
     expect(transport.answer).toHaveBeenCalledTimes(2);
     expect(page.store.toast()?.message).toContain('It was declined');
+    expect(page.undeclinedInvalidQuestionId()).toBeNull();
+    expect(page['invalidRosterQuestionIds'].has(request.id)).toBe(true);
+    expect(await page.sendCommand('status')).toBe(true);
+  });
+
+  it('clears a failed Decline and its retry timer on exit', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('Council review');
+    transport.answer.mockReturnValue(false);
+    questionRequests.set([
+      {
+        id: 'q-deviating',
+        tabId: 'root-tab',
+        questions: [
+          {
+            question: 'Proceed?',
+            header: 'Council',
+            multiSelect: false,
+            options: [],
+          },
+        ],
+      },
+    ]);
+    TestBed.tick();
+    expect(page.undeclinedInvalidQuestionId()).toBe('q-deviating');
+    await page.exit();
+    expect(page.undeclinedInvalidQuestionId()).toBeNull();
+    expect(page['invalidDeclineTimer']).toBeNull();
   });
 
   it('keeps approval shown when a roster arrives and shows roster after permission resolves', async () => {

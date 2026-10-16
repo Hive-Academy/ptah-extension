@@ -58,6 +58,7 @@ export class CommandCenterPageController {
     nonce: string;
     rootSessionId: string;
     minPulseSeq: number;
+    skipNextPulse: boolean;
   } | null>(null);
   private handledRosterQuestionId: string | null = null;
   private rosterTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -79,6 +80,9 @@ export class CommandCenterPageController {
   private deliveredPulseSeq = 0;
   private readonly spokenRequestIds = new Set<string>();
   private readonly invalidRosterQuestionIds = new Set<string>();
+  public readonly undeclinedInvalidQuestionId = signal<string | null>(null);
+  private invalidDeclineAttempts = 0;
+  private invalidDeclineTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly activeTribunalRequest = computed(() => {
     const expected = this.expectedRequest();
     return expected?.rootSessionId === this.store.sessionId() ? expected : null;
@@ -216,33 +220,26 @@ export class CommandCenterPageController {
   );
 
   public constructor() {
+    this.destroyRef.onDestroy(() => this.clearInvalidDeclineTimer());
     effect(() => {
+      const pendingId = this.undeclinedInvalidQuestionId();
+      if (
+        pendingId &&
+        !this.chat.questionRequests().some((item) => item.id === pendingId)
+      ) {
+        this.clearInvalidDecline();
+      }
       const request = this.invalidRosterQuestion();
       const question = request?.questions[0];
       if (
         !request ||
         !question ||
+        pendingId ||
         this.invalidRosterQuestionIds.has(request.id)
       )
         return;
-      if (
-        !this.tribunalTransport.answer(request.id, question.question, 'Decline')
-      ) {
-        this.store.setToast({
-          message:
-            'Invalid Tribunal proposal could not be declined. Retry the request.',
-          tone: 'error',
-        });
-        return;
-      }
-      this.invalidRosterQuestionIds.add(request.id);
-      this.expectedRequest.set(null);
-      this.store.setToast({
-        message: 'Invalid Tribunal proposal. It was declined.',
-        tone: 'error',
-      });
-      this.voice.onRosterProposal('Invalid Tribunal proposal.', false);
-      this.voice.onRosterResolved();
+      this.invalidDeclineAttempts = 0;
+      this.tryInvalidDecline(request.id, question.question);
     });
     effect(() =>
       this.store.setTheme(this.theme?.isDarkMode() ? 'dark' : 'light'),
@@ -335,8 +332,17 @@ export class CommandCenterPageController {
                 `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
               ),
           )
-      )
+      ) {
+        if (expected.skipNextPulse) {
+          this.expectedRequest.set({
+            ...expected,
+            minPulseSeq: pulse.seq,
+            skipNextPulse: false,
+          });
+          return;
+        }
         this.expectedRequest.set(null);
+      }
     });
     effect(() => {
       const shown = this.shownInput();
@@ -474,6 +480,14 @@ export class CommandCenterPageController {
     content: string,
     source: 'text' | 'voice' = 'text',
   ): Promise<boolean> {
+    if (this.undeclinedInvalidQuestionId()) {
+      this.store.setToast({
+        message:
+          'Invalid Tribunal proposal is awaiting Decline. Retry the Decline before sending.',
+        tone: 'error',
+      });
+      return false;
+    }
     const movePattern = new RegExp(
       `\\b(?:${TRIBUNAL_MOVES.join('|')})\\b`,
       'i',
@@ -496,7 +510,15 @@ export class CommandCenterPageController {
     const minPulseSeq = tabId
       ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0)
       : 0;
-    this.expectedRequest.set({ nonce, rootSessionId, minPulseSeq });
+    const skipNextPulse = this.tabs
+      .tabs()
+      .some((tab) => tab.id === tabId && tab.status === 'streaming');
+    this.expectedRequest.set({
+      nonce,
+      rootSessionId,
+      minPulseSeq,
+      skipNextPulse,
+    });
     const sent = await this.coordinator.send(
       `${content}\n\n<${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>\n${JSON.stringify({ nonce, rootSessionId })}\n</${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>`,
     );
@@ -539,6 +561,7 @@ export class CommandCenterPageController {
     return this.voice.getLatencyMarks();
   }
   public exit(): Promise<void> {
+    this.clearInvalidDecline();
     this.clearArmedTurns();
     this.clearRosterTimeout();
     this.expectedRequest.set(null);
@@ -547,6 +570,57 @@ export class CommandCenterPageController {
     this.pendingProposal.set(null);
     this.voice.onRosterResolved();
     return this.voice.exit();
+  }
+  private tryInvalidDecline(id: string, question: string): void {
+    this.invalidDeclineAttempts += 1;
+    if (!this.tribunalTransport.answer(id, question, 'Decline')) {
+      this.undeclinedInvalidQuestionId.set(id);
+      this.store.setToast({
+        message:
+          'Invalid Tribunal proposal could not be declined. Retry the Decline before sending.',
+        tone: 'error',
+      });
+      if (this.invalidDeclineAttempts < 3) {
+        this.clearInvalidDeclineTimer();
+        this.invalidDeclineTimer = setTimeout(
+          () => this.retryInvalidDecline(),
+          250,
+        );
+      }
+      return;
+    }
+    this.clearInvalidDecline();
+    this.invalidRosterQuestionIds.add(id);
+    this.expectedRequest.set(null);
+    this.store.setToast({
+      message:
+        'Invalid Tribunal proposal. It was declined. Tribunal request cancelled - ask again.',
+      tone: 'error',
+    });
+    this.voice.onRosterProposal('Invalid Tribunal proposal.', false);
+    this.voice.onRosterResolved();
+  }
+  public retryInvalidDecline(): void {
+    const id = this.undeclinedInvalidQuestionId();
+    if (!id) return;
+    this.clearInvalidDeclineTimer();
+    const request = this.chat.questionRequests().find((item) => item.id === id);
+    const question = request?.questions[0]?.question;
+    if (!question) {
+      this.clearInvalidDecline();
+      return;
+    }
+    this.tryInvalidDecline(id, question);
+  }
+  private clearInvalidDecline(): void {
+    this.clearInvalidDeclineTimer();
+    this.undeclinedInvalidQuestionId.set(null);
+    this.invalidDeclineAttempts = 0;
+  }
+  private clearInvalidDeclineTimer(): void {
+    if (this.invalidDeclineTimer !== null)
+      clearTimeout(this.invalidDeclineTimer);
+    this.invalidDeclineTimer = null;
   }
   private clearRosterTimeout(): void {
     if (this.rosterTimeout !== null) clearTimeout(this.rosterTimeout);
