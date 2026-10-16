@@ -14,7 +14,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
@@ -93,12 +93,14 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           [canAdd]="store.canAddTile()"
           [holdTabId]="holdTabId()"
           [surfaceActive]="visible()"
+          [previousSessionsOpen]="previousSessions.isOpen()"
           [splitDisabledReason]="splitDisabledReason()"
           (focusRequested)="focus($event)"
           (collapseToggled)="toggleCollapse()"
           (densityToggled)="toggleDensity()"
           (jumpTo)="jumpTo($event)"
           (newSession)="newSession()"
+          (previousSessionsRequested)="previousSessions.open()"
           (scrolled)="store.setRailScrollTop(workspacePath(), $event)"
           (railState)="onRailState($event)"
           (staleAction)="
@@ -264,6 +266,7 @@ export class CanvasRailBoardComponent {
   /** The footer or empty board asked for the host's named New session popover. */
   readonly newSessionRequested = output<void>();
   readonly store = inject(CanvasStore);
+  readonly previousSessions = inject(PreviousSessionsDialogService);
   readonly layout = inject(CanvasLayoutService);
   readonly persistence = inject(CanvasLayoutPersistenceService);
   readonly detail = inject(CanvasDetailService);

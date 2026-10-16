@@ -228,7 +228,8 @@ const CHIP_STATES = [
           }
         </ul>
       </div>
-      <footer class="h-[84px] shrink-0 px-2 py-2">
+      <footer class="shrink-0 px-2 py-2" [class.h-[82px]]="collapsed()" [class.h-[120px]]="!collapsed()">
+        <div class="flex flex-col gap-1.5">
         <button
           type="button"
           class="btn btn-primary btn-sm h-[30px] w-full"
@@ -236,14 +237,33 @@ const CHIP_STATES = [
           [attr.aria-describedby]="
             disabledReason() ? 'rail-new-session-reason' : null
           "
+          [attr.title]="collapsed() ? disabledReason() : null"
+          [attr.aria-label]="collapsed() ? 'New session' : null"
           (click)="onNewSession()"
         >
           {{ collapsed() ? '+' : 'New session' }}
         </button>
+        <button
+          type="button"
+          data-testid="rail-previous-sessions"
+          data-previous-sessions-trigger
+          class="btn btn-ghost btn-sm h-[30px] w-full border border-base-content/10"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="previousSessionsOpen()"
+          [attr.aria-controls]="previousSessionsOpen() ? 'previous-sessions-dialog' : null"
+          [attr.aria-label]="collapsed() ? 'Previous sessions' : null"
+          [attr.title]="collapsed() ? 'Previous sessions' : null"
+          (click)="previousSessionsRequested.emit()"
+        >
+          <span aria-hidden="true">◷</span>
+          @if (!collapsed()) { <span>Previous sessions</span> }
+        </button>
+        </div>
         @if (disabledReason(); as reason) {
           <p
             id="rail-new-session-reason"
             class="mt-1 text-xs text-base-content-muted"
+            [class.sr-only]="collapsed()"
           >
             {{ reason }}
           </p>
@@ -267,6 +287,7 @@ export class CanvasRailComponent {
   readonly canAdd = input(true);
   readonly holdTabId = input<string | null>(null);
   readonly surfaceActive = input(true);
+  readonly previousSessionsOpen = input(false);
   /** The board's reason no card can open beside (B6); null when split is possible. */
   readonly splitDisabledReason = input<string | null>(null);
   readonly focusRequested = output<string>();
@@ -274,6 +295,7 @@ export class CanvasRailComponent {
   readonly densityToggled = output<void>();
   readonly jumpTo = output<CompactRailState>();
   readonly newSession = output<void>();
+  readonly previousSessionsRequested = output<void>();
   readonly scrolled = output<number>();
   readonly railState = output<{ tabId: string; state: CompactRailState }>();
   readonly staleAction = output<string>();

@@ -67,6 +67,32 @@ describe('CanvasRailComponent', () => {
     fixture.componentRef.setInput('canAdd', false); fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('The board holds 20 sessions. Close one to add another.');
   });
+  it('opens Previous sessions in both footer forms even when New session is capped', () => {
+    const fixture = mount();
+    const requested = jest.fn();
+    fixture.componentInstance.previousSessionsRequested.subscribe(requested);
+    fixture.componentRef.setInput('canStart', false);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const footer = host.querySelector('footer')!;
+    const previous = host.querySelector<HTMLButtonElement>('[data-previous-sessions-trigger]')!;
+    expect(footer.classList.contains('h-[120px]')).toBe(true);
+    expect(previous.previousElementSibling?.textContent).toContain('New session');
+    expect(previous.textContent).toContain('Previous sessions');
+    expect(previous.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(previous.getAttribute('aria-expanded')).toBe('false');
+    previous.click();
+    expect(requested).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('previousSessionsOpen', true);
+    fixture.componentRef.setInput('collapsed', true);
+    fixture.detectChanges();
+    expect(footer.classList.contains('h-[82px]')).toBe(true);
+    expect(previous.getAttribute('aria-label')).toBe('Previous sessions');
+    expect(previous.getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('#rail-new-session-reason')?.classList.contains('sr-only')).toBe(true);
+    previous.click();
+    expect(requested).toHaveBeenCalledTimes(2);
+  });
   it('collapse toggle: aria-expanded follows the visible state and a click emits', () => {
     const fixture = mount([tile('a', 1)]); const emit = jest.fn(); fixture.componentInstance.collapseToggled.subscribe(emit);
     const host = fixture.nativeElement as HTMLElement;

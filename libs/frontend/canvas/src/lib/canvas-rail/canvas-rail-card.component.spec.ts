@@ -14,6 +14,8 @@ import { By } from '@angular/platform-browser';
 import {
   CompactSessionCardComponent,
   SESSION_CARD_ACTIONS,
+  SessionOrganizerService,
+  SessionRowActionsService,
   TabManagerService,
 } from '@ptah-extension/chat';
 import {
@@ -25,6 +27,7 @@ import {
   type CompactSessionSummary,
 } from '@ptah-extension/chat-ui';
 import { NativePopoverComponent } from '@ptah-extension/ui';
+import { SessionId } from '@ptah-extension/shared';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import {
@@ -182,10 +185,22 @@ class RealRailCardHost {
 describe('CanvasRailCardComponent', () => {
   const focusTile = jest.fn();
   const open = jest.fn();
+  const sessionId = SessionId.create();
+  const available = signal(false);
+  let loaded = false;
+  const rowFor = jest.fn(() => loaded ? { id: sessionId } : null);
+  const organizeOpen = jest.fn((_id: typeof sessionId, _restore: () => void) => undefined);
+  const organizeClose = jest.fn(() => organizeOpen.mock.calls.at(-1)?.[1]());
+  const openForSession = jest.fn(async (_id: typeof sessionId, _name: string, _restore: () => void) => 'opened');
+  const rename = jest.fn().mockResolvedValue('renamed');
+  let persisted = true;
   let workflow: 'harness-configure' | undefined;
   beforeEach(() => {
     jest.clearAllMocks();
     workflow = undefined;
+    persisted = true;
+    loaded = false;
+    available.set(false);
     tabState.set('idle');
     TestBed.configureTestingModule({
       imports: [CanvasRailCardComponent],
@@ -194,12 +209,14 @@ describe('CanvasRailCardComponent', () => {
           provide: TabManagerService,
           useValue: {
             findTabByIdAcrossWorkspaces: () => ({
-              tab: { id: 'a', title: 'Alpha', workflow },
+              tab: { id: 'a', title: 'Alpha', claudeSessionId: persisted ? sessionId : null, workflow },
             }),
           },
         },
         { provide: CanvasStore, useValue: { focusTile } },
         { provide: CanvasDetailService, useValue: { open } },
+        { provide: SessionOrganizerService, useValue: { available, rowFor, open: organizeOpen, openForSession, close: organizeClose } },
+        { provide: SessionRowActionsService, useValue: { rename } },
       ],
     });
     TestBed.overrideComponent(CanvasRailCardComponent, {
@@ -420,6 +437,116 @@ describe('CanvasRailCardComponent', () => {
     return host;
   }
 
+  it('shows Rename but no Delete or Organize on hosts without organization', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    expect(item(host, 'rename').textContent).toContain('Rename');
+    expect(host.querySelector('[data-action="organize"]')).toBeNull();
+    expect(host.querySelector('[data-action="delete"]')).toBeNull();
+    expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.getAttribute('data-action'))).toEqual(['open-beside', 'rename', 'move-up', 'move-down']);
+  });
+
+  it('keeps draft Rename and Organize focusable with the save reason', async () => {
+    persisted = false;
+    available.set(true);
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    for (const action of ['rename', 'organize']) {
+      expect(item(host, action).getAttribute('aria-disabled')).toBe('true');
+      expect(item(host, action).textContent).toContain('Send a first message to save this session.');
+      item(host, action).click();
+    }
+    expect(host.querySelector('[role="menu"]')).not.toBeNull();
+    expect(organizeOpen).not.toHaveBeenCalled();
+    expect(openForSession).not.toHaveBeenCalled();
+  });
+
+  it('opens Rename after the menu closes, saves on Enter, and restores trigger focus', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Session name"]')!;
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+    input.value = 'Renamed';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    keydown(input, 'Enter');
+    await settle();
+    fixture.detectChanges();
+    expect(rename).toHaveBeenCalledWith(sessionId, 'Alpha', 'Renamed');
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    await settle();
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('cancels Rename on Escape without saving', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Session name"]')!;
+    keydown(input, 'Escape');
+    fixture.detectChanges();
+    await settle();
+    expect(rename).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('opens Organize for a loaded row and restores the menu trigger after editor close render (D30)', async () => {
+    available.set(true);
+    loaded = true;
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'organize').click();
+    fixture.detectChanges();
+    expect(organizeOpen).toHaveBeenCalledWith(sessionId, expect.any(Function));
+    expect(openForSession).not.toHaveBeenCalled();
+    const editorClose = document.createElement('button');
+    host.append(editorClose);
+    editorClose.focus();
+    TestBed.inject(SessionOrganizerService).close();
+    editorClose.focus();
+    await settle();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(trigger(host));
+    editorClose.remove();
+  });
+
+  it('loads an excluded persisted card and announces only a failed read', async () => {
+    available.set(true);
+    openForSession.mockResolvedValueOnce('failed');
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'organize').click();
+    await settle();
+    fixture.detectChanges();
+    expect(openForSession).toHaveBeenCalledWith(sessionId, 'Alpha', expect.any(Function));
+    expect(fixture.componentInstance.announcement()).toBe("Could not load this session's organization.");
+  });
+
+  it.each(['cancelled', 'unavailable'])('does not announce or move focus for %s Organize result', async (result) => {
+    available.set(true);
+    openForSession.mockResolvedValueOnce(result);
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'organize').click();
+    const focusedAfterClick = document.activeElement;
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('');
+    expect(document.activeElement).toBe(focusedAfterClick);
+  });
+
   function keydown(
     target: Element,
     key: string,
@@ -531,8 +658,8 @@ describe('CanvasRailCardComponent', () => {
     const host = await openMenu(fixture);
     expect(document.activeElement).toBe(item(host, 'open-beside'));
     keydown(item(host, 'open-beside'), 'ArrowDown');
-    expect(document.activeElement).toBe(item(host, 'move-up'));
-    const escape = keydown(item(host, 'move-up'), 'Escape');
+    expect(document.activeElement).toBe(item(host, 'rename'));
+    const escape = keydown(item(host, 'rename'), 'Escape');
     fixture.detectChanges();
     expect(escape.defaultPrevented).toBe(true);
     expect(host.querySelector('[role="menu"]')).toBeNull();

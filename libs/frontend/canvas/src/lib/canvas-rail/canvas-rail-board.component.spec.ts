@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
+import { ChatStore, CompactSessionCardComponent, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -79,6 +79,8 @@ class RailStub {
   readonly densityToggled = output<void>();
   readonly jumpTo = output<CompactRailState>();
   readonly newSession = output<void>();
+  readonly previousSessionsOpen = input(false);
+  readonly previousSessionsRequested = output<void>();
   readonly scrolled = output<number>();
   readonly railState = output<{ tabId: string; state: CompactRailState }>();
   readonly staleAction = output<string>();
@@ -362,6 +364,9 @@ describe('CanvasRailBoardComponent rendering', () => {
           useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
         },
         { provide: ChatStore, useValue: {} },
+        { provide: PreviousSessionsDialogService, useValue: { isOpen: () => false, open: jest.fn() } },
+        { provide: SessionOrganizerService, useValue: { available: () => false } },
+        { provide: SessionRowActionsService, useValue: { rename: jest.fn() } },
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
           provide: TabManagerService,
@@ -422,6 +427,14 @@ describe('CanvasRailBoardComponent rendering', () => {
         '[data-rail-card], ptah-canvas-focus-area',
       ),
     ).toHaveLength(0);
+  });
+  it('passes dialog state to the Rail and opens Previous sessions on request', () => {
+    const { fixture } = mount();
+    const dialog = TestBed.inject(PreviousSessionsDialogService);
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    expect(rail.previousSessionsOpen()).toBe(false);
+    rail.previousSessionsRequested.emit();
+    expect(dialog.open).toHaveBeenCalledTimes(1);
   });
 
   it('single focus with null store focus renders one lane after removal and with a valid last focus', () => {
