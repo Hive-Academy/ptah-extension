@@ -81,7 +81,13 @@ binding). The first hand-off is in git history (`git show c6a4cafca:.ptah/specs/
    `chat-view.component.ts` (2080) and `chat-transcript.component.ts` (1398) over the 700-line limit.
 
 ## 3. Work in other places
-- **685 + 633 plan (architect pass, Claude `software-architect`, background at hand-off).** Worktree
+- **685 + 633 plan: WRITTEN (797 lines, uncommitted, not yet reviewed).** Phase A = one execution
+  header + one duration rule (fixes 71h, persists `completedAt`); Phase B = per-subagent live tree that
+  survives the parent turn, old subagents rebuilt from the SDK's own saved logs (no new store), then the
+  approved removals. It has `## Proposed Removals` P1-P4 (NOT approved: P1 main turn counts drop
+  subagent tools/files, P2 restored bubbles show "Load agent output", P3 keep `agent:summary-chunk`,
+  P4 leave the stale baseline entry) and `## Clarifications Needed` 1-3 (affect only its batch B5).
+  These go to the user together with the plan. Worktree
   `D:\projects\ptah-extension\.claude-worktrees\lane-execution-stream`, branch `feat/lane-execution-stream`
   (from main 71820e0c0, no commits). Deliverable:
   `D:\projects\ptah-extension\.claude-worktrees\lane-execution-stream\.ptah\specs\TASK_2026_685_64f4\implementation-plan.md`
