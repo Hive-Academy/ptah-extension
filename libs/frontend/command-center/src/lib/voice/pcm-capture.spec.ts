@@ -34,17 +34,6 @@ describe('PcmCapture', () => {
       sampleRate: 48000,
       close: jest.fn().mockResolvedValue(undefined),
     };
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    const revoke = jest.fn();
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      value: () => 'blob:test',
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      value: revoke,
-    });
     const original = globalThis.AudioWorkletNode;
     const node = {
       port: { onmessage: null, postMessage: jest.fn(), close: jest.fn() },
@@ -64,29 +53,51 @@ describe('PcmCapture', () => {
       await capture.start();
       await capture.start();
       expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(context.audioWorklet.addModule).toHaveBeenCalledWith(
+        new URL(
+          'assets/command-center/pcm-capture.worklet.js',
+          document.baseURI,
+        ).href,
+      );
       await capture.stop();
       expect(context.close).toHaveBeenCalledTimes(1);
-      expect(revoke).toHaveBeenCalledWith('blob:test');
     } finally {
       Object.defineProperty(globalThis, 'AudioWorkletNode', {
         configurable: true,
         value: original,
       });
-      Object.defineProperty(URL, 'createObjectURL', {
-        configurable: true,
-        value: originalCreate,
-      });
-      Object.defineProperty(URL, 'revokeObjectURL', {
-        configurable: true,
-        value: originalRevoke,
-      });
     }
+  });
+
+  it('classifies a packaged worklet load failure and releases the microphone', async () => {
+    const stopTrack = jest.fn();
+    const addModule = jest
+      .fn()
+      .mockRejectedValue(new DOMException('Load failed', 'AbortError'));
+    const close = jest.fn().mockResolvedValue(undefined);
+    const capture = new PcmCapture(jest.fn(), jest.fn(), {
+      getUserMedia: async () =>
+        Object.assign(Object.create(null) as MediaStream, {
+          getTracks: () => [{ stop: stopTrack }],
+        }),
+      audioContext: () =>
+        Object.assign(Object.create(null) as AudioContext, {
+          audioWorklet: { addModule },
+          close,
+        }),
+    });
+
+    await expect(capture.start()).rejects.toEqual(new CaptureError('worklet'));
+    expect(addModule).toHaveBeenCalledWith(
+      new URL('assets/command-center/pcm-capture.worklet.js', document.baseURI)
+        .href,
+    );
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('ignores tail samples from a discarded utterance and emits a null clip', async () => {
     const originalNode = globalThis.AudioWorkletNode;
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
     const port: {
       onmessage:
         | ((
@@ -111,14 +122,6 @@ describe('PcmCapture', () => {
         connect: jest.fn(),
         disconnect: jest.fn(),
       })),
-    });
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      value: () => 'blob:test',
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      value: jest.fn(),
     });
     const onClip = jest.fn();
     const capture = new PcmCapture(jest.fn(), onClip, {
@@ -158,14 +161,6 @@ describe('PcmCapture', () => {
       Object.defineProperty(globalThis, 'AudioWorkletNode', {
         configurable: true,
         value: originalNode,
-      });
-      Object.defineProperty(URL, 'createObjectURL', {
-        configurable: true,
-        value: originalCreate,
-      });
-      Object.defineProperty(URL, 'revokeObjectURL', {
-        configurable: true,
-        value: originalRevoke,
       });
     }
   });

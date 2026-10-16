@@ -29,9 +29,14 @@ describe('Command Center delegation and status integration', () => {
   });
 
   it('shows owned child and lane states while excluding unrelated work', async () => {
-    const { fixture, projectionInput } = createHarness();
+    const { fixture, projectionInput, tabs } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    tabs.update((items) =>
+      items.map((tab, index) =>
+        index === 0 ? { ...tab, status: 'streaming' as const } : tab,
+      ),
+    );
     projectionInput.update((input) => ({
       ...input,
       children: [

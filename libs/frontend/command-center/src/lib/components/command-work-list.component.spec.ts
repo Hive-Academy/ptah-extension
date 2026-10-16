@@ -20,15 +20,21 @@ describe('CommandWorkListComponent', () => {
     return fixture;
   }
 
-  it('lists all 30 owned nodes with provider, parent and state text', () => {
+  it('lists 29 delegated nodes with identity, compact state and an end icon', () => {
     const fixture = setup();
-    expect(fixture.nativeElement.querySelectorAll('li').length).toBe(30);
+    expect(fixture.nativeElement.querySelectorAll('li').length).toBe(29);
+    expect(fixture.nativeElement.textContent).toContain('Delegated work · 29');
+    expect(fixture.nativeElement.textContent).not.toContain('Work 0');
     expect(fixture.nativeElement.textContent).toContain('Work 29');
-    expect(fixture.nativeElement.textContent).toContain(
-      'Provider: unlisted-provider',
+    expect(fixture.nativeElement.textContent).toMatch(
+      /Unlisted Provider\s*·\s*unknown/,
     );
-    expect(fixture.nativeElement.textContent).toContain('Parent: Work 0');
-    expect(fixture.nativeElement.textContent).toContain('State: unknown');
+    expect(fixture.nativeElement.textContent).not.toContain('Provider:');
+    expect(
+      fixture.nativeElement.querySelectorAll(
+        'li button [data-test="work-state-icon"]',
+      ),
+    ).toHaveLength(29);
   });
 
   it('selects using arrow keys and Enter', () => {
@@ -46,7 +52,16 @@ describe('CommandWorkListComponent', () => {
     buttons[1].dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
     );
-    expect(selection).toHaveBeenCalledWith('node:1');
+    expect(selection).toHaveBeenCalledWith('node:2');
+  });
+
+  it('focuses a delegated row from its full projection index', () => {
+    const fixture = setup();
+    fixture.componentInstance.focusRow(2);
+    const buttons = fixture.nativeElement.querySelectorAll(
+      'ul button',
+    ) as NodeListOf<HTMLButtonElement>;
+    expect(document.activeElement).toBe(buttons[1]);
   });
 
   it('announces a changed state through the one polite live region', () => {
@@ -74,9 +89,9 @@ describe('CommandWorkListComponent', () => {
 
   it('keeps a row keyboard reachable after the projection shrinks', () => {
     const fixture = setup();
-    fixture.componentInstance.activeIndex.set(29);
+    fixture.componentInstance.activeIndex.set(28);
     fixture.componentRef.setInput('projection', {
-      nodes: nodes.slice(0, 2),
+      nodes: nodes.slice(0, 3),
       edges: [],
     });
     fixture.detectChanges();
@@ -90,5 +105,36 @@ describe('CommandWorkListComponent', () => {
     );
     fixture.detectChanges();
     expect(buttons[0].getAttribute('tabindex')).toBe('0');
+  });
+
+  it('shows the prototype empty state for a root-only projection', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: nodes.slice(0, 1),
+      edges: [],
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Delegated work · 0');
+    expect(fixture.nativeElement.textContent).toContain(
+      'No delegated work yet.',
+    );
+    expect(fixture.nativeElement.textContent).toContain(
+      'review the release plan',
+    );
+  });
+
+  it('omits an unknown provider from secondary text', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], { ...nodes[1], providerId: null, state: 'completed' }],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const row = fixture.nativeElement.querySelector(
+      'li button',
+    ) as HTMLButtonElement;
+    expect(row.textContent).toContain('completed');
+    expect(row.textContent).toContain('✓');
+    expect(row.textContent).not.toContain('Unknown');
   });
 });

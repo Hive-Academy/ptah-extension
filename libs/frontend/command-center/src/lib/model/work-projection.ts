@@ -24,8 +24,28 @@ export interface OwnedAgent {
   readonly parentSessionId: string;
   readonly state: CommandWorkState;
   readonly providerId?: string;
+  readonly displayName?: string;
+  readonly task?: string;
   readonly runId?: string;
   readonly updatedAt?: number;
+}
+/** Keep scene plates legible; the full task remains available at its source. */
+export const WORK_LABEL_MAX_LENGTH = 28;
+
+function agentLabel(agent: OwnedAgent): string {
+  const provider = agent.providerId?.trim();
+  const providerName = provider
+    ? provider
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    : agent.kind === 'cli'
+      ? 'CLI'
+      : 'SDK';
+  const name =
+    agent.displayName?.trim() || agent.task?.trim() || `${providerName} agent`;
+  return name.length > WORK_LABEL_MAX_LENGTH
+    ? `${name.slice(0, WORK_LABEL_MAX_LENGTH - 1).trimEnd()}…`
+    : name;
 }
 export interface OwnedRun {
   readonly runId: string;
@@ -37,6 +57,8 @@ export interface OwnedRun {
 export interface ProjectionInput {
   readonly rootTabId: string;
   readonly rootSessionId: string;
+  readonly rootTabStatus?: string;
+  readonly rootQuestionPending?: boolean;
   readonly rootProviderId?: string;
   readonly children: readonly OwnedChild[];
   readonly persistedChildren: readonly {
@@ -52,6 +74,17 @@ export interface ProjectionResult {
   readonly edges: readonly CommandWorkEdge[];
 }
 
+export function rootWorkState(
+  rootTabStatus?: string,
+  rootQuestionPending = false,
+): CommandWorkState {
+  return rootQuestionPending
+    ? 'awaiting input'
+    : rootTabStatus === 'streaming'
+      ? 'running'
+      : 'idle';
+}
+
 /** The only ownership source is the root's recursive session ancestry. */
 export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
   const rootId = `root:${input.rootSessionId}`;
@@ -62,7 +95,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       parentId: null,
       label: 'Ptah',
       providerId: input.rootProviderId ?? null,
-      state: 'running',
+      state: rootWorkState(input.rootTabStatus, input.rootQuestionPending),
     },
   ];
   const owned = new Set([input.rootSessionId, input.rootTabId]);
@@ -224,7 +257,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
           : run
             ? `tribunal:${run.runId}`
             : nodeForSession(agent.parentSessionId),
-      label: agent.kind === 'cli' ? 'CLI agent' : 'SDK agent',
+      label: agentLabel(agent),
       providerId: agent.providerId ?? null,
       state: agent.state,
       updatedAt: agent.updatedAt,

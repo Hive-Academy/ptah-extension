@@ -112,6 +112,8 @@ export class CommandCenterProjectionSource {
         parentSessionId: agent.parentSessionId ?? root.sessionId,
         state: workStateForStatus(agent.status),
         providerId: provider(agent.ptahCliId ?? agent.cli),
+        displayName: agent.displayName,
+        task: agent.task,
         runId: agent.workflowRunId,
         updatedAt: agent.completedAt ?? agent.startedAt,
       }));
@@ -184,6 +186,14 @@ export class CommandCenterProjectionSource {
     return {
       rootTabId: root.tabId,
       rootSessionId: root.sessionId,
+      rootTabStatus: rootTab?.status,
+      rootQuestionPending: this.chat
+        .questionRequests()
+        .some(
+          (request) =>
+            request.tabId === root.tabId ||
+            request.sessionId === root.sessionId,
+        ),
       rootProviderId: provider(
         rootTab?.liveModelStats?.contextCapacity?.providerId,
       ),

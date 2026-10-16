@@ -79,16 +79,18 @@ export class SpriteCache {
       const sprite = this.sprites.get(previous.key);
       if (sprite) return sprite;
     }
+    const root = node.parentId === null;
     const tribunal = node.kind === 'tribunal';
     const satellite = node.kind === 'lane' || node.kind === 'phase';
     const size = Math.max(satellite ? 32 : 12, request.size);
     const dpr = Math.max(1, Math.min(2, request.dpr));
-    const slug = node.providerId
-      ? (PROVIDER_BRAND_SLUGS[node.providerId] ?? '')
-      : '';
+    const slug =
+      !root && node.providerId
+        ? (PROVIDER_BRAND_SLUGS[node.providerId] ?? '')
+        : '';
     const fallback = tribunal
       ? ''
-      : node.parentId === null
+      : root
         ? 'P'
         : slug
           ? ''
@@ -174,17 +176,25 @@ export class SpriteCache {
       Math.PI * 2,
     );
     context.fill();
-    context.beginPath();
-    context.arc(center, center, radius * 0.59, 0, Math.PI * 2);
-    context.fillStyle =
-      theme === 'dark' ? 'rgba(10,15,23,0.69)' : 'rgba(255,252,245,0.8)';
-    context.fill();
-    context.strokeStyle = palette.rim;
-    context.lineWidth = 1;
-    context.stroke();
+    if (!root) {
+      context.beginPath();
+      context.arc(center, center, radius * 0.59, 0, Math.PI * 2);
+      context.fillStyle =
+        theme === 'dark' ? 'rgba(10,15,23,0.69)' : 'rgba(255,252,245,0.8)';
+      context.fill();
+      context.strokeStyle = palette.rim;
+      context.lineWidth = 1;
+      context.stroke();
+    }
 
     const artwork = slug ? PROVIDER_BRAND_ART[slug] : undefined;
-    if (artwork || tribunal) {
+    if (root) {
+      context.fillStyle = theme === 'dark' ? '#fff3ce' : '#2f241b';
+      context.font = `600 ${Math.round(radius * 0.93)}px Georgia`;
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText('P', center, center + 2);
+    } else if (artwork || tribunal) {
       const box = (artwork?.viewBox ?? '0 0 24 24').split(' ').map(Number);
       const extent = Math.max(tribunal ? 12 : 12, radius * 0.86);
       context.save();

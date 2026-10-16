@@ -44,13 +44,23 @@ export class CommandOverlayPositioner {
   }
 
   private observe(): void {
-    this.observer = new MutationObserver(() => this.schedule());
-    for (const label of this.labels().filter(
-      (item) => item.id === this.activeId(),
-    ))
-      this.observer.observe(label.element, {
+    this.observer = new MutationObserver((changes) => {
+      if (
+        changes.some(
+          (change) =>
+            change.target instanceof HTMLElement &&
+            change.target.dataset['nodeId'],
+        )
+      ) {
+        this.schedule();
+      }
+    });
+    const firstLabel = this.labels()[0]?.element;
+    if (firstLabel?.parentElement)
+      this.observer.observe(firstLabel.parentElement, {
         attributes: true,
         attributeFilter: ['style'],
+        subtree: true,
       });
     this.observer.observe(this.sphereAnchor(), {
       attributes: true,
@@ -66,16 +76,68 @@ export class CommandOverlayPositioner {
     const anchor =
       label && label.style.display !== 'none' ? label : this.sphereAnchor();
     const rect = anchor.getBoundingClientRect();
-    const key = `${id}:${rect.left}:${rect.top}:${rect.width}:${rect.height}`;
+    const neighbors = this.labels().filter(
+      (item) => item.id !== id && item.element.style.display !== 'none',
+    );
+    const key = `${id}:${rect.left}:${rect.top}:${rect.width}:${rect.height}:${neighbors
+      .map((item) => {
+        const neighbor = item.element.getBoundingClientRect();
+        return `${item.id}:${neighbor.left}:${neighbor.top}`;
+      })
+      .join('|')}`;
     if (anchor === this.lastAnchor && key === this.lastRect) return;
     this.lastAnchor = anchor;
     this.lastRect = key;
     void this.floating
       .position(anchor, card, { offset: 8, flip: true, shift: true })
       .then(() => {
-        if (this.activeId() === id && this.lastAnchor === anchor)
+        if (this.activeId() === id && this.lastAnchor === anchor) {
+          this.avoidNeighborPlates(anchor, card, neighbors);
           this.rebuildBridge(anchor, card);
+        }
       });
+  }
+
+  private avoidNeighborPlates(
+    anchor: HTMLElement,
+    card: HTMLElement,
+    neighbors: readonly SceneLabel[],
+  ): void {
+    const plates = neighbors.map((item) =>
+      item.element.getBoundingClientRect(),
+    );
+    const cardRect = card.getBoundingClientRect();
+    const overlaps = (left: number, top: number): boolean =>
+      plates.some(
+        (plate) =>
+          left < plate.right + 6 &&
+          left + cardRect.width + 6 > plate.left &&
+          top < plate.bottom + 6 &&
+          top + cardRect.height + 6 > plate.top,
+      );
+    if (!overlaps(cardRect.left, cardRect.top)) {
+      card.style.visibility = 'visible';
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    const clamp = (value: number, max: number): number =>
+      Math.max(8, Math.min(value, Math.max(8, max - 8)));
+    const candidates = [
+      [rect.right + 8, rect.top],
+      [rect.left - cardRect.width - 8, rect.top],
+      [rect.left, rect.bottom + 8],
+      [rect.left, rect.top - cardRect.height - 8],
+    ] as const;
+    for (const [x, y] of candidates) {
+      const left = clamp(x, window.innerWidth - cardRect.width);
+      const top = clamp(y, window.innerHeight - cardRect.height);
+      if (overlaps(left, top)) continue;
+      card.style.left = `${left}px`;
+      card.style.top = `${top}px`;
+      card.style.visibility = 'visible';
+      return;
+    }
+    card.style.visibility = 'hidden';
   }
 
   private rebuildBridge(anchor: HTMLElement, card: HTMLElement): void {

@@ -64,7 +64,7 @@ describe('CommandCenterPageComponent', () => {
     ),
     recordWriteFailure,
     latestReply: signal<string | null>(null),
-    voiceErrorKind: signal(null),
+    turnAbortable: signal(false),
     rosterTimedOut: signal(false),
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),
@@ -104,12 +104,13 @@ describe('CommandCenterPageComponent', () => {
     TestBed.overrideComponent(CommandCenterPageComponent, {
       remove: {
         imports: [CommandSceneComponent],
-        providers: [CommandCenterPageController],
+        providers: [CommandCenterPageController, CommandCenterStore],
       },
       add: {
         imports: [SceneStubComponent],
         providers: [
           { provide: CommandCenterPageController, useValue: controller },
+          { provide: CommandCenterStore, useValue: store },
         ],
       },
     });
@@ -129,7 +130,73 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('selects a work list row and unpins the overlay without selecting on pinNode', () => {
+  it('places the controls in a dock and shows a selected-node summary', () => {
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const dock = fixture.nativeElement.querySelector(
+      '[aria-label="Command dock"]',
+    ) as HTMLElement;
+    expect(dock.querySelector('ptah-command-voice-hud')).not.toBeNull();
+    expect(dock.querySelector('ptah-command-session-controls')).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Selected work"]')
+        ?.textContent,
+    ).toContain('Root');
+    const settings = [
+      ...fixture.nativeElement.querySelectorAll('header button'),
+    ].find((button: HTMLButtonElement) =>
+      button.textContent?.includes('Voice settings'),
+    ) as HTMLButtonElement;
+    settings.click();
+    expect(controller.openVoiceSettings).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+  });
+
+  it('overlays dismissible toasts and expires only non-error tones', () => {
+    jest.useFakeTimers();
+    try {
+      store.setToast({ tone: 'info', message: 'Ready' });
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector('.alert-info')?.textContent,
+      ).toContain('Ready');
+      expect(
+        fixture.nativeElement.querySelector('.alert')?.parentElement?.className,
+      ).toContain('absolute');
+      jest.advanceTimersByTime(5000);
+      fixture.detectChanges();
+      expect(store.toast()).toBeNull();
+      store.setToast({
+        tone: 'error',
+        message: 'Retry needed',
+        action: 'retry-speech',
+      });
+      fixture.detectChanges();
+      jest.advanceTimersByTime(5000);
+      fixture.detectChanges();
+      expect(store.toast()?.message).toBe('Retry needed');
+      const retry = [
+        ...fixture.nativeElement.querySelectorAll('.alert button'),
+      ].find((button: HTMLButtonElement) =>
+        button.textContent?.includes('Retry speech'),
+      ) as HTMLButtonElement;
+      retry.click();
+      expect(controller.retrySpeech).toHaveBeenCalledTimes(1);
+      (
+        fixture.nativeElement.querySelector(
+          '[aria-label="Dismiss notification"]',
+        ) as HTMLButtonElement
+      ).click();
+      expect(store.toast()).toBeNull();
+      fixture.destroy();
+    } finally {
+      store.setToast(null);
+      jest.useRealTimers();
+    }
+  });
+
+  it('selects a pinned node and unpins when a work list row is selected', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
     const overlay = fixture.debugElement.query(
@@ -137,7 +204,7 @@ describe('CommandCenterPageComponent', () => {
     ).componentInstance as CommandOverlayComponent;
     overlay.pin('root:session');
     fixture.detectChanges();
-    expect(store.selectedId()).toBeNull();
+    expect(store.selectedId()).toBe('root:session');
     expect(overlay.pinnedNodeId()).toBe('root:session');
     const list = fixture.debugElement.query(
       By.directive(CommandWorkListComponent),
@@ -176,7 +243,7 @@ describe('CommandCenterPageComponent', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
     const notice = fixture.nativeElement.querySelector(
-      '[role="status"]',
+      'aside p[role="status"]',
     ) as HTMLElement | null;
     expect(notice?.textContent).toContain(
       'The session pointer could not be saved',
@@ -256,9 +323,7 @@ describe('CommandCenterPageComponent', () => {
       ).componentInstance as CommandOverlayComponent;
       overlay.pin('root:session');
       fixture.detectChanges();
-      expect(
-        fixture.nativeElement.querySelector('#command-node-card'),
-      ).not.toBeNull();
+      expect(overlay.pinnedNodeId()).toBe('root:session');
       const timersBeforeDestroy = jest.getTimerCount();
       fixture.destroy();
       expect(controller.exit).toHaveBeenCalledTimes(1);

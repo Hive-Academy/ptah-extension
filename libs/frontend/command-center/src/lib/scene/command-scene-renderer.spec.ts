@@ -141,6 +141,29 @@ describe('CommandSceneRenderer', () => {
     renderer.destroy();
   });
 
+  it('draws the padded sprite around the sphere without changing its hit radius', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    expect(context.drawImage).toHaveBeenNthCalledWith(
+      1,
+      canvas,
+      100 - 30 * 2.2,
+      80 - 30 * 2.2,
+      60 * 2.2,
+      60 * 2.2,
+    );
+    expect(context.drawImage).toHaveBeenNthCalledWith(
+      2,
+      canvas,
+      210 - 20 * 2.2,
+      120 - 20 * 2.2,
+      40 * 2.2,
+      40 * 2.2,
+    );
+    expect(renderer.hitTest(100 + 39, 80)).toBeNull();
+    renderer.destroy();
+  });
+
   it('pauses a live loop while hidden and resumes on visibility', () => {
     renderer.setSnapshot(snapshot('running'));
     renderer.setHidden(true);

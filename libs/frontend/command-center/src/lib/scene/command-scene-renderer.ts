@@ -254,14 +254,16 @@ export class CommandSceneRenderer {
     }
     for (const node of snapshot.layout.nodes) {
       const sprite = this.spriteById.get(node.node.id);
-      if (sprite)
+      if (sprite) {
+        const paddedSize = node.radius * 2 * 2.2;
         context.drawImage(
           sprite,
-          node.x - node.radius,
-          node.y - node.radius,
-          node.radius * 2,
-          node.radius * 2,
+          node.x - paddedSize / 2,
+          node.y - paddedSize / 2,
+          paddedSize,
+          paddedSize,
         );
+      }
       this.drawStatus(node, time, snapshot);
       if (node.kind === 'root') this.drawVoiceRing(node, time, snapshot);
       if (snapshot.selectedId === node.node.id) {

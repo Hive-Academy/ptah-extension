@@ -1,4 +1,4 @@
-import {
+﻿import {
   ChangeDetectionStrategy,
   Component,
   input,
@@ -17,15 +17,45 @@ import type { CommandSessionStatus } from '../model/command-center.store';
       aria-label="Command Center session"
     >
       <div class="flex flex-wrap items-center gap-2">
-        <span class="mr-auto text-sm font-semibold"
-          >Command Center · {{ sessionStatus() }}</span
+        <form
+          class="flex min-w-0 flex-1 items-center rounded-lg border border-base-content bg-base-100 focus-within:border-warning"
+          (submit)="send($event)"
         >
+          <label class="sr-only" for="command-text"
+            >Text command or compact reply</label
+          >
+          <input
+            id="command-text"
+            class="min-h-11 min-w-0 flex-1 rounded-lg bg-transparent px-3 text-sm text-base-content placeholder:text-base-content-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+            type="text"
+            [value]="draft()"
+            (input)="onInput($event)"
+            placeholder="Or type a command for Ptah..."
+          />
+          <button
+            type="submit"
+            class="btn btn-ghost min-h-11 min-w-11 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+            [disabled]="!draft().trim()"
+            aria-label="Send command"
+            title="Send command"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              class="h-5 w-5 fill-none stroke-current stroke-2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="m3 11 18-8-8 18-2-8-8-2Zm8 2 10-10" />
+            </svg>
+          </button>
+        </form>
         <button
           type="button"
-          class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
           (click)="newSession.emit()"
         >
-          New Command Center
+          Start new
         </button>
         <button
           type="button"
@@ -35,27 +65,10 @@ import type { CommandSessionStatus } from '../model/command-center.store';
           Status
         </button>
       </div>
-      <form class="mt-3 flex gap-2" (submit)="send($event)">
-        <label class="sr-only" for="command-text"
-          >Text command or compact reply</label
-        >
-        <input
-          id="command-text"
-          class="input input-bordered min-h-11 min-w-0 flex-1"
-          type="text"
-          [value]="draft()"
-          (input)="onInput($event)"
-          placeholder="Command or reply to Ptah"
-        />
-        <button
-          type="submit"
-          class="btn btn-warning min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-          [disabled]="!draft().trim()"
-        >
-          Send
-        </button>
-      </form>
-      <p class="mt-2 text-xs text-base-content-muted">
+      <p class="mt-2 text-xs text-base-content-muted" aria-live="polite">
+        Command Center · {{ sessionStatus() }}
+      </p>
+      <p class="mt-1 text-xs text-base-content-muted">
         To start a Tribunal, say an explicit move word: Council, Forge, Race,
         Relay, or Crucible. Ambiguous speech goes to Ptah chat.
       </p>

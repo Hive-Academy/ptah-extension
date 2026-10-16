@@ -236,8 +236,24 @@ export class CommandVoiceLoop {
       // degradation-audit: reported — typed capture failure is shown to the user with a text fallback
       const reason =
         error instanceof CaptureError ? error.reason : 'unavailable';
+      const voiceError =
+        reason === 'denied'
+          ? {
+              kind: 'mic-denied' as const,
+              message: 'Microphone permission was denied.',
+            }
+          : reason === 'worklet'
+            ? {
+                kind: 'worklet' as const,
+                message: 'Voice capture could not start.',
+              }
+            : {
+                kind: 'mic-unavailable' as const,
+                message: 'Microphone is unavailable.',
+              };
+      this.store.setVoiceError(voiceError);
       this.store.setToast({
-        message: `Microphone ${reason}. Use text or check microphone permissions.`,
+        message: voiceError.message,
         tone: 'error',
       });
       return false;

@@ -3,7 +3,11 @@ import type {
   VendorLane,
 } from '@ptah-extension/tribunal-panel/phase';
 import { layoutScene } from '../scene/scene-layout';
-import { computeAgesMs, projectOwnedWork } from './work-projection';
+import {
+  computeAgesMs,
+  projectOwnedWork,
+  WORK_LABEL_MAX_LENGTH,
+} from './work-projection';
 import { buildStatusContext } from './status-context';
 
 const base = {
@@ -30,6 +34,62 @@ function phase(
 }
 
 describe('projectOwnedWork', () => {
+  it('derives the root state from streaming and pending-question context', () => {
+    const rootState = (input: Parameters<typeof projectOwnedWork>[0]) =>
+      projectOwnedWork(input).nodes[0]?.state;
+    expect(rootState(base)).toBe('idle');
+    expect(rootState({ ...base, rootTabStatus: 'streaming' })).toBe('running');
+    expect(
+      rootState({
+        ...base,
+        rootTabStatus: 'streaming',
+        rootQuestionPending: true,
+      }),
+    ).toBe('awaiting input');
+    expect(rootState({ ...base, rootTabStatus: 'ready' })).toBe('idle');
+  });
+  it('names agents from display name, then task, then the provider and caps plate text', () => {
+    const result = projectOwnedWork({
+      ...base,
+      agents: [
+        {
+          agentId: 'named',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          providerId: 'codex',
+          displayName: 'Architecture review',
+          task: 'Ignored task',
+        },
+        {
+          agentId: 'task',
+          kind: 'sdk',
+          parentSessionId: 'root',
+          state: 'running',
+          providerId: 'anthropic',
+          task: 'Review the release plan and update the full checklist',
+        },
+        {
+          agentId: 'fallback',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          providerId: 'open-code',
+        },
+      ],
+    });
+    expect(result.nodes.find((node) => node.id === 'cli:named')?.label).toBe(
+      'Architecture review',
+    );
+    const taskLabel = result.nodes.find(
+      (node) => node.id === 'sdk:root:task',
+    )?.label;
+    expect(taskLabel?.length).toBeLessThanOrEqual(WORK_LABEL_MAX_LENGTH);
+    expect(taskLabel?.endsWith('…')).toBe(true);
+    expect(result.nodes.find((node) => node.id === 'cli:fallback')?.label).toBe(
+      'Open Code agent',
+    );
+  });
   it('rekeys a provisional child and joins persisted descendants without siblings', () => {
     const result = projectOwnedWork({
       ...base,

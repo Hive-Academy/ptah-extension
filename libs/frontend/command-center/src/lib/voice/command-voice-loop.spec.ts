@@ -197,6 +197,108 @@ describe('CommandVoiceLoop', () => {
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      new DOMException('Permission denied', 'NotAllowedError'),
+      'mic-denied',
+      'Microphone permission was denied.',
+    ],
+    [
+      new Error('Device missing'),
+      'mic-unavailable',
+      'Microphone is unavailable.',
+    ],
+  ] as const)(
+    'surfaces a typed capture error for %s',
+    async (failure, kind, message) => {
+      const setVoiceError = jest.fn();
+      const setToast = jest.fn();
+      const loop = new CommandVoiceLoop(
+        Object.assign(Object.create(null) as CommandCenterStore, {
+          setProvider: jest.fn(),
+          setVoiceError,
+          setToast,
+        }),
+        Object.create(null) as CommandCenterSessionCoordinator,
+        Object.assign(Object.create(null) as ClaudeRpcService, {
+          call: jest.fn().mockResolvedValue({
+            success: true,
+            data: {
+              ok: true,
+              config: {
+                sttProvider: 'local',
+                ttsProvider: 'local',
+                local: { sttDownloaded: true, ttsDownloaded: true },
+                elevenlabs: { apiKeyConfigured: false },
+              },
+            },
+          }),
+        }),
+        {
+          captureFactories: {
+            getUserMedia: jest.fn().mockRejectedValue(failure),
+            audioContext: jest.fn(),
+          },
+          sendTranscript: async () => true,
+        },
+      );
+      await expect(loop.start()).resolves.toBe(false);
+      expect(setVoiceError).toHaveBeenCalledWith({ kind, message });
+      expect(setToast).toHaveBeenCalledWith({ message, tone: 'error' });
+    },
+  );
+
+  it('surfaces a worklet failure without reporting microphone denial', async () => {
+    const setVoiceError = jest.fn();
+    const stopTrack = jest.fn();
+    const context = Object.assign(Object.create(null) as AudioContext, {
+      audioWorklet: {
+        addModule: jest
+          .fn()
+          .mockRejectedValue(new Error('Worklet unavailable')),
+      },
+      close: jest.fn().mockResolvedValue(undefined),
+    });
+    const stream = Object.assign(Object.create(null) as MediaStream, {
+      getTracks: () => [{ stop: stopTrack }],
+    });
+    const loop = new CommandVoiceLoop(
+      Object.assign(Object.create(null) as CommandCenterStore, {
+        setProvider: jest.fn(),
+        setVoiceError,
+        setToast: jest.fn(),
+      }),
+      Object.create(null) as CommandCenterSessionCoordinator,
+      Object.assign(Object.create(null) as ClaudeRpcService, {
+        call: jest.fn().mockResolvedValue({
+          success: true,
+          data: {
+            ok: true,
+            config: {
+              sttProvider: 'local',
+              ttsProvider: 'local',
+              local: { sttDownloaded: true, ttsDownloaded: true },
+              elevenlabs: { apiKeyConfigured: false },
+            },
+          },
+        }),
+      }),
+      {
+        captureFactories: {
+          getUserMedia: jest.fn().mockResolvedValue(stream),
+          audioContext: () => context,
+        },
+        sendTranscript: async () => true,
+      },
+    );
+    await expect(loop.start()).resolves.toBe(false);
+    expect(setVoiceError).toHaveBeenCalledWith({
+      kind: 'worklet',
+      message: 'Voice capture could not start.',
+    });
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+  });
+
   it('does not turn a pending approval into a voice answer', () => {
     const store = {
       pendingInput: () => ({ kind: 'approval' }),

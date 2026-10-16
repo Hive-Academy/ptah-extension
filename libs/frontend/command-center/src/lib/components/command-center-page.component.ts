@@ -2,7 +2,9 @@ import {
   afterEveryRender,
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
+  effect,
   inject,
   signal,
   viewChild,
@@ -48,53 +50,153 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
       .layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 336px;
-        height: calc(100% - 72px);
+        gap: 16px;
+        padding: 16px;
+        min-height: calc(100% - 72px);
+      }
+      .stage {
+        position: relative;
+        height: max(600px, calc(100vh - 246px));
+        min-height: 600px;
       }
       .rail {
+        min-width: 0;
+        height: calc(max(600px, 100vh - 246px) + 150px);
+        overflow: hidden;
+      }
+      .work-list-region {
+        flex: 1;
+        min-height: 0;
         overflow-y: auto;
       }
       @container (width < 720px) {
         .layout {
           display: flex;
           flex-direction: column;
-          overflow-y: auto;
+        }
+        .stage {
+          height: 460px;
+          min-height: 460px;
+        }
+        .work-list-region {
+          overflow-y: visible;
         }
         .rail {
+          height: auto;
           overflow: visible;
+        }
+      }
+      @container (width < 480px) {
+        .stage {
+          height: 360px;
+          min-height: 360px;
         }
       }
     `,
   ],
   template: `
-    <header class="flex h-[72px] items-center px-4 text-lg font-semibold">
-      Command Center
+    <header
+      class="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-2 text-base-content"
+    >
+      <div>
+        <p
+          class="text-xs font-semibold uppercase tracking-widest text-state-need"
+        >
+          Ptah / Engineering
+        </p>
+        <h1 class="text-xl font-semibold">Command Center</h1>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="badge badge-outline min-h-8" role="status"
+          >Session {{ page.store.sessionId()?.slice(0, 8) ?? 'new' }} ·
+          {{ page.store.sessionStatus() }}</span
+        >
+        <button
+          type="button"
+          class="btn btn-ghost min-h-11 border border-base-content text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          (click)="page.openVoiceSettings()"
+        >
+          Voice settings
+        </button>
+      </div>
     </header>
     <div class="layout">
-      @if (!page.canvasUnavailable()) {
-        <main class="relative min-h-[320px] min-w-0">
-          <ptah-command-scene
-            #scene
-            [projection]="page.projection()"
-            [selectedId]="page.store.selectedId()"
-            [theme]="page.store.theme()"
+      <div class="flex min-w-0 flex-col gap-3">
+        @if (!page.canvasUnavailable()) {
+          <main
+            class="stage min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-200"
+          >
+            <ptah-command-scene
+              #scene
+              [projection]="page.projection()"
+              [selectedId]="page.store.selectedId()"
+              [theme]="page.store.theme()"
+              [voiceState]="page.store.voiceState()"
+              [inputLevel]="page.store.inputLevel()"
+              [outputLevel]="page.store.outputLevel()"
+              (selection)="page.store.select($event)"
+              (hoveredNodeId)="page.hoveredNodeId.set($event)"
+              (canvasUnavailable)="page.canvasUnavailable.set($event)"
+            />
+            <ptah-command-overlay
+              #overlay
+              [projection]="page.projection()"
+              [hoveredNodeId]="page.hoveredNodeId()"
+              [selectedId]="page.store.selectedId()"
+              [reducedMotion]="page.store.reducedMotion()"
+              (focusWorkListRow)="focusWorkRow($event)"
+            />
+            <div class="pointer-events-none absolute left-5 top-5 z-10">
+              <p
+                class="text-xs font-semibold uppercase tracking-widest text-state-need"
+              >
+                Live orchestration
+              </p>
+              <p class="mt-1 text-xs text-base-content-muted">
+                {{ page.store.sessionStatus() }} ·
+                {{ page.projection().nodes.length }} nodes
+              </p>
+            </div>
+            <p
+              class="pointer-events-none absolute right-5 top-5 z-10 text-xs font-semibold tracking-widest text-base-content-muted"
+            >
+              01 / Voice command
+            </p>
+            <p
+              class="pointer-events-none absolute bottom-5 left-5 right-5 z-10 text-xs uppercase tracking-wide text-base-content-muted"
+            >
+              Drag to tilt orbits · Select a sphere for status
+            </p>
+          </main>
+        }
+        <div
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-3"
+          aria-label="Command dock"
+        >
+          <ptah-command-voice-hud
+            class="min-w-0 flex-1"
             [voiceState]="page.store.voiceState()"
+            [provider]="page.store.provider()"
+            [muted]="page.store.muted()"
+            [voiceError]="page.store.voiceError()"
             [inputLevel]="page.store.inputLevel()"
-            [outputLevel]="page.store.outputLevel()"
-            (selection)="page.store.select($event)"
-            (hoveredNodeId)="page.hoveredNodeId.set($event)"
-            (canvasUnavailable)="page.canvasUnavailable.set($event)"
+            [turnAbortable]="page.turnAbortable()"
+            (start)="page.startVoice()"
+            (stop)="page.stopVoice()"
+            (toggleMute)="page.toggleMuteVoice()"
+            (interrupt)="page.interruptSpeech()"
+            (openVoiceSettings)="page.openVoiceSettings()"
           />
-          <ptah-command-overlay
-            #overlay
-            [projection]="page.projection()"
-            [hoveredNodeId]="page.hoveredNodeId()"
-            [selectedId]="page.store.selectedId()"
-            [reducedMotion]="page.store.reducedMotion()"
-            (focusWorkListRow)="focusWorkRow($event)"
+          <ptah-command-session-controls
+            class="min-w-0 flex-1"
+            [sessionStatus]="page.store.sessionStatus()"
+            (newSession)="page.coordinator.newCommandCenter()"
+            (requestStatus)="page.coordinator.sendStatusTurn('Status')"
+            (commandSubmit)="page.sendCommand($event)"
           />
-        </main>
-      }
-      <aside class="rail flex flex-col gap-3 p-3">
+        </div>
+      </div>
+      <aside class="rail relative flex flex-col gap-3">
         @if (page.recordWriteFailure()) {
           <p role="status" class="rounded-lg border border-warning p-2">
             The session pointer could not be saved. You can continue using this
@@ -102,29 +204,60 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           </p>
         }
         @if (page.store.toast(); as toast) {
-          <p role="status" class="rounded-lg p-2">{{ toast.message }}</p>
-          @if (toast.action === 'retry-speech') {
-            <button
-              type="button"
-              class="btn btn-sm"
-              (click)="page.retrySpeech()"
+          <div class="absolute inset-x-0 top-0 z-30 p-2">
+            <div
+              class="alert flex items-start gap-2 border shadow-lg"
+              [class.alert-error]="toast.tone === 'error'"
+              [class.alert-warning]="toast.tone === 'warning'"
+              [class.alert-success]="toast.tone === 'success'"
+              [class.alert-info]="toast.tone === 'info'"
+              [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
             >
-              Retry speech
-            </button>
-          }
+              <span aria-hidden="true" class="font-bold">{{
+                toast.tone === 'error' ? '!' : '●'
+              }}</span>
+              <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
+              @if (toast.action === 'retry-speech') {
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  (click)="page.retrySpeech()"
+                >
+                  Retry speech
+                </button>
+              }
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                aria-label="Dismiss notification"
+                (click)="dismissToast()"
+              >
+                ×
+              </button>
+            </div>
+          </div>
         }
-        <ptah-command-voice-hud
-          [voiceState]="page.store.voiceState()"
-          [provider]="page.store.provider()"
-          [muted]="page.store.muted()"
-          [errorKind]="page.voiceErrorKind()"
-          [turnAbortable]="page.store.voiceState() === 'thinking'"
-          (start)="page.startVoice()"
-          (stop)="page.stopVoice()"
-          (toggleMute)="page.toggleMuteVoice()"
-          (interrupt)="page.interruptSpeech()"
-          (openVoiceSettings)="page.openVoiceSettings()"
-        />
+        @if (selectedNode(); as node) {
+          <section
+            class="rounded-xl border border-base-300 bg-base-200 p-4 text-base-content"
+            aria-label="Selected work"
+          >
+            <p
+              class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+            >
+              Selected · {{ node.kind === 'root' ? 'Orchestrator' : node.kind }}
+            </p>
+            <h2 class="mt-2 text-lg font-semibold">{{ node.label }}</h2>
+            <p class="mt-1 text-sm text-base-content-muted">
+              {{
+                node.kind === 'root'
+                  ? 'Your command and delegated work live here.'
+                  : 'Delegated work from this session.'
+              }}
+            </p>
+            <span class="badge badge-outline mt-3">{{ node.state }}</span>
+          </section>
+        }
         <ptah-command-pending-input
           [pending]="page.store.pendingInput()"
           [proposal]="page.shownProposal()"
@@ -142,17 +275,13 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
             {{ reply }}
           </p>
         }
-        <ptah-command-work-list
-          [projection]="page.projection()"
-          [selectedId]="page.store.selectedId()"
-          (selection)="page.store.select($event)"
-        />
-        <ptah-command-session-controls
-          [sessionStatus]="page.store.sessionStatus()"
-          (newSession)="page.coordinator.newCommandCenter()"
-          (requestStatus)="page.coordinator.sendStatusTurn('Status')"
-          (commandSubmit)="page.sendCommand($event)"
-        />
+        <div class="work-list-region">
+          <ptah-command-work-list
+            [projection]="page.projection()"
+            [selectedId]="page.store.selectedId()"
+            (selection)="page.store.select($event)"
+          />
+        </div>
       </aside>
     </div>
   `,
@@ -163,6 +292,18 @@ export class CommandCenterPageComponent {
     id: string;
     accepted: boolean;
   } | null>(null);
+  public readonly selectedNode = computed(() => {
+    const nodes = this.page.projection().nodes;
+    return (
+      nodes.find((node) => node.id === this.page.store.selectedId()) ??
+      nodes.find((node) => node.kind === 'root') ??
+      null
+    );
+  });
+
+  public dismissToast(): void {
+    this.page.store.setToast(null);
+  }
 
   public answerPendingInput(response: { id: string; answer: string }): void {
     const accepted =
@@ -181,6 +322,14 @@ export class CommandCenterPageComponent {
   private measuredAnchorId: string | null = null;
 
   public constructor() {
+    effect((onCleanup) => {
+      const toast = this.page.store.toast();
+      if (!toast || toast.tone === 'error') return;
+      const timeout = setTimeout(() => {
+        if (this.page.store.toast() === toast) this.dismissToast();
+      }, 5000);
+      onCleanup(() => clearTimeout(timeout));
+    });
     void this.page.open();
     this.destroyRef.onDestroy(() => {
       this.overlay()?.closeCard();

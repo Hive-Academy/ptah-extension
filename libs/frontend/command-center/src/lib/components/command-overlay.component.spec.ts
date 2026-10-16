@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { FloatingUIService } from '@ptah-extension/ui';
 import type { CommandWorkNode } from '../model/command-center.store';
+import { CommandCenterStore } from '../model/command-center.store';
 import {
   COMMAND_OVERLAY_CLOSE_DELAY_MS,
   COMMAND_OVERLAY_OPEN_DELAY_MS,
@@ -31,7 +32,10 @@ describe('CommandOverlayComponent', () => {
   const cleanup = jest.fn();
 
   function setup() {
-    TestBed.configureTestingModule({ imports: [CommandOverlayComponent] });
+    TestBed.configureTestingModule({
+      imports: [CommandOverlayComponent],
+      providers: [CommandCenterStore],
+    });
     TestBed.overrideComponent(CommandOverlayComponent, {
       set: {
         providers: [
@@ -40,6 +44,7 @@ describe('CommandOverlayComponent', () => {
       },
     });
     const fixture = TestBed.createComponent(CommandOverlayComponent);
+    TestBed.inject(CommandCenterStore).setProjection('a', nodes, []);
     fixture.componentRef.setInput('projection', { nodes, edges: [] });
     fixture.detectChanges();
     const labels = fixture.nativeElement.querySelectorAll(
@@ -149,12 +154,44 @@ describe('CommandOverlayComponent', () => {
     expect(component.pinnedNodeId()).toBeNull();
     expect(document.activeElement).toBe(labels[0]);
     component.pin('a');
-    fixture.componentRef.setInput('selectedId', 'b');
+    TestBed.inject(CommandCenterStore).select('b');
     fixture.detectChanges();
     expect(component.pinnedNodeId()).toBeNull();
     component.pin('b');
     fixture.destroy();
     expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('selects from a plate by click, Enter and Space through the page store', () => {
+    const { fixture, labels } = setup();
+    const store = TestBed.inject(CommandCenterStore);
+    labels[0].click();
+    expect(store.selectedId()).toBe('a');
+    labels[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    expect(store.selectedId()).toBe('b');
+    labels[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true }),
+    );
+    expect(store.selectedId()).toBe('a');
+    fixture.componentRef.setInput('selectedId', 'a');
+    fixture.detectChanges();
+    expect(labels[0].getAttribute('aria-pressed')).toBe('true');
+    expect(labels[0].classList.contains('border-warning')).toBe(true);
+  });
+
+  it('shows compact provider and state without an unknown placeholder', () => {
+    const { component, fixture, labels } = setup();
+    expect(labels[0].textContent).toMatch(/Codex\s*·\s*running/);
+    expect(labels[1].textContent).toContain('queued');
+    expect(labels[1].textContent).not.toContain('Unknown');
+    component.pin('b');
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector(
+      '#command-node-card',
+    ) as HTMLElement;
+    expect(card.textContent).not.toContain('Provider: Unknown');
   });
 
   it('uses one card, replaces its node, and exposes fallback focus for a hidden trigger', () => {
@@ -198,6 +235,42 @@ describe('CommandOverlayComponent', () => {
     labels[0].style.transform = 'translate3d(320px,30px,0)';
     await jest.advanceTimersByTimeAsync(32);
     expect(position.mock.calls.length).toBe(count + 1);
+  });
+
+  it('moves the hover card away from a neighboring plate', async () => {
+    const { component, fixture, labels } = setup();
+    jest
+      .spyOn(labels[0], 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(100, 100, 44, 44));
+    jest
+      .spyOn(labels[1], 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(100, 145, 150, 60));
+    position.mockImplementationOnce(
+      (_anchor: HTMLElement, card: HTMLElement) => {
+        card.style.left = '100px';
+        card.style.top = '145px';
+        return Promise.resolve();
+      },
+    );
+    component.pin('a');
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector(
+      '#command-node-card',
+    ) as HTMLElement;
+    jest
+      .spyOn(card, 'getBoundingClientRect')
+      .mockImplementation(
+        () =>
+          new DOMRect(
+            Number.parseFloat(card.style.left) || 100,
+            Number.parseFloat(card.style.top) || 145,
+            256,
+            100,
+          ),
+      );
+    await jest.advanceTimersByTimeAsync(16);
+    expect(card.style.top).toBe('8px');
+    expect(card.style.visibility).toBe('visible');
   });
 
   it('removes card motion classes when reduced motion is set', () => {

@@ -151,6 +151,87 @@ describe('CommandCenterPageController', () => {
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the idle Ptah root before the first SDK session exists', () => {
+    tabs.set([{ id: 'root-tab', status: 'loaded' }]);
+    page.store.setSession('root-tab', null, '/workspace');
+    expect(page.projection().nodes).toEqual([
+      expect.objectContaining({
+        id: 'root:root-tab',
+        kind: 'root',
+        label: 'Ptah',
+        state: 'idle',
+      }),
+    ]);
+    tabs.set([{ id: 'root-tab', status: 'streaming' }]);
+    expect(page.projection().nodes[0]?.state).toBe('running');
+    questionRequests.set([
+      {
+        id: 'question-1',
+        tabId: 'root-tab',
+        questions: [
+          {
+            question: 'Which branch?',
+            header: 'Branch',
+            options: [],
+            multiSelect: false,
+          },
+        ],
+      },
+    ]);
+    expect(page.projection().nodes[0]?.state).toBe('awaiting input');
+  });
+
+  it('clears a voice error and its toast before retrying Start voice', async () => {
+    page.store.setVoiceError({
+      kind: 'worklet',
+      message: 'Voice capture could not start.',
+    });
+    page.store.setToast({
+      message: 'Voice capture could not start.',
+      tone: 'error',
+    });
+    jest.spyOn(page.voice, 'start').mockResolvedValue(true);
+    await page.startVoice();
+    expect(page.store.voiceError()).toBeNull();
+    expect(page.store.toast()).toBeNull();
+  });
+
+  it('allows Stop for a streaming typed turn and settles status at the terminal pulse', () => {
+    tabs.set([
+      { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+    ]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    expect(page.turnAbortable()).toBe(true);
+    tabs.set([
+      { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
+    ]);
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'root-tab',
+          {
+            seq: 1,
+            tabId: 'root-tab',
+            sessionId: 'session',
+            workspacePath: '/workspace',
+            revision: 1,
+            phase: 'idle',
+            terminalReason: 'completed',
+            lastAssistantMessage: 'Done',
+            classification: 'success',
+            title: 'Command Center',
+            occurredAt: Date.now(),
+          },
+        ],
+      ]),
+    );
+    TestBed.tick();
+    expect(page.turnAbortable()).toBe(false);
+    expect(page.store.sessionStatus()).toBe('idle');
+    expect(page.latestReply()).toBe('Done');
+  });
+
   it('exits voice transport on page teardown', async () => {
     const exit = jest.spyOn(page.voice, 'exit').mockResolvedValue(undefined);
     await page.exit();

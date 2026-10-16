@@ -18,7 +18,7 @@ import {
   ProviderMarkComponent,
   PROVIDER_BRAND_SLUGS,
 } from '@ptah-extension/ui';
-import type { CommandWorkNode } from '../model/command-center.store';
+import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { SceneLabel } from '../scene/command-scene-renderer';
 import { CommandOverlayPositioner } from './command-overlay-positioner';
@@ -37,9 +37,11 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
       @for (node of projection().nodes; track node.id) {
         <button
           type="button"
-          class="pointer-events-auto absolute left-0 top-0 min-h-11 min-w-11 rounded-full border border-base-300 bg-base-100/95 px-3 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          [class.border-warning]="selectedId() === node.id"
           [attr.data-node-id]="node.id"
           [attr.aria-label]="node.label + ', ' + node.state"
+          [attr.aria-pressed]="selectedId() === node.id"
           [attr.aria-describedby]="
             activeNodeId() === node.id && !pinnedNodeId()
               ? 'command-node-card'
@@ -54,9 +56,16 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
           (pointerleave)="onLabelLeave(node.id)"
           (click)="pin(node.id)"
           (keydown.enter)="onLabelEnterKey($event, node.id)"
+          (keydown.space)="onLabelEnterKey($event, node.id)"
           (keydown.escape)="onEscape($event)"
         >
-          {{ node.label }}
+          <span class="max-w-36 truncate font-semibold">{{ node.label }}</span>
+          <span class="text-[11px] text-base-content-muted">
+            @if (providerName(node.providerId); as provider) {
+              {{ provider }} ·
+            }
+            {{ node.state }}
+          </span>
         </button>
       }
       <span
@@ -95,13 +104,10 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold">{{ node.label }}</p>
               <p class="text-xs text-base-content-muted">
-                Provider: {{ node.providerId || 'Unknown' }}
-              </p>
-              <p class="text-xs text-base-content-muted">
-                Parent: {{ parentLabel(node) }}
-              </p>
-              <p class="text-xs text-base-content-muted">
-                State: {{ node.state }}
+                @if (providerName(node.providerId); as provider) {
+                  {{ provider }} ·
+                }
+                {{ node.state }}
               </p>
             </div>
             @if (pinnedNodeId()) {
@@ -121,6 +127,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
   `,
 })
 export class CommandOverlayComponent {
+  private readonly store = inject(CommandCenterStore);
   public readonly projection = input.required<ProjectionResult>();
   public readonly hoveredNodeId = input<string | null>(null);
   public readonly selectedId = input<string | null>(null);
@@ -166,7 +173,7 @@ export class CommandOverlayComponent {
       else this.scheduleClose();
     });
     effect(() => {
-      const selection = this.selectedId();
+      const selection = this.store.selectedId();
       const pinned = this.pinnedNodeId();
       if (pinned && selection !== this.selectedBeforePin) this.unpin(false);
     });
@@ -213,13 +220,11 @@ export class CommandOverlayComponent {
     return id && Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ? id : null;
   }
 
-  public parentLabel(node: CommandWorkNode): string {
-    return (
-      this.projection().nodes.find((parent) => parent.id === node.parentId)
-        ?.label ??
-      node.parentId ??
-      'Root'
-    );
+  public providerName(id: string | null): string | null {
+    if (!id || id.toLowerCase() === 'unknown') return null;
+    return id
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
   public onLabelEnter(id: string): void {
@@ -262,7 +267,8 @@ export class CommandOverlayComponent {
 
   public pin(id: string): void {
     this.clearTimers();
-    this.selectedBeforePin = this.selectedId();
+    this.store.select(id);
+    this.selectedBeforePin = id;
     this._pinnedNodeId.set(id);
     this.activate(id);
   }

@@ -28,13 +28,13 @@ import type { ProjectionResult } from '../model/work-projection';
       aria-label="Delegated work"
     >
       <h2 class="mb-2 font-semibold">
-        Delegated work · {{ projection().nodes.length }}
+        Delegated work · {{ delegatedNodes().length }}
       </h2>
       <p class="sr-only" aria-live="polite" aria-atomic="true">
         {{ announcement() }}
       </p>
-      <ul class="max-h-full overflow-y-auto" aria-label="All session work">
-        @for (node of projection().nodes; track node.id; let index = $index) {
+      <ul class="max-h-full overflow-y-auto" aria-label="Delegated work items">
+        @for (node of delegatedNodes(); track node.id; let index = $index) {
           <li>
             <button
               type="button"
@@ -60,15 +60,26 @@ import type { ProjectionResult } from '../model/work-projection';
                 <span class="block truncate text-sm font-semibold">{{
                   node.label
                 }}</span>
-                <span class="block text-xs text-base-content-muted"
-                  >Provider: {{ node.providerId || 'Unknown' }} · Parent:
-                  {{ parentLabel(node) }} · State: {{ node.state }}</span
-                >
+                <span class="block text-xs text-base-content-muted">
+                  @if (providerName(node.providerId); as provider) {
+                    {{ provider }} ·
+                  }
+                  {{ node.state }}
+                </span>
               </span>
+              <span
+                aria-hidden="true"
+                data-test="work-state-icon"
+                class="text-base-content-muted"
+                >{{ statusIcon(node) }}</span
+              >
             </button>
           </li>
         } @empty {
-          <li class="p-3 text-sm">No work in this session yet.</li>
+          <li class="p-3 text-sm">
+            No delegated work yet. Try “Ptah, review the release plan” or “run a
+            Crucible on this change.”
+          </li>
         }
       </ul>
     </section>
@@ -77,31 +88,34 @@ import type { ProjectionResult } from '../model/work-projection';
 export class CommandWorkListComponent {
   private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
   public readonly projection = input.required<ProjectionResult>();
+  public readonly delegatedNodes = computed(() =>
+    this.projection().nodes.filter((node) => node.kind !== 'root'),
+  );
   public readonly selectedId = input<string | null>(null);
   public readonly selection = output<string>();
   public readonly announcement = signal('');
   public readonly activeIndex = signal(0);
+  /** Page focus requests use projection indices, including the root. */
   public focusRow(index: number): void {
-    if (index < 0 || index >= this.projection().nodes.length) return;
-    this.activeIndex.set(index);
+    const id = this.projection().nodes[index]?.id;
+    const rowIndex = this.delegatedNodes().findIndex((node) => node.id === id);
+    if (rowIndex < 0) return;
+    this.activeIndex.set(rowIndex);
     const rows =
       this.element.nativeElement.querySelectorAll<HTMLButtonElement>(
         'ul button',
       );
-    rows[index]?.focus();
+    rows[rowIndex]?.focus();
   }
   public readonly clampedActiveIndex = computed(() => {
-    const count = this.projection().nodes.length;
+    const count = this.delegatedNodes().length;
     return count ? Math.min(Math.max(this.activeIndex(), 0), count - 1) : -1;
   });
-  private readonly byId = computed(
-    () => new Map(this.projection().nodes.map((node) => [node.id, node])),
-  );
   private previousStates = new Map<string, string>();
 
   public constructor() {
     effect(() => {
-      const nodes = this.projection().nodes;
+      const nodes = this.delegatedNodes();
       const changed = nodes.filter(
         (node) =>
           this.previousStates.has(node.id) &&
@@ -119,9 +133,28 @@ export class CommandWorkListComponent {
     return id !== null && Object.hasOwn(PROVIDER_BRAND_SLUGS, id);
   }
 
-  public parentLabel(node: CommandWorkNode): string {
-    if (!node.parentId) return 'Root';
-    return this.byId().get(node.parentId)?.label ?? node.parentId;
+  public providerName(id: string | null): string | null {
+    if (!id || id.toLowerCase() === 'unknown') return null;
+    return id
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  public statusIcon(node: CommandWorkNode): string {
+    switch (node.state) {
+      case 'completed':
+        return '✓';
+      case 'failed':
+        return '×';
+      case 'awaiting input':
+        return '◆';
+      case 'cancelled':
+        return '╱';
+      case 'running':
+        return '◔';
+      default:
+        return '◌';
+    }
   }
 
   public select(node: CommandWorkNode, index: number): void {
@@ -134,7 +167,7 @@ export class CommandWorkListComponent {
     index: number,
     node: CommandWorkNode,
   ): void {
-    const count = this.projection().nodes.length;
+    const count = this.delegatedNodes().length;
     if (event.key === 'Enter') {
       event.preventDefault();
       this.select(node, index);

@@ -51,7 +51,11 @@ describe('CommandCenterProjectionSource', () => {
       tabs: signal([root, child]),
       activeWorkspacePath: '/workspace',
     });
+    const questions = signal<readonly { tabId: string; sessionId?: string }[]>(
+      [],
+    );
     const chat = Object.assign(Object.create(null) as ChatStore, {
+      questionRequests: questions,
       sessions: signal([
         {
           id: 'persisted-session',
@@ -66,6 +70,16 @@ describe('CommandCenterProjectionSource', () => {
       parentSessionId: 'root-session',
       status: 'running',
       startedAt: 100,
+      displayName: 'Architecture 1',
+      task: 'Design the architecture',
+    } as MonitoredAgent;
+    const taskOnly = {
+      agentId: 'cli-2',
+      cli: 'codex',
+      parentSessionId: 'root-session',
+      status: 'running',
+      startedAt: 101,
+      task: 'Review release plan',
     } as MonitoredAgent;
     const unrelated = {
       agentId: 'other',
@@ -82,7 +96,7 @@ describe('CommandCenterProjectionSource', () => {
       lastEventAt: 150,
     } as SubagentRecord;
     const monitor = Object.assign(Object.create(null) as AgentMonitorStore, {
-      agents: signal([cli, unrelated]),
+      agents: signal([cli, taskOnly, unrelated]),
       subagents: signal(new Map([['tool-1', sdk]])),
     });
     const readRunManifests = jest.fn().mockReturnValue([
@@ -114,6 +128,17 @@ describe('CommandCenterProjectionSource', () => {
       tabId: 'root-tab',
       sessionId: 'root-session',
     });
+    expect(input.rootTabStatus).toBe('streaming');
+    expect(projectOwnedWork(input).nodes[0]?.state).toBe('running');
+    questions.set([{ tabId: 'root-tab', sessionId: 'root-session' }]);
+    const pendingInput = TestBed.inject(CommandCenterProjectionSource).input({
+      tabId: 'root-tab',
+      sessionId: 'root-session',
+    });
+    expect(pendingInput.rootQuestionPending).toBe(true);
+    expect(projectOwnedWork(pendingInput).nodes[0]?.state).toBe(
+      'awaiting input',
+    );
     expect(input.rootProviderId).toBe('anthropic');
     expect(input.children).toEqual([
       expect.objectContaining({
@@ -142,6 +167,13 @@ describe('CommandCenterProjectionSource', () => {
     expect(
       input.agents.find((agent) => agent.agentId === 'other'),
     ).toBeUndefined();
+    const projected = projectOwnedWork(input).nodes;
+    expect(projected.find((node) => node.id === 'cli:cli-1')?.label).toBe(
+      'Architecture 1',
+    );
+    expect(projected.find((node) => node.id === 'cli:cli-2')?.label).toBe(
+      'Review release plan',
+    );
     expect(input.runs).toEqual([
       expect.objectContaining({
         runId: '11111111-1111-4111-8111-111111111111',
@@ -179,6 +211,7 @@ describe('CommandCenterProjectionSource', () => {
       activeWorkspacePath: '/workspace',
     });
     const chat = Object.assign(Object.create(null) as ChatStore, {
+      questionRequests: signal([]),
       sessions: signal([
         { id: 'child', organization: { parentSessionId: 'root' } },
         { id: 'grandchild', organization: { parentSessionId: 'child' } },
@@ -256,6 +289,7 @@ describe('CommandCenterProjectionSource', () => {
       activeWorkspacePath: '/workspace',
     });
     const chat = Object.assign(Object.create(null) as ChatStore, {
+      questionRequests: signal([]),
       sessions: signal([]),
     });
     const agents = signal([

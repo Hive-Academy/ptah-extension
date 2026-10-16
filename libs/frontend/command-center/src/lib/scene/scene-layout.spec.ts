@@ -86,6 +86,33 @@ describe('layoutScene', () => {
     expect(result.overflowChip?.text).toBe('+7 completed');
   });
 
+  it.each([460, 320])('keeps 24 sphere bodies clear at 600x%i', (height) => {
+    const nodes = [
+      root,
+      ...Array.from({ length: 23 }, (_, i) => node(`cli:${i}`)),
+    ];
+    const result = layoutScene(
+      { nodes, edges: [] },
+      { width: 600, height },
+      measure,
+    );
+    expect(result.nodes).toHaveLength(24);
+    const hero = result.nodes[0];
+    for (let i = 1; i < result.nodes.length; i++) {
+      const current = result.nodes[i];
+      expect(current.radius).toBeGreaterThanOrEqual(12);
+      expect(
+        Math.hypot(current.x - hero.x, current.y - hero.y),
+      ).toBeGreaterThanOrEqual(hero.radius + 16 + 12 + current.radius);
+      for (let j = i + 1; j < result.nodes.length; j++) {
+        const other = result.nodes[j];
+        expect(
+          Math.hypot(current.x - other.x, current.y - other.y),
+        ).toBeGreaterThanOrEqual(current.radius + other.radius);
+      }
+    }
+  });
+
   it('orbits Tribunal lanes around their core and attaches phase progress to it', () => {
     const tribunal = node('tribunal:run', 'running', root.id, null);
     const lanes = ['builder', 'challenger', 'judge'].map((role) =>
@@ -175,6 +202,30 @@ describe('layoutScene', () => {
     expect(
       result.nodes.find((entry) => entry.node.id === 'cli:need')?.labelRect,
     ).not.toBeNull();
+  });
+
+  it('keeps root, selected, awaiting and failed plates ahead of ordinary plates in a crowded scene', () => {
+    const nodes = [
+      root,
+      ...Array.from({ length: 15 }, (_, i) => node(`cli:${i}`)),
+      node('cli:failed', 'failed'),
+      node('cli:awaiting', 'awaiting input'),
+      node('cli:selected'),
+    ];
+    const result = layoutScene(
+      { nodes, edges: [] },
+      { width: 2200, height: 1400 },
+      measure,
+      'cli:selected',
+    );
+    for (const id of [root.id, 'cli:selected', 'cli:awaiting', 'cli:failed']) {
+      expect(
+        result.nodes.find((entry) => entry.node.id === id)?.labelRect,
+      ).not.toBeNull();
+    }
+    expect(
+      result.nodes.find((entry) => entry.node.id === 'cli:14')?.labelRect,
+    ).toBeNull();
   });
 
   it('keeps every placed plate outside all sphere halos by at least 12 pixels', () => {

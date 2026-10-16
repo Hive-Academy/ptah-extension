@@ -92,6 +92,28 @@ describe('SpriteCache', () => {
     );
   });
 
+  it('draws a distinct Ptah P in both themes even when the root has a provider', () => {
+    const cache = new SpriteCache(factory);
+    const work = {
+      ...node('root:r', 'codex'),
+      kind: 'root' as const,
+      parentId: null,
+    };
+    const colors: string[] = [];
+    fillText.mockImplementation(() => colors.push(context.fillStyle as string));
+    for (const theme of ['dark', 'light'] as const) {
+      cache.get({ ...request(work, theme, 154), paletteName: 'gold' });
+      expect(fillText).toHaveBeenLastCalledWith(
+        'P',
+        expect.any(Number),
+        expect.any(Number),
+      );
+      expect(colors.at(-1)).not.toBe(palette.lit);
+    }
+    expect(colors).toEqual(['#fff3ce', '#2f241b']);
+    expect(path).not.toHaveBeenCalled();
+  });
+
   it('uses the shield for Tribunal, keeps satellites at 32px and rebuilds on theme change', () => {
     const cache = new SpriteCache(factory);
     const tribunal = node('tribunal:run', null);

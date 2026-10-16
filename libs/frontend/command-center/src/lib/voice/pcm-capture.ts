@@ -18,36 +18,6 @@ export interface CaptureFactories {
   readonly audioContext: () => AudioContext;
 }
 
-const WORKLET = `class PcmRing extends AudioWorkletProcessor {
-  constructor() {
-    super(); this.ring = new Float32Array(Math.ceil(sampleRate * 0.35));
-    this.index = 0; this.filled = 0; this.recording = false; this.utteranceId = 0;
-    this.port.onmessage = ({data}) => {
-      if (data.kind === 'start') {
-        this.recording = true; this.utteranceId = data.id;
-        const prior = new Float32Array(this.filled);
-        for (let i = 0; i < this.filled; i++) prior[i] = this.ring[(this.index - this.filled + i + this.ring.length) % this.ring.length];
-        this.port.postMessage({kind:'samples', id:data.id, samples:prior}, [prior.buffer]);
-      } else if (data.kind === 'end' && data.id === this.utteranceId) {
-        this.recording = false; this.port.postMessage({kind:'end', id:data.id});
-      }
-    };
-  }
-  process(inputs) {
-    const samples = inputs[0]?.[0];
-    if (!samples) return true;
-    const frame = new Float32Array(samples);
-    for (const value of samples) { this.ring[this.index] = value; this.index = (this.index + 1) % this.ring.length; this.filled = Math.min(this.filled + 1, this.ring.length); }
-    this.port.postMessage({kind:'frame', samples:frame}, [frame.buffer]);
-    if (this.recording) {
-      const copy = new Float32Array(samples);
-      this.port.postMessage({kind:'samples', id:this.utteranceId, samples:copy}, [copy.buffer]);
-    }
-    return true;
-  }
-}
-registerProcessor('ptah-pcm-ring', PcmRing);`;
-
 const MAX_WAV_BYTES = 18_000_000;
 
 /** One microphone and one worklet for the active voice session. */
@@ -56,7 +26,6 @@ export class PcmCapture {
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private node: AudioWorkletNode | null = null;
-  private moduleUrl: string | null = null;
   private chunks: Float32Array[] = [];
   private sampleCount = 0;
   private utteranceId = 0;
@@ -91,10 +60,11 @@ export class PcmCapture {
     }
     try {
       this.context = this.factories.audioContext();
-      this.moduleUrl = URL.createObjectURL(
-        new Blob([WORKLET], { type: 'text/javascript' }),
+      const moduleUrl = new URL(
+        'assets/command-center/pcm-capture.worklet.js',
+        document.baseURI,
       );
-      await this.context.audioWorklet.addModule(this.moduleUrl);
+      await this.context.audioWorklet.addModule(moduleUrl.href);
       this.source = this.context.createMediaStreamSource(this.stream);
       this.node = new AudioWorkletNode(this.context, 'ptah-pcm-ring');
       this.node.port.onmessage = (
@@ -210,8 +180,6 @@ export class PcmCapture {
     this.stream = null;
     if (this.context) await this.context.close();
     this.context = null;
-    if (this.moduleUrl) URL.revokeObjectURL(this.moduleUrl);
-    this.moduleUrl = null;
     this.chunks = [];
     this.sampleCount = 0;
     this.discardedIds.clear();

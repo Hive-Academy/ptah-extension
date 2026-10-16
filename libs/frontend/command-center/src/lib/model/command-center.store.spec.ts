@@ -17,6 +17,28 @@ describe('CommandCenterStore', () => {
     jest.useRealTimers();
   });
 
+  it('keeps typed voice failures until retry, successful listening, or a new session', () => {
+    store.setSession('first', null, '/workspace');
+    store.setVoiceError({
+      kind: 'worklet',
+      message: 'Voice capture could not start.',
+    });
+    expect(store.voiceError()?.kind).toBe('worklet');
+    store.setVoiceError(null);
+    expect(store.voiceError()).toBeNull();
+    store.setVoiceError({
+      kind: 'mic-denied',
+      message: 'Microphone permission was denied.',
+    });
+    store.setVoiceState('listening');
+    expect(store.voiceError()).toBeNull();
+    store.setVoiceError({ kind: 'stt', message: 'Transcription failed.' });
+    store.setToast({ message: 'Transcription failed.', tone: 'error' });
+    store.setSession('second', null, '/workspace');
+    expect(store.voiceError()).toBeNull();
+    expect(store.toast()).toBeNull();
+  });
+
   it('tracks session, voice, input and display state through explicit updates', () => {
     expect(store.sessionStatus()).toBe('idle');
     expect(store.voiceState()).toBe('idle');

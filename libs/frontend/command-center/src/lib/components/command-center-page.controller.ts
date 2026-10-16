@@ -20,7 +20,11 @@ import {
 import { CommandCenterStore } from '../model/command-center.store';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { buildStatusContext } from '../model/status-context';
-import { computeAgesMs, projectOwnedWork } from '../model/work-projection';
+import {
+  computeAgesMs,
+  projectOwnedWork,
+  rootWorkState,
+} from '../model/work-projection';
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
 import { TRIBUNAL_MOVES } from '@ptah-extension/tribunal-panel/phase';
 import { TribunalRunCoordinator } from '../model/tribunal-run-coordinator';
@@ -45,14 +49,14 @@ export class CommandCenterPageController {
   public readonly tribunal = new TribunalRunCoordinator(this.tribunalTransport);
   public readonly pendingProposal = signal<TribunalRosterProposal | null>(null);
   public readonly rosterTimedOut = signal(false);
-  public readonly voiceErrorKind = computed(() => {
-    const message = this.store.toast()?.message ?? '';
-    if (message.includes('Microphone')) return 'mic-denied' as const;
-    if (message.includes('Transcription')) return 'transcription' as const;
-    if (this.store.toast()?.action === 'retry-speech')
-      return 'playback' as const;
-    if (message.includes('Voice request failed')) return 'chat' as const;
-    return null;
+  public readonly turnAbortable = computed(() => {
+    const tabId = this.store.markedTabId();
+    return (
+      !!tabId &&
+      this.tabs
+        .tabs()
+        .some((tab) => tab.id === tabId && tab.status === 'streaming')
+    );
   });
   private readonly expectedRequest = signal<{
     nonce: string;
@@ -78,6 +82,7 @@ export class CommandCenterPageController {
   private readonly voiceTurnToken = signal<number | null>(null);
   private readonly armedTurns: { token: number; minPulseSeq: number }[] = [];
   private deliveredPulseSeq = 0;
+  private statusPulseSeq = 0;
   private readonly spokenRequestIds = new Set<string>();
   private readonly invalidRosterQuestionIds = new Set<string>();
   public readonly undeclinedInvalidQuestionId = signal<string | null>(null);
@@ -189,10 +194,36 @@ export class CommandCenterPageController {
     const tabId = this.store.markedTabId();
     const root = this.tabs.tabs().find((tab) => tab.id === tabId);
     const rootSessionId = root?.claudeSessionId ?? this.store.sessionId();
-    if (!root || !rootSessionId) return { nodes: [], edges: [] };
-    return projectOwnedWork(
-      this.projectionSource.input({ tabId: root.id, sessionId: rootSessionId }),
-    );
+    if (!root) return { nodes: [], edges: [] };
+    const rootQuestionPending = this.chat
+      .questionRequests()
+      .some(
+        (request) =>
+          request.tabId === root.id ||
+          (!!rootSessionId && request.sessionId === rootSessionId),
+      );
+    if (!rootSessionId)
+      return {
+        nodes: [
+          {
+            id: `root:${root.id}`,
+            kind: 'root' as const,
+            parentId: null,
+            label: 'Ptah',
+            providerId: null,
+            state: rootWorkState(root.status, rootQuestionPending),
+          },
+        ],
+        edges: [],
+      };
+    return projectOwnedWork({
+      ...this.projectionSource.input({
+        tabId: root.id,
+        sessionId: rootSessionId,
+      }),
+      rootTabStatus: root.status,
+      rootQuestionPending,
+    });
   });
   public readonly voice = new CommandVoiceLoop(
     this.store,
@@ -265,6 +296,18 @@ export class CommandCenterPageController {
       if (!rootId) return;
       this.store.setProjection(rootId, projection.nodes, projection.edges);
       this.voice.onProjection(rootId);
+    });
+    effect(() => {
+      const tabId = this.store.markedTabId();
+      const pulse = tabId
+        ? this.tabs.lastTerminalPulseByTab().get(tabId)
+        : undefined;
+      if (!pulse || pulse.seq <= this.statusPulseSeq) return;
+      this.statusPulseSeq = pulse.seq;
+      if (this.store.sessionStatus() === 'running')
+        this.store.setSessionStatus(
+          pulse.classification === 'success' ? 'idle' : 'error',
+        );
     });
     effect(() => {
       const tabId = this.store.markedTabId();
@@ -424,6 +467,10 @@ export class CommandCenterPageController {
     return tabId;
   }
   public startVoice(): Promise<boolean> {
+    if (this.store.voiceError()) {
+      this.store.setVoiceError(null);
+      this.store.setToast(null);
+    }
     return this.voice.start();
   }
   public muteVoice(): Promise<void> {

@@ -184,6 +184,98 @@ export function layoutScene(
       point.y = clamp(point.y, envelope + 66, viewport.height - envelope - 42);
     }
   }
+  const tribunalWithLanes = new Set(
+    visible.filter((node) => node.kind === 'lane').map((node) => node.parentId),
+  );
+  const envelopeFor = (point: (typeof placed)[number]): number =>
+    point.radius +
+    (point.kind === 'tribunal' && tribunalWithLanes.has(point.node.id)
+      ? 44
+      : 0);
+  const clear = placed.slice(1).every((point, index) => {
+    if (
+      Math.hypot(point.x - cx, point.y - cy) <
+      rootRadius + 32 + envelopeFor(point)
+    )
+      return false;
+    return placed
+      .slice(index + 2)
+      .every(
+        (other) =>
+          Math.hypot(point.x - other.x, point.y - other.y) >=
+          envelopeFor(point) + envelopeFor(other),
+      );
+  });
+  if (!clear) {
+    const targets = placed.slice(1).map((point) => ({
+      x: point.x,
+      y: point.y,
+      radius: point.radius,
+    }));
+    // Compact stages keep a 12px delegate radius floor and clear the pulsing voice ring.
+    for (const factor of [1, 0.9, 0.8, 0.7, 0.6]) {
+      const packed = [placed[0]];
+      let fits = true;
+      for (let index = 1; index < placed.length; index++) {
+        const point = placed[index];
+        const target = targets[index - 1];
+        const radius = Math.max(12, target.radius * factor);
+        const envelope =
+          radius +
+          (point.kind === 'tribunal' && tribunalWithLanes.has(point.node.id)
+            ? 44
+            : 0);
+        let bestX = 0;
+        let bestY = 0;
+        let bestDistance = Infinity;
+        for (
+          let y = envelope + 66;
+          y <= viewport.height - envelope - 42;
+          y += 10
+        ) {
+          for (
+            let x = envelope + 14;
+            x <= viewport.width - envelope - 14;
+            x += 10
+          ) {
+            if (Math.hypot(x - cx, y - cy) < rootRadius + 32 + envelope)
+              continue;
+            if (
+              packed
+                .slice(1)
+                .some(
+                  (other) =>
+                    Math.hypot(x - other.x, y - other.y) <
+                    envelope + envelopeFor(other) + 4,
+                )
+            )
+              continue;
+            const distance = (x - target.x) ** 2 + (y - target.y) ** 2;
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestX = x;
+              bestY = y;
+            }
+          }
+        }
+        if (bestDistance === Infinity) {
+          fits = false;
+          break;
+        }
+        packed.push({
+          ...point,
+          x: bestX,
+          y: bestY,
+          radius,
+          scale: (point.scale * radius) / target.radius,
+        });
+      }
+      if (fits) {
+        placed.splice(1, placed.length - 1, ...packed.slice(1));
+        break;
+      }
+    }
+  }
   // Satellites inherit the final core position, so pair separation cannot detach them.
   for (const core of placed.filter((point) => point.kind === 'tribunal')) {
     const lanes = visible.filter(
@@ -205,7 +297,7 @@ export function layoutScene(
   const dense = placed.length > 12;
   let ordinaryLabels = 0;
   const used: SceneRect[] = [];
-  const nodes: SceneNode[] = placed.map((point) => {
+  const labeled = placed.map((point) => {
     const parent = point.node.parentId
       ? byId.get(point.node.parentId)
       : undefined;
@@ -213,6 +305,33 @@ export function layoutScene(
       point.node.kind === 'child'
         ? `${providerName(parent?.providerId ?? null)} · ${point.node.label}`
         : point.node.label;
+    const phases =
+      point.kind === 'tribunal'
+        ? projection.nodes.filter(
+            (node) => node.kind === 'phase' && node.parentId === point.node.id,
+          )
+        : [];
+    return { ...point, label, phases };
+  });
+  const labelRects: (SceneRect | null)[] = placed.map(() => null);
+  const labelPriority = (point: (typeof placed)[number]): number =>
+    point.kind === 'root'
+      ? 0
+      : point.node.id === selectedId
+        ? 1
+        : point.node.state === 'awaiting input'
+          ? 2
+          : point.node.state === 'failed'
+            ? 3
+            : 4;
+  const placementOrder = placed
+    .map((point, index) => ({ point, index }))
+    .sort(
+      (a, b) =>
+        labelPriority(a.point) - labelPriority(b.point) || a.index - b.index,
+    );
+  for (const { point, index } of placementOrder) {
+    const label = labeled[index].label;
     const must =
       point.kind === 'root' ||
       point.node.id === selectedId ||
@@ -220,7 +339,6 @@ export function layoutScene(
       point.node.state === 'awaiting input';
     const allowed = !dense || must || ordinaryLabels++ < 5;
     const size = measure(label);
-    let labelRect: SceneRect | null = null;
     if (allowed) {
       const gap = point.kind === 'root' ? 36 : 24;
       const candidates =
@@ -260,20 +378,17 @@ export function layoutScene(
           return dx * dx + dy * dy < exclusion * exclusion;
         });
         if (!overlapsLabel && !overlapsSphere) {
-          labelRect = rect;
+          labelRects[index] = rect;
           used.push(rect);
           break;
         }
       }
     }
-    const phases =
-      point.kind === 'tribunal'
-        ? projection.nodes.filter(
-            (node) => node.kind === 'phase' && node.parentId === point.node.id,
-          )
-        : [];
-    return { ...point, label, labelRect, phases };
-  });
+  }
+  const nodes: SceneNode[] = labeled.map((point, index) => ({
+    ...point,
+    labelRect: labelRects[index],
+  }));
   return {
     nodes,
     overflowCompleted,

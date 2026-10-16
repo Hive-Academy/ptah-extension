@@ -74,6 +74,21 @@ describe('CommandPendingInputComponent', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it('keeps the question compact with a visible answer boundary and example', () => {
+    const fixture = setup(null);
+    fixture.componentRef.setInput('choices', ['release/next']);
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector('section') as HTMLElement;
+    const input = fixture.nativeElement.querySelector(
+      '#pending-answer',
+    ) as HTMLInputElement;
+    expect(card.className).toContain('max-h-[260px]');
+    expect(card.className).toContain('border-state-need');
+    expect(input.placeholder).toBe('e.g. release/next');
+    expect(input.className).toContain('border-base-content');
+    expect(input.className).toContain('focus-visible:outline-2');
+  });
+
   it('shows and emits the full ordinary choice', () => {
     const fixture = setup(null);
     fixture.componentRef.setInput('choices', [

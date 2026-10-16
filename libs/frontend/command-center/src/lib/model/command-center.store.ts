@@ -13,6 +13,7 @@ export type CommandVoiceState =
   | 'error';
 
 export type CommandWorkState =
+  | 'idle'
   | 'unknown'
   | 'queued'
   | 'starting'
@@ -56,6 +57,20 @@ export interface CommandToast {
   readonly action?: 'retry-speech';
 }
 
+export type CommandVoiceErrorKind =
+  | 'mic-denied'
+  | 'mic-unavailable'
+  | 'worklet'
+  | 'stt'
+  | 'tts'
+  | 'playback'
+  | 'chat';
+
+export interface CommandVoiceError {
+  readonly kind: CommandVoiceErrorKind;
+  readonly message: string;
+}
+
 export type CommandTheme = 'light' | 'dark';
 
 /** Page-scoped store provided by CommandCenterPageComponent; the scene renderer owns mutable frame state. */
@@ -76,6 +91,9 @@ export class CommandCenterStore {
 
   private readonly _voiceState = signal<CommandVoiceState>('idle');
   public readonly voiceState = this._voiceState.asReadonly();
+
+  private readonly _voiceError = signal<CommandVoiceError | null>(null);
+  public readonly voiceError = this._voiceError.asReadonly();
 
   private readonly _inputLevel = signal(0);
   public readonly inputLevel = this._inputLevel.asReadonly();
@@ -120,6 +138,10 @@ export class CommandCenterStore {
     sessionId: string | null,
     workspace: string | null,
   ): void {
+    if (markedTabId !== this._markedTabId()) {
+      this._voiceError.set(null);
+      this._toast.set(null);
+    }
     this._markedTabId.set(markedTabId);
     this._sessionId.set(sessionId);
     this._workspace.set(workspace);
@@ -131,6 +153,11 @@ export class CommandCenterStore {
 
   public setVoiceState(state: CommandVoiceState): void {
     this._voiceState.set(state);
+    if (state === 'listening') this._voiceError.set(null);
+  }
+
+  public setVoiceError(error: CommandVoiceError | null): void {
+    this._voiceError.set(error === null ? null : { ...error });
   }
 
   public setMuted(muted: boolean): void {

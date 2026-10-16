@@ -154,7 +154,12 @@ describe('ElectronShellComponent Apps tab', () => {
     const tasks = tabs().find((tab) => tab.title === 'Tasks')!;
     expect(apps.getAttribute('role')).toBe('tab');
     expect(apps.className).toBe(tasks.className);
-    expect(Array.from(apps.classList)).toEqual(['tab', 'gap-1.5', 'no-drag']);
+    expect(Array.from(apps.classList)).toEqual([
+      'tab',
+      'gap-1.5',
+      'no-drag',
+      'whitespace-nowrap',
+    ]);
     expect(apps.className).not.toMatch(/text-base-content\//);
     const icon = apps.querySelector('lucide-angular') as
       (HTMLElement & { img?: unknown }) | null;
