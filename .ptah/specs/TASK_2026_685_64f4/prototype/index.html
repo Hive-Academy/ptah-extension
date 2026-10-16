@@ -243,7 +243,6 @@
           <span class="actions">
             <button type="button" class="act" title="Send to background" aria-label="Send Explore to background"><svg><use href="#i-bg"/></svg></button>
             <button type="button" class="act stop" title="Stop" aria-label="Stop Explore"><svg><use href="#i-stop"/></svg></button>
-            <button type="button" class="act" title="View transcript" aria-label="View Explore transcript"><svg><use href="#i-doc"/></svg></button>
             <button type="button" class="act" title="Message agent" aria-label="Message Explore"><svg><use href="#i-msg"/></svg></button>
           </span>
         </div>
@@ -255,7 +254,7 @@
             <dt>Parent</dt><dd>af345289…</dd>
           </dl>
         </div>
-        <div class="content muted">… tool calls (ptah-execution-node children, no bubble chrome) …</div>
+        <div class="content muted">… own live execution tree (ptah-execution-node, same renderer and stream as the CLI lane; not part of the main orchestration tree; no bubble chrome) …</div>
       </div>
     </div>
   </div>
@@ -275,8 +274,7 @@
       <div class="xrow"><button type="button" class="disc"><span>Worked for 1m 03s</span><svg class="chev"><use href="#i-chev"/></svg><span class="meta tnum" style="color:var(--wa)">Stopped: tool-call limit reached</span></button>
       <span class="actions"><button type="button" class="act resume" title="Resume session" aria-label="Resume codex session"><svg><use href="#i-play"/></svg></button></span></div></div>
     <div><h3>Subagent · completed</h3>
-      <div class="xrow"><button type="button" class="disc"><span>Worked for 2m 31s</span><svg class="chev"><use href="#i-chev"/></svg><span class="meta tnum">9 tools · 31.0k tokens</span></button>
-      <span class="actions"><button type="button" class="act" title="View transcript" aria-label="View transcript"><svg><use href="#i-doc"/></svg></button></span></div></div>
+      <div class="xrow"><button type="button" class="disc"><span>Worked for 2m 31s</span><svg class="chev"><use href="#i-chev"/></svg><span class="meta tnum">9 tools · 31.0k tokens</span></button></div></div>
   </div></div>
 </section>
 
@@ -290,7 +288,8 @@
       <tr><td>Duration</td><td>agent-card-header :143-148 (formatElapsed); bubble footer</td><td>Tab chip, hover card, inspector</td><td><span class="pill move">moved</span> into the label "Worked for X" (one formatter); <span class="pill del">proposed removal</span> of the separate badge</td></tr>
       <tr><td>Resume (CLI)</td><td>agent-card-header :125-140</td><td>—</td><td><span class="pill keep">kept</span> in the shared action place</td></tr>
       <tr><td>Stop (CLI running)</td><td>agent-card-header :107-122</td><td>Inspector actions menu</td><td><span class="pill keep">kept</span> in the shared action place</td></tr>
-      <tr><td>Subagent stop / background / transcript / message</td><td>inline-agent-bubble status row</td><td>Inspector actions menu</td><td><span class="pill keep">kept</span> in the shared action place</td></tr>
+      <tr><td>Subagent stop / background / message</td><td>inline-agent-bubble status row</td><td>Inspector actions menu</td><td><span class="pill keep">kept</span> in the shared action place</td></tr>
+      <tr><td>Subagent "View transcript" action and the saved-transcript fallback</td><td>inline-agent-bubble :322-330; canvas-lane-view :155-163</td><td>Inspector actions menu, background strip</td><td><span class="pill del">removed (approved 2026-10-17)</span> — the lane shows the subagent's own live execution tree, same as the CLI lane</td></tr>
       <tr><td>ctx / in / out / cache / cost</td><td>cli-lane-usage-summary; subagent-usage-summary</td><td>Inspector (totals only)</td><td><span class="pill move">moved</span> behind the disclosure; one token total in the row meta</td></tr>
       <tr><td>Warm / cold cache badge (subagent)</td><td>subagent-usage-summary :54-65</td><td>—</td><td><span class="pill move">moved</span> behind the disclosure</td></tr>
       <tr><td>"≥" partial marker</td><td>cli-lane-usage-summary :76-88</td><td>Inspector</td><td><span class="pill keep">kept</span> (row meta and details)</td></tr>

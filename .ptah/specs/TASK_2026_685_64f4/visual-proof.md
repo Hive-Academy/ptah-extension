@@ -3,6 +3,28 @@
 Session: child session "685 lane header proof", branch `docs/lane-header-proof` (base `ff9ec5fec`).
 All `file:line` references below are from this worktree. No production source changed.
 
+## User decision (2026-10-17) — one live stream, one renderer
+
+- A CLI lane and an SDK subagent show the **same real-time message stream**, rendered the
+  **same way** as the main agent: one `ExecutionNode` tree, `ptah-execution-node`, while they run.
+- The subagent stays **out of the main orchestration execution tree** (decision to save memory
+  and resources). It has its **own independent execution tree**, fed live, shown in its lane.
+- Remove the workarounds:
+  - "View transcript" action (`inline-agent-bubble.component.ts:322-330`, `:963-981`; inspector
+    menu `inspector-agent-actions-menu.component.ts:38`, `session-agent-tray.service.ts:101-108`;
+    `background-agent-strip.component.ts:331-337`).
+  - The text-only fallback in the lane: "Live agent unavailable. Showing saved transcript."
+    with `ptah-subagent-transcript-viewer` (`canvas-lane-view.component.ts:155-163`, load logic
+    `:236-244`, `:300-350`) and the `subagent:transcript` overlay path.
+  - The subagent bubble chrome inside the lane (already in "Proposed Removals").
+- Current code does not match this yet: the lane looks for the subagent node inside the tab's
+  main tree (`canvas-lane-view.component.ts:245-257`), and the tree builder nests subagent
+  messages under the parent agent node (`execution-tree-builder.service.ts:319`).
+- Open point for implementation: a subagent from an earlier session needs its own tree rebuilt
+  from saved structured events (as `buildTreeFromSegments` does for CLI lanes), not from the
+  text-only `subagent:transcript` result. Memory search had no record of the earlier decision;
+  this section is the record now.
+
 ## Status of the Electron capture
 
 Parent decision: this session does not launch Electron. The parent's visual-reviewer takes the
@@ -139,3 +161,5 @@ Each item needs the user's approval before implementation.
 6. Always-visible usage rows (`cli-lane-usage-summary`, `subagent-usage-summary`) as top-level
    rows. Not removed: moved behind the disclosure.
 7. Parent ID: moved behind the disclosure (default). Alternative: remove it completely.
+8. **Approved by the user (2026-10-17):** "View transcript" action everywhere, the saved-transcript
+   fallback in the lane, and the `subagent:transcript` overlay path. See "User decision" above.
