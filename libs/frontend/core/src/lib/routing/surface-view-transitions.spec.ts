@@ -1,0 +1,264 @@
+import { PlatformLocation } from '@angular/common';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import {
+  provideRouter,
+  Router,
+  RouterOutlet,
+  withDisabledInitialNavigation,
+  type Routes,
+} from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
+import { MemoryPlatformLocation } from './memory-platform-location';
+import { LoggingService } from '../services/logging.service';
+import {
+  SurfaceTransitionTracker,
+  withSurfaceViewTransitions,
+} from './surface-view-transitions';
+
+@Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: 'Surface',
+})
+class SurfaceProbe {}
+
+@Component({
+  imports: [RouterOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<router-outlet />',
+})
+class ChildSurfaceProbe {}
+
+const routes: Routes = [
+  { path: 'chat', children: [{ path: '', children: [] }, { path: ':tabId', children: [] }] },
+  { path: 'settings', component: SurfaceProbe },
+  { path: 'tasks', loadComponent: () => Promise.resolve(SurfaceProbe) },
+  {
+    path: 'thoth',
+    loadChildren: () => [
+      { path: '', component: ChildSurfaceProbe, children: [
+        { path: 'overview', component: SurfaceProbe },
+        { path: 'agents', component: SurfaceProbe },
+      ] },
+    ],
+  },
+  {
+    path: 'marketplace',
+    loadChildren: () => [
+      { path: '', component: ChildSurfaceProbe, children: [
+        { path: 'browse', component: SurfaceProbe },
+        { path: 'installed', component: SurfaceProbe },
+      ] },
+    ],
+  },
+  { path: 'blocked', canActivate: [() => false], component: SurfaceProbe },
+  { path: '', pathMatch: 'full', redirectTo: 'chat' },
+  { path: '**', redirectTo: 'chat' },
+];
+
+interface StubTransition {
+  transition: ViewTransition;
+  skip: jest.Mock;
+  finish: () => void;
+}
+
+function makeTransition(): StubTransition {
+  let finish: () => void = () => undefined;
+  const finished = new Promise<void>((resolve) => { finish = resolve; });
+  const skip = jest.fn();
+  return {
+    transition: {
+      ready: Promise.resolve(),
+      updateCallbackDone: Promise.resolve(),
+      finished,
+      types: new Set<string>(),
+      skipTransition: skip,
+    },
+    skip,
+    finish,
+  };
+}
+
+describe('surface view transitions', () => {
+  let originalStart: PropertyDescriptor | undefined;
+  let originalMatch: PropertyDescriptor | undefined;
+  let created: StubTransition[];
+  let harness: RouterTestingHarness;
+  let tracker: SurfaceTransitionTracker;
+
+  beforeEach(async () => {
+    originalStart = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+    originalMatch = Object.getOwnPropertyDescriptor(globalThis, 'matchMedia');
+    created = [];
+    const startViewTransition: Document['startViewTransition'] = (options) => {
+      const stub = makeTransition();
+      const update = typeof options === 'function' ? options : options?.update;
+      const updateCallbackDone = Promise.resolve().then(() => update?.()).then(() => undefined);
+      created.push({ ...stub, transition: { ...stub.transition, updateCallbackDone } });
+      return created[created.length - 1].transition;
+    };
+    Object.defineProperty(document, 'startViewTransition', {
+      configurable: true,
+      value: startViewTransition,
+    });
+    Object.defineProperty(globalThis, 'matchMedia', {
+      configurable: true,
+      value: jest.fn().mockReturnValue({ matches: false }),
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: PlatformLocation, useClass: MemoryPlatformLocation },
+        { provide: LoggingService, useValue: { error: jest.fn() } },
+        provideRouter(routes, withDisabledInitialNavigation(), withSurfaceViewTransitions()),
+      ],
+    });
+    harness = await RouterTestingHarness.create();
+    tracker = TestBed.inject(SurfaceTransitionTracker);
+  });
+
+  afterEach(async () => {
+    created.forEach(({ finish }) => finish());
+    await Promise.resolve();
+    if (originalStart) Object.defineProperty(document, 'startViewTransition', originalStart);
+    else Reflect.deleteProperty(document, 'startViewTransition');
+    if (originalMatch) Object.defineProperty(globalThis, 'matchMedia', originalMatch);
+    else Reflect.deleteProperty(globalThis, 'matchMedia');
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+
+  it('skips the first navigation, then tracks chat to settings', async () => {
+    await harness.navigateByUrl('/chat');
+    expect(created).toHaveLength(0);
+    await harness.navigateByUrl('/settings');
+    expect(created).toHaveLength(1);
+    expect(created[0].skip).not.toHaveBeenCalled();
+    expect(tracker.busy()).toBe(true);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(true);
+    created[0].finish();
+    await created[0].transition.finished;
+    await Promise.resolve();
+    expect(tracker.busy()).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+
+  it.each([
+    ['/chat', '/chat/a'],
+    ['/chat/a', '/chat/b'],
+    ['/thoth/overview', '/thoth/agents'],
+    ['/marketplace/browse', '/marketplace/installed'],
+    ['/settings;panel=x', '/settings'],
+    ['/chat/a', '/'],
+    ['/chat/a', '/unrecognised'],
+  ])('skips same-surface navigation %s to %s', async (from, to) => {
+    await harness.navigateByUrl(from);
+    await harness.navigateByUrl(to);
+    expect(created).toHaveLength(1);
+    expect(created[0].skip).toHaveBeenCalledTimes(1);
+    expect(tracker.busy()).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+
+  it.each(['/','/unrecognised'])('animates settings to redirect %s', async (to) => {
+    await harness.navigateByUrl('/settings');
+    await harness.navigateByUrl(to);
+    expect(created).toHaveLength(1);
+    expect(created[0].skip).not.toHaveBeenCalled();
+    expect(tracker.busy()).toBe(true);
+  });
+
+  it('skips a navigation under reduced motion', async () => {
+    await harness.navigateByUrl('/chat');
+    Object.defineProperty(globalThis, 'matchMedia', {
+      configurable: true,
+      value: jest.fn().mockReturnValue({ matches: true }),
+    });
+    await harness.navigateByUrl('/settings');
+    expect(created[0].skip).toHaveBeenCalledTimes(1);
+    expect(tracker.busy()).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+
+  it('does not create a transition for a guard-cancelled navigation', async () => {
+    await harness.navigateByUrl('/chat');
+    expect(await TestBed.inject(Router).navigateByUrl('/blocked')).toBe(false);
+    expect(created).toHaveLength(0);
+  });
+
+  it('keeps the latest transition during rapid page changes', async () => {
+    await harness.navigateByUrl('/chat');
+    await harness.navigateByUrl('/settings');
+    await harness.navigateByUrl('/tasks');
+    expect(created).toHaveLength(2);
+    const callback = jest.fn();
+    tracker.afterTransition(callback);
+    created[0].finish();
+    await Promise.resolve();
+    expect(tracker.busy()).toBe(true);
+    expect(callback).not.toHaveBeenCalled();
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(true);
+    created[1].finish();
+    await Promise.resolve();
+    expect(tracker.busy()).toBe(false);
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+});
+
+describe('SurfaceTransitionTracker', () => {
+  let tracker: SurfaceTransitionTracker;
+  const logger = { error: jest.fn() };
+
+  beforeEach(() => {
+    logger.error.mockClear();
+    TestBed.configureTestingModule({ providers: [{ provide: LoggingService, useValue: logger }] });
+    tracker = TestBed.inject(SurfaceTransitionTracker);
+  });
+
+  it('runs idle callbacks synchronously and busy callbacks in order', async () => {
+    const calls: number[] = [];
+    tracker.afterTransition(() => calls.push(1));
+    expect(calls).toEqual([1]);
+    const stub = makeTransition();
+    tracker.track(stub.transition);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(true);
+    tracker.afterTransition(() => calls.push(2));
+    tracker.afterTransition(() => calls.push(3));
+    expect(calls).toEqual([1]);
+    stub.skip();
+    stub.finish();
+    await Promise.resolve();
+    expect(calls).toEqual([1, 2, 3]);
+    expect(tracker.busy()).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+
+  it('runs later callbacks after one throws and logs the failure', async () => {
+    const stub = makeTransition();
+    const error = new Error('callback failed');
+    const later = jest.fn();
+    tracker.track(stub.transition);
+    tracker.afterTransition(() => { throw error; });
+    tracker.afterTransition(later);
+    stub.finish();
+    await Promise.resolve();
+    expect(later).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      'SurfaceTransitionTracker', 'Deferred callback failed', error,
+    );
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+
+  it('flushes after a rejected finished promise', async () => {
+    let rejectFinished: (reason?: Error) => void = () => undefined;
+    const stub = makeTransition();
+    const finished = new Promise<void>((_resolve, reject) => { rejectFinished = reject; });
+    tracker.track({ ...stub.transition, finished });
+    const callback = jest.fn();
+    tracker.afterTransition(callback);
+    rejectFinished(new Error('view update failed'));
+    await Promise.resolve();
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(tracker.busy()).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+  });
+});

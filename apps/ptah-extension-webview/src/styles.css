@@ -37,6 +37,13 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
  * to create the crystalline "Wisdom of Thoth" visual language.
  */
 :root {
+  /* Shared motion timing for page and session transitions. */
+  --ptah-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
+  --ptah-motion-out: 120ms;
+  --ptah-motion-in: 200ms;
+  --ptah-stagger-step: 28ms;
+
   /* Brand gold — theme-aware (overridden for light theme below) */
   --ptah-gold: #d4af37; /* primary brand gold */
   --ptah-gold-strong: #f5d97d; /* emphasis / hover (brighter in dark) */
@@ -741,11 +748,90 @@ Webkit pseudo-elements kept as fallback for older webview hosts.
 }
 
 /* ============================================================================
+MOTION
+============================================================================ */
+
+html.ptah-vt-active .ptah-vt-surface {
+  view-transition-name: ptah-surface;
+}
+
+::view-transition {
+  pointer-events: none;
+}
+
+/* Untracked same-surface and reduced-motion navigations have no UA animation. */
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 0s;
+}
+
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-name: none;
+}
+
+html.ptah-vt-active::view-transition-group(root) {
+  animation-duration: 180ms;
+  animation-timing-function: var(--ptah-ease-soft);
+}
+
+html.ptah-vt-active::view-transition-group(ptah-surface) {
+  animation-duration: var(--ptah-motion-in);
+  animation-timing-function: var(--ptah-ease-soft);
+}
+
+html.ptah-vt-active::view-transition-old(root) {
+  animation: ptahPageOut 180ms var(--ptah-ease-soft) both;
+}
+
+html.ptah-vt-active::view-transition-new(root) {
+  animation: ptahPageIn 180ms var(--ptah-ease-soft) both;
+}
+
+html.ptah-vt-active::view-transition-old(ptah-surface) {
+  animation: ptahPageOut var(--ptah-motion-out) var(--ptah-ease-gentle-in) both;
+}
+
+html.ptah-vt-active::view-transition-new(ptah-surface) {
+  animation: ptahPageRiseIn var(--ptah-motion-in) var(--ptah-ease-soft) both;
+}
+
+@keyframes ptahPageOut {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ptahPageIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ptahPageRiseIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================================
 ACCESSIBILITY STYLES
 ============================================================================ */
 
 /* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+
   *,
   *::before,
   *::after {

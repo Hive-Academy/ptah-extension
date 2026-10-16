@@ -25,6 +25,11 @@ export { SurfaceActiveDirective } from './surface-active.directive';
 export { RetainedViewDirective } from './retained-view.directive';
 export { SurfaceRoutePersistence } from './surface-route-persistence';
 export {
+  shouldAnimateSurfaceChange,
+  SurfaceTransitionTracker,
+  withSurfaceViewTransitions,
+} from './surface-view-transitions';
+export {
   resolveBootNavigation,
   type BootInput,
   type BootPlan,
