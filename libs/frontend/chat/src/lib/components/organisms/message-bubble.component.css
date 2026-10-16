@@ -1,5 +1,14 @@
 :host {
   display: block;
+  container-type: inline-size;
+}
+
+/* The composer has 12px outer padding and a centered 758px card. The
+   transcript already supplies 8px; align with the card's inner border. */
+@container (min-width: 704px) {
+  .cs-turn:not(.cs-compact) {
+    padding-left: max(5px, calc((100cqw - 758px) / 2 + 1px));
+  }
 }
 
 /* No `content-visibility` here: the transcript render window already unmounts
@@ -355,4 +364,3 @@
 :host ::ng-deep markdown img:not([height]) {
   aspect-ratio: 16 / 9;
 }
-

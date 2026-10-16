@@ -1,6 +1,7 @@
 import { addCliUsage, type CliOutputSegment } from '@ptah-extension/shared';
 
 export type CliAgentStats = NonNullable<CliOutputSegment['usage']>;
+export type PartialUsageTotals = Pick<CliAgentStats, 'inputTokens' | 'outputTokens' | 'totalTokens' | 'costUsd'> & { readonly partial: true };
 
 /**
  * Format a token count for compact display.
@@ -66,4 +67,18 @@ export function extractCliAgentStats(
     (stats, { usage }) => addCliUsage(stats, usage),
     null,
   );
+}
+
+/**
+ * Returns only token and cost totals that are safe to fold from retained segments;
+ * context and cache fields are omitted on purpose and the result is partial (Req 8.4).
+ */
+export function usageTotalsFromSegments(
+  segments: readonly CliOutputSegment[],
+): PartialUsageTotals | null {
+  const stats = extractCliAgentStats(segments);
+  if (!stats) return null;
+  const { inputTokens, outputTokens, totalTokens, costUsd } = stats;
+  if ([inputTokens, outputTokens, totalTokens, costUsd].every((value) => value === undefined)) return null;
+  return { inputTokens, outputTokens, totalTokens, costUsd, partial: true };
 }

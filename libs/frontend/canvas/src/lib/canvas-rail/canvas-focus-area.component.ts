@@ -36,7 +36,6 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           [title]="tab()?.title ?? ''"
           [state]="state()"
           [branch]="tab()?.agentOrigin?.branch ?? null"
-          [model]="tab()?.liveModelStats?.model ?? tab()?.sessionModel ?? null"
           [running]="canvasStore.isSessionRunning(id)"
           [viewMode]="tab()?.viewMode ?? 'full'"
           [band]="band()"

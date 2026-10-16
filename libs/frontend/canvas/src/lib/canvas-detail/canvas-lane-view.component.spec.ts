@@ -246,7 +246,7 @@ describe('CanvasLaneViewComponent', () => {
     fixture.detectChanges();
     const buttons = [
       ...fixture.nativeElement.querySelectorAll(
-        'button:not([aria-label="Back to conversation"])',
+        'button',
       ),
     ] as HTMLButtonElement[];
     buttons[0].click();
@@ -454,11 +454,8 @@ describe('CanvasLaneViewComponent', () => {
         .querySelector('[role="tabpanel"]')
         .getAttribute('aria-labelledby'),
     ).toBe('canvas-lane-panel-tab-bg:task-tool');
-    expect(
-      fixture.nativeElement.querySelector(
-        '[aria-label="Back to conversation"]',
-      ),
-    ).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="tabpanel"]')?.getAttribute('tabindex')).toBe('-1');
+    expect(fixture.nativeElement.querySelector('[aria-label="Back to conversation"]')).toBeNull();
   });
 
   it('resolves a nested depth-2 agent by its own lane key', () => {
@@ -499,7 +496,7 @@ describe('CanvasLaneViewComponent', () => {
     ).not.toBeNull();
   });
 
-  it('keeps one transcript and draft while covering it, and focuses Back then restores the opener', async () => {
+  it('keeps one transcript and draft while covering it, and focuses the lane then restores the opener', async () => {
     TestBed.overrideComponent(CanvasLaneViewComponent, {
       set: {
         imports: [
@@ -575,11 +572,9 @@ describe('CanvasLaneViewComponent', () => {
     expect(
       transcript.componentInstance.childInjector.get(SURFACE_ACTIVE)(),
     ).toBe(false);
-    const back = fixture.nativeElement.querySelector(
-      '[aria-label="Back to conversation"]',
-    ) as HTMLButtonElement;
-    expect(document.activeElement).toBe(back);
-    back.click();
+    const panel = fixture.nativeElement.querySelector('[role="tabpanel"]') as HTMLElement;
+    expect(document.activeElement).toBe(panel);
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     fixture.componentRef.setInput('laneKey', 'orchestrator');
     fixture.detectChanges();
     await fixture.whenStable();
@@ -611,11 +606,8 @@ describe('CanvasLaneViewComponent', () => {
     );
     expect(selectLaneFor).not.toHaveBeenCalled();
     editor.remove();
-    const backAgain = fixture.nativeElement.querySelector(
-      '[aria-label="Back to conversation"]',
-    ) as HTMLButtonElement;
-    backAgain.focus();
-    backAgain.dispatchEvent(
+    panel.focus();
+    panel.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     );
     expect(selectLaneFor).toHaveBeenCalledWith('tab', 'orchestrator');
@@ -627,11 +619,7 @@ describe('CanvasLaneViewComponent', () => {
     fixture.componentRef.setInput('laneKey', 'sub:task-tool');
     fixture.detectChanges();
     await fixture.whenStable();
-    (
-      fixture.nativeElement.querySelector(
-        '[aria-label="Back to conversation"]',
-      ) as HTMLButtonElement
-    ).click();
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     fixture.componentRef.setInput('laneKey', 'orchestrator');
     fixture.detectChanges();
     await fixture.whenStable();
@@ -663,17 +651,14 @@ describe('CanvasLaneViewComponent', () => {
       fixture.detectChanges();
       await fixture.whenStable();
       expect(document.activeElement).toBe(tab);
-      expect(
-        fixture.nativeElement.querySelector(
-          '[aria-label="Back to conversation"]',
-        ),
-      ).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('[aria-label="Back to conversation"]')).toBeNull();
+      expect(fixture.nativeElement.querySelector('[role="tabpanel"]')?.getAttribute('tabindex')).toBe('-1');
     } finally {
       tab.remove();
     }
   });
 
-  it('does not focus Back when tabId swaps to an already open lane', async () => {
+  it('does not move focus when tabId swaps to an already open lane', async () => {
     subagents.set(
       new Map([
         [
@@ -700,7 +685,7 @@ describe('CanvasLaneViewComponent', () => {
     expect(document.activeElement).toBe(focused);
   });
 
-  it('does not focus Back on first mount with a lane already open', async () => {
+  it('does not move focus on first mount with a lane already open', async () => {
     subagents.set(
       new Map([
         [

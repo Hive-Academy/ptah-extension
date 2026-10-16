@@ -61,12 +61,17 @@ function sameLink(a: TaskLink | null, b: TaskLink | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
-    a.workspaceRoot === b.workspaceRoot &&
+    normalizeWorkspaceRoot(a.workspaceRoot ?? '') ===
+      normalizeWorkspaceRoot(b.workspaceRoot ?? '') &&
     a.lead.taskId === b.lead.taskId &&
     a.lead.missing === b.lead.missing &&
     a.related.length === b.related.length &&
     a.related.every((task, i) => task.taskId === b.related[i].taskId)
   );
+}
+
+function linkKey(link: TaskLink): string {
+  return `${normalizeWorkspaceRoot(link.workspaceRoot ?? '')}\0${link.lead.taskId}`;
 }
 
 /** Documents of a read task: the carrier plus what exists, in board order. */
@@ -99,7 +104,7 @@ export class SessionTaskReader {
 
   private readonly tabIdSource = signal<Signal<string> | null>(null);
   private readonly result = signal<{
-    readonly taskId: string;
+    readonly key: string;
     readonly state: SectionState<TaskSectionData>;
   } | null>(null);
   private readonly _openError = signal<{ readonly file: string } | null>(null);
@@ -140,7 +145,7 @@ export class SessionTaskReader {
     const link = this.link();
     if (!link) return null;
     const held = this.result();
-    if (held && held.taskId === link.lead.taskId) {
+    if (held && held.key === linkKey(link)) {
       if (!held.state.data) return held.state;
       return {
         ...held.state,
@@ -178,7 +183,10 @@ export class SessionTaskReader {
           normalizeWorkspaceRoot(link.workspaceRoot)
         )
           return;
-        const folder = this.result()?.state.data?.task?.folderName;
+        const held = this.result();
+        const folder = held?.key === linkKey(link)
+          ? held.state.data?.task?.folderName
+          : null;
         if (change.folderNames && folder && !change.folderNames.includes(folder))
           return;
         this.scheduleRefresh();
@@ -207,8 +215,10 @@ export class SessionTaskReader {
    * rejection sets the row-level `openError`; a user cancel resolves quietly.
    */
   async openDocument(file: string, origin?: Element | null): Promise<void> {
-    const task = this.result()?.state.data?.task;
-    const root = this.link()?.workspaceRoot;
+    const link = this.link();
+    const held = this.result();
+    const task = link && held?.key === linkKey(link) ? held.state.data?.task : null;
+    const root = link?.workspaceRoot;
     if (!task || !root || !this.opener) return;
     if (!task.artifacts.includes(file) && file !== CARRIER_FILE) return;
     const path = `${root.replace(/[\\/]+$/, '')}/.ptah/specs/${task.folderName}/${file}`;
@@ -246,6 +256,7 @@ export class SessionTaskReader {
     const link = untracked(this.link);
     if (!link) return;
     const taskId = link.lead.taskId;
+    const key = linkKey(link);
     this.inFlight = true;
     try {
       // Explicit result type: the untyped `string` overload is listed first
@@ -260,15 +271,15 @@ export class SessionTaskReader {
       );
       // A result for a lead that changed meanwhile is dropped; the dirty
       // re-read below fetches the current one.
-      if (this.destroyed || untracked(this.link)?.lead.taskId !== taskId)
+      if (this.destroyed || !this.isCurrent(key))
         return;
       if (!response.success || !response.data) {
-        this.setError(taskId, response.error ?? 'Could not load the task');
+        this.setError(key, response.error ?? 'Could not load the task');
         return;
       }
       const task = response.data.task;
       const documents = task ? documentsOf(task) : [];
-      this.setState(taskId, {
+      this.setState(key, {
         status: task && documents.length === 0 ? 'partial' : 'ready',
         data: {
           lead: { taskId, missing: link.lead.missing || task === null },
@@ -280,8 +291,8 @@ export class SessionTaskReader {
       });
     } catch (error: unknown) {
       console.error('[SessionInspector] Could not load the task', error);
-      if (!this.destroyed && untracked(this.link)?.lead.taskId === taskId)
-        this.setError(taskId, 'Could not load the task');
+      if (!this.destroyed && this.isCurrent(key))
+        this.setError(key, 'Could not load the task');
     } finally {
       this.inFlight = false;
       if (this.dirty && !this.destroyed) {
@@ -292,16 +303,21 @@ export class SessionTaskReader {
   }
 
   /** An error keeps the content already read for the same task. */
-  private setError(taskId: string, error: string): void {
+  private isCurrent(key: string): boolean {
+    const link = untracked(this.link);
+    return link !== null && linkKey(link) === key;
+  }
+
+  private setError(key: string, error: string): void {
     const held = untracked(this.result);
-    this.setState(taskId, {
+    this.setState(key, {
       status: 'error',
-      data: held?.taskId === taskId ? held.state.data : null,
+      data: held?.key === key ? held.state.data : null,
       error,
     });
   }
 
-  private setState(taskId: string, state: SectionState<TaskSectionData>): void {
-    this.result.set({ taskId, state });
+  private setState(key: string, state: SectionState<TaskSectionData>): void {
+    this.result.set({ key, state });
   }
 }

@@ -23,10 +23,33 @@ export function statsTileKey(sessionId: string, tileId: string): string {
 @Injectable()
 export class StatsTileExpansionState {
   private readonly open = signal<ReadonlySet<string>>(new Set());
+  private readonly hosts = new WeakMap<object, { sessionId: string | null; key: string }>();
+  private readonly pendingAliases = new Map<string, Set<string>>();
+  private nextPendingId = 0;
+
+  /** Resolve a component's session key, preserving its pending tiles on first ID assignment. */
+  sessionKey(host: object, sessionId: string | null): string {
+    const previous = this.hosts.get(host);
+    if (previous?.sessionId === sessionId) return previous.key;
+
+    const key = sessionId ?? `\0pending:${++this.nextPendingId}`;
+    if (previous?.sessionId === null && sessionId !== null) {
+      const aliases = this.pendingAliases.get(key) ?? new Set<string>();
+      aliases.add(previous.key);
+      this.pendingAliases.set(key, aliases);
+    }
+    this.hosts.set(host, { sessionId, key });
+    return key;
+  }
 
   /** Whether the tile is open; reactive when read in a template or computed. */
   isOpen(sessionId: string, tileId: string): boolean {
-    return this.open().has(statsTileKey(sessionId, tileId));
+    const current = this.open();
+    if (current.has(statsTileKey(sessionId, tileId))) return true;
+    for (const alias of this.pendingAliases.get(sessionId) ?? []) {
+      if (current.has(statsTileKey(alias, tileId))) return true;
+    }
+    return false;
   }
 
   toggle(sessionId: string, tileId: string): void {
@@ -35,12 +58,22 @@ export class StatsTileExpansionState {
 
   setOpen(sessionId: string, tileId: string, open: boolean): void {
     const key = statsTileKey(sessionId, tileId);
+    const aliases = this.pendingAliases.get(sessionId);
     this.open.update((current) => {
-      if (current.has(key) === open) return current;
       const next = new Set(current);
+      for (const alias of aliases ?? []) {
+        const prefix = `${alias}::`;
+        for (const entry of current) {
+          if (!entry.startsWith(prefix)) continue;
+          next.delete(entry);
+          next.add(statsTileKey(sessionId, entry.slice(prefix.length)));
+        }
+      }
       if (open) next.add(key);
       else next.delete(key);
+      if (next.size === current.size && [...next].every((entry) => current.has(entry))) return current;
       return next;
     });
+    if (aliases) this.pendingAliases.delete(sessionId);
   }
 }

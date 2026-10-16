@@ -43,6 +43,12 @@ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
   template: `
     <div
       class="border border-base-content/10 rounded-lg overflow-hidden bg-base-100 flex flex-col h-full"
+      [class.!border-0]="presentation() === 'flat'"
+      [class.!rounded-none]="presentation() === 'flat'"
+      [class.!bg-transparent]="presentation() === 'flat'"
+      [class.!overflow-visible]="presentation() === 'flat'"
+      [class.text-[13px]]="presentation() === 'flat'"
+      [class.leading-[1.6]]="presentation() === 'flat'"
     >
       <!-- Header -->
       <ptah-agent-card-header
@@ -52,6 +58,7 @@ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
         [isStopping]="isStopping()"
         [isResuming]="isResuming()"
         [closable]="closable()"
+        [presentation]="presentation()"
         (toggleExpanded)="toggleExpanded.emit()"
         (stopAgent)="stopAgent($event)"
         (resumeAgent)="resumeAgent($event)"
@@ -60,15 +67,18 @@ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 
       <ptah-cli-lane-usage-summary
         class="block px-2 pt-1.5 flex-shrink-0"
+        [class.!px-0]="presentation() === 'flat'"
+        [presentation]="presentation()"
         [agent]="agent()"
         [duration]="elapsedDisplay()"
       />
 
-      @if (agent().expanded) {
+      @if (presentation() === 'flat' || agent().expanded) {
         <!-- Task description (collapsible, default collapsed) -->
-        <details class="border-t border-base-content/10 flex-shrink-0">
+        <details class="border-t border-base-content/10 flex-shrink-0" [class.!border-0]="presentation() === 'flat'">
           <summary
             class="px-2 py-0.5 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
+            [class.!px-0]="presentation() === 'flat'"
           >
             <span class="text-[10px] font-medium text-base-content-muted"
               >Task</span
@@ -82,12 +92,15 @@ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
               >
             }
           </summary>
-          <div class="px-2 pb-1">
+          <div class="px-2 pb-1" [class.!px-0]="presentation() === 'flat'">
             <p
               class="text-[11px] leading-snug text-base-content-muted line-clamp-3"
             >
               {{ agent().task }}
             </p>
+            @if (presentation() === 'flat' && agent().cliSessionId) {
+              <p class="mt-1 text-[11px] font-mono text-base-content-muted break-all" [title]="'CLI Session: ' + agent().cliSessionId">CLI session: {{ agent().cliSessionId }}</p>
+            }
           </div>
         </details>
 
@@ -108,6 +121,7 @@ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
             [stderrSegments]="parsedStderr()"
             [isStreaming]="agent().status === 'running'"
             [scrollTrigger]="scrollTrigger()"
+            [presentation]="presentation()"
             [(rawStdoutOpen)]="rawStdoutOpen"
             [(rawStdoutAutoCollapsed)]="rawStdoutAutoCollapsed"
           />
@@ -119,6 +133,7 @@ import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 export class AgentCardComponent {
   readonly agent = input.required<MonitoredAgent>();
   readonly closable = input(false);
+  readonly presentation = input<'card' | 'flat'>('card');
   readonly toggleExpanded = output<void>();
   readonly closeLane = output<string>();
 
