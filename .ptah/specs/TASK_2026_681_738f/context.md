@@ -31,3 +31,6 @@ Line numbers refer to the TASK_2026_677 branch tip `feat/clean-session-view`; co
 - Workflow: BUGFIX, Partial depth (user). Plan in `plan.md`, decisions in `decisions.md`.
 - Lanes: A1 codex `a923975a`, A2 codex `cdf22086`, B codex `6ea98cfe` (reports in `reports/`).
 - Review family: implementer codex, reviewer Claude (code-logic-reviewer subagent).
+- Fix round 1: codex `a8002020` (A2), `44feccb4` (A1). Items 1-10 committed df5838832, bbc0c7ae2, 75ce4a6d1, docs 8c06dfae7.
+- Items 11-17 (user scope extension): lanes C codex `bfaed982`, D codex `2843b593`, E codex `69729b82`;
+  before shots by a visual-reviewer subagent from the dist built at 75ce4a6d1.
