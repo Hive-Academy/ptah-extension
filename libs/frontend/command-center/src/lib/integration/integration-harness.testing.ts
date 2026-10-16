@@ -48,8 +48,8 @@ export function createHarness(
     {
       tabId: string;
       seq: number;
-      classification: 'success';
-      lastAssistantMessage: string;
+      classification: 'success' | 'error';
+      lastAssistantMessage?: string;
     }[]
   >([]);
   const lastTerminalPulseByTab = computed(

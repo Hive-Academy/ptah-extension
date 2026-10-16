@@ -74,6 +74,85 @@ describe('Command Center delegation and status integration', () => {
     fixture.destroy();
   });
 
+  it('renders all seven lifecycle states with identity, type and parent, and keeps terminal nodes inspectable', async () => {
+    const { fixture, projectionInput } = createHarness();
+    const page = fixture.componentInstance.page;
+    await page.open();
+    const rootSessionId = page.store.sessionId() ?? '';
+    const rootNodeId = `root:${page.store.markedTabId()}`;
+    projectionInput.update((input) => ({
+      ...input,
+      children: (
+        ['queued', 'starting', 'running', 'awaiting input'] as const
+      ).map((state) => ({
+        tabId: `tab-${state}`,
+        sessionId: `session-${state}`,
+        parentSessionId: rootSessionId,
+        state,
+        name: `Child ${state}`,
+      })),
+      agents: [
+        {
+          agentId: 'done',
+          kind: 'cli',
+          parentSessionId: rootSessionId,
+          state: 'completed',
+          displayName: 'Lane completed',
+        },
+        {
+          agentId: 'broken',
+          kind: 'sdk',
+          parentSessionId: 'session-running',
+          state: 'failed',
+          displayName: 'Agent failed',
+        },
+        {
+          agentId: 'stopped',
+          kind: 'cli',
+          parentSessionId: rootSessionId,
+          state: 'cancelled',
+          displayName: 'Lane cancelled',
+        },
+      ],
+    }));
+    fixture.detectChanges();
+    const expected = [
+      ['Child queued', 'queued', 'child', rootNodeId],
+      ['Child starting', 'starting', 'child', rootNodeId],
+      ['Child running', 'running', 'child', rootNodeId],
+      ['Child awaiting input', 'awaiting input', 'child', rootNodeId],
+      ['Lane completed', 'completed', 'agent', rootNodeId],
+      ['Agent failed', 'failed', 'agent', 'child:session-running'],
+      ['Lane cancelled', 'cancelled', 'agent', rootNodeId],
+    ] as const;
+    const { nodes, edges } = page.projection();
+    const rows: HTMLElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll(
+        'ptah-command-work-list ul button',
+      ),
+    );
+    expect(rows).toHaveLength(expected.length);
+    for (const [label, state, kind, parentId] of expected) {
+      const node = nodes.find((item) => item.label === label);
+      expect(node).toMatchObject({ state, kind, parentId });
+      expect(edges).toContainEqual({ fromId: parentId, toId: node?.id });
+      const row = rows.find((item) => item.textContent?.includes(label));
+      expect(row?.textContent).toContain(state);
+    }
+    expect(nodes.find((node) => node.label === 'Agent failed')?.agentKind).toBe(
+      'sdk',
+    );
+    rows.find((row) => row.textContent?.includes('Agent failed'))?.click();
+    fixture.detectChanges();
+    const selected = fixture.nativeElement.querySelector(
+      '[aria-label="Selected work"]',
+    );
+    expect(selected?.textContent).toContain('Agent failed');
+    expect(selected?.textContent).toContain('agent');
+    expect(selected?.textContent).toContain('failed');
+    fixture.destroy();
+  });
+
   it('narrates an owned CLI lane once when starting and once when completed', async () => {
     const { fixture, projectionInput, rpc, pulses } = createHarness();
     const page = fixture.componentInstance.page;
