@@ -22,3 +22,12 @@ Source reviews are in `.ptah/specs/TASK_2026_677_efcd/`.
 
 Line numbers refer to the TASK_2026_677 branch tip `feat/clean-session-view`; confirm them on main after the
 677 PR merges.
+
+## Run record (session 1, 2026-10-16)
+
+- Gate 0.1: preference source = memory `orchestration-executor-preference` (lanes-first); mode `enabled`;
+  approval mode `lane-review`. `ptah_agent_list`: codex confirmed room (weekly 31%); opencode near limit
+  (monthly 92%); grok, antigravity, Glm unknown; copilot disabled; cursor, pi not installed.
+- Workflow: BUGFIX, Partial depth (user). Plan in `plan.md`, decisions in `decisions.md`.
+- Lanes: A1 codex `a923975a`, A2 codex `cdf22086`, B codex `6ea98cfe` (reports in `reports/`).
+- Review family: implementer codex, reviewer Claude (code-logic-reviewer subagent).
