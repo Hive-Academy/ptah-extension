@@ -16,6 +16,7 @@ export {
   DecisionModelConfig,
   type SystemOneTarget,
 } from './lib/decision-model/decision-model.config';
+export { DecisionModelKeys } from './lib/decision-model/decision-model.keys';
 export {
   DecisionModelSelectionSchema,
   type DecisionModelKind,

@@ -21,7 +21,6 @@ import { DecisionModelKeys } from './decision-model.keys';
 import {
   DECISION_MODEL_CONFIG_KEY,
   DECISION_MODEL_CONFIG_SECTION,
-  DECISION_MODEL_JEV_SECRET_KEY,
   DECISION_MODEL_PROBE_TIMEOUT_MS,
   DECISION_MODEL_RECHECK_WINDOW_MS,
   DECISION_MODEL_UNSUPPORTED_STORAGE_KEY,
@@ -109,8 +108,8 @@ export class DecisionModelConfig {
   constructor(
     /** `PLATFORM_TOKENS.WORKSPACE_PROVIDER` */
     private readonly workspace: IWorkspaceProvider,
-    /** `PLATFORM_TOKENS.SECRET_STORAGE` */
-    private readonly secrets: ISecretStorage,
+    /** `PLATFORM_TOKENS.SECRET_STORAGE`, owned by `keys` */
+    secrets: ISecretStorage,
     /** `PLATFORM_TOKENS.STATE_STORAGE` (global scope) */
     private readonly storage: IStateStorage,
     /** `LANE_ROUTING_TOKENS.LOGGER` */
@@ -182,33 +181,6 @@ export class DecisionModelConfig {
 
   // ----------------------------------------------------------- credential
 
-  async hasJevApiKey(): Promise<boolean> {
-    const key = await this.secrets.get(DECISION_MODEL_JEV_SECRET_KEY);
-    return typeof key === 'string' && key.trim().length > 0;
-  }
-
-  /**
-   * The stored Jev key (trimmed), or `null` when none is stored. Only for a
-   * caller that must put the previous key back after a failed combined write
-   * (`agent:setConfig`); `setJevApiKey(null)` restores "no key". Never log,
-   * echo or return the value across a process or RPC boundary.
-   */
-  async readJevApiKey(): Promise<string | null> {
-    const key = await this.secrets.get(DECISION_MODEL_JEV_SECRET_KEY);
-    const trimmed = key?.trim();
-    return trimmed ? trimmed : null;
-  }
-
-  /** Stores the Jev key; `null` or blank deletes it. The key is never logged or returned. */
-  async setJevApiKey(key: string | null): Promise<void> {
-    const trimmed = key?.trim() ?? '';
-    if (trimmed.length === 0) {
-      await this.secrets.delete(DECISION_MODEL_JEV_SECRET_KEY);
-      return;
-    }
-    await this.secrets.store(DECISION_MODEL_JEV_SECRET_KEY, trimmed);
-  }
-
   /**
    * Base URL, model and (Jev) key for a System One call, or `null` when the
    * selection does not use System One (`unset`, `structured`).
@@ -219,8 +191,7 @@ export class DecisionModelConfig {
       return { baseUrl: this.ollamaBaseUrl(), model: selection.model };
     }
     if (selection.kind === 'jev') {
-      const key = await this.secrets.get(DECISION_MODEL_JEV_SECRET_KEY);
-      const apiKey = key?.trim();
+      const apiKey = await this.keys.get('jev');
       return apiKey
         ? { baseUrl: JEV_BASE_URL, model: selection.model, apiKey }
         : { baseUrl: JEV_BASE_URL, model: selection.model };
@@ -404,7 +375,7 @@ export class DecisionModelConfig {
   ): Promise<DecisionModelStatusDto> {
     let hasKey: boolean;
     try {
-      hasKey = await this.hasJevApiKey();
+      hasKey = await this.keys.has('jev');
     } catch (error: unknown) {
       // The rejection text is untrusted: logged, never shown in the row.
       this.logger.warn('[lane-routing] Jev credential lookup failed', {

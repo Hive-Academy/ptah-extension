@@ -724,7 +724,7 @@ describe('DecisionModelConfig credential, locality and other kinds', () => {
       state: 'no-credential',
     });
 
-    await h.config.setJevApiKey('  ts-key  ');
+    await h.config.keys.set('jev', '  ts-key  ');
     expect(h.secrets.__state.entries.get(DECISION_MODEL_JEV_SECRET_KEY)).toBe(
       'ts-key',
     );
@@ -735,23 +735,23 @@ describe('DecisionModelConfig credential, locality and other kinds', () => {
       apiKey: 'ts-key',
     });
 
-    await h.config.setJevApiKey(null);
-    expect(await h.config.hasJevApiKey()).toBe(false);
+    await h.config.keys.set('jev', null);
+    expect(await h.config.keys.has('jev')).toBe(false);
   });
 
-  it('readJevApiKey returns the stored key trimmed, or null when none or blank', async () => {
+  it("keys.get('jev') returns the stored key trimmed, or null when none or blank", async () => {
     const h = harness({ selection: { kind: 'jev' }, fetch: neverCalled });
 
-    expect(await h.config.readJevApiKey()).toBeNull();
+    expect(await h.config.keys.get('jev')).toBeNull();
 
-    await h.config.setJevApiKey('  ts-key  ');
-    expect(await h.config.readJevApiKey()).toBe('ts-key');
+    await h.config.keys.set('jev', '  ts-key  ');
+    expect(await h.config.keys.get('jev')).toBe('ts-key');
 
     h.secrets.__state.seed(DECISION_MODEL_JEV_SECRET_KEY, '   ');
-    expect(await h.config.readJevApiKey()).toBeNull();
+    expect(await h.config.keys.get('jev')).toBeNull();
 
-    // Restoring "no key" through setJevApiKey(null) deletes the entry.
-    await h.config.setJevApiKey(null);
+    // Restoring "no key" through keys.set('jev', null) deletes the entry.
+    await h.config.keys.set('jev', null);
     expect(h.secrets.__state.entries.has(DECISION_MODEL_JEV_SECRET_KEY)).toBe(
       false,
     );

@@ -365,12 +365,7 @@ export class AgentRpcHandlers {
     @inject(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)
     private readonly decisionModelConfig: Pick<
       DecisionModelConfig,
-      | 'getStatus'
-      | 'getSelection'
-      | 'localityOf'
-      | 'setSelection'
-      | 'setJevApiKey'
-      | 'readJevApiKey'
+      'getStatus' | 'getSelection' | 'localityOf' | 'setSelection' | 'keys'
     >,
   ) {}
 
@@ -837,9 +832,10 @@ export class AgentRpcHandlers {
    *
    * - The Jev key is written first, so a failed key write leaves the
    *   selection unchanged.
-   * - With both fields present, the stored key is read before the key write.
-   *   If the selection write then fails, that key is put back (`null` deletes
-   *   the new one), so the failed request leaves both unchanged.
+   * - With both fields present, the Jev slot is snapshotted before the key
+   *   write. If the selection write then fails, the snapshot is restored
+   *   (`null` deletes the new key), so the failed request leaves both
+   *   unchanged.
    * - If the selection write rejects but the stored selection already equals
    *   the requested one, the selection was stored: the new key is kept and
    *   the save reports success (both fields hold the requested values), so
@@ -875,11 +871,11 @@ export class AgentRpcHandlers {
       return undefined;
     }
     if (selection === undefined) {
-      await config.setJevApiKey(jevApiKey);
+      await config.keys.set('jev', jevApiKey);
       return undefined;
     }
-    const previousKey = await config.readJevApiKey();
-    await config.setJevApiKey(jevApiKey);
+    const previousKey = await config.keys.snapshot('jev');
+    await config.keys.set('jev', jevApiKey);
     try {
       await config.setSelection(selection);
       return undefined;
@@ -893,7 +889,7 @@ export class AgentRpcHandlers {
         return undefined;
       }
       try {
-        await config.setJevApiKey(previousKey);
+        await config.keys.restore('jev', previousKey);
       } catch (restoreError: unknown) {
         this.logger.error(
           'RPC: agent:setConfig could not restore the previous decision model key',
