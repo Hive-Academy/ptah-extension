@@ -1,18 +1,18 @@
-# HANDOFF - TASK_2026_684_a11d (2026-10-17, end of session 11 of task 646 / session 1 of task 684)
+# HANDOFF - TASK_2026_684_a11d (2026-10-17, end of session 2 of task 684)
 
-Status at handoff: no subagent, CLI lane or Electron instance of this session is running. All work is committed
-and pushed.
+Status at handoff: no subagent, CLI lane or Electron instance of this session is running. All work is committed.
+The last push is the handoff commit (see "Done"); check `git status -sb` first.
 
-- Worktree: `D:\projects\ptah-extension\.claude-worktrees\ollama-cloud-decision-model`, branch
-  `feat/ollama-cloud-decision-model`, HEAD `d85266932` (specs only) plus the commit with this file.
-- Draft PR: https://github.com/Hive-Academy/ptah-extension/pull/740 (base `main`).
-- Prerequisite PR #731 (TASK_2026_646_136a, decision-model routing) is **MERGED** (head `2ad20c173`).
+- Worktree: `D:\projects\ptah-extension\.claude-worktrees\ollama-cloud-decision-model` (`W`)
+- Branch: `feat/ollama-cloud-decision-model`; draft PR https://github.com/Hive-Academy/ptah-extension/pull/740
+- Task folder: `W\.ptah\specs\TASK_2026_684_a11d\` (`context.md`, `task-description.md`, `implementation-plan.md`,
+  `batches.md`, `phase-1-code-logic-review.md`, this file)
 
 ## Goal
 
-Follow-up to task 646 (user request, verbatim in `context.md`): set our decision model to Ollama Cloud
-`clef` (https://ollama.com/library/clef:27b-cloud), bring-your-own decision providers (Jev or any
-`/v1/systemone` host), filter the Ollama model list to decision-capable models, and add evals and tests.
+Follow-up to task 646 (PR #731, merged): set our decision model to Ollama Cloud `clef`
+(https://ollama.com/library/clef:27b-cloud), bring-your-own decision providers (Jev or any `/v1/systemone` host),
+filter the Ollama model list to decision-capable models, and add evals and tests.
 End state: PR #740 implemented, reviewed, CI green, marked ready, merged by the user.
 
 ## Final user decisions (do not reopen)
@@ -22,106 +22,133 @@ End state: PR #740 implemented, reviewed, CI green, marked ready, merged by the 
 | D1 | Reuse the existing `ollama-cloud` provider key (`ptah.auth.provider.ollama-cloud`). No separate key slot. |
 | D2 | One generic custom `/v1/systemone` endpoint kind (base URL + key in secret storage + model). Jev and Ollama presets stay. |
 | D3 | Offer only: filtered picker, no auto-select, no default to clef. We set clef in our own settings. |
-| D4 | Orchestrator default (user was told and may override): with a key, a custom endpoint must use `https` except on loopback; without a key `http` is allowed. |
+| D4 | With a key, a custom endpoint must use `https` except on loopback; without a key `http` is allowed. Loopback = `localhost`, `localhost.`, `[::1]`, `127.0.0.0/8` (RFC 1122; Phase 1 review fix, not a reopening). |
 | Plan | The user APPROVED `implementation-plan.md` (2026-10-16). |
 | Live run | The user runs the gated live spec locally ONCE with their key and shares the printed timing line. No agent handles the key. Batch 21 then applies the plan's timeout formula. |
+| Old worktree | 2026-10-17: the user said remove `.claude-worktrees/decision-model-routing` + branch. DONE. |
 
-## Done
+## Done (this session)
 
-### Task 646 / PR #731 (merged)
+Batches 0-10 of 22 are COMPLETE (`batches.md` header: Complete 11/23). Phases 0, 1 and 2 implementation done.
 
-Session 11 commits on `feat/decision-model-routing` (all in the merged PR):
-
-| Commit | What |
+| Commit | Content |
 | --- | --- |
-| 6be388a9e | Merge `origin/main` (no conflicts) |
-| 758f96fdc | E2E expectations: CLI mcp-serve 12 tools (`route_decide`, `outcome_report`); settings 7 roles |
-| f0dee00e1 | 41h bounded correction: selection-only save stored-after-reject is success (codex APPROVED 8/10) |
-| 5474665e6 | Team-leader Mode 3 docs: completion report, ledger, `future-enhancements.md` |
-| c487e9d3e | 41i: `agentOrchestration.decisionModel` file-based (VS Code could not save it) + object kept whole on reload (`FILE_BASED_OBJECT_SETTINGS_KEYS`) |
-| 578885dc2 | 41j: `settings:set` refuses the decision key (codex APPROVED 8/10) |
-| 392ce5e2f / 2ad20c173 | Review docs 41h / 41j |
+| `096f014bc` | Merge `origin/main` (after #731) into the branch, no conflicts |
+| `5530ec423` | Batch 0: ~250 file:line citations re-checked, 10 pre-existing drifts corrected, no material findings |
+| `be50ce134` | Batch 1: `isCloudTag`/`toCloudId` moved to `@ptah-extension/shared` (`ollama-cloud-model-id.ts`) |
+| `c1b558dec` | Batch 2: shared contracts. `decisionModelCustomApiKey` is on `AgentSetConfigParams` (write-only), NOT the read DTO (deliberate deviation from batch text) |
+| `8a40121af` | Batch 3: `decision-endpoint.url.ts`, `decision-model.keys.ts` (`DecisionModelKeys`), member schemas |
+| `299c53e5c` | Batch 4: Jev key callers moved to the `'jev'` key slot (snapshot/set/restore); rollback restores the raw stored value |
+| `a98d0da4b` | Batch 5: shared selection unions widened; `decision-model-row.view.ts` (helpers moved from `provider-consumer-rows.ts`) |
+| `08c59dc56` | Batch 6: `decision-model.target.ts` resolver; `DECISION_REQUEST_TIMEOUT_REMOTE_MS = 3000`; + codex phase 1 review |
+| `13f539e85` | Phase 1 review fixes: loopback 127/8 + `localhost.` (backend + row hint); model fields `trim().min(1).max(128)` |
+| `076b0308f` | Batch 7: config delegates to resolver; per-target timeout in `pipeline/model-refine.ts` |
+| `6843908d6` | Batch 8: `decision-model.prober.ts` (`DecisionEndpointProber`), `systemOneUrl` path-preserving join; + approved re-review |
+| `b239f55b8` | Batch 9: union gains `ollama-cloud`/`custom`; status by probe mode; classifier; rpc-handlers equality |
+| `26e6b76b0` | Batch 10: `decision-model.types.spec.ts` (28 cases), `decision-model.config.endpoint.spec.ts` (63 cases) |
 
-CI on 2ad20c173: 20 pass, 3 skipped. One flaky test (`libs/backend/platform-cli/src/implementations/cli-workspace-watcher.spec.ts`
-"nestedRepoDetection ...") failed once and passed on rerun. Degradation audit TOTAL **297**, which equals clean `origin/main`
-(the extra site came from main; no baseline changed). Later tasks for 646: `.ptah/specs/TASK_2026_646_136a/future-enhancements.md`
-(now on main), including LT-41i-1..3 and the pre-existing `settings:import` bypass of the deny list (not yet listed there).
+Pushed to origin up to `6843908d6`; `b239f55b8`, `26e6b76b0` and the handoff commit are pushed by the handoff push
+(verify with `git status -sb`: expect "in sync"; if "ahead", push again in the background).
 
-### Task 684 specs (commit d85266932, in this worktree)
+Reviews:
+- Phase 1 (Batches 1-5): codex code-logic review REVISE 7/10 (2 MINOR) -> fixed in `13f539e85` -> re-review round 1
+  APPROVED 9/10 (`phase-1-code-logic-review.md`). Revise rounds used for Phase 1: 1 of 2.
+- Phase 2 (Batches 6-10): NOT reviewed yet. This is the next step.
 
-- `context.md`: request, D1-D4, research with file:line evidence (from the 646 branch; re-check after merge).
-- `task-description.md`: 45 numbered acceptance criteria (1.1-9.1).
-- `implementation-plan.md`: 17 components, traceability table for all 45 criteria (APPROVED).
-- `batches.md`: Batch 0 + 22 implementation batches in 6 review phases; executors per batch; codex reviews each phase.
-  Plan defects PD-1..PD-6 found by the team-leader are handled inside `batches.md` (widen-last ordering of the new kinds,
-  Jev-key method switch in one commit, missing `decision-model-row.component.ts`, RPC surface specs, sync locality helper,
-  line drift).
+Checks at handoff (all scoped, all pass): lane-routing 24 suites / 679 tests; rpc-handlers tests; typecheck + lint for
+shared, auth-providers, lane-routing, rpc-handlers, chat; chat `settings/providers` 712 tests; degradation audit
+`TOTAL 294` (limit 297), no FAIL.
+
+Other session actions:
+- Removed worktree `.claude-worktrees/decision-model-routing` and deleted local branch `feat/decision-model-routing`
+  (user approved). Visual worktrees `646-base-shots` and `646-after-shots` still stay until the user says otherwise.
+- Created the missing `node_modules` junction in `W` (to `D:\projects\ptah-extension\node_modules`). Without it,
+  40 auth-providers suites fail with "Could not locate module marked". Main `node_modules` verified intact (1332 dirs).
 
 ## In progress
 
-Nothing is running. Batch 0 is marked in progress in `batches.md` but no step of it was done.
+Nothing is running. Batch 11 has not started.
 
 ## Open problems and notes
 
-1. The worktree `.claude-worktrees/decision-model-routing` (branch `feat/decision-model-routing`, remote gone after merge) still
-   exists. CLAUDE.md: remove it only when the user says so (`git worktree remove .claude-worktrees/decision-model-routing`).
-   Ask the user. Visual worktrees `646-base-shots` and `646-after-shots` also stay until the user says otherwise.
-2. All file:line references in `context.md`, `implementation-plan.md` and `batches.md` come from the 646 branch before the merge
-   (+ 41i). Batch 0 must re-check them after `git merge origin/main`.
-3. The lint-staged hook runs `nx format:write`, which reformats `tsconfig.base.json` (one line,
-   `@ptah-extension/chat/inspector`) outside the commit. After each commit run `git restore tsconfig.base.json` if it shows as
-   modified. The hook also runs `nx affected --target=lint`, which can take over 2 minutes: commit with a long timeout
-   (foreground, 600000 ms).
-4. Commit subjects must be lower-case (`subject-case` rule); scopes are in `.commitlintrc.json`
-   (`lane-routing`, `rpc-handlers`, `platform-core`, `task-specs`, `chat`, `shared`, ... - check before use).
-5. Lanes: run `ptah_agent_list` before each spawn. At handoff only codex had confirmed room (weekly 44%); opencode near limit.
-   Codex is the reviewer for this task: do not use it to implement. Claude subagents implement (the temporary CLI-lanes-only
-   rule in the user's global CLAUDE.md expired 2026-10-16).
-6. Electron is shared with peer sessions (649, 674, 678, 681, 683). Before any launch send "Electron: 684 launching" to live
-   peers (`ListAgents`), after close "Electron: free". Never port 9333.
-7. Keep `skillSynthesis.enabled=false` in `~/.ptah/settings.json`. Leave memory untouched. Never raise a degradation baseline.
+1. **Phase 2 review points to give codex** (in addition to the normal code-logic focus):
+   - Batch 6: the Ollama Cloud base-URL override is only trimmed, not run through `parseEndpointBaseUrl`, so an override
+     with userinfo, query or fragment is not refused (the plan has no rule). Judge whether a key can leak.
+   - Batch 8: prober 401/403 carry fixed `keyRefused`/`keyRequired` text; plain-http key to a non-loopback host returns
+     `keyNeedsHttps` without a request; probe errors mask URLs as `<url>`; client debug log records the origin only.
+   - Batch 9: `isMarkedUnsupported()` became async; a 404 re-check probes only when the resolved base URL equals the failed
+     call's base URL; the agent-rpc fallback row uses the same `reportsConfidence` rule as `dto()`.
+   - Batch 10 found no production defect.
+2. `translation-proxy.sdk.integration.spec.ts` (auth-providers) fails locally with Windows `EPERM` on temp-dir teardown.
+   It does not touch this task's code. Not a regression; do not chase it.
+3. The lint-staged hook runs `nx format:write`, which can reformat `tsconfig.base.json` outside the commit. After each
+   commit run `git restore tsconfig.base.json` if it shows as modified (it did not happen this session). Commit in the
+   foreground with a 600000 ms timeout.
+4. Commit subjects lower-case; scopes from `.commitlintrc.json` (`lane-routing`, `rpc-handlers`, `shared`, `chat`,
+   `auth-providers`, `task-specs`, `platform-core`, ...).
+5. Lanes: at handoff only codex had confirmed room (weekly 53%, resets 2026-10-22). opencode monthly 92% (near limit).
+   Codex is the reviewer: never use it to implement. Claude subagents implement. `ptah_agent_spawn` rejects `taskKind`.
+   Codex "resume" with a large context starts a fresh lane with a handoff brief: always give complete instructions.
+   Last codex session id (phase 1 re-review): `01a146ed-a652-7113-ab1b-07f8a5e57d76`.
+6. Push only when no agent edits `W`: the pre-push hook runs a build gate that reads the working tree.
+7. Electron is shared with peer sessions (649, 674, 678, 679, 681, 683). Before any launch send "Electron: 684 launching"
+   to live peers (`ListAgents` + `SendMessage`), after close "Electron: free". Never port 9333. At handoff 679 had freed
+   it and 683 had asked for the next slot. This task needs Electron only for the Phase 4 visual review.
+8. Keep `skillSynthesis.enabled=false` in `~/.ptah/settings.json`. Leave memory untouched. Never raise a degradation
+   baseline (Batch 5 briefly added one chat site; fixed with `URL.canParse`; prefer non-throwing APIs).
+9. If this worktree is ever removed: `cmd /c rmdir <W>\node_modules` FIRST (junction), then `git worktree remove`.
 
-## Key files (after the merge, on main)
+## Key files
 
-- Decision model: `libs/backend/lane-routing/src/lib/decision-model/` (`decision-model.types.ts`, `decision-model.config.ts`,
-  `probe.ts`, `system-one.client.ts`, `system-one.schema.ts`).
-- Structured adapter: `libs/backend/agent-sdk/src/lib/lane-routing/structured-decision.adapter.ts`.
-- Config RPC: `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` (`writeDecisionModel`,
-  `storedSelectionState`, `setConfigQueue`); settings deny set `settings-rpc.handlers.ts` (`SETTINGS_SET_DENIED_KEYS`).
-- Shared RPC types: `libs/shared/src/lib/types/rpc/rpc-agents.types.ts`.
-- Ollama Cloud provider: `libs/shared/src/lib/providers/entries/local-provider-entry.ts` (`OLLAMA_CLOUD_PROVIDER_ENTRY`).
-- Settings keys: `libs/backend/platform-core/src/file-settings-keys.ts` (`FILE_BASED_SETTINGS_KEYS`,
-  `FILE_BASED_OBJECT_SETTINGS_KEYS`), `file-settings-manager.ts`.
-- Row: `libs/frontend/chat/src/lib/settings/providers/decision-model-row.component.ts`, `provider-consumer-rows.ts`.
-- Live-test pattern: `libs/backend/auth-providers/src/lib/model-lists.live.spec.ts`, `.github/workflows/model-lists-probe.yml`.
+- Decision model (lane-routing): `libs/backend/lane-routing/src/lib/decision-model/`
+  `decision-model.types.ts`, `decision-model.config.ts`, `decision-endpoint.url.ts`, `decision-model.keys.ts`,
+  `decision-model.target.ts`, `decision-model.prober.ts`, `decision-model.probe.ts`, `decision-model.detail.ts`,
+  `system-one.client.ts`; `lib/routing-constants.ts`; `lib/pipeline/model-refine.ts`;
+  `lib/failure-class/decision-model-failure-classifier.ts`; `lib/route-decide.service.ts`.
+- Config RPC: `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` (`writeDecisionModel` ~`:856-936`).
+- Shared: `libs/shared/src/lib/types/rpc/rpc-agents.types.ts`, `rpc-decision-model-catalog.types.ts`,
+  `libs/shared/src/lib/providers/ollama-cloud-model-id.ts`.
+- Webview: `libs/frontend/chat/src/lib/settings/providers/decision-model-row.view.ts`,
+  `decision-model-row.component.ts`, `provider-consumer-rows.ts`.
+- Live-test pattern: `libs/backend/auth-providers/src/lib/model-lists.live.spec.ts`,
+  `.github/workflows/model-lists-probe.yml`.
 
 ## Next steps (in order)
 
-1. `git -C D:\projects\ptah-extension\.claude-worktrees\ollama-cloud-decision-model status -sb` (expect clean, in sync).
-2. Batch 0: `git fetch origin && git merge origin/main` in this worktree (no rebase, no force push). Then one read-only pass
-   (a subagent) that re-checks every file:line cited in `implementation-plan.md` and `batches.md` against the merged tree and
-   corrects the docs. Commit (foreground), push (background).
-3. Run batches 1-22 per `batches.md`: one implementer per batch (Claude subagents), file-disjoint batches may run in parallel,
-   but only one heavy check at a time. Commit each batch after its scoped checks pass and no agent edits the worktree.
-   Codex review at the end of each phase (resume its session for re-reviews; two revise rounds max per batch).
-4. After Batch 19: ask the user to run the live spec locally with their key (command in `batches.md`) and share the timing line;
-   then Batch 21 applies the timeout formula.
-5. Push, CI green, `gh pr ready 740`; the user merges. User-run steps: select Ollama Cloud / clef in the app and check one
-   `/orchestrate` pre-flight; add the `OLLAMA_API_KEY` repo secret for the weekly workflow.
+1. `git -C D:\projects\ptah-extension\.claude-worktrees\ollama-cloud-decision-model status -sb` (expect clean, in sync;
+   push in the background if ahead). Confirm `W\node_modules` is a junction.
+2. Phase 2 review: `ptah_agent_list`, then a codex lane (`role: code-logic-reviewer`, `workingDirectory: W`,
+   `taskFolder: .ptah/specs/TASK_2026_684_a11d`, `deliverables: ["phase-2-code-logic-review.md"]`, timeout 1200000,
+   read-only, no heavy commands, 40-call ceiling) on the Batch 6-10 commits, read with `git show <sha> -- libs/`:
+   `08c59dc56`, `076b0308f`, `6843908d6`, `b239f55b8`, `26e6b76b0` (`13f539e85` is the Phase 1 fix, already reviewed).
+   Include the review points in "Open problems" 1. Fix defects with a Claude subagent, re-review (max 2 rounds).
+   While the review runs, Batch 11 may start (Phase 3 builds on Phase 2; fix review defects on top).
+3. Phase 3 (Batches 11-16, write path, catalog, `agent:listDecisionModels` RPC, DI guards): one Claude subagent per batch
+   per `batches.md`; sequential unless the batch says otherwise; one heavy check at a time; commit each batch after
+   its checks pass and no agent edits `W`. Review: codex code-logic + style on the combined diff of 11-16.
+4. Phase 4 (Batch 17, decision row editor): frontend-developer subagent; codex code-logic review + visual-reviewer
+   subagent (Electron coordination per note 7; before/after screenshots in dark and light).
+5. Phase 5 (Batches 18-20: persistence proof, live eval spec, live eval workflow): codex review of 18-20 combined.
+   After Batch 19: ask the user to run the live spec locally with their key (command in `batches.md`, Batch 19) and
+   share the timing line. No agent handles the key.
+6. Phase 6 (Batch 21 timeout formula from the user's numbers; Batch 22 docs).
+7. Push, CI green (`gh pr checks 740`), `gh pr ready 740`; the user merges. User-run steps: select Ollama Cloud / clef
+   in the app and check one `/orchestrate` pre-flight; add the `OLLAMA_API_KEY` repo secret for the weekly workflow.
 
 ## Verification commands (prefix `NX_NO_CLOUD=true`; one heavy check at a time)
 
-- Libs: `NX_NO_CLOUD=true npx nx run-many -t test -p <A> <B> --parallel=1 --maxWorkers=2` (header must say N projects), then
-  `NX_NO_CLOUD=true npx nx run-many -t typecheck lint -p <A> <B> --parallel=1`. Project names use the `@ptah-extension/` prefix
-  (e.g. `@ptah-extension/rpc-handlers`, `@ptah-extension/platform-core`); `vscode-lm-tools` and `shared` worked unprefixed.
+- Libs: `NX_NO_CLOUD=true npx nx run-many -t test -p <A> <B> --parallel=1 --maxWorkers=2` (header must say N
+  projects), then `NX_NO_CLOUD=true npx nx run-many -t typecheck lint -p <A> <B> --parallel=1`. Names use the
+  `@ptah-extension/` prefix (`@ptah-extension/lane-routing`, `@ptah-extension/rpc-handlers`, `@ptah-extension/shared`,
+  `@ptah-extension/chat`, `@ptah-extension/auth-providers`). Typecheck excludes specs: check specs with
+  `ptah_get_diagnostics` or Jest.
 - Specs: `npx jest -c <lib>/jest.config.ts <specs> --coverage=false --maxWorkers=2`.
 - ptah-cli: `PTAH_ALLOW_SKIP_UNBUILT=1 npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src --coverage=false --maxWorkers=2`.
   Never `nx test ptah-cli` or `nx test ptah-electron`.
-- Apps: `npx tsc -p apps/<app>/tsconfig.app.json --noEmit`; DI guards
-  `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di --coverage=false --maxWorkers=2` and the same for
-  `apps/ptah-extension-vscode/src/di` (session 11: 59/59 and 62/62).
-- Audit: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` must say `TOTAL 297` (or lower), no FAIL.
+- DI / RPC surface guards (Batches 13-16): see "Verification rules" in `batches.md`.
+- Audit: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts 2>&1 | grep -E "TOTAL|FAIL"`
+  must say `TOTAL 294` or lower and no FAIL (hard limit 297).
 - Manifest: `npm run manifest:check`.
-- CI: `gh pr checks 740`; failed logs `gh run view <id> --log-failed | grep ...`. Rerun a known flaky job with
-  `gh run rerun <id> --failed`.
-- Never build/serve/e2e unless reproducing a CI failure; never `--no-verify`; commit in the foreground, push in the background.
+- CI: `gh pr checks 740`; failed logs `gh run view <id> --log-failed | grep ...`.
+- Never build/serve/e2e unless reproducing a CI failure; never `--no-verify`; commit in the foreground, push in the
+  background.
