@@ -115,6 +115,13 @@ export {
 } from './session-agents/session-agent-roster.service';
 export { ownedBySession } from './session-agents/owned-by-session';
 export * from './session-inspector';
+export { SessionListViewStore } from './session-list/session-list-view.store';
+export { PreviousSessionsDialogService } from './session-list/previous-sessions-dialog.service';
+export { SessionOrganizerService } from './session-list/session-organizer.service';
+export {
+  SessionRowActionsService,
+  SESSION_NAME_MAX_LENGTH,
+} from './session-list/session-row-actions.service';
 export {
   sessionBranch,
   type SessionGitState,
