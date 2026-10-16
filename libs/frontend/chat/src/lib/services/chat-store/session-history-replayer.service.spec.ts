@@ -25,6 +25,7 @@ import {
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { LoggingService } from '@ptah-extension/core';
 import type { FlatStreamEventUnion, SessionId } from '@ptah-extension/shared';
 import {
   SessionHistoryReplayer,
@@ -876,6 +877,7 @@ describe('SessionHistoryReplayer', () => {
     });
 
     it('warns and leaves a seeded subagent live when its history owner is missing', async () => {
+      const loggerWarn = jest.spyOn(TestBed.inject(LoggingService), 'warn');
       const start = e('agent', 'agent_start', { messageId: 'child', parentToolUseId: 'toolu_T' });
       const apply = jest.fn();
       const claim = replayer.claim(TAB, SESSION, { events: [start], apply });
@@ -884,7 +886,8 @@ describe('SessionHistoryReplayer', () => {
         ownerByEvent: new Map([[tool, 'missing']]), prefixMark: null,
       });
       await replayer.replay([tool], claim, SESSION, undefined);
-      expect(consoleWarn).toHaveBeenCalledWith('[SessionHistoryReplayer] seeded subagent history owner not found');
+      expect(loggerWarn).toHaveBeenCalledWith('SessionHistoryReplayer',
+        'seeded subagent history owner not found', { parentToolUseId: 'toolu_T' });
       expect(apply).toHaveBeenCalledWith([start]);
       expect(setMessages).not.toHaveBeenCalled();
     });

@@ -338,6 +338,51 @@ describe('MessageFinalizationService', () => {
       return msgs.map((m) => m.id);
     };
 
+    it('appends a normal turn even when a frozen row has a later timestamp', () => {
+      const frozen = { id: 'frozen', role: 'user', timestamp: Date.now() + 100_000 } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([makeNode({ id: 'start-owner', type: 'message' })]);
+      tabsSignal.set([makeTab({ messages: [frozen], streamingState: makeRootsState(
+        [assistantRoot('owner')], { currentMessageId: 'owner' },
+      ) })]);
+      activeTabIdSignal.set('tab-1');
+      service.finalizeCurrentMessage();
+      expect(finalizedIds()).toEqual(['frozen', 'start-owner']);
+    });
+
+    it('places a resynced owner at its frozen predecessor without an anchor', () => {
+      const before = { id: 'before', role: 'user' } as ExecutionChatMessage;
+      const after = { id: 'after', role: 'user' } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([makeNode({ id: 'start-owner', type: 'message' })]);
+      tabsSignal.set([makeTab({ messages: [before, after], streamingState: makeRootsState(
+        [assistantRoot('owner')], {
+          currentMessageId: 'owner',
+          resyncOwnerPredecessors: new Map([['start-owner', 'before']]),
+        },
+      ) })]);
+      activeTabIdSignal.set('tab-1');
+      service.finalizeCurrentMessage();
+      expect(finalizedIds()).toEqual(['before', 'start-owner', 'after']);
+    });
+
+    it('keeps a resynced owner in place when a mid-stream prompt adds an anchor', () => {
+      const before = { id: 'before', role: 'user' } as ExecutionChatMessage;
+      const after = { id: 'after', role: 'assistant' } as ExecutionChatMessage;
+      const prompt = { id: 'prompt', role: 'user' } as ExecutionChatMessage;
+      treeBuilder.buildTree.mockReturnValue([
+        makeNode({ id: 'start-owner', type: 'message' }),
+        makeNode({ id: 'start-reply', type: 'message' }),
+      ]);
+      tabsSignal.set([makeTab({ messages: [before, after, prompt], streamingState: makeRootsState(
+        [assistantRoot('owner'), promptBoundary('prompt'), assistantRoot('reply')], {
+          currentMessageId: 'reply',
+          resyncOwnerPredecessors: new Map([['start-owner', 'before']]),
+        },
+      ) })]);
+      activeTabIdSignal.set('tab-1');
+      service.finalizeCurrentMessage();
+      expect(finalizedIds()).toEqual(['before', 'start-owner', 'after', 'prompt', 'start-reply']);
+    });
+
     it('keeps the part of a turn that ran before a mid-turn prompt above it', () => {
       const prompt = {
         id: 'user-mid-turn',
