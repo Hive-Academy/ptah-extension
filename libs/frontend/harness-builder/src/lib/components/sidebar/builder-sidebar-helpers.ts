@@ -18,6 +18,16 @@ export function workspaceName(root: string): string {
   return root.split(/[\\/]/).filter(Boolean).at(-1) ?? 'workspace';
 }
 
+export function builderPreviewSummary(config: Partial<HarnessConfig>): string {
+  const agents = Object.values(config.agents?.enabledAgents ?? {}).filter(
+    (agent) => agent.enabled,
+  ).length;
+  const skills =
+    (config.skills?.selectedSkills?.length ?? 0) +
+    (config.skills?.createdSkills?.length ?? 0);
+  return `${agents} agents, ${skills} skills`;
+}
+
 export function fullConfig(
   config: Partial<HarnessConfig>,
   root: string,

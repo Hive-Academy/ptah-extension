@@ -9,11 +9,13 @@ import { z } from 'zod';
 
 export const HARNESS_RECORD_PREFIX = 'ptah.harness.builder.v1';
 export const HARNESS_CHOICE_FIELDS = [
+  'name',
   'persona',
   'agents',
   'skills',
   'prompt',
   'mcp',
+  'claudeMd',
 ] as const;
 export type HarnessChoiceField = (typeof HARNESS_CHOICE_FIELDS)[number];
 export type HarnessBuilderMode = 'configure-harness' | 'new-project';

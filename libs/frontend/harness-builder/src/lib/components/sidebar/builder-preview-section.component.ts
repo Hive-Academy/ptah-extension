@@ -9,6 +9,7 @@ import { AppStateManager } from '@ptah-extension/core';
 import { HarnessConfigPreviewComponent } from '../harness-config-preview.component';
 import type { HarnessBuilderMode } from '../../services/harness-builder-records.service';
 import { HarnessProposalHydrationService } from '../../services/harness-proposal-hydration.service';
+import { builderPreviewSummary } from './builder-sidebar-helpers';
 
 @Component({
   selector: 'ptah-builder-preview-section',
@@ -47,12 +48,8 @@ export class BuilderPreviewSectionComponent {
   protected readonly hydration = inject(HarnessProposalHydrationService);
   private readonly appState = inject(AppStateManager);
   protected readonly preview = computed(() => this.hydration.config());
-  protected readonly summary = computed(
-    () =>
-      Object.keys(this.preview().agents?.enabledAgents ?? {}).length +
-      ' agents, ' +
-      (this.preview().skills?.selectedSkills.length ?? 0) +
-      ' skills',
+  protected readonly summary = computed(() =>
+    builderPreviewSummary(this.preview()),
   );
   protected readonly previewStatus = computed(() =>
     this.hydration.status() === 'loading'

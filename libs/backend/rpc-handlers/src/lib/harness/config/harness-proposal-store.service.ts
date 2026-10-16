@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { sameWorkspaceRoot } from '../../utils/workspace-authorization';
+import {
+  findOpenWorkspaceRoot,
+  sameWorkspaceRoot,
+} from '../../utils/workspace-authorization';
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { serializeByKey, withFileLock } from '@ptah-extension/harness-sync';
@@ -175,7 +178,16 @@ export class HarnessProposalStore implements IHarnessProposalStore {
           'Harness proposal workspace root must be an absolute path without traversal.',
         );
       }
-      return workspaceRoot;
+      const openRoot = findOpenWorkspaceRoot(
+        workspaceRoot,
+        this.workspaceProvider,
+      );
+      if (!openRoot) {
+        throw new Error(
+          'Harness proposal workspace root is not an open workspace folder.',
+        );
+      }
+      return openRoot;
     }
     const root = this.workspaceProvider.getWorkspaceRoot();
     if (!root) throw new HarnessProposalWorkspaceError();

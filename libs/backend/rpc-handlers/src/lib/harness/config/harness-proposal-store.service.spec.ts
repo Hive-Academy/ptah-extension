@@ -32,6 +32,7 @@ describe('HarnessProposalStore', () => {
     logger = createMockLogger();
     workspaceProvider = {
       getWorkspaceRoot: () => root,
+      getWorkspaceFolders: () => [root],
     } as IWorkspaceProvider;
     store = new HarnessProposalStore(
       logger as unknown as Logger,
@@ -185,7 +186,10 @@ describe('HarnessProposalStore', () => {
     });
     const pinnedStore = new HarnessProposalStore(
       logger as unknown as Logger,
-      { getWorkspaceRoot: () => getWorkspaceRoot() } as IWorkspaceProvider,
+      {
+        getWorkspaceRoot: () => getWorkspaceRoot(),
+        getWorkspaceFolders: () => [root, callerRoot],
+      } as IWorkspaceProvider,
     );
     const capture = pinnedStore.captureProposingTurnStartedAt(
       'one',
@@ -219,6 +223,38 @@ describe('HarnessProposalStore', () => {
     await expect(fs.access(fileFor('one'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+
+  it('uses the open folder spelling for an equivalent pinned root', async () => {
+    const pinnedRoot = `${root}${path.sep}`;
+    const saved = await store.save(
+      'one',
+      { name: 'Open' },
+      false,
+      undefined,
+      pinnedRoot,
+    );
+    expect(saved.workspaceRoot).toBe(root);
+    expect(await store.get('one', pinnedRoot)).toEqual(saved);
+    expect(JSON.parse(await fs.readFile(fileFor('one'), 'utf8'))).toEqual(
+      saved,
+    );
+  });
+
+  it('rejects a pinned root outside the open folders', async () => {
+    const closedRoot = path.join(root, 'closed');
+    expect(() =>
+      store.captureProposingTurnStartedAt('one', closedRoot),
+    ).toThrow(/not an open workspace folder/);
+    await expect(
+      store.save('one', {}, false, undefined, closedRoot),
+    ).rejects.toThrow(/not an open workspace folder/);
+    await expect(store.get('one', closedRoot)).rejects.toThrow(
+      /not an open workspace folder/,
+    );
+    await expect(
+      fs.access(path.join(closedRoot, '.ptah')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it.each([

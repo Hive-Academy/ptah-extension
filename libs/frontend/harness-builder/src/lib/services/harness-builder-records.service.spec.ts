@@ -1,6 +1,12 @@
 import { TestBed } from '@angular/core/testing';
 import { LoggingService } from '@ptah-extension/core';
 import {
+  commitBuilderUpdates,
+  fullConfig,
+} from '../components/sidebar/builder-sidebar-helpers';
+import { HarnessProposalHydrationService } from './harness-proposal-hydration.service';
+import { HarnessRpcService } from './harness-rpc.service';
+import {
   HARNESS_RECORD_PREFIX,
   HarnessBuilderRecordsService,
   type HarnessUserSnapshot,
@@ -23,12 +29,20 @@ function snapshot(tabId: string): HarnessUserSnapshot {
 
 describe('HarnessBuilderRecordsService', () => {
   let records: HarnessBuilderRecordsService;
+  let hydration: HarnessProposalHydrationService;
 
   beforeEach(() => {
     localStorage.clear();
     TestBed.configureTestingModule({
       providers: [
         HarnessBuilderRecordsService,
+        HarnessProposalHydrationService,
+        {
+          provide: HarnessRpcService,
+          useValue: {
+            getProposal: jest.fn().mockResolvedValue({ proposal: null }),
+          },
+        },
         {
           provide: LoggingService,
           useValue: { warn: jest.fn(), error: jest.fn() },
@@ -36,6 +50,7 @@ describe('HarnessBuilderRecordsService', () => {
       ],
     });
     records = TestBed.inject(HarnessBuilderRecordsService);
+    hydration = TestBed.inject(HarnessProposalHydrationService);
   });
 
   it('round trips a snapshot only for its pinned workspace and tab', () => {
@@ -43,6 +58,22 @@ describe('HarnessBuilderRecordsService', () => {
     expect(records.readSnapshot(root, 'tab-1')).toEqual(snapshot('tab-1'));
     expect(records.readSnapshot('/workspace/b', 'tab-1')).toBeNull();
     expect(records.readSnapshot(root, 'tab-2')).toBeNull();
+  });
+
+  it('keeps a loaded preset name and Claude MD choices through Apply', async () => {
+    await hydration.bind(root, 'tab-1', []);
+    const preset = fullConfig({}, root);
+    preset.name = 'Preset name';
+    preset.claudeMd.generateProjectClaudeMd = false;
+    preset.claudeMd.customSections = { Notes: 'Keep this section' };
+    commitBuilderUpdates(records, hydration, root, 'tab-1', {}, preset);
+    const saved = records.readSnapshot(root, 'tab-1');
+    expect(saved?.configUpdates.name).toBe('Preset name');
+    expect(saved?.configUpdates.claudeMd?.generateProjectClaudeMd).toBe(false);
+    expect(fullConfig(hydration.config(), root).claudeMd).toEqual(
+      preset.claudeMd,
+    );
+    expect(fullConfig(hydration.config(), root).name).toBe('Preset name');
   });
 
   it('deletes invalid version, mismatched key and malformed shape independently', () => {

@@ -54,8 +54,8 @@ export class BuilderSessionSectionComponent {
   readonly statsSnapshot = input<SessionStatsEntry | null>(null);
   readonly liveModelStats = input<LiveModelStats | null>(null);
   protected readonly sessionOpen = signal(false);
-  protected readonly sessionSummary = computed(
-    () =>
-      `Context ${this.liveModelStats()?.contextPercent ?? '—'}% · ${this.statsSnapshot()?.totalCost === null || this.statsSnapshot()?.totalCost === undefined ? 'Cost unavailable' : '$' + this.statsSnapshot()?.totalCost?.toFixed(2)}`,
-  );
+  protected readonly sessionSummary = computed(() => {
+    const percent = this.liveModelStats()?.contextPercent;
+    return `Context ${percent === null || percent === undefined ? '—' : `${percent}%`} · ${this.statsSnapshot()?.totalCost === null || this.statsSnapshot()?.totalCost === undefined ? 'Cost unavailable' : '$' + this.statsSnapshot()?.totalCost?.toFixed(2)}`;
+  });
 }

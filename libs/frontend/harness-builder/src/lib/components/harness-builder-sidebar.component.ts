@@ -17,6 +17,7 @@ import { BuilderPreviewSectionComponent } from './sidebar/builder-preview-sectio
 import { BuilderAiHelpersSectionComponent } from './sidebar/builder-ai-helpers-section.component';
 import { BuilderPresetsSectionComponent } from './sidebar/builder-presets-section.component';
 import { BuilderSessionSectionComponent } from './sidebar/builder-session-section.component';
+import { builderPreviewSummary } from './sidebar/builder-sidebar-helpers';
 
 @Component({
   selector: 'ptah-harness-builder-sidebar',
@@ -147,11 +148,7 @@ export class HarnessBuilderSidebarComponent {
   protected readonly hydration = inject(HarnessProposalHydrationService);
   protected readonly document = signal<string | null>(null);
   protected readonly preview = computed(() => this.hydration.config());
-  protected readonly summary = computed(
-    () =>
-      Object.keys(this.preview().agents?.enabledAgents ?? {}).length +
-      ' agents, ' +
-      (this.preview().skills?.selectedSkills.length ?? 0) +
-      ' skills',
+  protected readonly summary = computed(() =>
+    builderPreviewSummary(this.preview()),
   );
 }
