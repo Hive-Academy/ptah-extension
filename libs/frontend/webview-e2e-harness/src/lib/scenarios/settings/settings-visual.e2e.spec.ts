@@ -716,7 +716,7 @@ async function captureRolesOpen(
   const consumerRows = consumers.locator(
     'article[data-testid^="consumer-row-"]',
   );
-  await expect(consumerRows).toHaveCount(6);
+  await expect(consumerRows).toHaveCount(7);
   // Card grids can vary in height; each assignment label must stay on one line.
   const cellHeights = await consumers
     .locator('[data-testid^="consumer-summary-"]')
@@ -729,7 +729,7 @@ async function captureRolesOpen(
   console.log(
     `B35 role cells ${host}/${theme}: cell heights ${cellHeights.join(',')}; row heights ${rowHeights.join(',')}`,
   );
-  expect(cellHeights).toHaveLength(6);
+  expect(cellHeights).toHaveLength(7);
   for (const height of cellHeights)
     expect(height, 'role cell is one line').toBeLessThanOrEqual(24);
   await summary.evaluate((node) => node.scrollIntoView({ block: 'start' }));
