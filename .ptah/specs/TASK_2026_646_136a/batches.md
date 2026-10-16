@@ -1,6 +1,11 @@
 # Batches - TASK_2026_646_136a
 
-Total tasks: 47 | Batches: 46 (Batches 37 and 37b P3 fix round added, decisions #93, #94) | Complete: 42/46 (Batches 38a, 38b P6 fix round added, decision #100; Batches 39a-39d P5 fix round, decision #102) | Phases accepted: P1, P2 (decision #85), P3 (decision #96) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit DONE (p2-fix2, APPROVED 7.5/10, decision #99) | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91) | P3 ACCEPTED (user, decision #96) after fix round Batch 37 and correction 37b
+**Mode 3 status (team-leader, 2026-10-16, session 11):** Batches: 60 | Complete: 59/60 (46 headed batches + 39a-39d +
+41a-41h + the E2E expectation fix, all committed; see `## Mode 3 completion` at the end) | PENDING: Batch 41i (VS Code
+decision-model selection write path, W1 gap) | Later tasks: `future-enhancements.md` | Completion report:
+`reports/completion-report.md` (verdict: NOT COMPLETE until 41i lands).
+
+History: Total tasks: 47 | Batches: 46 (Batches 37 and 37b P3 fix round added, decisions #93, #94) | Complete: 42/46 (Batches 38a, 38b P6 fix round added, decision #100; Batches 39a-39d P5 fix round, decision #102) | Phases accepted: P1, P2 (decision #85), P3 (decision #96) | P2 phase review: REVISE (logic 6/10, style 6/10); fix round Batch 36 COMPLETE (8cd5cc212); re-review logic REVISE (S-1), style APPROVED; follow-up Batch 36b COMPLETE (bfae43c3c) after Mode 2 rounds 1 (TL-42, TL-43), 2 (TL-46) and 3; Anthropic code-logic re-review of the 36b commit DONE (p2-fix2, APPROVED 7.5/10, decision #99) | Batch 24 COMPLETE (Mode 2 round 2 2026-10-15, TL-61) | Batch 23 COMPLETE (Mode 2 2026-10-15, TL-55..TL-57) | Batch 18 COMPLETE (d2de2093f, after Batch 30a 3ce35ddb9) | Batches 26 + 28 COMPLETE (orchestrator Mode 2, decision #90) | Batch 27 COMPLETE (orchestrator Mode 2, decision #91) | P3 ACCEPTED (user, decision #96) after fix round Batch 37 and correction 37b
 
 Source: `implementation-plan.md` (integrated; wins over part A and part B) `## Batches` (lines 717-761),
 `## Parallel waves` (763-780), `## Assumptions to check first` (782-805); Gate 2 decisions #43-#52
@@ -1073,7 +1078,7 @@ state)` (`rotation.store.ts:203`). The value is `{ version: 1, entries: [{ key, 
 - Tasks: 1 | Depends on: Batch 12, Batch 14, Batch 21 (decision #73: the handler injects `DECISION_MODEL_CONFIG`, which only the A8 factory in Batch 21 registers (D11, TL-24 notes); before that, di-lint would block every commit)
 - Phase: P4 Decision-model settings | Phase review: code-logic + visual
 
-### Task 18.1: Decision-model fields on `agent:getConfig`/`agent:setConfig` — IN_PROGRESS
+### Task 18.1: Decision-model fields on `agent:getConfig`/`agent:setConfig` — COMPLETE (commit d2de2093f; status set in Mode 3, 2026-10-16)
 
 - File: MODIFY `W\libs\shared\src\lib\types\rpc\rpc-agents.types.ts`, `W\libs\backend\rpc-handlers\src\lib\handlers\agent-rpc.handlers.ts` (delegate only); CREATE `W\libs\backend\rpc-handlers\src\lib\handlers\agent-rpc.handlers.decision-model.spec.ts`
 - Plan reference: implementation-plan.md:751; part-a:935, :507, D5 :951; SC-8 :368-374
@@ -1448,7 +1453,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 1 | Depends on: Batch 2, Batch 20, Batch 14
 - Phase: P5 Outcome producers + Agents tab | Phase review: code-logic + code-style + visual
 
-### Task 25.1: Outcome-signals RPC handler — PENDING
+### Task 25.1: Outcome-signals RPC handler — COMPLETE (commit cc34e1624; status set in Mode 3)
 
 - File: CREATE `W\libs\backend\rpc-handlers\src\lib\handlers\agent-outcome-rpc.handlers.ts` (+ spec), `W\libs\backend\rpc-handlers\src\lib\handlers\agent-outcome.schema.ts`; MODIFY `W\libs\backend\rpc-handlers\src\lib\register-shared-rpc-handlers.ts`, `W\libs\backend\rpc-handlers\src\lib\rpc-allowlist.spec.ts`, `W\libs\backend\rpc-handlers\src\lib\host-profile\manifest.ts` (the `'agent:outcomeSignals'` `RPC_HANDLER_MANIFEST` entry; added at Batch 2 verify — without it the manifest totality invariant and the three host `rpc-surface.spec.ts` partitions stay one method short)
 - Plan reference: implementation-plan.md:753; part-b:469-493 (§7); SC-8 :368-374
@@ -1496,7 +1501,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 1 | Depends on: Batch 21
 - Phase: P3 Routing engine | Phase review: code-logic + code-style
 
-### Task 27.1: `DecisionModelFailureClassifier` behind `FAILURE_CLASSIFIER` — PENDING
+### Task 27.1: `DecisionModelFailureClassifier` behind `FAILURE_CLASSIFIER` — COMPLETE (commit 3f932ea7d; status set in Mode 3)
 
 - File: CREATE `LR\failure-class\decision-model-failure-classifier.ts` (+ spec); MODIFY `LR\di\register.ts` (+ spec), `W\libs\backend\lane-routing\src\index.ts`
 - Plan reference: implementation-plan.md:758; SC-4 :181-215
@@ -1545,7 +1550,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 1 | Depends on: Batch 26, Batch 28, Batch 7
 - Phase: P6 MCP + host integration | Phase review: code-logic + code-style
 
-### Task 29.1: Register `ptah_route_decide` (always-on) and `ptah_outcome_report` (deferred) — PENDING
+### Task 29.1: Register `ptah_route_decide` (always-on) and `ptah_outcome_report` (deferred) — COMPLETE (commit f08e93af5; status set in Mode 3)
 
 - File: MODIFY `VLT\...\protocol-dispatcher.ts` (route tool after `buildSessionHandoffTool()`; two `case`s in `switch (name)` at `:1037`), `tool-result-budget.ts`, `ptah-api-builder.service.ts`, the `PtahAPI` type file, `mcp-http\http-mcp-server.service.ts`, `mcp-stdio\{tool-builders.ts,agent-tool.dispatcher.ts,index.ts}`, `ptah-system-prompt.constant.ts` (two rows); tool-name registry specs
 - Plan reference: implementation-plan.md:759; part-a §8; part-b §8
@@ -1570,7 +1575,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 2 | Depends on: Batches 21, 14, 19, 27, 29, 20, 23, 24, 25
 - Phase: P6 MCP + host integration | Phase review: code-logic + code-style
 
-### Task 30.1: Register both libs in the three roots — PENDING
+### Task 30.1: Register both libs in the three roots — COMPLETE (commit e082c0cbe; status set in Mode 3)
 
 - File: MODIFY `W\apps\ptah-extension-vscode\src\di\phase-2-libraries.ts`, `W\apps\ptah-electron\src\di\phase-2-libraries.ts`, `W\libs\backend\cli-engine\src\lib\container.ts`
 - Plan reference: implementation-plan.md:760; SC-3 :168-180; SC-10 shutdown; part-a §12; part-b:590-607 (§10)
@@ -1580,7 +1585,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Implementation details: logger passed per root (SC-9)
 - D11 note (Batch 12): `DecisionModelConfig` is factory-built by Batch 21's `register.ts`, not decorator-injected, so di-lint does not see its dependencies. The smoke specs here must resolve `DECISION_MODEL_CONFIG` in each host to prove the factory's five tokens resolve (the logger and the three platform ports in every root; `STRUCTURED_DECISION` optional, absent before Batch 19 registers it). Write-path trace input: mark key `ptah.decisionModel.unsupported.v1`, global `STATE_STORAGE`
 
-### Task 30.2: Guard specs and validate-deps — PENDING
+### Task 30.2: Guard specs and validate-deps — COMPLETE (commit e082c0cbe; status set in Mode 3)
 
 - Depends on: Task 30.1
 - File: MODIFY `W\apps\ptah-extension-vscode\src\di\expected-resolvable.ts`, `W\apps\{ptah-extension-vscode,ptah-electron,ptah-cli}\src\di\container.smoke.spec.ts`, `rpc-surface.spec.ts`, Electron `surface-composition.spec.ts`; validate-deps allowlist only if the pre-push gate flags a new lib
@@ -1606,7 +1611,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 1 | Depends on: Batch 21 (register.ts), Batch 24 (shares `apps/{ptah-electron,ptah-cli}/src/di/container.smoke.spec.ts`; start only after Batch 24 commits)
 - Phase: P6 MCP + host integration | Phase review: code-logic + code-style (with Batch 30)
 
-### Task 30a.1: Call `registerLaneRoutingServices` in the three roots and prove the agent handler resolves — PENDING
+### Task 30a.1: Call `registerLaneRoutingServices` in the three roots and prove the agent handler resolves — COMPLETE (commit 3ce35ddb9; status set in Mode 3)
 
 - File: MODIFY `W\apps\ptah-extension-vscode\src\di\phase-2-libraries.ts` (beside :216), `W\apps\ptah-electron\src\di\phase-2-libraries.ts` (beside :305), `W\libs\backend\cli-engine\src\lib\container.ts` (beside :736), `W\apps\ptah-extension-vscode\src\di\expected-resolvable.ts`, and the three `apps/*/src/di/container.smoke.spec.ts`
 - Plan reference: implementation-plan-part-a.md:532-540 (§12); implementation-plan.md:760; Batch 30 D11 note
@@ -1630,7 +1635,7 @@ sessionEvidenceClass: null }` instead of the three dot assignments (TL-53)
 - Tasks: 1 | Depends on: Batch 29
 - Phase: P7 Skill docs | Phase review: none — docs only
 
-### Task 31.1: Skill text for routing and outcome reports — PENDING
+### Task 31.1: Skill text for routing and outcome reports — COMPLETE (commit 4b2da5a97; status set in Mode 3)
 
 - File: MODIFY `W\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\orchestration\SKILL.md`, `...\orchestration\references\lane-assignment.md`, `...\agent-lanes\SKILL.md`
 - Plan reference: implementation-plan.md:761; part-a:939, §13; decision I8; Handoff to TASK_2026_662_3eea :807-820
@@ -2026,7 +2031,7 @@ store.applyReportWithReceipt(reviseReport, now, resolve)])` leaves the row with
 - File-disjointness: writes only under `W\libs\backend\lane-routing\`. Batch 25 (grok, same time)
   writes only under `libs/backend/rpc-handlers`
 
-### Task 37.1: FE-12a split, then logic S-1, S-3, M-3 in the decision-model files — PENDING
+### Task 37.1: FE-12a split, then logic S-1, S-3, M-3 in the decision-model files — COMPLETE (commit 8d29af556; status set in Mode 3)
 
 - Files: CREATE `LR\decision-model\decision-model.probe.ts`; MODIFY
   `LR\decision-model\decision-model.config.ts`, `LR\decision-model\system-one.client.ts` (+ specs)
@@ -2042,7 +2047,7 @@ store.applyReportWithReceipt(reviseReport, now, resolve)])` leaves the row with
   A -> B while A's probe is pending leaves no mark for B; `storage.get` throws -> constructs, mark
   null, one warn
 
-### Task 37.2: Logic S-2 and M-1 — PENDING
+### Task 37.2: Logic S-2 and M-1 — COMPLETE (commit 8d29af556; status set in Mode 3)
 
 - Files: MODIFY `LR\pipeline\model-call.ts`, `LR\failure-class\decision-model-failure-classifier.ts`,
   `LR\ranking\rotation.store.ts`, `LR\route-decide.service.ts` only if the save call changes (+ specs)
@@ -2056,7 +2061,7 @@ store.applyReportWithReceipt(reviseReport, now, resolve)])` leaves the row with
   two concurrent saves for different keys both persist; same key keeps the later pick without loss of
   the other fields
 
-### Task 37.3: Style Serious 1 — smaller public barrel — PENDING
+### Task 37.3: Style Serious 1 — smaller public barrel — COMPLETE (commit 8d29af556; status set in Mode 3)
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\index.ts` (and lane-routing specs that import the
   barrel, if any)
@@ -2196,3 +2201,92 @@ and triggers outlive the agent reap), LT-P6-9 logic N-4 (quit during Electron bo
   self-bounded drain registered by `startAndRegisterLaneOutcomes`; the three host constants and two `Promise.race` copies go),
   style N2 (no drain-specific verb in `disposeSubsystem`), style N3 + S3 (restore or correct the load-bearing comments in
   Electron `shutdown.ts` and CLI `with-engine.ts`), and the comment-only Minors in the same files
+
+## Batch 41 (final fix round after the P4/P5/P6 final reviews) — COMPLETE
+
+User approval: "Fix all, then merge" (session 10). Review chain: `reviews/batch-41-code-logic-review.md` (codex,
+NEEDS_REVISION 5.5/10, 2 Serious in the new key rollback) -> 41f -> `reviews/batch-41f-code-logic-review.md`
+(NEEDS_REVISION 7/10, 1 Moderate) -> 41g -> `reviews/batch-41g-code-logic-review.md` (NEEDS_REVISION 7/10, 1 Moderate;
+revise cap reached) -> 41h, the one bounded correction (agent-lanes §6) -> `reviews/batch-41h-code-logic-review.md`
+(codex, OpenAI, **APPROVED 8/10**). Visual: `reviews/batch-41-visual-review.md` APPROVED 8/10 (dark + light).
+Implementer families: Anthropic subagents and orchestrator; reviewer family: OpenAI codex (different family).
+
+| Batch | Item | Commit | Status |
+| --- | --- | --- | --- |
+| 41a | setConfig validates the selection first, key rollback, shared `DECISION_MODEL_KEY_MAY_HAVE_CHANGED` (P4 final Serious) | dbccd23e4 | COMPLETE |
+| 41b | outcome report accepts VS Code `FileNotFound`/`FileNotADirectory`; schema via `flattenOperationUnion` (P5 Serious + style D1) | 0547f3da8 | COMPLETE |
+| 41c | Agents-tab outcome cell: full row, container-query grid, titles, one "unavailable" (P5 visual Serious) | 27829fedf | COMPLETE |
+| 41d | lane-outcomes drain never rejects when the logger throws (P6 final Moderate) | e6c030f5b | COMPLETE |
+| 41e | Orchestration settings tab in `@defer (on immediate)`; initial bundle -88 kB (CI budget), `reports/batch-41e-report.md` | c779018ad | COMPLETE |
+| 41-ci | lane-outcomes esbuild `external` += vscode, better-sqlite3, sqlite-vec; content manifest (closes LT-P2-19) | 8253977e8 | COMPLETE |
+| 41f | revise round 1: keep the new key when the selection was stored; spec pins `setConfigQueue` serialization | cda1eb30e | COMPLETE |
+| 41g | revise round 2: a stored selection after a late rejection reports success (combined key + selection path) | d4dcdc6c1 | COMPLETE |
+| 41h | bounded correction: selection-only stored-after-reject is success (`storedSelectionState` read-back) | f0dee00e1 (review 392ce5e2f) | COMPLETE |
+
+## Session 11: merge of `origin/main` and E2E expectation fix — COMPLETE
+
+- Merge `6be388a9e` (no conflicts; brings `main`'s 3.70 MB webview budget).
+- E2E fix `758f96fdc`: CLI `mcp-serve` e2e now expects 12 tools incl. `route_decide` and `outcome_report`; webview
+  settings specs expect 7 roles (Decision model card) and wait for the deferred tab.
+- Scoped checks after the merge (orchestrator, session 11): `nx test` vscode-lm-tools and shared, typecheck + lint for
+  both; rpc-handlers decision-model spec 35/35 + typecheck + lint; DI guards Electron 59/59, VS Code 62/62. Degradation
+  audit TOTAL 297 = clean `origin/main` (the extra site comes from `main`; no baseline changed).
+
+## Batch 41i (W1): VS Code decision-model selection write path — PENDING (found by Mode 3 write-path trace)
+
+- Recommended executor: CLI lane backend capability (sequential, 1-2 files + spec). Subagent reason: N/A.
+- Review family: different from implementer. Phase review: code-logic, scoped to the fix commit.
+- Defect: `DecisionModelConfig.setSelection` writes `ptah` / `agentOrchestration.decisionModel` through
+  `IWorkspaceProvider.setConfiguration` (`libs/backend/lane-routing/src/lib/decision-model/decision-model.config.ts:163-167`,
+  key at `decision-model.types.ts:98-99`). The key is neither in `FILE_BASED_SETTINGS_KEYS`
+  (`libs/backend/platform-core/src/file-settings-keys.ts`, `isFileBasedSettingKey` at `:772-779`) nor contributed in
+  `apps/ptah-extension-vscode/package.json` (no `decision` match). The VS Code provider therefore calls
+  `vscode.workspace.getConfiguration('ptah').update(key, value, Global)`
+  (`libs/backend/platform-vscode/src/implementations/vscode-workspace-provider.ts:110-119`), which VS Code refuses for an
+  unregistered key ("... is not a registered configuration"). Result in the VS Code host: every non-unset save fails,
+  the row reports the save as failed, and Requirement 1.6 (restore after restart) cannot hold. Electron and CLI write
+  to their own host config file (`electron-workspace-provider.ts:212-233`, `cli-workspace-provider.ts:104-125`), so the
+  value persists there but outside `~/.ptah/settings.json`, unlike the sibling role keys `memory.curatorModel` and
+  `skillSynthesis.judgeModel` (file-based, `file-settings-keys.ts:263-264,289`).
+- Not caught by tests: `decision-model.config.spec.ts` and `agent-rpc.handlers.decision-model.spec.ts` mock
+  `setConfiguration`; the visual reviews ran on the Electron dev build.
+- Task 41i.1 — PENDING: add `'agentOrchestration.decisionModel'` to `FILE_BASED_SETTINGS_KEYS` (decision below), with a
+  `platform-core` spec asserting `isFileBasedSettingKey('agentOrchestration.decisionModel') === true`; check
+  `FILE_BASED_SETTINGS_DEFAULTS` needs no entry (unset is read as `undefined` -> `{ kind: 'unset' }`,
+  `decision-model.config.ts:129-135`). Verification: `npx nx test @ptah-extension/platform-core --parallel=1`, typecheck
+  and lint for platform-core; then one manual VS Code save + restart check, or a provider-level spec.
+- Decision (team-leader): file-based routing over a `package.json` contribution. Options: (a) file-based key, (b)
+  contribute `ptah.agentOrchestration.decisionModel` as an object setting in `package.json`. Evidence: the sibling
+  background-role keys are file-based; (a) makes all three hosts read and write the same `~/.ptah/settings.json`;
+  (b) leaves Electron/CLI on a different store. The feature is unreleased, so no migration is needed. Reversible: yes.
+
+## Mode 3 completion (team-leader, 2026-10-16, session 11)
+
+Commit ledger (every batch resolves with `git log --oneline`; read-only check in session 11):
+
+| Batch | Commit | Batch | Commit | Batch | Commit |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 5a6c3faa2 | 16 | 004195ee9 | 30a | 3ce35ddb9 |
+| 2 | c51b98335 | 17 | 5ed3d9092 | 31 | 4b2da5a97 |
+| 3 | e6b75a30a | 18 | d2de2093f | 32 | 58916fc69 |
+| 4 | 3ada54c23 | 19 | 53dc2bb99 | 33 | 655de8cae |
+| 5 | 5e5c9ffca | 20 | dd021d709 | 36 | 8cd5cc212 |
+| 6 | 8fc9278e9 | 21 | 653b71cf2 | 36b | bfae43c3c |
+| 7 | 15b9c2c02 | 22 | 4a3b758c9 | 37 | 8d29af556 |
+| 8 | 4876fe923 | 23 | bf898ae9c | 37b | 623644993 |
+| 9 | 55a58c96b | 24 | 2f7833b8f | 38a | 149440c89 |
+| 10 | 900efd94d | 25 | cc34e1624 | 38b | d8675a544 |
+| 11 | e5fee2a40 | 26 + 28 | 0c52b416b | 38c | f4cd90768 |
+| 12 | abf0d2b31 | 27 | 3f932ea7d | 39a / 39b / 39c / 39d | b5e38c780 / 40dcfb9ae / 7f8f93adf / 81c1f5af9 |
+| 13 | ab5038c72 | 29 | f08e93af5 | 40a / 40b / 40c | 86c2954a7 / 438bd3118 / f5d28d2f4 |
+| 14 | 66f724fed | 30 | e082c0cbe | 41a-41h, 41-ci | see Batch 41 table |
+| 15 | f4425ce5c | 34 / 35 | 2493f2dd5 / ce300e918 | merge / E2E | 6be388a9e / 758f96fdc |
+
+Phase reviews: P1 APPROVED; P2 ACCEPTED (#85); P3 ACCEPTED (user, #96); P4/P5/P6 final reviews NEEDS_REVISION ->
+user "Fix all, then merge" -> Batch 41 chain ending APPROVED 8/10 (41h). Write-path trace and acceptance status:
+`reports/completion-report.md`. Mode 3 verdict: **not complete** while Batch 41i is PENDING.
+
+## Later tasks
+
+Consolidated in `future-enhancements.md` (P2c, P3c, P4c, P5c, P6c lists, HANDOFF open problem 4, the two 41h Minors).
+None is fixed by this task.
