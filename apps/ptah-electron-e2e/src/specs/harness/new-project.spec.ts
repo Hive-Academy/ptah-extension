@@ -94,10 +94,11 @@ async function openNewProjectWorkflow(
   const startCall = await ui.waitForObservedCall('chat:start');
   const params = startCall.params as { tabId: string; prompt: string };
   expect(params.prompt).toContain(seedPrompt);
-  await expect(ui.page).toHaveURL(
-    new RegExp(`/harness-builder/new-project/${params.tabId}`),
-  );
-  await expect(ui.page.locator('ptah-session-embed')).toBeVisible();
+  await expect(
+    ui.page.locator(
+      `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${params.tabId}"]`,
+    ),
+  ).toBeVisible();
 
   return { tabId: params.tabId };
 }
@@ -310,10 +311,11 @@ test.describe('New Project flow - persistence', () => {
       ui.page.locator('[data-testid="new-project-start"]'),
     ).toHaveCount(0);
     await resume.click();
-    await expect(ui.page).toHaveURL(
-      new RegExp(`/harness-builder/new-project/${tabId}`),
-    );
-    await expect(ui.page.locator('ptah-session-embed')).toBeVisible();
+    await expect(
+      ui.page.locator(
+        `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+      ),
+    ).toBeVisible();
     expect(await ui.getObservedCalls('chat:start')).toHaveLength(1);
   });
 
@@ -360,10 +362,11 @@ test.describe('New Project flow - persistence', () => {
     });
 
     await ui.prepare();
-    await expect(ui.page).toHaveURL(
-      new RegExp(`/harness-builder/new-project/${tabId}`),
-    );
-    await expect(ui.page.locator('ptah-session-embed')).toBeVisible();
+    await expect(
+      ui.page.locator(
+        `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+      ),
+    ).toBeVisible();
     const transcriptText = await ui.page
       .locator('ptah-harness-builder-view [role="log"]')
       .innerText();

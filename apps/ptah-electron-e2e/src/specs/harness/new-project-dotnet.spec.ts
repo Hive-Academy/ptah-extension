@@ -102,7 +102,16 @@ async function openNewProjectWorkflow(
   seedPrompt: string,
 ): Promise<{ tabId: string; prompt: string }> {
   await ui.mockRpc({
-    'harness:start-new-project': { success: true },
+    'harness:start-new-project': {
+      success: true,
+      seedPrompt,
+      intake,
+      plugins: {
+        enabledBundled: [],
+        missingExternal: [],
+        availableSkillIds: [],
+      },
+    },
     'chat:start': { success: true },
   });
   await ui.pushEvent({
@@ -116,10 +125,13 @@ async function openNewProjectWorkflow(
   const params = startCall.params as {
     tabId: string;
     prompt: string;
-    surfaceMode: boolean;
   };
-  expect(params.surfaceMode).toBe(true);
-  expect(params.prompt).toBe(seedPrompt);
+  expect(params.prompt).toContain(seedPrompt);
+  await expect(
+    ui.page.locator(
+      `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${params.tabId}"]`,
+    ),
+  ).toBeVisible();
 
   return { tabId: params.tabId, prompt: params.prompt };
 }

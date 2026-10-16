@@ -96,6 +96,24 @@ test.describe('Tasks / Harness MESSAGE_HANDLERS — eager while unopened (R4, TA
     ui,
   }) => {
     const page = ui.page;
+    const intake = {
+      what: 'An internal scheduling tool.',
+      audience: 'internal',
+      stack: 'recommend',
+    };
+    await ui.mockRpc({
+      'harness:start-new-project': {
+        success: true,
+        seedPrompt: 'Plan the scheduling tool.',
+        intake,
+        plugins: {
+          enabledBundled: [],
+          missingExternal: [],
+          availableSkillIds: [],
+        },
+      },
+      'chat:start': { success: true },
+    });
 
     // Confirm we start somewhere that is NOT the harness builder — the
     // negative half of the proof below.
@@ -105,14 +123,12 @@ test.describe('Tasks / Harness MESSAGE_HANDLERS — eager while unopened (R4, TA
     // opened, by any means, at this point in the test.
     await ui.pushEvent({
       type: 'harness:open-workflow',
-      payload: { mode: 'new-project' },
+      payload: { mode: 'new-project', intake },
     });
 
-    // handleOpenWorkflow() calls navigation.navigateToView('harness-builder')
-    // as a direct, synchronous-dispatch consequence of the push
-    // (harness-workflow-message.handler.ts:53-60) — the app navigates
-    // itself, with no ui.goto/pushEvent(switchView) call anywhere in this
-    // test. If the registration were broken, nothing would ever appear here.
+    // The eager handler accepts the valid intake and delegates to the
+    // request service, which creates a normal tab and navigates to its
+    // builder route. No explicit view switch appears in this test.
     await expect(page.locator('ptah-harness-builder-view')).toBeVisible();
   });
 });
