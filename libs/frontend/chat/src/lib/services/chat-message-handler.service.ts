@@ -29,6 +29,7 @@ import {
   GatewaySessionDetachedPayload,
   MESSAGE_TYPES,
   SessionId,
+  type SessionOrganizationChangedPayload,
   isTurnStateEvent,
   parseAskUserQuestionRequest,
   parsePermissionRequest,
@@ -43,6 +44,7 @@ import { ChatStore } from './chat.store';
 import { StreamFlushScheduler } from './stream-flush-scheduler.service';
 import { StreamViewportController } from './stream-viewport-controller.service';
 import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
+import { SessionOrganizerService } from './session-list/session-organizer.service';
 import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
@@ -81,6 +83,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
   private readonly agentSessionAdoption = inject(AgentSessionAdoptionService);
+  private readonly organizer = inject(SessionOrganizerService);
   /**
    * Authoritative StreamRouter.
    *
@@ -114,6 +117,20 @@ export class ChatMessageHandler implements MessageHandler {
     if (typeof payload !== 'object') return typeof payload;
     const name = (payload as object).constructor?.name ?? 'object';
     return `${name}{${Object.keys(payload as object).join(',')}}`;
+  }
+
+  /**
+   * The session ids of a `session:organizationChanged` push. A payload that
+   * does not match {@link SessionOrganizationChangedPayload} yields no ids;
+   * the list refresh still runs.
+   */
+  private static organizationChangedIds(payload: unknown): readonly string[] {
+    if (!payload || typeof payload !== 'object') return [];
+    const { sessionIds } =
+      payload as Partial<SessionOrganizationChangedPayload>;
+    return Array.isArray(sessionIds)
+      ? sessionIds.filter((id): id is string => typeof id === 'string')
+      : [];
   }
 
   private _metadataChangedTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -189,11 +206,18 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP:
         this.handlePermissionSessionCleanup(message.payload);
         break;
-      // Organization pushes carry ids only; they share the debounced
-      // session-list refresh (TASK_2026_580).
       case MESSAGE_TYPES.SESSION_METADATA_CHANGED:
+        this.handleSessionMetadataChanged();
+        break;
+      // Organization pushes carry ids only; they share the debounced
+      // session-list refresh (TASK_2026_580), and the organization editor
+      // re-reads a session it shows from outside the loaded list
+      // (TASK_2026_679).
       case MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED:
         this.handleSessionMetadataChanged();
+        this.organizer.onOrganizationChanged(
+          ChatMessageHandler.organizationChangedIds(message.payload),
+        );
         break;
       case MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE:
         this.handleSessionCompactionComplete(message.payload);
