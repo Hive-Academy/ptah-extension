@@ -105,6 +105,8 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         .work-list-region {
           flex: none;
           max-height: 24rem;
+          overflow-y: auto;
+          overscroll-behavior: contain;
         }
         .stage {
           flex: none;
