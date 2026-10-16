@@ -14,7 +14,6 @@ import {
   afterNextRender,
   OnDestroy,
   InjectionToken,
-  Injector,
   Signal,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
@@ -172,8 +171,8 @@ const DOCK_MAX_WIDTH_RATIO = 0.75;
 /** How long an inspector `Answer` waits for its question card (plan-part-b §5). */
 const QUESTION_CARD_WAIT_MS = 1000;
 
-/** `is-entering` lifetime; the longest stagger item ends at 620 ms (req 13.1). */
-const ENTER_CLASS_MS = 1000;
+/** Includes the last inspector row's entrance and a small cleanup margin. */
+const ENTER_WINDOW_MS = 400;
 
 /** The first option of a question card, focused when an answer is routed to it. */
 const QUESTION_CARD_FOCUSABLE =
@@ -195,6 +194,7 @@ const VIEW_PANEL_KEY = '';
   // Resize-drag Escape is handled separately by the temporary document listener below.
   host: {
     '(keydown.escape)': 'onEscapeKey($event)',
+    '[class.is-entering]': 'enteringTabId() !== null',
   },
   imports: [
     LucideAngularModule,
@@ -698,7 +698,7 @@ export class ChatViewComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.clearAnswerWait();
-    this.clearEnterTimer();
+    if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
     this.resizeObserver?.disconnect();
@@ -1190,61 +1190,27 @@ export class ChatViewComponent implements OnDestroy {
     ),
   );
 
-  private readonly _injector = inject(Injector);
-  /** Removes `is-entering` after the session-switch stagger; cleared on destroy. */
-  private _enterTimer: ReturnType<typeof setTimeout> | null = null;
+  protected readonly enteringTabId = signal<string | null>(null);
+  private enteringTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /**
-   * Session-switch stagger (design-spec 7.1-7.3), keyed on the tab id: a
-   * view-mode switch or a first session id keeps the tab, so it never
-   * replays. Plays once the new tab's items are rendered.
-   */
-  private wireSessionSwitchStagger(): void {
+  /** A tab edge owns one entrance window; changing its session or mode does not. */
+  private wireSessionEntrance(): void {
     let lastTabId: string | null = null;
     effect(() => {
       const tabId = this.resolvedTabId();
       if (tabId === null || tabId === lastTabId) return;
       lastTabId = tabId;
-      untracked(() =>
-        afterNextRender(() => this.playEnter(tabId), {
-          injector: this._injector,
-        }),
-      );
+      untracked(() => {
+        if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
+        this.enteringTabId.set(tabId);
+        this.ngZone.runOutsideAngular(() => {
+          this.enteringTimer = setTimeout(() => {
+            this.enteringTimer = null;
+            this.enteringTabId.set(null);
+          }, ENTER_WINDOW_MS);
+        });
+      });
     });
-  }
-
-  /**
-   * One index pass over the shown transcript's mounted `.st-t` items in DOM
-   * order (`--i` = min(k + 1, 8)), then restart `is-entering` on the host.
-   * Only indexed items (`data-st-i`) animate, so an item that mounts later
-   * appears without motion. One query and one timer per switch.
-   */
-  private playEnter(tabId: string): void {
-    const host = this.hostEl.nativeElement;
-    const transcript = Array.from(
-      host.querySelectorAll<HTMLElement>('ptah-chat-transcript[data-tab-id]'),
-    ).find((el) => el.getAttribute('data-tab-id') === tabId);
-    transcript?.querySelectorAll<HTMLElement>('.st-t').forEach((el, k) => {
-      el.style.setProperty('--i', String(Math.min(k + 1, 8)));
-      el.setAttribute('data-st-i', '');
-    });
-    host.classList.remove('is-entering');
-    // Reflow between remove and add restarts every running animation.
-    void host.offsetWidth;
-    host.classList.add('is-entering');
-    this.clearEnterTimer();
-    this.ngZone.runOutsideAngular(() => {
-      this._enterTimer = setTimeout(() => {
-        this._enterTimer = null;
-        host.classList.remove('is-entering');
-      }, ENTER_CLASS_MS);
-    });
-  }
-
-  private clearEnterTimer(): void {
-    if (this._enterTimer === null) return;
-    clearTimeout(this._enterTimer);
-    this._enterTimer = null;
   }
 
   private readonly inspectorShell =
@@ -1411,8 +1377,7 @@ export class ChatViewComponent implements OnDestroy {
     this.observeHostWidth();
     // Tiles never host the inspector, so they start no shell observer.
     if (!this.bareChrome && !this._sessionContext) this.wireInspectorShell();
-    // Every host (main panel, Rail, embeds) plays the session-switch stagger.
-    this.wireSessionSwitchStagger();
+    this.wireSessionEntrance();
 
     // A closed chat tab's dock state is released, whichever path closed it
     // (tab bar, shortcut, canvas, tribunal); the view's own key is never a tab.

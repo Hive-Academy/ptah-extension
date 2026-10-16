@@ -32,7 +32,7 @@
            not a tile, a forced card or a 'bare' embed). -->
       @if (hostsInspector() && resolvedActiveTab(); as headerTab) {
         <ptah-session-header
-          class="st-f flex-shrink-0"
+          class="flex-shrink-0"
           inspectorId="inspector"
           [title]="headerTab.title || 'New Chat'"
           [branch]="headerBranch()"
@@ -103,6 +103,7 @@
           <ptah-chat-transcript
             [attr.data-tab-id]="tabId"
             [tabId]="tabId"
+            [entering]="tabId === enteringTabId()"
             [active]="tabId === resolvedTabId() && mainPanelShowing()"
             [isSessionActive]="resolvedSessionIsActive()"
             [historyReplaying]="isHistoryReplaying(tabId)"
@@ -264,9 +265,8 @@
         </div>
       }
 
-      <!-- Input Area (sticky at bottom, never shrinks); fades in 120 ms
-           after a session switch. -->
-      <div class="flex-shrink-0 st-f" style="--d: 120ms">
+      <!-- Input Area (sticky at bottom, never shrinks). -->
+      <div class="flex-shrink-0">
         <ptah-chat-input />
       </div>
       </div>
