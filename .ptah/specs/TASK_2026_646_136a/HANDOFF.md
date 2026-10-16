@@ -1,4 +1,7 @@
-# HANDOFF - TASK_2026_646_136a (2026-10-15, session 8)
+# HANDOFF - TASK_2026_646_136a (2026-10-16, end of session 8)
+
+Status at handoff: worktree clean, branch in sync with origin at `2777dfb34`, no lanes or subagents running.
+PR #731 stays a draft: Batch 22 is not built and phases P4, P5, P6 (plus the P2 36b re-review) are not accepted.
 
 ## Goal
 
@@ -18,9 +21,10 @@ Approval `lane-review`. User preference (#82): use CLI lanes for parallel work w
 
 ## Lane rule
 
-The temporary "no Claude subagents" rule ends 2026-10-16 00:00 local time. From then the team-leader and reviewer
-subagent flow may resume. Until then: CLI lanes only, with confirmed room (codex first, then grok). At handoff: codex
-Weekly ~26% (room), grok Weekly 91% (near limit), Glm AT LIMIT, opencode Monthly 92% (near limit).
+The temporary "no Claude subagents" rule EXPIRED 2026-10-16 00:00 local time. The team-leader, reviewer and
+visual-reviewer subagent flow may resume. CLI lanes still need confirmed room; run `ptah_agent_list` before each spawn.
+At handoff (2026-10-16): codex Weekly 30% (confirmed room), opencode Monthly 92% (near limit), grok unknown
+(API key, no plan), antigravity unknown (reader failed), Glm AT LIMIT.
 
 ## Done
 
@@ -42,7 +46,9 @@ Commits this session (orchestrator Mode 2 and commits; decisions #91-#98):
 | 4b2da5a97 | Batch 31 - skill text | codex (OpenAI) |
 | e082c0cbe | Batch 30 - host wiring of lane-outcomes (+ #98 spec fixes) | codex (OpenAI) + orchestrator |
 
-All pushed (Batch 30/31 push started at handoff; confirm with `git status -sb`).
+| 2777dfb34 | Session 8 handoff | orchestrator |
+
+All pushed and confirmed in sync with origin.
 
 ## Open
 
@@ -69,6 +75,23 @@ All pushed (Batch 30/31 push started at handoff; confirm with `git status -sb`).
 - Do not commit while any lane edits the worktree (lint-staged hides unstaged files during the hook).
 - Codex lanes take messages only as `queue-next-turn`; a brief error needs a stop and a re-spawn, not a message.
 - Never start a push with a shell `&`; use the Bash tool's background mode.
+
+## Key files
+
+- Task folder: `.ptah/specs/TASK_2026_646_136a/` - `task-description.md`, `implementation-plan.md` (+ part-a/b),
+  `batches.md`, `decisions.md` (#1-#98), `reviews/`, `reports/`.
+- Libs: `libs/backend/lane-routing/`, `libs/backend/lane-outcomes/`.
+- MCP: `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-handlers/protocol-dispatcher.ts` (+ mcp-stdio).
+- Hosts: `apps/{ptah-extension-vscode,ptah-electron}/src/di/phase-2-libraries.ts`,
+  `libs/backend/cli-engine/src/lib/{container.ts,lane-outcomes-wiring.ts}`.
+- Batch 22 target lib: `libs/frontend/chat` (orchestration settings).
+
+## Verification commands (one at a time, prefix `NX_NO_CLOUD=true`)
+
+- Lib tests: `npx nx test <project> --parallel=1` (e.g. `lane-routing`, `lane-outcomes`, `rpc-handlers`, `chat`).
+- Specs only: `npx jest -c <lib>/jest.config.ts <spec...> --coverage=false --maxWorkers=2`.
+- CLI app: `PTAH_ALLOW_SKIP_UNBUILT=1 npx jest -c apps/ptah-cli/jest.config.cjs apps/ptah-cli/src --coverage=false --maxWorkers=2`.
+- Audits: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` must stay `TOTAL 296` with no `FAIL`; di-lint runs on pre-push.
 
 ## Next steps (from 2026-10-16)
 
