@@ -348,13 +348,17 @@ export function endpointFieldError(
 /** Same limit as `ENDPOINT_BASE_URL_MAX_LENGTH` in lane-routing. */
 const ENDPOINT_BASE_URL_MAX_LENGTH = 2048;
 const HTTP_SCHEME = /^https?:\/\//i;
-/** Same set as the host's loopback hosts; `URL` reports an IPv6 literal with brackets. */
+/**
+ * Same rule as the host's `isLoopbackBase` (lane-routing `decision-endpoint.url.ts`): `localhost`, `localhost.`,
+ * `[::1]` (`URL` brackets an IPv6 literal) and IPv4 127.0.0.0/8. Other `*.localhost` names are not loopback.
+ */
 const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set([
-  '127.0.0.1',
   'localhost',
-  '::1',
+  'localhost.',
   '[::1]',
 ]);
+/** `URL` serialises every IPv4 spelling as a dotted quad, so `127.0.0.1.evil.com` stays a domain and fails. */
+const LOOPBACK_IPV4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
 /**
  * The host's normalised form of a base URL (WHATWG serialisation without trailing slashes), or `null` when the host
@@ -377,7 +381,11 @@ function normaliseEndpointBaseUrl(raw: string): string | null {
 function keyTransportAllowed(baseUrl: string): boolean {
   const url = parseUrl(baseUrl);
   if (!url) return false;
-  return url.protocol === 'https:' || LOOPBACK_HOSTNAMES.has(url.hostname);
+  return (
+    url.protocol === 'https:' ||
+    LOOPBACK_HOSTNAMES.has(url.hostname) ||
+    LOOPBACK_IPV4.test(url.hostname)
+  );
 }
 
 /** Text between `://` and the first `/`, `\`, `?` or `#`. */

@@ -8,6 +8,10 @@ import {
   systemOneUrl,
   type EndpointBaseUrlError,
 } from './decision-endpoint.url';
+import {
+  CustomEndpointSelectionSchema,
+  OllamaCloudSelectionSchema,
+} from './decision-model.types';
 
 const LONG_HOST_URL = (length: number): string => {
   const prefix = 'https://example.com/';
@@ -96,6 +100,38 @@ describe('EndpointBaseUrlSchema', () => {
   });
 });
 
+describe('model id of the custom and ollama-cloud selections (criterion 2.2)', () => {
+  const custom = (model: string) =>
+    CustomEndpointSelectionSchema.safeParse({
+      kind: 'custom',
+      baseUrl: 'https://host.example/gw',
+      model,
+    });
+  const cloud = (model: string) =>
+    OllamaCloudSelectionSchema.safeParse({ kind: 'ollama-cloud', model });
+
+  it.each(['', '   ', '\t\n '])('refuses %j on the model path', (model) => {
+    for (const result of [custom(model), cloud(model)]) {
+      expect(result.success).toBe(false);
+      if (result.success) continue;
+      expect(result.error.issues.map((issue) => issue.path)).toEqual([
+        ['model'],
+      ]);
+    }
+  });
+
+  it('trims a padded model id', () => {
+    expect(custom('  m1  ')).toMatchObject({
+      success: true,
+      data: { model: 'm1' },
+    });
+    expect(cloud(' gpt-oss:120b ')).toMatchObject({
+      success: true,
+      data: { model: 'gpt-oss:120b' },
+    });
+  });
+});
+
 describe('isLoopbackBase', () => {
   it.each<[string, boolean]>([
     ['http://127.0.0.1:11434', true],
@@ -103,7 +139,18 @@ describe('isLoopbackBase', () => {
     ['https://localhost', true],
     ['http://[::1]:11434', true],
     ['http://LOCALHOST:11434', true],
-    ['http://127.0.0.2:11434', false],
+    ['http://localhost.:11434', true],
+    ['http://127.0.0.2:11434', true],
+    ['http://127.255.255.254:11434', true],
+    ['http://127.1:11434', true],
+    ['http://0x7f.1:11434', true],
+    ['http://127.0.0.1.:11434', true],
+    ['http://[0:0:0:0:0:0:0:1]:11434', true],
+    ['http://128.0.0.1:11434', false],
+    ['http://126.255.255.255:11434', false],
+    ['http://127.0.0.1.evil.com', false],
+    ['http://localhost.evil.com', false],
+    ['http://app.localhost', false],
     ['http://localhost.example.com', false],
     ['http://192.168.1.20:11434', false],
     ['https://ollama.com', false],
@@ -120,6 +167,13 @@ describe('keyTransportAllowed (D4)', () => {
     ['http://127.0.0.1:11434', true],
     ['http://localhost:11434', true],
     ['http://[::1]:11434', true],
+    ['http://127.0.0.2:11434', true],
+    ['http://127.255.255.254:11434', true],
+    ['http://localhost.:11434', true],
+    ['http://128.0.0.1:11434', false],
+    ['http://126.255.255.255:11434', false],
+    ['http://127.0.0.1.evil.com', false],
+    ['http://localhost.evil.com', false],
     ['http://192.168.1.20:11434', false],
     ['http://ollama.com', false],
     ['http://localhost.example.com', false],

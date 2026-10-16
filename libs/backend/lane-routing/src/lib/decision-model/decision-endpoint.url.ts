@@ -15,16 +15,24 @@ import { z } from 'zod';
 export const ENDPOINT_BASE_URL_MAX_LENGTH = 2048;
 
 /**
- * Loopback host names, the same set as `LOCAL_HOSTNAMES` in
- * `decision-model.probe.ts`. Node reports an IPv6 literal's hostname with
- * brackets (`[::1]`); both spellings are listed.
+ * Loopback names (D4): `localhost`, its fully qualified `localhost.`, and the
+ * IPv6 loopback, which `URL` reports with brackets (`[::1]`). Other
+ * `*.localhost` names are not listed. The webview hint in
+ * `decision-model-row.view.ts` keeps the same rule.
  */
 const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set([
-  '127.0.0.1',
   'localhost',
-  '::1',
+  'localhost.',
   '[::1]',
 ]);
+
+/**
+ * IPv4 127.0.0.0/8. `URL` already serialises every IPv4 spelling (`127.1`,
+ * `0x7f.1`, a trailing dot) as a dotted quad of octets 0-255, so only the
+ * first octet needs a check; a name such as `127.0.0.1.evil.com` stays a
+ * domain and fails the anchors.
+ */
+const LOOPBACK_IPV4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
 const HTTP_SCHEME = /^https?:\/\//i;
 
@@ -113,7 +121,12 @@ export const EndpointBaseUrlSchema = z.string().transform((raw, ctx) => {
 
 /** `true` when the URL parses and its host is a loopback host. */
 export function isLoopbackBase(url: string): boolean {
-  return URL.canParse(url) && LOOPBACK_HOSTNAMES.has(new URL(url).hostname);
+  return URL.canParse(url) && isLoopbackHostname(new URL(url).hostname);
+}
+
+/** `true` for a `URL.hostname` in 127.0.0.0/8 or in `LOOPBACK_HOSTNAMES`. */
+function isLoopbackHostname(hostname: string): boolean {
+  return LOOPBACK_HOSTNAMES.has(hostname) || LOOPBACK_IPV4.test(hostname);
 }
 
 /** D4: a key may be sent only over `https:` or to a loopback host. */

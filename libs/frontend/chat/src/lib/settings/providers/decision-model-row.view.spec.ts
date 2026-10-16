@@ -511,9 +511,26 @@ describe('decision-model-row.view: Ollama Cloud and custom endpoint kinds (TASK_
       'https://decide.example.com',
       'http://localhost:8080',
       'http://127.0.0.1:8080',
+      'http://127.0.0.2:8080',
+      'http://127.255.255.254:8080',
+      'http://127.1:8080',
+      'http://localhost.:8080',
       'http://[::1]:8080',
     ])('lets a key travel to %s', (baseUrl) => {
       expect(endpointFieldError(draft({ baseUrl }), true)).toBeNull();
+    });
+
+    it.each([
+      'http://128.0.0.1:8080',
+      'http://126.255.255.255:8080',
+      'http://127.0.0.1.evil.com:8080',
+      'http://localhost.evil.com:8080',
+      'http://app.localhost:8080',
+    ])('refuses a key over plain http to %s, which is not loopback (D4)', (baseUrl) => {
+      expect(endpointFieldError(draft({ baseUrl }), true)).toEqual({
+        field: 'baseUrl',
+        message: DECISION_MODEL_KEY_NEEDS_HTTPS,
+      });
     });
 
     it('names the model field when the model is empty', () => {
