@@ -88,7 +88,7 @@ import {
   upgradeQuotaOwner,
   type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
-import { matchesAuthFailure } from '../limits/lane-auth-classifier';
+import { matchesAuthFailure } from './limits/lane-auth-classifier';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
 

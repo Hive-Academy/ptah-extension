@@ -3,8 +3,10 @@ import { matchesAuthFailure } from './lane-auth-classifier';
 describe('matchesAuthFailure', () => {
   it.each([
     'HTTP 401',
-    'UNAUTHORIZED',
-    'unauthorised',
+    'Error: 401 Unauthorized',
+    '{"status":401}',
+    'Error: UNAUTHORIZED',
+    'Status: unauthorised',
     'not logged in',
     'invalid API key',
     'Authentication failed',
@@ -18,7 +20,9 @@ describe('matchesAuthFailure', () => {
     'quota exceeded',
     'login succeeded',
     'authentication complete',
-    '4012',
+    'file.ts:401:15',
+    'line 4012',
+    'the user is unauthorized to access this resource',
   ])('rejects %s', (text) => {
     expect(matchesAuthFailure([text])).toBe(false);
   });

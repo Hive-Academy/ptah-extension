@@ -6,7 +6,7 @@ import type {
 } from '@ptah-extension/shared';
 import type { LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { classifyLaneFailureClass } from '../limits/lane-failure-class';
+import { classifyLaneFailureClass } from './limits/lane-failure-class';
 
 /** Synchronous enqueue. Store I/O belongs to the recorder's later drain. */
 export function enqueueLaneCompletionOutcome(
