@@ -229,4 +229,18 @@ describe('CommandCenterSessionCoordinator', () => {
       'COMMAND_CENTER_STATUS_CONTEXT\n\nstatus',
     );
   });
+
+  it('reports a send rejection with safe text and an error status', async () => {
+    await coordinator.openOrResume();
+    sender.send.mockResolvedValueOnce({
+      success: false,
+      error: 'private path',
+    });
+    expect(await coordinator.send('turn')).toBe(false);
+    expect(store.sessionStatus()).toBe('error');
+    expect(store.toast()).toEqual({
+      message: 'Could not send the Command Center message.',
+      tone: 'error',
+    });
+  });
 });

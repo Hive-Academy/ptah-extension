@@ -10,6 +10,8 @@ export function shownSessionStatus(
   store: CommandCenterStore,
 ): Signal<CommandSessionStatus> {
   return computed(() => {
+    const stored = store.sessionStatus();
+    if (stored === 'stopped' || stored === 'error') return stored;
     const root = tabs.tabs().find((tab) => tab.id === store.markedTabId());
     if (
       root?.status === 'streaming' ||
@@ -17,15 +19,14 @@ export function shownSessionStatus(
       root?.status === 'sleeping'
     )
       return 'running';
-    const stored = store.sessionStatus();
     return stored === 'running' ? 'idle' : stored;
   });
 }
 
 /**
  * Keeps the marked tab in the stream viewport while the page lives: off the chat surface the host
- * otherwise retains its chunks and `turn_state`, so no terminal pulse reaches the page (N5). A tab
- * that was already visible is left to the surface that registered it (the set is not ref-counted).
+ * otherwise retains its chunks and `turn_state`, so no terminal pulse reaches the page (N5).
+ * Every page instance owns one registration, including during overlapping surface transitions.
  * Call from an injection context.
  */
 export function trackMarkedTabVisibility(
@@ -35,12 +36,8 @@ export function trackMarkedTabVisibility(
   effect((onCleanup) => {
     const tabId = store.markedTabId();
     if (!tabId) return;
-    const registered = untracked(() => {
-      if (tabs.visibleTabIds().has(tabId)) return false;
-      tabs.registerVisibleTab(tabId);
-      return true;
-    });
-    if (registered) onCleanup(() => tabs.unregisterVisibleTab(tabId));
+    untracked(() => tabs.registerVisibleTab(tabId));
+    onCleanup(() => tabs.unregisterVisibleTab(tabId));
   });
 }
 
@@ -67,10 +64,16 @@ export function trackTurnStatus(
       root?.status !== 'awaiting-background' &&
       root?.status !== 'sleeping' &&
       store.sessionStatus() === 'running'
-    )
+    ) {
       store.setSessionStatus(
         pulse.classification === 'success' ? 'idle' : 'error',
       );
+      if (pulse.classification === 'error')
+        store.setToast({
+          message: 'The Command Center turn could not finish.',
+          tone: 'error',
+        });
+    }
   });
   effect(() => {
     const streaming = turnAbortable();
@@ -82,11 +85,14 @@ export function trackTurnStatus(
       root?.status !== 'sleeping' &&
       store.sessionStatus() === 'running'
     ) {
-      store.setSessionStatus(
-        root?.lastTerminalReason && root.lastTerminalReason !== 'completed'
-          ? 'error'
-          : 'idle',
-      );
+      const failed =
+        !!root?.lastTerminalReason && root.lastTerminalReason !== 'completed';
+      store.setSessionStatus(failed ? 'error' : 'idle');
+      if (failed)
+        store.setToast({
+          message: 'The Command Center turn could not finish.',
+          tone: 'error',
+        });
     }
     previousTurnAbortable = streaming;
   });

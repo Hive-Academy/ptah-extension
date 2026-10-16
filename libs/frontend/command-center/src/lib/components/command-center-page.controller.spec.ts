@@ -31,10 +31,18 @@ describe('CommandCenterPageController', () => {
     new Map(),
   );
   const visibleTabIds = signal<ReadonlySet<string>>(new Set());
+  const registrationCounts = new Map<string, number>();
   const registerVisibleTab = jest.fn((id: string) => {
+    registrationCounts.set(id, (registrationCounts.get(id) ?? 0) + 1);
     visibleTabIds.update((ids) => new Set([...ids, id]));
   });
   const unregisterVisibleTab = jest.fn((id: string) => {
+    const count = registrationCounts.get(id) ?? 0;
+    if (count > 1) {
+      registrationCounts.set(id, count - 1);
+      return;
+    }
+    registrationCounts.delete(id);
     visibleTabIds.update((ids) => {
       const next = new Set(ids);
       next.delete(id);
@@ -116,6 +124,7 @@ describe('CommandCenterPageController', () => {
     terminalTurnPulses.set([]);
     lastTerminalPulseByTab.set(new Map());
     visibleTabIds.set(new Set());
+    registrationCounts.clear();
     tabs.set([]);
     permissionRequests.set([]);
     rpc.call.mockReset();
@@ -460,6 +469,64 @@ describe('CommandCenterPageController', () => {
     ]);
     TestBed.tick();
     expect(page.store.sessionStatus()).toBe('error');
+    expect(page.store.toast()).toEqual({
+      message: 'The Command Center turn could not finish.',
+      tone: 'error',
+    });
+  });
+
+  it('shows stopped and send error even while a stale tab remains streaming', () => {
+    tabs.set([{ id: 'root-tab', status: 'streaming' }]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    expect(page.shownSessionStatus()).toBe('running');
+    page.store.setSessionStatus('stopped');
+    expect(page.shownSessionStatus()).toBe('stopped');
+    page.store.setSessionStatus('error');
+    expect(page.shownSessionStatus()).toBe('error');
+  });
+
+  it('shows a fixed error toast when an aborted stream emits a failed terminal pulse', () => {
+    tabs.set([
+      { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+    ]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    TestBed.tick();
+    tabs.set([
+      {
+        id: 'root-tab',
+        status: 'loaded',
+        claudeSessionId: 'session',
+        lastTerminalReason: 'aborted_streaming',
+      },
+    ]);
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'root-tab',
+          {
+            seq: 1,
+            tabId: 'root-tab',
+            sessionId: 'session',
+            workspacePath: '/workspace',
+            revision: 1,
+            phase: 'idle',
+            terminalReason: 'aborted_streaming',
+            lastAssistantMessage: null,
+            classification: 'error',
+            title: 'Command Center',
+            occurredAt: Date.now(),
+          },
+        ],
+      ]),
+    );
+    TestBed.tick();
+    expect(page.shownSessionStatus()).toBe('error');
+    expect(page.store.toast()).toEqual({
+      message: 'The Command Center turn could not finish.',
+      tone: 'error',
+    });
   });
 
   it('shows the live tab status after resume and on a later stream without send', () => {
@@ -556,20 +623,21 @@ describe('CommandCenterPageController', () => {
     expect(visibleTabIds().has('second-tab')).toBe(false);
   });
 
-  it('preserves a tab that was already visible before the page registered', () => {
-    visibleTabIds.set(new Set(['shared-tab']));
+  it('keeps a marked tab visible when an older owner unregisters after page registration', () => {
+    registerVisibleTab('shared-tab');
     page.store.setSession('shared-tab', null, '/workspace');
     TestBed.tick();
-    expect(registerVisibleTab).not.toHaveBeenCalledWith('shared-tab');
+    expect(registerVisibleTab).toHaveBeenCalledTimes(2);
+
+    unregisterVisibleTab('shared-tab');
+    expect(visibleTabIds().has('shared-tab')).toBe(true);
 
     page.store.setSession('owned-tab', null, '/workspace');
     TestBed.tick();
-    expect(unregisterVisibleTab).not.toHaveBeenCalledWith('shared-tab');
-    expect(visibleTabIds().has('shared-tab')).toBe(true);
+    expect(visibleTabIds().has('shared-tab')).toBe(false);
     expect(visibleTabIds().has('owned-tab')).toBe(true);
 
     TestBed.resetTestingModule();
-    expect(visibleTabIds().has('shared-tab')).toBe(true);
     expect(visibleTabIds().has('owned-tab')).toBe(false);
   });
 

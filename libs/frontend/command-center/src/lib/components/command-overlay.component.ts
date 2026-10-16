@@ -39,6 +39,11 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
           type="button"
           class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
           [class.border-warning]="selectedId() === node.id"
+          [style.visibility]="
+            visibleLabelIds() === null || visibleLabelIds()?.includes(node.id)
+              ? 'visible'
+              : 'hidden'
+          "
           [attr.data-node-id]="node.id"
           [attr.aria-label]="node.label + ', ' + node.state"
           [attr.aria-pressed]="selectedId() === node.id"
@@ -127,6 +132,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
   `,
 })
 export class CommandOverlayComponent {
+  public readonly visibleLabelIds = input<readonly string[] | null>(null);
   private readonly store = inject(CommandCenterStore);
   public readonly projection = input.required<ProjectionResult>();
   public readonly hoveredNodeId = input<string | null>(null);

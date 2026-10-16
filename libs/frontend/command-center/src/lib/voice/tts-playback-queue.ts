@@ -7,6 +7,7 @@ export interface PlaybackHandle {
 export type Synthesize = (text: string) => Promise<Blob>;
 export type AudioElementFactory = (url: string) => PlaybackHandle;
 export type PlaybackFailure = (text: string, error: unknown) => void;
+export type PlaybackStateChange = (playing: boolean) => void;
 
 export function browserAudioFactory(url: string): PlaybackHandle {
   const audio = new Audio(url);
@@ -40,15 +41,22 @@ export class TtsPlaybackQueue {
   private current: PlaybackHandle | null = null;
   private currentUrl: string | null = null;
   private playing = false;
+  private notifiedPlaying = false;
 
   public constructor(
     private readonly synthesize: Synthesize,
     private readonly audioFactory: AudioElementFactory = browserAudioFactory,
     private readonly onFailure: PlaybackFailure = () => undefined,
+    private readonly onPlaybackStateChange: PlaybackStateChange = () =>
+      undefined,
   ) {}
 
   public get isPlaying(): boolean {
     return this.playing;
+  }
+
+  public get hasPending(): boolean {
+    return this.playing || this.pending.length > 0;
   }
 
   public enqueue(text: string): void {
@@ -75,6 +83,8 @@ export class TtsPlaybackQueue {
     this.current = null;
     this.releaseUrl();
     this.playing = false;
+    this.notifiedPlaying = false;
+    this.onPlaybackStateChange(false);
   }
 
   private pump(): void {
@@ -114,7 +124,13 @@ export class TtsPlaybackQueue {
     if (this.playing) return;
     while (this.pending[0]?.failed) this.pending.shift();
     const clip = this.pending[0];
-    if (!clip?.blob) return;
+    if (!clip?.blob) {
+      if (!clip) {
+        this.notifiedPlaying = false;
+        this.onPlaybackStateChange(false);
+      }
+      return;
+    }
     this.pending.shift();
     const url = URL.createObjectURL(clip.blob);
     this.currentUrl = url;
@@ -137,7 +153,16 @@ export class TtsPlaybackQueue {
       const handle = this.audioFactory(url);
       this.current = handle;
       handle.onEnded(finish, fail);
-      void handle.play().then(undefined, fail);
+      void handle.play().then(() => {
+        if (
+          !settled &&
+          clip.generation === this.generation &&
+          !this.notifiedPlaying
+        ) {
+          this.notifiedPlaying = true;
+          this.onPlaybackStateChange(true);
+        }
+      }, fail);
     } catch (error: unknown) {
       // degradation-audit: reported — audio factory failure is surfaced and the full text remains available
       fail(error);

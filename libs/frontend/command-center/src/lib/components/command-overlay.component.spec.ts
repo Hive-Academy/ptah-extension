@@ -68,6 +68,17 @@ describe('CommandOverlayComponent', () => {
     jest.useRealTimers();
   });
 
+  it('hides plates without a placed scene label, including a previously placed plate', () => {
+    const { fixture, labels } = setup();
+    fixture.componentRef.setInput('visibleLabelIds', ['a', 'b']);
+    fixture.detectChanges();
+    expect(labels[1].style.visibility).toBe('visible');
+    fixture.componentRef.setInput('visibleLabelIds', ['a']);
+    fixture.detectChanges();
+    expect(labels[0].style.visibility).toBe('visible');
+    expect(labels[1].style.visibility).toBe('hidden');
+  });
+
   it('opens at 150 ms and cancels an early leave', () => {
     const { component, fixture } = setup();
     component.onLabelEnter('a');

@@ -69,6 +69,39 @@ describe('TtsPlaybackQueue', () => {
     expect(played).toEqual(['clip-0', 'clip-1', 'clip-2']);
   });
 
+  it('reports playback start and only reports end after the final queued clip', async () => {
+    const first = deferred<Blob>();
+    const second = deferred<Blob>();
+    const changes: boolean[] = [];
+    const queue = new TtsPlaybackQueue(
+      jest
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise),
+      factory,
+      () => undefined,
+      (playing) => changes.push(playing),
+    );
+    queue.enqueue('first');
+    queue.enqueue('second');
+    expect(queue.hasPending).toBe(true);
+    expect(changes).toEqual([]);
+    first.resolve(new Blob(['first']));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(changes).toEqual([true]);
+    ends[0]();
+    expect(queue.hasPending).toBe(true);
+    expect(changes).toEqual([true]);
+    second.resolve(new Blob(['second']));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(changes).toEqual([true]);
+    ends[1]();
+    expect(queue.hasPending).toBe(false);
+    expect(changes).toEqual([true, false]);
+  });
+
   it.each(['bargeIn', 'stopAll', 'mute', 'navigate'] as const)(
     '%s revokes the current generation',
     async (method) => {

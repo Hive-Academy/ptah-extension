@@ -7,6 +7,133 @@ describe('CommandVoiceLoop', () => {
   const frames = new Float32Array(128).fill(0.2);
   const silence = new Float32Array(128);
 
+  describe('speech playback state', () => {
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    let state: string;
+    let resolveSpeech: () => void;
+    let ended: () => void;
+    let stopAudio: jest.Mock;
+
+    beforeEach(() => {
+      state = 'thinking';
+      ended = () => undefined;
+      stopAudio = jest.fn();
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: () => 'blob:voice-state',
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: jest.fn(),
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreate,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevoke,
+      });
+    });
+
+    function createLoop(): CommandVoiceLoop {
+      const synthesis = new Promise<void>((resolve) => {
+        resolveSpeech = resolve;
+      });
+      const store = Object.assign(Object.create(null) as CommandCenterStore, {
+        voiceState: () => state,
+        setVoiceState: (next: string) => {
+          state = next;
+        },
+        setMuted: jest.fn(),
+        updateLevels: jest.fn(),
+        resetLevels: jest.fn(),
+      });
+      const coordinator = Object.assign(
+        Object.create(null) as CommandCenterSessionCoordinator,
+        {
+          mute: () => {
+            state = 'muted';
+          },
+          stop: () => {
+            state = 'stopped';
+          },
+        },
+      );
+      const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
+        call: jest.fn().mockImplementation(async () => {
+          await synthesis;
+          return {
+            success: true,
+            data: { ok: true, audioBase64: 'AA==', mimeType: 'audio/wav' },
+          };
+        }),
+      });
+      const loop = new CommandVoiceLoop(store, coordinator, rpc, {
+        sendTranscript: async () => true,
+        audioFactory: () => ({
+          play: () => Promise.resolve(),
+          stop: stopAudio,
+          onEnded: (callback) => {
+            ended = callback;
+          },
+        }),
+      });
+      loop['active'] = true;
+      return loop;
+    }
+
+    async function startPlayback(loop: CommandVoiceLoop): Promise<void> {
+      loop['speak']('A spoken reply.', 'reply');
+      loop['finishTurn']();
+      expect(state).toBe('thinking');
+      loop['onFrame'](silence, 0);
+      expect(state).toBe('thinking');
+      resolveSpeech();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(state).toBe('speaking');
+    }
+
+    it('stays thinking during synthesis, speaks through mic frames, then listens after playback', async () => {
+      const loop = createLoop();
+      await startPlayback(loop);
+      loop['onFrame'](silence, 100);
+      expect(state).toBe('speaking');
+      ended();
+      expect(state).toBe('listening');
+    });
+
+    it('returns to listening when barge-in stops playback', async () => {
+      const loop = createLoop();
+      await startPlayback(loop);
+      loop['onFrame'](frames, 0);
+      loop['onFrame'](frames, 301);
+      expect(state).toBe('speaking');
+      loop['onFrame'](frames, 552);
+      expect(stopAudio).toHaveBeenCalledTimes(1);
+      expect(state).toBe('listening');
+    });
+
+    it('ends speaking on mute and stop', async () => {
+      const loop = createLoop();
+      await startPlayback(loop);
+      await loop.mute();
+      expect(stopAudio).toHaveBeenCalledTimes(1);
+      expect(state).toBe('muted');
+      ended();
+      expect(state).toBe('muted');
+
+      const stoppedLoop = createLoop();
+      await startPlayback(stoppedLoop);
+      await stoppedLoop.stop();
+      expect(state).toBe('stopped');
+    });
+  });
+
   it.each(['rejects', 'fails'] as const)(
     'clears stale provider labels when config RPC %s',
     async (failure) => {
@@ -707,6 +834,7 @@ describe('CommandVoiceLoop', () => {
       voiceState: () => 'speaking',
       setVoiceState: jest.fn(),
       updateLevels: jest.fn(),
+      resetLevels: jest.fn(),
       setToast: jest.fn(),
     });
     const loop = new CommandVoiceLoop(

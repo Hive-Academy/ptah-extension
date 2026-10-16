@@ -70,6 +70,17 @@ describe('TabManagerService Command Center lifecycle', () => {
     jest.restoreAllMocks();
   });
 
+  it('keeps a tab visible until both overlapping owners unregister', () => {
+    tabs.registerVisibleTab('shared-tab');
+    tabs.registerVisibleTab('shared-tab');
+    expect(tabs.visibleTabIds().has('shared-tab')).toBe(true);
+    tabs.unregisterVisibleTab('shared-tab');
+    expect(tabs.visibleTabIds().has('shared-tab')).toBe(true);
+    tabs.unregisterVisibleTab('shared-tab');
+    tabs.unregisterVisibleTab('shared-tab');
+    expect(tabs.visibleTabIds().has('shared-tab')).toBe(false);
+  });
+
   it('marks and activates an ordinary tab, then rekeys the lock and records its resolved SDK ID', () => {
     const id = tabs.createCommandCenterTab('Command Center');
     expect(tabs.activeTabId()).toBe(id);

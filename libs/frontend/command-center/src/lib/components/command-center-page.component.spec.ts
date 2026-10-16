@@ -213,6 +213,15 @@ describe('CommandCenterPageComponent', () => {
     ) as HTMLElement;
     expect(dock.className).toContain('dock');
     expect(dock.parentElement?.className).toContain('layout');
+    const rail = fixture.nativeElement.querySelector('.rail') as HTMLElement;
+    expect(
+      dock.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      rail
+        .querySelector('[aria-label="Delegated work list"]')
+        ?.getAttribute('tabindex'),
+    ).toBe('0');
     expect(dock.querySelector('ptah-command-voice-hud')).not.toBeNull();
     expect(dock.querySelector('ptah-command-session-controls')).not.toBeNull();
     expect(
@@ -229,7 +238,7 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('shows dismissible toasts before the selected card and expires only non-error tones', () => {
+  it('shows dismissible toasts by the voice controls and expires only non-error tones', () => {
     jest.useFakeTimers();
     try {
       store.setToast({ tone: 'info', message: 'Ready' });
@@ -241,10 +250,10 @@ describe('CommandCenterPageComponent', () => {
       expect(infoAlert.textContent).toContain('Ready');
       expect(infoAlert.className).toContain('bg-base-100');
       expect(infoAlert.className).toContain('text-base-content');
-      expect(infoAlert.parentElement?.className).not.toContain('absolute');
-      expect(
-        infoAlert.parentElement?.nextElementSibling?.getAttribute('aria-label'),
-      ).toBe('Selected work');
+      expect(infoAlert.closest('[aria-label="Command dock"]')).not.toBeNull();
+      expect(infoAlert.nextElementSibling?.tagName.toLowerCase()).toBe(
+        'ptah-command-voice-hud',
+      );
       jest.advanceTimersByTime(5000);
       fixture.detectChanges();
       expect(store.toast()).toBeNull();

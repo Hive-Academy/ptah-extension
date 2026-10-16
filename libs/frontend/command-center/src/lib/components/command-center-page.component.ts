@@ -54,13 +54,14 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         grid-template-areas:
           'stage rail'
           'dock dock';
-        grid-template-rows: minmax(0, 1fr) auto;
-        flex: 1 0 auto;
+        grid-template-rows: clamp(420px, calc(100vh - 280px), 620px) auto;
+        flex: 0 0 auto;
         gap: 16px;
         padding: 16px;
       }
       .stage-column {
         grid-area: stage;
+        min-height: 0;
       }
       .dock {
         grid-area: dock;
@@ -73,9 +74,19 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
       .rail {
         grid-area: rail;
         min-width: 0;
+        min-height: 0;
+        max-height: clamp(420px, calc(100vh - 280px), 620px);
+        overflow: hidden;
       }
       .work-list-region {
         min-height: 0;
+        flex: 1 1 auto;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .work-list-region:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: -2px;
       }
       @container (width >= 1280px) {
         .dock {
@@ -87,14 +98,13 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           display: flex;
           flex-direction: column;
         }
-        .stage-column {
-          order: 0;
-        }
-        .dock {
-          order: 1;
-        }
         .rail {
-          order: 2;
+          max-height: none;
+          overflow: visible;
+        }
+        .work-list-region {
+          flex: none;
+          max-height: 24rem;
         }
         .stage {
           flex: none;
@@ -136,7 +146,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           ></span>
           <span class="min-w-0 truncate">{{ voiceChipText() }}</span>
         </button>
-        <span class="badge badge-outline min-h-8 text-[11px]" role="status"
+        <span class="badge badge-outline min-h-8 !text-xs" role="status"
           >Session {{ page.store.sessionId()?.slice(0, 8) ?? 'new' }} ·
           {{ page.shownSessionStatus() }}</span
         >
@@ -170,6 +180,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
             <ptah-command-overlay
               #overlay
               [projection]="page.projection()"
+              [visibleLabelIds]="visibleLabelIds()"
               [hoveredNodeId]="page.hoveredNodeId()"
               [selectedId]="page.store.selectedId()"
               [reducedMotion]="page.store.reducedMotion()"
@@ -199,52 +210,76 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           </main>
         }
       </div>
+      <div
+        class="dock flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-3"
+        aria-label="Command dock"
+      >
+        @if (page.store.toast(); as toast) {
+          <div
+            class="alert w-full flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
+            [class.border-l-error]="toast.tone === 'error'"
+            [class.border-l-warning]="toast.tone === 'warning'"
+            [class.border-l-success]="toast.tone === 'success'"
+            [class.border-l-info]="toast.tone === 'info'"
+            [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
+          >
+            <span
+              aria-hidden="true"
+              class="font-bold"
+              [class.text-error]="toast.tone === 'error'"
+              [class.text-warning]="toast.tone === 'warning'"
+              [class.text-success]="toast.tone === 'success'"
+              [class.text-info]="toast.tone === 'info'"
+              >{{ toast.tone === 'error' ? '!' : '●' }}</span
+            >
+            <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
+            @if (toast.action === 'retry-speech') {
+              <button
+                type="button"
+                class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+                (click)="page.retrySpeech()"
+              >
+                Retry speech
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              aria-label="Dismiss notification"
+              (click)="dismissToast()"
+            >
+              ×
+            </button>
+          </div>
+        }
+        <ptah-command-voice-hud
+          class="min-w-0 flex-[1_1_24rem]"
+          [voiceState]="page.store.voiceState()"
+          [provider]="page.store.provider()"
+          [muted]="page.store.muted()"
+          [voiceError]="page.store.voiceError()"
+          [inputLevel]="page.store.inputLevel()"
+          [turnAbortable]="page.turnAbortable()"
+          (start)="page.startVoice()"
+          (stop)="page.stopVoice()"
+          (toggleMute)="page.toggleMuteVoice()"
+          (interrupt)="page.interruptSpeech()"
+          (openVoiceSettings)="page.openVoiceSettings()"
+        />
+        <ptah-command-session-controls
+          class="min-w-0 flex-[1_1_26rem]"
+          [sessionStatus]="page.shownSessionStatus()"
+          (newSession)="page.coordinator.newCommandCenter()"
+          (requestStatus)="page.coordinator.sendStatusTurn('Status')"
+          (commandSubmit)="page.sendCommand($event)"
+        />
+      </div>
       <aside class="rail flex flex-col gap-3">
         @if (page.recordWriteFailure()) {
           <p role="status" class="rounded-lg border border-warning p-2">
             The session pointer could not be saved. You can continue using this
             session.
           </p>
-        }
-        @if (page.store.toast(); as toast) {
-          <div>
-            <div
-              class="alert flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
-              [class.border-l-error]="toast.tone === 'error'"
-              [class.border-l-warning]="toast.tone === 'warning'"
-              [class.border-l-success]="toast.tone === 'success'"
-              [class.border-l-info]="toast.tone === 'info'"
-              [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
-            >
-              <span
-                aria-hidden="true"
-                class="font-bold"
-                [class.text-error]="toast.tone === 'error'"
-                [class.text-warning]="toast.tone === 'warning'"
-                [class.text-success]="toast.tone === 'success'"
-                [class.text-info]="toast.tone === 'info'"
-                >{{ toast.tone === 'error' ? '!' : '●' }}</span
-              >
-              <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
-              @if (toast.action === 'retry-speech') {
-                <button
-                  type="button"
-                  class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-                  (click)="page.retrySpeech()"
-                >
-                  Retry speech
-                </button>
-              }
-              <button
-                type="button"
-                class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-                aria-label="Dismiss notification"
-                (click)="dismissToast()"
-              >
-                ×
-              </button>
-            </div>
-          </div>
         }
         @if (selectedNode(); as node) {
           <section
@@ -284,7 +319,12 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
             {{ reply }}
           </p>
         }
-        <div class="work-list-region">
+        <div
+          class="work-list-region"
+          tabindex="0"
+          role="region"
+          aria-label="Delegated work list"
+        >
           <ptah-command-work-list
             [projection]="page.projection()"
             [selectedId]="page.store.selectedId()"
@@ -292,32 +332,6 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           />
         </div>
       </aside>
-      <div
-        class="dock flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-3"
-        aria-label="Command dock"
-      >
-        <ptah-command-voice-hud
-          class="min-w-0 flex-[1_1_24rem]"
-          [voiceState]="page.store.voiceState()"
-          [provider]="page.store.provider()"
-          [muted]="page.store.muted()"
-          [voiceError]="page.store.voiceError()"
-          [inputLevel]="page.store.inputLevel()"
-          [turnAbortable]="page.turnAbortable()"
-          (start)="page.startVoice()"
-          (stop)="page.stopVoice()"
-          (toggleMute)="page.toggleMuteVoice()"
-          (interrupt)="page.interruptSpeech()"
-          (openVoiceSettings)="page.openVoiceSettings()"
-        />
-        <ptah-command-session-controls
-          class="min-w-0 flex-[1_1_26rem]"
-          [sessionStatus]="page.shownSessionStatus()"
-          (newSession)="page.coordinator.newCommandCenter()"
-          (requestStatus)="page.coordinator.sendStatusTurn('Status')"
-          (commandSubmit)="page.sendCommand($event)"
-        />
-      </div>
     </div>
   `,
 })
@@ -366,6 +380,13 @@ export class CommandCenterPageComponent {
   }
   private readonly destroyRef = inject(DestroyRef);
   private readonly scene = viewChild(CommandSceneComponent);
+  public readonly visibleLabelIds = computed(
+    () =>
+      this.scene()
+        ?.layout()
+        .nodes.filter((node) => node.labelRect !== null)
+        .map((node) => node.node.id) ?? [],
+  );
   private readonly overlay = viewChild(CommandOverlayComponent);
   private readonly workList = viewChild(CommandWorkListComponent);
   private measuredProjection: ReturnType<

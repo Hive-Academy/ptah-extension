@@ -141,6 +141,19 @@ export class CommandVoiceLoop {
           tone: 'error',
           action: 'retry-speech',
         }),
+      (playing) => {
+        if (!this.active || this.muted) return;
+        if (playing) {
+          this.store.setVoiceState('speaking');
+        } else if (
+          !this.playback.hasPending &&
+          !this.busy &&
+          !this.awaitingBoundary
+        ) {
+          this.store.setVoiceState('listening');
+          this.store.resetLevels();
+        }
+      },
     );
   }
 
@@ -275,10 +288,6 @@ export class CommandVoiceLoop {
   private onFrame(samples: Float32Array, timeMs: number): void {
     if (!this.active || this.muted) return;
     const playing = this.playback.isPlaying;
-    if (!playing && !this.busy && this.store.voiceState() === 'speaking') {
-      this.store.setVoiceState('listening');
-      this.store.resetLevels();
-    }
     const independent =
       !playing || (this.options.isIndependentSpeech?.(samples) ?? true);
     const transition = this.vad.processFrame(samples, timeMs, playing);
@@ -310,12 +319,12 @@ export class CommandVoiceLoop {
       }
       this.bargeInOnset = false;
       this.capture?.beginUtterance();
-      this.store.setVoiceState('listening');
+      if (!this.playback.hasPending) this.store.setVoiceState('listening');
     } else if (transition === 'end') {
       if (this.bargeInCandidateAt !== null) {
         this.bargeInCandidateAt = null;
         this.capture?.discardUtterance();
-        this.store.setVoiceState('listening');
+        if (!this.playback.hasPending) this.store.setVoiceState('listening');
         this.store.resetLevels();
         return;
       }
@@ -331,7 +340,7 @@ export class CommandVoiceLoop {
       this.bargeInCandidateAt = null;
       this.bargeInOnset = false;
       this.capture?.discardUtterance();
-      this.store.setVoiceState('listening');
+      if (!this.playback.hasPending) this.store.setVoiceState('listening');
       this.store.resetLevels();
     }
   }
@@ -516,7 +525,8 @@ export class CommandVoiceLoop {
       this.enqueue(chunk, replyId, first ? origin : null);
       first = false;
     }
-    this.store.setVoiceState('speaking');
+    if (this.store.voiceState() !== 'speaking')
+      this.store.setVoiceState('thinking');
   }
 
   private finishTurn(): void {
@@ -536,7 +546,7 @@ export class CommandVoiceLoop {
       this.currentUtteranceOrigin = origin;
       void this.onClip(clip);
     } else if (
-      !this.playback.isPlaying &&
+      !this.playback.hasPending &&
       this.store.voiceState?.() !== 'idle' &&
       this.store.voiceState?.() !== 'stopped'
     ) {
