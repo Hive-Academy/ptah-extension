@@ -200,9 +200,9 @@ export class InspectorSessionStatsComponent {
   });
   protected formatModelName(id: string): string { return resolveModelDisplayName(id, this.modelState.availableModels()); }
   protected detailId(key: string): string { return `${key}-${this.instanceId}`; }
-  protected isOpen(key: string): boolean { return this.expansion.isOpen(this.stats().sessionId ?? '', key); }
-  protected toggle(key: string): void { this.expansion.toggle(this.stats().sessionId ?? '', key); }
-  protected close(key: string): void { this.expansion.setOpen(this.stats().sessionId ?? '', key, false); }
+  protected isOpen(key: string): boolean { return this.expansion.isOpen(this.expansion.sessionKey(this, this.stats().sessionId), key); }
+  protected toggle(key: string): void { this.expansion.toggle(this.expansion.sessionKey(this, this.stats().sessionId), key); }
+  protected close(key: string): void { this.expansion.setOpen(this.expansion.sessionKey(this, this.stats().sessionId), key, false); }
   protected closeOnEscape(event: Event, key: string): void {
     if (!this.isOpen(key)) return;
     event.preventDefault();
