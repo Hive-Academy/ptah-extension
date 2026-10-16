@@ -5,37 +5,49 @@ All `file:line` references below are from this worktree. No production source ch
 
 ## Status of the Electron capture
 
-The real-app screenshots (Part 1) are **not taken yet**.
-
-- The Electron slot belongs to the parent (TASK_2026_683 perf recordings). I asked for it at the
-  start of the session and did not receive "Electron: free" before this commit.
-- The session policy lets Bash run only `git`, `ls`, `npx nx` and `npm` commands without approval.
-  The capture needs `electron <launcher> --remote-debugging-port=9351`, a `node` Playwright script
-  (`connectOverCDP`) and a kill by PID. Each one waits for approval in this tab and is denied after
-  1 minute when nobody answers.
-- The prototype "before" panels are therefore rebuilt from the current templates and from the
-  values in the user's report (`completed`, `71h 18m`, `ctx — in ≥ 11.9k out ≥ 56 —`,
-  `Parent: 18e50e43…`, `pong`). They are marked as rebuilt, not as screenshots.
-
-Run plan when the slot and the approvals are available (all files stay in this worktree):
-
-1. Copy `clean-session-followups/.ptah/tmp/a1117-launcher.mjs` to `.ptah/tmp/685-launcher.mjs`.
-   Keep `COPY` = `.../clean-session-followups/.ptah/tmp/a1117-appdata/Ptah Dev` (private copy).
-   Change the import to `chat-transcript-followups/dist/apps/ptah-electron/main.mjs`.
-2. Start Electron with `--remote-debugging-port=9351`. Record the PID.
-3. Connect with `chromium.connectOverCDP('http://127.0.0.1:9351')` (as in `final-lib.mjs`).
-   Use themes `anubis` and `anubis-light`, window widths 1440 and 760.
-4. Capture: Canvas dock lane view for a codex lane and an SDK subagent, the selected tab chip,
-   the hover card, the inspector rows, and one main chat assistant turn header.
-5. Kill the PID, confirm port 9351 is free, send "Electron: free".
+Parent decision: this session does not launch Electron. The parent's visual-reviewer takes the
+real-app screenshots (Part 1) after the TASK_2026_683 recordings free Electron, and writes them
+into `screenshots/` of this worktree. Until then, the prototype "before" panels are rebuilt from
+the current templates and from the values in the user's report (`completed`, `71h 18m`,
+`ctx — in ≥ 11.9k out ≥ 56 —`, `Parent: 18e50e43…`, `pong`). They are marked as rebuilt.
 
 ## Screenshots
 
+### Shots to capture (parent's visual-reviewer)
+
+Themes: `anubis` (dark) and `anubis-light` (light). Widths: 1440 and 760 (window width).
+Use the private profile copy only. Use the same agents in every shot of one lane kind, so the
+values can be compared side by side. If the profile has no such run, record that in this table
+and do not fake data.
+
+| File | Lane kind | Theme | Width | What must be visible |
+| --- | --- | --- | --- | --- |
+| `current-cli-dark-1440.png` | CLI (codex), finished | dark | 1440 | Full lane view: dock with the selected tab chip, the header (status badge, model badge, Resume icon, duration), the usage row (`ctx / in / out / cost`), the `Task` / `Parent` row, the first output lines |
+| `current-cli-light-1440.png` | CLI (codex), finished | light | 1440 | Same as above |
+| `current-cli-dark-760.png` | CLI (codex), finished | dark | 760 | Same as above; shows wrap of the header and usage row |
+| `current-cli-light-760.png` | CLI (codex), finished | light | 760 | Same as above |
+| `current-cli-restored-dark-1440.png` | CLI lane restored from a saved session (reopen the session) | dark | 1440 | Header duration (expected: lane age, e.g. `71h 18m`) and the selected tab chip in the same frame (expected: no duration). Proves the duration finding |
+| `current-cli-running-dark-1440.png` | CLI, running (only if one runs during capture) | dark | 1440 | Stop button, ticking duration, status `running` |
+| `current-subagent-dark-1440.png` | SDK subagent, finished | dark | 1440 | Full lane view: tab chip, `ptah-subagent-usage-summary` row, bubble header (chevron, avatar, name, badge), status row with its actions, footer tokens / cost / duration |
+| `current-subagent-light-1440.png` | SDK subagent, finished | light | 1440 | Same as above |
+| `current-subagent-dark-760.png` | SDK subagent, finished | dark | 760 | Same as above |
+| `current-subagent-light-760.png` | SDK subagent, finished | light | 760 | Same as above |
+| `current-subagent-running-dark-1440.png` | SDK subagent, running (only if available) | dark | 1440 | Status row actions (background, stop, transcript, message) and the progress line |
+| `current-tabchip-cli-dark-1440.png` | CLI | dark | 1440 | Selected tab chip close-up: avatar, name, status word (`done`), duration or none |
+| `current-tabchip-subagent-dark-1440.png` | subagent | dark | 1440 | Same for the subagent |
+| `current-hovercard-cli-dark-1440.png` | CLI | dark | 1440 | Hover card of the same CLI lane: status word, duration, activity line |
+| `current-hovercard-subagent-dark-1440.png` | subagent | dark | 1440 | Hover card of the same subagent |
+| `current-inspector-dark-1440.png` | CLI + subagent rows | dark | 1440 | Inspector agents section with the same CLI and subagent rows: status, duration, token badge, cost, model, actions menu (open it for one row) |
+| `current-inspector-light-1440.png` | CLI + subagent rows | light | 1440 | Same as above |
+| `current-mainchat-turn-dark-1440.png` | main chat | dark | 1440 | One assistant turn header: `Worked for X` disclosure row with tool / file counts, closed and (second shot `-open`) with the activity panel open |
+| `current-mainchat-turn-light-1440.png` | main chat | light | 1440 | Same as above, closed |
+
+### Prototype shots (taken in this session)
+
 | File | Lane kind | Theme | Width | What it shows |
 | --- | --- | --- | --- | --- |
-| `screenshots/prototype-1440-dark.png` | CLI + subagent | dark (`anubis`) | 1440 viewport, 760 lane frames | Prototype: before/after for both lane kinds, header states |
-| `screenshots/prototype-1440-light.png` | CLI + subagent | light (`anubis-light`) | 1440 viewport, 760 lane frames | Same, light theme |
-| (pending) `screenshots/app-*.png` | CLI, subagent | dark, light | 1440, 760 | Real-app lane view, tab chip, hover card, inspector, main chat turn |
+| `prototype-1440-dark.png` | CLI + subagent | dark | 1440 viewport, 760 lane frames | Before/after for both lane kinds, header states |
+| `prototype-1440-light.png` | CLI + subagent | light | 1440 viewport, 760 lane frames | Same, light theme |
 
 The prototype screenshots show sections 1 and 2. Section 3 ("Where every item goes") is in
 `prototype/index.html` and in the duplication map below.

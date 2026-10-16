@@ -10,8 +10,8 @@ task brief names:
 
 Summary:
 
-- Real-app Electron screenshots are pending: no "Electron: free" from the parent, and the
-  launch commands need approval in this unattended session.
+- Real-app Electron screenshots: the parent's visual-reviewer captures them later (parent
+  decision). The shot list is in the "## Screenshots" section of the main file.
 - "71h 18m" is a confirmed bug. A restored CLI lane has no `completedAt`
   (`CliSessionReference` does not store it), so the lane card and the inspector show the lane's
   age (`now - startedAt`). The tab chip and the hover card show no duration.
