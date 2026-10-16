@@ -115,7 +115,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
             <input
               #answerInput
               id="pending-answer"
-              class="input mt-1 min-h-11 w-full border !border-base-content/50 placeholder:!text-base-content/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              class="input mt-1 min-h-11 w-full border !border-base-content/50 placeholder:!text-base-content-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
               [placeholder]="
                 choices()[0] ? 'e.g. ' + choices()[0] : 'Type an answer'
               "

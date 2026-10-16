@@ -92,7 +92,7 @@ describe('CommandPendingInputComponent', () => {
     );
     expect(input.placeholder).toBe('e.g. release/next');
     expect(input.className).toContain('!border-base-content/50');
-    expect(input.className).toContain('placeholder:!text-base-content/80');
+    expect(input.className).toContain('placeholder:!text-base-content-muted');
     expect(input.className).toContain('focus-visible:outline-2');
   });
 
