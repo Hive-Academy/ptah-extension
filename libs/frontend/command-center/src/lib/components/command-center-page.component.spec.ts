@@ -155,6 +155,19 @@ describe('CommandCenterPageComponent', () => {
     },
   );
 
+  it('keeps the draft and shows a toast when the send throws', async () => {
+    controller.sendCommand.mockRejectedValueOnce(new Error('boom'));
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    await page.submitCommand('Review release');
+    expect(store.toast()).toEqual({
+      message: 'Could not send the Command Center message.',
+      tone: 'error',
+    });
+    fixture.destroy();
+  });
+
   it('does not send the same draft twice while a send is in flight', async () => {
     let resolveSend: (accepted: boolean) => void = () => undefined;
     controller.sendCommand.mockReturnValueOnce(

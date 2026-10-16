@@ -410,7 +410,11 @@ export class CommandCenterPageComponent {
     try {
       if (await this.page.sendCommand(text)) this.controls()?.clearDraft(text);
     } catch {
-      // degradation-audit: reported — the controller shows the send failure; retain the draft for retry.
+      // degradation-audit: reported — a thrown send gets the fixed-text toast; the draft stays for a retry
+      this.page.store.setToast({
+        message: 'Could not send the Command Center message.',
+        tone: 'error',
+      });
     } finally {
       this.submitting = false;
     }
