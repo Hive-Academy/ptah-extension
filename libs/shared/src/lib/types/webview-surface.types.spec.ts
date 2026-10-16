@@ -42,6 +42,13 @@ describe('webview surface ids', () => {
     expect(isSurfaceRouteId(DEFAULT_SURFACE_ID)).toBe(true);
   });
 
+  it('keeps generation under the existing setup-wizard surface', () => {
+    expect(SURFACE_ROUTE_IDS.filter((id) => id === 'setup-wizard')).toEqual([
+      'setup-wizard',
+    ]);
+    expect(surfaceRoutePath('setup-wizard')).toBe('/setup-wizard');
+  });
+
   it('accepts every route id plus every legacy alias as an initialView', () => {
     expect([...ACCEPTED_INITIAL_VIEWS]).toEqual([
       ...SURFACE_ROUTE_IDS,

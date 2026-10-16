@@ -1,3 +1,10 @@
+import type {
+  SetupGenerationRunBinding,
+  SetupGenerationRunLifecycle,
+  SetupGenerationResultFacts,
+  SetupGenerationTerminalStatus,
+} from '../rpc/rpc-setup.types';
+
 /**
  * Setup Wizard message types, analysis phases, and payload types.
  *
@@ -109,8 +116,15 @@ export interface AnalysisStreamPayload {
  * and broadcast via 'setup-wizard:generation-stream' messages.
  */
 export interface GenerationStreamPayload extends AnalysisStreamPayload {
+  tabBinding?: SetupGenerationRunBinding;
+  lifecycle?: SetupGenerationRunLifecycle;
   /** Which agent template is currently being processed */
   agentId?: string;
+}
+
+export interface EnhancedGenerationStreamPayload extends AnalysisStreamPayload {
+  tabBinding?: SetupGenerationRunBinding;
+  lifecycle?: SetupGenerationRunLifecycle;
 }
 
 /**
@@ -162,6 +176,8 @@ export interface AvailableAgentsPayload {
  * Sent during agent generation phase.
  */
 export interface GenerationProgressPayload {
+  tabBinding?: SetupGenerationRunBinding;
+  lifecycle?: SetupGenerationRunLifecycle;
   /** Current generation progress */
   progress: {
     /** Current phase of generation */
@@ -197,6 +213,9 @@ export interface GenerationAgentOutcome {
  * Sent when agent generation is finished.
  */
 export interface GenerationCompletePayload {
+  tabBinding?: SetupGenerationRunBinding;
+  terminalStatus?: SetupGenerationTerminalStatus;
+  result?: SetupGenerationResultFacts;
   /** Whether generation was successful */
   success: boolean;
   /** Absolute directory containing generated agent files. */
@@ -228,6 +247,8 @@ export interface GenerationCompletePayload {
  * Sent when an error occurs during wizard flow.
  */
 export interface WizardErrorPayload {
+  tabBinding?: SetupGenerationRunBinding;
+  terminalStatus?: SetupGenerationTerminalStatus;
   /** Error message */
   message: string;
   /** Additional error details */
@@ -272,5 +293,5 @@ export type WizardMessage =
       payload: GenerationCompletePayload;
     }
   | { type: 'setup-wizard:generation-stream'; payload: GenerationStreamPayload }
-  | { type: 'setup-wizard:enhance-stream'; payload: AnalysisStreamPayload }
+  | { type: 'setup-wizard:enhance-stream'; payload: EnhancedGenerationStreamPayload }
   | { type: 'setup-wizard:error'; payload: WizardErrorPayload };

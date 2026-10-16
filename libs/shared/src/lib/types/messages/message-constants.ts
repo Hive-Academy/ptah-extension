@@ -200,6 +200,7 @@ export const MESSAGE_TYPES = {
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
+  SETUP_GENERATION_OPEN: 'setup-generation:open',
   /** Backend → Frontend: open an agent-driven harness workflow surface (new-project / configure-harness). */
   HARNESS_OPEN_WORKFLOW: 'harness:open-workflow',
   /** Backend → Frontend: agent proposed harness config updates via the proposeConfig MCP tool. */

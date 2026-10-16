@@ -233,7 +233,7 @@ Candidate only: unused duplicated old-generation presentation code after the new
 
 | Batch | Phase | Status | Executor | Commit |
 | --- | --- | --- | --- | --- |
-| B01 | 1 | pending | codex backend-developer | — |
+| B01 | 1 | done | codex backend-developer | (this commit) |
 | B02 | 2 | pending | codex backend-developer | — |
 | B02G | 2 | pending | codex backend-developer | — |
 | B03 | 2 | pending | codex backend-developer | — |
