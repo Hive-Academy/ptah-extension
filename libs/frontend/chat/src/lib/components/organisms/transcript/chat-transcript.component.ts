@@ -6,14 +6,17 @@ import {
   signal,
   computed,
   viewChild,
+  viewChildren,
   ChangeDetectionStrategy,
   afterNextRender,
+  type AfterRenderRef,
   effect,
   untracked,
   Injector,
   DestroyRef,
   ElementRef,
   NgZone,
+  Renderer2,
 } from '@angular/core';
 import { AlertTriangle, LucideAngularModule } from 'lucide-angular';
 import {
@@ -71,6 +74,7 @@ import { TranscriptOlderHistorySentinelDirective } from './transcript-older-hist
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
+import { TranscriptSessionEntrance } from './transcript-session-entrance';
 import {
   STREAM_PRESENTATION_RECORDS_ENABLED,
   StreamPresentationStore,
@@ -302,6 +306,7 @@ export class ChatTranscriptComponent {
     optional: true,
   });
   private readonly ngZone = inject(NgZone);
+  private readonly renderer = inject(Renderer2);
   private readonly changeSetStore = inject(ChangeSetStore);
   private readonly changeSetActions = inject(ChangeSetActionsService);
 
@@ -321,6 +326,8 @@ export class ChatTranscriptComponent {
    * `display:none` when false.
    */
   readonly active = input.required<boolean>();
+  /** True for one session-switch entrance window. */
+  readonly entering = input(false);
   private readonly surfaceActive = inject(SURFACE_ACTIVE);
   protected readonly workActive = computed(
     () => this.active() && this.surfaceActive(),
@@ -353,6 +360,7 @@ export class ChatTranscriptComponent {
    */
   private resizeObserver: ResizeObserver | null = null;
   private scrollRafId: number | null = null;
+  private scrollRestoreRef: AfterRenderRef | null = null;
   private scrollGeneration = 0;
   private retentionReleasePending = false;
   private retentionReleaseGeneration = 0;
@@ -365,63 +373,46 @@ export class ChatTranscriptComponent {
   /** Bound native scroll listener body; registered outside the zone. */
   private readonly scrollHandler = (): void => this.onScroll();
 
-  /**
-   * Scroll container captured when the listener is bound. Kept past destroy —
-   * viewChild signals read null in ngOnDestroy, so the listener body and
-   * cleanup must not go through them.
-   */
+  /** Kept for cleanup after viewChild signals become unavailable on destroy. */
   private scrollElement: HTMLElement | null = null;
 
-  /**
-   * The plain scroll container (`#messageContainer`). Off-screen message
-   * bubbles are unmounted by `TranscriptRenderWindow`, and native scroll
-   * anchoring absorbs their height changes — scroll positions are the
-   * element's real `scrollTop`/`scrollHeight`.
-   */
+  /** Native scroll container; rendered slots may be windowed. */
   private readonly scrollContainer =
     viewChild<ElementRef<HTMLElement>>('messageContainer');
+  private readonly slotRefs = viewChildren(TranscriptSlotDirective);
   /** Inner content wrapper observed for height changes (streaming growth). */
   private readonly contentWrapper =
     viewChild<ElementRef<HTMLElement>>('messageContent');
 
-  /**
-   * Whether the transcript is pinned to the bottom (auto-follows new content).
-   * Set false when the user scrolls up past NEAR_BOTTOM_PX, true when they
-   * scroll back down or send a new message. A SIGNAL so a flip written from
-   * the outside-the-zone scroll listener still refreshes the template's
-   * `[pinnedToBottom]` binding — a plain-field write would not.
-   */
+  /** Signal so outside-zone scroll changes refresh the pinned binding. */
   private readonly pinnedToBottom = signal(true);
 
   /** Track message count to detect new user messages */
   private lastMessageCount = 0;
 
-  /**
-   * Tracks previous streaming state to detect the streaming→idle transition,
-   * which drives `isFinalizingTransition` (animation suppression) and a
-   * stick-to-bottom when the user is pinned.
-   */
+  /** Detects streaming completion for motion suppression and bottom stick. */
   private wasStreaming = false;
   /** Previous replay input value, used only to detect its falling edge. */
   private wasHistoryReplaying = false;
   private wasRenderWindowReplaying = false;
 
-  /**
-   * `scrollTop` seen by the previous scroll event. An upward move away from the
-   * bottom is always the user: the stick-to-bottom only moves down, and a
-   * clamp or an anchoring adjustment keeps the bottom distance unchanged. So no
-   * scroll event is ever ignored — ignoring them is what let a pinned stream
-   * yank the user back while they tried to scroll up.
-   */
+  /** Previous scrollTop distinguishes an upward user scroll from bottom stick. */
   private lastScrollTop = 0;
 
-  /**
-   * Saved scroll offset for THIS tab. Each instance owns exactly one tab, so the
-   * per-tab cache Map collapses to a single field. Written eagerly on every
-   * scroll (before the `display:none` hide can reset `scrollTop`) and restored
-   * on the activation edge.
-   */
+  /** Last user offset, saved before a hidden tab loses its native scrollTop. */
   private savedScrollTop: number | null = null;
+  private readonly sessionEntrance = new TranscriptSessionEntrance({
+    injector: this.injector,
+    renderer: this.renderer,
+    entering: () => this.entering(),
+    workActive: () => this.workActive(),
+    historyReplaying: () => this.historyReplaying(),
+    slotCount: () => this.vm().slots.length,
+    scroller: () => this.scrollContainer()?.nativeElement,
+    slots: () => this.slotRefs(),
+    pinnedToBottom: () => this.pinnedToBottom(),
+    savedScrollTop: () => this.savedScrollTop,
+  });
   /** Previous combined activity value — detects the hidden→visible activation edge. */
   private wasActive = false;
 
@@ -1069,7 +1060,22 @@ export class ChatTranscriptComponent {
   }
 
   constructor() {
-    // The scheduler has coalesced publication; sync only active transcripts.
+    effect(() => {
+      const entering = this.entering();
+      untracked(() => {
+        if (entering && this.workActive() && this.pinnedToBottom()) {
+          const el = this.scrollContainer()?.nativeElement;
+          if (el) {
+            this.lastScrollTop = 0;
+            el.scrollTop = 0;
+          }
+          this.sessionEntrance.setEntering(true);
+          this.restoreScrollOnActivation();
+        } else {
+          this.sessionEntrance.setEntering(entering);
+        }
+      });
+    });
     effect(() => {
       if (!this.presentationStore || !this.workActive()) return;
       const tab = this._tab();
@@ -1114,13 +1120,18 @@ export class ChatTranscriptComponent {
         }, 300);
       });
     });
-    // Activation edge (hidden→visible): restore the saved scroll offset, or
-    // stick to bottom when pinned. `display:none` resets `scrollTop`, so the
-    // restore runs on re-show via rAF (once the block layout is back).
     effect(() => {
       const isActive = this.workActive();
       untracked(() => {
         if (isActive && !this.wasActive) {
+          if (this.entering() && this.pinnedToBottom()) {
+            const el = this.scrollContainer()?.nativeElement;
+            if (el) {
+              this.lastScrollTop = 0;
+              el.scrollTop = 0;
+            }
+          }
+          this.sessionEntrance.setEntering(this.entering());
           this.restoreScrollOnActivation();
           this.setupResizeObserver();
         } else if (!isActive) {
@@ -1132,9 +1143,6 @@ export class ChatTranscriptComponent {
         this.wasActive = isActive;
       });
     });
-    // Content-follow controller. Reads the GATED `vm` so streaming into a hidden
-    // transcript schedules no work; on activation `vm` catches up once and this
-    // re-sticks a pinned transcript to the bottom.
     effect(() => {
       const messages = this.vm().messages;
       const count = messages.length;
@@ -1204,11 +1212,7 @@ export class ChatTranscriptComponent {
     });
     afterNextRender(
       () => {
-        // Attach FIRST: an unattached render window mounts only its tail, and
-        // that is indistinguishable from data loss. The scroll listener is
-        // bound before the resize observer for the same reason — a throw in
-        // one setup must not lose another's binding. The resize observer only
-        // costs a pinned transcript its auto-follow.
+        // Attach the render window before binding scroll and resize observers.
         this.renderWindow.attach(this.scrollContainer()?.nativeElement ?? null);
         this.setupScrollListener();
         this.setupResizeObserver();
@@ -1235,6 +1239,7 @@ export class ChatTranscriptComponent {
     if (!this.workActive()) return;
     const el = this.scrollElement;
     if (!el) return;
+    const restorePending = this.scrollRestoreRef !== null;
 
     const top = el.scrollTop;
     const distanceFromBottom = el.scrollHeight - top - el.clientHeight;
@@ -1250,15 +1255,13 @@ export class ChatTranscriptComponent {
     if (distanceFromBottom < this.NEAR_BOTTOM_PX) {
       this.pinnedToBottom.set(true);
     }
+    if (restorePending) {
+      this.cancelScrollFrame();
+      if (this.pinnedToBottom()) this.scheduleStickToBottom();
+    }
   }
 
-  /**
-   * Bind the native passive scroll listener outside the zone. The template
-   * carries no `(scroll)` binding: every scroll event under zone.js would
-   * otherwise tick app-wide change detection. The container element is
-   * captured here — viewChild signals read null after destroy, so the
-   * listener body and cleanup must not go through them.
-   */
+  /** Bind a passive scroll listener outside the zone. */
   private setupScrollListener(): void {
     const el = this.scrollContainer()?.nativeElement;
     if (!el || this.scrollElement) return;
@@ -1271,14 +1274,10 @@ export class ChatTranscriptComponent {
   protected isPinnedToBottom(): boolean {
     return this.pinnedToBottom();
   }
-  /**
-   * Stick the container to the bottom on the next frame. rAF-coalesced so a
-   * burst of streaming chunks collapses to a single adjustment per frame.
-   * Re-checks the pin inside the frame: scroll events run before rAF
-   * callbacks, so a user who scrolled up in this frame is not pulled back.
-   */
+  /** Coalesce pinned follow work into a frame and re-check the pin there. */
   private scheduleStickToBottom(): void {
     if (!this.workActive()) return;
+    if (this.scrollRestoreRef) return;
     this.cancelScrollFrame();
     const generation = this.scrollGeneration;
     this.scrollRafId = requestAnimationFrame(() => {
@@ -1293,17 +1292,15 @@ export class ChatTranscriptComponent {
     });
   }
 
-  /**
-   * On the activation edge, restore the saved scroll offset — or stick to the
-   * bottom when pinned (or when there is no saved offset yet, e.g. first show).
-   */
+  /** Restore the saved offset, or bottom when pinned or first shown. */
   private restoreScrollOnActivation(): void {
     if (!this.workActive()) return;
     this.cancelScrollFrame();
     const generation = this.scrollGeneration;
-    this.scrollRafId = requestAnimationFrame(() => {
-      if (generation !== this.scrollGeneration || !this.workActive()) return;
-      this.scrollRafId = null;
+    this.scrollRestoreRef = afterNextRender({ write: () => {
+      if (generation !== this.scrollGeneration) return;
+      this.scrollRestoreRef = null;
+      if (!this.workActive()) return;
       const el = this.scrollContainer()?.nativeElement;
       if (!el) return;
       if (this.pinnedToBottom() || this.savedScrollTop === null) {
@@ -1312,7 +1309,7 @@ export class ChatTranscriptComponent {
         el.scrollTop = this.savedScrollTop;
       }
       this.lastScrollTop = el.scrollTop;
-    });
+    } }, { injector: this.injector });
   }
 
   /**
@@ -1342,10 +1339,13 @@ export class ChatTranscriptComponent {
     this.scrollGeneration++;
     if (this.scrollRafId !== null) cancelAnimationFrame(this.scrollRafId);
     this.scrollRafId = null;
+    this.scrollRestoreRef?.destroy();
+    this.scrollRestoreRef = null;
   }
 
   /** Cleanup observer, animation frames, and timeouts on destroy. */
   private cleanup(): void {
+    this.sessionEntrance.destroy();
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;

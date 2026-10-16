@@ -1,6 +1,22 @@
-:host {
-  --ptah-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
+@keyframes ptahTurnEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ptah-turn-enter {
+  animation: ptahTurnEnter var(--ptah-motion-in) var(--ptah-ease-soft) backwards;
+  animation-delay: calc(var(--i) * var(--ptah-stagger-step));
+}
+
+.ptah-pane-enter {
+  animation: ptahFadeIn 160ms var(--ptah-ease-soft) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptah-turn-enter, .ptah-pane-enter {
+    animation: none !important;
+    animation-delay: 0ms !important;
+  }
 }
 
 /* Custom scrollbar for message container
