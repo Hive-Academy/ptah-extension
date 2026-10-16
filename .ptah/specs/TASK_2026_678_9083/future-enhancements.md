@@ -27,13 +27,17 @@ Deferred by the orchestrator with the user's decisions D40 and D41. Each item na
 - Zoom and pan of the scene (D31): candidate task with a hand-written `{scale, tx, ty}` camera.
 - Worktree setup should run `npx husky` (D15).
 
-## Open after the last authorized round (code-logic-review-phase-d-guard.md, D43)
+## After the D44 round (code-logic-review-phase-d-s1.md, APPROVED)
 
-- S-1 (Serious, medium confidence): a turn already running when the Tribunal request is sent clears
-  `expectedRequest` when it ends (`command-center-page.controller.ts:317-339, 496-499`), so the real
-  proposal is declined. Fails closed. Fix: clear only on the terminal pulse of the request turn itself
-  (record the pulse baseline at request send and ignore earlier turns).
-- A stray untagged question spends the request.
-- A failed automatic Decline leaves the question hidden while free text or voice can still send "yes".
-- `confirmProposal` clears a newer request's nonce.
-- The 2 Minor items in the same file.
+S-1, guard M-1 and guard M-2 from `code-logic-review-phase-d-guard.md` are CLOSED (D44). Open:
+
+- M-A: `expectedRequest` has no lifetime bound after a skipped pulse. If the SDK folds the request
+  into the running turn, or that turn is aborted, the next ordinary question on the tab is declined.
+  Fix: a TTL on the request, or a grace timer after the skipped pulse.
+- M-B: after the third failed automatic Decline, `retryInvalidDecline()` has no UI. The toast says
+  "Retry the Decline" but the user can only leave the page. Fix: a `retry-decline` toast action, or
+  change the copy.
+- M-C: no specs for the retry timers and cap, the "request cancelled" text, or the second-pulse clear.
+- Minor: `requestStatus` bypasses the send gate; `skipNextPulse` reads `tabs()` (active workspace
+  only) and checks only `'streaming'`; a second untagged question waits while one is undeclined.
+- From the guard review: `confirmProposal` clears a newer request's nonce (M-3), and its 2 Minors.
