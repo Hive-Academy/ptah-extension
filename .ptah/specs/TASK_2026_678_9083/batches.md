@@ -1,6 +1,6 @@
 # Batches - TASK_2026_678_9083
 
-Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 26/28 | Phases A, B and C CLOSED; B9-B17 done; Phase D style APPROVED, logic APPROVED after the D44 round (S-1, M-1, M-2 closed); B0 waived (D34); next: B18 (visual review by the reviewer, measurements by the user)
+Total tasks: 66 | Batches: 28 (26 code batches + 2 user-run gates; B8F split into 8F0, 8FA-8FE, plus the bounded correction 8FG) | Complete: 26/28 + Phase E rounds 1-7 | B0 waived (D34); B18: 18.2 visual evidence COMPLETE, 18.1 user measurements DEFERRED (D57) | Phases A-E CLOSED; last code review `code-logic-review-phase-e-r7.md` APPROVED 8/10 | next: team-leader Mode 3, Gate 3, PR ready
 
 Worktree for every edit, check and commit: `D:/projects/ptah-extension/.claude-worktrees/command-center`
 (branch `feat/command-center`). Task folder: `D:/projects/ptah-extension/.claude-worktrees/command-center/.ptah/specs/TASK_2026_678_9083`
@@ -165,6 +165,7 @@ Edge cases:
 | D54 | Round 6 results. Fix `2501d9670`; delta review `code-logic-review-phase-e-r6.md` APPROVED 8/10 (Phase E logic approved). Targeted visual check `visual-review-phase-e-r6.md` (dev app port 9334, real Ptah Dev profile; Electron closed, "Electron: free" sent) NEEDS_REVISION 7/10: N-1, N-2 (clean switch), R4-4 and R3-1 FIXED, no dark/light regression; NEW Serious S-1: a send in flight during a workspace switch writes the old tab back after the rebind (`session-coordinator.ts:264` `setSession(tabId, ..., store.workspace())`), so the page shows the new workspace with the old session and the guard then lets a typed command reach the old session (reproduced twice; 2 billed turns, about $0.25). Moderate: a refused send clears the typed text. 3 Minor. Per the user's rule the orchestrator stopped. | - | D53 rule. | yes (D55) |
 | D55 | Session 7. The USER chose (2026-10-16) option (b): one codex lane fixes visual r6 S-1 (an in-flight send must not write its tab back when the marked tab or workspace changed during the send) and M-1 (keep the typed text when a send is refused); then one Anthropic delta review; NO Electron re-check (spec evidence only). Then B18 measurements, Mode 3, Gate 3, PR body, `gh pr ready 735`. Minors to `future-enhancements.md`. | (a) fix + visual; (b) fix, no visual; (c) defer and continue; (d) stop and record | AskUserQuestion 2026-10-16 answer (b). | yes |
 | D56 | The USER asked (2026-10-16, after seeing renderer console errors the visual reviews did not capture) to fix the backend issues in this round. Root cause: `apps/ptah-electron/src/activation/bootstrap.ts:204-211` takes the first non-flag argv entry after `argv[1]` as the initial workspace, so a launch with Chromium flags before `dist/apps/ptah-electron/main.mjs` registers the app's own entry FILE as a workspace; every chat start there fails with ENOTDIR. Then `chat-stream-broadcaster.service.ts:346-367` labels any 0-event failure "Session could not be resumed... corrupted" (also for a new session that never started), and the renderer logs each CHAT_ERROR twice (`chat-message-handler.service.ts:666`, `chat-lifecycle.service.ts:324`). Second codex lane R7b (file-disjoint from R7a): accept only an existing directory as the argv workspace, a start-failure message distinct from a resume failure, one console log per CHAT_ERROR. Same delta review covers both lanes. | - | User message 2026-10-16. | yes |
+| D57 | The USER chose (2026-10-16) to DEFER the B18 manual measurements (mic latency 30+ samples cold and after barge-in, barge-in feel, speaker/headset echo, FPS and p95 draw at N=24, R4 discovery-turn spawn check, D34 baseline). `test-report.md` records them as not measured, a user follow-up; the PR body lists them. Task 18.2 (visual evidence) is complete through the visual reviews. Next: team-leader Mode 3, Gate 3, PR body, `gh pr ready 735`. | (a) paste values now; (b) defer; (c) pause | AskUserQuestion 2026-10-16 answer (b). | yes |
 
 ## Phases and reviews
 
@@ -2418,7 +2419,7 @@ Lane rules for this batch:
 - Every listed artifact exists and contains the required work.
 - The scoped command passes; output tailed.
 
-## Batch 18: Electron Scene and Voice Gate and visual evidence (user-run gate) - PENDING
+## Batch 18: Electron Scene and Voice Gate and visual evidence (user-run gate) - PARTIAL: 18.2 COMPLETE, 18.1 DEFERRED (D57)
 
 - Recommended executor: user-run Electron session + visual-reviewer subagent for screenshot review
 - Execution mode: sequential
@@ -2431,7 +2432,7 @@ Lane rules for this batch:
 - Phase: E | Phase review: none (measurement); visual review verdict recorded here for Phase D
 - Suggested commit: `docs(task-specs): batch 18 - electron scene and voice gate evidence`
 
-### Task 18.1: Electron Scene and Voice Gate - PENDING
+### Task 18.1: Electron Scene and Voice Gate - DEFERRED (D57, user measurements are a follow-up)
 
 - Files: `TASK/test-report.md` (section "Electron Scene and Voice Gate"), trace/config files under `TASK/evidence/`
 - Plan reference: implementation-plan.md:60; risks R4, R12, R13; design-spec-review R3-6, R3-7
@@ -2443,7 +2444,7 @@ Lane rules for this batch:
   a host-side hold before release); spoken status summary distinguishes running/completed/failed (AC10, AC13).
 - Validation notes: headless numbers do not count.
 
-### Task 18.2: Visual evidence vs prototype - PENDING
+### Task 18.2: Visual evidence vs prototype - COMPLETE (visual-review.md, visual-review-phase-e-r1.md, -r3.md, -r6.md; the r6 Serious S-1 was fixed in 4051af50c without a re-check, D55)
 
 - Files: `TASK/visual-review.md`, screenshots under `TASK/evidence/screens/`
 - Plan reference: implementation-plan.md:60 ("reshoot design-review frames"); design-spec-review R3-5
@@ -2456,7 +2457,7 @@ Lane rules for this batch:
 - `TASK/test-report.md` and `TASK/visual-review.md` exist with all fields, pass/fail per criterion and an accepting
   visual verdict; every failing criterion opens a fix batch before Mode 3.
 
-## Phase E: Visual fix round from the B18 visual review (D45) - IN PROGRESS
+## Phase E: Visual fix round from the B18 visual review (D45) - COMPLETE (rounds 1-7, last review APPROVED, D57)
 
 Source: `visual-review.md` (NEEDS_REVISION: 2 Blocking, 8 Serious, 6 Moderate, 3 Minor) plus the user's
 request for Command Center entry links. The user chose (2026-10-16) to fix Blocking + Serious + Moderate.

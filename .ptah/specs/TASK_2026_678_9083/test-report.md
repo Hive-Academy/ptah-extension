@@ -64,3 +64,18 @@ Amendment A1 is exercised in `tribunal-confirm-gate.spec.ts`: wrong nonce and no
 - R4 discovery-turn spawn check and real CLI/child/Tribunal delegation, spoken acknowledgement, pending permission speech, keyboard traversal, app restart resume, and compact spoken content.
 
 The incomplete automated rows above remain open for follow-up. A passing Jest summary does not close them.
+
+### Status (2026-10-16, decision D57): NOT MEASURED - deferred to a user follow-up
+
+The user chose to defer the person-run measurements. None of the values below exist yet; this section does not claim them.
+
+| Item | Status | Evidence so far |
+| --- | --- | --- |
+| Mic latency, end of utterance to first audio, 30+ samples, cold worker and after barge-in (median, p95) | Not measured | Local TTS synthesis took about 3.5 s before audio started in one observed turn (`visual-review-phase-e-r1.md`, S-B); not a measurement. |
+| Barge-in feel | Not measured | Not reached with the looping fake mic (`visual-review-phase-e-r3.md`, "Could not reach"). |
+| Speaker vs headset echo protection | Not measured | Needs a person with real audio devices. |
+| Scene FPS and p95 draw time at N=24 | Not measured | Headless and CDP numbers do not count (Task 18.1). |
+| R4 discovery-turn spawn check (no agent spawns during discovery or after Decline) | Not measured | A real Tribunal Confirm was never clicked in the visual reviews. |
+| D34 baseline (refresh rate, provider pair) | Not recorded | Visual reviews used the `Ptah Dev` profile with local STT base.en and local TTS af_heart. |
+| Real microphone permission denial and settings recovery | Partly covered | Rejecting `getUserMedia` stub shown in `visual-review-phase-e-r1.md`; real OS denial not tested. |
+| Dark and light comparison with `prototype/command-center.html` | Done by the visual reviewer | `visual-review.md`, `visual-review-phase-e-r1.md`, `-r3.md`, `-r6.md`. |
