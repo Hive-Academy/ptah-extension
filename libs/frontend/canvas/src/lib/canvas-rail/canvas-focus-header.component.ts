@@ -17,6 +17,7 @@ import {
 } from '@ptah-extension/chat';
 import { ContextRingComponent, limitAwareDot, type CompactRailState, type SessionLimitSummary } from '@ptah-extension/chat-ui';
 import type { TabViewMode } from '@ptah-extension/chat-types';
+import { Ellipsis, LucideAngularModule, Maximize2, Minimize2, PanelRight, X } from 'lucide-angular';
 import { CanvasLayoutService } from '../canvas-layout.service';
 
 let nextDetailsDescriptionId = 0;
@@ -24,7 +25,7 @@ let nextDetailsDescriptionId = 0;
 @Component({
   selector: 'ptah-canvas-focus-header',
   standalone: true,
-  imports: [SendToMessagingComponent, WorkflowBadgeComponent, ContextRingComponent],
+  imports: [SendToMessagingComponent, WorkflowBadgeComponent, ContextRingComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -134,15 +135,6 @@ let nextDetailsDescriptionId = 0;
           >{{ branch() }}</span
         >
       }
-      @if (band() === 'xl' || band() === 'lg') {
-        @if (model()) {
-          <span
-            class="truncate rounded bg-base-200 px-1.5 text-xs"
-            [class.text-base-content-muted]="quiet()"
-            >{{ model() }}</span
-          >
-        }
-      }
       <span
         class="rounded bg-base-200 px-1.5 text-xs"
         [class.state-running]="state() === 'running'"
@@ -169,7 +161,7 @@ let nextDetailsDescriptionId = 0;
       }
       <button
         type="button"
-        class="btn btn-ghost btn-xs"
+        class="btn btn-ghost btn-xs btn-square focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
         data-compact
         [attr.aria-label]="
           viewMode() === 'full'
@@ -183,10 +175,7 @@ let nextDetailsDescriptionId = 0;
         "
         (click)="toggleViewMode.emit()"
       >
-        ▣
-        @if (!narrow()) {
-          {{ viewMode() === 'full' ? 'Compact' : 'Full' }}
-        }
+        <lucide-angular [img]="viewMode() === 'full' ? Minimize2Icon : Maximize2Icon" class="size-4" aria-hidden="true" />
       </button>
       @if (splitDisplayed() || compactDetails()) {
         @if (shownLimit(); as limit) {
@@ -204,7 +193,7 @@ let nextDetailsDescriptionId = 0;
         }
         <button
           type="button"
-          class="btn btn-ghost btn-xs relative"
+          class="btn btn-ghost btn-xs btn-square relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           data-details
           aria-label="Open details"
           title="Session details"
@@ -219,7 +208,7 @@ let nextDetailsDescriptionId = 0;
           @if (percent !== null) {
             <ptah-context-ring class="pointer-events-none absolute inset-0" [percent]="percent" [size]="28" />
           }
-          ⓘ
+          <lucide-angular [img]="PanelRightIcon" class="size-4" aria-hidden="true" />
         </button>
         @if (shownDescription()) {
           <span class="sr-only" [id]="descriptionId">{{ shownDescription() }}</span>
@@ -228,7 +217,7 @@ let nextDetailsDescriptionId = 0;
       <button
         #overflow
         type="button"
-        class="btn btn-ghost btn-xs"
+        class="btn btn-ghost btn-xs btn-square focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
         data-header-menu
         aria-label="More session actions"
         title="More session actions"
@@ -236,7 +225,7 @@ let nextDetailsDescriptionId = 0;
         [attr.aria-expanded]="menuOpen()"
         (click)="menuOpen.set(!menuOpen())"
       >
-        ⋯
+        <lucide-angular [img]="EllipsisIcon" class="size-4" aria-hidden="true" />
       </button>
       @if (menuOpen()) {
         <div
@@ -280,15 +269,12 @@ let nextDetailsDescriptionId = 0;
       }
       <button
         type="button"
-        class="btn btn-ghost btn-xs"
+        class="btn btn-ghost btn-xs btn-square focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
         aria-label="Close session"
         title="Close session"
         (click)="closeRequested.emit()"
       >
-        ×
-        @if (!narrow()) {
-          Close
-        }
+        <lucide-angular [img]="XIcon" class="size-4" aria-hidden="true" />
       </button>
     </header>
   `,
@@ -303,7 +289,11 @@ export class CanvasFocusHeaderComponent implements DoCheck {
   readonly tabId = input.required<string>();
   readonly title = input('');
   readonly branch = input<string | null>(null);
-  readonly model = input<string | null>(null);
+  readonly Minimize2Icon = Minimize2;
+  readonly Maximize2Icon = Maximize2;
+  readonly EllipsisIcon = Ellipsis;
+  readonly PanelRightIcon = PanelRight;
+  readonly XIcon = X;
   readonly state = input<CompactRailState>('idle');
   readonly running = input(false);
   readonly viewMode = input<TabViewMode>('full');

@@ -79,11 +79,12 @@ interface DockLayout {
   host: { '(document:keydown.escape)': 'onDocumentEscape($event)' },
   template: `
     @let view = layout();
+    <!-- Keep the dock at z-10 below the header menu (z-20); its card and dropdown share this stacking context. -->
     <div
       #dock
       role="tablist"
       aria-label="Lanes"
-      class="relative flex min-w-0 items-center gap-0.5 overflow-x-clip px-2"
+      class="relative z-10 flex min-w-0 items-center gap-0.5 overflow-x-clip px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
         @if (!first) {
