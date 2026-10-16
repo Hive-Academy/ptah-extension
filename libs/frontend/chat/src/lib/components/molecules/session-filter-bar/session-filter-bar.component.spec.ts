@@ -165,6 +165,78 @@ describe('SessionFilterBarComponent', () => {
     expect(emitted).toEqual([]);
   }));
 
+  // Parity B-7: the task id is a typed field, so it waits like the search text.
+  it('debounces the task id by 250 ms and sends it trimmed as taskId', fakeAsync(() => {
+    openFilters();
+    type('session-filter-task', ' TASK_2026');
+    tick(100);
+    type('session-filter-task', ' TASK_2026_679 ');
+    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS - 1);
+    expect(emitted).toEqual([]);
+
+    tick(1);
+    expect(emitted).toEqual([
+      { sort: 'lastActive', groupBy: 'none', taskId: 'TASK_2026_679' },
+    ]);
+  }));
+
+  // Parity B-2: the clear X shows only with text and clears it at once.
+  it('shows the clear X only with search text and clears it immediately', fakeAsync(() => {
+    const clearButton = (): HTMLButtonElement | null =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="Clear search"]');
+    expect(clearButton()).toBeNull();
+
+    type('session-filter-text', 'abc');
+    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    expect(emitted).toEqual([
+      { sort: 'lastActive', groupBy: 'none', text: 'abc' },
+    ]);
+
+    const button = clearButton();
+    if (!button) throw new Error('Missing clear X');
+    button.click();
+    fixture.detectChanges();
+
+    // No debounce on clear: the cleared query is sent in the same turn.
+    expect(emitted[1]).toEqual({ sort: 'lastActive', groupBy: 'none' });
+    expect(el<HTMLInputElement>('session-filter-text').value).toBe('');
+    expect(clearButton()).toBeNull();
+    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    expect(emitted.length).toBe(2);
+  }));
+
+  it('drops a typed but unsent search when the clear X is pressed', fakeAsync(() => {
+    type('session-filter-text', 'draft');
+    const button = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Clear search"]',
+    );
+    if (!button) throw new Error('Missing clear X');
+    button.click();
+    fixture.detectChanges();
+    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    // The cleared draft equals the seed, so nothing is sent.
+    expect(emitted).toEqual([]);
+  }));
+
+  // TASK_2026_679 design 3.4: muted placeholder ink and a capped popover.
+  it('uses muted placeholder ink and caps the filters popover height', fakeAsync(() => {
+    expect(
+      el<HTMLInputElement>('session-filter-text').classList.contains(
+        'placeholder:text-base-content-muted',
+      ),
+    ).toBe(true);
+
+    openFilters();
+    const panel = el<HTMLElement>('session-filter-panel');
+    expect(panel.classList.contains('max-h-[min(34rem,70dvh)]')).toBe(true);
+    expect(panel.classList.contains('overflow-y-auto')).toBe(true);
+    expect(
+      el<HTMLInputElement>('session-filter-task').classList.contains(
+        'placeholder:text-base-content-muted',
+      ),
+    ).toBe(true);
+  }));
+
   it('releases the pending timer on destroy', fakeAsync(() => {
     type('session-filter-text', 'late');
     fixture.destroy();
