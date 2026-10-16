@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 0/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 1/23
 
 ## Execution precondition (read first)
 
@@ -159,7 +159,7 @@ capabilities must still work, each with a passing spec:
 - `structured` suggestions from `PROVIDER_MODELS_LOADER`.
 - `settings:set` still refuses `agentOrchestration.decisionModel` (41j).
 
-## Batch 0: Gate 0 - merge prerequisite and re-baseline — IN_PROGRESS
+## Batch 0: Gate 0 - merge prerequisite and re-baseline — COMPLETE
 
 - Recommended executor: Task 0.1 orchestrator/team-leader (git); Task 0.2 CLI lane, read-only,
   backend-developer profile (non-codex family)
@@ -171,12 +171,12 @@ capabilities must still work, each with a passing spec:
   before any code change.
 - Tasks: 2 | Depends on: PR #731 merged to `main`
 - Phase: 0 (Gate) | Phase review: none (no code change)
-- Status note: waiting on the #731 merge (OPEN at 2026-10-16).
+- Status note: #731 merged; `origin/main` merged into `W` at 096f014bc (2026-10-17), no conflicts.
 
-### Task 0.1: Merge `origin/main` after #731 — IN_PROGRESS
+### Task 0.1: Merge `origin/main` after #731 — COMPLETE
 
 - File: none (git). In `W`, run `git fetch origin`, then `git merge origin/main` (foreground).
-- Plan reference: implementation-plan.md:24-25; context.md:3-6
+- Plan reference: implementation-plan.md:26-27; context.md:3-6
 - Pattern to follow: CLAUDE.md "Git" rules
 - Quality requirements: the merge is clean; the only difference from `origin/main` is the task folder.
 - Validation notes: confirm these on disk after the merge:
@@ -185,7 +185,7 @@ capabilities must still work, each with a passing spec:
   `rpc-handlers/.../settings-rpc.handlers.ts` refuses that key (41j).
 - Implementation details: if `origin/main` lacks #731, stop and keep Batch 0 IN_PROGRESS.
 
-### Task 0.2: Re-check the plan's and this file's `file:line` citations — PENDING
+### Task 0.2: Re-check the plan's and this file's `file:line` citations — COMPLETE
 
 - Depends on: Task 0.1
 - File: none written by the lane. The lane returns a drift table (cited -> actual), and the
@@ -204,7 +204,34 @@ capabilities must still work, each with a passing spec:
 - `git log --oneline -3` shows the merge, and the three 41i/41j facts hold.
 - The drift table is recorded here before Batch 1 is assigned.
 
-Drift table: (filled by the team-leader after Task 0.2)
+Drift table (Task 0.2, 2026-10-17, merged tree `096f014bc`):
+
+- Baseline: `2ad20c173` and `5474665e6` are ancestors of `HEAD`. `git diff 2ad20c173 HEAD`
+  touches none of the files the plan, this file or context.md cite (257 files changed, all in
+  harness, command-center, chat-session and webview areas). `5474665e6..2ad20c173` changed only
+  the 41i/41j files (`file-settings-keys.ts`, `file-settings-manager.ts`, their specs,
+  `settings-rpc.handlers.ts` + spec); the plan's citations into them match the merged tree.
+- No merged code overlaps this task: no added line mentions `systemone`, `decisionModel`,
+  `listDecisionModels`, `isCloudTag`, `toCloudId` or `clef`. Every planned CREATE path is still absent.
+- Merge facts: `file-settings-keys.ts:219,504` list `agentOrchestration.decisionModel`;
+  `settings-rpc.handlers.ts:68-78` refuses it; `PROVIDER_KEY_SECRET_PREFIX` at
+  `provider-key-slots.ts:24`, exported at `platform-core/src/index.ts:362`;
+  `assertManifestInvariants` at `host-profile/manifest.ts:496`; no `vscode-core` import under
+  `libs/backend/lane-routing/src` (two doc-comment mentions in `lane-routing-logger.ts:6-7` only).
+- PD-1 union consumers: unchanged (no cited file changed); the lines at
+  `provider-consumer-rows.ts:579,599`, `decision-model.config.ts:243,274,681`,
+  `decision-model-failure-classifier.ts:104-107,138-140`, `agent-rpc.handlers.ts:293-311` still hold.
+
+| Cited | Actual | Where corrected |
+| --- | --- | --- |
+| `ollama-model-discovery.service.ts:16-19` (`isCloudTag` import, PD-6) | `:30` | plan C2 |
+| `agent-rpc.handlers.ts:856-939` (`writeDecisionModel` .. `storedSelectionState`) | `:856-936` (`:937-939` is the Cursor key doc comment) | plan evidence row, C9 (x2); Task 11.1 |
+| `decision-model.config.ts:180-205` / `:180-224` (Jev key methods) | `:181-206` / `:181-225` | Tasks 3.2, 4.1 |
+| `decision-model.config.ts:211-255` (`resolveSystemOneTarget`..`localityOf`) | `:212-256` | Task 6.1 |
+| `implementation-plan.md:24-25` (merge prerequisite) | `:26-27` | Task 0.1 |
+| `Plan :788-789` (`DecisionKeySlot` ordering, TL-4) | `:783-784` | Decisions TL-4 |
+
+Material findings: none. No design, decision, batch scope or acceptance criterion changes.
 
 ## Batch 1: Cloud model id helpers move to shared (C2) — PENDING
 
@@ -306,7 +333,7 @@ Drift table: (filled by the team-leader after Task 0.2)
 - Files: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.keys.ts`,
   CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.keys.spec.ts`
 - Plan reference: implementation-plan.md:223-250
-- Pattern to follow: `decision-model.config.ts:180-224` (secret reads and trims)
+- Pattern to follow: `decision-model.config.ts:181-225` (secret reads and trims)
 - Quality requirements: slots `'jev' | 'custom'` (exported `DecisionKeySlot`). The custom value is
   JSON `{origin, key}`, validated with Zod, and returned only for the matching origin.
   `snapshot`/`restore` take an opaque raw value. `readOllamaCloudKey()` reads
@@ -351,7 +378,7 @@ Drift table: (filled by the team-leader after Task 0.2)
 ### Task 4.1: Replace the Jev key methods in lane-routing — PENDING
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.config.ts` (delete
-  `hasJevApiKey`, `readJevApiKey` and `setJevApiKey` at `:180-205`; `jevStatus` uses `keys.has('jev')`;
+  `hasJevApiKey`, `readJevApiKey` and `setJevApiKey` at `:181-206`; `jevStatus` uses `keys.has('jev')`;
   `resolveSystemOneTarget` uses `keys.get('jev')`), MODIFY `...\decision-model.config.spec.ts` (renames only)
 - Plan reference: implementation-plan.md:236-237; Architecture "Effect on existing code" (no V2 copies)
 - Pattern to follow: Task 3.2 API
@@ -452,7 +479,7 @@ Drift table: (filled by the team-leader after Task 0.2)
 - Files: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.target.ts`,
   CREATE `...\decision-model.target.spec.ts`
 - Plan reference: implementation-plan.md:252-287 (resolution table)
-- Pattern to follow: `decision-model.config.ts:211-255`
+- Pattern to follow: `decision-model.config.ts:212-256`
 - Quality requirements: `resolveDecisionEndpoint(selection, deps)` (async) accepts
   `DecisionModelSelection | OllamaCloudSelection | CustomEndpointSelection`. It returns
   `DecisionEndpoint {baseUrl, model, apiKey?, probe, locality, timeoutMs}`, or
@@ -645,7 +672,7 @@ Drift table: (filled by the team-leader after Task 0.2)
 
 - Files: CREATE `W\libs\backend\rpc-handlers\src\lib\handlers\decision-model-writer.ts`, MODIFY
   `...\agent-rpc.handlers.ts` (`writeDecisionModel`, `storedSelectionState` and
-  `sameDecisionModelSelection` at `:293-311,856-939` move out; `setConfigQueue` stays)
+  `sameDecisionModelSelection` at `:293-311,856-936` move out; `setConfigQueue` stays)
 - Plan reference: implementation-plan.md:405-415
 - Quality requirements: generalised over `DecisionKeySlot`. The restore-failure text is
   `DECISION_MODEL_KEY_MAY_HAVE_CHANGED` for jev and `DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED`
@@ -1066,7 +1093,7 @@ Drift table: (filled by the team-leader after Task 0.2)
 | TL-1 | "Widen last": the member schemas are added first (Batch 3); shared widens together with the chat helpers (Batch 5); the lane-routing union widens in one compile set (Batch 9) | follow the plan's component order and accept red intermediate commits / widen last | PD-1 evidence; the TL rule that each batch passes its scoped checks | Yes |
 | TL-2 | File-cap exceptions: Batch 4 (9 files, the atomic Jev slot switch) and Batch 14 (7 files, registry, manifest and handler must land together) | split them and leave non-compiling or invariant-failing commits / exception | PD-2; `assertManifestInvariants` and `rpc-allowlist.spec.ts:41` ("claims every registry method exactly once") | Yes |
 | TL-3 | `DECISION_KIND_OPTIONS` gets its new entries only in Batch 17 | Batch 5 / Batch 17 | No intermediate build offers a kind the host refuses before Batches 9 and 14 | Yes |
-| TL-4 | `DecisionKeySlot` is exported in Batch 6, before the writer (Batch 11) imports it | Batch 3 / Batch 6 / Batch 13 | Plan :788-789; keeps Batch 3 at 6 files | Yes |
+| TL-4 | `DecisionKeySlot` is exported in Batch 6, before the writer (Batch 11) imports it | Batch 3 / Batch 6 / Batch 13 | Plan :783-784; keeps Batch 3 at 6 files | Yes |
 | TL-5 | Six review phases: 1 (B1-5), 2 (B6-10), 3 (B11-16, plus style), 4 (B17, plus visual), 5 (B18-20), 6 (B21-22: none unless Task 21.3 applies). Reviewer: codex lane | one phase / per library / per risk boundary | TL risk-based review rule; codex is reserved for reviews | Yes |
 | TL-6 | The remote timeout ships at 3000 ms until U1; Batch 21 applies the formula | wait for U1 / ship 3000 and calibrate | User choice (local run); plan "Needs the user" option (a) | Yes |
 | TL-7 | Persistence proof (B18) and docs (B22) are independent and may run at any point after Batch 0 | fixed slot / floating | No code dependency | Yes |

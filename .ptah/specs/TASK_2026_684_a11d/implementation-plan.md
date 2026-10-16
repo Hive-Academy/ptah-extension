@@ -13,7 +13,7 @@ endpoint, a decision-capability picker filter, and a gated live eval.
   uncommitted Batch 41i (`file-settings-keys.ts`, `file-settings-manager.ts` and their specs). All `file:line`
   citations below refer to that tree. Paths without a library prefix are under `libs/backend/lane-routing/src/lib/`.
 - Conventions: task 646 `implementation-plan.md`, `batches.md` Batch 41i (`:2235-2290`).
-- Corrections applied: none.
+- Corrections applied: Batch 0 re-check (2026-10-17) against the merged tree `096f014bc`: every cited file is unchanged since `2ad20c173`; C2 import line and two `agent-rpc.handlers.ts` range ends fixed (batches.md drift table).
 - Design handoff used: none (no UI design artifacts exist; the row extends the 646 row and its tokens).
 - Missing decision-critical input:
   - The client timeout for remote targets (Requirement 5) needs a keyed live run. No agent handles the key (8.3).
@@ -60,7 +60,7 @@ endpoint, a decision-capability picker filter, and a gated live eval.
 | `fetchCloudTags` keeps only `{id}`, caches `[]` for 1 h on failure, logs full tag lists | `ollama-cloud-metadata.service.ts:198-298` | Not a fit for the picker filter (Decision DC4) |
 | `ProviderModelInfo.capabilities` is the SDK capability allowlist | `shared/src/lib/types/rpc/rpc-providers.types.ts:70-78` | Do not put `decision` there |
 | RPC: `agent:setConfig` takes `decisionModel` and write-only `decisionModelJevApiKey` | `shared/src/lib/types/rpc/rpc-agents.types.ts:345-363` | Add `decisionModelCustomApiKey` the same way |
-| `writeDecisionModel` key-then-selection rollback, `storedSelectionState`, `setConfigQueue` | `rpc-handlers/.../agent-rpc.handlers.ts:337,601-605,856-939`; `sameDecisionModelSelection` `:293-311` | Generalise over a key slot; extract out of a 1746-line file |
+| `writeDecisionModel` key-then-selection rollback, `storedSelectionState`, `setConfigQueue` | `rpc-handlers/.../agent-rpc.handlers.ts:337,601-605,856-936`; `sameDecisionModelSelection` `:293-311` | Generalise over a key slot; extract out of a 1746-line file |
 | Validation before any write; invalid selection -> `'Unsupported decisionModel value'` | `agent-rpc.handlers.ts:618-650` | 2.2 field-named errors go here |
 | Precedent for a separate `agent:` handler class: `AgentOutcomeRpcHandlers` (101 lines), manifest entry, `registerSingleton` | `rpc-handlers/.../agent-outcome-rpc.handlers.ts:42-60`; `host-profile/manifest.ts:120-129`; `register-shared-rpc-handlers.ts:82-84` | The catalog RPC follows it |
 | Registry entries for an `agent:` method; prefix already allowlisted | `shared/src/lib/types/rpc.types.ts:1291-1306,3890-3903`; `rpc-allowlist.spec.ts` | Add one entry in each block |
@@ -173,7 +173,7 @@ endpoint, a decision-capability picker filter, and a gated live eval.
   (`ollama-cloud-metadata.service.ts:127-148`) into `libs/shared/src/lib/providers/ollama-cloud-model-id.ts`, export
   them from `providers/index.ts`; auth-providers imports them from `@ptah-extension/shared`; drop the two re-exports
   from `auth-providers/.../local/index.ts:17-18` (no external importer, verified by search); move the spec.
-- Verified contracts: `ollama-cloud-metadata.service.ts:127-148`; `ollama-model-discovery.service.ts:16-19` (imports
+- Verified contracts: `ollama-cloud-metadata.service.ts:127-148`; `ollama-model-discovery.service.ts:30` (imports
   `isCloudTag`); `ollama-cloud-metadata.cloud-id.spec.ts` (42 lines); `shared/src/lib/providers/index.ts:25-27`.
 - Dependencies: auth-providers -> shared (exists).
 - Integration points: lane-routing Components 3, 5, 8 import from shared.
@@ -408,7 +408,7 @@ endpoint, a decision-capability picker filter, and a gated live eval.
 - Responsibilities:
   - New `handlers/decision-model-writer.ts`, plain class `DecisionModelWriter(config, logger)` constructed by
     `AgentRpcHandlers`. `writeDecisionModel`, `storedSelectionState` and `sameDecisionModelSelection` move here from
-    `agent-rpc.handlers.ts:293-311,856-939`, generalised over `DecisionKeySlot` with `keys.snapshot/restore`. The
+    `agent-rpc.handlers.ts:293-311,856-936`, generalised over `DecisionKeySlot` with `keys.snapshot/restore`. The
     equality covers `ollama-cloud` and `custom` (`baseUrl` + `model`). The restore-failure text is
     `DECISION_MODEL_KEY_MAY_HAVE_CHANGED` (jev) or `DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED` (custom).
   - Validation in `applySetConfig` before any write (`agent-rpc.handlers.ts:618-650`): `decisionModelCustomApiKey`
@@ -420,7 +420,7 @@ endpoint, a decision-capability picker filter, and a gated live eval.
   - `agent:getConfig` needs no change: it returns `config.getStatus()` (`:508,535-560`), which now carries
     `apiKeyStored`.
   - `AgentRpcHandlers` still runs every write through `setConfigQueue` (`:337,601-605`).
-- Verified contracts: `agent-rpc.handlers.ts:293-316,337,365-368,594-700,856-939`.
+- Verified contracts: `agent-rpc.handlers.ts:293-316,337,365-368,594-700,856-936`.
 - Dependencies: Components 1, 3, 4 (exports `DecisionKeySlot`, schema, `DecisionModelConfig.keys`).
 - Integration points: frontend row writes (Component 13).
 - Failure behaviour: validation failures change nothing (2.2); a selection write that rejects after a new key restores
