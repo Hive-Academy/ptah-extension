@@ -108,9 +108,9 @@ describe('Command Center dispatch lock', () => {
     expect(flush).not.toHaveBeenCalled();
   });
 
-  it('flushes a queued prompt when the lock is released while the root is idle', () => {
+  it('flushes a queued prompt when the lock is released while the root is idle', async () => {
     lock.release('owner');
-    TestBed.tick();
+    await Promise.resolve();
 
     expect(clear).toHaveBeenCalledWith('root');
     expect(flush).toHaveBeenCalledWith('saved', 'sdk-1', {
@@ -119,10 +119,33 @@ describe('Command Center dispatch lock', () => {
     });
   });
 
-  it('leaves the queued prompt for turn-end when the root is still streaming', () => {
+  it('leaves the queued prompt for turn-end when the root is still streaming', async () => {
     root.status = 'streaming';
     lock.release('owner');
-    TestBed.tick();
+    await Promise.resolve();
+
+    expect(clear).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled();
+  });
+
+  it('flushes exactly once after a same-tick queue and release', async () => {
+    const queued = dispatch.sendOrQueueMessage('saved', { tabId: 'root' });
+    lock.release('owner');
+
+    expect(flush).not.toHaveBeenCalled();
+    await Promise.resolve();
+    await queued;
+
+    expect(queue).toHaveBeenCalledTimes(1);
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not flush when the released root is re-engaged in the same tick', async () => {
+    lock.release('owner');
+    lock.engage('root', 'sdk-1', 'new-owner');
+
+    await Promise.resolve();
 
     expect(clear).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();

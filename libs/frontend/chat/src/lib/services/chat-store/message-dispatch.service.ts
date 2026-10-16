@@ -1,4 +1,4 @@
-import { Injectable, effect, inject, untracked } from '@angular/core';
+import { DestroyRef, Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -124,31 +124,30 @@ export class MessageDispatchService {
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly sendLock = inject(CommandCenterSendLockService);
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
-    let previous = this.sendLock.state();
-    effect(() => {
-      const current = this.sendLock.state();
-      const released = previous;
-      previous = current;
-      if (!released?.active || this.sendLock.isHeld(released.rootTabId)) return;
-
-      untracked(() => {
-        const tab = this.tabManager.findTabByIdAcrossWorkspaces(
-          released.rootTabId,
-        )?.tab;
+    let destroyed = false;
+    const unsubscribe = this.sendLock.onRelease((rootTabId) => {
+      queueMicrotask(() => {
+        if (destroyed || this.sendLock.isHeld(rootTabId)) return;
+        const tab = this.tabManager.findTabByIdAcrossWorkspaces(rootTabId)?.tab;
         if (
           !tab?.queuedContent?.trim() ||
           isTabBusyGenerating({
             status: tab.status,
             streamingState: tab.streamingState,
-            isStreamingTab: this.tabManager.isTabStreaming(released.rootTabId),
+            isStreamingTab: this.tabManager.isTabStreaming(rootTabId),
           })
         ) {
           return;
         }
-        void this.sendQueuedMessage(released.rootTabId, tab.queuedContent);
+        void this.sendQueuedMessage(rootTabId, tab.queuedContent);
       });
+    });
+    this.destroyRef.onDestroy(() => {
+      destroyed = true;
+      unsubscribe();
     });
   }
 
