@@ -190,6 +190,8 @@ function makeHarness(
     activeTabViewMode?: TabViewMode;
     /** When set, provide a tile-local signal that forces the compact card. */
     forcedCard?: boolean;
+    /** Start with the docked inspector open. */
+    inspectorOpen?: boolean;
     startGuard?: () => string | null;
     isElectron?: boolean;
   } = {},
@@ -206,6 +208,7 @@ function makeHarness(
     renderCompactTemplate = false,
     activeTabViewMode = 'full',
     forcedCard,
+    inspectorOpen = false,
     startGuard,
     isElectron = false,
   } = opts;
@@ -272,14 +275,16 @@ function makeHarness(
     Array<{
       id: string;
       claudeSessionId: string | null;
-      hasLiveSession: boolean;
+       hasLiveSession: boolean;
+       viewMode: TabViewMode;
       olderHistoryCursor?: string | null;
     }>
   >([
     {
       id: 'tab-abc',
       claudeSessionId: sessionId,
-      hasLiveSession: sessionIsActive,
+       hasLiveSession: sessionIsActive,
+       viewMode: activeTabViewMode,
       olderHistoryCursor: 'older-cursor',
     },
   ]);
@@ -294,6 +299,7 @@ function makeHarness(
     id: 'tab-abc',
     name: 'Original Session',
     claudeSessionId: sessionId,
+    viewMode: activeTabViewMode,
   };
   const findTabBySessionIdMock = jest.fn().mockReturnValue(originTab);
   const activeTabMock = jest.fn().mockReturnValue(originTab);
@@ -519,7 +525,7 @@ function makeHarness(
       },
       {
         provide: InspectorOpenStateService,
-        useValue: { dockedOpen: () => false, setDocked: jest.fn() },
+        useValue: { dockedOpen: () => inspectorOpen, setDocked: jest.fn() },
       },
       ...(startGuard
         ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
@@ -2422,30 +2428,76 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
     jest.clearAllMocks();
   });
 
-  it('renders the transcript under the session header for "compact"', () => {
+  it('renders the condensed card for a user-chosen compact view', () => {
     const { fixture } = makeHarness({
       activeTabViewMode: 'compact',
       renderCompactTemplate: true,
     });
     fixture.detectChanges();
 
-    // A user-chosen compact view keeps the session view; only a host forces
-    // the card.
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
-    ).toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('ptah-session-header'),
     ).not.toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('ptah-chat-input'),
-    ).not.toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('ptah-sidebar-tab'),
-    ).not.toBeNull();
+    const region = fixture.nativeElement.querySelector('[inert].hidden');
+    expect(region).not.toBeNull();
+    expect(region.querySelector('ptah-chat-transcript')).not.toBeNull();
+    expect(region.querySelector('ptah-chat-input')).not.toBeNull();
   });
 
-  it('keeps the display dock for a user-chosen compact mode', () => {
+  it('keeps transcript and composer instances through full, compact, full', () => {
+    const h = makeHarness({ renderCompactTemplate: true });
+    const tab = signal({ ...h.activeTabMock() });
+    h.activeTabMock.mockImplementation(() => tab());
+    h.fixture.detectChanges();
+    const transcript = h.fixture.nativeElement.querySelector('ptah-chat-transcript');
+    const composer = h.fixture.nativeElement.querySelector('ptah-chat-input');
+    expect(transcript).not.toBeNull();
+    expect(composer).not.toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'compact' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(transcript);
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(composer);
+    expect(h.fixture.nativeElement.querySelector('[inert].hidden')).not.toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'full' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(transcript);
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(composer);
+    expect(h.fixture.nativeElement.querySelector('[inert].hidden')).toBeNull();
+  });
+
+  it('removes the open inspector in compact mode and restores it in full mode', () => {
+    const h = makeHarness({ renderCompactTemplate: true, inspectorOpen: true });
+    const tab = signal({ ...h.activeTabMock() });
+    h.activeTabMock.mockImplementation(() => tab());
+    h.findTabByIdAcrossWorkspacesMock.mockImplementation(() => ({ tab: tab() }));
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).not.toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'compact' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'full' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).not.toBeNull();
+  });
+
+  it('expands a user compact tab once', () => {
+    const h = makeHarness({ activeTabViewMode: 'compact' });
+    h.component.expandToFullView();
+    expect(h.tabManagerStub.toggleTabViewMode).toHaveBeenCalledTimes(1);
+    expect(h.tabManagerStub.toggleTabViewMode).toHaveBeenCalledWith('tab-abc');
+  });
+
+  it('does not toggle a full tab when its card is forced', () => {
+    const h = makeHarness({ activeTabViewMode: 'full', forcedCard: true });
+    h.component.expandToFullView();
+    expect(h.tabManagerStub.toggleTabViewMode).not.toHaveBeenCalled();
+  });
+
+  it('hides the display dock for a user-chosen compact mode', () => {
     const { fixture } = makeHarness({
       activeTabViewMode: 'compact',
       renderCompactTemplate: true,
@@ -2454,7 +2506,7 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
     fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelector('ptah-sidebar-tab'),
-    ).not.toBeNull();
+    ).toBeNull();
   });
 
   it('hides the display dock when card mode is forced', () => {
@@ -2497,6 +2549,9 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
     ).toBeNull();
     expect(
       fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-transcript'),
     ).not.toBeNull();
   });
 

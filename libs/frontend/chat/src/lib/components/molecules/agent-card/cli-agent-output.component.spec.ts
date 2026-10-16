@@ -63,12 +63,33 @@ describe('unified CLI agent output', () => {
     });
   });
 
-  function renderCard(value: MonitoredAgent) {
+  function renderCard(value: MonitoredAgent, presentation: 'card' | 'flat' = 'card') {
     const fixture = TestBed.createComponent(AgentCardComponent);
     fixture.componentRef.setInput('agent', value);
+    fixture.componentRef.setInput('presentation', presentation);
     fixture.detectChanges();
     return fixture;
   }
+
+  it('shows the usage row and task details in flat presentation without the stats bar', () => {
+    const fixture = renderCard(agent({
+      expanded: false,
+      displayName: 'Worker Alpha',
+      model: 'gpt-5',
+      cliSessionId: 'session-123',
+      segments: [{ type: 'info', content: 'Usage: 10 input', usage: { inputTokens: 10, outputTokens: 2 } }],
+    }), 'flat');
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[aria-label="Lane usage"]')).not.toBeNull();
+    expect(el.querySelector('[aria-label="Collapse Worker Alpha"]')).toBeNull();
+    expect(el.textContent).not.toContain('Worker Alpha');
+    expect(el.textContent).not.toContain('Reported total:');
+    expect(el.textContent).not.toContain('↑');
+    const details = el.querySelector('details');
+    expect(details?.hasAttribute('open')).toBe(false);
+    expect(details?.textContent).toContain('session-123');
+    expect(details?.textContent).toContain('Inspect files');
+  });
 
   it.each<CliType>([
     'antigravity',

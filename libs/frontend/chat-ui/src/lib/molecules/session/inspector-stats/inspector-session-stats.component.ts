@@ -111,16 +111,16 @@ let nextSessionId = 0;
           </div>
         }
         @if (modelNames().length === 1) {
-          <div class="col-span-2 min-h-10 rounded-md border border-surface-border bg-surface-1 p-2.5 text-xs">
-            <span class="text-base-content-muted">Model</span> <span [title]="primaryModel()">{{ modelNames()[0] }}</span>
+          <div class="col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5">
+            <div class="text-[11px] text-base-content-muted">Model</div>
+            <div class="text-[15px] font-semibold" [title]="primaryModel()">{{ modelNames()[0] }}</div>
           </div>
         } @else if (modelNames().length >= 2) {
-          <button type="button" class="col-span-2 min-h-10 flex items-center gap-2 rounded-md border border-surface-border bg-surface-1 p-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+          <button type="button" class="col-span-2 flex items-center gap-2 rounded-md border border-surface-border bg-surface-1 p-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
             [attr.aria-expanded]="isOpen('sd-models')" [attr.aria-controls]="modelsPanelId"
             [title]="isOpen('sd-models') ? 'Hide per-model breakdown' : 'Show per-model breakdown'" (click)="toggle('sd-models')" (keydown.escape)="closeOnEscape($event, 'sd-models')">
-            <span class="text-xs text-base-content-muted">Models</span>
-            <span class="min-w-0 flex-1 truncate text-xs">{{ modelNames().slice(0, 2).join(', ') }}</span>
-            <span class="text-xs tabular-nums">{{ modelNames().length }}</span>
+            <span class="min-w-0 flex-1"><span class="block text-[11px] text-base-content-muted">Models</span><span class="block truncate text-[15px] font-semibold">{{ modelNames().slice(0, 2).join(', ') }}</span></span>
+            <span class="text-[11px] tabular-nums text-base-content-muted">{{ modelNames().length }}</span>
             <lucide-angular [img]="ChevronRightIcon" class="size-3" [class.rotate-90]="isOpen('sd-models')" aria-hidden="true" />
           </button>
           <div [id]="modelsPanelId" class="col-span-2 grid gap-1.5" [hidden]="!isOpen('sd-models')" role="list" aria-label="Per-model usage">
