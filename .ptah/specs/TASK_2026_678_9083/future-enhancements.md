@@ -115,3 +115,6 @@ were in scope. F-1, F-3, F-4, F-5 and F-7 of the round 1 review are fixed in the
   no feedback when a send landed on the previous workspace's session, and a repeated Enter while `submitting` gets
   no cue; a rejected argv workspace is dropped without a log and the `bootstrap.ts` audit comment says "reported";
   no spec pins the single renderer log (B3) or the `statSync` adapter.
+- Follow-up PR (D58): replace the root sphere's gold "P" with the user's artwork `ptah-voice-command.jpg`: crop inside the
+  gold ring, about 320 px WebP/PNG webview asset, preload and draw clipped in `scene/sprite-cache.ts` with the "P" as the
+  fallback until it loads, light-theme check, dark/light before-after screenshots, confirm the artwork rights.
