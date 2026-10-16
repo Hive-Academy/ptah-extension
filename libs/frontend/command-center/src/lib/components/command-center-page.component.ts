@@ -24,6 +24,9 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
 @Component({
   selector: 'ptah-command-center-page',
   standalone: true,
+  host: {
+    class: 'flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto',
+  },
   imports: [
     CommandSceneComponent,
     CommandOverlayComponent,
@@ -43,52 +46,63 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
   styles: [
     `
       :host {
-        display: block;
-        height: 100%;
         container-type: inline-size;
       }
       .layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 336px;
+        grid-template-areas:
+          'stage rail'
+          'dock dock';
+        grid-template-rows: minmax(0, 1fr) auto;
+        flex: 1 0 auto;
         gap: 16px;
         padding: 16px;
-        min-height: calc(100% - 72px);
+      }
+      .stage-column {
+        grid-area: stage;
+      }
+      .dock {
+        grid-area: dock;
       }
       .stage {
         position: relative;
-        height: max(600px, calc(100vh - 246px));
-        min-height: 600px;
+        flex: 1 1 auto;
+        min-height: 420px;
       }
       .rail {
+        grid-area: rail;
         min-width: 0;
-        height: calc(max(600px, 100vh - 246px) + 150px);
-        overflow: hidden;
       }
       .work-list-region {
-        flex: 1;
         min-height: 0;
-        overflow-y: auto;
+      }
+      @container (width >= 1280px) {
+        .dock {
+          flex-wrap: nowrap;
+        }
       }
       @container (width < 720px) {
         .layout {
           display: flex;
           flex-direction: column;
         }
-        .stage {
-          height: 460px;
-          min-height: 460px;
+        .stage-column {
+          order: 0;
         }
-        .work-list-region {
-          overflow-y: visible;
+        .dock {
+          order: 1;
         }
         .rail {
-          height: auto;
-          overflow: visible;
+          order: 2;
+        }
+        .stage {
+          flex: none;
+          min-height: 460px;
         }
       }
       @container (width < 480px) {
         .stage {
-          height: 360px;
           min-height: 360px;
         }
       }
@@ -96,7 +110,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
   ],
   template: `
     <header
-      class="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-2 text-base-content"
+      class="flex min-h-[72px] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-2 text-base-content"
     >
       <div>
         <p
@@ -106,8 +120,23 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         </p>
         <h1 class="text-xl font-semibold">Command Center</h1>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="badge badge-outline min-h-8" role="status"
+      <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          class="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-full border border-base-300 bg-base-200 px-3 font-mono text-[11px] font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          [title]="voiceChipAriaLabel()"
+          [attr.aria-label]="voiceChipAriaLabel()"
+          (click)="page.openVoiceSettings()"
+        >
+          <span
+            class="size-2 shrink-0 rounded-full"
+            [class.bg-success]="voiceChipReady()"
+            [class.bg-warning]="!voiceChipReady()"
+            aria-hidden="true"
+          ></span>
+          <span class="min-w-0 truncate">{{ voiceChipText() }}</span>
+        </button>
+        <span class="badge badge-outline min-h-8 text-[11px]" role="status"
           >Session {{ page.store.sessionId()?.slice(0, 8) ?? 'new' }} ·
           {{ page.store.sessionStatus() }}</span
         >
@@ -121,7 +150,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
       </div>
     </header>
     <div class="layout">
-      <div class="flex min-w-0 flex-col gap-3">
+      <div class="stage-column flex min-h-0 min-w-0 flex-col">
         @if (!page.canvasUnavailable()) {
           <main
             class="stage min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-200"
@@ -169,34 +198,8 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
             </p>
           </main>
         }
-        <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-3"
-          aria-label="Command dock"
-        >
-          <ptah-command-voice-hud
-            class="min-w-0 flex-1"
-            [voiceState]="page.store.voiceState()"
-            [provider]="page.store.provider()"
-            [muted]="page.store.muted()"
-            [voiceError]="page.store.voiceError()"
-            [inputLevel]="page.store.inputLevel()"
-            [turnAbortable]="page.turnAbortable()"
-            (start)="page.startVoice()"
-            (stop)="page.stopVoice()"
-            (toggleMute)="page.toggleMuteVoice()"
-            (interrupt)="page.interruptSpeech()"
-            (openVoiceSettings)="page.openVoiceSettings()"
-          />
-          <ptah-command-session-controls
-            class="min-w-0 flex-1"
-            [sessionStatus]="page.store.sessionStatus()"
-            (newSession)="page.coordinator.newCommandCenter()"
-            (requestStatus)="page.coordinator.sendStatusTurn('Status')"
-            (commandSubmit)="page.sendCommand($event)"
-          />
-        </div>
       </div>
-      <aside class="rail relative flex flex-col gap-3">
+      <aside class="rail flex flex-col gap-3">
         @if (page.recordWriteFailure()) {
           <p role="status" class="rounded-lg border border-warning p-2">
             The session pointer could not be saved. You can continue using this
@@ -204,23 +207,29 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           </p>
         }
         @if (page.store.toast(); as toast) {
-          <div class="absolute inset-x-0 top-0 z-30 p-2">
+          <div>
             <div
-              class="alert flex items-start gap-2 border shadow-lg"
-              [class.alert-error]="toast.tone === 'error'"
-              [class.alert-warning]="toast.tone === 'warning'"
-              [class.alert-success]="toast.tone === 'success'"
-              [class.alert-info]="toast.tone === 'info'"
+              class="alert flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
+              [class.border-l-error]="toast.tone === 'error'"
+              [class.border-l-warning]="toast.tone === 'warning'"
+              [class.border-l-success]="toast.tone === 'success'"
+              [class.border-l-info]="toast.tone === 'info'"
               [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
             >
-              <span aria-hidden="true" class="font-bold">{{
-                toast.tone === 'error' ? '!' : '●'
-              }}</span>
+              <span
+                aria-hidden="true"
+                class="font-bold"
+                [class.text-error]="toast.tone === 'error'"
+                [class.text-warning]="toast.tone === 'warning'"
+                [class.text-success]="toast.tone === 'success'"
+                [class.text-info]="toast.tone === 'info'"
+                >{{ toast.tone === 'error' ? '!' : '●' }}</span
+              >
               <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
               @if (toast.action === 'retry-speech') {
                 <button
                   type="button"
-                  class="btn btn-sm"
+                  class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
                   (click)="page.retrySpeech()"
                 >
                   Retry speech
@@ -228,7 +237,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
               }
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
+                class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
                 aria-label="Dismiss notification"
                 (click)="dismissToast()"
               >
@@ -283,11 +292,54 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           />
         </div>
       </aside>
+      <div
+        class="dock flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-3"
+        aria-label="Command dock"
+      >
+        <ptah-command-voice-hud
+          class="min-w-0 flex-[1_1_24rem]"
+          [voiceState]="page.store.voiceState()"
+          [provider]="page.store.provider()"
+          [muted]="page.store.muted()"
+          [voiceError]="page.store.voiceError()"
+          [inputLevel]="page.store.inputLevel()"
+          [turnAbortable]="page.turnAbortable()"
+          (start)="page.startVoice()"
+          (stop)="page.stopVoice()"
+          (toggleMute)="page.toggleMuteVoice()"
+          (interrupt)="page.interruptSpeech()"
+          (openVoiceSettings)="page.openVoiceSettings()"
+        />
+        <ptah-command-session-controls
+          class="min-w-0 flex-[1_1_26rem]"
+          [sessionStatus]="page.store.sessionStatus()"
+          (newSession)="page.coordinator.newCommandCenter()"
+          (requestStatus)="page.coordinator.sendStatusTurn('Status')"
+          (commandSubmit)="page.sendCommand($event)"
+        />
+      </div>
     </div>
   `,
 })
 export class CommandCenterPageComponent {
   public readonly page = inject(CommandCenterPageController);
+  public readonly voiceChipReady = computed(
+    () =>
+      this.page.store.provider().transcription &&
+      this.page.store.provider().synthesis,
+  );
+  public readonly voiceChipText = computed(() => {
+    const { stt, tts } = this.page.store.provider();
+    if (!stt || !tts) return 'Voice unavailable';
+    return stt.providerId === tts.providerId
+      ? `${stt.providerLabel} · ${stt.modelLabel} / ${tts.modelLabel}`
+      : `${stt.providerLabel} STT · ${tts.providerLabel} TTS · ${stt.modelLabel} / ${tts.modelLabel}`;
+  });
+  public readonly voiceChipAriaLabel = computed(() => {
+    const { stt, tts } = this.page.store.provider();
+    if (!stt || !tts) return 'Voice unavailable. Open voice settings';
+    return `Voice: speech-to-text ${stt.providerLabel} ${stt.modelLabel}, ${stt.status.toLowerCase()}; text-to-speech ${tts.providerLabel} ${tts.modelLabel}, ${tts.status.toLowerCase()}. Open voice settings`;
+  });
   public readonly answerResult = signal<{
     id: string;
     accepted: boolean;

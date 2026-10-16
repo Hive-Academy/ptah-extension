@@ -18,7 +18,7 @@ import type { CommandSessionStatus } from '../model/command-center.store';
     >
       <div class="flex flex-wrap items-center gap-2">
         <form
-          class="flex min-w-0 flex-1 items-center rounded-lg border border-base-content bg-base-100 focus-within:border-warning"
+          class="flex min-w-[15rem] flex-[1_1_15rem] items-center rounded-lg border border-base-content bg-base-100 focus-within:border-warning"
           (submit)="send($event)"
         >
           <label class="sr-only" for="command-text"

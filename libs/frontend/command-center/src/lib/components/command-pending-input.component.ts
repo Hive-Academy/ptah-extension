@@ -18,7 +18,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
   template: `
     @if (pending(); as request) {
       <section
-        class="max-h-[260px] overflow-y-auto rounded-xl border border-state-need bg-base-200 p-3 text-base-content"
+        class="rounded-xl border border-state-need bg-base-200 p-3 text-base-content"
         aria-labelledby="pending-title"
       >
         <p
@@ -29,7 +29,9 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
         <h2 id="pending-title" class="mt-2 font-semibold">
           {{ request.title }}
         </h2>
-        <p class="mt-2 whitespace-pre-wrap text-sm">
+        <p
+          class="mt-2 max-h-[96px] overflow-y-auto whitespace-pre-wrap text-sm"
+        >
           {{ request.description }}
         </p>
         @if (proposal(); as roster) {
@@ -113,7 +115,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
             <input
               #answerInput
               id="pending-answer"
-              class="input mt-1 min-h-11 w-full border border-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              class="input mt-1 min-h-11 w-full border border-base-content/50 placeholder:text-base-content/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
               [placeholder]="
                 choices()[0] ? 'e.g. ' + choices()[0] : 'Type an answer'
               "

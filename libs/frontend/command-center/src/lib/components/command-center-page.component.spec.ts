@@ -92,6 +92,12 @@ describe('CommandCenterPageComponent', () => {
     recordWriteFailure.set(null);
     store.setProjection('root:session', nodes, []);
     store.select(null);
+    store.setProvider({
+      transcription: false,
+      synthesis: false,
+      stt: null,
+      tts: null,
+    });
     TestBed.configureTestingModule({
       imports: [CommandCenterPageComponent],
       providers: [
@@ -116,6 +122,72 @@ describe('CommandCenterPageComponent', () => {
     });
   });
 
+  it('shows both voice models, status and opens settings from the chip', () => {
+    store.setProvider({
+      transcription: true,
+      synthesis: false,
+      stt: {
+        providerId: 'local',
+        providerLabel: 'Local',
+        modelLabel: 'whisper-base',
+        ready: true,
+        status: 'Ready',
+      },
+      tts: {
+        providerId: 'local',
+        providerLabel: 'Local',
+        modelLabel: 'af_heart',
+        ready: false,
+        status: 'Not downloaded',
+      },
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header button[title]',
+    ) as HTMLButtonElement;
+    expect(chip.textContent).toContain('Local · whisper-base / af_heart');
+    expect(chip.getAttribute('aria-label')).toContain(
+      'speech-to-text Local whisper-base, ready; text-to-speech Local af_heart, not downloaded',
+    );
+    expect(chip.querySelector('.bg-warning')).not.toBeNull();
+    chip.click();
+    expect(controller.openVoiceSettings).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+  });
+
+  it('names both providers when speech directions differ', () => {
+    store.setProvider({
+      transcription: true,
+      synthesis: true,
+      stt: {
+        providerId: 'local',
+        providerLabel: 'Local',
+        modelLabel: 'whisper-base',
+        ready: true,
+        status: 'Ready',
+      },
+      tts: {
+        providerId: 'elevenlabs',
+        providerLabel: 'ElevenLabs',
+        modelLabel: 'ElevenLabs voice',
+        ready: true,
+        status: 'Ready',
+      },
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header button[title]',
+    ) as HTMLButtonElement;
+    expect(chip.textContent).toContain('Local STT · ElevenLabs TTS');
+    expect(chip.getAttribute('aria-label')).toContain(
+      'text-to-speech ElevenLabs ElevenLabs voice, ready',
+    );
+    expect(chip.querySelector('.bg-success')).not.toBeNull();
+    fixture.destroy();
+  });
+
   it('passes scene hoveredNodeId to the overlay input', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
@@ -133,9 +205,13 @@ describe('CommandCenterPageComponent', () => {
   it('places the controls in a dock and shows a selected-node summary', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
+    expect(fixture.nativeElement.className).toContain('overflow-y-auto');
+    expect(fixture.nativeElement.className).toContain('min-h-0');
     const dock = fixture.nativeElement.querySelector(
       '[aria-label="Command dock"]',
     ) as HTMLElement;
+    expect(dock.className).toContain('dock');
+    expect(dock.parentElement?.className).toContain('layout');
     expect(dock.querySelector('ptah-command-voice-hud')).not.toBeNull();
     expect(dock.querySelector('ptah-command-session-controls')).not.toBeNull();
     expect(
@@ -152,18 +228,22 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('overlays dismissible toasts and expires only non-error tones', () => {
+  it('shows dismissible toasts before the selected card and expires only non-error tones', () => {
     jest.useFakeTimers();
     try {
       store.setToast({ tone: 'info', message: 'Ready' });
       const fixture = TestBed.createComponent(CommandCenterPageComponent);
       fixture.detectChanges();
+      const infoAlert = fixture.nativeElement.querySelector(
+        '.alert',
+      ) as HTMLElement;
+      expect(infoAlert.textContent).toContain('Ready');
+      expect(infoAlert.className).toContain('bg-base-100');
+      expect(infoAlert.className).toContain('text-base-content');
+      expect(infoAlert.parentElement?.className).not.toContain('absolute');
       expect(
-        fixture.nativeElement.querySelector('.alert-info')?.textContent,
-      ).toContain('Ready');
-      expect(
-        fixture.nativeElement.querySelector('.alert')?.parentElement?.className,
-      ).toContain('absolute');
+        infoAlert.parentElement?.nextElementSibling?.getAttribute('aria-label'),
+      ).toBe('Selected work');
       jest.advanceTimersByTime(5000);
       fixture.detectChanges();
       expect(store.toast()).toBeNull();
@@ -176,6 +256,13 @@ describe('CommandCenterPageComponent', () => {
       jest.advanceTimersByTime(5000);
       fixture.detectChanges();
       expect(store.toast()?.message).toBe('Retry needed');
+      const errorAlert = fixture.nativeElement.querySelector(
+        '.alert',
+      ) as HTMLElement;
+      expect(errorAlert.className).toContain('border-l-error');
+      expect(
+        errorAlert.querySelector('[aria-hidden="true"]')?.className,
+      ).toContain('text-error');
       const retry = [
         ...fixture.nativeElement.querySelectorAll('.alert button'),
       ].find((button: HTMLButtonElement) =>

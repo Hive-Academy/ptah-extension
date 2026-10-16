@@ -1,11 +1,30 @@
 import { CommandVoiceLoop } from './command-voice-loop';
-import type { CommandCenterStore } from '../model/command-center.store';
+import { CommandCenterStore } from '../model/command-center.store';
 import type { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import type { ClaudeRpcService } from '@ptah-extension/core';
 
 describe('CommandVoiceLoop', () => {
   const frames = new Float32Array(128).fill(0.2);
   const silence = new Float32Array(128);
+
+  it('ignores Mute before voice has started', async () => {
+    const store = new CommandCenterStore();
+    const mute = jest.fn();
+    const rpc = { call: jest.fn() };
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.assign(Object.create(null) as CommandCenterSessionCoordinator, {
+        mute,
+      }),
+      Object.assign(Object.create(null) as ClaudeRpcService, rpc),
+      { sendTranscript: async () => true },
+    );
+    await loop.mute();
+    expect(mute).not.toHaveBeenCalled();
+    expect(store.muted()).toBe(false);
+    expect(store.voiceState()).toBe('idle');
+    expect(rpc.call).not.toHaveBeenCalled();
+  });
 
   it('rejects a boundary carrying an older voice turn token', () => {
     const { loop } = frameLoop();
@@ -514,6 +533,7 @@ describe('CommandVoiceLoop', () => {
     const store = Object.assign(Object.create(null) as CommandCenterStore, {
       voiceState: () => 'stopped',
       setVoiceState,
+      setMuted: jest.fn(),
       resetLevels: jest.fn(),
       pendingInput: () => null,
     });

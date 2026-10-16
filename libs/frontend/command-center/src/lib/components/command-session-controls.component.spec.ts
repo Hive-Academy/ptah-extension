@@ -20,6 +20,8 @@ describe('CommandSessionControlsComponent', () => {
     ) as HTMLInputElement;
     expect(input.placeholder).toBe('Or type a command for Ptah...');
     expect(input.parentElement?.className).toContain('border-base-content');
+    expect(input.parentElement?.className).toContain('min-w-[15rem]');
+    expect(input.parentElement?.className).toContain('flex-[1_1_15rem]');
     expect(input.className).toContain('focus-visible:outline-warning');
     input.value = '  Review release  ';
     input.dispatchEvent(new Event('input'));

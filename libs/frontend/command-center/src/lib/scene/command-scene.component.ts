@@ -150,7 +150,7 @@ export class CommandSceneComponent {
       const labels = this.overlayLabels();
       const measuredLabels = new Map(
         labels.map((label) => [
-          label.element.textContent?.trim(),
+          label.id,
           {
             width: label.width,
             height: label.height,
@@ -160,8 +160,8 @@ export class CommandSceneComponent {
       const layout = layoutScene(
         projection,
         viewport,
-        (text) => {
-          const measured = measuredLabels.get(text);
+        (nodeId, text) => {
+          const measured = measuredLabels.get(nodeId);
           return measured?.width && measured.height
             ? measured
             : {
@@ -233,6 +233,37 @@ export class CommandSceneComponent {
 
   /** Attach the overlay's measured label elements to the next scene snapshot. */
   public setOverlayLabels(labels: readonly SceneLabel[]): void {
+    const previous = this.overlayLabels();
+    const previousById = new Map(previous.map((label) => [label.id, label]));
+    labels = labels.map((label) => {
+      const old = previousById.get(label.id);
+      return old?.element === label.element
+        ? {
+            ...label,
+            width: label.width || old.width,
+            height: label.height || old.height,
+          }
+        : label;
+    });
+    if (
+      previous.length === labels.length &&
+      previous.every(
+        (label, index) =>
+          label.id === labels[index].id &&
+          label.element === labels[index].element &&
+          label.width === labels[index].width &&
+          label.height === labels[index].height,
+      )
+    )
+      return;
+    const previousElements = new Set(previous.map((label) => label.element));
+    const nextElements = new Set(labels.map((label) => label.element));
+    for (const element of previousElements) {
+      if (!nextElements.has(element)) this.observer?.unobserve(element);
+    }
+    for (const element of nextElements) {
+      if (!previousElements.has(element)) this.observer?.observe(element);
+    }
     this.overlayLabels.set(labels);
   }
 
@@ -247,8 +278,20 @@ export class CommandSceneComponent {
     const stage = this.stageRef().nativeElement;
     this.zone.runOutsideAngular(() => {
       this.renderer = new CommandSceneRenderer(canvas, context);
-      this.observer = new ResizeObserver(() => this.resize());
+      this.observer = new ResizeObserver((entries) => {
+        if (entries.some((entry) => entry.target === stage)) this.resize();
+        if (entries.some((entry) => entry.target !== stage)) {
+          const labels = this.overlayLabels().map((label) => ({
+            ...label,
+            width: label.element.offsetWidth,
+            height: label.element.offsetHeight,
+          }));
+          this.zone.run(() => this.setOverlayLabels(labels));
+        }
+      });
       this.observer.observe(stage);
+      for (const label of this.overlayLabels())
+        this.observer.observe(label.element);
       document.addEventListener('visibilitychange', this.onVisibility);
       this.media = window.matchMedia('(prefers-reduced-motion: reduce)');
       this.media.addEventListener('change', this.onMotion);

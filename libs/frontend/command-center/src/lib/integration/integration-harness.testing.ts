@@ -55,9 +55,21 @@ export function createHarness(
   const lastTerminalPulseByTab = computed(
     () => new Map(pulses().map((pulse) => [pulse.tabId, pulse] as const)),
   );
+  const visibleTabIds = signal<ReadonlySet<string>>(new Set());
   const tabService = {
     activeWorkspacePath: '/repo',
     tabs,
+    visibleTabIds,
+    registerVisibleTab: jest.fn((id: string) =>
+      visibleTabIds.update((set) => new Set(set).add(id)),
+    ),
+    unregisterVisibleTab: jest.fn((id: string) =>
+      visibleTabIds.update((set) => {
+        const next = new Set(set);
+        next.delete(id);
+        return next;
+      }),
+    ),
     terminalTurnPulses: pulses,
     lastTerminalPulseByTab,
     commandCenterRecordWriteFailure: recordWriteFailure,

@@ -45,6 +45,8 @@ describe('Command Center failure and fallback integration', () => {
     expect(page.store.provider()).toEqual({
       transcription: false,
       synthesis: false,
+      stt: null,
+      tts: null,
     });
     await page.sendCommand('Continue in text');
     expect(sender.send).toHaveBeenCalledTimes(1);

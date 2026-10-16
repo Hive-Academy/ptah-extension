@@ -87,7 +87,7 @@ export function rootWorkState(
 
 /** The only ownership source is the root's recursive session ancestry. */
 export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
-  const rootId = `root:${input.rootSessionId}`;
+  const rootId = `root:${input.rootTabId}`;
   const nodes: CommandWorkNode[] = [
     {
       id: rootId,

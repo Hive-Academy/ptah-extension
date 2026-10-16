@@ -11,6 +11,7 @@ import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { CommandCenterPageController } from './command-center-page.controller';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
+import { CommandOverlayComponent } from './command-overlay.component';
 
 describe('CommandCenterPageController', () => {
   const recordWriteFailure = signal<{
@@ -18,12 +19,28 @@ describe('CommandCenterPageController', () => {
     record: 'lastSession';
   } | null>(null);
   const tabs = signal<
-    { id: string; status: string; claudeSessionId?: string }[]
+    {
+      id: string;
+      status: string;
+      claudeSessionId?: string;
+      lastTerminalReason?: 'completed' | 'api_error' | 'aborted_streaming';
+    }[]
   >([]);
   const terminalTurnPulses = signal<readonly TerminalTurnPulse[]>([]);
   const lastTerminalPulseByTab = signal<ReadonlyMap<string, TerminalTurnPulse>>(
     new Map(),
   );
+  const visibleTabIds = signal<ReadonlySet<string>>(new Set());
+  const registerVisibleTab = jest.fn((id: string) => {
+    visibleTabIds.update((ids) => new Set([...ids, id]));
+  });
+  const unregisterVisibleTab = jest.fn((id: string) => {
+    visibleTabIds.update((ids) => {
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
+  });
   const permissionRequests = signal<
     readonly {
       id: string;
@@ -93,6 +110,7 @@ describe('CommandCenterPageController', () => {
     recordWriteFailure.set(null);
     terminalTurnPulses.set([]);
     lastTerminalPulseByTab.set(new Map());
+    visibleTabIds.set(new Set());
     tabs.set([]);
     permissionRequests.set([]);
     rpc.call.mockReset();
@@ -107,6 +125,9 @@ describe('CommandCenterPageController', () => {
             tabs,
             terminalTurnPulses,
             lastTerminalPulseByTab,
+            visibleTabIds,
+            registerVisibleTab,
+            unregisterVisibleTab,
             commandCenterRecordWriteFailure: recordWriteFailure,
           },
         },
@@ -137,6 +158,107 @@ describe('CommandCenterPageController', () => {
       ],
     });
     page = TestBed.inject(CommandCenterPageController);
+  });
+
+  it('loads local provider models and download status on open', async () => {
+    rpc.call.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        config: {
+          sttProvider: 'local',
+          ttsProvider: 'local',
+          local: {
+            modelSource: 'curated',
+            whisperModel: 'whisper-base',
+            sttDownloaded: true,
+            ttsDownloaded: false,
+            ttsVoice: 'af_heart',
+          },
+          elevenlabs: {
+            apiKeyConfigured: false,
+            sttModelId: 'scribe_v1',
+            ttsModelId: 'eleven_multilingual_v2',
+            outputFormat: 'mp3',
+          },
+        },
+      },
+    });
+    await page.open();
+    expect(page.store.provider()).toMatchObject({
+      transcription: true,
+      synthesis: false,
+      stt: {
+        providerId: 'local',
+        providerLabel: 'Local',
+        modelLabel: 'whisper-base',
+        ready: true,
+        status: 'Ready',
+      },
+      tts: {
+        providerId: 'local',
+        providerLabel: 'Local',
+        modelLabel: 'af_heart',
+        ready: false,
+        status: 'Not downloaded',
+      },
+    });
+  });
+
+  it('loads ElevenLabs model and fallback voice with key status', async () => {
+    rpc.call.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        config: {
+          sttProvider: 'elevenlabs',
+          ttsProvider: 'elevenlabs',
+          local: {
+            modelSource: 'curated',
+            whisperModel: 'whisper-base',
+            sttDownloaded: false,
+            ttsDownloaded: false,
+            ttsVoice: 'af_heart',
+          },
+          elevenlabs: {
+            apiKeyConfigured: false,
+            sttModelId: 'scribe_v1',
+            ttsModelId: 'eleven_multilingual_v2',
+            outputFormat: 'mp3',
+          },
+        },
+      },
+    });
+    await page.open();
+    expect(page.store.provider()).toMatchObject({
+      transcription: false,
+      synthesis: false,
+      stt: {
+        providerId: 'elevenlabs',
+        providerLabel: 'ElevenLabs',
+        modelLabel: 'scribe_v1',
+        ready: false,
+        status: 'No key',
+      },
+      tts: {
+        providerId: 'elevenlabs',
+        providerLabel: 'ElevenLabs',
+        modelLabel: 'ElevenLabs voice',
+        ready: false,
+        status: 'No key',
+      },
+    });
+  });
+
+  it('clears provider details when config loading fails', async () => {
+    rpc.call.mockRejectedValue(new Error('unavailable'));
+    await page.open();
+    expect(page.store.provider()).toMatchObject({
+      transcription: false,
+      synthesis: false,
+      stt: null,
+      tts: null,
+    });
   });
 
   it('routes start, mute, and stop controls to the voice loop', async () => {
@@ -181,6 +303,30 @@ describe('CommandCenterPageController', () => {
     expect(page.projection().nodes[0]?.state).toBe('awaiting input');
   });
 
+  it('keeps root selection and the pinned card when the SDK ID arrives', () => {
+    tabs.set([{ id: 'root-tab', status: 'loaded' }]);
+    page.store.setSession('root-tab', null, '/workspace');
+    TestBed.tick();
+    const rootId = page.projection().nodes[0]?.id;
+    expect(rootId).toBe('root:root-tab');
+    const fixture = TestBed.createComponent(CommandOverlayComponent);
+    fixture.componentRef.setInput('projection', page.projection());
+    fixture.detectChanges();
+    fixture.componentInstance.pin('root:root-tab');
+    fixture.detectChanges();
+    tabs.set([
+      { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
+    ]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    TestBed.tick();
+    fixture.componentRef.setInput('projection', page.projection());
+    fixture.detectChanges();
+    expect(page.projection().nodes[0]?.id).toBe(rootId);
+    expect(page.store.selectedId()).toBe(rootId);
+    expect(fixture.componentInstance.pinnedNodeId()).toBe(rootId);
+    fixture.destroy();
+  });
+
   it('clears a voice error and its toast before retrying Start voice', async () => {
     page.store.setVoiceError({
       kind: 'worklet',
@@ -194,6 +340,16 @@ describe('CommandCenterPageController', () => {
     await page.startVoice();
     expect(page.store.voiceError()).toBeNull();
     expect(page.store.toast()).toBeNull();
+  });
+
+  it('does not turn an untouched microphone into an Unmute action', async () => {
+    tabs.set([{ id: 'root-tab', status: 'streaming' }]);
+    page.store.setSession('root-tab', null, '/workspace');
+    const start = jest.spyOn(page.voice, 'start').mockResolvedValue(true);
+    await page.toggleMuteVoice();
+    expect(page.store.muted()).toBe(false);
+    expect(page.store.voiceState()).toBe('idle');
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('allows Stop for a streaming typed turn and settles status at the terminal pulse', () => {
@@ -230,6 +386,126 @@ describe('CommandCenterPageController', () => {
     expect(page.turnAbortable()).toBe(false);
     expect(page.store.sessionStatus()).toBe('idle');
     expect(page.latestReply()).toBe('Done');
+  });
+
+  it('keeps running when an older terminal pulse arrives during a second turn', () => {
+    const pulse = (seq: number): TerminalTurnPulse => ({
+      seq,
+      tabId: 'root-tab',
+      sessionId: 'session',
+      workspacePath: '/workspace',
+      revision: seq,
+      phase: 'idle',
+      terminalReason: 'completed',
+      lastAssistantMessage: `Reply ${seq}`,
+      classification: 'success',
+      title: 'Command Center',
+      occurredAt: Date.now(),
+    });
+    tabs.set([
+      { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+    ]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    TestBed.tick();
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse(1)]]));
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('running');
+    tabs.set([
+      {
+        id: 'root-tab',
+        status: 'loaded',
+        claudeSessionId: 'session',
+        lastTerminalReason: 'completed',
+      },
+    ]);
+    lastTerminalPulseByTab.set(new Map([['root-tab', pulse(2)]]));
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('idle');
+  });
+
+  it('settles without a terminal pulse when the root stops streaming', () => {
+    tabs.set([
+      { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+    ]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    TestBed.tick();
+    tabs.set([
+      { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
+    ]);
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('idle');
+  });
+
+  it('settles a failed root as error without a terminal pulse', () => {
+    tabs.set([
+      { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+    ]);
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.store.setSessionStatus('running');
+    TestBed.tick();
+    tabs.set([
+      {
+        id: 'root-tab',
+        status: 'loaded',
+        claudeSessionId: 'session',
+        lastTerminalReason: 'api_error',
+      },
+    ]);
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('error');
+  });
+
+  it('ends the voice loop and clears mute when the marked session changes', async () => {
+    tabs.set([{ id: 'root-tab', status: 'loaded' }]);
+    page.store.setSession('root-tab', null, '/workspace');
+    TestBed.tick();
+    page.voice['muted'] = true;
+    page.store.setMuted(true);
+    page.store.setVoiceState('muted');
+    tabs.set([{ id: 'new-tab', status: 'loaded' }]);
+    page.store.setSession('new-tab', null, '/workspace');
+    page.store.setSessionStatus('idle');
+    TestBed.tick();
+    await Promise.resolve();
+    expect(page.store.muted()).toBe(false);
+    expect(page.store.voiceState()).toBe('idle');
+    expect(page.voice['muted']).toBe(false);
+  });
+
+  it('registers the marked tab for this page lifetime and releases it on change and destroy', () => {
+    page.store.setSession('first-tab', null, '/workspace');
+    TestBed.tick();
+    expect(registerVisibleTab).toHaveBeenCalledWith('first-tab');
+    expect(visibleTabIds().has('first-tab')).toBe(true);
+
+    page.store.setSession('second-tab', null, '/workspace');
+    TestBed.tick();
+    expect(unregisterVisibleTab).toHaveBeenCalledWith('first-tab');
+    expect(visibleTabIds().has('first-tab')).toBe(false);
+    expect(visibleTabIds().has('second-tab')).toBe(true);
+
+    TestBed.resetTestingModule();
+    expect(unregisterVisibleTab).toHaveBeenCalledWith('second-tab');
+    expect(visibleTabIds().has('second-tab')).toBe(false);
+  });
+
+  it('preserves a tab that was already visible before the page registered', () => {
+    visibleTabIds.set(new Set(['shared-tab']));
+    page.store.setSession('shared-tab', null, '/workspace');
+    TestBed.tick();
+    expect(registerVisibleTab).not.toHaveBeenCalledWith('shared-tab');
+
+    page.store.setSession('owned-tab', null, '/workspace');
+    TestBed.tick();
+    expect(unregisterVisibleTab).not.toHaveBeenCalledWith('shared-tab');
+    expect(visibleTabIds().has('shared-tab')).toBe(true);
+    expect(visibleTabIds().has('owned-tab')).toBe(true);
+
+    TestBed.resetTestingModule();
+    expect(visibleTabIds().has('shared-tab')).toBe(true);
+    expect(visibleTabIds().has('owned-tab')).toBe(false);
   });
 
   it('exits voice transport on page teardown', async () => {

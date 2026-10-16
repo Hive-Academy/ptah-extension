@@ -201,7 +201,7 @@ export class SpriteCache {
       context.translate(center - extent / 2, center - extent / 2);
       context.scale(extent / box[2], extent / box[3]);
       context.translate(-box[0], -box[1]);
-      context.fillStyle = palette.lit;
+      context.fillStyle = theme === 'dark' ? palette.lit : '#2f241b';
       context.strokeStyle = palette.rim;
       if (tribunal) {
         context.lineWidth = 2;
@@ -210,13 +210,14 @@ export class SpriteCache {
       } else if (artwork) {
         for (const part of artwork.paths) {
           context.globalAlpha = part.opacity ?? 1;
-          context.fillStyle = part.fill ?? palette.lit;
+          context.fillStyle =
+            theme === 'dark' ? (part.fill ?? palette.lit) : '#2f241b';
           context.fill(new Path2D(part.d), part.fillRule ?? 'nonzero');
         }
       }
       context.restore();
     } else {
-      context.fillStyle = palette.lit;
+      context.fillStyle = theme === 'dark' ? palette.lit : '#2f241b';
       context.font = `700 ${Math.max(12, Math.round(radius * 0.47))}px ui-monospace`;
       context.textAlign = 'center';
       context.textBaseline = 'middle';

@@ -115,7 +115,7 @@ describe('projectOwnedWork', () => {
       ],
     });
     expect(result.nodes.map((node) => node.id)).toEqual([
-      'root:root',
+      'root:tab',
       'child:child-sdk',
       'child:grandchild',
       'cli:a',
@@ -192,7 +192,7 @@ describe('projectOwnedWork', () => {
       ],
     });
     expect(
-      result.nodes.find((node) => node.id === 'root:root')?.providerId,
+      result.nodes.find((node) => node.id === 'root:tab')?.providerId,
     ).toBe('codex');
     expect(result.nodes.find((node) => node.id === 'child:builder')).toEqual(
       expect.objectContaining({ label: 'Builder', providerId: 'cursor' }),

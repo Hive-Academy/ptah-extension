@@ -37,6 +37,7 @@ export interface SceneLayout {
 }
 
 export type MeasureSceneLabel = (
+  nodeId: string,
   text: string,
 ) => Pick<SceneRect, 'width' | 'height'>;
 
@@ -338,24 +339,22 @@ export function layoutScene(
       point.node.state === 'failed' ||
       point.node.state === 'awaiting input';
     const allowed = !dense || must || ordinaryLabels++ < 5;
-    const size = measure(label);
+    const size = measure(point.node.id, label);
     if (allowed) {
       const gap = point.kind === 'root' ? 36 : 24;
-      const candidates =
-        point.kind === 'root'
-          ? [[point.x - size.width / 2, point.y + point.radius + gap]]
-          : [
-              [point.x - size.width / 2, point.y + point.radius + gap],
-              [
-                point.x - size.width / 2,
-                point.y - point.radius - size.height - gap,
-              ],
-              [point.x + point.radius + gap, point.y - size.height / 2],
-              [
-                point.x - point.radius - size.width - gap,
-                point.y - size.height / 2,
-              ],
-            ];
+      const candidates = [
+        [point.x - size.width / 2, point.y + point.radius + gap],
+        [point.x - size.width / 2, point.y - point.radius - size.height - gap],
+        [point.x + point.radius + gap, point.y - size.height / 2],
+        [point.x - point.radius - size.width - gap, point.y - size.height / 2],
+      ];
+      if (point.kind === 'root') {
+        for (let y = 66; y <= viewport.height - size.height - 42; y += 12) {
+          for (let x = 14; x <= viewport.width - size.width - 14; x += 12) {
+            candidates.push([x, y]);
+          }
+        }
+      }
       for (const [x0, y0] of candidates) {
         const x = clamp(x0, 14, Math.max(14, viewport.width - size.width - 14));
         const y = clamp(
@@ -382,6 +381,21 @@ export function layoutScene(
           used.push(rect);
           break;
         }
+      }
+      if (point.kind === 'root' && !labelRects[index]) {
+        const x = clamp(
+          point.x - size.width / 2,
+          14,
+          Math.max(14, viewport.width - size.width - 14),
+        );
+        const y = clamp(
+          point.y + point.radius + gap,
+          66,
+          Math.max(66, viewport.height - size.height - 42),
+        );
+        const rect = { x, y, width: size.width, height: size.height };
+        labelRects[index] = rect;
+        used.push(rect);
       }
     }
   }

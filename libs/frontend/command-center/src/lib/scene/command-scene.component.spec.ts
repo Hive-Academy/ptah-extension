@@ -48,6 +48,7 @@ describe('CommandSceneComponent', () => {
       configurable: true,
       value: class {
         public observe = jest.fn();
+        public unobserve = jest.fn();
         public disconnect(): void {
           disconnect();
         }
@@ -192,6 +193,71 @@ describe('CommandSceneComponent', () => {
     expect(fixture.componentInstance.layout()).not.toBe(firstLayout);
     expect(sprite.mock.calls.length).toBeGreaterThan(firstSpriteCount);
     invalidate.mockRestore();
+    fixture.destroy();
+  });
+
+  it('lays out root and child plates using their measured DOM sizes by node id', async () => {
+    const child: CommandWorkNode = {
+      id: 'child:builder',
+      kind: 'child',
+      parentId: root.id,
+      label: 'Builder',
+      providerId: 'codex',
+      state: 'running',
+    };
+    const fixture = await create();
+    fixture.componentRef.setInput('projection', {
+      nodes: [root, child],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const labels = [root, child].map((node, index) => {
+      const element = document.createElement('button');
+      element.dataset['nodeId'] = node.id;
+      element.textContent = `${node.label}Provider · running`;
+      Object.defineProperty(element, 'offsetWidth', {
+        configurable: true,
+        value: index ? 148 : 160,
+      });
+      Object.defineProperty(element, 'offsetHeight', {
+        configurable: true,
+        value: 44,
+      });
+      fixture.nativeElement.appendChild(element);
+      return {
+        id: node.id,
+        element,
+        width: element.offsetWidth,
+        height: element.offsetHeight,
+      };
+    });
+    fixture.componentInstance.setOverlayLabels(labels);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const first = fixture.componentInstance.layout();
+    expect(
+      first.nodes.find((entry) => entry.node.id === root.id)?.labelRect,
+    ).toMatchObject({ width: 160, height: 44 });
+    expect(
+      first.nodes.find((entry) => entry.node.id === child.id)?.labelRect,
+    ).toMatchObject({ width: 148, height: 44 });
+    fixture.componentInstance.setOverlayLabels([...labels]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.layout()).toBe(first);
+    Object.defineProperty(labels[0].element, 'offsetWidth', {
+      configurable: true,
+      value: 172,
+    });
+    fixture.componentInstance.setOverlayLabels([
+      { ...labels[0], width: labels[0].element.offsetWidth },
+      labels[1],
+    ]);
+    fixture.detectChanges();
+    expect(
+      fixture.componentInstance
+        .layout()
+        .nodes.find((entry) => entry.node.id === root.id)?.labelRect?.width,
+    ).toBe(172);
     fixture.destroy();
   });
 });

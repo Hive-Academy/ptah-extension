@@ -63,7 +63,10 @@ describe('CommandCenterStore', () => {
     expect(store.sessionStatus()).toBe('running');
     expect(store.voiceState()).toBe('listening');
     expect(store.pendingInput()?.id).toBe('q');
-    expect(store.provider()).toEqual({ transcription: true, synthesis: false });
+    expect(store.provider()).toMatchObject({
+      transcription: true,
+      synthesis: false,
+    });
     expect(store.toast()?.message).toBe('Ready');
     expect(store.theme()).toBe('light');
     expect(store.reducedMotion()).toBe(true);
@@ -75,6 +78,35 @@ describe('CommandCenterStore', () => {
     expect(store.voiceState()).toBe('muted');
     expect(store.sessionStatus()).toBe('stopped');
     expect(store.pendingInput()).toBeNull();
+  });
+
+  it('keeps provider details while readiness changes', () => {
+    store.setProvider({
+      transcription: true,
+      synthesis: false,
+      stt: {
+        providerId: 'local',
+        providerLabel: 'Local',
+        modelLabel: 'whisper-base',
+        ready: true,
+        status: 'Ready',
+      },
+      tts: {
+        providerId: 'local',
+        providerLabel: 'Local',
+        modelLabel: 'af_heart',
+        ready: false,
+        status: 'Not downloaded',
+      },
+    });
+    expect(store.provider().stt?.modelLabel).toBe('whisper-base');
+    expect(store.provider().tts?.status).toBe('Not downloaded');
+    store.setProvider({ transcription: false, synthesis: false });
+    expect(store.provider().stt).toMatchObject({
+      modelLabel: 'whisper-base',
+      ready: false,
+    });
+    expect(store.provider().transcription).toBe(false);
   });
 
   it('copies projection snapshots and excludes unrelated work', () => {
@@ -159,7 +191,7 @@ describe('CommandCenterStore', () => {
       title: 'Approve',
       description: 'Action',
     });
-    expect(oldProvider).toEqual({ transcription: true, synthesis: true });
+    expect(oldProvider).toMatchObject({ transcription: true, synthesis: true });
   });
 
   it('samples meter levels at most twice per second and clamps invalid values', () => {

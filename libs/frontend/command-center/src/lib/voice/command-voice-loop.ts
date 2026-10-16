@@ -545,6 +545,7 @@ export class CommandVoiceLoop {
   }
 
   public async mute(): Promise<void> {
+    if (!this.active && !this.muted) return;
     this.generation++;
     this.options.onTurnsAbandoned?.();
     this.muted = true;
@@ -582,6 +583,8 @@ export class CommandVoiceLoop {
     this.generation++;
     this.options.onTurnsAbandoned?.();
     this.active = false;
+    this.muted = false;
+    this.store.setMuted(false);
     this.busy = false;
     this.queuedClip = null;
     this.playbackMarks.length = 0;
@@ -598,9 +601,10 @@ export class CommandVoiceLoop {
     this.playbackEpoch++;
     this.vad.reset();
     this.narrator.clear();
-    await this.capture?.stop();
+    const capture = this.capture;
     this.capture = null;
     this.store.setVoiceState('idle');
     this.store.resetLevels();
+    await capture?.stop();
   }
 }

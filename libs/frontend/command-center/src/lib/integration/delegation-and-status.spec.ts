@@ -23,7 +23,7 @@ describe('Command Center delegation and status integration', () => {
     await page.coordinator.sendStatusTurn('Status');
     expect(sender.send.mock.calls.at(-1)?.[0]).toContain('Status');
     expect(page.projection().nodes[0]?.id).toBe(
-      'root:11111111-1111-4111-8111-111111111111',
+      'root:22222222-2222-4222-8222-222222222222',
     );
     fixture.destroy();
   });
@@ -185,7 +185,7 @@ describe('Command Center delegation and status integration', () => {
     const nodes = page.projection().nodes;
     const groups = nodes.filter((node) => node.id === `tribunal:${runId}`);
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.parentId).toBe(`root:${page.store.sessionId()}`);
+    expect(groups[0]?.parentId).toBe(`root:${page.store.markedTabId()}`);
     expect(
       nodes.filter(
         (node) =>

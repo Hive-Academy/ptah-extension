@@ -18,6 +18,7 @@ import {
   ThemeService,
 } from '@ptah-extension/core';
 import { CommandCenterStore } from '../model/command-center.store';
+import { summarizeVoiceProviders } from '../model/voice-provider-summary';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { buildStatusContext } from '../model/status-context';
 import {
@@ -31,6 +32,10 @@ import { TribunalRunCoordinator } from '../model/tribunal-run-coordinator';
 import { type TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
+import {
+  trackMarkedTabVisibility,
+  trackTurnStatus,
+} from './command-center-turn-status';
 
 /** State and transport owned by one routed page lifetime. */
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- page-scoped provider
@@ -82,7 +87,7 @@ export class CommandCenterPageController {
   private readonly voiceTurnToken = signal<number | null>(null);
   private readonly armedTurns: { token: number; minPulseSeq: number }[] = [];
   private deliveredPulseSeq = 0;
-  private statusPulseSeq = 0;
+  private previousMarkedTabId: string | null = null;
   private readonly spokenRequestIds = new Set<string>();
   private readonly invalidRosterQuestionIds = new Set<string>();
   public readonly undeclinedInvalidQuestionId = signal<string | null>(null);
@@ -290,6 +295,7 @@ export class CommandCenterPageController {
         computeAgesMs(this.store.nodes(), Date.now()),
       ),
     );
+    trackMarkedTabVisibility(this.tabs, this.store);
     effect(() => {
       const projection = this.projection();
       const rootId = projection.nodes[0]?.id;
@@ -299,16 +305,13 @@ export class CommandCenterPageController {
     });
     effect(() => {
       const tabId = this.store.markedTabId();
-      const pulse = tabId
-        ? this.tabs.lastTerminalPulseByTab().get(tabId)
-        : undefined;
-      if (!pulse || pulse.seq <= this.statusPulseSeq) return;
-      this.statusPulseSeq = pulse.seq;
-      if (this.store.sessionStatus() === 'running')
-        this.store.setSessionStatus(
-          pulse.classification === 'success' ? 'idle' : 'error',
-        );
+      if (this.previousMarkedTabId && tabId !== this.previousMarkedTabId) {
+        this.clearArmedTurns();
+        void this.voice.exit();
+      }
+      this.previousMarkedTabId = tabId;
     });
+    trackTurnStatus(this.tabs, this.store, this.turnAbortable);
     effect(() => {
       const tabId = this.store.markedTabId();
       const rootSessionId = this.store.sessionId();
@@ -446,23 +449,14 @@ export class CommandCenterPageController {
         {},
         { timeout: 10_000 },
       );
-      if (response.success && response.data?.ok) {
-        const { sttProvider, ttsProvider, local, elevenlabs } =
-          response.data.config;
-        const ready = (provider: string, direction: 'stt' | 'tts'): boolean =>
-          provider === 'local'
-            ? direction === 'stt'
-              ? local.sttDownloaded
-              : local.ttsDownloaded
-            : provider === 'elevenlabs' && elevenlabs.apiKeyConfigured;
-        this.store.setProvider({
-          transcription: ready(sttProvider, 'stt'),
-          synthesis: ready(ttsProvider, 'tts'),
-        });
-      }
+      this.store.setProvider(
+        summarizeVoiceProviders(
+          response.success && response.data?.ok ? response.data.config : null,
+        ),
+      );
     } catch {
       // degradation-audit: reported — voice remains unavailable; text and graph stay usable
-      this.store.setProvider({ transcription: false, synthesis: false });
+      this.store.setProvider(summarizeVoiceProviders(null));
     }
     return tabId;
   }

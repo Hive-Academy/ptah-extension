@@ -80,11 +80,25 @@ describe('CommandVoiceHudComponent', () => {
 
   it('keeps Stop actionable during a typed turn with idle voice', () => {
     const fixture = render();
+    const mute = jest.fn();
+    fixture.componentInstance.toggleMute.subscribe(mute);
     fixture.componentRef.setInput('turnAbortable', true);
     fixture.detectChanges();
+    const start = fixture.nativeElement.querySelector(
+      'button[aria-label="Start voice"]',
+    ) as HTMLButtonElement;
+    const muteButton = [
+      ...fixture.nativeElement.querySelectorAll('button'),
+    ].find(
+      (button: HTMLButtonElement) => button.textContent?.trim() === 'Mute',
+    ) as HTMLButtonElement;
     const stop = [...fixture.nativeElement.querySelectorAll('button')].find(
       (button: HTMLButtonElement) => button.textContent?.trim() === 'Stop',
     ) as HTMLButtonElement;
+    expect(start.disabled).toBe(false);
+    expect(muteButton.disabled).toBe(true);
     expect(stop.disabled).toBe(false);
+    muteButton.click();
+    expect(mute).not.toHaveBeenCalled();
   });
 });

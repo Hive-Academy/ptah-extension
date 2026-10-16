@@ -65,7 +65,7 @@ import type {
         <button
           type="button"
           class="btn btn-ghost min-h-11 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-          [disabled]="!canStop()"
+          [disabled]="!canMute()"
           (click)="toggleMute.emit()"
         >
           {{ muted() ? 'Unmute' : 'Mute' }}
@@ -73,7 +73,7 @@ import type {
         <button
           type="button"
           class="btn btn-ghost min-h-11 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-          [disabled]="!canStop()"
+          [disabled]="!canStopTurn()"
           (click)="stop.emit()"
         >
           Stop
@@ -137,14 +137,13 @@ export class CommandVoiceHudComponent {
     Math.round(this.inputLevel() * 100),
   );
   public readonly listening = computed(() => this.voiceState() === 'listening');
-  public readonly canStop = computed(
-    () =>
-      this.turnAbortable() ||
-      ['listening', 'thinking', 'speaking', 'muted'].includes(
-        this.voiceState(),
-      ),
+  public readonly canMute = computed(() =>
+    ['listening', 'thinking', 'speaking', 'muted'].includes(this.voiceState()),
   );
-  public readonly canStart = computed(() => !this.canStop());
+  public readonly canStopTurn = computed(
+    () => this.turnAbortable() || this.canMute(),
+  );
+  public readonly canStart = computed(() => !this.canMute());
   public readonly title = computed(() =>
     this.voiceError()
       ? 'Voice needs attention'

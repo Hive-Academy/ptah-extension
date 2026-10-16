@@ -74,7 +74,7 @@ describe('CommandPendingInputComponent', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it('keeps the question compact with a visible answer boundary and example', () => {
+  it('scrolls the question body while keeping Send answer outside it', () => {
     const fixture = setup(null);
     fixture.componentRef.setInput('choices', ['release/next']);
     fixture.detectChanges();
@@ -82,10 +82,17 @@ describe('CommandPendingInputComponent', () => {
     const input = fixture.nativeElement.querySelector(
       '#pending-answer',
     ) as HTMLInputElement;
-    expect(card.className).toContain('max-h-[260px]');
+    expect(card.className).not.toContain('overflow-y-auto');
     expect(card.className).toContain('border-state-need');
+    const description = card.querySelector('p.overflow-y-auto') as HTMLElement;
+    expect(description.className).toContain('max-h-[96px]');
+    expect(description.textContent).toContain(pending.description);
+    expect(description.contains(buttonWithText(card, 'Send answer'))).toBe(
+      false,
+    );
     expect(input.placeholder).toBe('e.g. release/next');
-    expect(input.className).toContain('border-base-content');
+    expect(input.className).toContain('border-base-content/50');
+    expect(input.className).toContain('placeholder:text-base-content/80');
     expect(input.className).toContain('focus-visible:outline-2');
   });
 

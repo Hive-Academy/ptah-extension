@@ -49,6 +49,16 @@ export interface CommandPendingInput {
 export interface CommandProviderReadiness {
   readonly transcription: boolean;
   readonly synthesis: boolean;
+  readonly stt?: CommandProviderDirection | null;
+  readonly tts?: CommandProviderDirection | null;
+}
+
+export interface CommandProviderDirection {
+  readonly providerId: 'local' | 'elevenlabs';
+  readonly providerLabel: string;
+  readonly modelLabel: string;
+  readonly ready: boolean;
+  readonly status: 'Ready' | 'Not downloaded' | 'No key';
 }
 
 export interface CommandToast {
@@ -233,7 +243,34 @@ export class CommandCenterStore {
   }
 
   public setProvider(readiness: CommandProviderReadiness): void {
-    this._provider.set({ ...readiness });
+    this._provider.update((current) => ({
+      ...current,
+      ...readiness,
+      stt:
+        readiness.stt === undefined
+          ? current.stt && {
+              ...current.stt,
+              ready: readiness.transcription,
+              status: readiness.transcription
+                ? ('Ready' as const)
+                : current.stt.providerId === 'local'
+                  ? ('Not downloaded' as const)
+                  : ('No key' as const),
+            }
+          : readiness.stt,
+      tts:
+        readiness.tts === undefined
+          ? current.tts && {
+              ...current.tts,
+              ready: readiness.synthesis,
+              status: readiness.synthesis
+                ? ('Ready' as const)
+                : current.tts.providerId === 'local'
+                  ? ('Not downloaded' as const)
+                  : ('No key' as const),
+            }
+          : readiness.tts,
+    }));
   }
 
   public setToast(toast: CommandToast | null): void {

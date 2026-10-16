@@ -114,6 +114,20 @@ describe('SpriteCache', () => {
     expect(path).not.toHaveBeenCalled();
   });
 
+  it('uses a dark provider mark on light delegate spheres and retains the dark-theme mark', () => {
+    const cache = new SpriteCache(factory);
+    const work = node('cli:provider-mark', 'codex');
+    const colors: string[] = [];
+    fill.mockImplementation((shape?: Path2D) => {
+      if (shape) colors.push(context.fillStyle as string);
+    });
+    cache.get(request(work, 'dark'));
+    cache.get(request(work, 'light'));
+    expect(colors).toEqual([palette.lit, '#2f241b']);
+    expect(factory).toHaveBeenCalledTimes(2);
+    fill.mockReset();
+  });
+
   it('uses the shield for Tribunal, keeps satellites at 32px and rebuilds on theme change', () => {
     const cache = new SpriteCache(factory);
     const tribunal = node('tribunal:run', null);

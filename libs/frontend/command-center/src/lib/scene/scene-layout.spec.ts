@@ -30,7 +30,7 @@ const node = (
   providerId,
   state,
 });
-const measure = jest.fn((text: string) => ({
+const measure = jest.fn((_nodeId: string, text: string) => ({
   width: Math.max(40, text.length * 6),
   height: 20,
 }));
@@ -251,4 +251,45 @@ describe('layoutScene', () => {
     }
     expect(measure).toHaveBeenCalledTimes(nodes.length);
   });
+
+  it.each([1440, 600])(
+    'keeps the root plate visible and all plates separate at %ipx with 24 nodes',
+    (width) => {
+      const nodes = [
+        root,
+        ...Array.from({ length: 23 }, (_, i) => node(`cli:${i}`)),
+      ];
+      const measured = jest.fn((id: string) => ({
+        width: id === root.id ? 160 : 132,
+        height: 44,
+      }));
+      const result = layoutScene(
+        { nodes, edges: [] },
+        { width, height: 600 },
+        measured,
+      );
+      expect(result.nodes).toHaveLength(24);
+      expect(
+        result.nodes.find((entry) => entry.kind === 'root')?.labelRect,
+      ).not.toBeNull();
+      expect(measured.mock.calls.map(([id]) => id)).toEqual(
+        expect.arrayContaining(nodes.map((entry) => entry.id)),
+      );
+      const plates = result.nodes.flatMap((entry) =>
+        entry.labelRect ? [entry.labelRect] : [],
+      );
+      for (let i = 0; i < plates.length; i++) {
+        for (let j = i + 1; j < plates.length; j++) {
+          const a = plates[i];
+          const b = plates[j];
+          expect(
+            a.x + a.width <= b.x ||
+              b.x + b.width <= a.x ||
+              a.y + a.height <= b.y ||
+              b.y + b.height <= a.y,
+          ).toBe(true);
+        }
+      }
+    },
+  );
 });
