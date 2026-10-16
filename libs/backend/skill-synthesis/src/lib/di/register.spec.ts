@@ -12,6 +12,8 @@ import { container as rootContainer } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import { SkillTelemetrySeamAdapter } from '../outcome-seam/skill-telemetry-seam.adapter';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
@@ -34,6 +36,19 @@ const stubLogger = {
 } as unknown as Logger;
 
 describe('registerSkillSynthesisServices', () => {
+  it('binds the outcome telemetry seam to one adapter instance', () => {
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    // The seam reads through the owning stores, which inject the host Logger.
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    registerSkillSynthesisServices(container, stubLogger);
+    const seam = container.resolve(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM);
+    expect(seam).toBeInstanceOf(SkillTelemetrySeamAdapter);
+    expect(container.resolve(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM)).toBe(
+      seam,
+    );
+  });
   it('registers every declared SKILL_SYNTHESIS_TOKENS member', () => {
     const container = rootContainer.createChildContainer();
     registerSkillSynthesisServices(container, stubLogger);

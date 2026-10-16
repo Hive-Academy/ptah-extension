@@ -24,10 +24,10 @@ import {
 import { ProvidersModelsLoader } from './providers/providers-models-loader.service';
 import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
 import { SettingsToastComponent } from './feedback/settings-toast.component';
-import {
-  OrchestrationSettingsComponent,
-  type OrchestrationSettingsFocusTarget,
-} from './ptah-ai/orchestration-settings.component';
+// Two declarations on purpose: the component import must hold only the `@defer`-only class, or
+// Angular keeps the whole Orchestration tab in the eager chunk.
+import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings.component';
+import type { OrchestrationSettingsFocusTarget } from './ptah-ai/orchestration-settings.component';
 import { AdvancedSettingsComponent } from './advanced-settings.component';
 import { SearchVoiceSettingsComponent } from './search-voice-settings.component';
 import {
@@ -102,9 +102,9 @@ const isOrchestrationSection = (
   standalone: true,
   imports: [
     ProvidersSettingsComponent,
-    OrchestrationSettingsComponent,
     // Used only inside `@defer` in the template, so each tab compiles to its own lazy chunk.
-    // Referencing either class anywhere else in this file would make it eager again.
+    // Referencing any of these classes anywhere else in this file would make it eager again.
+    OrchestrationSettingsComponent,
     AdvancedSettingsComponent,
     SearchVoiceSettingsComponent,
     SettingsToastComponent,

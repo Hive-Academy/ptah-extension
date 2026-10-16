@@ -21,6 +21,8 @@
  *     default; a missing key is refused without reaching the provider.
  *   - settings:set: a file-based key is written through the provider; a key
  *     outside FILE_BASED_SETTINGS_KEYS is refused and nothing is written.
+ *   - settings:set: `agentOrchestration.decisionModel` is refused (it is saved
+ *     through the validating `agent:setConfig`) and nothing is written.
  *   - settings:set: a key with an ADVANCED_SETTINGS descriptor is written only
  *     when its validator accepts the value; a wrong type or an out-of-range
  *     value is refused with the validator's message and nothing is written.
@@ -347,6 +349,43 @@ describe('SettingsRpcHandlers', () => {
       });
       expect(h.workspaceProvider.setConfiguration).not.toHaveBeenCalled();
     });
+
+    it.each([
+      ['an unusable selection', { kind: 'ollama', model: '' }],
+      ['a valid selection', { kind: 'ollama', model: 'tev1' }],
+    ])(
+      'refuses the decision model key with %s and writes nothing',
+      async (_case, value) => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        const result = await call<{ success: boolean; error?: string }>(
+          h,
+          'settings:set',
+          { key: 'agentOrchestration.decisionModel', value },
+        );
+
+        expect(result).toEqual({
+          success: false,
+          error:
+            "Setting key 'agentOrchestration.decisionModel' is not writable through settings:set; save it from its own settings row",
+        });
+        expect(h.workspaceProvider.setConfiguration).not.toHaveBeenCalled();
+
+        // The deny is exact: an unrelated file key on the same handler still saves.
+        const other = await call<{ success: boolean }>(h, 'settings:set', {
+          key: 'diff.renderSideBySide',
+          value: true,
+        });
+        expect(other).toEqual({ success: true });
+        expect(h.workspaceProvider.setConfiguration).toHaveBeenCalledTimes(1);
+        expect(h.workspaceProvider.setConfiguration).toHaveBeenCalledWith(
+          'ptah',
+          'diff.renderSideBySide',
+          true,
+        );
+      },
+    );
 
     describe('described (advanced) keys', () => {
       it.each([

@@ -18,7 +18,9 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { computed, signal } from '@angular/core';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { rpcSuccess } from '@ptah-extension/core/testing';
 import {
+  ClaudeRpcService,
   ProvidersSettingsStateService,
   type ProvidersEditContext,
   type ProvidersEffectiveRoute,
@@ -28,10 +30,20 @@ import {
   type ProvidersSettingsSection,
 } from '@ptah-extension/core';
 import type {
+  AgentOrchestrationConfig,
   ConfigGetScopesResult,
+  DecisionModelStatusDto,
   ScopedSettingEntry,
   SkillLanesDto,
 } from '@ptah-extension/shared';
+
+const UNSET_DECISION: DecisionModelStatusDto = {
+  selection: { kind: 'unset' },
+  locality: null,
+  reportsConfidence: false,
+  state: 'unset',
+  detail: null,
+};
 import { ProviderConsumerAssignmentsComponent } from './provider-consumer-assignments.component';
 import {
   toBackendJudgeModel,
@@ -272,6 +284,7 @@ describe('ProviderConsumerAssignmentsComponent', () => {
   let component: ProviderConsumerAssignmentsComponent;
   let mockState: MockProvidersSettingsStateService;
   let mockModelsLoader: { listModels: jest.Mock };
+  let mockRpc: { call: jest.Mock };
   let feedback: SettingsSaveFeedbackService;
 
   async function settle(): Promise<void> {
@@ -365,11 +378,21 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       }),
     };
 
+    // The Decision model card (TASK_2026_646) reads agent:getConfig itself; its own spec covers it.
+    mockRpc = {
+      call: jest.fn(async () =>
+        rpcSuccess({
+          decisionModel: UNSET_DECISION,
+        } as AgentOrchestrationConfig),
+      ),
+    };
+
     await TestBed.configureTestingModule({
       imports: [ProviderConsumerAssignmentsComponent],
       providers: [
         { provide: ProvidersSettingsStateService, useValue: mockState },
         { provide: PROVIDER_MODELS_LOADER, useValue: mockModelsLoader },
+        { provide: ClaudeRpcService, useValue: mockRpc },
         SettingsSaveFeedbackService,
       ],
     }).compileComponents();
@@ -418,6 +441,31 @@ describe('ProviderConsumerAssignmentsComponent', () => {
         expect(rowEl).toBeTruthy();
         expect(nameEl?.textContent?.trim()).toBe(expectedNames[i]);
       }
+    });
+
+    it('renders the Decision model card as the seventh role, after the six (TASK_2026_646 Req 1.1)', async () => {
+      await settle();
+      const grid = query(fixture, 'consumer-table');
+      const cards = Array.from(
+        grid?.querySelectorAll<HTMLElement>(
+          'article[data-testid^="consumer-row-"]',
+        ) ?? [],
+      ).map((card) => card.getAttribute('data-testid'));
+      expect(cards).toEqual([
+        'consumer-row-memory-curator',
+        'consumer-row-archaeologist',
+        'consumer-row-synthesis',
+        'consumer-row-judge',
+        'consumer-row-replay',
+        'consumer-row-judging-enhancement',
+        'consumer-row-decision',
+      ]);
+      expect(
+        query(fixture, 'consumer-name-decision')?.textContent?.trim(),
+      ).toBe('Decision model');
+      expect(mockRpc.call).toHaveBeenCalledWith('agent:getConfig', undefined, {
+        timeout: 5000,
+      });
     });
 
     it('renders mandatory helper copy on Judging & enhancement only', () => {

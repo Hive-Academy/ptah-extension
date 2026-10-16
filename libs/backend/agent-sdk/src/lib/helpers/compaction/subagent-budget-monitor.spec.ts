@@ -6,9 +6,14 @@ import type {
   Logger,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import { Logger as LoggerClass } from '@ptah-extension/vscode-core';
 import type { SubagentRecord } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import { MainThreadNoticeQueue } from '../main-thread-notice-queue';
+import {
+  SubagentBudgetStopCallbackRegistry,
+  type SubagentBudgetStopPayload,
+} from '../subagent-budget-stop-callback-registry';
 import {
   HANDOFF_FILES_TIMEOUT_MS,
   SubagentHandoffFiles,
@@ -225,6 +230,9 @@ function makeHarness(
     ),
     update: jest.fn(),
   };
+  const budgetStops = new SubagentBudgetStopCallbackRegistry(
+    Object.assign(Object.create(LoggerClass.prototype) as Logger, logger),
+  );
   const monitor = new SubagentBudgetMonitor(
     logger as unknown as Logger,
     config as unknown as CompactionConfigProvider,
@@ -238,6 +246,7 @@ function makeHarness(
       ),
     opts.records ?? recordStore,
     opts.index ?? index,
+    budgetStops,
   );
   return {
     monitor,
@@ -250,6 +259,7 @@ function makeHarness(
     streamed,
     notices,
     subagentNotices,
+    budgetStops,
   };
 }
 
@@ -287,6 +297,109 @@ function spawn(input: Record<string, unknown>, name = 'Agent'): unknown {
 }
 
 describe('SubagentBudgetMonitor', () => {
+  it('publishes one id-only signal for an invoked stop with a record', async () => {
+    const h = makeHarness({}, { workspace: RECORD_WORKSPACE });
+    const observed: SubagentBudgetStopPayload[] = [];
+    h.budgetStops.register((payload) => {
+      observed.push(payload);
+    });
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 160_000 }, { id: 'm1' }),
+    );
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 170_000 }, { id: 'm2' }),
+    );
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toEqual({
+      agentId: 'a1',
+      parentSessionId: SESSION,
+      timestamp: expect.any(Number),
+    });
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish a stop for a failed attempt', async () => {
+    const h = makeHarness({}, { workspace: RECORD_WORKSPACE });
+    const observed = jest.fn();
+    h.budgetStops.register(observed);
+    h.dispatcher.stopSubagent.mockRejectedValueOnce(new Error('busy'));
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 160_000 }, { id: 'm1' }),
+    );
+    expect(observed).not.toHaveBeenCalled();
+  });
+
+  it('publishes one signal for a record-less safety stop', async () => {
+    const h = makeHarness();
+    const observed: SubagentBudgetStopPayload[] = [];
+    h.budgetStops.register((payload) => {
+      observed.push(payload);
+    });
+    h.recordStore.writeOnce.mockResolvedValueOnce({
+      ok: false,
+      errorType: 'Error',
+      errorCode: 'ENOSPC',
+    });
+    await h.monitor.observe(
+      SESSION,
+      assistant({ output: 600_000 }, { id: 'm1' }),
+    );
+
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+    expect(h.recordStore.markInvoked).not.toHaveBeenCalled();
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toEqual({
+      agentId: 'a1',
+      parentSessionId: SESSION,
+      timestamp: expect.any(Number),
+    });
+  });
+
+  it('a stop without an agent id warns and does not publish', async () => {
+    const h = makeHarness({ agentId: '' });
+    const observed = jest.fn();
+    h.budgetStops.register(observed);
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 200_000 }, { id: 'm1' }),
+    );
+
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+    expect(observed).not.toHaveBeenCalled();
+    expect(
+      h.logger.warn.mock.calls.filter((call) =>
+        String(call[0]).includes('without an agent id'),
+      ),
+    ).toHaveLength(1);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('without an agent id'),
+      expect.objectContaining({ toolCallId: TOOL_CALL }),
+    );
+  });
+
+  it('a second trigger after a stop publishes nothing', async () => {
+    const h = makeHarness({}, { workspace: RECORD_WORKSPACE });
+    const observed: SubagentBudgetStopPayload[] = [];
+    h.budgetStops.register((payload) => {
+      observed.push(payload);
+    });
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 160_000 }, { id: 'm1' }),
+    );
+    expect(observed).toHaveLength(1);
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 170_000 }, { id: 'm2' }),
+    );
+
+    expect(observed).toHaveLength(1);
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+  });
+
   it('takes no action below the thresholds', async () => {
     const h = makeHarness();
     await h.monitor.observe(
@@ -426,7 +539,11 @@ describe('SubagentBudgetMonitor', () => {
       expect(h.streamed).toHaveLength(1);
       expect(h.streamed[0]).toContain('stopped subagent `Plan`');
       expect(h.streamed[0]).toContain('spawn a fresh `Plan` subagent');
-      expect(h.logger.warn).not.toHaveBeenCalled();
+      expect(h.logger.warn).toHaveBeenCalledTimes(1);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('without an agent id'),
+        expect.objectContaining({ toolCallId: TOOL_CALL }),
+      );
       expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)?.stopped).toBe(true);
     });
 
@@ -1670,7 +1787,9 @@ describe('SubagentBudgetMonitor handoff records', () => {
     expect(publishOrder).toBeLessThan(
       h.dispatcher.pushParentMessage.mock.invocationCallOrder[0],
     );
-    expect(h.streamed[0]).toContain(`This handoff is saved at \`${write.path}\``);
+    expect(h.streamed[0]).toContain(
+      `This handoff is saved at \`${write.path}\``,
+    );
     expect(h.recordStore.writeStub).toHaveBeenCalledWith(
       'Map the auth module',
       'Explore',
@@ -1730,10 +1849,7 @@ describe('SubagentBudgetMonitor handoff records', () => {
         await gate;
         return realLink(...args);
       });
-    const records = new SubagentHandoffRecords(
-      quietLogger(),
-      () => workspace,
-    );
+    const records = new SubagentHandoffRecords(quietLogger(), () => workspace);
     const h = makeHarness({}, { records });
 
     const first = h.monitor.observe(SESSION, over('m1'));
@@ -1773,7 +1889,9 @@ describe('SubagentBudgetMonitor handoff records', () => {
     expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
     expect(h.recordStore.markInvoked).not.toHaveBeenCalled();
     expect(h.index.publish).not.toHaveBeenCalled();
-    expect(warnings(h.logger, 'Safety stop without a durable record')).toHaveLength(1);
+    expect(
+      warnings(h.logger, 'Safety stop without a durable record'),
+    ).toHaveLength(1);
     expect(h.streamed).toHaveLength(1);
     expect(h.streamed[0]).not.toContain('This handoff is saved at');
   });
@@ -1800,6 +1918,8 @@ describe('SubagentBudgetMonitor handoff records', () => {
 
   it('release while the record is written withdraws it and stops nothing', async () => {
     const h = makeHarness();
+    const observed = jest.fn();
+    h.budgetStops.register(observed);
     let finish: (write: HandoffRecordWrite) => void = () => undefined;
     let reached: () => void = () => undefined;
     const writing = new Promise<void>((resolve) => (reached = resolve));
@@ -1827,6 +1947,7 @@ describe('SubagentBudgetMonitor handoff records', () => {
     );
     expect(h.recordStore.markInvoked).not.toHaveBeenCalled();
     expect(h.dispatcher.stopSubagent).not.toHaveBeenCalled();
+    expect(observed).not.toHaveBeenCalled();
     expect(h.index.publish).not.toHaveBeenCalled();
     expect(h.streamed).toHaveLength(0);
   });
@@ -1859,16 +1980,16 @@ describe('SubagentBudgetMonitor handoff records', () => {
     expect(h.recordStore.writeOnce).toHaveBeenCalledTimes(1);
     expect(h.recordStore.withdraw).not.toHaveBeenCalled();
     expect(
-      warnings(h.logger, 'Stopping the subagent failed; giving up, record kept'),
+      warnings(
+        h.logger,
+        'Stopping the subagent failed; giving up, record kept',
+      ),
     ).toHaveLength(1);
     expect(h.streamed).toHaveLength(0);
   });
 
   it('two in-flight stops of one tool id reserved under different sessions, then rekeyed, write one record file and publish one name', async () => {
-    const records = new SubagentHandoffRecords(
-      quietLogger(),
-      () => workspace,
-    );
+    const records = new SubagentHandoffRecords(quietLogger(), () => workspace);
     const writeOnce = jest.spyOn(records, 'writeOnce');
     const h = makeHarness({}, { records });
 

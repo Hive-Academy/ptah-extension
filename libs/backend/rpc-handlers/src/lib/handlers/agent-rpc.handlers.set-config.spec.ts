@@ -102,6 +102,21 @@ function makeHarness() {
     authSecrets as unknown as IAuthSecretsService,
     { exists: jest.fn().mockResolvedValue(true) } as never,
     { type: 'electron', extensionPath: '/ptah-app' } as never,
+    {
+      getStatus: () =>
+        Promise.resolve({
+          selection: { kind: 'unset' as const },
+          locality: null,
+          reportsConfidence: false,
+          state: 'unset' as const,
+          detail: null,
+        }),
+      getSelection: () => ({ kind: 'unset' as const }),
+      localityOf: () => null,
+      setSelection: () => Promise.resolve({ kind: 'unset' as const }),
+      setJevApiKey: () => Promise.resolve(),
+      readJevApiKey: () => Promise.resolve(null),
+    },
   );
   handlers.register();
   const setConfig = async (params: Record<string, unknown>) =>

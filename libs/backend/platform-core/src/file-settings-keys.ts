@@ -213,6 +213,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.laneToolCallSteerAt',
   'agentOrchestration.laneToolCallStopAt',
   'agentOrchestration.laneRepeatCallStopAt',
+  // Lane-routing decision model (TASK_2026_646_136a): a `DecisionModelSelection`
+  // object written by `DecisionModelConfig.setSelection`. VS Code has no schema
+  // for it, so without this entry every save is rejected there.
+  'agentOrchestration.decisionModel',
   // Compaction budgets (TASK_2026_597 Wave D). `compaction.threshold` is NOT
   // here: it is still VS Code-contributed and moves with its migration.
   'compaction.toolOutputBudgetTokens',
@@ -488,6 +492,19 @@ export const ENHANCE_TIMEOUT_MAX_MS = 600_000;
 export const ENHANCE_TIMEOUT_DEFAULT_MS = 120_000;
 
 /**
+ * File-based keys whose value is a plain object stored whole.
+ *
+ * `PtahFileSettingsManager` flattens every nested object on load, so without
+ * this list an object written to one of these keys would come back as
+ * `<key>.<field>` leaves after a reload, and the key itself would read as
+ * unset. Each key here must also be in `FILE_BASED_SETTINGS_KEYS`.
+ */
+export const FILE_BASED_OBJECT_SETTINGS_KEYS: ReadonlySet<string> = new Set([
+  // `DecisionModelSelection` (TASK_2026_646_136a), e.g. `{ kind, model }`.
+  'agentOrchestration.decisionModel',
+]);
+
+/**
  * Default values for file-based settings.
  *
  * These replace the default values that were previously defined in
@@ -527,6 +544,9 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.laneToolCallSteerAt': 40,
   'agentOrchestration.laneToolCallStopAt': 60,
   'agentOrchestration.laneRepeatCallStopAt': 20,
+  // `null` reads as `{ kind: 'unset' }` in DecisionModelConfig.getSelection,
+  // with no invalid-value warning.
+  'agentOrchestration.decisionModel': null,
   // Compaction budgets: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],

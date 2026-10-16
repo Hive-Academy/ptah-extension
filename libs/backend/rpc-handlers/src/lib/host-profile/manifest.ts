@@ -26,6 +26,7 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 import type { Capability } from './capabilities';
 import {
   AgentRpcHandlers,
+  AgentOutcomeRpcHandlers,
   ConfigScopeRpcHandlers,
   AuthRpcHandlers,
   BootRpcHandlers,
@@ -116,6 +117,15 @@ export const RPC_HANDLER_MANIFEST = [
     methods: AgentRpcHandlers.METHODS,
     requires: [],
     handler: AgentRpcHandlers,
+  },
+  {
+    // Agents-tab read (TASK_2026_646 B7). Every host serves it. An
+    // unregistered reader answers empty with persistent: false, so no
+    // capability switches the method off.
+    key: 'agentOutcome',
+    methods: AgentOutcomeRpcHandlers.METHODS,
+    requires: [],
+    handler: AgentOutcomeRpcHandlers,
   },
   {
     key: 'auth',

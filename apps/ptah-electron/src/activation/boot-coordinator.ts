@@ -53,6 +53,7 @@ import type { DiagnosticsHandle } from '@ptah-extension/vscode-core';
 import type { ThothRuntimeRefs } from '@ptah-extension/thoth-runtime';
 import type { GatewayService } from '@ptah-extension/messaging-gateway';
 import type { GatewayChatBridge } from '@ptah-extension/gateway-chat-bridge';
+import type { LaneOutcomesDisposer } from '@ptah-extension/lane-outcomes';
 import type { UpdateManager } from '../services/update/update-manager';
 
 /**
@@ -125,6 +126,11 @@ export interface BootRefs extends ThothRuntimeRefs {
    */
   agentProcessManager: { disposeAll: () => Promise<void> } | null;
   /**
+   * Lane-outcomes write drain, captured from `LANE_OUTCOME_TOKENS.DISPOSER`.
+   * Awaited after the agent reap and before SQLite close; it bounds itself.
+   */
+  laneOutcomesDisposer: LaneOutcomesDisposer | null;
+  /**
    * Child chat session spawner (TASK_2026_584). `dispose()` is synchronous and
    * idempotent: it ends every live child (`host-shutdown`), clears its timers
    * and releases its policy and MCP root. Disposed BEFORE
@@ -178,6 +184,7 @@ export function createEmptyBootRefs(): BootRefs {
     updateManager: null,
     cliRegistry: null,
     agentProcessManager: null,
+    laneOutcomesDisposer: null,
     sessionSpawner: null,
     providerProxyPool: null,
     integrityService: null,

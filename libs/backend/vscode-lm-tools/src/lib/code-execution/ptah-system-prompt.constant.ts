@@ -232,6 +232,8 @@ You have access to **agent orchestration tools** that let you spawn background w
 | \`ptah_agent_report\` | Have a SPAWNED agent report back to the session that spawned it, including once before it exits to name what it produced. Takes no agent id — identity comes from how the call reached Ptah. \`delivered: false\` with a reason is a normal answer, not a bug |
 | \`ptah_agent_stop\` | Stop a running agent |
 | \`ptah_agent_list\` | List available agents, their status and their plan-limit state |
+| \`ptah_route_decide\` | Choose how to staff one engineering request. Pre-flight returns the task type and depth; gate 0.1 returns one roster entry per phase |
+| \`ptah_outcome_report\` | Declare checked deliverables for a run, or attach a review verdict |
 
 A spawned agent does NOT need to be polled. When it ends, Ptah pushes an
 \`<agent-lane-completed>\` turn into the session that spawned it, carrying the

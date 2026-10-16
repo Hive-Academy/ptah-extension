@@ -1,5 +1,8 @@
 import { injectable, inject } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   HookCallbackMatcher,
@@ -15,6 +18,12 @@ import type { ToolOutputCapper } from './compaction/tool-output-capper';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 import { MainThreadNoticeQueue } from './main-thread-notice-queue';
 import { SubagentNoticeQueue } from './subagent-notice-queue';
+import {
+  buildSubagentRunTag,
+  type SubagentRunTagResult,
+} from './subagent-run-tag';
+
+const RUN_TAG_MISS_HISTORY_SIZE = 256;
 
 /**
  * Upper bound for one output cap. The SDK's hook timeout defaults to 60 s; a
@@ -60,6 +69,9 @@ function deriveSuccess(
 
 @injectable()
 export class PostToolUseHookHandler {
+  /** Parent sessions already warned for a missing or invalid run-tag agent id. */
+  private readonly runTagMissSessions = new Set<string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY)
@@ -72,6 +84,8 @@ export class PostToolUseHookHandler {
     /** Absent in callers that construct the handler without one: no subagent notices. */
     @inject(SubagentNoticeQueue)
     private readonly subagentNotices?: SubagentNoticeQueue,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry?: Pick<SubagentRegistryService, 'get'>,
   ) {}
 
   /**
@@ -86,6 +100,71 @@ export class PostToolUseHookHandler {
     return input.agent_id
       ? this.subagentNotices?.take(input.agent_id)
       : this.takeMainThreadNotice(input, sessionId);
+  }
+
+  private runTag(
+    input: PostToolUseHookInput,
+    sessionId: string | undefined,
+  ): string | null {
+    try {
+      const result = buildSubagentRunTag(
+        input,
+        (toolUseId) => this.subagentRegistry?.get(toolUseId)?.agentId,
+      );
+      if (
+        result.registryAgentId &&
+        result.responseAgentId &&
+        result.registryAgentId !== result.responseAgentId
+      ) {
+        this.logger.warn(
+          '[PostToolUseHookHandler] subagent agent ids disagree',
+          {
+            registryAgentId: result.registryAgentId,
+            responseAgentId: result.responseAgentId,
+          },
+        );
+      }
+      if (result.tag === null)
+        this.logRunTagSkip(input, sessionId, result.reason);
+      return result.tag;
+    } catch (error: unknown) {
+      // degradation-audit: reported - a failed registry lookup loses only this
+      // tool call's run tag; the hook must still return the tool result.
+      this.logger.warn(
+        '[PostToolUseHookHandler] subagent run tag lookup failed',
+        {
+          error: error instanceof Error ? error.message : String(error),
+          toolName: input.tool_name,
+        },
+      );
+      return null;
+    }
+  }
+
+  /** Warn once per parent session for a missing run-tag join key. */
+  private logRunTagSkip(
+    input: PostToolUseHookInput,
+    sessionId: string | undefined,
+    reason: SubagentRunTagResult['reason'],
+  ): void {
+    if (input.tool_name !== 'Agent' && input.tool_name !== 'Task') {
+      return;
+    }
+    const parentSessionId = resolveHookSessionId(input.session_id, sessionId);
+    const key =
+      parentSessionId === null
+        ? `unresolved:${input.tool_name}`
+        : `session:${parentSessionId}`;
+    if (this.runTagMissSessions.has(key)) return;
+    if (this.runTagMissSessions.size >= RUN_TAG_MISS_HISTORY_SIZE) {
+      const oldest = this.runTagMissSessions.values().next().value;
+      if (oldest !== undefined) this.runTagMissSessions.delete(oldest);
+    }
+    this.runTagMissSessions.add(key);
+    this.logger.warn('[PostToolUseHookHandler] subagent run tag skipped', {
+      reason: reason ?? 'no reason',
+      toolName: input.tool_name,
+    });
   }
 
   /**
@@ -145,7 +224,13 @@ export class PostToolUseHookHandler {
               this.fanOut(input, sessionId, cwd);
               const rewritten = cappedOutput !== input.tool_response;
               const notice = this.takeNotice(input, sessionId);
-              if (!rewritten && notice === undefined) {
+              const tag = this.runTag(input, sessionId);
+              const additionalContext = [notice, tag]
+                .filter(
+                  (part): part is string => part !== undefined && part !== null,
+                )
+                .join('\n');
+              if (!rewritten && additionalContext.length === 0) {
                 return { continue: true };
               }
               return {
@@ -153,8 +238,8 @@ export class PostToolUseHookHandler {
                 hookSpecificOutput: {
                   hookEventName: 'PostToolUse',
                   ...(rewritten ? { updatedToolOutput: cappedOutput } : {}),
-                  ...(notice !== undefined
-                    ? { additionalContext: notice }
+                  ...(additionalContext.length > 0
+                    ? { additionalContext }
                     : {}),
                 },
               };

@@ -62,7 +62,7 @@ describe('migration 0053_memory_boot_scan_failure_generation — registry and st
     expect(MIGRATIONS.filter((m) => m.version === 53)).toEqual([
       { version: 53, name: '0053_memory_boot_scan_failure_generation', sql },
     ]);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(53);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(55);
     expect(sql).not.toContain('${');
     expect(sql).not.toMatch(/\b(DELETE|UPDATE|INSERT|DROP TABLE)\b/i);
   });
@@ -102,7 +102,7 @@ describe('migration 0053_memory_boot_scan_failure_generation — behaviour', () 
       const result = await new SqliteMigrationRunner(
         db as unknown as SqliteDatabase,
         logger,
-      ).applyAll(MIGRATIONS);
+      ).applyAll(MIGRATIONS.filter((m) => m.version <= 53));
       expect(result.appliedVersions).toEqual([53]);
 
       expect(

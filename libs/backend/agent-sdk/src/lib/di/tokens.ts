@@ -142,6 +142,9 @@ export const SDK_TOKENS = {
   SDK_SUBAGENT_STOP_CALLBACK_REGISTRY: Symbol.for(
     'SdkSubagentStopCallbackRegistry',
   ),
+  SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSubagentBudgetStopCallbackRegistry',
+  ),
   SDK_POST_TOOL_USE_CALLBACK_REGISTRY: Symbol.for(
     'SdkPostToolUseCallbackRegistry',
   ),

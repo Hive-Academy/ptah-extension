@@ -43,10 +43,17 @@ export * from './rpc/rpc-capability.types';
 
 export * from './rpc/rpc-lane-plan-limits.types';
 
+export * from './rpc/rpc-lane-outcome.types';
+
 import type {
   AgentGetLanePlanLimitsParams,
   AgentGetLanePlanLimitsResult,
 } from './rpc/rpc-lane-plan-limits.types';
+
+import type {
+  AgentOutcomeSignalsParams,
+  AgentOutcomeSignalsResult,
+} from './rpc/rpc-lane-outcome.types';
 
 import type {
   CapabilitiesGetEffectiveParams,
@@ -1382,6 +1389,14 @@ export interface RpcMethodRegistry {
   'agent:getLanePlanLimits': {
     params: AgentGetLanePlanLimitsParams;
     result: AgentGetLanePlanLimitsResult;
+  };
+  /**
+   * Per-slug outcome signals for the Agents tab (TASK_2026_646, Req 9.1).
+   * Read-only; ids, counts and ratios only, no text or identity.
+   */
+  'agent:outcomeSignals': {
+    params: AgentOutcomeSignalsParams;
+    result: AgentOutcomeSignalsResult;
   };
   'ptahCli:list': {
     params: PtahCliListParams;
@@ -3885,6 +3900,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // the registry entry plus this allow-map entry are the whole of
   // dual-registration. Capability-gated to Electron in RPC_HANDLER_MANIFEST.
   'agent:getLanePlanLimits': true,
+  'agent:outcomeSignals': true,
   'ptahCli:list': true,
   'ptahCli:create': true,
   'ptahCli:update': true,
