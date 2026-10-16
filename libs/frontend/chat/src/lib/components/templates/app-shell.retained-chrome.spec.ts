@@ -3,7 +3,7 @@
  * standalone surfaces (TASK_2026_524 batch 3, 3a-T9…T11), and the work that
  * must go on while it is detached does go on.
  *
- * `#shellRow` carries `*ptahRetainWhile="!isStandaloneView()"`. On a standalone
+ * The row is the `<div>` carrying `*ptahRetainWhile="!isStandaloneView()"`. On a standalone
  * surface the row leaves the DOM and change detection, but its embedded view —
  * and with it the canvas and the canvas's component-scoped providers — lives
  * until the shell is destroyed. Notification processing is NOT in the row: it
@@ -121,7 +121,7 @@ const REDUCED_TEMPLATE = `
   @if (!isElectron) {
     <ptah-notification-announcer />
   }
-  <div #shellRow *ptahRetainWhile="!isStandaloneView()" class="flex h-full bg-surface-0" data-testid="shell-row">
+  <div *ptahRetainWhile="!isStandaloneView()" class="flex h-full bg-surface-0" data-testid="shell-row">
     <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
     <ptah-notification-center />
   </div>
@@ -285,13 +285,20 @@ function liveRegionText(fixture: ComponentFixture<AppShellComponent>): string {
   return query(fixture, '[role="status"]')?.textContent?.trim() ?? '';
 }
 
+/** The structural directive that marks the retained shell row. */
+const SHELL_ROW_MARKER = '*ptahRetainWhile';
+
 /**
- * Source span of the element carrying `#shellRow`, from its `<div` to its
- * matching `</div>`, found by counting nested `<div>` open and close tags.
+ * Source span of the element carrying `*ptahRetainWhile`, from its `<div` to
+ * its matching `</div>`, found by counting nested `<div>` open and close tags.
  */
 function shellRowSpan(html: string): { start: number; end: number } {
-  const ref = html.indexOf('#shellRow');
-  if (ref < 0) throw new Error('#shellRow not found');
+  const ref = html.indexOf(SHELL_ROW_MARKER);
+  if (ref < 0) throw new Error('the retained shell row was not found');
+  // One retained row: a second marker would make the span ambiguous.
+  if (html.indexOf(SHELL_ROW_MARKER, ref + 1) >= 0) {
+    throw new Error('more than one *ptahRetainWhile row');
+  }
   const start = html.lastIndexOf('<div', ref);
   const tags = /<div\b[^>]*>|<\/div\s*>/g;
   tags.lastIndex = start;
@@ -301,7 +308,7 @@ function shellRowSpan(html: string): { start: number; end: number } {
     else if (!match[0].endsWith('/>')) depth++;
     if (depth === 0) return { start, end: match.index };
   }
-  throw new Error('#shellRow is never closed');
+  throw new Error('the retained shell row is never closed');
 }
 
 describe('AppShellComponent retained chrome row (TASK_2026_524 batch 3)', () => {
@@ -324,7 +331,7 @@ describe('AppShellComponent retained chrome row (TASK_2026_524 batch 3)', () => 
       return at > start && at < end;
     };
 
-    it('retains #shellRow with *ptahRetainWhile instead of hiding it with a class', () => {
+    it('retains the shell row with *ptahRetainWhile instead of hiding it with a class', () => {
       const { start } = shellRowSpan(html);
       const tag = html.slice(start, html.indexOf('>', start) + 1);
       expect(tag).toContain('*ptahRetainWhile="!isStandaloneView()"');

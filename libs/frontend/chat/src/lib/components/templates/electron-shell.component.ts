@@ -48,7 +48,6 @@ import {
   NOTIFICATION_FOCUS_ROUTER,
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
-import { sessionSidebarWidthFromDividerDrag } from './session-sidebar-width';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { GlobalConfigActionsComponent } from '../molecules/global-config-actions.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
@@ -287,19 +286,6 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             (toggled)="layout.toggleWorkspaceSidebar()"
           />
 
-          @if (layout.workspaceSidebarVisible()) {
-            <!-- Divider between the workspace sidebar and the sessions
-                 sidebar. It resizes only the sessions sidebar (same clamp and
-                 localStorage key as the sessions pane's own handle). The
-                 workspace sidebar keeps workspaceSidebarWidth. -->
-            <ptah-electron-resize-handle
-              [direction]="'left'"
-              (mousedown)="onSessionsDividerMouseDown($event)"
-              (dragMoved)="onSessionsDividerDrag($event)"
-              (dragEnded)="onSessionsDividerDragEnd()"
-            />
-          }
-
           <!-- Chat panel (reuses entire AppShellComponent) -->
           <div
             #configurationSurfaceHost
@@ -374,49 +360,6 @@ export class ElectronShellComponent {
   private readonly configurationSurfaceHost = viewChild<
     ElementRef<HTMLElement>
   >('configurationSurfaceHost');
-  /** Sessions pane inside the chat column. The divider writes its width. */
-  private readonly sessionsShell = viewChild(AppShellComponent);
-  /**
-   * Pointer X and sessions width when the between-sidebars divider went down.
-   * The handle emits absolute viewport X (workspace-pane coordinates). The
-   * sessions width is the start width plus the delta.
-   */
-  private sessionsDividerAnchor: { pointerX: number; width: number } | null =
-    null;
-
-  /**
-   * Pointer-down on the divider between the workspace and sessions sidebars.
-   * Records the sessions width. The workspace width is not captured.
-   */
-  protected onSessionsDividerMouseDown(event: MouseEvent): void {
-    const shell = this.sessionsShell();
-    if (!shell) return;
-    this.sessionsDividerAnchor = {
-      pointerX: event.clientX,
-      width: shell.sidebarWidth(),
-    };
-    shell.beginExternalSidebarResize();
-  }
-
-  /** Drag: sessions width follows the pointer delta. Workspace width stays. */
-  protected onSessionsDividerDrag(pointerX: number): void {
-    const anchor = this.sessionsDividerAnchor;
-    const shell = this.sessionsShell();
-    if (!anchor || !shell) return;
-    shell.applyExternalSidebarResize(
-      sessionSidebarWidthFromDividerDrag(
-        anchor.width,
-        anchor.pointerX,
-        pointerX,
-      ),
-    );
-  }
-
-  /** Drag end, including Escape restoring the start pointer: persist sessions. */
-  protected onSessionsDividerDragEnd(): void {
-    this.sessionsDividerAnchor = null;
-    this.sessionsShell()?.commitExternalSidebarResize();
-  }
 
   /** Lazily loaded ReviewShellComponent — keeps git-ui out of the initial bundle. */
   readonly dockComponent = signal<Type<unknown> | null>(null);
