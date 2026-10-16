@@ -91,3 +91,7 @@ were in scope. F-1, F-3, F-4, F-5 and F-7 of the round 1 review are fixed in the
   fallback). M-r1-7: the "+1 completed" overflow chip has a square backing (`command-scene-renderer.ts:299-302`).
 - Visual Minors (r1): header wraps at 892; chip status is colour only on screen; pending description scroll clips
   the last line; the session input outline is cut at the send button; session badge 10 px.
+- Visual r3 Moderates (visual-review-phase-e-r3.md): the error toast pushes the dock down about 60 px; at 900x800 and
+  892x735 the command input sits at or below the fold; the "+1 completed" overflow chip backing overlaps the hint
+  text; the Ptah plate sits far from its sphere with 24 nodes (M-r1-6, M-r1-7 carried).
+- Not reached in the r3 visual pass: a live mid-turn model question, a real Tribunal Confirm click, barge-in by voice.
