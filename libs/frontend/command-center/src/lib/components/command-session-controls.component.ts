@@ -92,6 +92,9 @@ export class CommandSessionControlsComponent {
     const value = this.draft().trim();
     if (!value) return;
     this.commandSubmit.emit(value);
-    this.draft.set('');
+  }
+
+  public clearDraft(sent: string): void {
+    if (this.draft().trim() === sent) this.draft.set('');
   }
 }

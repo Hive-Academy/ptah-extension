@@ -272,7 +272,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           [sessionStatus]="page.shownSessionStatus()"
           (newSession)="page.coordinator.newCommandCenter()"
           (requestStatus)="page.coordinator.sendStatusTurn('Status')"
-          (commandSubmit)="page.sendCommand($event)"
+          (commandSubmit)="submitCommand($event)"
         />
       </div>
       <aside class="rail flex flex-col gap-3">
@@ -382,6 +382,8 @@ export class CommandCenterPageComponent {
   }
   private readonly destroyRef = inject(DestroyRef);
   private readonly scene = viewChild(CommandSceneComponent);
+  private readonly controls = viewChild(CommandSessionControlsComponent);
+  private submitting = false;
   public readonly visibleLabelIds = computed(
     () =>
       this.scene()
@@ -400,6 +402,19 @@ export class CommandCenterPageComponent {
     CommandCenterPageController['projection']
   > | null = null;
   private measuredAnchorId: string | null = null;
+
+  public async submitCommand(text: string): Promise<void> {
+    // The draft stays until the send resolves, so a second Enter must not send it twice.
+    if (this.submitting) return;
+    this.submitting = true;
+    try {
+      if (await this.page.sendCommand(text)) this.controls()?.clearDraft(text);
+    } catch {
+      // degradation-audit: reported — the controller shows the send failure; retain the draft for retry.
+    } finally {
+      this.submitting = false;
+    }
+  }
 
   public constructor() {
     effect((onCleanup) => {

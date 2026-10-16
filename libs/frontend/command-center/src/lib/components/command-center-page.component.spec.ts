@@ -10,6 +10,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandSceneComponent } from '../scene/command-scene.component';
 import { CommandOverlayComponent } from './command-overlay.component';
 import { CommandPendingInputComponent } from './command-pending-input.component';
+import { CommandSessionControlsComponent } from './command-session-controls.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageComponent } from './command-center-page.component';
 import { CommandCenterPageController } from './command-center-page.controller';
@@ -89,6 +90,7 @@ describe('CommandCenterPageComponent', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    controller.sendCommand.mockResolvedValue(true);
     hoveredNodeId.set(null);
     canvasUnavailable.set(false);
     pendingProposal.set(null);
@@ -124,6 +126,49 @@ describe('CommandCenterPageComponent', () => {
         ],
       },
     });
+  });
+
+  it.each([
+    [true, ''],
+    [false, 'Review release'],
+  ])(
+    'keeps the draft only when send resolves %s',
+    async (accepted, expected) => {
+      controller.sendCommand.mockResolvedValueOnce(accepted);
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const controls = fixture.debugElement.query(
+        By.directive(CommandSessionControlsComponent),
+      ).componentInstance as CommandSessionControlsComponent;
+      controls.draft.set('Review release');
+      fixture.detectChanges();
+      (
+        fixture.nativeElement.querySelector(
+          'ptah-command-session-controls form',
+        ) as HTMLFormElement
+      ).dispatchEvent(new Event('submit', { cancelable: true }));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(controller.sendCommand).toHaveBeenCalledWith('Review release');
+      expect(controls.draft()).toBe(expected);
+      fixture.destroy();
+    },
+  );
+
+  it('does not send the same draft twice while a send is in flight', async () => {
+    let resolveSend: (accepted: boolean) => void = () => undefined;
+    controller.sendCommand.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => (resolveSend = resolve)),
+    );
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    const first = page.submitCommand('Review release');
+    await page.submitCommand('Review release');
+    expect(controller.sendCommand).toHaveBeenCalledTimes(1);
+    resolveSend(true);
+    await first;
+    fixture.destroy();
   });
 
   it('keeps the two-column rail bounded as the single scroller', () => {

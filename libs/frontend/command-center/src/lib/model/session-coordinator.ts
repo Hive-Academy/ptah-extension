@@ -247,26 +247,43 @@ export class CommandCenterSessionCoordinator {
       });
       return false;
     }
-    const tabId = this.store.markedTabId() ?? (await this.openOrResume());
+    const workspaceAtStart = this.tabs.activeWorkspacePath;
+    const markedTabId = this.store.markedTabId();
+    const tabId = markedTabId ?? (await this.openOrResume());
+    if (!markedTabId && this.tabs.activeWorkspacePath !== workspaceAtStart) {
+      this.store.setToast({
+        message:
+          'Command Center is switching to the selected workspace. Send again when it is ready.',
+        tone: 'error',
+      });
+      return false;
+    }
     if (!tabId) return false;
+    const workspace = this.store.workspace();
+    const bindingIsCurrent = () =>
+      this.store.markedTabId() === tabId &&
+      this.store.workspace() === workspace;
     try {
       const result = await this.sender.send(content, {
         tabId,
         ownerToken: this.ownerToken,
       });
       if (!result.success) {
-        this.fail('Could not send the Command Center message.');
+        if (bindingIsCurrent())
+          this.fail('Could not send the Command Center message.');
         return false;
       }
+      if (!bindingIsCurrent()) return true;
       const sessionId =
         this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId ??
         null;
-      this.store.setSession(tabId, sessionId, this.store.workspace());
+      this.store.setSession(tabId, sessionId, workspace);
       this.store.setSessionStatus('running');
       return true;
     } catch {
       // degradation-audit: reported — send failure is shown through the safe fail message
-      this.fail('Could not send the Command Center message.');
+      if (bindingIsCurrent())
+        this.fail('Could not send the Command Center message.');
       return false;
     }
   }

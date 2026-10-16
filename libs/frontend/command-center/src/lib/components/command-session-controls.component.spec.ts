@@ -30,6 +30,7 @@ describe('CommandSessionControlsComponent', () => {
       fixture.nativeElement.querySelector('form') as HTMLFormElement
     ).dispatchEvent(new Event('submit', { cancelable: true }));
     expect(send).toHaveBeenCalledWith('Review release');
+    expect(fixture.componentInstance.draft()).toBe('  Review release  ');
     const buttons = [
       ...fixture.nativeElement.querySelectorAll('button'),
     ] as HTMLButtonElement[];
@@ -39,5 +40,20 @@ describe('CommandSessionControlsComponent', () => {
     buttons.find((button) => button.textContent?.trim() === 'Status')?.click();
     expect(startNew).toHaveBeenCalledTimes(1);
     expect(status).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears only the draft that was sent', () => {
+    TestBed.configureTestingModule({
+      imports: [CommandSessionControlsComponent],
+    });
+    const controls = TestBed.createComponent(
+      CommandSessionControlsComponent,
+    ).componentInstance;
+    controls.draft.set('  first  ');
+    controls.clearDraft('first');
+    expect(controls.draft()).toBe('');
+    controls.draft.set('first and more');
+    controls.clearDraft('first');
+    expect(controls.draft()).toBe('first and more');
   });
 });

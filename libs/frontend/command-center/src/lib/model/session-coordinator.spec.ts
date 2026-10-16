@@ -305,4 +305,75 @@ describe('CommandCenterSessionCoordinator', () => {
       tone: 'error',
     });
   });
+
+  it.each([
+    ['success', { success: true }, true],
+    ['failure', { success: false }, false],
+  ])(
+    'leaves a newer binding untouched after an in-flight %s',
+    async (_name, result, expected) => {
+      store.setSession(rootId, sdkId, '/repo');
+      let resolveSend!: (value: { success: boolean }) => void;
+      sender.send.mockReturnValueOnce(
+        new Promise<{ success: boolean }>((resolve) => {
+          resolveSend = resolve;
+        }),
+      );
+      const pending = coordinator.send('turn');
+      store.setSession(otherId, 'new-session', '/other');
+      store.setSessionStatus('idle');
+      resolveSend(result);
+      expect(await pending).toBe(expected);
+      expect(store.markedTabId()).toBe(otherId);
+      expect(store.workspace()).toBe('/other');
+      expect(store.sessionId()).toBe('new-session');
+      expect(store.sessionStatus()).toBe('idle');
+      expect(store.toast()).toBeNull();
+    },
+  );
+
+  it('does not show a send exception on a newer binding', async () => {
+    store.setSession(rootId, sdkId, '/repo');
+    let rejectSend!: (error: Error) => void;
+    sender.send.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        rejectSend = reject;
+      }),
+    );
+    const pending = coordinator.send('turn');
+    store.setSession(otherId, 'new-session', '/other');
+    store.setSessionStatus('idle');
+    rejectSend(new Error('private path'));
+    expect(await pending).toBe(false);
+    expect(store.markedTabId()).toBe(otherId);
+    expect(store.workspace()).toBe('/other');
+    expect(store.sessionStatus()).toBe('idle');
+    expect(store.toast()).toBeNull();
+  });
+
+  it('sets the current session and running status after a successful send', async () => {
+    store.setSession(rootId, null, '/repo');
+    expect(await coordinator.send('turn')).toBe(true);
+    expect(store.sessionId()).toBe(sdkId);
+    expect(store.sessionStatus()).toBe('running');
+  });
+
+  it('refuses a send if the workspace changes while opening a tab', async () => {
+    let resolveOpen!: (tabId: string) => void;
+    jest.spyOn(coordinator, 'openOrResume').mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveOpen = resolve;
+      }),
+    );
+    const pending = coordinator.send('turn');
+    tabs.activeWorkspacePath = '/other';
+    resolveOpen(rootId);
+    expect(await pending).toBe(false);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(store.toast()).toEqual({
+      message:
+        'Command Center is switching to the selected workspace. Send again when it is ready.',
+      tone: 'error',
+    });
+  });
 });
