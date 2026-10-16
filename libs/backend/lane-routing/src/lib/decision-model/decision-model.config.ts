@@ -16,6 +16,7 @@ import {
   toRowState,
   type ProbeAnswer,
 } from './decision-model.probe';
+import { DECISION_MODEL_DETAIL } from './decision-model.detail';
 import {
   DECISION_MODEL_CONFIG_KEY,
   DECISION_MODEL_CONFIG_SECTION,
@@ -389,13 +390,14 @@ export class DecisionModelConfig {
     try {
       hasKey = await this.hasJevApiKey();
     } catch (error: unknown) {
+      // The rejection text is untrusted: logged, never shown in the row.
       this.logger.warn('[lane-routing] Jev credential lookup failed', {
         error: errorMessage(error),
       });
       return this.dto(
         selection,
         'unreachable',
-        `credential store unavailable: ${errorMessage(error)}`,
+        DECISION_MODEL_DETAIL.credentialStore,
       );
     }
     if (!hasKey) {
@@ -430,7 +432,11 @@ export class DecisionModelConfig {
         providerId: selection.providerId,
         error: errorMessage(error),
       });
-      return this.dto(selection, 'unreachable', errorMessage(error));
+      return this.dto(
+        selection,
+        'unreachable',
+        DECISION_MODEL_DETAIL.providerCheck,
+      );
     }
     return ready
       ? this.dto(selection, 'ready', null)
@@ -567,11 +573,22 @@ export class DecisionModelConfig {
       const body = await response.text();
       return { kind: 'answered', status: response.status, body };
     } catch (error: unknown) {
+      // Classified by the abort signal, never by message (its only source is
+      // the probe budget). The message is untrusted (it can name the host)
+      // and goes to the log only; the row detail is fixed text. The URL is
+      // not logged: a base URL can carry userinfo credentials.
+      const timedOut = signal.aborted;
+      this.logger.warn('[lane-routing] decision model probe request failed', {
+        method: init.method,
+        timedOut,
+        timeoutMs: this.probeTimeoutMs,
+        error: errorMessage(error),
+      });
       return {
         kind: 'failed',
-        detail: signal.aborted
-          ? `probe timed out after ${this.probeTimeoutMs} ms`
-          : errorMessage(error),
+        detail: timedOut
+          ? DECISION_MODEL_DETAIL.timedOut
+          : DECISION_MODEL_DETAIL.unreachable,
       };
     }
   }

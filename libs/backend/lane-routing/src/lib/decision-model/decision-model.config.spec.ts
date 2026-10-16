@@ -259,7 +259,10 @@ describe('DecisionModelConfig status probe (route discriminator)', () => {
     const status = await h.config.getStatus();
 
     expect(status.state).toBe('unsupported-endpoint');
-    expect(status.detail).toContain('control request failed');
+    expect(status.detail).toContain(
+      'control request failed: The model endpoint could not be reached.',
+    );
+    expect(status.detail).not.toContain('fetch failed');
   });
 
   it('control request failing while the route answered 400 → ready', async () => {
@@ -276,7 +279,12 @@ describe('DecisionModelConfig status probe (route discriminator)', () => {
   });
 
   it.each([
-    ['network error', 'network-error' as const, 'unreachable', 'fetch failed'],
+    [
+      'network error',
+      'network-error' as const,
+      'unreachable',
+      'The model endpoint could not be reached.',
+    ],
     [
       '401',
       { status: 401, body: '' },
@@ -352,8 +360,101 @@ describe('DecisionModelConfig status probe (route discriminator)', () => {
 
     expect(status).toMatchObject({
       state: 'unreachable',
-      detail: 'probe timed out after 20 ms',
+      detail: 'The request timed out.',
     });
+    expect(status.detail).not.toContain('aborted');
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model probe request failed',
+      expect.objectContaining({ timedOut: true, error: expect.any(String) }),
+    );
+  });
+});
+
+describe('DecisionModelConfig row detail never carries a raw error (P4 visual Moderate 1)', () => {
+  it("a TypeError('fetch failed') shows fixed text; the logger gets the original error", async () => {
+    const thrown = new TypeError('fetch failed');
+    const failing: SystemOneFetch = async () => {
+      throw thrown;
+    };
+    const h = harness({
+      selection: OLLAMA,
+      baseUrl: 'http://user:pw@127.0.0.1:1',
+      fetch: failing,
+    });
+
+    const status = await h.config.getStatus();
+
+    expect(status).toMatchObject({
+      state: 'unreachable',
+      detail: 'The model endpoint could not be reached.',
+    });
+    expect(status.detail).not.toContain('fetch failed');
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model probe request failed',
+      expect.objectContaining({ timedOut: false, error: 'fetch failed' }),
+    );
+    const logged = JSON.stringify(h.logger.warn.mock.calls);
+    expect(logged).not.toContain('127.0.0.1');
+    expect(logged).not.toContain('pw@');
+  });
+
+  it('a non-Error rejection is logged and not shown', async () => {
+    const failing: SystemOneFetch = async () => {
+      throw 'socket hang up';
+    };
+    const h = harness({ selection: OLLAMA, fetch: failing });
+
+    const status = await h.config.getStatus();
+
+    expect(status.detail).toBe('The model endpoint could not be reached.');
+    expect(h.logger.warn.mock.calls[0]?.[1]).toMatchObject({
+      error: 'socket hang up',
+    });
+  });
+
+  it('a Jev credential lookup failure shows fixed text; the logger gets the original error', async () => {
+    const thrown = new Error('keychain locked at /home/someone/.secrets');
+    const h = harness({ selection: { kind: 'jev' }, fetch: neverCalled });
+    jest.spyOn(h.secrets, 'get').mockRejectedValue(thrown);
+
+    const status = await h.config.getStatus();
+
+    expect(status).toMatchObject({
+      state: 'unreachable',
+      detail: 'The credential store could not be read.',
+    });
+    expect(status.detail).not.toContain('keychain');
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] Jev credential lookup failed',
+      { error: thrown.message },
+    );
+  });
+
+  it('a structured readiness failure shows fixed text; the logger gets the original error', async () => {
+    const thrown = new Error('provider said: 500 internal at https://x.test');
+    const structured: StructuredDecisionCompleter = {
+      isReady: jest.fn(async () => {
+        throw thrown;
+      }),
+      complete: jest.fn(async () => ({})),
+    };
+    const h = harness({
+      selection: { kind: 'structured', providerId: 'ollama', model: 'qwen3' },
+      structured,
+      fetch: neverCalled,
+    });
+
+    const status = await h.config.getStatus();
+
+    expect(status).toMatchObject({
+      state: 'unreachable',
+      detail: 'The provider readiness check failed.',
+    });
+    expect(status.detail).not.toContain('x.test');
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] structured provider readiness failed',
+      { providerId: 'ollama', error: thrown.message },
+    );
   });
 });
 

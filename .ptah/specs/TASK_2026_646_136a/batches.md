@@ -2167,7 +2167,7 @@ structured-adapter stage), LT-P4-2 M-6 (a hung shared discovery promise is reuse
   Jev key is written before the selection, so a failed key write leaves the selection unchanged, as the UI says)
 - Files: `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` + its decision-model spec. Re-review: codex
 
-## Batch 40b (P4f-b): P4 fix round, Decision model row — PENDING (subagent frontend-developer, after the P4 visual review)
+## Batch 40b (P4f-b): P4 fix round, Decision model row — COMPLETE (orchestrator Mode 2 2026-10-16, session 10; subagent frontend-developer, Anthropic; report `reports/batch-40b-report.md`; Jest `settings/providers` 24 suites / 673 tests, chat typecheck + lint pass; accepted deviation: "Remove stored key" stays visible while the key state is unknown, because hiding it would force a Jev save that sends request text; re-review pending, codex + visual re-check)
 
 - Items: S-3 UI part (no raw error object or text to `LoggingService.warn`), M-4 (suggestion filter and help text), plus
   the P4 visual review findings that need a fix. Files: `libs/frontend/chat/src/lib/settings/providers/decision-model-row.component.ts` (+ spec)
@@ -2180,7 +2180,16 @@ round is spent, so per agent-lanes §6 ONE bounded correction, Batch 38c, then a
 still finds defects, the orchestrator reports them to the user and stops. Later tasks: LT-P6-8 logic N-3 (CLI gateway, cron
 and triggers outlive the agent reap), LT-P6-9 logic N-4 (quit during Electron boot skips the drain). Other Minors recorded.
 
-## Batch 38c (P6f-c): P6 bounded correction — PENDING (subagent backend-developer, after Batches 39a-39d commit)
+## Batch 40c (P4f-c): P4 fix round, safe detail text — COMPLETE (orchestrator Mode 2 2026-10-16, session 10)
+
+- Item: P4 visual Moderate 1. `decision-model.config.ts` shows fixed detail text per failure class
+  (`decision-model.detail.ts`); the raw error message goes to the log only. Executor: subagent backend-developer
+  (Anthropic), report `reports/batch-40c-report.md`. Orchestrator correction: the subagent logged an `Error` nested in the
+  `LaneRoutingLogger` meta object, which the host Logger serializes as `{}`; the log meta keeps `errorMessage(error)` and
+  `asLoggableError` is removed. Verified: lane-routing test 18 suites / 392 tests, decision-model specs 66 tests,
+  typecheck + lint pass. Re-review pending, codex.
+
+## Batch 38c (P6f-c): P6 bounded correction — COMPLETE (orchestrator Mode 2 2026-10-16, session 10; subagent backend-developer, Anthropic; report `reports/batch-38c-report.md`; nx test vscode-lm-tools + lane-outcomes + cli-engine (3 projects) pass, typecheck + lint pass; app `tsc --noEmit` Electron, VS Code, ptah-cli pass; Electron `src/activation` + `src/di` Jest 327 tests, VS Code `deactivate-order` + `src/di` Jest pass (orchestrator spec fix: match the `DIContainer.clear();` statement, not the comment that names it), ptah-cli Jest 67 suites; degradation TOTAL 296; independent review pending, codex)
 
 - Items: logic N-1 (route gate measures tokens with `countTokensPiecewise` as well as chars; the route token budget fits a
   100-phase result), logic N-2 (HTTP and stdio resolve the outcome-report store inside the handler's `try`), style N1 (one
