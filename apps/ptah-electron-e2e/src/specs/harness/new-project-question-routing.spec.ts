@@ -186,6 +186,24 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
       .first()
       .getAttribute('data-tab-id');
     if (!foreignTabId) throw new Error('Canvas tab has no data-tab-id');
+    // A session:id-resolved message updates TabState, but the stream router
+    // learns the session-to-conversation binding from a stream event.
+    await ui.pushEvent({
+      type: 'chat:chunk',
+      payload: {
+        tabId: foreignTabId,
+        sessionId: UNRELATED_SESSION_ID,
+        surfaceMode: false,
+        event: {
+          id: 'evt-foreign-1',
+          eventType: 'message_start',
+          timestamp: Date.now(),
+          sessionId: UNRELATED_SESSION_ID,
+          messageId: 'msg-foreign-1',
+          role: 'assistant',
+        },
+      },
+    });
     await ui.pushEvent({
       type: 'session:id-resolved',
       payload: { tabId: foreignTabId, realSessionId: UNRELATED_SESSION_ID },

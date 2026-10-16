@@ -204,7 +204,9 @@ test.describe('New Project flow Ã¢â‚¬â€ workflow + surface (TASK_2026
     expect(tabId).toBeTruthy();
 
     const transcriptText = await ui.page
-      .locator('ptah-harness-builder-view [role="log"]')
+      .locator(
+        `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+      )
       .innerText();
     for (const line of expectedIntakeSummaryLines(intake)) {
       expect(transcriptText).toContain(line);
@@ -368,7 +370,9 @@ test.describe('New Project flow - persistence', () => {
       ),
     ).toBeVisible();
     const transcriptText = await ui.page
-      .locator('ptah-harness-builder-view [role="log"]')
+      .locator(
+        `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+      )
       .innerText();
     expect(transcriptText).toContain(intake.what);
     expect(await ui.getObservedCalls('chat:start')).toHaveLength(1);

@@ -71,6 +71,10 @@ function getPtahWindow(): PtahWindow {
 })
 export class VSCodeService implements MessageHandler {
   private vscode: VsCodeApi | null = null;
+  // Electron's setState crosses async IPC while getState reads the last
+  // committed main-process value. Keep writes in this renderer merged until
+  // reload, so a later theme/layout write cannot erase a pending route write.
+  private pendingElectronState: Record<string, unknown> | null = null;
   private readonly _config = signal<WebviewConfig>({
     isVSCode: false,
     theme: 'dark',
@@ -217,6 +221,9 @@ export class VSCodeService implements MessageHandler {
       return undefined;
     }
 
+    if (this.config().isElectron && this.pendingElectronState) {
+      return this.pendingElectronState[key] as T | undefined;
+    }
     const state = this.vscode.getState() as Record<string, unknown> | undefined;
     if (!state) {
       return undefined;
@@ -243,9 +250,12 @@ export class VSCodeService implements MessageHandler {
       return;
     }
     const currentState =
-      (this.vscode.getState() as Record<string, unknown>) || {};
+      (this.config().isElectron && this.pendingElectronState) ||
+      (this.vscode.getState() as Record<string, unknown>) ||
+      {};
     const newState = { ...currentState, [key]: value };
     this.vscode.setState(newState);
+    if (this.config().isElectron) this.pendingElectronState = newState;
   }
 }
 

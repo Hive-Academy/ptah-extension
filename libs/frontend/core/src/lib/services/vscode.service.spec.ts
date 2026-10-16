@@ -383,6 +383,30 @@ describe('VSCodeService', () => {
       });
     });
 
+    it('keeps an Electron route while later writes see stale async IPC state', () => {
+      const { setState, getState } = installVsCodeApi({ isElectron: true });
+      getState.mockReturnValue({ theme: 'dark' });
+      TestBed.configureTestingModule({ providers: [VSCodeService] });
+      service = TestBed.inject(VSCodeService);
+
+      const route = {
+        v: 1,
+        route: '/harness-builder/new-project/tab-1',
+        seed: 'chat',
+        panelId: 'electron-main',
+      };
+      service.setState('ptahRoute', route);
+      service.setState('layout', { mode: 'single' });
+
+      expect(getState).toHaveBeenCalledTimes(1);
+      expect(setState).toHaveBeenLastCalledWith({
+        theme: 'dark',
+        ptahRoute: route,
+        layout: { mode: 'single' },
+      });
+      expect(service.getState('ptahRoute')).toEqual(route);
+    });
+
     it('creates new state object when current state is empty/null', () => {
       const { setState, getState } = installVsCodeApi();
       getState.mockReturnValue(null);

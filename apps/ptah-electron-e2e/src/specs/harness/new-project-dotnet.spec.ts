@@ -305,7 +305,11 @@ test.describe('New Project flow — .NET seed prompt + transcript (TASK_2026_270
 
 for: ${intake.what}`;
 
-    const { prompt } = await openNewProjectWorkflow(ui, intake, seedPrompt);
+    const { prompt, tabId } = await openNewProjectWorkflow(
+      ui,
+      intake,
+      seedPrompt,
+    );
 
     expect(prompt).toContain('`dotnet-solution-initializer`');
     expect(prompt).toContain('`dotnet-solution-architect`');
@@ -314,7 +318,9 @@ for: ${intake.what}`;
     expect(prompt).not.toContain('nx-workspace-architect');
 
     const transcriptText = await ui.page
-      .locator('ptah-harness-builder-view [role="log"]')
+      .locator(
+        `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+      )
       .innerText();
     for (const line of expectedIntakeSummaryLines(intake)) {
       expect(transcriptText).toContain(line);
@@ -355,7 +361,11 @@ for: ${intake.what}`;
 
 for: ${intake.what}`;
 
-    const { prompt } = await openNewProjectWorkflow(ui, intake, seedPrompt);
+    const { prompt, tabId } = await openNewProjectWorkflow(
+      ui,
+      intake,
+      seedPrompt,
+    );
 
     expect(prompt).toContain('## Before you start');
     expect(prompt).toContain(
@@ -370,7 +380,9 @@ for: ${intake.what}`;
     // still transported to the agent even though the UI transcript never
     // shows the instruction text (checked above in the sibling test).
     const transcriptText = await ui.page
-      .locator('ptah-harness-builder-view [role="log"]')
+      .locator(
+        `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+      )
       .innerText();
     expect(transcriptText).not.toContain('NOT installed on this machine');
   });
