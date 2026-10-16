@@ -676,6 +676,55 @@ describe('AppStateManager', () => {
   });
 
   describe('per-workspace view partitioning (TASK_2026_195)', () => {
+    it.each(['pending', 'settled'] as const)(
+      'keeps a %s boot-restored builder route when the first workspace activates',
+      async (timing) => {
+        const service = createService();
+        const router = TestBed.inject(Router);
+        const surfaceRouter = TestBed.inject(SurfaceRouterService);
+        let releaseGuard: ((allowed: boolean) => void) | undefined;
+        const guard = new Promise<boolean>((resolve) => {
+          releaseGuard = resolve;
+        });
+        router.resetConfig(
+          surfaceTestRoutes().map((route) =>
+            route.path === 'harness-builder'
+              ? {
+                  path: 'harness-builder',
+                  children: [
+                    {
+                      path: ':mode/:tabId',
+                      canActivate: [() => guard],
+                      children: [],
+                    },
+                  ],
+                }
+              : route,
+          ),
+        );
+
+        const restoredRoute = '/harness-builder/new-project/boot-tab';
+        const navigation = router.navigateByUrl(restoredRoute);
+        if (timing === 'pending') {
+          await settle();
+          expect(surfaceRouter.pendingSurface()).toBe('harness-builder');
+        } else {
+          releaseGuard?.(true);
+          await navigation;
+          expect(router.url).toBe(restoredRoute);
+        }
+
+        service.switchWorkspace('/ws/a');
+        releaseGuard?.(true);
+        await navigation;
+        await settle();
+
+        expect(router.url).toBe(restoredRoute);
+        expect(service.currentView()).toBe('harness-builder');
+        expect(service.openViews()).toContain('harness-builder');
+      },
+    );
+
     it('migrates the bootstrap slice onto the first real workspace so the surface survives', async () => {
       const service = createService();
       // `App.handleInitialView` lands the host's deep link before the initial

@@ -876,6 +876,7 @@ export class AppStateManager implements MessageHandler {
     const previousPath = this._activeWorkspacePath();
     if (previousPath === newPath) return;
 
+    const adoptingBootWorkspace = previousPath === IMPLICIT_WORKSPACE_PATH;
     // Router truth: this must match what is on screen.
     const staying = isConfigurationSurface(this.currentView());
 
@@ -904,7 +905,7 @@ export class AppStateManager implements MessageHandler {
     // surface; `recordSettledSurface` re-grants ownership to `newPath` when it
     // lands. The stay-branch starts no navigation, so it grants ownership to
     // the incoming workspace directly instead.
-    this._settlementOwner = staying ? newPath : null;
+    this._settlementOwner = staying || adoptingBootWorkspace ? newPath : null;
     this._activeWorkspacePath.set(newPath);
 
     if (!this._viewSlices().has(newPath)) {
@@ -932,6 +933,13 @@ export class AppStateManager implements MessageHandler {
       // shell's effect calls `SurfaceRouterService.remountActiveSurface()`).
       // The VS Code webview never reaches this branch.
       this._configurationSurfaceRemountTick.update((t) => t + 1);
+      return;
+    }
+
+    if (adoptingBootWorkspace) {
+      // The initial route is already on screen or navigating. Let it settle
+      // against the real workspace instead of replacing its child URL with the
+      // remembered surface root (or Chat while the route is still pending).
       return;
     }
 

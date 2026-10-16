@@ -249,7 +249,7 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
       .click();
     await expect(
       ui.page.locator(
-        `ptah-chat-transcript[data-tab-id="${foreignTabId}"] ptah-question-card`,
+        `ptah-chat-view:has(ptah-chat-transcript[data-tab-id="${foreignTabId}"]) ptah-question-card`,
       ),
     ).toBeVisible();
   });
