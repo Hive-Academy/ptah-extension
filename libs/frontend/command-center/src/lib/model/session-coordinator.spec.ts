@@ -230,6 +230,68 @@ describe('CommandCenterSessionCoordinator', () => {
     );
   });
 
+  it.each([
+    [
+      'send',
+      (subject: CommandCenterSessionCoordinator) => subject.send('turn'),
+    ],
+    [
+      'sendStatusTurn',
+      (subject: CommandCenterSessionCoordinator) =>
+        subject.sendStatusTurn('status'),
+    ],
+    [
+      'sendLaunchTurn',
+      (subject: CommandCenterSessionCoordinator) =>
+        subject.sendLaunchTurn('launch'),
+    ],
+  ])(
+    'refuses %s while the marked tab belongs to another workspace',
+    async (_name, send) => {
+      store.setSession(rootId, sdkId, '/repo');
+      store.setSessionStatus('running');
+      tabs.activeWorkspacePath = '/other';
+
+      expect(await send(coordinator)).toBe(false);
+      expect(sender.send).not.toHaveBeenCalled();
+      expect(store.sessionStatus()).toBe('running');
+      expect(store.toast()).toEqual({
+        message:
+          'Command Center is switching to the selected workspace. Send again when it is ready.',
+        tone: 'error',
+      });
+    },
+  );
+
+  it.each([
+    [
+      'send',
+      (subject: CommandCenterSessionCoordinator) => subject.send('turn'),
+    ],
+    [
+      'sendStatusTurn',
+      (subject: CommandCenterSessionCoordinator) =>
+        subject.sendStatusTurn('status'),
+    ],
+    [
+      'sendLaunchTurn',
+      (subject: CommandCenterSessionCoordinator) =>
+        subject.sendLaunchTurn('launch'),
+    ],
+  ])(
+    'sends %s when the marked tab matches the workspace',
+    async (_name, send) => {
+      store.setSession(rootId, sdkId, '/repo');
+
+      expect(await send(coordinator)).toBe(true);
+      expect(sender.send).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ tabId: rootId }),
+      );
+      expect(store.sessionStatus()).toBe('running');
+    },
+  );
+
   it('reports a send rejection with safe text and an error status', async () => {
     await coordinator.openOrResume();
     sender.send.mockResolvedValueOnce({

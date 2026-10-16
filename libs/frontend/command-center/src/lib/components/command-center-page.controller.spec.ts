@@ -496,6 +496,20 @@ describe('CommandCenterPageController', () => {
     });
   });
 
+  it.each([true, undefined])(
+    'settles a root without a session ID when hasLiveSession is %s',
+    (hasLiveSession) => {
+      tabs.set([{ id: 'root-tab', status: 'streaming' }]);
+      page.store.setSession('root-tab', null, '/workspace');
+      page.store.setSessionStatus('running');
+      TestBed.tick();
+      tabs.set([{ id: 'root-tab', status: 'loaded', hasLiveSession }]);
+      TestBed.tick();
+      expect(page.store.sessionStatus()).toBe('idle');
+      expect(page.store.toast()).toBeNull();
+    },
+  );
+
   it('rebinds on workspace changes and refuses stale sends', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
     TestBed.tick();

@@ -236,6 +236,17 @@ export class CommandCenterSessionCoordinator {
   }
 
   public async send(content: string): Promise<boolean> {
+    if (
+      this.store.markedTabId() &&
+      this.store.workspace() !== this.tabs.activeWorkspacePath
+    ) {
+      this.store.setToast({
+        message:
+          'Command Center is switching to the selected workspace. Send again when it is ready.',
+        tone: 'error',
+      });
+      return false;
+    }
     const tabId = this.store.markedTabId() ?? (await this.openOrResume());
     if (!tabId) return false;
     try {

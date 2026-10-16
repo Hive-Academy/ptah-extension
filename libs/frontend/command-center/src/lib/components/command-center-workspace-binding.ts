@@ -1,4 +1,4 @@
-import { effect } from '@angular/core';
+import { effect, untracked } from '@angular/core';
 import type { TabManagerService } from '@ptah-extension/chat-state';
 import type { CommandCenterStore } from '../model/command-center.store';
 import type { CommandCenterSessionCoordinator } from '../model/session-coordinator';
@@ -61,7 +61,12 @@ export function trackWorkspaceBinding(
     });
     if (active)
       void open().catch(() => {
-        // degradation-audit: reported — the coordinator reports open failures through the safe toast
+        // degradation-audit: reported — show a fixed-text toast for open failures
+        store.setSessionStatus('error');
+        store.setToast({
+          message: 'Could not open the Command Center session.',
+          tone: 'error',
+        });
       });
     return false;
   };
@@ -72,8 +77,15 @@ export function trackWorkspaceBinding(
     if (!workspace) {
       if (store.workspace()) clear();
     } else if (workspace !== store.workspace()) {
-      void open().catch(() => {
-        // degradation-audit: reported — the coordinator reports open failures through the safe toast
+      untracked(() => {
+        void open().catch(() => {
+          // degradation-audit: reported — show a fixed-text toast for open failures
+          store.setSessionStatus('error');
+          store.setToast({
+            message: 'Could not open the Command Center session.',
+            tone: 'error',
+          });
+        });
       });
     }
   });
