@@ -41,7 +41,7 @@ import { commitBuilderUpdates, fullConfig } from './builder-sidebar-helpers';
           <select
             #presetSelect
             id="builder-preset"
-            class="select select-sm select-bordered w-full border-base-content/50"
+            class="select select-sm select-bordered w-full !border-base-content/50 focus:!border-base-content/50 focus-visible:!outline-primary"
             [value]="selectedPresetId()"
             (change)="selectedPresetId.set(presetSelect.value)"
           >

@@ -30,6 +30,7 @@ import {
   SurfaceRouterService,
 } from '@ptah-extension/core';
 import { HarnessBuilderViewComponent } from './harness-builder-view.component';
+import { HarnessBuilderLeaveDialogComponent } from './harness-builder-leave-dialog.component';
 import { HarnessBuilderRecordsService } from '../services/harness-builder-records.service';
 import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
 import { HarnessProposalHydrationService } from '../services/harness-proposal-hydration.service';
@@ -69,23 +70,6 @@ class SidebarStub {
   readonly sheet = input(false);
   readonly retrySetup = output<void>();
 }
-@Component({
-  selector: 'ptah-harness-builder-leave-dialog',
-  standalone: true,
-  template: '<div role="dialog"></div>',
-})
-class DialogStub {
-  readonly context = input('start-over');
-  readonly mode = input('configure-harness');
-  readonly agentRunning = input(false);
-  readonly sessionStarted = input(false);
-  readonly saving = input(false);
-  readonly saveFailed = input(false);
-  readonly existingDraftAt = input<string | null>(null);
-  readonly trigger = input<HTMLElement | null>(null);
-  readonly choice = output<'cancel' | 'save' | 'discard'>();
-}
-
 const params = new BehaviorSubject(
   convertToParamMap({ mode: 'configure-harness', tabId: 'tab-a' }),
 );
@@ -211,7 +195,14 @@ async function render() {
     ],
   });
   TestBed.overrideComponent(HarnessBuilderViewComponent, {
-    set: { imports: [EmbedStub, BadgeStub, SidebarStub, DialogStub] },
+    set: {
+      imports: [
+        EmbedStub,
+        BadgeStub,
+        SidebarStub,
+        HarnessBuilderLeaveDialogComponent,
+      ],
+    },
   });
   const fixture = TestBed.createComponent(HarnessBuilderViewComponent);
   fixture.detectChanges();
@@ -473,6 +464,57 @@ describe('HarnessBuilderViewComponent shared session host', () => {
     expect(abort).not.toHaveBeenCalled();
     expect(closeTab).not.toHaveBeenCalled();
     expect(cancelPendingIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['cancel', 'Escape', 'backdrop'] as const)(
+    'restores the builder and trigger focus after %s',
+    async (dismissal) => {
+      const fixture = await render();
+      const host = fixture.nativeElement as HTMLElement;
+      const trigger = host.querySelector<HTMLButtonElement>(
+        '[aria-label="Start over: leave this workflow"]',
+      );
+      expect(trigger).not.toBeNull();
+      trigger!.focus();
+      trigger!.click();
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]');
+      expect(dialog).not.toBeNull();
+      if (dismissal === 'cancel')
+        dialog!.querySelector<HTMLButtonElement>('button')!.click();
+      else if (dismissal === 'Escape')
+        dialog!.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+        );
+      else dialog!.parentElement!.click();
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      expect(host.querySelector('[inert]')).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    },
+  );
+
+  it('keeps the chat inert when a narrow sheet remains open after Cancel', async () => {
+    const fixture = await render();
+    const host = fixture.nativeElement as HTMLElement;
+    fixture.componentInstance.hostWidth.set(400);
+    fixture.componentInstance.sheetOpen.set(true);
+    fixture.detectChanges();
+    const trigger = host.querySelector<HTMLButtonElement>(
+      '[aria-label="Start over: leave this workflow"]',
+    );
+    trigger!.click();
+    fixture.detectChanges();
+    host.querySelector<HTMLElement>('[role="dialog"] button')!.click();
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(host.querySelector('main')?.hasAttribute('inert')).toBe(true);
+    expect(host.querySelector('.shrink-0[inert]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('cancels an open pending handoff when the view is destroyed', async () => {

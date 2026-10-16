@@ -438,3 +438,62 @@ edited, no git write.
 - Score 7/10. Verdict: APPROVED WITH FIXES (no Blocking). Fix N1 before the PR; N2 and N3 can follow in the
   same round if cheap. Tests to add: initialize and get-proposal with a mixed-case Windows root and a null tab
   `workspacePath`; hydration with `[choice, attributed R, unattributed U]`.
+
+## Final review of 0df579dbb
+
+Scope: `git show 0df579dbb -- libs apps`, read for the backend handlers, schema, store, the new
+`workspace-authorization.ts` helpers, and the harness-builder view, Hub, hydration and request service. The
+orchestrator-verified checks were not re-run. No source edited, no git write.
+
+### Per-finding status
+
+| ID | Status | Evidence |
+| --- | --- | --- |
+| N1 | Fixed | The VS Code fallback is now `requests.rawWorkspaceRoot` (`harness-builder-view.component.ts` `pinnedWorkspaceRoot`). The backend resolves every pinned root with `findOpenWorkspaceRoot` (`workspace-authorization.ts`), which uses `sameWorkspaceRoot` (resolve, strip trailing separators, lowercase on win32) and returns the open folder's own spelling. Initialize returns `pinnedFolder` as `workspaceRoot` and builds context from it. The store `read` now compares with `sameWorkspaceRoot`. The frontend compare in `initializeBuilder` is `canonicalHarnessRoot(response.workspaceRoot) !== canonicalHarnessRoot(pinned)`; canonical form folds drive case, slashes and trailing separators, which is what `sameWorkspaceRoot` equates, so a valid root no longer mismatches. Electron (tab `workspacePath`) and VS Code (null path) both reach the same helper |
+| N1 store change | Safe | `requireRoot` dropped `path.normalize(x) === x` and added a `..` segment check plus absolute, trim and NUL checks. The root is only used through `path.join(root, '.ptah', ...)`, so a non-normalized spelling (forward slashes, trailing separator) is harmless; traversal is rejected on both separators |
+| N2 | Mostly fixed | `harness-proposal-hydration.service.ts` `recompute`: after an unattributed revision, the user choice is re-applied for the fields that revision touches. The N2 scenario `[choice, attributed R, unattributed U]` now keeps the choice. New edge case N5 below |
+| N3 | Fixed | The prefill goes through `restoreContentToInput`, which returns early when the composer has non-blank text (`chat-input.component.ts:1574-1577`), so typed text is never overwritten; the intake is also stored in `resumedIntake` and shown in a `<details>` on the builder page for that tab id. The Hub no longer uses the error channel: `reportEntryOutcome` dismisses the Hub error for `landed`/`resumed` |
+| N4 | Fixed | `harness:get-proposal` calls `findOpenWorkspaceRoot` and throws before `resolveService`/`store.get`, so no read or prune happens for a non-open root. `harness:apply` got the same check and now writes into the open folder's spelling |
+
+### New findings
+
+#### N5 - Moderate - the N2 fix applies the choice early and lets a later stale attributed revision override it
+
+- File: `libs/frontend/harness-builder/src/lib/services/harness-proposal-hydration.service.ts` `recompute`
+  (`applyChoice` now does `pending.delete(field)` without an early return, and the new block calls it right
+  after an unattributed revision that touches the field).
+- Scenario: the unattributed revision U (for example the first proposal after launch, M1) is written at 10:03
+  and sorts by write time. Turn T2 starts 10:04. The user chooses `agents` at 10:05. T2 proposes `agents`,
+  attributed with start 10:04. Order `[U, R(10:04)]`. The choice is applied right after U and removed from
+  `pending`; then R merges over it. D9 says a proposal from a turn that started before the choice (10:04 <
+  10:05) is stale for the chosen field and the user wins; here the agent overrides the choice. Before this
+  change the choice stayed pending and was applied last.
+- Fix: keep the field pending after the unattributed re-apply (apply without deleting), so a later attributed
+  revision with `turnStartedAt > chosenAt` still triggers the pre-apply and a stale one is followed by the
+  end-of-loop apply; or re-apply the choice after every revision whose `turnStartedAt <= chosenAt`.
+
+#### N6 - Minor - the resumed-intake note is never cleared
+
+- File: `harness-workflow-request.service.ts` (`_resumedIntake` is set on `'resumed'` and cleared only on a
+  later `'landed'` for a same-mode request) and `harness-builder-view.component.ts` (`resumedIntake` has no
+  Dismiss). After the user sends the intake (or discards it) the banner "New intake for this session - review
+  before sending" stays for the tab until reload, and it duplicates the text the composer already holds.
+  Fix: clear it when the tab's message list grows or add a Dismiss button.
+
+### Other checks (no defect found)
+
+- `sameWorkspaceRoot` on posix is case-sensitive and strips trailing separators; on win32 it lowercases after
+  `path.win32.resolve`, and `C:\` / UNC share roots are kept intact by the `parse(...).root` guard.
+- `findOpenWorkspaceRoot` over `getWorkspaceFolders()` covers all open Electron workspaces
+  (`electron-workspace-provider.ts:78`), so a pinned root for a non-active workspace passes; a workspace that
+  was closed mid-build now makes initialize, get-proposal and apply reject with the same message (intended).
+  The CLI commands send no `workspaceRoot` (`apps/ptah-cli/src/cli/commands/harness.ts:348,393`), so they are
+  unaffected.
+- Still open from earlier rounds and not part of the correction scope: M1-M9 (notably M4 leave outcome,
+  M5 same-instance state, M6 hydration error state, M7 records sweep).
+
+### Final verdict
+
+- Blocking: 0. Serious open: 0 (S1-S5, N1, N3, N4 fixed). Moderate new: N5. Minor new: N6.
+- Score 8/10. Verdict: APPROVED. N5 is a narrow D9 edge and a one-line change; fix it in the PR if cheap,
+  otherwise track it with M1-M9 as follow-ups.

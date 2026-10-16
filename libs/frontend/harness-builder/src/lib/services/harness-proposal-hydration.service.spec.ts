@@ -130,6 +130,24 @@ describe('HarnessProposalHydrationService', () => {
     expect(rpc.getProposal).toHaveBeenCalledWith('own', originalRoot);
   });
 
+  it('keeps a bound session with no proposal in the empty ready state', async () => {
+    await service.bind(root, 'tab', ['own']);
+    expect(service.config()).toEqual({});
+    expect(service.status()).toBe('ready');
+  });
+
+  it('reports unavailable when a previously seen proposal is missing on re-entry', async () => {
+    rpc.getProposal.mockResolvedValueOnce(
+      proposal('own', [revision('saved', 'saved', t1)]),
+    );
+    await service.bind(root, 'tab', ['own']);
+    expect(service.status()).toBe('ready');
+
+    await service.bind(root, 'tab', ['own']);
+    expect(service.config()).toEqual({});
+    expect(service.status()).toBe('unavailable');
+  });
+
   it('keeps a user choice against older and unattributed proposals, then accepts a later turn', async () => {
     const snapshot: HarnessUserSnapshot = {
       version: 1,

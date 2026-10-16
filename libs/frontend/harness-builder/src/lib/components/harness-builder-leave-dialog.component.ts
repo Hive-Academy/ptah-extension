@@ -134,7 +134,7 @@ export class HarnessBuilderLeaveDialogComponent
   private readonly cancelButton =
     viewChild.required<ElementRef<HTMLButtonElement>>('cancelButton');
   private returnFocus: HTMLElement | null = null;
-  private inerted: { element: HTMLElement; wasInert: boolean }[] = [];
+  private inerted: HTMLElement[] = [];
 
   protected readonly title = computed(() => {
     switch (this.context()) {
@@ -175,9 +175,13 @@ export class HarnessBuilderLeaveDialogComponent
     while (current.parentElement) {
       const parent = current.parentElement;
       for (const sibling of Array.from(parent.children)) {
-        if (sibling instanceof HTMLElement && sibling !== current) {
-          this.inerted.push({ element: sibling, wasInert: sibling.inert });
-          sibling.inert = true;
+        if (
+          sibling instanceof HTMLElement &&
+          sibling !== current &&
+          !sibling.hasAttribute('inert')
+        ) {
+          this.inerted.push(sibling);
+          sibling.setAttribute('inert', '');
         }
       }
       if (parent.matches('ptah-harness-builder-view')) break;
@@ -187,8 +191,7 @@ export class HarnessBuilderLeaveDialogComponent
   }
 
   ngOnDestroy(): void {
-    for (const sibling of this.inerted)
-      sibling.element.inert = sibling.wasInert;
+    for (const sibling of this.inerted) sibling.removeAttribute('inert');
     const target = this.returnFocus;
     queueMicrotask(() => {
       if (target?.isConnected) target.focus();

@@ -145,6 +145,8 @@ export class HarnessProposalHydrationService {
   private bound: BoundProposalTab | null = null;
   private generation = 0;
   private revisions = new Map<string, ScopedRevision>();
+  private readonly knownProposalSessions = new Set<string>();
+  private missingKnownProposal = false;
   private buffered: HarnessConfigProposedPayload[] = [];
   private snapshot: HarnessUserSnapshot | null = null;
   private loading = false;
@@ -169,6 +171,7 @@ export class HarnessProposalHydrationService {
         : null;
     this.snapshot = this.belongsToBoundTab(snapshot) ? snapshot : null;
     this.revisions.clear();
+    this.missingKnownProposal = false;
     this.buffered = [];
     this._config.set({});
     this._isConfigComplete.set(false);
@@ -190,6 +193,7 @@ export class HarnessProposalHydrationService {
         }),
       );
       if (generation !== this.generation) return;
+      this.missingKnownProposal = false;
       for (const { sessionId, proposal } of reads)
         this.addProposal(sessionId, proposal);
       const buffered = this.buffered;
@@ -242,6 +246,7 @@ export class HarnessProposalHydrationService {
         })),
       );
       if (generation !== this.generation) return;
+      this.missingKnownProposal = false;
       for (const { sessionId, proposal } of reads)
         this.addProposal(sessionId, proposal);
       const buffered = this.buffered;
@@ -267,6 +272,7 @@ export class HarnessProposalHydrationService {
     this.bound = null;
     this.snapshot = null;
     this.revisions.clear();
+    this.missingKnownProposal = false;
     this.buffered = [];
     this.loading = false;
     this._config.set({});
@@ -287,15 +293,23 @@ export class HarnessProposalHydrationService {
     sessionId: string,
     proposal: HarnessProposal | null,
   ): void {
-    if (!proposal || !this.bound?.sessionIds.has(sessionId)) return;
+    if (!this.bound?.sessionIds.has(sessionId)) return;
+    const key = `${this.bound.workspaceRoot}\u0000${sessionId}`;
+    if (!proposal) {
+      if (this.knownProposalSessions.has(key)) this.missingKnownProposal = true;
+      return;
+    }
     const parsed = HarnessProposalSchema.safeParse(proposal);
     if (
       !parsed.success ||
       parsed.data.sessionId !== sessionId ||
       canonicalHarnessRoot(parsed.data.workspaceRoot) !==
         this.bound.workspaceRoot
-    )
+    ) {
+      this.missingKnownProposal = true;
       return;
+    }
+    this.knownProposalSessions.add(key);
     for (const revision of parsed.data.revisions ?? [])
       this.addRevision(sessionId, revision);
   }
@@ -304,6 +318,11 @@ export class HarnessProposalHydrationService {
     sessionId: string,
     revision: HarnessProposalRevision,
   ): void {
+    if (this.bound) {
+      this.knownProposalSessions.add(
+        `${this.bound.workspaceRoot}\u0000${sessionId}`,
+      );
+    }
     const key = `${sessionId}\u0000${revision.id}`;
     if (!this.revisions.has(key))
       this.revisions.set(key, { sessionId, revision });
@@ -395,7 +414,7 @@ export class HarnessProposalHydrationService {
     this._config.set(config);
     this._isConfigComplete.set(complete);
     this._status.set(
-      this.revisions.size || this.snapshot || this.bound.sessionIds.size === 0
+      this.revisions.size || this.snapshot || !this.missingKnownProposal
         ? 'ready'
         : 'unavailable',
     );
