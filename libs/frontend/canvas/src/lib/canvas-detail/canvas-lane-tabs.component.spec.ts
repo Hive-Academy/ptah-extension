@@ -168,6 +168,9 @@ describe('CanvasLaneTabsComponent', () => {
     expect(dock.querySelector('ptah-agent-dock-menu')).not.toBeNull();
     expect(dock.classList.contains('pb-1')).toBe(true);
     expect(dock.classList.contains('shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]')).toBe(true);
+    expect(dock.classList.contains('border-b')).toBe(true);
+    expect(dock.classList.contains('border-surface-border')).toBe(true);
+    expect(dock.classList.contains('bg-surface-1')).toBe(true);
     const tabs = [
       ...fixture.nativeElement.querySelectorAll('[role="tab"]'),
     ] as HTMLElement[];
