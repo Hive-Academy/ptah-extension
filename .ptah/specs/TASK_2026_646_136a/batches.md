@@ -2285,6 +2285,26 @@ Implementer families: Anthropic subagents and orchestrator; reviewer family: Ope
   lint -p @ptah-extension/platform-core` success; prettier unchanged; degradation audit TOTAL 297 (= origin/main).
   No lane-routing source changed.
 
+### 41j (revise round 1) — implementation (backend-developer, session 11; not committed)
+
+- Finding (`reviews/batch-41i-code-logic-review.md`, Moderate): making the key file-based also put it on the
+  `settings:set` allow-list, which validates values only for `ADVANCED_SETTINGS` keys. `settings:set` saved
+  any value (e.g. `{ kind: 'ollama', model: '' }`) and reported success, while `getSelection` read it as unset.
+- Caller search: no frontend or backend code writes or reads `agentOrchestration.decisionModel` through
+  `settings:set` / `settings:get`. The `settings:set` callers are the session-budget card (`sessionBudget.*`),
+  the advanced settings group (`ADVANCED_SETTINGS` keys), and git-ui (`DIFF_LAYOUT_SETTING_KEY`,
+  `LAST_EDITOR_SETTING_KEY`). The Decision model row saves through `agent:setConfig`
+  (`decision-model-row.component.ts:590-591`), which validates.
+- Fix (deny approach): `SETTINGS_SET_DENIED_KEYS` next to the handler
+  (`libs/backend/rpc-handlers/src/lib/handlers/settings-rpc.handlers.ts:67-78`). `settings:set` returns
+  `{ success: false, error }` for a denied key before any write (`:178-183`), the same result shape as the
+  not-file-based refusal. `settings:get` is unchanged (a read is harmless). The registry has no deny concept,
+  so the set stays local to the one generic writer.
+- Spec: `settings-rpc.handlers.spec.ts:352-390` checks an unusable and a valid selection. Both are refused,
+  nothing is written, and `diff.renderSideBySide` still saves on the same handler.
+- Checks: Jest `settings-rpc.handlers.spec.ts` 38/38 passed; `nx run-many -t typecheck lint -p
+  @ptah-extension/rpc-handlers` success; degradation audit TOTAL 297.
+
 ## Mode 3 completion (team-leader, 2026-10-16, session 11)
 
 Commit ledger (every batch resolves with `git log --oneline`; read-only check in session 11):

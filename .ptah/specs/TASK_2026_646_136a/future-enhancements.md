@@ -109,6 +109,14 @@ item below must be re-checked against HEAD before it is scheduled.
 | LT-41h-1 | No direct regression test for a selection-only save whose read-back is unreadable (`agent-rpc.handlers.decision-model.spec.ts:681-755`); current code correctly rethrows (`agent-rpc.handlers.ts:865-869,927-935`) | Minor, test gap |
 | LT-41h-2 | `storedSelectionState` logs "restoring the previous key" on a selection-only save that wrote no key (`agent-rpc.handlers.ts:927-934`) | Minor, operator log text only |
 
+## Batch 41i / 41j follow-ups (`reviews/batch-41i-code-logic-review.md`)
+
+| Id | Finding | Severity / note |
+| --- | --- | --- |
+| LT-41i-1 | `agentGeneration.models` (`file-settings-keys.ts:227-229`) holds nested objects. It may lose its value after a restart for the same reason the decision model did: `flattenObject` splits nested objects into dotted leaves on load. Check this with a fresh-manager round-trip spec, and add the key to `FILE_BASED_OBJECT_SETTINGS_KEYS` if it fails | Possible defect, unverified |
+| LT-41i-2 | The visual capture scripts `visual/*/capture-decision-card*.cjs` seed the selection in Electron `<udd>/config.json`. Electron no longer reads that file for this key: it is file-based now and lives in `~/.ptah/settings.json`. Seed that file instead (isolated profile) before the next visual re-check | Tooling, evidence scripts only |
+| LT-41i-3 | 41i review edge case (question 5): a hand-edited `settings.json` with both a whole `decisionModel` object and a `decisionModel.kind` dotted leaf gives order-dependent output on a later write. Flattening keeps the whole object and also emits the leaf (`file-settings-manager.ts:672-685`), and unflattening assigns paths in insertion order (`:704-716`) | Edge case, hand-edited files only |
+
 ## Out of scope follow-ups named by the requirements
 
 - Calling the routing tool at per-batch executor selection inside team-leader (task-description.md, Out of scope).
