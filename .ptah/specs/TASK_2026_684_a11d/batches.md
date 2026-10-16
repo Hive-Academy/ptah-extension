@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 10/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 11/23
 
 ## Execution precondition (read first)
 
@@ -622,7 +622,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   (header: "2 projects"); `TC` and `L` for both; degradation-audit.
 - `TC(@ptah-extension/chat)` as the downstream guard (the shared unions widened in Batch 5).
 
-## Batch 10: Schema and endpoint-status specs (C3 and C6 proofs) — PENDING
+## Batch 10: Schema and endpoint-status specs (C3 and C6 proofs) — COMPLETE
 
 - Recommended executor: CLI lane, senior-tester profile (non-codex)
 - Execution mode: sequential
@@ -635,14 +635,14 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 2 | Phase review: code-logic (codex), on the combined diff of Batches 6-10
 - Criteria: 3.1-3.5, 1.4, 1.6 (DTO sentinel), 2.1 (schema), 2.7 (fresh config reports `apiKeyStored`), 4.5 (fresh profile reads `unset`)
 
-### Task 10.1: `decision-model.types.spec.ts` — PENDING
+### Task 10.1: `decision-model.types.spec.ts` — COMPLETE
 
 - File: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.types.spec.ts`
 - Plan reference: implementation-plan.md:215-216
 - Quality requirements: both kinds parse; extra keys, an empty model and a bad base URL are refused
   with the issue path (`baseUrl` or `model`).
 
-### Task 10.2: `decision-model.config.endpoint.spec.ts` — PENDING
+### Task 10.2: `decision-model.config.endpoint.spec.ts` — COMPLETE
 
 - File: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.config.endpoint.spec.ts`;
   MODIFY `...\decision-model.config.spec.ts` only to add the fresh-profile `unset` case if it is absent (4.5)
