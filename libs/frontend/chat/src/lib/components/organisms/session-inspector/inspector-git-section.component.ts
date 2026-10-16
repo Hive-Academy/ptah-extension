@@ -56,7 +56,7 @@ let nextGitId = 0;
         @case ('known') {
           <div class="flex items-center gap-2 text-xs">
             <lucide-angular [img]="GitBranchIcon" class="size-3.5 shrink-0 text-base-content-muted" aria-hidden="true" />
-            <span class="min-w-0 truncate font-mono text-xs font-medium">{{ branch() ?? 'Detached HEAD' }}</span>
+            <span class="min-w-0 truncate font-mono text-xs font-medium" [attr.title]="branch()">{{ branch() ?? 'Detached HEAD' }}</span>
             <span
               class="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-xs font-medium"
               [attr.title]="git.partial ? 'Some files could not be counted' : 'Uncommitted changes'"

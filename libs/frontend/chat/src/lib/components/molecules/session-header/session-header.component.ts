@@ -99,9 +99,9 @@ let nextHeaderId = 0;
       [data-dot='err'] > .session-header-dot {
         background-color: var(--state-ink-err, oklch(var(--er)));
       }
-      /* The selected-indicator ink (design-spec --sel): brand gold, theme-aware. */
+      /* The selected indicator uses theme-aware brand gold. */
       [data-dot='sel'] > .session-header-dot {
-        background-color: var(--sel, var(--ptah-gold, oklch(var(--s))));
+        background-color: var(--ptah-gold, oklch(var(--s)));
       }
     `,
   ],

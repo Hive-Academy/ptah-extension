@@ -621,6 +621,59 @@ function makeHarness(
   };
 }
 
+describe('ChatViewComponent — inspector Answer focus', () => {
+  beforeEach(() => jest.useFakeTimers());
+
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  function addQuestionCard(h: ReturnType<typeof makeHarness>, requestId: string) {
+    const card = document.createElement('ptah-question-card');
+    card.setAttribute('data-request-id', requestId);
+    const option = document.createElement('button');
+    card.appendChild(option);
+    h.fixture.nativeElement.appendChild(card);
+    return jest.spyOn(option, 'focus');
+  }
+
+  it('focuses the first option when the card is already present', () => {
+    const h = makeHarness();
+    const focus = addQuestionCard(h, 'question-now');
+    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+
+    h.component['focusQuestionCard']('question-now');
+
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(miss).not.toHaveBeenCalled();
+  });
+
+  it('focuses the first option when the card appears during the wait', () => {
+    const h = makeHarness();
+    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+
+    h.component['focusQuestionCard']('question-late');
+    jest.advanceTimersByTime(500);
+    const focus = addQuestionCard(h, 'question-late');
+    jest.advanceTimersByTime(500);
+
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(miss).not.toHaveBeenCalled();
+  });
+
+  it('reports a miss when no card appears by the end of the wait', () => {
+    const h = makeHarness();
+    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+
+    h.component['focusQuestionCard']('question-missing');
+    jest.advanceTimersByTime(1000);
+
+    expect(miss).toHaveBeenCalledWith('question-missing');
+  });
+});
+
 describe('ChatViewComponent — older history orchestration', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
