@@ -40,4 +40,10 @@ fixed in 649 (batch F3).
 | V7 | Moderate | At 1280x480 with a question card open the composer is pushed below the viewport |
 | V8 | Moderate | Sidebar "SESSION" toggle and "Expand stats" button are 18 px tall (spec 24 px) |
 | v1-v7 | Minor | Config summary counts, "Hide panel" label-in-name, red "Open leave choices" (Hub style, D10), seed run-on and missing platform, leave dialog `min-h-10` ignored at 432 px, no top-nav highlight on builder pages, plain notices |
-| F3-L | Minor | Hydration (F3): a proposal lost before the app run saw it shows the neutral empty state, not "unavailable" (no durable proposal reference) |
+| F3-L | Moderate | Hydration (F3): a proposal lost before the app run saw it shows the neutral empty state, not "unavailable" (no durable proposal reference) |
+| F3-m1 | Minor | `knownProposalSessions` is never cleared, also not in `clear()` |
+| F3-m2 | Minor | `leaveTrigger` is never reset (`harness-builder-view.component.ts:344,514`), so a Hub switch dialog can return focus to "Start over" (older than F3) |
+| F3-m3 | Minor | Preset select: `focus-visible:` may not match mouse focus on a `<select>`, so a clicked select can show the faint DaisyUI outline |
+| F3-m4 | Minor | No spec opens the real leave dialog through the Hub switch path |
+
+F3 items come from "Review of ff2ea4f81 (F3)" in `../TASK_2026_649_33c4/code-logic-review.md`.

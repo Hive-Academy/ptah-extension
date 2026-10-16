@@ -497,3 +497,29 @@ orchestrator-verified checks were not re-run. No source edited, no git write.
 - Blocking: 0. Serious open: 0 (S1-S5, N1, N3, N4 fixed). Moderate new: N5. Minor new: N6.
 - Score 8/10. Verdict: APPROVED. N5 is a narrow D9 edge and a one-line change; fix it in the PR if cheap,
   otherwise track it with M1-M9 as follow-ups.
+
+## Review of ff2ea4f81 (F3)
+
+Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lane. Read via `git show ff2ea4f81`; no checks re-run (typecheck, lint, 96/96 tests reported green by the orchestrator).
+
+### Per-fix status
+
+| Fix | Status | Basis |
+| --- | --- | --- |
+| 1. Leave dialog inert ownership | OK | Binding order verified: the header `[attr.inert]` (view.component.ts:104) is written in the parent's update pass before the nested `@if (dialogOpen())` embedded view is refreshed, so the dialog's `ngAfterViewInit` (leave-dialog.component.ts:176-186) sees the attribute and skips the header. The dialog only owns the unbound `.relative` content div (view.component.ts:~236); `main` (241) and the sidebar wrappers (249, 267) sit inside it and are not dialog siblings, so the dialog never removes inert from an element a view binding controls. `narrow() && sheetOpen()` keeps `main` inert after Cancel (new spec covers it). The Hub/switch path uses the same bindings and the same dialog, so it behaves identically. |
+| 2. Hydration `unavailable` | OK with a semantic limit | Reset paths are consistent: `bind` (hydration.service.ts:174), `bind` success (196), `retry` success (249) and `clear` (275) reset `missingKnownProposal`; `knownProposalSessions` is keyed by canonical root + sessionId, so tabs and workspaces do not cross-contaminate. RPC rejection still yields `error` (the catch paths are untouched, and `recompute` returns early on `error`). Invalid or out-of-scope records set `unavailable` even when never seen (hydration.service.ts:307-311). |
+| 3. Preset select classes | OK | `!border-*`, `focus:!border-*` and `focus-visible:!outline-primary` are valid Tailwind 3.4 important and variant syntax. `base-content` takes `/50` through DaisyUI 4's `<alpha-value>` color mapping (already used by the previous class). The `!important` utilities beat DaisyUI's `.select-bordered` and `.select:focus` rules. Actual 3:1 contrast was not measured by me. |
+
+### Findings
+
+- Moderate - hydration.service.ts:296-300, 147. `knownProposalSessions` is in-memory only, so a proposal that expired or was deleted while the webview was closed produces `ready` and an empty preview on the first bind after a reload. The "Saved configuration unavailable / propose it again" state appears only if the proposal was seen earlier in the same webview run (or a returned record is invalid). This is the real expiry case, and the cold-start variant is now silent. The lane documented the decision (no durable proposal reference in the builder record). Accept it consciously, or persist a `hadProposal` marker in the builder record to restore the signal.
+- Minor - hydration.service.ts:147. `knownProposalSessions` is never cleared (not in `clear()`), so it grows by one string per session for the app lifetime. Negligible, but `clear()` is the natural place to drop it.
+- Minor - view.component.ts:344, 514. `leaveTrigger` is set only by `requestStartOver` and never reset, so a later Hub/switch dialog gets the stale Start over button as `trigger()` (leave-dialog.component.ts:~179 uses `trigger() ??`). Cancel then returns focus to Start over, not the switch origin. This predates F3. Fix: clear `leaveTrigger` in `chooseLeave('cancel')` or set it to null on the intent path.
+- Minor - builder-presets-section.component.ts:44. `focus-visible:` does not match mouse focus on a `<select>` in some browsers, so a clicked select shows DaisyUI's 20% outline. It is a mouse-only state and the border is 50% via `focus:!border`. Optional: use `focus:!outline-primary`.
+- Minor - spec gap: no test opens the dialog through the pending-intent (switch) path with the real dialog. The binding makes it equivalent, so this is only a regression guard.
+
+No Blocking or Serious defects.
+
+### Verdict
+
+APPROVED. Score 8/10: the three defects are fixed with no regressions found. The 2 points are the cold-start `unavailable` loss (Moderate) and small leftovers.
