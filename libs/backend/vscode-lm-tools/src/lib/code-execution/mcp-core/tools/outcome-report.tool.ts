@@ -10,6 +10,7 @@ import {
   type OutcomeWritePipeline,
 } from '@ptah-extension/lane-outcomes';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import { flattenOperationUnion } from '../surface-tools';
 import type { MCPToolDefinition } from '../types/mcp-protocol.types';
 
 export const OUTCOME_REPORT_TOOL_NAME = 'ptah_outcome_report';
@@ -34,40 +35,43 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string');
+/**
+ * Publish the discriminated union as one closed object (MCP clients reject a
+ * top-level `oneOf`); each per-kind field's description names the kinds that
+ * require it. The zod schema stays the runtime validator.
+ */
+function outcomeInputSchema(): MCPToolDefinition['inputSchema'] {
+  const generated: Record<string, unknown> = z.toJSONSchema(
+    OutcomeReportArgsSchema,
+    { io: 'input', target: 'draft-7' },
+  );
+  // An MCP inputSchema is a fragment, not a document.
+  const { $schema: _ignoredSchemaKeyword, ...fragment } = generated;
+  const schema = flattenOperationUnion(fragment, 'kind');
+  const kind = schema.properties['kind'];
+  if (
+    !isJsonObject(kind) ||
+    !Array.isArray(kind['enum']) ||
+    kind['enum'].length !== OutcomeReportArgsSchema.options.length
+  )
+    throw new Error('invalid outcome input schema');
+  return schema;
 }
 
-function outcomeInputSchema(): MCPToolDefinition['inputSchema'] {
-  const properties: Record<string, unknown> = {};
-  const kinds: string[] = [];
-  let required: string[] | undefined;
-  for (const option of OutcomeReportArgsSchema.options) {
-    const generated: Record<string, unknown> = z.toJSONSchema(option, {
-      io: 'input',
-      target: 'draft-7',
-    });
-    const branch = generated['properties'];
-    if (!isJsonObject(branch)) throw new Error('invalid outcome input schema');
-    const kind = branch['kind'];
-    if (!isJsonObject(kind) || typeof kind['const'] !== 'string')
-      throw new Error('invalid outcome kind schema');
-    kinds.push(kind['const']);
-    Object.assign(properties, branch);
-    const branchRequired = stringArray(generated['required']);
-    required =
-      required === undefined
-        ? branchRequired
-        : required.filter((item) => branchRequired.includes(item));
-  }
-  properties['kind'] = { type: 'string', enum: kinds };
-  return { type: 'object', properties, required, additionalProperties: false };
-}
+/**
+ * Node reports a missing path as ENOENT (ENOTDIR for a file in the parent
+ * chain); `vscode.workspace.fs` rejects with a FileSystemError whose code is
+ * FileNotFound (FileNotADirectory for the parent case).
+ */
+const NOT_FOUND_CODES: ReadonlySet<unknown> = new Set([
+  'ENOENT',
+  'ENOTDIR',
+  'FileNotFound',
+  'FileNotADirectory',
+]);
 
 function isNotFound(error: unknown): boolean {
-  if (!isJsonObject(error)) return false;
-  return error['code'] === 'ENOENT' || error['code'] === 'ENOTDIR';
+  return isJsonObject(error) && NOT_FOUND_CODES.has(error['code']);
 }
 
 export function buildOutcomeReportTool(): MCPToolDefinition {

@@ -125,6 +125,44 @@ describe('ptah_outcome_report', () => {
     });
   });
 
+  it('publishes one closed object that names the kind requiring each field', () => {
+    const schema = buildOutcomeReportTool().inputSchema;
+    const raw = schema as unknown as Record<string, unknown>;
+    const properties = schema.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect('$schema' in raw).toBe(false);
+    expect('oneOf' in raw).toBe(false);
+    expect(schema.type).toBe('object');
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(['kind', 'target']);
+    expect(properties['kind']).toEqual({
+      type: 'string',
+      enum: ['deliverables', 'review'],
+    });
+    expect(Object.keys(properties).sort()).toEqual([
+      'kind',
+      'paths',
+      'routingSource',
+      'target',
+      'taskId',
+      'taskKind',
+      'verdict',
+    ]);
+    expect(properties['target']['description']).toBeUndefined();
+    expect(properties['paths']['description']).toBe(
+      'Required for kind deliverables; not allowed for any other kind.',
+    );
+    expect(properties['verdict']['description']).toBe(
+      'Required for kind review; not allowed for any other kind.',
+    );
+    for (const key of ['taskKind', 'taskId', 'routingSource'])
+      expect(properties[key]['description']).toBe(
+        'Optional for kind deliverables; not allowed for any other kind.',
+      );
+  });
+
   it('stores an ENOENT deliverable as missing', async () => {
     const f = fixture();
     const result = await runOutcomeReport(
@@ -158,6 +196,54 @@ describe('ptah_outcome_report', () => {
     });
     expect(submit).not.toHaveBeenCalled();
     expect(new KeyValueOutcomeJournal(f.storage).snapshot()).toEqual(before);
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
+    stat.mockRestore();
+    await f.pipeline.dispose();
+  });
+
+  // vscode.workspace.fs.stat rejects with a FileSystemError carrying these codes.
+  it.each(['FileNotFound', 'FileNotADirectory'])(
+    'stores a VS Code %s deliverable as missing',
+    async (code) => {
+      const f = fixture();
+      const stat = jest.spyOn(fileSystem, 'stat').mockRejectedValueOnce(
+        Object.assign(new Error('missing'), {
+          name: `${code} (FileSystemError)`,
+          code,
+        }),
+      );
+      const result = await runOutcomeReport(
+        deliverables({ runId: 'subagent:vscode' }, 'plan.md'),
+        f.deps,
+      );
+      expect(result.recorded).toBe('held');
+      const held = await f.store.listHeldReports(Date.now());
+      expect(JSON.parse(held[0].payload)).toMatchObject({
+        checks: [{ exists: false, bytes: 0, mtimeMs: null }],
+      });
+      stat.mockRestore();
+      await f.pipeline.dispose();
+    },
+  );
+
+  it('returns recorded false for another VS Code FileSystemError code', async () => {
+    const f = fixture();
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const stat = jest.spyOn(fileSystem, 'stat').mockRejectedValueOnce(
+      Object.assign(new Error('no permissions'), {
+        name: 'NoPermissions (FileSystemError)',
+        code: 'NoPermissions',
+      }),
+    );
+    const result = await runOutcomeReport(
+      deliverables({ runId: 'subagent:vscode' }, 'plan.md'),
+      f.deps,
+    );
+    expect(result).toEqual({
+      recorded: false,
+      reason: 'deliverable stat failed for plan.md',
+    });
+    expect(submit).not.toHaveBeenCalled();
     expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
     stat.mockRestore();
     await f.pipeline.dispose();
