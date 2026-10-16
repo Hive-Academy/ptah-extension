@@ -8,6 +8,7 @@ import {
   clipboard,
 } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import type { DependencyContainer } from 'tsyringe';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { registerElectronSettings } from '@ptah-extension/platform-electron';
@@ -35,6 +36,7 @@ import {
 } from '@ptah-extension/rpc-handlers';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
+import { resolveInitialWorkspaceArg } from './initial-workspace-arg';
 import { runSessionStoreMigration } from './session-store-migration';
 import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
@@ -201,15 +203,21 @@ export async function bootstrapElectron(
   coordinator: Pick<BootCoordinator, 'snapshot'>,
 ): Promise<BootstrapResult> {
   fixPath();
-  const workspacePath = process.argv.find(
-    (arg) =>
-      !arg.startsWith('-') &&
-      arg !== process.argv[0] &&
-      arg !== process.argv[1],
+  const workspacePath = resolveInitialWorkspaceArg(
+    process.argv,
+    (candidate) => {
+      try {
+        return (
+          fs.statSync(candidate, { throwIfNoEntry: false })?.isDirectory() ===
+          true
+        );
+      } catch {
+        // degradation-audit: reported — an inaccessible path is not a usable workspace.
+        return false;
+      }
+    },
   );
-  const initialFolders = workspacePath
-    ? [path.resolve(workspacePath)]
-    : undefined;
+  const initialFolders = workspacePath ? [workspacePath] : undefined;
 
   if (initialFolders) {
     console.log(`[Ptah Electron] Workspace path: ${initialFolders[0]}`);
