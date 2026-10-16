@@ -42,6 +42,26 @@ function buildService(): {
 }
 
 describe('HarnessWorkflowPromptService', () => {
+  it.each([false, true])(
+    'composes a context-only preamble for empty workspace = %s',
+    async (isEmpty) => {
+      const { service, workspaceContext } = buildService();
+      workspaceContext.isWorkspaceEffectivelyEmpty.mockResolvedValue(isEmpty);
+
+      const { prompt } = await service.composePrompt({
+        mode: 'configure-harness',
+        contextOnly: true,
+      });
+
+      expect(prompt).toContain('acme-app');
+      expect(prompt).toContain('proposeConfig');
+      expect(prompt).toContain('What Apply Writes');
+      expect(prompt.includes('Project Planning')).toBe(isEmpty);
+      expect(prompt).not.toContain("## User's Intent");
+      expect(prompt).not.toContain('undefined');
+    },
+  );
+
   it('composes a prompt containing workspace context, the proposeConfig instruction, and the user intent', async () => {
     const { service, workspaceContext } = buildService();
 

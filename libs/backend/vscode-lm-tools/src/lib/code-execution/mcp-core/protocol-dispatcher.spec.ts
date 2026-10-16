@@ -680,6 +680,28 @@ describe('harness tools', () => {
     expect(text).not.toContain('private workspace path');
   });
 
+  it('asks the user to reopen a proposal workspace that is not open', async () => {
+    const error = Object.assign(new Error('private workspace path'), {
+      code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN',
+    });
+    const deps = harnessDeps({
+      proposeConfig: jest.fn().mockRejectedValue(error),
+    });
+    const { isError, text } = toolResult(
+      await callTool(
+        'ptah_harness_propose_config',
+        { configUpdates: { name: 'X' } },
+        deps,
+      ),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('workspace folder is not open in Ptah');
+    expect(text).toContain(
+      'Do not retry; ask the user to reopen the workspace.',
+    );
+    expect(text).not.toContain('private workspace path');
+  });
+
   it('reports a file-system error code without exposing its path', async () => {
     const error = Object.assign(new Error('EACCES: denied C:\\secret\\path'), {
       code: 'EACCES',

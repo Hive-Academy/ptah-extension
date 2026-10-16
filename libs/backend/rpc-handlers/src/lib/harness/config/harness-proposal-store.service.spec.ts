@@ -10,6 +10,7 @@ import { FileLockTimeoutError } from '@ptah-extension/harness-sync';
 import {
   HarnessProposalStore,
   HarnessProposalWorkspaceError,
+  HarnessProposalWorkspaceNotOpenError,
 } from './harness-proposal-store.service';
 
 describe('HarnessProposalStore', () => {
@@ -32,6 +33,7 @@ describe('HarnessProposalStore', () => {
     logger = createMockLogger();
     workspaceProvider = {
       getWorkspaceRoot: () => root,
+      getWorkspaceFolders: () => [root],
     } as IWorkspaceProvider;
     store = new HarnessProposalStore(
       logger as unknown as Logger,
@@ -70,12 +72,214 @@ describe('HarnessProposalStore', () => {
     expect(await store.get('one')).toEqual(saved);
   });
 
+  it('reads a stored root with different Windows casing and a trailing separator', async () => {
+    const saved = await store.save('one', { name: 'First' }, false);
+    await fs.writeFile(
+      fileFor('one'),
+      JSON.stringify({
+        ...saved,
+        workspaceRoot: `${root.toUpperCase()}${path.sep}`,
+      }),
+    );
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    });
+    try {
+      expect((await store.get('one', root))?.configUpdates.name).toBe('First');
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: platform,
+        configurable: true,
+      });
+    }
+  });
+
+  it('persists one exact revision per save with a unique write identity', async () => {
+    const first = await store.save('one', { name: 'First' }, false);
+    const second = await store.save('one', { name: 'Second' }, true);
+    expect(first.revisions).toHaveLength(1);
+    expect(second.revisions).toHaveLength(2);
+    expect(
+      second.revisions?.filter(
+        (revision) => revision.updatedAt === second.updatedAt,
+      ),
+    ).toHaveLength(1);
+    expect(second.revisions?.[1].configUpdates).toEqual({ name: 'Second' });
+    expect(JSON.parse(await fs.readFile(fileFor('one'), 'utf8'))).toEqual(
+      second,
+    );
+  });
+
+  it('a T1 revision persisted after T3 leaves unchosen fields on T3', async () => {
+    const t1 = '2026-10-15T10:00:00.000Z';
+    const t3 = '2026-10-15T10:03:00.000Z';
+    const firstSaved = await store.save('one', { name: 'T3' }, true, t3);
+    const late = await store.save(
+      'one',
+      { name: 'T1', prompt: { systemPrompt: 'From T1' } as never },
+      false,
+      t1,
+    );
+    expect(late.revisions?.map((revision) => revision.turnStartedAt)).toEqual([
+      t1,
+      t3,
+    ]);
+    expect(late.configUpdates).toEqual({
+      name: 'T3',
+      prompt: { systemPrompt: 'From T1' },
+    });
+    expect(late.isConfigComplete).toBe(true);
+    expect(
+      late.revisions?.find((revision) => revision.updatedAt === late.updatedAt)
+        ?.configUpdates.name,
+    ).toBe('T1');
+    expect(late.revisions?.[1].id).toBe(firstSaved.revisions?.[0].id);
+    expect(await store.get('one')).toEqual(late);
+  });
+
+  it('reads a merged-only legacy record as one unattributed revision', async () => {
+    const saved = await store.save('one', { name: 'Legacy' }, false);
+    const legacy = { ...saved };
+    delete legacy.revisions;
+    await fs.writeFile(fileFor('one'), JSON.stringify(legacy));
+    const loaded = await store.get('one');
+    expect(loaded?.revisions).toEqual([
+      {
+        id: `legacy:one:${saved.updatedAt}`,
+        configUpdates: { name: 'Legacy' },
+        isConfigComplete: false,
+        updatedAt: saved.updatedAt,
+      },
+    ]);
+    const next = await store.save(
+      'one',
+      { name: 'Attributed' },
+      true,
+      new Date(Date.parse(saved.updatedAt) + 60_000).toISOString(),
+    );
+    expect(next.revisions).toHaveLength(2);
+    expect(next.revisions?.[0].turnStartedAt).toBeUndefined();
+    expect(next.configUpdates.name).toBe('Attributed');
+  });
+
+  it('lets a newer unattributed write override an older attributed turn', async () => {
+    await store.save('one', { name: 'T3' }, true, '2026-10-15T10:03:00.000Z');
+    const late = await store.save('one', { name: 'Unknown' }, false);
+    expect(late.revisions?.[1].turnStartedAt).toBeUndefined();
+    expect(late.configUpdates.name).toBe('Unknown');
+    expect(late.isConfigComplete).toBe(false);
+  });
+
   it('isolates sessions in the same workspace', async () => {
     await store.save('one', { name: 'First' }, false);
     await store.save('two', { name: 'Second' }, true);
     expect((await store.get('one'))?.configUpdates.name).toBe('First');
     expect((await store.get('two'))?.configUpdates.name).toBe('Second');
     expect(fileFor('one')).not.toBe(fileFor('two'));
+  });
+
+  it('persists under the pinned caller root when the active provider root differs', async () => {
+    const callerRoot = path.join(root, 'caller');
+    const getWorkspaceRoot = jest.fn((): string | undefined => {
+      throw new Error('Active provider root must not be read');
+    });
+    const pinnedStore = new HarnessProposalStore(
+      logger as unknown as Logger,
+      {
+        getWorkspaceRoot: () => getWorkspaceRoot(),
+        getWorkspaceFolders: () => [root, callerRoot],
+      } as IWorkspaceProvider,
+    );
+    const capture = pinnedStore.captureProposingTurnStartedAt(
+      'one',
+      callerRoot,
+    );
+    const saved = await pinnedStore.save(
+      'one',
+      { name: 'Caller' },
+      false,
+      capture.turnStartedAt,
+      callerRoot,
+    );
+    capture.release();
+    expect(getWorkspaceRoot).not.toHaveBeenCalled();
+    expect(saved.workspaceRoot).toBe(callerRoot);
+    expect(await pinnedStore.get('one', callerRoot)).toEqual(saved);
+    expect(
+      JSON.parse(
+        await fs.readFile(
+          path.join(
+            callerRoot,
+            '.ptah',
+            'harness',
+            'proposals',
+            path.basename(fileFor('one')),
+          ),
+          'utf8',
+        ),
+      ),
+    ).toEqual(saved);
+    await expect(fs.access(fileFor('one'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('uses the open folder spelling for an equivalent pinned root', async () => {
+    const pinnedRoot = `${root}${path.sep}`;
+    const saved = await store.save(
+      'one',
+      { name: 'Open' },
+      false,
+      undefined,
+      pinnedRoot,
+    );
+    expect(saved.workspaceRoot).toBe(root);
+    expect(await store.get('one', pinnedRoot)).toEqual(saved);
+    expect(JSON.parse(await fs.readFile(fileFor('one'), 'utf8'))).toEqual(
+      saved,
+    );
+  });
+
+  it('rejects a pinned root outside the open folders', async () => {
+    const closedRoot = path.join(root, 'closed');
+    expect(() =>
+      store.captureProposingTurnStartedAt('one', closedRoot),
+    ).toThrow(HarnessProposalWorkspaceNotOpenError);
+    try {
+      store.captureProposingTurnStartedAt('one', closedRoot);
+    } catch (error: unknown) {
+      expect(error).toMatchObject({
+        code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN',
+      });
+    }
+    await expect(
+      store.save('one', {}, false, undefined, closedRoot),
+    ).rejects.toMatchObject({ code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN' });
+    await expect(store.get('one', closedRoot)).rejects.toMatchObject({
+      code: 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN',
+    });
+    await expect(
+      fs.access(path.join(closedRoot, '.ptah')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each([
+    '',
+    'relative/workspace',
+    '  ',
+    `${path.sep}tmp${path.sep}..${path.sep}workspace`,
+  ])('rejects an invalid pinned root %j before writing', async (callerRoot) => {
+    expect(() =>
+      store.captureProposingTurnStartedAt('one', callerRoot),
+    ).toThrow(/absolute path without traversal/);
+    await expect(
+      store.save('one', {}, false, undefined, callerRoot),
+    ).rejects.toThrow(/absolute path without traversal/);
+    await expect(fs.access(fileFor('one'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 
   it('reads a proposal using a new store instance', async () => {

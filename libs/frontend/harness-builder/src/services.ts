@@ -5,7 +5,9 @@
  * import path from eager code (e.g. the webview's `app.config.ts`, which
  * registers `HarnessWorkflowMessageHandler` in `MESSAGE_HANDLERS`) so that
  * registering the message handler does not drag `HarnessBuilderViewComponent`
- * and `SetupHubComponent` into the initial bundle:
+ * and `SetupHubComponent` into the initial bundle. The handler also loads
+ * workflow requests and proposal hydration on first message, so this barrel's
+ * re-exports must remain tree-shakeable:
  *
  *   import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/services';
  *
@@ -20,8 +22,8 @@
 
 export { HarnessBuilderStateService } from './lib/services/harness-builder-state.service';
 export { HarnessRpcService } from './lib/services/harness-rpc.service';
-export {
-  HarnessWorkflowService,
-  type HarnessWorkflowMode,
-} from './lib/services/harness-workflow.service';
+export { HarnessBuilderRecordsService } from './lib/services/harness-builder-records.service';
+export { HarnessProposalHydrationService } from './lib/services/harness-proposal-hydration.service';
+export { HarnessHelperService } from './lib/services/harness-helper.service';
+export { HarnessWorkflowRequestService } from './lib/services/harness-workflow-request.service';
 export { HarnessWorkflowMessageHandler } from './lib/services/harness-workflow-message.handler';

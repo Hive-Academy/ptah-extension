@@ -28,6 +28,7 @@
  * the service registration order is documented in `../harness/di.ts`.
  */
 
+import { findOpenWorkspaceRoot } from '../utils/workspace-authorization';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -81,7 +82,6 @@ import type {
   HarnessStartNewProjectResult,
   HarnessGetProposalParams,
   HarnessGetProposalResult,
-  HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
   HarnessHealthParams,
   HarnessHealthResult,
@@ -111,6 +111,7 @@ import {
 import {
   HarnessGetSkillSelectionParamsSchema,
   HarnessGetProposalParamsSchema,
+  HarnessInitializeParamsSchema,
   HarnessHealthParamsSchema,
   HarnessReconcileParamsSchema,
   HarnessRemoveParamsSchema,
@@ -368,9 +369,18 @@ export class HarnessRpcHandlers {
     this.wire<HarnessInitializeParams, HarnessInitializeResponse>(
       'harness:initialize',
       'registerInitialize',
-      async () => {
+      async (params) => {
+        const { workspaceRoot: requestedRoot } =
+          HarnessInitializeParamsSchema.parse(params ?? {});
+        const pinnedFolder = requestedRoot
+          ? findOpenWorkspaceRoot(requestedRoot, this.workspaceProvider)
+          : undefined;
+        if (requestedRoot && !pinnedFolder)
+          throw new Error(
+            'Pinned workspace root is not an open workspace folder.',
+          );
         const [workspaceContext, existingPresets] = await Promise.all([
-          this.workspaceContext.resolveWorkspaceContext(),
+          this.workspaceContext.resolveWorkspaceContext(pinnedFolder),
           this.configStore.loadPresetsFromDisk(),
         ]);
         const availableAgents = this.workspaceContext.getAvailableAgents();
@@ -378,7 +388,8 @@ export class HarnessRpcHandlers {
         // Return the resolved workspace root so the frontend can PIN it. Later
         // `harness:apply` calls echo this back, keeping file writes bound to the
         // workspace the build started in even after an Electron workspace switch.
-        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? null;
+        const workspaceRoot =
+          pinnedFolder ?? this.workspaceProvider.getWorkspaceRoot() ?? null;
         return {
           workspaceContext,
           availableAgents,
@@ -492,8 +503,13 @@ export class HarnessRpcHandlers {
         const config = this.configStore.normalizeHarnessConfig(params.config);
         const appliedPaths: string[] = [];
         const warnings: string[] = [];
-        const workspaceRoot =
-          requestedRoot ?? this.workspaceProvider.getWorkspaceRoot();
+        const workspaceRoot = requestedRoot
+          ? findOpenWorkspaceRoot(requestedRoot, this.workspaceProvider)
+          : this.workspaceProvider.getWorkspaceRoot();
+        if (requestedRoot && !workspaceRoot)
+          throw new Error(
+            'Pinned workspace root is not an open workspace folder.',
+          );
         const presetPath = await this.configStore.writePresetToDisk(
           config.name,
           config,
@@ -913,25 +929,32 @@ export class HarnessRpcHandlers {
       'harness:get-proposal',
       'registerGetProposal',
       async (params) => {
-        const { sessionId } = HarnessGetProposalParamsSchema.parse(params);
+        const { sessionId, workspaceRoot: requestedRoot } =
+          HarnessGetProposalParamsSchema.parse(params);
+        const workspaceRoot = requestedRoot
+          ? findOpenWorkspaceRoot(requestedRoot, this.workspaceProvider)
+          : undefined;
+        if (requestedRoot && !workspaceRoot)
+          throw new Error(
+            'Pinned workspace root is not an open workspace folder.',
+          );
         const store = this.resolveService<IHarnessProposalStore>(
           PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
           'HarnessProposalStore',
         );
-        return { proposal: await store.get(sessionId) };
+        return { proposal: await store.get(sessionId, workspaceRoot) };
       },
     );
   }
 
   private registerWorkflowPrompt(): void {
-    this.wire<HarnessWorkflowPromptParams, HarnessWorkflowPromptResponse>(
-      'harness:workflow-prompt',
-      'registerWorkflowPrompt',
-      async (params) => {
-        const parsed = HarnessWorkflowPromptParamsSchema.parse(params);
-        return this.workflowPrompt.composePrompt(parsed);
-      },
-    );
+    this.wire<
+      Parameters<HarnessWorkflowPromptService['composePrompt']>[0],
+      HarnessWorkflowPromptResponse
+    >('harness:workflow-prompt', 'registerWorkflowPrompt', async (params) => {
+      const parsed = HarnessWorkflowPromptParamsSchema.parse(params);
+      return this.workflowPrompt.composePrompt(parsed);
+    });
   }
 
   // -- Reconciler surface (TASK_2026_278 Batch 4) ---------------------------

@@ -262,8 +262,17 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
     sessionManager.find.mockImplementation((id: string) =>
       id === 'tab-7' ? { realSessionId } : undefined,
     );
+    sessionManager.getSessionWorkspace.mockReturnValue(PLATFORM_ROOT);
+    const release = jest.fn();
+    const captureProposingTurnStartedAt = jest.fn().mockReturnValue({
+      turnStartedAt: '2026-10-15T08:00:00Z',
+      release,
+    });
     const save = jest.fn().mockResolvedValue({ sessionId: 'sdk-7' });
-    const resolve = jest.fn().mockReturnValue({ save });
+    const resolve = jest.fn().mockReturnValue({
+      save,
+      captureProposingTurnStartedAt,
+    });
     const container = {
       isRegistered: jest.fn().mockReturnValue(true),
       resolve,
@@ -282,12 +291,47 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
       expect(deps.getCallerSdkSessionId()).toBeUndefined();
       realSessionId = 'sdk-7';
       expect(deps.getCallerSdkSessionId()).toBe('sdk-7');
-      await deps.saveProposal('sdk-7', { name: 'X' }, false);
-      await deps.saveProposal('sdk-7', { name: 'Y' }, true);
+      const pinnedRoot = deps.getPolicyWorkspaceRoot();
+      const capture = deps.getProposingTurnStartedAt('sdk-7', pinnedRoot);
+      expect(capture.turnStartedAt).toBe('2026-10-15T08:00:00Z');
+      await deps.saveProposal(
+        'sdk-7',
+        { name: 'X' },
+        false,
+        capture.turnStartedAt,
+        pinnedRoot,
+      );
+      await deps.saveProposal(
+        'sdk-7',
+        { name: 'Y' },
+        true,
+        undefined,
+        pinnedRoot,
+      );
+      capture.release();
     });
-    expect(save).toHaveBeenNthCalledWith(1, 'sdk-7', { name: 'X' }, false);
-    expect(save).toHaveBeenNthCalledWith(2, 'sdk-7', { name: 'Y' }, true);
-    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(captureProposingTurnStartedAt).toHaveBeenCalledWith(
+      'sdk-7',
+      PLATFORM_ROOT,
+    );
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenNthCalledWith(
+      1,
+      'sdk-7',
+      { name: 'X' },
+      false,
+      '2026-10-15T08:00:00Z',
+      PLATFORM_ROOT,
+    );
+    expect(save).toHaveBeenNthCalledWith(
+      2,
+      'sdk-7',
+      { name: 'Y' },
+      true,
+      undefined,
+      PLATFORM_ROOT,
+    );
+    expect(resolve).toHaveBeenCalledTimes(3);
     expect(resolve).toHaveBeenCalledWith(
       PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
     );
@@ -311,6 +355,52 @@ describe('PtahAPIBuilder harness proposal wiring', () => {
     expect(() => deps.saveProposal('sdk-7', {}, false)).toThrow(
       /store is unavailable/,
     );
+    expect(() =>
+      deps.getProposingTurnStartedAt('sdk-7', PLATFORM_ROOT),
+    ).toThrow(/store is unavailable/);
+  });
+
+  it('passes the pinned caller root through capture and save across an active workspace switch', async () => {
+    const captureProposingTurnStartedAt = jest.fn().mockReturnValue({
+      turnStartedAt: '2026-10-15T08:00:00Z',
+      release: jest.fn(),
+    });
+    const save = jest.fn().mockResolvedValue({ sessionId: 'sdk-7' });
+    const container = {
+      isRegistered: jest.fn().mockReturnValue(true),
+      resolve: jest
+        .fn()
+        .mockReturnValue({ captureProposingTurnStartedAt, save }),
+    };
+    const provider = makeRawWorkspaceProvider();
+    const builder = buildTestBuilder(provider, makeSessionManager());
+    Object.assign(builder, { pluginLoader: {}, container });
+    builder.build();
+    const deps = (
+      namespaceBuilders.buildHarnessNamespace as jest.Mock
+    ).mock.calls.at(-1)?.[0];
+    const capture = deps.getProposingTurnStartedAt('sdk-7', SESSION_ROOT);
+    expect(capture.turnStartedAt).toBe('2026-10-15T08:00:00Z');
+    (provider.getWorkspaceRoot as jest.Mock).mockReturnValue('D:/switched');
+    await deps.saveProposal(
+      'sdk-7',
+      { name: 'Pinned' },
+      false,
+      capture.turnStartedAt,
+      SESSION_ROOT,
+    );
+    expect(captureProposingTurnStartedAt).toHaveBeenCalledWith(
+      'sdk-7',
+      SESSION_ROOT,
+    );
+    expect(save).toHaveBeenCalledWith(
+      'sdk-7',
+      { name: 'Pinned' },
+      false,
+      '2026-10-15T08:00:00Z',
+      SESSION_ROOT,
+    );
+    capture.release();
   });
 });
 

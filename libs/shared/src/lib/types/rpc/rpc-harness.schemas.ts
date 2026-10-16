@@ -461,9 +461,19 @@ export const HarnessConfigUpdatesSchema = z
 /** Real SDK session id, trimmed before the proposal store hashes it. */
 export const HarnessSessionIdSchema = z.string().trim().min(1).max(256);
 
+const HarnessProposalRevisionSchema = z.strictObject({
+  id: z.string().min(1),
+  configUpdates: z.custom<Partial<HarnessConfig>>(
+    (value) => HarnessConfigUpdatesSchema.safeParse(value).success,
+  ),
+  isConfigComplete: z.boolean(),
+  updatedAt: z.iso.datetime(),
+  turnStartedAt: z.iso.datetime().optional(),
+});
+
 /** Validates a proposal loaded from workspace storage. */
-export const HarnessProposalSchema: z.ZodType<HarnessProposal> = z.strictObject(
-  {
+export const HarnessProposalSchema: z.ZodType<HarnessProposal> = z
+  .strictObject({
     version: z.literal(1),
     workspaceRoot: z.string().min(1),
     sessionId: HarnessSessionIdSchema,
@@ -474,5 +484,16 @@ export const HarnessProposalSchema: z.ZodType<HarnessProposal> = z.strictObject(
     ),
     isConfigComplete: z.boolean(),
     updatedAt: z.iso.datetime(),
-  },
-);
+    revisions: z.array(HarnessProposalRevisionSchema).min(1).optional(),
+  })
+  .transform((proposal) => ({
+    ...proposal,
+    revisions: proposal.revisions ?? [
+      {
+        id: `legacy:${proposal.sessionId}:${proposal.updatedAt}`,
+        configUpdates: proposal.configUpdates,
+        isConfigComplete: proposal.isConfigComplete,
+        updatedAt: proposal.updatedAt,
+      },
+    ],
+  }));

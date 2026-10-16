@@ -51,8 +51,6 @@ import {
   isNewProjectStack,
   stackOptionsForPlatform,
 } from '@ptah-extension/shared';
-import { HarnessRpcService } from '../services/harness-rpc.service';
-import { HarnessWorkflowService } from '../services/harness-workflow.service';
 import { HarnessWorkflowRequestService } from '../services/harness-workflow-request.service';
 import {
   NEW_PROJECT_AUDIENCE_OPTIONS,
@@ -261,6 +259,41 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
             <span>{{ loadError() }}</span>
             <button class="btn btn-sm btn-ghost" (click)="refreshStatus()">
               Retry
+            </button>
+          </div>
+        }
+
+        @if (hubWarning()) {
+          <div class="alert alert-error mb-6 text-sm" role="alert">
+            <span>{{ hubWarning() }}</span>
+            <button
+              class="btn btn-sm btn-ghost"
+              type="button"
+              aria-label="Dismiss session warning"
+              (click)="dismissHubWarning()"
+            >
+              <lucide-angular
+                [img]="XIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+        }
+        @if (hubError()) {
+          <div class="alert alert-error mb-6 text-sm" role="alert">
+            <span>{{ hubError() }}</span>
+            <button
+              class="btn btn-sm btn-ghost"
+              type="button"
+              aria-label="Dismiss builder error"
+              (click)="dismissHubError()"
+            >
+              <lucide-angular
+                [img]="XIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
             </button>
           </div>
         }
@@ -1108,11 +1141,11 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
             id="new-project-discard-title"
             class="text-base font-semibold text-base-content mb-2"
           >
-            Discard the running AI Team Builder workflow?
+            Open leave choices for AI Team Builder?
           </h2>
           <p class="text-sm text-base-content-muted mb-4">
-            An AI Team Builder workflow is still running. Starting a new project
-            stops it and clears its transcript and configuration.
+            This opens the builder page, where you can Save as draft, Discard,
+            or Cancel before starting a new project.
           </p>
           <div class="flex justify-end gap-2">
             <button
@@ -1128,7 +1161,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
               data-testid="new-project-discard-confirm-button"
               (click)="confirmDiscardAndStart()"
             >
-              Discard and start
+              Open leave choices
             </button>
           </div>
         </div>
@@ -1138,10 +1171,8 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
 })
 export class SetupHubComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
-  private readonly harnessRpc = inject(HarnessRpcService);
   private readonly workflowRequest = inject(HarnessWorkflowRequestService);
   private readonly appState = inject(AppStateManager);
-  private readonly workflow = inject(HarnessWorkflowService);
   protected readonly SearchIcon = Search;
   protected readonly WrenchIcon = Wrench;
   protected readonly FileTextIcon = FileText;
@@ -1213,18 +1244,28 @@ export class SetupHubComponent implements OnInit {
   );
   readonly isStarting = this._isStarting.asReadonly();
   readonly intakeError = this._intakeError.asReadonly();
+  readonly hubWarning = this.workflowRequest.hubWarning;
+  readonly hubError = this.workflowRequest.hubError;
+
+  dismissHubWarning(): void {
+    this.workflowRequest.dismissHubWarning();
+  }
+  dismissHubError(): void {
+    this.workflowRequest.dismissHubError();
+  }
 
   /**
    * A New Project run is already claimed. Starting another would open a second
    * agent session against the same workspace, so the card offers Resume.
    */
-  readonly hasActiveNewProject = computed(
-    () =>
-      this.workflow.isActive() && this.workflow.viewMode() === 'new-project',
+  readonly hasActiveNewProject = computed(() =>
+    this.workflowRequest.hasResumableMode('new-project'),
   );
 
   readonly newProjectStatusLabel = computed(() =>
-    this.workflow.isProcessing() ? 'Running' : 'In progress',
+    this.workflowRequest.hasRunningMode('new-project')
+      ? 'Running'
+      : 'In progress',
   );
 
   /**
@@ -1232,9 +1273,8 @@ export class SetupHubComponent implements OnInit {
    * would tear it down, so the user is asked first rather than having a
    * Configure Harness run vanish under them.
    */
-  readonly hasConflictingWorkflow = computed(
-    () =>
-      this.workflow.isActive() && this.workflow.viewMode() !== 'new-project',
+  readonly hasConflictingWorkflow = computed(() =>
+    this.workflowRequest.hasRunningMode('configure-harness'),
   );
 
   readonly canStartPlanning = computed(() => {
@@ -1296,8 +1336,11 @@ export class SetupHubComponent implements OnInit {
     this.appState.setCurrentView('setup-wizard');
   }
 
-  openHarnessBuilder(): void {
-    this.appState.setCurrentView('harness-builder');
+  async openHarnessBuilder(): Promise<void> {
+    const outcome = await this.workflowRequest.requestAndNavigate({
+      mode: 'configure-harness',
+    });
+    this.reportEntryOutcome(outcome);
   }
 
   conveneTribunal(): void {
@@ -1313,8 +1356,27 @@ export class SetupHubComponent implements OnInit {
     this.openIntake();
   }
 
-  resumeNewProject(): void {
-    this.appState.setCurrentView('harness-builder');
+  async resumeNewProject(): Promise<void> {
+    const outcome = await this.workflowRequest.requestAndNavigate({
+      mode: 'new-project',
+    });
+    this.reportEntryOutcome(outcome);
+  }
+
+  private reportEntryOutcome(
+    outcome: 'landed' | 'resumed' | 'cancelled' | 'failed',
+  ): void {
+    if (outcome === 'landed' || outcome === 'resumed') {
+      this.workflowRequest.dismissHubError();
+    } else if (outcome === 'cancelled') {
+      this.workflowRequest.reportHubError(
+        'Finish the current builder switch before opening another.',
+      );
+    } else if (outcome === 'failed') {
+      this.workflowRequest.reportHubError(
+        'The builder could not be opened. Try again.',
+      );
+    }
   }
 
   openIntake(): void {
@@ -1410,11 +1472,7 @@ export class SetupHubComponent implements OnInit {
     this._showDiscardConfirm.set(false);
   }
 
-  /**
-   * The user accepted losing the Configure Harness run. Stop its agent and
-   * release the surface BEFORE asking the backend to open the new workflow —
-   * otherwise the open request races the still-claimed surface.
-   */
+  /** Open the running builder's leave choices with the validated intake. */
   protected async confirmDiscardAndStart(): Promise<void> {
     this._showDiscardConfirm.set(false);
     const intake = this.buildIntake();
@@ -1423,33 +1481,27 @@ export class SetupHubComponent implements OnInit {
     this._isStarting.set(true);
     this._intakeError.set(null);
     try {
-      await this.workflow.abortAndDispose();
-    } catch (err: unknown) {
-      this._intakeError.set(
-        err instanceof Error
-          ? `Could not stop the running workflow: ${err.message}`
-          : 'Could not stop the running workflow',
-      );
+      const outcome = await this.workflowRequest.requestAndNavigate({
+        mode: 'new-project',
+        intake,
+      });
+      if (outcome === 'landed' || outcome === 'resumed')
+        this._showIntake.set(false);
+      if (outcome !== 'failed') this.reportEntryOutcome(outcome);
+      if (outcome === 'failed')
+        this._intakeError.set('The builder could not be opened. Try again.');
+    } finally {
       this._isStarting.set(false);
-      return;
     }
-    this._isStarting.set(false);
-    await this.startNewProject(intake);
   }
 
   private async startNewProject(intake: NewProjectIntake): Promise<void> {
     this._isStarting.set(true);
     this._intakeError.set(null);
     try {
-      const result = await this.harnessRpc.startNewProject(intake);
-      if (!result.success) {
-        this._intakeError.set(result.error ?? 'Failed to start new project');
-        return;
-      }
       const outcome = await this.workflowRequest.requestAndNavigate({
         mode: 'new-project',
-        seedPrompt: result.seedPrompt,
-        intake: result.intake,
+        intake,
       });
       if (outcome === 'failed') {
         this._intakeError.set(
@@ -1457,11 +1509,12 @@ export class SetupHubComponent implements OnInit {
         );
         return;
       }
-      if (outcome === 'landed') this._showIntake.set(false);
-    } catch (err: unknown) {
-      this._intakeError.set(
-        err instanceof Error ? err.message : 'Failed to start new project',
-      );
+      this.reportEntryOutcome(outcome);
+      if (outcome === 'landed' || outcome === 'resumed')
+        this._showIntake.set(false);
+    } catch {
+      // degradation-audit: reported - the intake dialog shows this failure.
+      this._intakeError.set('Failed to open the builder. Try again.');
     } finally {
       this._isStarting.set(false);
     }
