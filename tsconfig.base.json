@@ -40,6 +40,9 @@
         "./libs/frontend/tribunal-panel/src/index.ts"
       ],
       "@ptah-extension/chat": ["./libs/frontend/chat/src/index.ts"],
+      "@ptah-extension/chat/inspector": [
+        "./libs/frontend/chat/src/inspector.ts"
+      ],
       "@ptah-extension/chat-types": ["./libs/frontend/chat-types/src/index.ts"],
       "@ptah-extension/chat-state": ["./libs/frontend/chat-state/src/index.ts"],
       "@ptah-extension/chat-execution-tree": [
@@ -111,6 +114,9 @@
       "@ptah-extension/tasks-ui": ["./libs/frontend/tasks-ui/src/index.ts"],
       "@ptah-extension/tasks-ui/services": [
         "./libs/frontend/tasks-ui/src/services.ts"
+      ],
+      "@ptah-extension/tasks-ui/presentation": [
+        "./libs/frontend/tasks-ui/src/presentation.ts"
       ],
       "@ptah-extension/core/routing": [
         "./libs/frontend/core/src/lib/routing/index.ts"

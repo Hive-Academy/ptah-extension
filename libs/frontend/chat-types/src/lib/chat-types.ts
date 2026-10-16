@@ -601,6 +601,8 @@ export interface TabAgentOrigin {
  * Represents a single tab/session in the multi-session UI
  */
 export interface TabState {
+  /** Display and host tag for a workflow session; validated on restore. */
+  workflow?: WorkflowKind;
   /** Unique tab identifier (frontend-generated) */
   id: TabId;
 
@@ -873,6 +875,23 @@ export interface TabState {
    * Sentry NODE-NESTJS-2Y / 2N / 2X.
    */
   hasLiveSession?: boolean;
+}
+
+export type WorkflowKind =
+  | 'harness-configure'
+  | 'harness-new-project'
+  | 'setup-wizard-phase'
+  | 'setup-agent-generation'
+  | 'setup-project-prompt';
+
+export function isWorkflowKind(value: unknown): value is WorkflowKind {
+  return (
+    value === 'harness-configure' ||
+    value === 'harness-new-project' ||
+    value === 'setup-wizard-phase' ||
+    value === 'setup-agent-generation' ||
+    value === 'setup-project-prompt'
+  );
 }
 
 /**

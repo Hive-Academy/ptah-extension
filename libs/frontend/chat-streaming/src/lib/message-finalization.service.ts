@@ -95,6 +95,25 @@ function placeFinalizedTrees(
   return placed;
 }
 
+/**
+ * The `message_start` timestamp of a finalized root, or `undefined` when the
+ * event is gone (cap eviction) or its time is not finite.
+ *
+ * A root node's id is its `message_start` event id (`buildMessageNode`), and
+ * `events` is keyed by event id. History reload stamps the same value
+ * (`HistoryMessageBuilder`), so a live-finalized message and its reloaded copy
+ * carry the same `timestamp`. On `undefined` the factory's `Date.now()`
+ * default stays.
+ */
+function messageStartTimestamp(
+  state: StreamingState,
+  rootId: string,
+): number | undefined {
+  const event = state.events.get(rootId);
+  if (event?.eventType !== 'message_start') return undefined;
+  return Number.isFinite(event.timestamp) ? event.timestamp : undefined;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessageFinalizationService {
   private readonly tabManager = inject(TabManagerService);
@@ -224,12 +243,16 @@ export class MessageFinalizationService {
           continue;
         }
         const isLast = i === lastIdx;
+        const startTimestamp = messageStartTimestamp(stateCopy, tree.id);
         newMessages.push(
           createExecutionChatMessage({
             id: tree.id,
             role: 'assistant',
             streamingState: tree,
             sessionId: targetTab?.claudeSessionId ?? undefined,
+            ...(startTimestamp !== undefined
+              ? { timestamp: startTimestamp }
+              : {}),
             ...(isLast
               ? {
                   tokens: finalTokens,

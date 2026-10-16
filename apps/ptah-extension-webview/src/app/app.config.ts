@@ -95,6 +95,9 @@ import {
   TaskSessionLinksService,
   TasksStore,
 } from '@ptah-extension/tasks-ui/services';
+// Board-free entry: the session inspector's TASK section listens to
+// `tasks:changed` through this feed even while the Tasks board is closed.
+import { TasksChangedFeed } from '@ptah-extension/tasks-ui/presentation';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import {
   MARKDOWN_FILE_LINK_HANDLER,
@@ -253,6 +256,7 @@ export const appConfig: ApplicationConfig = {
       useExisting: TaskSessionLinksService,
       multi: true,
     },
+    { provide: MESSAGE_HANDLERS, useExisting: TasksChangedFeed, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },

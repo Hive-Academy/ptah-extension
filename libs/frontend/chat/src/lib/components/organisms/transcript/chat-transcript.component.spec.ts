@@ -1036,7 +1036,7 @@ const PENDING_PERMISSIONS = new Map<string, PermissionRequest>();
   imports: [SubagentTileComponent],
   changeDetection: ChangeDetectionStrategy.Eager,
   template: `
-    @for (agent of agents(); track agent.id) {
+    @for (agent of agentNodes(); track agent.id) {
       <ptah-subagent-tile [node]="agent" [getPermissionForTool]="lookup" />
     }
   `,
@@ -1045,7 +1045,7 @@ class TileBubbleStub extends TranscriptMessageBubbleStub {
   protected readonly lookup = (toolCallId: string): PermissionRequest | null =>
     PENDING_PERMISSIONS.get(toolCallId) ?? null;
 
-  protected agents(): ExecutionNode[] {
+  protected agentNodes(): ExecutionNode[] {
     const found: ExecutionNode[] = [];
     const walk = (node: ExecutionNode): void => {
       if (node.type === 'agent') found.push(node);

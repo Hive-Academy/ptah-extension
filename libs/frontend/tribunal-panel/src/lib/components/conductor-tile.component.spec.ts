@@ -66,8 +66,13 @@ class ChatViewDockProbeComponent {
 
 describe('ConductorTileComponent', () => {
   let fixture: ComponentFixture<ConductorTileComponent>;
+  let correlationId = signal<string | null>('tab-c');
 
-  function mount(electron: boolean): void {
+  function mount(
+    electron: boolean,
+    initialCorrelationId: string | null = 'tab-c',
+  ): void {
+    correlationId = signal<string | null>(initialCorrelationId);
     TestBed.configureTestingModule({
       imports: [ConductorTileComponent],
       providers: [
@@ -75,7 +80,7 @@ describe('ConductorTileComponent', () => {
           provide: TribunalStateService,
           useValue: {
             tribunalSessionId: signal<string | null>('session-c'),
-            correlationId: signal<string | null>('tab-c'),
+            correlationId,
           },
         },
         {
@@ -147,5 +152,44 @@ describe('ConductorTileComponent', () => {
   it('has no dock in VS Code, as every other host', () => {
     mount(false);
     expect(probe().dock).toBeNull();
+  });
+
+  it('pairs visibility registration with each correlation id', () => {
+    mount(false, 'A');
+    const manager = TestBed.inject(TabManagerService);
+    const register = manager.registerVisibleTab as jest.Mock;
+    const unregister = manager.unregisterVisibleTab as jest.Mock;
+
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(register).toHaveBeenCalledWith('A');
+    expect(unregister).not.toHaveBeenCalled();
+
+    correlationId.set('B');
+    fixture.detectChanges();
+    TestBed.flushEffects();
+
+    expect(unregister).toHaveBeenCalledTimes(1);
+    expect(unregister).toHaveBeenCalledWith('A');
+    expect(register).toHaveBeenCalledTimes(2);
+    expect(register).toHaveBeenLastCalledWith('B');
+    expect(unregister.mock.invocationCallOrder[0]).toBeGreaterThan(
+      register.mock.invocationCallOrder[0],
+    );
+    expect(unregister.mock.invocationCallOrder[0]).toBeLessThan(
+      register.mock.invocationCallOrder[1],
+    );
+
+    fixture.destroy();
+    expect(unregister).toHaveBeenCalledTimes(2);
+    expect(unregister).toHaveBeenLastCalledWith('B');
+    expect(unregister.mock.calls.map(([id]) => id)).toEqual(['A', 'B']);
+  });
+
+  it('does not register visibility without a correlation id', () => {
+    mount(false, null);
+    const manager = TestBed.inject(TabManagerService);
+    expect(manager.registerVisibleTab).not.toHaveBeenCalled();
+    fixture.destroy();
+    expect(manager.unregisterVisibleTab).not.toHaveBeenCalled();
   });
 });

@@ -42,7 +42,10 @@ export function laneGuardStopText(
   template: `
     <div
       class="flex items-center gap-1.5 w-full px-2 py-1.5 text-left hover:bg-base-200/50 transition-colors flex-shrink-0"
+      [class.!px-0]="presentation() === 'flat'"
+      [class.!hover:bg-transparent]="presentation() === 'flat'"
     >
+      @if (presentation() === 'card') {
       <button
         type="button"
         class="btn btn-ghost btn-xs btn-square flex-shrink-0"
@@ -66,6 +69,7 @@ export function laneGuardStopText(
       >
         {{ agent().displayName || agent().cli }}
       </span>
+      }
 
       <!-- Status badge -->
       <span
@@ -144,7 +148,7 @@ export function laneGuardStopText(
       </span>
 
       <!-- CLI Session ID badge (resume capability) -->
-      @if (agent().cliSessionId) {
+      @if (presentation() === 'card' && agent().cliSessionId) {
         <span
           class="badge badge-xs badge-ghost font-mono text-[9px] text-base-content-muted ml-1 flex-shrink-0"
           [title]="'CLI Session: ' + agent().cliSessionId"
@@ -175,6 +179,7 @@ export class AgentCardHeaderComponent {
   readonly isStopping = input.required<boolean>();
   readonly isResuming = input.required<boolean>();
   readonly closable = input(false);
+  readonly presentation = input<'card' | 'flat'>('card');
 
   readonly toggleExpanded = output<void>();
   readonly stopAgent = output<Event>();

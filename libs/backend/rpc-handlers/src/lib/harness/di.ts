@@ -20,12 +20,14 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
 import { HARNESS_TOKENS } from './tokens';
 import { HarnessStreamBroadcaster } from './streaming/harness-stream-broadcaster.service';
 import { HarnessWorkspaceContextService } from './workspace/harness-workspace-context.service';
 import { HarnessPromptBuilderService } from './config/harness-prompt-builder.service';
 import { HarnessConfigStore } from './config/harness-config-store.service';
+import { HarnessProposalStore } from './config/harness-proposal-store.service';
 import { HarnessAgentFileWriterService } from './config/harness-agent-file-writer.service';
 import { HarnessFsService } from './io/harness-fs.service';
 import { HarnessMcpInstallService } from './io/harness-mcp-install.service';
@@ -55,6 +57,10 @@ export function registerHarnessServices(container: DependencyContainer): void {
     HarnessPromptBuilderService,
   );
   container.registerSingleton(HARNESS_TOKENS.CONFIG_STORE, HarnessConfigStore);
+  container.registerSingleton(
+    PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE,
+    HarnessProposalStore,
+  );
   container.registerSingleton(
     HARNESS_TOKENS.AGENT_FILE_WRITER,
     HarnessAgentFileWriterService,

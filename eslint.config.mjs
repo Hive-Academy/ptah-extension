@@ -281,6 +281,8 @@ export default [
             '@ptah-extension/harness-builder/services',
             '@ptah-extension/marketplace/services',
             '@ptah-extension/marketplace/harness',
+            // TasksChangedFeed (a MESSAGE_HANDLERS service) must register at app bootstrap.
+            '@ptah-extension/tasks-ui/presentation',
           ],
           depConstraints: [
             {

@@ -1,291 +1,372 @@
-/**
- * HarnessWorkflowMessageHandler — cross-mode open requests (TASK_2026_263).
- *
- * `handleOpenWorkflow` used to treat ANY active workflow as a reason to ignore
- * an incoming open request. That is right for a duplicate (a second
- * `new-project` open would claim a second surface and start a second agent
- * against the same workspace) but wrong across modes: a New Project request
- * that arrived while a Configure Harness run happened to be open was dropped
- * silently, taking the user's whole intake with it and leaving them staring at
- * the wrong workflow with no error.
- *
- * Opening the builder is a Router navigation through `SurfaceRouterService`
- * since TASK_2026_524 — a host push, unlike a click, has to report a navigation
- * that does not land, which is why the handler keeps the promise instead of
- * calling the fire-and-forget `AppStateManager.setCurrentView`.
- */
-
-import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { LoggingService } from '@ptah-extension/core';
 import {
-  AppStateManager,
-  SurfaceRouterService,
-  type SurfaceNavigationResult,
-} from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+  MESSAGE_TYPES,
+  type HarnessConfigProposedPayload,
+} from '@ptah-extension/shared';
 import { HarnessBuilderStateService } from './harness-builder-state.service';
-import { HarnessWorkflowService } from './harness-workflow.service';
+import { HarnessRpcService } from './harness-rpc.service';
 import { HarnessWorkflowMessageHandler } from './harness-workflow-message.handler';
+import { HarnessWorkflowRequestService } from './harness-workflow-request.service';
+import { HarnessWorkflowService } from './harness-workflow.service';
 
-interface WorkflowStub {
-  isActive: ReturnType<typeof signal<boolean>>;
-  isProcessing: ReturnType<typeof signal<boolean>>;
-  mode: ReturnType<typeof signal<string | null>>;
-  abortAndDispose: jest.Mock;
-  setError: jest.Mock;
-}
-
-describe('HarnessWorkflowMessageHandler — open-workflow routing', () => {
+describe('HarnessWorkflowMessageHandler', () => {
+  const sessionId = signal<string | null>(null);
+  const sessionIds = signal<readonly string[]>([]);
+  const surfaceId = signal<string | null>(null);
+  const mode = signal<'configure-harness' | 'new-project' | null>(
+    'configure-harness',
+  );
   let handler: HarnessWorkflowMessageHandler;
-  let workflow: WorkflowStub;
-  let appState: AppStateManager;
-  /**
-   * The handler navigates through `SurfaceRouterService` rather than
-   * `AppStateManager.setCurrentView` (TASK_2026_524): a host push has to report
-   * a navigation that does not land, and only `navigateToSurface` returns that
-   * answer. `true` is the landed case; the refusal path is pinned separately.
-   */
-  let surfaceRouter: { navigateToSurface: jest.Mock };
-  let state: { reset: jest.Mock; applyConfigUpdates: jest.Mock };
+  let state: {
+    reset: jest.Mock;
+    applyConfigUpdates: jest.Mock;
+    setConfigComplete: jest.Mock;
+  };
+  let rpc: { getProposal: jest.Mock };
+  let requests: { requestAndNavigate: jest.Mock };
+  let logger: { debug: jest.Mock; error: jest.Mock; warn: jest.Mock };
+  let workflow: { setError: jest.Mock };
 
-  const NEW_PROJECT_PAYLOAD = {
-    mode: 'new-project' as const,
-    seedPrompt: 'plan the clinic scheduler',
-    intake: { what: 'a clinic scheduler', audience: 'b2b', stack: 'recommend' },
+  const event = (id: string, name: string): HarnessConfigProposedPayload => ({
+    sessionId: id,
+    configUpdates: { name },
+  });
+  const propose = (payload: HarnessConfigProposedPayload): void => {
+    handler.handleMessage({
+      type: MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
+      payload,
+    });
+  };
+  const settle = async (): Promise<void> => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  const bind = (surface: string | null, ids: string[]): void => {
+    surfaceId.set(surface);
+    sessionIds.set(ids);
+    sessionId.set(ids.at(-1) ?? null);
+    TestBed.tick();
   };
 
-  function open(payload: unknown): void {
+  beforeEach(() => {
+    sessionId.set(null);
+    sessionIds.set([]);
+    surfaceId.set(null);
+    mode.set('configure-harness');
+    state = {
+      reset: jest.fn(),
+      applyConfigUpdates: jest.fn(),
+      setConfigComplete: jest.fn(),
+    };
+    rpc = { getProposal: jest.fn().mockResolvedValue({ proposal: null }) };
+    requests = { requestAndNavigate: jest.fn().mockResolvedValue('landed') };
+    logger = { debug: jest.fn(), error: jest.fn(), warn: jest.fn() };
+    workflow = { setError: jest.fn() };
+    TestBed.configureTestingModule({
+      providers: [
+        HarnessWorkflowMessageHandler,
+        {
+          provide: HarnessWorkflowService,
+          useValue: { sessionId, sessionIds, surfaceId, mode, ...workflow },
+        },
+        { provide: HarnessBuilderStateService, useValue: state },
+        { provide: HarnessRpcService, useValue: rpc },
+        { provide: HarnessWorkflowRequestService, useValue: requests },
+        { provide: LoggingService, useValue: logger },
+      ],
+    });
+    handler = TestBed.inject(HarnessWorkflowMessageHandler);
+  });
+
+  it('delegates legacy open-workflow navigation', async () => {
+    const payload = { mode: 'new-project' as const, seedPrompt: 'Start' };
     handler.handleMessage({
       type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
       payload,
     });
-  }
-
-  beforeEach(() => {
-    workflow = {
-      isActive: signal(false),
-      isProcessing: signal(false),
-      mode: signal<string | null>(null),
-      abortAndDispose: jest.fn().mockResolvedValue(undefined),
-      setError: jest.fn(),
-    };
-    surfaceRouter = {
-      navigateToSurface: jest.fn().mockResolvedValue('navigated'),
-    };
-    state = { reset: jest.fn(), applyConfigUpdates: jest.fn() };
-
-    TestBed.configureTestingModule({
-      providers: [
-        HarnessWorkflowMessageHandler,
-        { provide: HarnessWorkflowService, useValue: workflow },
-        AppStateManager,
-        {
-          provide: SurfaceRouterService,
-          useValue: { ...surfaceRouter, currentSurface: signal('chat') },
-        },
-        { provide: HarnessBuilderStateService, useValue: state },
-      ],
-    });
-
-    appState = TestBed.inject(AppStateManager);
-    jest.spyOn(appState, 'requestHarnessWorkflow');
-    handler = TestBed.inject(HarnessWorkflowMessageHandler);
+    await settle();
+    expect(requests.requestAndNavigate).toHaveBeenCalledWith(payload);
   });
 
-  it('starts the requested workflow when none is active', () => {
-    open(NEW_PROJECT_PAYLOAD);
+  it('does not report landed or cancelled legacy navigation as an error', async () => {
+    for (const outcome of ['landed', 'cancelled']) {
+      requests.requestAndNavigate.mockResolvedValueOnce(outcome);
+      handler.handleMessage({
+        type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
+        payload: { mode: 'new-project' },
+      });
+      await settle();
+    }
+    expect(workflow.setError).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
 
-    expect(appState.requestHarnessWorkflow).toHaveBeenCalledWith({
-      mode: 'new-project',
-      seedPrompt: 'plan the clinic scheduler',
-      intake: NEW_PROJECT_PAYLOAD.intake,
+  it('reports failed legacy navigation', async () => {
+    requests.requestAndNavigate.mockResolvedValueOnce('failed');
+    handler.handleMessage({
+      type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
+      payload: { mode: 'new-project' },
     });
-    expect(surfaceRouter.navigateToSurface).toHaveBeenCalledWith(
-      'harness-builder',
+    await settle();
+    expect(logger.error).toHaveBeenCalledWith(
+      'HarnessWorkflowMessageHandler',
+      'Workflow navigation failed',
+      expect.any(Error),
+    );
+    expect(workflow.setError).toHaveBeenCalledWith(
+      'The harness builder could not be opened, so the workflow was not shown. Try starting it again.',
     );
   });
 
-  it('resumes instead of restarting when the SAME mode is already active', () => {
-    workflow.isActive.set(true);
-    workflow.mode.set('new-project');
-
-    open(NEW_PROJECT_PAYLOAD);
-
-    // Starting a second run against the same workspace is the thing being
-    // prevented — navigating back to the live one is the right answer.
-    expect(appState.requestHarnessWorkflow).not.toHaveBeenCalled();
-    expect(workflow.abortAndDispose).not.toHaveBeenCalled();
-    expect(surfaceRouter.navigateToSurface).toHaveBeenCalledWith(
-      'harness-builder',
+  it('reports the specific abort failure from a rejected legacy request', async () => {
+    requests.requestAndNavigate.mockRejectedValueOnce(
+      new Error(
+        'Could not stop the workflow already running, so the new one was not started: abort failed',
+      ),
+    );
+    handler.handleMessage({
+      type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
+      payload: { mode: 'new-project' },
+    });
+    await settle();
+    expect(logger.error).toHaveBeenCalledWith(
+      'HarnessWorkflowMessageHandler',
+      'Workflow request failed',
+      expect.any(Error),
+    );
+    expect(workflow.setError).toHaveBeenCalledWith(
+      'Could not stop the workflow already running, so the new one was not started: abort failed',
     );
   });
 
-  it('replaces a DIFFERENT-mode workflow instead of discarding the request', async () => {
-    workflow.isActive.set(true);
-    workflow.mode.set('configure-harness');
+  it.each([undefined, { mode: 'unexpected' }])(
+    'reports malformed legacy payload %#',
+    (payload) => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
+        payload,
+      });
+      expect(workflow.setError).toHaveBeenCalledWith(
+        'The workspace sent a malformed workflow request, so it was ignored. Try starting it again.',
+      );
+      expect(requests.requestAndNavigate).not.toHaveBeenCalled();
+    },
+  );
 
-    open(NEW_PROJECT_PAYLOAD);
-    await Promise.resolve();
-    await Promise.resolve();
+  it('applies a matching session and ignores another session', async () => {
+    bind('surface-a', ['session-a']);
+    await settle();
+    propose(event('session-b', 'other'));
+    propose(event('session-a', 'mine'));
+    expect(state.applyConfigUpdates).toHaveBeenCalledTimes(1);
+    expect(state.applyConfigUpdates).toHaveBeenCalledWith({ name: 'mine' });
+    expect(logger.debug).toHaveBeenCalledWith(
+      'HarnessWorkflowMessageHandler',
+      'Proposal ignored for unknown session session-b',
+    );
+  });
 
-    // Aborted and disposed first — disposing alone would leave the old agent
-    // streaming into a surface nobody holds.
-    expect(workflow.abortAndDispose).toHaveBeenCalledTimes(1);
-    // ...and the config the discarded run produced must not leak into the new one.
+  it('stays silent for proposals without a bound configure-harness workflow', () => {
+    propose(event('session-b', 'unbound'));
+    bind('surface-a', ['session-a']);
+    mode.set('new-project');
+    propose(event('session-b', 'other-mode'));
+
+    expect(logger.debug).not.toHaveBeenCalled();
+    expect(state.applyConfigUpdates).not.toHaveBeenCalled();
+  });
+
+  it('hydrates a reloaded matching session before any new tool call', async () => {
+    rpc.getProposal.mockResolvedValueOnce({
+      proposal: {
+        sessionId: 'session-a',
+        configUpdates: { name: 'saved' },
+        isConfigComplete: true,
+      },
+    });
+    bind('surface-a', ['session-a']);
+    await settle();
+    expect(rpc.getProposal).toHaveBeenCalledWith('session-a');
+    expect(state.applyConfigUpdates).toHaveBeenCalledWith({ name: 'saved' });
+    expect(state.setConfigComplete).toHaveBeenCalledWith(true);
+    expect(requests.requestAndNavigate).not.toHaveBeenCalled();
+  });
+
+  it('replays live events after the snapshot', async () => {
+    let resolve!: (value: {
+      proposal: {
+        sessionId: string;
+        configUpdates: { name: string };
+        isConfigComplete: boolean;
+      };
+    }) => void;
+    rpc.getProposal.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    bind('surface-a', ['session-a']);
+    propose(event('session-a', 'live'));
+    expect(state.applyConfigUpdates).not.toHaveBeenCalled();
+    resolve({
+      proposal: {
+        sessionId: 'session-a',
+        configUpdates: { name: 'saved' },
+        isConfigComplete: false,
+      },
+    });
+    await settle();
+    expect(state.applyConfigUpdates.mock.calls).toEqual([
+      [{ name: 'saved' }],
+      [{ name: 'live' }],
+    ]);
+  });
+
+  it('keeps live events after hydration fails', async () => {
+    let reject!: (error: Error) => void;
+    rpc.getProposal.mockReturnValueOnce(
+      new Promise((_done, fail) => {
+        reject = fail;
+      }),
+    );
+    bind('surface-a', ['session-a']);
+    propose(event('session-a', 'live'));
+    reject(new Error('offline'));
+    await settle();
+    expect(logger.error).toHaveBeenCalledWith(
+      'HarnessWorkflowMessageHandler',
+      'Proposal hydration failed',
+      expect.any(Error),
+    );
+    expect(state.applyConfigUpdates).toHaveBeenCalledWith({ name: 'live' });
+  });
+
+  it('logs a failed buffered replay and continues with later events', async () => {
+    let finish!: (value: { proposal: null }) => void;
+    rpc.getProposal.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    bind('surface-a', ['session-a']);
+    propose(event('session-a', 'first'));
+    propose(event('session-a', 'second'));
+    state.applyConfigUpdates.mockImplementationOnce(() => {
+      throw new Error('bad update');
+    });
+
+    finish({ proposal: null });
+    await settle();
+
+    expect(state.applyConfigUpdates.mock.calls).toEqual([
+      [{ name: 'first' }],
+      [{ name: 'second' }],
+    ]);
+    expect(logger.error).toHaveBeenCalledWith(
+      'HarnessWorkflowMessageHandler',
+      'Buffered proposal replay failed',
+      expect.any(Error),
+    );
+  });
+
+  it('drops a stale hydration response after the workflow changes', async () => {
+    let resolveOld!: (value: {
+      proposal: {
+        sessionId: string;
+        configUpdates: { name: string };
+        isConfigComplete: boolean;
+      };
+    }) => void;
+    rpc.getProposal.mockReturnValueOnce(
+      new Promise((done) => {
+        resolveOld = done;
+      }),
+    );
+    bind('surface-a', ['session-a']);
+    bind('surface-b', ['session-b']);
+    await settle();
+    resolveOld({
+      proposal: {
+        sessionId: 'session-a',
+        configUpdates: { name: 'old' },
+        isConfigComplete: false,
+      },
+    });
+    await settle();
+    expect(state.applyConfigUpdates).not.toHaveBeenCalled();
     expect(state.reset).toHaveBeenCalledTimes(1);
-    expect(appState.requestHarnessWorkflow).toHaveBeenCalledWith({
-      mode: 'new-project',
-      seedPrompt: 'plan the clinic scheduler',
-      intake: NEW_PROJECT_PAYLOAD.intake,
-    });
-    expect(surfaceRouter.navigateToSurface).toHaveBeenCalledWith(
-      'harness-builder',
+    expect(rpc.getProposal).toHaveBeenCalledWith('session-b');
+  });
+
+  it('clears the previous session when its binding disappears', async () => {
+    bind('surface-a', ['session-a']);
+    await settle();
+    bind(null, []);
+    expect(state.reset).toHaveBeenCalledTimes(1);
+    propose(event('session-a', 'stale'));
+    expect(state.applyConfigUpdates).not.toHaveBeenCalled();
+  });
+
+  it('keeps state and hydrates only the appended head session', async () => {
+    bind('surface-a', ['session-a']);
+    await settle();
+    propose(event('session-a', 'earlier'));
+    bind('surface-a', ['session-a', 'session-b']);
+    await settle();
+    propose(event('session-a', 'later'));
+    expect(state.reset).not.toHaveBeenCalled();
+    expect(rpc.getProposal.mock.calls).toEqual([['session-a'], ['session-b']]);
+    expect(state.applyConfigUpdates.mock.calls).toEqual([
+      [{ name: 'earlier' }],
+      [{ name: 'later' }],
+    ]);
+  });
+
+  it('hydrates all reloaded conversation sessions oldest first', async () => {
+    rpc.getProposal
+      .mockResolvedValueOnce({
+        proposal: {
+          sessionId: 'session-a',
+          configUpdates: { name: 'old' },
+          isConfigComplete: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        proposal: {
+          sessionId: 'session-b',
+          configUpdates: { name: 'new' },
+          isConfigComplete: true,
+        },
+      });
+    bind('surface-a', ['session-a', 'session-b']);
+    await settle();
+    expect(rpc.getProposal.mock.calls).toEqual([['session-a'], ['session-b']]);
+    expect(state.applyConfigUpdates.mock.calls).toEqual([
+      [{ name: 'old' }],
+      [{ name: 'new' }],
+    ]);
+    expect(state.setConfigComplete).toHaveBeenCalledWith(true);
+  });
+
+  it('buffers an earlier session event while new head hydration runs', async () => {
+    let finish!: (value: { proposal: null }) => void;
+    bind('surface-a', ['session-a']);
+    await settle();
+    rpc.getProposal.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
     );
-  });
-
-  it('reports an error and starts nothing when the old workflow cannot be stopped', async () => {
-    workflow.isActive.set(true);
-    workflow.mode.set('configure-harness');
-    workflow.abortAndDispose.mockRejectedValueOnce(new Error('abort failed'));
-
-    open(NEW_PROJECT_PAYLOAD);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(appState.requestHarnessWorkflow).not.toHaveBeenCalled();
-    expect(workflow.setError).toHaveBeenCalledWith(
-      expect.stringContaining('abort failed'),
-    );
-  });
-
-  it('reports an error when the builder surface cannot be opened', async () => {
-    // The host pushed this request, so a navigation that never lands would
-    // otherwise leave the user on the wrong surface with a workflow requested
-    // and nothing on screen. 'failed' is a real failure — a rejected chunk.
-    surfaceRouter.navigateToSurface.mockResolvedValueOnce('failed');
-    const consoleError = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => undefined);
-
-    open(NEW_PROJECT_PAYLOAD);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(workflow.setError).toHaveBeenCalledWith(
-      expect.stringContaining('could not be opened'),
-    );
-    expect(appState.consumeHarnessWorkflowRequest()).toBeNull();
-    consoleError.mockRestore();
-  });
-
-  it('reports NO error when the builder is already open (F3)', async () => {
-    // The most common way into `navigateToBuilder`: a resume arrives for a
-    // workflow of the same mode while /harness-builder is displayed. Angular's
-    // default `onSameUrlNavigation: 'ignore'` skips that navigation, which the
-    // old boolean reported as `false` — so the user got "The harness builder
-    // could not be opened" while looking straight at it.
-    workflow.isActive.set(true);
-    workflow.mode.set('new-project');
-    surfaceRouter.navigateToSurface.mockResolvedValue('already-there');
-    const consoleError = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => undefined);
-
-    open(NEW_PROJECT_PAYLOAD);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(surfaceRouter.navigateToSurface).toHaveBeenCalledWith(
-      'harness-builder',
-    );
-    expect(workflow.setError).not.toHaveBeenCalled();
-    expect(consoleError).not.toHaveBeenCalled();
-    consoleError.mockRestore();
-  });
-
-  it('reports NO error when a newer navigation superseded the request', async () => {
-    // 'cancelled' means the user asked for something else in the meantime, so
-    // an error would be about a request they had already replaced.
-    surfaceRouter.navigateToSurface.mockResolvedValueOnce('cancelled');
-    const consoleError = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => undefined);
-
-    open(NEW_PROJECT_PAYLOAD);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(workflow.setError).not.toHaveBeenCalled();
-    expect(consoleError).not.toHaveBeenCalled();
-    expect(appState.consumeHarnessWorkflowRequest()).toBeNull();
-    consoleError.mockRestore();
-  });
-
-  it.each(['failed', 'cancelled'] as const)(
-    'preserves a newer request when an older navigation is %s',
-    async (result) => {
-      let finishOlder!: (result: SurfaceNavigationResult) => void;
-      let finishNewer!: (result: SurfaceNavigationResult) => void;
-      surfaceRouter.navigateToSurface
-        .mockReturnValueOnce(
-          new Promise<SurfaceNavigationResult>((resolve) => {
-            finishOlder = resolve;
-          }),
-        )
-        .mockReturnValueOnce(
-          new Promise<SurfaceNavigationResult>((resolve) => {
-            finishNewer = resolve;
-          }),
-        );
-      const consoleError = jest
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined);
-
-      open(NEW_PROJECT_PAYLOAD);
-      const older = appState.harnessWorkflowRequest();
-      // Equal payloads are still distinct user requests: identity owns cleanup.
-      open(NEW_PROJECT_PAYLOAD);
-      const newer = appState.harnessWorkflowRequest();
-      expect(newer).not.toBe(older);
-      finishOlder(result);
-      await Promise.resolve();
-
-      expect(appState.harnessWorkflowRequest()).toBe(newer);
-      finishNewer('navigated');
-      await Promise.resolve();
-      expect(appState.consumeHarnessWorkflowRequest()).toBe(newer);
-      expect(appState.consumeHarnessWorkflowRequest()).toBeNull();
-      if (result === 'cancelled')
-        expect(workflow.setError).not.toHaveBeenCalled();
-      consoleError.mockRestore();
-    },
-  );
-
-  it.each(['navigated', 'already-there'] as const)(
-    'keeps the request consumable when navigation is %s',
-    async (result) => {
-      surfaceRouter.navigateToSurface.mockResolvedValueOnce(result);
-      open(NEW_PROJECT_PAYLOAD);
-      const request = appState.harnessWorkflowRequest();
-      await Promise.resolve();
-
-      expect(appState.consumeHarnessWorkflowRequest()).toBe(request);
-      expect(request).toEqual(NEW_PROJECT_PAYLOAD);
-      expect(workflow.setError).not.toHaveBeenCalled();
-    },
-  );
-
-  it('reports an error rather than dropping a malformed payload in silence', () => {
-    open({ mode: 'not-a-mode' });
-
-    expect(appState.requestHarnessWorkflow).not.toHaveBeenCalled();
-    expect(workflow.setError).toHaveBeenCalledTimes(1);
-  });
-
-  it('reports an error when the payload is missing entirely', () => {
-    open(undefined);
-
-    expect(appState.requestHarnessWorkflow).not.toHaveBeenCalled();
-    expect(workflow.setError).toHaveBeenCalledTimes(1);
+    bind('surface-a', ['session-a', 'session-b']);
+    propose(event('session-a', 'from-earlier'));
+    propose(event('elsewhere', 'ignored'));
+    expect(state.applyConfigUpdates).not.toHaveBeenCalled();
+    finish({ proposal: null });
+    await settle();
+    expect(state.applyConfigUpdates.mock.calls).toEqual([
+      [{ name: 'from-earlier' }],
+    ]);
   });
 });

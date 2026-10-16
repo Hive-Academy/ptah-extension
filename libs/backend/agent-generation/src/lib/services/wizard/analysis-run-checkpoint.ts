@@ -1,30 +1,38 @@
-/**
- * AnalysisRunCheckpoint — durable lifecycle bookkeeping for one analysis run.
- *
- * Owns the in-memory version-3 manifest for a multi-phase analysis and
- * persists it through `AnalysisStorageService` on every lifecycle transition:
- * before the first phase, on `pending -> running`, after every terminal
- * transition, and when the run pauses or finishes.
- *
- * `MultiPhaseAnalysisService` composes one of these per run and stays the
- * public facade; this class knows nothing about the SDK stream.
- */
-
+/** Durable v4 lifecycle and verification for one multi-phase analysis run. */
+import { randomUUID } from 'crypto';
+import { join } from 'path';
 import { ulid } from 'ulid';
-import type { AnalysisStorageService } from '../analysis-storage.service';
+import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import {
+  AnalysisStorageService,
+  LegacyRunArchiveError,
+} from '../analysis-storage.service';
+import {
+  computeWorkspaceFingerprint,
+  hashFileOrNull,
+  sha256Hex,
+} from '../analysis-fingerprint';
+import {
+  MultiPhaseManifestV4Schema,
   PHASE_CONFIGS,
   type AnalysisPhaseStatus,
   type MultiPhaseId,
-  type MultiPhaseManifest,
-  type PhaseResult,
+  type MultiPhaseManifestV4,
+  type PhaseResultV4,
 } from '../../types/multi-phase.types';
 
-/** Per-phase status snapshot in pipeline order, for progress broadcasts. */
 export type PhaseStatusSnapshot = Array<{
   id: MultiPhaseId;
   status: AnalysisPhaseStatus;
 }>;
+export type PhaseInput = NonNullable<PhaseResultV4['input']>;
+
+const pendingVerification = (): PhaseResultV4['verification'] => ({
+  status: 'pending',
+  outputSha256: null,
+  checkedAt: null,
+});
 
 export class AnalysisRunCheckpoint {
   private readonly sessionStart = Date.now();
@@ -32,91 +40,137 @@ export class AnalysisRunCheckpoint {
 
   private constructor(
     private readonly storage: AnalysisStorageService,
-    /** Absolute slug directory holding the manifest and phase files. */
+    private readonly fs: IFileSystemProvider,
     readonly slugDir: string,
-    /** The live manifest. Mutated in place, persisted by this class only. */
-    readonly manifest: MultiPhaseManifest,
-    /** True when this run continues a persisted manifest. */
+    readonly manifest: MultiPhaseManifestV4,
     readonly resumed: boolean,
   ) {
     this.baseDurationMs = manifest.totalDurationMs;
   }
 
-  /**
-   * Open a checkpoint for a run.
-   *
-   * With `resume === true` the existing version-3 manifest of the slug is
-   * loaded without deleting anything: stale `running` phases go back to
-   * `pending` and the lifecycle returns to `running`. When no resumable
-   * manifest exists (missing, malformed, version 2, already completed, or
-   * recorded for a different model than `model`), the run falls back to a
-   * FRESH run: the slug directory is recreated and a new `runId` is minted.
-   * The model check keeps one run on one model — resuming after the
-   * workspace's provider/model changed would mix the old model's completed
-   * phases with the new model's pending ones under the old manifest model.
-   * The manifest is persisted before this returns, so a persistence failure
-   * surfaces before any SDK work starts.
-   */
+  /** Open a run, pinning resume to the requested model because SDK sessions are model-specific. */
   static async open(
     storage: AnalysisStorageService,
+    fs: IFileSystemProvider,
+    logger: Logger,
     workspacePath: string,
     projectDescription: string,
     model: string,
     resume: boolean,
   ): Promise<AnalysisRunCheckpoint> {
-    if (resume) {
-      const { slugDir } = await storage.ensureSlugDir(
-        workspacePath,
-        projectDescription,
+    let fingerprint: MultiPhaseManifestV4['workspaceFingerprint'];
+    try {
+      fingerprint = await computeWorkspaceFingerprint(workspacePath, fs);
+    } catch (error) {
+      // degradation-audit: optional-capability - a random digest cannot match a future workspace fingerprint.
+      logger.warn(
+        'Workspace fingerprint failed; starting an unverified analysis run',
+        error,
       );
-      const existing = await storage.loadManifest(slugDir);
-      if (
-        existing &&
-        existing.lifecycle !== 'completed' &&
-        existing.model === model
-      ) {
-        for (const phase of Object.values(existing.phases)) {
-          if (phase.status === 'running') phase.status = 'pending';
-        }
-        existing.lifecycle = 'running';
-        const checkpoint = new AnalysisRunCheckpoint(
-          storage,
-          slugDir,
-          existing,
-          true,
+      fingerprint = {
+        algorithm: 'sha256-v1',
+        digest: sha256Hex(randomUUID()),
+        capturedAt: new Date().toISOString(),
+      };
+    }
+    const { slugDir } = storage.getRunDir(workspacePath, projectDescription);
+    const existing = await storage.readManifest(slugDir);
+    let variant: 'primary' | 'legacy-fallback' = 'primary';
+    if (existing?.kind === 'legacy-v3') {
+      try {
+        await storage.archiveLegacyRun(workspacePath, slugDir);
+      } catch (error) {
+        // degradation-audit: optional-capability - preserve the legacy bytes and use a separate v4 folder.
+        logger.warn(
+          'Legacy analysis archive failed; using v4 fallback directory',
+          {
+            error: error instanceof Error ? error.message : String(error),
+            archiveDir:
+              error instanceof LegacyRunArchiveError ? error.archiveDir : null,
+          },
         );
-        await checkpoint.persist();
-        return checkpoint;
+        variant = 'legacy-fallback';
       }
     }
-
-    const { slugDir, slug } = await storage.createSlugDir(
+    const fallbackDir = storage.getRunDir(
       workspacePath,
       projectDescription,
+      'legacy-fallback',
+    ).slugDir;
+    const fallback = resume ? await storage.readManifest(fallbackDir) : null;
+    const primaryResumable =
+      existing?.kind === 'current' &&
+      existing.manifest.lifecycle !== 'completed' &&
+      existing.manifest.model === model;
+    const fallbackResumable =
+      fallback?.kind === 'current' &&
+      fallback.manifest.lifecycle !== 'completed' &&
+      fallback.manifest.model === model;
+    const resumeDir =
+      variant === 'primary' && primaryResumable ? slugDir : fallbackDir;
+    const resumable = resumeDir === slugDir ? existing : fallback;
+    if (
+      resume &&
+      resumable?.kind === 'current' &&
+      resumable.manifest.lifecycle !== 'completed' &&
+      resumable.manifest.model === model
+    ) {
+      variant = resumeDir === slugDir ? 'primary' : 'legacy-fallback';
+      const manifest = resumable.manifest;
+      for (const phase of Object.values(manifest.phases)) {
+        if (phase.status === 'running') phase.status = 'pending';
+      }
+      manifest.workspaceFingerprint = fingerprint;
+      manifest.lifecycle = 'running';
+      const checkpoint = new AnalysisRunCheckpoint(
+        storage,
+        fs,
+        resumeDir,
+        manifest,
+        true,
+      );
+      await checkpoint.persist();
+      return checkpoint;
+    }
+
+    if (variant === 'primary' && !primaryResumable && fallbackResumable) {
+      variant = 'legacy-fallback';
+    }
+
+    const created = await storage.createSlugDir(
+      workspacePath,
+      projectDescription,
+      variant,
     );
     const now = new Date().toISOString();
-    const phases = {} as Record<MultiPhaseId, PhaseResult>;
+    const phases = {} as Record<MultiPhaseId, PhaseResultV4>;
     for (const config of PHASE_CONFIGS) {
       phases[config.id] = {
         status: 'pending',
         file: config.file,
         durationMs: 0,
+        attempt: 0,
+        sessionId: null,
+        input: null,
+        verification: pendingVerification(),
       };
     }
-    const manifest: MultiPhaseManifest = {
-      version: 3,
+    const manifest: MultiPhaseManifestV4 = {
+      version: 4,
       runId: ulid(),
-      slug,
+      slug: created.slug,
       analyzedAt: now,
       updatedAt: now,
       lifecycle: 'running',
       model,
       totalDurationMs: 0,
+      workspaceFingerprint: fingerprint,
       phases,
     };
     const checkpoint = new AnalysisRunCheckpoint(
       storage,
-      slugDir,
+      fs,
+      created.slugDir,
       manifest,
       false,
     );
@@ -124,60 +178,114 @@ export class AnalysisRunCheckpoint {
     return checkpoint;
   }
 
-  /** Whether a phase already reached `completed` (skipped on resume). */
-  isCompleted(id: MultiPhaseId): boolean {
-    return this.manifest.phases[id]?.status === 'completed';
+  /** Capture the inputs whose bytes must match before a completed phase is reused. */
+  input(promptSha256: string, priorPhaseSha256: string | null): PhaseInput {
+    return {
+      workspaceSha256: this.manifest.workspaceFingerprint.digest,
+      promptSha256,
+      priorPhaseSha256,
+      model: this.manifest.model,
+    };
   }
 
-  /** Phase statuses in pipeline order. */
+  /** A mismatch invalidates this phase and every dependent phase. */
+  async isCompleted(id: MultiPhaseId, input: PhaseInput): Promise<boolean> {
+    const phase = this.manifest.phases[id];
+    if (phase.status !== 'completed') return false;
+    const config = PHASE_CONFIGS.find((candidate) => candidate.id === id);
+    const outputSha256 =
+      phase.file === config?.file
+        ? await hashFileOrNull(this.fs, join(this.slugDir, phase.file))
+        : null;
+    if (
+      phase.input?.workspaceSha256 === input.workspaceSha256 &&
+      phase.input.promptSha256 === input.promptSha256 &&
+      phase.input.priorPhaseSha256 === input.priorPhaseSha256 &&
+      phase.input.model === input.model &&
+      phase.verification.status === 'verified' &&
+      outputSha256 !== null &&
+      phase.verification.outputSha256 === outputSha256
+    )
+      return true;
+
+    const first = PHASE_CONFIGS.findIndex((candidate) => candidate.id === id);
+    for (const config of PHASE_CONFIGS.slice(first)) {
+      const descendant = this.manifest.phases[config.id];
+      descendant.status = 'pending';
+      descendant.file = config.file;
+      descendant.sessionId = null;
+      descendant.input = null;
+      descendant.verification = pendingVerification();
+      delete descendant.error;
+    }
+    await this.persist();
+    return false;
+  }
+
+  /** Return phase statuses in pipeline order. */
   statuses(): PhaseStatusSnapshot {
     return PHASE_CONFIGS.map((config) => ({
       id: config.id,
-      status: this.manifest.phases[config.id]?.status ?? 'pending',
+      status: this.manifest.phases[config.id].status,
     }));
   }
 
-  /** `pending -> running` for one phase. */
-  async markRunning(id: MultiPhaseId): Promise<void> {
-    const phase = this.phase(id);
+  /** Persist the start of a phase attempt. */
+  async markRunning(id: MultiPhaseId, input: PhaseInput): Promise<void> {
+    const phase = this.manifest.phases[id];
+    phase.attempt += 1;
     phase.status = 'running';
+    phase.sessionId = null;
+    phase.input = input;
+    phase.verification = pendingVerification();
     delete phase.error;
     await this.persist();
   }
 
-  /** Terminal `completed` for one phase. */
-  async markCompleted(id: MultiPhaseId, durationMs: number): Promise<void> {
-    const phase = this.phase(id);
+  /** Persist a phase's verified output and SDK session. */
+  async markCompleted(
+    id: MultiPhaseId,
+    durationMs: number,
+    sessionId: string,
+    outputSha256: string,
+  ): Promise<void> {
+    const phase = this.manifest.phases[id];
     phase.status = 'completed';
     phase.durationMs = durationMs;
+    phase.sessionId = sessionId;
+    phase.verification = {
+      status: 'verified',
+      outputSha256,
+      checkedAt: new Date().toISOString(),
+    };
     delete phase.error;
     await this.persist();
   }
 
-  /**
-   * Terminal `failed` for one phase. The error is always non-empty because
-   * the manifest schema refuses a failed phase without one.
-   */
+  /** Persist a phase failure with its diagnostic text. */
   async markFailed(
     id: MultiPhaseId,
     durationMs: number,
     error: string,
+    sessionId: string | null = null,
   ): Promise<void> {
-    const phase = this.phase(id);
+    const phase = this.manifest.phases[id];
     phase.status = 'failed';
     phase.durationMs = durationMs;
-    phase.error =
-      error.trim().length > 0 ? error : 'Phase failed without an error message';
+    phase.sessionId = sessionId;
+    phase.verification = {
+      status: 'failed',
+      outputSha256: null,
+      checkedAt: new Date().toISOString(),
+    };
+    phase.error = error.trim() || 'Phase failed without an error message';
     await this.persist();
   }
 
-  /**
-   * User pause. The active phase returns to `pending` with its partial file
-   * left in place; later phases stay `pending`; the run is `paused`.
-   */
+  /** Pause an interrupted run and reset its active phase for retry. */
   async pause(activeId: MultiPhaseId | null): Promise<void> {
     if (activeId) {
-      const phase = this.phase(activeId);
+      const phase = this.manifest.phases[activeId];
       phase.status = 'pending';
       delete phase.error;
     }
@@ -185,35 +293,23 @@ export class AnalysisRunCheckpoint {
     await this.persist();
   }
 
-  /**
-   * The pipeline ran to its end: `completed` when every phase completed,
-   * otherwise `failed` (a later resume re-runs the non-completed phases).
-   */
+  /** Set the run lifecycle from its completed phase statuses. */
   async finish(): Promise<void> {
-    const allCompleted = PHASE_CONFIGS.every(
-      (config) => this.manifest.phases[config.id]?.status === 'completed',
-    );
-    this.manifest.lifecycle = allCompleted ? 'completed' : 'failed';
+    this.manifest.lifecycle = PHASE_CONFIGS.every(
+      (config) => this.manifest.phases[config.id].status === 'completed',
+    )
+      ? 'completed'
+      : 'failed';
     await this.persist();
-  }
-
-  private phase(id: MultiPhaseId): PhaseResult {
-    const existing = this.manifest.phases[id];
-    if (existing) return existing;
-    const config = PHASE_CONFIGS.find((c) => c.id === id);
-    const created: PhaseResult = {
-      status: 'pending',
-      file: config?.file ?? `${id}.md`,
-      durationMs: 0,
-    };
-    this.manifest.phases[id] = created;
-    return created;
   }
 
   private async persist(): Promise<void> {
     this.manifest.updatedAt = new Date().toISOString();
     this.manifest.totalDurationMs =
       this.baseDurationMs + (Date.now() - this.sessionStart);
-    await this.storage.writeManifest(this.slugDir, this.manifest);
+    await this.storage.writeManifest(
+      this.slugDir,
+      MultiPhaseManifestV4Schema.parse(this.manifest),
+    );
   }
 }

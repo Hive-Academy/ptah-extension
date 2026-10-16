@@ -16,10 +16,14 @@ import {
   NgZone,
 } from '@angular/core';
 import { AlertTriangle, LucideAngularModule } from 'lucide-angular';
-import { MessageBubbleComponent } from '../message-bubble.component';
+import {
+  MessageBubbleComponent,
+  type TurnLogToggle,
+} from '../message-bubble.component';
 import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import type { TabViewMode } from '@ptah-extension/chat-types';
 import { DOCUMENT } from '@angular/common';
 import {
   SESSION_CARD_ACTIONS,
@@ -71,6 +75,23 @@ import {
   STREAM_PRESENTATION_RECORDS_ENABLED,
   StreamPresentationStore,
 } from '../../../services/stream-presentation-store.service';
+import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
+import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
+import { SessionInspectorStore } from '../../../services/session-inspector/session-inspector.store';
+import type { TurnContext } from '../../../utils/turn-facts.utils';
+import {
+  liveTurnIdsOf,
+  streamingTurnIdsOf,
+  NO_SESSION_AGENTS,
+  NO_TURN_AGENTS,
+  TranscriptTurnContexts,
+  turnAgentKeysOf,
+  turnAgentsOf,
+  type TurnAgentKeys,
+  type TurnAgents,
+  type TurnContexts,
+} from './transcript-turn-contexts';
+import { TranscriptLiveClock } from './transcript-live-clock';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
@@ -668,6 +689,119 @@ export class ChatTranscriptComponent {
     return next;
   });
 
+  private _frozenTurnMessages: readonly ExecutionChatMessage[] = EMPTY_MESSAGES;
+
+  /**
+   * Each slot's CURRENT record, gated like `vm`: on the presentation path a
+   * tree that grows under the same id updates its record alone, so turn facts
+   * (activity, counts) read the records, not `vm().messages`.
+   */
+  private readonly turnMessages = computed<readonly ExecutionChatMessage[]>(
+    () => {
+      const view = this.vm();
+      if (!this.workActive()) return this._frozenTurnMessages;
+      const next =
+        view.slots.length === 0
+          ? EMPTY_MESSAGES
+          : view.slots.map((slot) => slot.record());
+      this._frozenTurnMessages = next;
+      return next;
+    },
+  );
+
+  private readonly turnContextBuilder = new TranscriptTurnContexts();
+
+  /**
+   * Turn facts per assistant message id (A1 §2): the bubble's `turn` input.
+   * Unchanged turns keep their context objects while another turn streams.
+   */
+  protected readonly turnContexts = computed<TurnContexts>(() =>
+    this.turnContextBuilder.compute(this.turnMessages()),
+  );
+
+  /** The tab's density preference (design-spec §3.8); `full` when unset. */
+  protected readonly viewMode = computed<TabViewMode>(
+    () => this._tab()?.viewMode ?? 'full',
+  );
+
+  /**
+   * The user's open choice per turn (§3.1): set by the disclosure row, never
+   * reset by the auto-collapse, kept in memory only.
+   */
+  protected readonly turnLogOpen = signal<ReadonlyMap<string, boolean>>(
+    new Map(),
+  );
+
+  /** Shared empty `agents` binding (one identity for every bubble). */
+  protected readonly noAgents = NO_SESSION_AGENTS;
+
+  /** Roster keys of the agents each turn's trees spawned. */
+  private readonly turnAgentKeys = computed<TurnAgentKeys>(() =>
+    turnAgentKeysOf(this.turnMessages(), this.turnContexts()),
+  );
+
+  private _frozenRoster: readonly SessionAgent[] = NO_SESSION_AGENTS;
+  private _previousTurnAgents: TurnAgents = NO_TURN_AGENTS;
+
+  /**
+   * The session's agent roster, read once for the whole transcript and only
+   * when some turn spawned an agent. Resolved lazily: a transcript without
+   * agents never builds the roster. Gated like `vm`.
+   */
+  private readonly roster = computed<readonly SessionAgent[]>(() => {
+    if (this.turnAgentKeys().size === 0) return NO_SESSION_AGENTS;
+    if (!this.workActive()) return this._frozenRoster;
+    const next = this.injector
+      .get(SessionAgentRosterService)
+      .roster(this.tabId());
+    this._frozenRoster = next;
+    return next;
+  });
+
+  /** Turn id → the roster entries of its agents (the bubble's chips). */
+  protected readonly turnAgents = computed<TurnAgents>(() => {
+    const next = turnAgentsOf(
+      this.turnAgentKeys(),
+      this.roster(),
+      this._previousTurnAgents,
+    );
+    this._previousTurnAgents = next;
+    return next;
+  });
+
+  /** Turns with a message still streaming. */
+  private readonly streamingTurnIds = computed<ReadonlySet<string>>(() =>
+    streamingTurnIdsOf(
+      this.turnMessages(),
+      this.vm().streamingBoundary,
+      this.turnContexts(),
+    ),
+  );
+
+  /** Turns still streaming, or with an agent still running. */
+  protected readonly liveTurnIds = computed<ReadonlySet<string>>(() =>
+    liveTurnIdsOf(this.streamingTurnIds(), this.turnAgents()),
+  );
+
+  private readonly hasLiveTurn = computed(() => this.liveTurnIds().size > 0);
+
+  /** ONE clock for the transcript; ticks only while a turn is live and shown. */
+  private readonly liveClock = new TranscriptLiveClock(
+    () => this.hasLiveTurn() && this.workActive(),
+  );
+  protected readonly liveNow = this.liveClock.now;
+
+  /**
+   * The session's needs-you aggregate for the live turn's line (§3.7, B2),
+   * the same source as the header chip; `0` without a live turn or a tab.
+   * The inspector store is resolved only when a turn is live.
+   */
+  protected readonly needsYouCount = computed(() => {
+    if (!this.hasLiveTurn() || !this._tab()) return 0;
+    return this.injector.get(SessionInspectorStore).modelFor(this.tabId())()
+      .needsYouCount;
+  });
+
   /**
    * The display-panel feed (TASK_2026_623, component 7): host sources,
    * display candidates, turn summaries and the live turn. Electron only, but
@@ -765,6 +899,39 @@ export class ChatTranscriptComponent {
     this.subagentOwner = null;
     this._frozenOpenSubagent = null;
     this.openSubagentId.set(null);
+  }
+
+  /**
+   * A turn's work-log open state for its bubbles: the user's choice, else
+   * open while any message of the turn streams in `full` mode (§3.1, §3.8),
+   * so every message of a streaming turn agrees with its disclosure row.
+   * `null` leaves the bubble's own auto rule (closed once settled).
+   */
+  protected logOpenFor(turn: TurnContext | null): boolean | null {
+    if (!turn) return null;
+    const chosen = this.turnLogOpen().get(turn.turnId);
+    if (chosen !== undefined) return chosen;
+    return this.viewMode() === 'full' &&
+      this.streamingTurnIds().has(turn.turnId)
+      ? true
+      : null;
+  }
+
+  /** Disclosure row of a turn toggled: record the user's choice (§3.1). */
+  protected onLogToggled(toggle: TurnLogToggle): void {
+    this.turnLogOpen.update((open) =>
+      new Map(open).set(toggle.turnId, toggle.open),
+    );
+  }
+
+  /**
+   * An agent chip asked for its lane. Routed like the sub-agent tiles,
+   * through `SESSION_CARD_ACTIONS`: a host that provides it (the Rail) wins,
+   * otherwise `openSubagentLane` opens the agent in place. Resolved at click
+   * time because this component provides the token itself.
+   */
+  protected onLaneRequested(key: string): void {
+    this.injector.get(SESSION_CARD_ACTIONS).openLane(key);
   }
 
   private openSubagentLane(key: string): void {

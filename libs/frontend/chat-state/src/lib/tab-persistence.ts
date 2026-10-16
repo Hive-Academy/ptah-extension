@@ -48,6 +48,7 @@
  * the whole lib rests on, so it is one bug, not two.
  */
 
+import { isWorkflowKind } from '@ptah-extension/chat-types';
 import type {
   SessionStatus,
   TabAgentOrigin,
@@ -111,6 +112,7 @@ export interface PersistedTabState {
 export function projectTabForPersist(tab: TabState): TabState {
   return {
     ...tab,
+    workflow: isWorkflowKind(tab.workflow) ? tab.workflow : undefined,
     // Persist the once-only marker with the title. Without it, a reload could
     // mistake an auto-titled session for an untouched default and derive again.
     // Only recognized placeholder/generated names on a pre-feature empty draft
@@ -250,6 +252,7 @@ export function validCommandCenterOrigin(
 export function sanitizeRestoredTab(tab: TabState): TabState {
   const sanitized: TabState & { compactHeightUnits?: unknown } = {
     ...tab,
+    workflow: isWorkflowKind(tab.workflow) ? tab.workflow : undefined,
     // Persisted, but external input on the way back: a malformed record is
     // dropped and the tab restores as an ordinary one.
     agentOrigin: restoredAgentOrigin(tab),

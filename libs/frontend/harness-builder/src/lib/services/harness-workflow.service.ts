@@ -62,6 +62,7 @@ interface PersistedWorkflow {
   readonly mode: HarnessWorkflowMode;
   /** Resolved agent session; null until the backend reports one. */
   readonly sessionId: string | null;
+  readonly sessionIds?: readonly string[];
   readonly workspaceRoot: string;
   readonly bubbles: readonly PersistedBubble[];
 }
@@ -76,6 +77,13 @@ function isPersistedWorkflow(value: unknown): value is PersistedWorkflow {
     return false;
   if (typeof record['workspaceRoot'] !== 'string') return false;
   if (record['sessionId'] !== null && typeof record['sessionId'] !== 'string')
+    return false;
+  const sessionIds = record['sessionIds'];
+  if (
+    sessionIds !== undefined &&
+    (!Array.isArray(sessionIds) ||
+      !sessionIds.every((sessionId) => typeof sessionId === 'string'))
+  )
     return false;
   const bubbles = record['bubbles'];
   if (!Array.isArray(bubbles)) return false;
@@ -144,6 +152,7 @@ export class HarnessWorkflowService {
    * original workspace lost its record entirely.
    */
   private readonly _workspaceRoot = signal<string | null>(null);
+  private readonly _restoredSessionIds = signal<readonly ClaudeSessionId[]>([]);
 
   /** Guards the one-shot rehydrate so a workspace-root change can't re-run it. */
   private rehydrateStarted = false;
@@ -177,6 +186,17 @@ export class HarnessWorkflowService {
     const record = this.conversationRegistry.getRecord(convId);
     if (!record || record.sessions.length === 0) return null;
     return record.sessions[record.sessions.length - 1];
+  });
+
+  /** Sessions of the bound conversation in creation order. */
+  readonly sessionIds = computed<readonly ClaudeSessionId[]>(() => {
+    const surfaceId = this._surfaceId();
+    if (!surfaceId) return [];
+    const convId = this.tabSessionBinding.conversationForSurface(surfaceId);
+    if (!convId) return [];
+    const sessions =
+      this.conversationRegistry.getRecord(convId)?.sessions ?? [];
+    return [...new Set([...this._restoredSessionIds(), ...sessions])];
   });
 
   /**
@@ -215,6 +235,7 @@ export class HarnessWorkflowService {
       const snapshot: PersistedWorkflow = {
         mode: this._viewMode(),
         sessionId: this.sessionId(),
+        sessionIds: this.sessionIds(),
         workspaceRoot,
         bubbles: this._userBubbles(),
       };
@@ -351,6 +372,7 @@ export class HarnessWorkflowService {
     this._mode.set(null);
     this._started.set(false);
     this._workspaceRoot.set(null);
+    this._restoredSessionIds.set([]);
     this.state.setBuildInProgress(false);
     this.clearStorage();
     this._error.set(message);
@@ -475,6 +497,7 @@ export class HarnessWorkflowService {
     this._userBubbles.set([]);
     this._resumedFromReload.set(false);
     this._workspaceRoot.set(null);
+    this._restoredSessionIds.set([]);
     this._error.set(null);
     this.state.setBuildInProgress(false);
     this.clearStorage();
@@ -556,6 +579,11 @@ export class HarnessWorkflowService {
     const correlationId = TabId.create();
     const surfaceId = SurfaceId.create();
     const sessionId = record.sessionId as ClaudeSessionId | null;
+    this._restoredSessionIds.set(
+      (record.sessionIds ?? [])
+        .filter((id) => id !== record.sessionId)
+        .map((id) => id as ClaudeSessionId),
+    );
 
     this._correlationId.set(correlationId);
     this._surfaceId.set(surfaceId);

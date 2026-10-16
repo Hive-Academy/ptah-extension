@@ -58,6 +58,7 @@ import {
 } from '@ptah-extension/shared';
 import { HarnessRpcService } from '../services/harness-rpc.service';
 import { HarnessWorkflowService } from '../services/harness-workflow.service';
+import { HarnessWorkflowRequestService } from '../services/harness-workflow-request.service';
 import {
   NEW_PROJECT_AUDIENCE_OPTIONS,
   NEW_PROJECT_PLATFORM_OPTIONS,
@@ -1197,6 +1198,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
 export class SetupHubComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly harnessRpc = inject(HarnessRpcService);
+  private readonly workflowRequest = inject(HarnessWorkflowRequestService);
   private readonly appState = inject(AppStateManager);
   private readonly vscode = inject(VSCodeService);
   private readonly workflow = inject(HarnessWorkflowService);
@@ -1512,9 +1514,18 @@ export class SetupHubComponent implements OnInit {
         this._intakeError.set(result.error ?? 'Failed to start new project');
         return;
       }
-      // The backend broadcast navigates to the builder; drop the modal so the
-      // hub isn't left with a dialog over it when the user comes back.
-      this._showIntake.set(false);
+      const outcome = await this.workflowRequest.requestAndNavigate({
+        mode: 'new-project',
+        seedPrompt: result.seedPrompt,
+        intake: result.intake,
+      });
+      if (outcome === 'failed') {
+        this._intakeError.set(
+          'The harness builder could not be opened. Try starting it again.',
+        );
+        return;
+      }
+      if (outcome === 'landed') this._showIntake.set(false);
     } catch (err: unknown) {
       this._intakeError.set(
         err instanceof Error ? err.message : 'Failed to start new project',

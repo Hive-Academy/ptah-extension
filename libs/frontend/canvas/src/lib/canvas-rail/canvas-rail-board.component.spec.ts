@@ -11,8 +11,10 @@ import {
 } from '@angular/core';
 import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, TabManagerService } from '@ptah-extension/chat';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService } from '@ptah-extension/chat';
+import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
+import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
   type CompactRailDensity,
@@ -153,6 +155,9 @@ class StatefulLaneStub implements OnDestroy {
 })
 class FocusStub {
   readonly focusedTabId = input<string | null>(null);
+  readonly limitCue = input<unknown>(null);
+  readonly contextRingPercent = input<number | null>(null);
+  readonly toggleDescription = input('');
   readonly paneId = input<'left' | 'right'>('left');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
@@ -168,12 +173,17 @@ class FocusStub {
   readonly detailsRequested = output<'left' | 'right'>();
 }
 @Component({
-  selector: 'ptah-canvas-session-details',
+  selector: 'ptah-session-inspector',
   standalone: true,
-  template: '<div>Details</div>',
+  template: '<div [attr.role]="presentation() === \'sheet\' ? \'dialog\' : null"><button type="button" data-inspector-close aria-label="Close session details" (click)="closeRequested.emit()">Close</button><button type="button" data-lane (click)="laneRequested.emit(\'agent-1\')">Open lane</button></div>',
 })
-class DetailsStub {
+class InspectorStub {
   readonly tabId = input.required<string>();
+  readonly presentation = input('embedded');
+  readonly hasLaneSurface = input(false);
+  readonly stats = input<unknown>(null);
+  readonly laneRequested = output<string>();
+  readonly closeRequested = output<void>();
 }
 
 /** Session details load in a lazy `@defer (on idle)` chunk; render them now. */
@@ -299,6 +309,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     );
     const canStart = signal(true);
     const focused = signal<string | null>(initialFocus);
+    const needsYou = signal<Record<string, number>>({});
     const board = signal<{
       mode: 'rail';
       railCollapsed: boolean;
@@ -345,15 +356,19 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: CanvasStore, useValue: store },
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
         { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
+        { provide: PlanLimitsStore, useValue: { snapshot: () => null } },
+        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [] } },
         {
           provide: CanvasDetailService,
           useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
         },
-        ...(realFocus ? [{ provide: ChatStore, useValue: {} }] : []),
+        { provide: ChatStore, useValue: {} },
+        { provide: SessionInspectorStore, useValue: { modelFor: (id: string) => () => ({ needsYouCount: needsYou()[id] ?? 0 }) } },
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
           provide: TabManagerService,
           useValue: {
+            activeTabId: () => focused(),
             findTabByIdAcrossWorkspaces: (id: string) => ({
               tab: { title: id },
             }),
@@ -366,7 +381,7 @@ describe('CanvasRailBoardComponent rendering', () => {
         imports: [
           RailStub,
           realFocus ? CanvasFocusAreaComponent : FocusStub,
-          DetailsStub,
+          InspectorStub,
           ProjectSetupStub,
         ],
       },
@@ -393,6 +408,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       },
       tiles,
       focused,
+      needsYou,
       board,
       width,
       writeFailed,
@@ -409,6 +425,25 @@ describe('CanvasRailBoardComponent rendering', () => {
         '[data-rail-card], ptah-canvas-focus-area',
       ),
     ).toHaveLength(0);
+  });
+
+  it('includes the focused session needs-you count in the closed details description', () => {
+    const { fixture, focused, needsYou } = mount();
+    needsYou.set({ a: 2, b: 3 });
+    fixture.detectChanges();
+    const focusArea = () => fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
+    expect(focusArea().toggleDescription()).toContain('2 need you.');
+    focused.set('b');
+    fixture.detectChanges();
+    expect(focusArea().toggleDescription()).toContain('3 need you.');
+  });
+
+  it('renders one canvas tile per visible session pane', () => {
+    const { fixture } = mount(true, 3);
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-tile"]')).toHaveLength(1);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-tile"]')).toHaveLength(2);
   });
 
   it('single focus with null store focus renders one lane after removal and with a valid last focus', () => {
@@ -459,15 +494,13 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.debugElement.query(By.directive(FocusStub)).componentInstance.focusedTabId()).toBe('c');
   });
 
-  it('keeps the Details aside and shows a heading placeholder until the deferred details load', async () => {
+  it('renders the focused session in the wide Details aside immediately', () => {
     const { fixture } = mount(true, 2);
     const aside = fixture.nativeElement.querySelector('aside:not([data-dock])');
     expect(aside).not.toBeNull();
-    expect(fixture.debugElement.query(By.directive(DetailsStub))).toBeNull();
-    expect(aside?.textContent).toContain('Session details');
-    await completeDeferBlocks(fixture);
-    expect(fixture.nativeElement.querySelector('aside:not([data-dock])')).toBe(aside);
-    expect(fixture.debugElement.query(By.directive(DetailsStub))).not.toBeNull();
+    const inspector = fixture.debugElement.query(By.directive(InspectorStub));
+    expect(inspector).not.toBeNull();
+    expect(inspector.componentInstance.tabId()).toBe('a');
   });
 
   it('synchronizes pane, rail and Details after external removal of the focused tile', async () => {
@@ -480,7 +513,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     await completeDeferBlocks(fixture);
     const pane = fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
     const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
-    const details = fixture.debugElement.query(By.directive(DetailsStub)).componentInstance as DetailsStub;
+    const details = fixture.debugElement.query(By.directive(InspectorStub)).componentInstance as InspectorStub;
     expect(focused()).toBe('c');
     expect(pane.focusedTabId()).toBe('c');
     expect(rail.focusedTabId()).toBe(pane.focusedTabId());
@@ -1081,6 +1114,97 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.nativeElement.querySelector('aside')).not.toBeNull();
   });
 
+  it('focuses the split dialog before deferred content exists so Escape closes it', async () => {
+    const { fixture } = mount();
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('right');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const dialog = fixture.nativeElement.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(document.activeElement).toBe(dialog);
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('focuses the compact sheet, lets Tab wrap, and reveals a selected lane', async () => {
+    const { fixture, width } = mount();
+    width.set(390);
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('left');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const wrapper = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]')!;
+    expect(document.activeElement).toBe(wrapper);
+    expect(wrapper.classList).toContain('fixed');
+    expect(wrapper.getAttribute('aria-modal')).toBe('true');
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    const close = wrapper.querySelector<HTMLButtonElement>('[data-inspector-close]')!;
+    const lane = wrapper.querySelector<HTMLButtonElement>('[data-lane]')!;
+    await fixture.whenStable();
+    // MutationObserver focus handoff runs after the deferred view is inserted.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(close);
+    close.focus();
+    close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(lane);
+    lane.focus();
+    lane.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(close);
+    const selectLaneFor = jest.fn();
+    Object.assign(TestBed.inject(CanvasDetailService), { selectLaneFor });
+    lane.click();
+    fixture.detectChanges();
+    expect(selectLaneFor).toHaveBeenCalledWith('a', 'agent-1');
+    expect(fixture.componentInstance.detailsOpen()).toBe(false);
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+  });
+
+  it('traps Tab at the sheet boundary when the inspector contains another dialog', async () => {
+    const { fixture, width } = mount();
+    width.set(390);
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('left');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    const sheet = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]')!;
+    const inspector = sheet.querySelector('ptah-session-inspector [role="dialog"]')!;
+    const nested = document.createElement('div');
+    nested.setAttribute('role', 'dialog');
+    nested.innerHTML = '<button type="button">Nested action</button>';
+    inspector.appendChild(nested);
+    const last = document.createElement('button');
+    last.type = 'button';
+    last.textContent = 'Sheet action';
+    sheet.appendChild(last);
+    const first = sheet.querySelector<HTMLButtonElement>('[data-inspector-close]')!;
+    last.focus();
+    const forward = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    last.dispatchEvent(forward);
+    expect(forward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    const backward = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    first.dispatchEvent(backward);
+    expect(backward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('closes the compact sheet on Escape even when focus has moved outside it', () => {
+    const { fixture, width } = mount();
+    width.set(390);
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('left');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).not.toBeNull();
+    document.body.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+  });
+
   it.each([1440, 1600])('split Details stays an overlay at %i and collapse returns focus to the active card', async (pixels) => {
     const { fixture, width } = mount();
     const instance = fixture.componentInstance;
@@ -1533,7 +1657,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(document.activeElement).toBe(rail[0]);
   });
 
-  it('stacked Tab handler skips hidden elements, leaves open overlays alone and is inert in the default order', () => {
+  it('stacked Tab handler skips hidden elements, leaves open overlays alone and is inert in the default order', async () => {
     const { fixture } = mount(true, 3);
     const instance = fixture.componentInstance;
     instance.openBeside('b');
@@ -1552,6 +1676,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     hidden.remove();
     stubOf(fixture, 'right').detailsRequested.emit('right');
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     const dialogButton = right.querySelector<HTMLElement>('[role="dialog"] button') as HTMLElement;
     expect(dialogButton).not.toBeNull();
     expect(tab(dialogButton).defaultPrevented).toBe(false);

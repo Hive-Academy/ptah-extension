@@ -149,9 +149,13 @@ async function exploreTile(director: Director, tile: Locator): Promise<void> {
     });
   }
 
-  // Spotlight the live stats strip (Ctx / Tokens / Cost / Time) — proof that
-  // every agent's cost is on-screen, not hidden.
-  const stats = tile.locator('ptah-session-stats-summary').first();
+  // Spotlight the session inspector's context, tokens, cost, and time.
+  const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]').first();
+  if (await visible(inspectorToggle) && await inspectorToggle.getAttribute('aria-expanded') === 'false') {
+    await inspectorToggle.click();
+  }
+  const stats = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
+    .locator('ptah-session-inspector:visible [data-testid="inspector-session-stats"]').first();
   if (await visible(stats)) {
     await director.say(0, {
       target: stats,

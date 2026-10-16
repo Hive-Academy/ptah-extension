@@ -93,16 +93,23 @@ export class TokenBadgeComponent {
   });
 
   protected formatTokens(): string {
-    const count = this.totalCount();
-
-    if (count >= 1_000_000) {
-      return `${(count / 1_000_000).toFixed(1)}M tokens`;
-    }
-
-    if (count >= 1_000) {
-      return `${(count / 1_000).toFixed(1)}k tokens`;
-    }
-
-    return `${count} tokens`;
+    return `${formatTokenCount(this.totalCount())} tokens`;
   }
+}
+
+/**
+ * A token count in the badge's compact form, without a unit: `950`, `1.2k`,
+ * `1.2M`. The badge appends ` tokens`; plain-text surfaces (the turn activity
+ * panel's `18.2k in · 3.1k out`) compose their own unit.
+ */
+export function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+
+  if (count >= 1_000) {
+    return `${(count / 1_000).toFixed(1)}k`;
+  }
+
+  return `${count}`;
 }

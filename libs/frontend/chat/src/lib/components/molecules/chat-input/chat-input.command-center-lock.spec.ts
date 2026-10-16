@@ -150,7 +150,13 @@ describe('ChatInputComponent Command Center lock', () => {
               .mockResolvedValue({ isSuccess: () => false, data: null }),
           },
         },
-        { provide: VSCodeService, useValue: { isElectron: false } },
+        {
+          provide: VSCodeService,
+          useValue: {
+            isElectron: false,
+            config: () => ({ workspaceRoot: '' }),
+          },
+        },
         { provide: VoiceInputService, useValue: voiceInputStub },
         {
           provide: AuthStateService,

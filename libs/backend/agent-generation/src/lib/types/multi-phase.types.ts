@@ -9,6 +9,10 @@
  */
 
 import { z } from 'zod';
+import type {
+  MultiPhaseManifestV4 as SharedMultiPhaseManifestV4,
+  PhaseResultV4 as SharedPhaseResultV4,
+} from '@ptah-extension/shared';
 
 /**
  * Identifier for each phase in the multi-phase analysis pipeline.
@@ -21,11 +25,7 @@ export type MultiPhaseId =
 
 /** Lifecycle status for an individual multi-phase analysis step. */
 export type AnalysisPhaseStatus =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'skipped';
+  'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 /**
  * Result of a single phase execution.
@@ -46,7 +46,7 @@ export interface PhaseResult {
  * Manifest stored as manifest.json in each multi-phase analysis slug directory.
  * Tracks metadata and per-phase results for the entire pipeline run.
  */
-export interface MultiPhaseManifest {
+export interface MultiPhaseManifestV3 {
   /** Schema version. Version 2 manifests are deliberately not resumable. */
   version: 3;
   /** Logical ID retained when a run is resumed. */
@@ -66,6 +66,19 @@ export interface MultiPhaseManifest {
   /** Per-phase execution results */
   phases: Record<MultiPhaseId, PhaseResult>;
 }
+
+/** A phase checkpoint with the SDK identity and verified input/output bytes. */
+export interface PhaseResultV4 extends SharedPhaseResultV4, PhaseResult {}
+
+/** The durable v4 manifest, assignable to the shared RPC response member. */
+export interface MultiPhaseManifestV4 extends Omit<
+  SharedMultiPhaseManifestV4,
+  'phases'
+> {
+  phases: Record<MultiPhaseId, PhaseResultV4>;
+}
+
+export type MultiPhaseManifest = MultiPhaseManifestV3 | MultiPhaseManifestV4;
 
 const MultiPhaseIdSchema = z.enum([
   'project-profile',
@@ -89,7 +102,7 @@ const PhaseResultSchema = z
   );
 
 /** Validates the version-3 analysis manifest at its file-system boundary. */
-export const MultiPhaseManifestSchema = z.object({
+export const MultiPhaseManifestV3Schema = z.object({
   version: z.literal(3),
   runId: z.string(),
   slug: z.string(),
@@ -99,6 +112,69 @@ export const MultiPhaseManifestSchema = z.object({
   model: z.string(),
   totalDurationMs: z.number(),
   phases: z.record(MultiPhaseIdSchema, PhaseResultSchema),
+});
+
+const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+
+const PhaseResultV4Schema = z
+  .strictObject({
+    status: z.enum(['pending', 'running', 'completed', 'failed', 'skipped']),
+    file: z.string(),
+    durationMs: z.number(),
+    attempt: z.number().int().nonnegative(),
+    sessionId: z.string().trim().min(1).nullable(),
+    input: z
+      .strictObject({
+        workspaceSha256: Sha256Schema,
+        promptSha256: Sha256Schema,
+        priorPhaseSha256: Sha256Schema.nullable(),
+        model: z.string(),
+      })
+      .nullable(),
+    verification: z.strictObject({
+      status: z.enum(['pending', 'verified', 'failed']),
+      outputSha256: Sha256Schema.nullable(),
+      checkedAt: z.string().nullable(),
+    }),
+    error: z.string().optional(),
+  })
+  .superRefine((phase, context) => {
+    if (
+      phase.status === 'completed' &&
+      (phase.sessionId === null ||
+        phase.input === null ||
+        phase.verification.status !== 'verified' ||
+        phase.verification.outputSha256 === null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Completed phases require a session, input and verified output hash.',
+      });
+    }
+    if (phase.status === 'failed' && !phase.error?.trim()) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Failed phases require a non-empty error message.',
+      });
+    }
+  });
+
+export const MultiPhaseManifestV4Schema = z.strictObject({
+  version: z.literal(4),
+  runId: z.string(),
+  slug: z.string(),
+  analyzedAt: z.string(),
+  updatedAt: z.string(),
+  lifecycle: z.enum(['running', 'paused', 'completed', 'failed']),
+  model: z.string(),
+  totalDurationMs: z.number(),
+  workspaceFingerprint: z.strictObject({
+    algorithm: z.literal('sha256-v1'),
+    digest: Sha256Schema,
+    capturedAt: z.string(),
+  }),
+  phases: z.record(MultiPhaseIdSchema, PhaseResultV4Schema),
 });
 
 /**

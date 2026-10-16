@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import {
   CompactSessionActivityComponent,
+  CompactSessionStatsComponent,
   CompactRailCardComponent,
   summarizeTodos,
   sameGitState,
@@ -107,7 +108,7 @@ function sameLaneSummary(
 @Component({
   selector: 'ptah-compact-session-card',
   standalone: true,
-  imports: [CompactSessionActivityComponent, CompactRailCardComponent],
+  imports: [CompactSessionActivityComponent, CompactSessionStatsComponent, CompactRailCardComponent],
   host: {
     class: 'block h-full min-h-0 overflow-hidden',
     'data-ptah-file-links': '',
@@ -143,28 +144,47 @@ function sameLaneSummary(
       />
     } @else {
       <div
-        class="h-full min-h-0 overflow-hidden border border-base-content/10 bg-base-200/30"
+        class="flex h-full min-h-0 flex-col overflow-hidden border border-base-content/10 bg-base-100"
         data-testid="compact-session-card"
       >
-        <ptah-compact-session-activity
-          class="h-full"
-          [summary]="summary()"
-          [lanes]="laneSummary()"
-          [callout]="callout()"
-          [now]="now()"
-          [branch]="branch()"
-          [elapsed]="elapsed()"
-          [contextPercent]="contextPercent()"
-          [todos]="todos()"
-          [gitStats]="gitStats()"
-          (openFullView)="openFullView()"
-          (allow)="respond($event, 'allow')"
-          (deny)="respond($event, 'deny')"
-          (answer)="openFullView()"
-          (openRequest)="openRequest($event)"
-          (showOutput)="openFullView()"
-          (laneSelected)="openLane($event)"
-        />
+        <div
+          class="flex shrink-0 items-center justify-between gap-2 border-b border-base-content/10 px-3 py-2"
+        >
+          <span class="min-w-0 truncate text-sm font-semibold text-base-content" data-testid="compact-session-title">{{ tab().title || 'New Chat' }}</span>
+          @if (needsYouCount() > 0) {
+            <span class="shrink-0 text-xs font-semibold" style="color: var(--state-ink-need)">{{ needsYouCount() }} needs you</span>
+          }
+          <button type="button" class="shrink-0 rounded px-2 py-1 text-xs text-base-content-muted hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content" (click)="openFullView()">Full view</button>
+        </div>
+        @if (tab().viewMode === 'compact' && activityLanes() === null && summary().marks.length === 0) {
+          <div class="flex min-h-0 flex-1 flex-col justify-between" data-testid="compact-session-empty">
+            <div class="px-3 py-3">
+              <div class="text-xs font-semibold text-base-content">{{ summary().status.text }}</div>
+              <p class="mt-2 text-sm text-base-content-muted">{{ summary().content.text }}</p>
+            </div>
+            <ptah-compact-session-stats [metrics]="summary().metrics" />
+          </div>
+        } @else {
+          <ptah-compact-session-activity
+            class="min-h-0 flex-1"
+            [summary]="summary()"
+            [lanes]="activityLanes()"
+            [callout]="callout()"
+            [now]="now()"
+            [branch]="branch()"
+            [elapsed]="elapsed()"
+            [contextPercent]="contextPercent()"
+            [todos]="todos()"
+            [gitStats]="gitStats()"
+            (openFullView)="openFullView()"
+            (allow)="respond($event, 'allow')"
+            (deny)="respond($event, 'deny')"
+            (answer)="openFullView()"
+            (openRequest)="openRequest($event)"
+            (showOutput)="openFullView()"
+            (laneSelected)="openLane($event)"
+          />
+        }
       </div>
     }
   `,
@@ -186,6 +206,7 @@ export class CompactSessionCardComponent {
   private readonly forcedCard = inject(SESSION_FORCED_CARD, { optional: true });
 
   readonly tab = input.required<TabState>();
+  readonly needsYouCount = input(0);
   readonly variant = input<'tile' | 'rail'>('tile');
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
@@ -246,6 +267,15 @@ export class CompactSessionCardComponent {
         Boolean(this.cardActions || this.sessionContext),
       ),
     { equal: sameLaneSummary },
+  );
+  /** An empty user-selected compact card uses the recap and recent activity layout. */
+  readonly activityLanes = computed(() =>
+    this.tab().viewMode === 'compact' &&
+    !(this.forcedCard?.() ?? false) &&
+    this.laneSummary().total === 0 &&
+    !this.callout()
+      ? null
+      : this.laneSummary(),
   );
   readonly callout = computed<CompactCallout>(() => {
     const pending: {
@@ -433,9 +463,17 @@ export class CompactSessionCardComponent {
   readonly summary = computed<CompactSessionSummary>(() => {
     const context = this.context();
     const live = this.streaming() ? this.sampledStreaming() : null;
-    return live
+    const summary = live
       ? summarizeLive(live, context)
       : summarizeFinalized(this.messages(), context);
+    if (live || summary.status.text !== 'Idle') return summary;
+    if (summary.status.text === 'Idle' && this.messages().length > 0) {
+      return { ...summary, status: { ...summary.status, text: 'Done', icon: '✓', tone: 'success' } };
+    }
+    if (summary.status.text === 'Idle') {
+      return { ...summary, status: { ...summary.status, text: 'Waiting' } };
+    }
+    return summary;
   });
 
   readonly railStateValue = computed<CompactRailState>(() => {

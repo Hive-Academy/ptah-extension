@@ -37,6 +37,9 @@ import type {
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import * as path from 'path';
 import { readFileSync } from 'fs';
+import { AGENT_GENERATION_TOKENS } from '../di/tokens';
+import type { AnalysisFreshnessService } from './analysis-freshness.service';
+import type { AnalysisStorageService } from './analysis-storage.service';
 import {
   IContentGenerationService,
   type ContentGenerationSdkConfig,
@@ -171,6 +174,14 @@ export class ContentGenerationService implements IContentGenerationService {
     // production did not.
     @inject(GeneratedSectionValidator)
     private readonly sectionValidator: GeneratedSectionValidator = new GeneratedSectionValidator(),
+    @inject(AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE, {
+      isOptional: true,
+    })
+    private readonly freshness: AnalysisFreshnessService | null = null,
+    @inject(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, {
+      isOptional: true,
+    })
+    private readonly analysisStorage: AnalysisStorageService | null = null,
   ) {}
 
   /**
@@ -311,7 +322,7 @@ export class ContentGenerationService implements IContentGenerationService {
     externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
     // The SAME text the prompt shows the model is what the validator mines for
     // citable paths. Anything else would reject a path the model was handed.
-    const analysisData = this.resolveAnalysisData(context, templateName);
+    const analysisData = await this.resolveAnalysisData(context, templateName);
     const pathIndex = this.sectionValidator.buildPathIndex(context.rootPath, [
       analysisData,
       ...context.relevantFiles.map((file) => file.relativePath),
@@ -573,16 +584,50 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown or empty string>
    * The multi-phase files are richer and already role-filtered; the formatted
    * context summary is the fallback when the wizard did not run them.
    */
-  private resolveAnalysisData(
+  private async resolveAnalysisData(
     context: AgentProjectContext,
     templateName: string,
-  ): string {
+  ): Promise<string> {
     if (context.analysisDir) {
-      const phaseContext = this.readPhaseContextForRole(
-        context.analysisDir,
-        templateName,
-      );
-      if (phaseContext) return phaseContext;
+      try {
+        const status = await this.freshness?.getStatus(context.rootPath);
+        if (!status || !this.analysisStorage) {
+          this.logger.warn(
+            'ContentGenerationService: Analysis freshness unavailable; using gathered context',
+          );
+          return this.formatAnalysisData(context);
+        }
+        const freshDir = status.analysisDir
+          ? this.analysisStorage.resolveAuthorizedAnalysisDir(
+              context.rootPath,
+              status.analysisDir,
+            )
+          : null;
+        const requestedDir = this.analysisStorage.resolveAuthorizedAnalysisDir(
+          context.rootPath,
+          context.analysisDir,
+        );
+        if (status.state === 'fresh' && freshDir && requestedDir === freshDir) {
+          const phaseContext = this.readPhaseContextForRole(
+            freshDir,
+            templateName,
+          );
+          if (phaseContext) return phaseContext;
+        }
+        this.logger.warn(
+          'ContentGenerationService: Analysis unavailable or stale; using gathered context',
+        );
+      } catch (error) {
+        // degradation-audit: optional-capability - freshness failure uses gathered context.
+        this.logger.warn(
+          'ContentGenerationService: Analysis freshness unavailable',
+          {
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
     }
     return this.formatAnalysisData(context);
   }

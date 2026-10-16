@@ -80,6 +80,10 @@ import { RAIL_TRANSCRIPT_RETENTION, SESSION_CONTEXT } from '../../tokens/session
 import { ChatViewComponent, RAIL_MIN_CONTENT_WIDTH } from './chat-view.component';
 import { RailTranscriptRetentionCoordinator } from '../../services/rail-transcript-retention-coordinator.service';
 import { ChatStore } from '../../services/chat.store';
+import {
+  InspectorOpenStateService,
+  SessionInspectorStore,
+} from '../../services/session-inspector';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
@@ -95,8 +99,6 @@ import { SESSION_CARD_ACTIONS, SESSION_VISIBLE } from '../../tokens/session-cont
 })
 class MessageBubbleStub {
   @Input() message: unknown;
-  @Input() messageIndex = 0;
-  @Input() totalMessages = 0;
   @Input() isStreaming = false;
   @Input() isFinalizing = false;
   @Input() isSessionActive = false;
@@ -105,8 +107,18 @@ class MessageBubbleStub {
   // Mirrors MessageBubbleComponent's ptah-ui inputs (TASK_2026_610 B7/C2a).
   @Input() ptahUiOrderKey = 0;
   @Input() ptahUiSnapshot: unknown = null;
+  // Mirrors MessageBubbleComponent's turn inputs/outputs (TASK_2026_677 A1-3).
+  @Input() turn: unknown = null;
+  @Input() viewMode: 'full' | 'compact' = 'full';
+  @Input() logOpen: boolean | null = null;
+  @Input() turnLive = false;
+  @Input() now = 0;
+  @Input() needsYouCount = 0;
+  @Input() agents: readonly unknown[] = [];
   @Output() branchRequested = new EventEmitter<string>();
   @Output() rewindRequested = new EventEmitter<string>();
+  @Output() logToggled = new EventEmitter<unknown>();
+  @Output() laneRequested = new EventEmitter<string>();
 }
 
 @Component({
@@ -499,6 +511,20 @@ function mountRail(
           authRequiredBanner: signal(null),
           clearAuthRequiredBanner: jest.fn(),
         },
+      },
+      // The inspector stays closed here: no deferred inspector chunk renders.
+      {
+        provide: SessionInspectorStore,
+        useValue: {
+          // The session header and the toggle dot read the needs-you count.
+          modelFor: jest.fn(() => signal({ needsYouCount: 0 })),
+          reportAnswerMiss: jest.fn(),
+          clearAnswerMiss: jest.fn(),
+        },
+      },
+      {
+        provide: InspectorOpenStateService,
+        useValue: { dockedOpen: () => false, setDocked: jest.fn() },
       },
       {
         provide: PlanLimitsStore,
