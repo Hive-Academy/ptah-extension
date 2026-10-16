@@ -6,6 +6,9 @@ import {
 } from '@ptah-extension/shared';
 import { HarnessConfigUpdatesSchema } from '@ptah-extension/shared/schemas';
 import { z } from 'zod';
+import { canonicalHarnessRoot } from './harness-workflow-utils';
+
+export { canonicalHarnessRoot } from './harness-workflow-utils';
 
 export const HARNESS_RECORD_PREFIX = 'ptah.harness.builder.v1';
 export const HARNESS_CHOICE_FIELDS = [
@@ -105,17 +108,6 @@ const stackProfileSchema = z.strictObject({
 export type HarnessUserSnapshot = z.infer<typeof snapshotSchema>;
 export type HarnessDraftPointer = z.infer<typeof draftSchema>;
 export type HarnessStackProfileRecord = z.infer<typeof stackProfileSchema>;
-
-/** Normalize roots for record keys and comparisons; keep the original path for RPC targets. */
-export function canonicalHarnessRoot(root: string): string {
-  const normalized = root.trim().replace(/\\/g, '/');
-  if (/^[a-z]:\/$/i.test(normalized)) return normalized.toLowerCase();
-  const slash = normalized.replace(/\/+$/, '');
-  if (!slash) return root.trim() === '/' ? '/' : '';
-  return /^[a-z]:\//i.test(slash) || slash.startsWith('//')
-    ? slash.toLowerCase()
-    : slash;
-}
 
 function recordKey(
   kind: 'snapshot' | 'stack',

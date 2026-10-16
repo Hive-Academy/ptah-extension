@@ -1,16 +1,16 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import { LoggingService, type MessageHandler } from '@ptah-extension/core';
 import {
   MESSAGE_TYPES,
-  isNewProjectStack,
   type HarnessConfigProposedPayload,
   type HarnessOpenWorkflowPayload,
-  type NewProjectIntake,
 } from '@ptah-extension/shared';
-import { canonicalHarnessRoot } from './harness-builder-records.service';
-import { HarnessProposalHydrationService } from './harness-proposal-hydration.service';
-import { HarnessWorkflowRequestService } from './harness-workflow-request.service';
-import { NEW_PROJECT_PLATFORM_OPTIONS } from './new-project-intake';
+import {
+  canonicalHarnessRoot,
+  isNewProjectIntake,
+} from './harness-workflow-utils';
+import type { HarnessProposalHydrationService } from './harness-proposal-hydration.service';
+import type { HarnessWorkflowRequestService } from './harness-workflow-request.service';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -24,54 +24,69 @@ function isProposalPush(value: unknown): value is HarnessConfigProposedPayload {
   );
 }
 
-function isIntake(value: unknown): value is NewProjectIntake {
-  if (!isRecord(value)) return false;
-  const audience = value['audience'];
-  const stack = value['stack'];
-  const platform = value['platform'];
-  return (
-    typeof value['what'] === 'string' &&
-    !!value['what'].trim() &&
-    (audience === 'b2b' ||
-      audience === 'b2c' ||
-      audience === 'internal' ||
-      audience === 'unsure') &&
-    typeof stack === 'string' &&
-    isNewProjectStack(stack) &&
-    (platform === undefined ||
-      NEW_PROJECT_PLATFORM_OPTIONS.some(
-        (option) => option.value === platform,
-      )) &&
-    (value['constraints'] === undefined ||
-      typeof value['constraints'] === 'string') &&
-    (stack !== 'other' ||
-      (typeof value['stackOther'] === 'string' && !!value['stackOther'].trim()))
-  );
-}
-
 @Injectable({ providedIn: 'root' })
 export class HarnessWorkflowMessageHandler implements MessageHandler {
   private readonly logger = inject(LoggingService);
-  private readonly requests = inject(HarnessWorkflowRequestService);
-  private readonly proposals = inject(HarnessProposalHydrationService);
+  private readonly injector = inject(Injector);
+  private requests?: HarnessWorkflowRequestService;
+  private proposals?: HarnessProposalHydrationService;
+  private pending: Promise<void> = Promise.resolve();
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
     MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
   ] as const;
 
-  handleMessage(message: { type: string; payload?: unknown }): void {
-    if (message.type === MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW) {
-      this.handleOpenWorkflow(message.payload);
-    } else if (message.type === MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED) {
-      if (isProposalPush(message.payload)) {
-        this.proposals.handlePush(message.payload);
-      }
+  handleMessage(message: { type: string; payload?: unknown }): Promise<void> {
+    if (
+      message.type !== MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW &&
+      (message.type !== MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED ||
+        !isProposalPush(message.payload))
+    ) {
+      return this.pending;
     }
+    // The router does not await handlers. Chain work here so imports in flight
+    // cannot allow a later message to overtake an earlier one.
+    this.pending = this.pending
+      .then(() => this.dispatch(message))
+      .catch((cause: unknown) => {
+        this.logger.error(
+          'HarnessWorkflowMessageHandler',
+          'Workflow message failed',
+          cause instanceof Error ? cause : new Error(String(cause)),
+        );
+      });
+    return this.pending;
   }
 
-  private handleOpenWorkflow(payload: unknown): void {
-    const root = this.requests.workspaceRoot;
+  private async dispatch(message: {
+    type: string;
+    payload?: unknown;
+  }): Promise<void> {
+    if (message.type === MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED) {
+      if (!this.proposals) {
+        const { HarnessProposalHydrationService } =
+          await import('./harness-proposal-hydration.service');
+        this.proposals = this.injector.get(HarnessProposalHydrationService);
+      }
+      this.proposals.handlePush(
+        message.payload as HarnessConfigProposedPayload,
+      );
+      return;
+    }
+    if (!this.requests) {
+      const { HarnessWorkflowRequestService } =
+        await import('./harness-workflow-request.service');
+      this.requests = this.injector.get(HarnessWorkflowRequestService);
+    }
+    this.handleOpenWorkflow(message.payload, this.requests);
+  }
+
+  private handleOpenWorkflow(
+    payload: unknown,
+    requests: HarnessWorkflowRequestService,
+  ): void {
+    const root = requests.workspaceRoot;
     if (
       !isRecord(payload) ||
       (payload['mode'] !== 'new-project' &&
@@ -81,8 +96,8 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
         (typeof payload['workspaceRoot'] !== 'string' ||
           canonicalHarnessRoot(payload['workspaceRoot']) !== root)) ||
       (payload['mode'] === 'new-project' &&
-        !isIntake(payload['intake']) &&
-        !this.requests.hasResumableMode('new-project'))
+        !isNewProjectIntake(payload['intake']) &&
+        !requests.hasResumableMode('new-project'))
     ) {
       const error = new Error('Malformed builder relay or workspace');
       this.logger.error(
@@ -90,7 +105,7 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
         'Invalid workflow request',
         error,
       );
-      this.requests.reportHubError(
+      requests.reportHubError(
         'The workspace sent an invalid builder request. Try again.',
       );
       return;
@@ -100,9 +115,11 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
       ...(typeof payload['seedPrompt'] === 'string'
         ? { seedPrompt: payload['seedPrompt'] }
         : {}),
-      ...(isIntake(payload['intake']) ? { intake: payload['intake'] } : {}),
+      ...(isNewProjectIntake(payload['intake'])
+        ? { intake: payload['intake'] }
+        : {}),
     };
-    void this.requests.requestAndNavigate(data).then(
+    void requests.requestAndNavigate(data).then(
       (outcome) => {
         if (outcome !== 'failed') return;
         this.logger.error(
@@ -110,7 +127,7 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
           'Workflow navigation failed',
           new Error('Navigation did not land'),
         );
-        this.requests.reportHubError(
+        requests.reportHubError(
           'The harness builder could not be opened. Try again.',
         );
       },
@@ -121,7 +138,7 @@ export class HarnessWorkflowMessageHandler implements MessageHandler {
           'Workflow request failed',
           error,
         );
-        this.requests.reportHubError(
+        requests.reportHubError(
           'The harness builder could not be opened. Try again.',
         );
       },

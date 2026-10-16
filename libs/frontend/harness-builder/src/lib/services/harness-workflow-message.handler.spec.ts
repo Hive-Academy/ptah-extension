@@ -42,11 +42,10 @@ describe('HarnessWorkflowMessageHandler', () => {
       workspaceRoot: 'C:/work',
       intake: { what: 'Clinic scheduler', audience: 'b2b', stack: 'recommend' },
     };
-    handler.handleMessage({
+    await handler.handleMessage({
       type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
       payload,
     });
-    await Promise.resolve();
     expect(requests.requestAndNavigate).toHaveBeenCalledWith({
       mode: 'new-project',
       intake: payload.intake,
@@ -63,8 +62,8 @@ describe('HarnessWorkflowMessageHandler', () => {
     },
   ])(
     'keeps a malformed relay on the Hub with a dismissible error %#',
-    (payload) => {
-      handler.handleMessage({
+    async (payload) => {
+      await handler.handleMessage({
         type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
         payload,
       });
@@ -82,7 +81,7 @@ describe('HarnessWorkflowMessageHandler', () => {
 
   it('reports navigation failure without exposing the raw error', async () => {
     requests.requestAndNavigate.mockResolvedValueOnce('failed');
-    handler.handleMessage({
+    await handler.handleMessage({
       type: MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW,
       payload: { mode: 'configure-harness' },
     });
@@ -93,17 +92,32 @@ describe('HarnessWorkflowMessageHandler', () => {
     expect(logger.error).toHaveBeenCalled();
   });
 
-  it('forwards proposal pushes to the tab-scoped hydration store', () => {
+  it('forwards proposal pushes to the tab-scoped hydration store', async () => {
     const payload = { sessionId: 'session-a', configUpdates: { name: 'Mine' } };
-    handler.handleMessage({
+    await handler.handleMessage({
       type: MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
       payload,
     });
     expect(proposals.handlePush).toHaveBeenCalledWith(payload);
-    handler.handleMessage({
+    await handler.handleMessage({
       type: MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
       payload: { sessionId: 42 },
     });
     expect(proposals.handlePush).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves arrival order while lazy imports are pending', async () => {
+    const first = handler.handleMessage({
+      type: MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
+      payload: { sessionId: 'first', configUpdates: {} },
+    });
+    const second = handler.handleMessage({
+      type: MESSAGE_TYPES.HARNESS_CONFIG_PROPOSED,
+      payload: { sessionId: 'second', configUpdates: {} },
+    });
+    await Promise.all([first, second]);
+    expect(
+      proposals.handlePush.mock.calls.map(([payload]) => payload.sessionId),
+    ).toEqual(['first', 'second']);
   });
 });

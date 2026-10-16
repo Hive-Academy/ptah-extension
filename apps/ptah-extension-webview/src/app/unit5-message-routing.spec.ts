@@ -113,6 +113,15 @@ function dispatch(type: string, payload?: unknown): void {
   );
 }
 
+async function flushHarnessHandler(
+  handler: HarnessWorkflowMessageHandler,
+): Promise<void> {
+  // Allow the router's scheduled drain, then await the handler's lazy import
+  // queue. An unknown type is a no-op that returns the current pending work.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await handler.handleMessage({ type: '__test_flush__' });
+}
+
 describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub never opened (R4)', () => {
   let router: MessageRouterService;
   let tasks: TasksStore;
@@ -262,19 +271,21 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
     ).toBeGreaterThan(0);
   });
 
-  it('routes harness:open-workflow to HarnessWorkflowMessageHandler', () => {
+  it('routes harness:open-workflow to HarnessWorkflowMessageHandler', async () => {
     dispatch(WIRE.harnessOpenWorkflow, {
       mode: 'configure-harness',
       seedPrompt: 'delivered',
     });
+    await flushHarnessHandler(harness);
     expect(workflowRequests.requestAndNavigate).toHaveBeenCalledWith({
       mode: 'configure-harness',
       seedPrompt: 'delivered',
     });
   });
 
-  it('reports a malformed harness relay through the Hub error', () => {
+  it('reports a malformed harness relay through the Hub error', async () => {
     dispatch(WIRE.harnessOpenWorkflow, { mode: 'new-project' });
+    await flushHarnessHandler(harness);
     expect(workflowRequests.requestAndNavigate).not.toHaveBeenCalled();
     expect(workflowRequests.reportHubError).toHaveBeenCalledWith(
       'The workspace sent an invalid builder request. Try again.',
@@ -297,7 +308,7 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
     expect(progress?.detections).toEqual(['angular']);
   });
 
-  it('keeps every registration live across a second dispatch of each type', () => {
+  it('keeps every registration live across a second dispatch of each type', async () => {
     rpcCall.mockClear();
 
     dispatch(WIRE.tasksChanged, {});
@@ -307,6 +318,8 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
       totalFiles: 2,
       detections: [],
     });
+
+    await flushHarnessHandler(harness);
 
     expect(
       rpcCall.mock.calls.filter((c) => c[0] === 'tasks:board').length,
