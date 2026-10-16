@@ -41,6 +41,10 @@ import type {
   SpawnAgentRequest,
   SpawnAgentResult,
 } from '@ptah-extension/shared';
+import {
+  OUTCOME_ROUTING_SOURCES,
+  OUTCOME_TASK_KINDS,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PtahAPI } from '../types';
 import {
@@ -184,7 +188,68 @@ describe('buildAgentNamespace — shape', () => {
 // spawn — standard path
 // ---------------------------------------------------------------------------
 
+describe('buildAgentNamespace — outcome metadata validation', () => {
+  it.each(['system', 'ptahCliId'] as const)(
+    'rejects invalid taskKind on %s before spawning and names allowed values',
+    async (branch) => {
+      const { deps, mocks } = makeDeps();
+      const request: SpawnAgentRequest =
+        branch === 'system'
+          ? { task: 'task', cli: 'codex' }
+          : { task: 'task', ptahCliId: 'agent-a' };
+      await expect(
+        buildAgentNamespace(deps).spawn({
+          ...request,
+          taskKind: 'invalid' as SpawnAgentRequest['taskKind'],
+        }),
+      ).rejects.toThrow(
+        new RegExp(`taskKind.*${OUTCOME_TASK_KINDS.join(', ')}`),
+      );
+      expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+      expect(mocks.registry?.spawnAgent).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['system', 'ptahCliId'] as const)(
+    'rejects invalid routingSource on %s before spawning and names allowed values',
+    async (branch) => {
+      const { deps, mocks } = makeDeps();
+      const request: SpawnAgentRequest =
+        branch === 'system'
+          ? { task: 'task', cli: 'codex' }
+          : { task: 'task', ptahCliId: 'agent-a' };
+      await expect(
+        buildAgentNamespace(deps).spawn({
+          ...request,
+          routingSource: 'invalid' as SpawnAgentRequest['routingSource'],
+        }),
+      ).rejects.toThrow(
+        new RegExp(`routingSource.*${OUTCOME_ROUTING_SOURCES.join(', ')}`),
+      );
+      expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+      expect(mocks.registry?.spawnAgent).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
+  it('forwards valid taskKind and routingSource through the system CLI branch', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({ agentId: 'a1' });
+    await buildAgentNamespace(deps).spawn({
+      task: 'implement feature',
+      cli: 'codex',
+      taskKind: 'implement',
+      routingSource: 'model',
+    });
+    expect(mocks.processManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskKind: 'implement',
+        routingSource: 'model',
+      }),
+    );
+  });
+
   it('delegates to agentProcessManager.spawn and enriches with session/guidance', async () => {
     const { deps, mocks } = makeDeps({
       getActiveSessionId: () => 'tab-1',

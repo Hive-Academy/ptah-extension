@@ -32,6 +32,8 @@ import type {
 import {
   FRESHNESS_MS,
   NEAR_LIMIT_PERCENT,
+  OUTCOME_ROUTING_SOURCES,
+  OUTCOME_TASK_KINDS,
   classifyLaneState,
   laneFamilyOf,
 } from '@ptah-extension/shared';
@@ -194,6 +196,19 @@ function assertEffort(effort: unknown): void {
   }
 }
 
+function assertOutcomeField(
+  field: 'taskKind' | 'routingSource',
+  value: unknown,
+  allowed: readonly string[],
+): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    throw new Error(
+      `ptah.agent.spawn: "${field}" must be one of ${allowed.join(', ')}. The agent was not spawned.`,
+    );
+  }
+}
+
 /**
  * Build the agent namespace for ptah.agent.*
  */
@@ -221,6 +236,12 @@ export function buildAgentNamespace(
   return {
     spawn: async (request: UntypedSpawnRequest) => {
       assertEffort(request.effort);
+      assertOutcomeField('taskKind', request.taskKind, OUTCOME_TASK_KINDS);
+      assertOutcomeField(
+        'routingSource',
+        request.routingSource,
+        OUTCOME_ROUTING_SOURCES,
+      );
       if (request.systemPrompt !== undefined) {
         logger.warn(
           'ptah.agent.spawn: "systemPrompt" is not a spawn field and was dropped; ' +

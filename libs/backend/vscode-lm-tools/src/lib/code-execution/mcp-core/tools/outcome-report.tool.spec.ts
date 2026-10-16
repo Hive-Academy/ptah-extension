@@ -1,5 +1,9 @@
 import 'reflect-metadata';
 import { resolve } from 'node:path';
+import {
+  OUTCOME_ROUTING_SOURCES,
+  OUTCOME_TASK_KINDS,
+} from '@ptah-extension/shared';
 import type {
   IFileSystemProvider,
   IStateStorage,
@@ -12,7 +16,10 @@ import {
 } from '@ptah-extension/lane-outcomes';
 import type { LaneOutcomeRecord } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { runOutcomeReport } from './outcome-report.tool';
+import {
+  buildOutcomeReportTool,
+  runOutcomeReport,
+} from './outcome-report.tool';
 import { handleOutcomeReportToolCall } from './outcome-report.handler';
 
 const root = resolve('outcome-report-fixture');
@@ -27,7 +34,7 @@ const fileSystem = {
   exists: async (path: string) => files.has(path),
   stat: async (path: string) => {
     const file = files.get(path);
-    if (!file) throw new Error('missing');
+    if (!file) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
     return { ...file, type: 1, ctime: file.mtime };
   },
 } as IFileSystemProvider;
@@ -107,6 +114,54 @@ const deliverables = (
 
 describe('ptah_outcome_report', () => {
   beforeEach(() => files.clear());
+
+  it('publishes taskKind and routingSource enums from the outcome contract', () => {
+    const properties = buildOutcomeReportTool().inputSchema.properties;
+    expect(properties['taskKind']).toMatchObject({
+      enum: [...OUTCOME_TASK_KINDS],
+    });
+    expect(properties['routingSource']).toMatchObject({
+      enum: [...OUTCOME_ROUTING_SOURCES],
+    });
+  });
+
+  it('stores an ENOENT deliverable as missing', async () => {
+    const f = fixture();
+    const result = await runOutcomeReport(
+      deliverables({ runId: 'subagent:missing' }, 'missing.txt'),
+      f.deps,
+    );
+    expect(result.recorded).toBe('held');
+    const held = await f.store.listHeldReports(Date.now());
+    expect(JSON.parse(held[0].payload)).toMatchObject({
+      checks: [{ exists: false, bytes: 0, mtimeMs: null }],
+    });
+    await f.pipeline.dispose();
+  });
+
+  it('returns recorded false for EACCES without storing a report', async () => {
+    const f = fixture();
+    const before = new KeyValueOutcomeJournal(f.storage).snapshot();
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const stat = jest
+      .spyOn(fileSystem, 'stat')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('access denied'), { code: 'EACCES' }),
+      );
+    const result = await runOutcomeReport(
+      deliverables({ runId: 'subagent:denied' }, 'denied.txt'),
+      f.deps,
+    );
+    expect(result).toEqual({
+      recorded: false,
+      reason: expect.stringContaining('denied.txt'),
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(new KeyValueOutcomeJournal(f.storage).snapshot()).toEqual(before);
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
+    stat.mockRestore();
+    await f.pipeline.dispose();
+  });
 
   it('returns a tool error without writing when the session workspace is unavailable', async () => {
     const f = fixture();
@@ -281,16 +336,31 @@ describe('ptah_outcome_report', () => {
     await f.pipeline.dispose();
   });
 
-  it('rejects escaping paths and does not persist source paths', async () => {
+  it.each(['../outside', 'E:foo', '\\\\server\\share\\secret'])(
+    'rejects escaping deliverable path %s without a stat or write',
+    async (path) => {
+      const f = fixture();
+      const stat = jest.spyOn(fileSystem, 'stat');
+      const submit = jest.spyOn(f.pipeline, 'submit');
+      const result = await runOutcomeReport(
+        deliverables({ runId: 'subagent:A' }, path),
+        f.deps,
+      );
+      expect(result).toEqual({
+        recorded: false,
+        reason: expect.stringContaining(path),
+      });
+      expect(stat).not.toHaveBeenCalled();
+      expect(submit).not.toHaveBeenCalled();
+      stat.mockRestore();
+      await f.pipeline.dispose();
+    },
+  );
+
+  it('does not persist source paths for valid deliverables', async () => {
     const f = fixture();
     f.pipeline.enqueue({ kind: 'subagent-stop', row: row('subagent:A', 'A') });
     await f.pipeline.flush();
-    await expect(
-      runOutcomeReport(
-        deliverables({ runId: 'subagent:A' }, '../outside'),
-        f.deps,
-      ),
-    ).rejects.toThrow('escapes workspace');
     files.set(resolve(root, 'secret.txt'), { size: 2, mtime: 150 });
     const result = await runOutcomeReport(
       deliverables({ runId: 'subagent:A' }, 'secret.txt'),

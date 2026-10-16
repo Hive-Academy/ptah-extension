@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { checkLaneDeliverable } from '@ptah-extension/cli-agent-runtime';
+import { isAbsolute, relative, resolve, sep, win32 } from 'node:path';
+import { z } from 'zod';
 import {
   DeliverablesPayloadSchema,
   OutcomeReportArgsSchema,
@@ -30,6 +30,46 @@ export type OutcomeReportToolResult =
       readonly reportId: string;
     };
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function outcomeInputSchema(): MCPToolDefinition['inputSchema'] {
+  const properties: Record<string, unknown> = {};
+  const kinds: string[] = [];
+  let required: string[] | undefined;
+  for (const option of OutcomeReportArgsSchema.options) {
+    const generated: Record<string, unknown> = z.toJSONSchema(option, {
+      io: 'input',
+      target: 'draft-7',
+    });
+    const branch = generated['properties'];
+    if (!isJsonObject(branch)) throw new Error('invalid outcome input schema');
+    const kind = branch['kind'];
+    if (!isJsonObject(kind) || typeof kind['const'] !== 'string')
+      throw new Error('invalid outcome kind schema');
+    kinds.push(kind['const']);
+    Object.assign(properties, branch);
+    const branchRequired = stringArray(generated['required']);
+    required =
+      required === undefined
+        ? branchRequired
+        : required.filter((item) => branchRequired.includes(item));
+  }
+  properties['kind'] = { type: 'string', enum: kinds };
+  return { type: 'object', properties, required, additionalProperties: false };
+}
+
+function isNotFound(error: unknown): boolean {
+  if (!isJsonObject(error)) return false;
+  return error['code'] === 'ENOENT' || error['code'] === 'ENOTDIR';
+}
+
 export function buildOutcomeReportTool(): MCPToolDefinition {
   return {
     name: OUTCOME_REPORT_TOOL_NAME,
@@ -37,27 +77,7 @@ export function buildOutcomeReportTool(): MCPToolDefinition {
       'Declare checked deliverables for a run or attach a review verdict. ' +
       'Use the Ptah run tag when available, otherwise the Agent result agentId. ' +
       'A held report joins the run when its stop arrives; queued means the outcome store is temporarily unavailable.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        kind: { type: 'string', enum: ['deliverables', 'review'] },
-        target: {
-          type: 'object',
-          properties: {
-            runId: { type: 'string' },
-            agentId: { type: 'string' },
-          },
-          additionalProperties: false,
-        },
-        paths: { type: 'array', items: { type: 'string' }, maxItems: 20 },
-        taskKind: { type: 'string' },
-        taskId: { type: 'string' },
-        routingSource: { type: 'string' },
-        verdict: { type: 'string', enum: ['approved', 'rejected', 'revise'] },
-      },
-      required: ['kind', 'target'],
-      additionalProperties: false,
-    },
+    inputSchema: outcomeInputSchema(),
     annotations: { readOnlyHint: false, idempotentHint: false },
   };
 }
@@ -103,33 +123,43 @@ export async function runOutcomeReport(
     const fileSystem = deps.fileSystem;
     if (!fileSystem) throw new Error('outcome filesystem unavailable');
     const root = resolve(deps.workspaceRoot);
-    const checks = await Promise.all(
+    const checked = await Promise.all(
       args.paths.map(async (entry) => {
         const path = resolve(root, entry);
         const rel = relative(root, path);
-        if (isAbsolute(entry) || rel === '..' || rel.startsWith(`..${sep}`))
-          throw new Error('deliverable path escapes workspace');
-        const check = await checkLaneDeliverable(
-          fileSystem,
-          { deliverables: args.paths, workingDirectory: root, id: runId },
-          entry,
-          Number.NaN,
-          (_path, error) =>
-            deps.logger.warn('Deliverable stat failed', {
-              code: error instanceof Error ? error.name : 'UNKNOWN',
-            }),
-        );
-        if (!check.exists) return { exists: false, bytes: 0, mtimeMs: null };
+        if (
+          isAbsolute(entry) ||
+          win32.isAbsolute(entry) ||
+          /^[A-Za-z]:/.test(entry) ||
+          rel === '..' ||
+          rel.startsWith(`..${sep}`) ||
+          isAbsolute(rel)
+        )
+          return { reason: `deliverable path escapes workspace: ${entry}` };
         try {
           const stat = await fileSystem.stat(path);
-          return { exists: true, bytes: stat.size, mtimeMs: stat.mtime };
+          return {
+            check: { exists: true, bytes: stat.size, mtimeMs: stat.mtime },
+          };
         } catch (error: unknown) {
-          deps.logger.warn('Deliverable mtime read failed', {
-            code: error instanceof Error ? error.name : 'UNKNOWN',
+          if (isNotFound(error))
+            return { check: { exists: false, bytes: 0, mtimeMs: null } };
+          deps.logger.warn('Deliverable stat failed', {
+            code:
+              isJsonObject(error) && typeof error['code'] === 'string'
+                ? error['code']
+                : 'UNKNOWN',
           });
-          return { exists: false, bytes: 0, mtimeMs: null };
+          return { reason: `deliverable stat failed for ${entry}` };
         }
       }),
+    );
+    const failure = checked.find(
+      (result) => result.reason !== undefined,
+    )?.reason;
+    if (failure !== undefined) return { recorded: false, reason: failure };
+    const checks = checked.flatMap((result) =>
+      'check' in result ? [result.check] : [],
     );
     payload = JSON.stringify(
       DeliverablesPayloadSchema.parse({
