@@ -301,6 +301,12 @@ function sameDecisionModelSelection(
       return b.kind === 'ollama' && b.model === a.model;
     case 'jev':
       return b.kind === 'jev' && b.model === a.model;
+    case 'ollama-cloud':
+      return b.kind === 'ollama-cloud' && b.model === a.model;
+    case 'custom':
+      return (
+        b.kind === 'custom' && b.baseUrl === a.baseUrl && b.model === a.model
+      );
     case 'structured':
       return (
         b.kind === 'structured' &&
@@ -577,9 +583,9 @@ export class AgentRpcHandlers {
     return {
       selection,
       locality,
-      // Same rule as the service's status rows: structured reports none.
-      reportsConfidence:
-        selection.kind === 'ollama' || selection.kind === 'jev',
+      // Same rule as the service's status rows: every System One kind
+      // reports a confidence; structured reports none.
+      reportsConfidence: selection.kind !== 'structured',
       state: 'unreachable',
       detail: DECISION_STATUS_UNREAD_DETAIL,
     };

@@ -24,9 +24,9 @@ import {
 } from './decision-model.types';
 
 /**
- * Every selection the resolver understands. `OllamaCloudSelection` and
- * `CustomEndpointSelection` join `DecisionModelSelection` only when the
- * union widens with its consumers (PD-1); until then they are listed here.
+ * Every selection the resolver understands. `DecisionModelSelection` already
+ * includes `OllamaCloudSelection` and `CustomEndpointSelection`; they are
+ * listed again only for readability.
  */
 export type DecisionEndpointSelection =
   | DecisionModelSelection

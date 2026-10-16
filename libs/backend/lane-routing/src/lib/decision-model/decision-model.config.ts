@@ -12,13 +12,18 @@ import {
   toRowState,
 } from './decision-model.probe';
 import { DECISION_MODEL_DETAIL } from './decision-model.detail';
-import { DecisionEndpointProber } from './decision-model.prober';
+import {
+  DecisionEndpointProber,
+  type DecisionProbeRequest,
+} from './decision-model.prober';
 import { DecisionModelKeys } from './decision-model.keys';
 import {
   isBlockedDecisionEndpoint,
   localityOfSelection,
   resolveDecisionEndpoint,
   type DecisionEndpoint,
+  type DecisionEndpointDeps,
+  type DecisionEndpointResolution,
 } from './decision-model.target';
 import {
   DECISION_MODEL_CONFIG_KEY,
@@ -55,6 +60,17 @@ export interface DecisionModelConfigSeams {
   readonly probeTimeoutMs?: number;
 }
 
+/** Selections whose row status comes from a probe of the resolved endpoint. */
+type ProbedSelection = Extract<
+  DecisionModelSelection,
+  { kind: 'ollama' | 'ollama-cloud' | 'custom' }
+>;
+
+/** What one status run of a probed selection does: probe, or show a fixed row. */
+type ProbePlan =
+  | { readonly kind: 'probe'; readonly request: DecisionProbeRequest }
+  | { readonly kind: 'row'; readonly row: DecisionModelStatusDto };
+
 interface ProbeRecord {
   readonly startedAt: number;
   readonly result: DecisionModelProbeResult;
@@ -69,9 +85,11 @@ interface LastCallFailure {
  * Decision-model setting, credential, locality and status
  * (`LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG`, plan part A §5).
  *
- * Status of an Ollama selection comes from a two-step probe
- * (`DecisionEndpointProber`, built here from the `fetch` and
- * `probeTimeoutMs` seams) sharing one 1500 ms budget: `GET /api/version` (>= 0.35.0, 0.40.0 for `laya*`), then
+ * Status of an `ollama`, `ollama-cloud` or `custom` selection comes from a
+ * probe of the resolved endpoint (`DecisionEndpointProber`, built here from
+ * the `fetch` and `probeTimeoutMs` seams) sharing one 1500 ms budget. The
+ * resolver picks the mode: `daemon` checks `GET /api/version` (>= 0.35.0,
+ * 0.40.0 for `laya*`) first; `endpoint` skips it and sends the key. Both then
  * `POST /v1/systemone {}` and the same `POST` to a control path no server
  * serves, compared after normalisation (decision #42). A live 404/405 never
  * marks the endpoint by itself: `recheckAfterLiveNotFound` re-runs the probe,
@@ -79,7 +97,9 @@ interface LastCallFailure {
  *
  * The unsupported mark is persisted in global `IStateStorage` under
  * `ptah.decisionModel.unsupported.v1` as `{ selection, baseUrl, detail, at }`
- * and reloaded at construction, so it survives a restart.
+ * and reloaded at construction, so it survives a restart. Its base URL is the
+ * resolved one, so a key change that switches the Ollama Cloud path also
+ * switches the mark key.
  *
  * A plain class, not `@injectable`: `LANE_ROUTING_TOKENS.LOGGER` and the
  * optional `STRUCTURED_DECISION` port have no registration yet, and di-lint
@@ -171,10 +191,7 @@ export class DecisionModelConfig {
     );
     this.lastCallFailure = null;
     this.recentRechecks.clear();
-    if (
-      this.mark &&
-      !this.markMatches(keyOf(selection, this.ollamaBaseUrl()))
-    ) {
+    if (this.mark && !this.markMatches(await this.probeKeyOf(selection))) {
       await this.clearMark('selection changed');
     }
     return selection;
@@ -189,11 +206,10 @@ export class DecisionModelConfig {
    * treat `null` as "no call". A rejected secret read propagates.
    */
   async resolveSystemOneTarget(): Promise<SystemOneTarget | null> {
-    const resolution = await resolveDecisionEndpoint(this.getSelection(), {
-      workspace: this.workspace,
-      keys: this.keys,
-      ollamaBaseUrl: () => this.ollamaBaseUrl(),
-    });
+    const resolution = await resolveDecisionEndpoint(
+      this.getSelection(),
+      this.endpointDeps(),
+    );
     return isBlockedDecisionEndpoint(resolution) ? null : resolution;
   }
 
@@ -223,7 +239,10 @@ export class DecisionModelConfig {
 
   // --------------------------------------------------------------- status
 
-  /** Row status. Probes the endpoint for Ollama; makes no paid call for any kind. */
+  /**
+   * Row status. Probes the resolved endpoint for `ollama`, `ollama-cloud`
+   * and `custom`; makes no paid call for any kind.
+   */
   async getStatus(): Promise<DecisionModelStatusDto> {
     return this.statusForCurrent(true);
   }
@@ -244,17 +263,18 @@ export class DecisionModelConfig {
         return this.jevStatus(selection);
       case 'structured':
         return this.structuredStatus(selection);
-      case 'ollama': {
-        const baseUrl = this.ollamaBaseUrl();
-        const startedKey = keyOf(selection, baseUrl);
-        const probe = await this.prober.probe({
-          mode: 'daemon',
-          baseUrl,
-          model: selection.model,
-        });
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        if (plan.kind === 'row') {
+          return plan.row;
+        }
+        const startedKey = keyOf(selection, plan.request.baseUrl);
+        const probe = await this.prober.probe(plan.request);
         return this.applyProbe(
           selection,
-          baseUrl,
+          plan.request,
           probe,
           null,
           startedKey,
@@ -264,13 +284,13 @@ export class DecisionModelConfig {
     }
   }
 
-  /** True when a persisted mark matches the current selection and Ollama base URL. */
-  isMarkedUnsupported(): boolean {
-    const selection = this.getSelection();
-    return (
-      selection.kind === 'ollama' &&
-      this.markMatches(keyOf(selection, this.ollamaBaseUrl()))
-    );
+  /**
+   * True when a persisted mark matches the current selection and the base
+   * URL it resolves to now. Async: the Ollama Cloud base depends on whether
+   * its key is stored.
+   */
+  async isMarkedUnsupported(): Promise<boolean> {
+    return this.markMatches(await this.currentProbeKey());
   }
 
   /** A successful live call clears the `last call failed` detail. */
@@ -293,11 +313,11 @@ export class DecisionModelConfig {
   ): Promise<void> {
     const normalised = normaliseBaseUrl(baseUrl);
     const markKey = keyOf(selection, normalised);
-    if (this.currentProbeKey() !== markKey) {
+    if ((await this.currentProbeKey()) !== markKey) {
       return;
     }
     await this.enqueueMark(async () => {
-      if (this.currentProbeKey() !== markKey) {
+      if ((await this.currentProbeKey()) !== markKey) {
         await this.persistMark(undefined);
         return;
       }
@@ -328,39 +348,52 @@ export class DecisionModelConfig {
    * - `ready` → no mark is written, an existing mark is cleared, and the row
    *   stays `ready` with detail `last call failed: <liveDetail>`.
    * - any other outcome → no mark and no clear; the row shows that state.
+   *
+   * The probe goes to the endpoint the selection resolves to now, in its
+   * mode and with its key. When that is no longer `baseUrl` (the settings
+   * or the key changed since the live call), nothing is probed or marked.
    */
   async recheckAfterLiveNotFound(
     baseUrl: string,
     liveDetail: string,
   ): Promise<DecisionModelStatusDto> {
     const selection = this.getSelection();
-    if (selection.kind !== 'ollama') {
-      // TypeSafe Jev's route is a documented contract
-      // (`research-decision-models.md:155`), and the other kinds do not call
-      // System One, so a live 404/405 there is a model failure: no probe.
-      if (selection.kind === 'jev') {
+    switch (selection.kind) {
+      case 'unset':
+      case 'structured':
+        // These kinds do not call System One: nothing to re-check.
+        return this.getStatus();
+      case 'jev':
+        // TypeSafe Jev's route is a documented contract
+        // (`research-decision-models.md:155`), so a live 404/405 there is a
+        // model failure: no probe.
         this.lastCallFailure = {
           key: keyOf(selection, JEV_BASE_URL),
           detail: liveDetail,
         };
+        return this.getStatus();
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        if (plan.kind === 'row') {
+          return plan.row;
+        }
+        if (plan.request.baseUrl !== normaliseBaseUrl(baseUrl)) {
+          return this.currentRowWithoutProbe();
+        }
+        const startedKey = keyOf(selection, plan.request.baseUrl);
+        const probe = await this.coalescedRecheck(startedKey, plan.request);
+        return this.applyProbe(
+          selection,
+          plan.request,
+          probe,
+          liveDetail,
+          startedKey,
+          false,
+        );
       }
-      return this.getStatus();
     }
-    const base = normaliseBaseUrl(baseUrl);
-    const startedKey = keyOf(selection, base);
-    const probe = await this.coalescedRecheck(
-      startedKey,
-      base,
-      selection.model,
-    );
-    return this.applyProbe(
-      selection,
-      base,
-      probe,
-      liveDetail,
-      startedKey,
-      false,
-    );
   }
 
   // ---------------------------------------------------------- internals
@@ -387,13 +420,62 @@ export class DecisionModelConfig {
         selection,
         'no-credential',
         'TypeSafe Jev API key is not set',
+        false,
       );
     }
     return this.dto(
       selection,
       'ready',
       this.lastFailureDetail(keyOf(selection, JEV_BASE_URL)),
+      true,
     );
+  }
+
+  /**
+   * Resolves a probed selection to its probe request (mode, base URL and
+   * key from the resolver), or to the row shown without a probe:
+   * - the credential store rejects → `unreachable`, fixed text;
+   * - a key would cross plain http (D4) → `no-credential`, fixed text.
+   */
+  private async probePlan(selection: ProbedSelection): Promise<ProbePlan> {
+    let resolution: DecisionEndpointResolution;
+    try {
+      resolution = await resolveDecisionEndpoint(
+        selection,
+        this.endpointDeps(),
+      );
+    } catch (error: unknown) {
+      // The rejection text is untrusted: logged, never shown in the row.
+      this.logger.warn('[lane-routing] decision model key lookup failed', {
+        kind: selection.kind,
+        error: errorMessage(error),
+      });
+      return {
+        kind: 'row',
+        row: this.dto(
+          selection,
+          'unreachable',
+          DECISION_MODEL_DETAIL.credentialStore,
+        ),
+      };
+    }
+    if (isBlockedDecisionEndpoint(resolution)) {
+      // Only a stored key blocks a selection.
+      return {
+        kind: 'row',
+        row: this.dto(selection, 'no-credential', resolution.detail, true),
+      };
+    }
+    const request = resolution === null ? null : probeRequestOf(resolution);
+    if (request === null) {
+      // The resolver gives every probed kind an endpoint with a probe mode;
+      // this row only keeps the switch total.
+      return {
+        kind: 'row',
+        row: this.dto(selection, 'unreachable', null),
+      };
+    }
+    return { kind: 'probe', request };
   }
 
   private async structuredStatus(
@@ -430,40 +512,42 @@ export class DecisionModelConfig {
   }
 
   private async applyProbe(
-    selection: Extract<DecisionModelSelection, { kind: 'ollama' }>,
-    baseUrl: string,
+    selection: ProbedSelection,
+    request: DecisionProbeRequest,
     probe: DecisionModelProbeResult,
     liveDetail: string | null,
     startedKey: string,
     allowRetry: boolean,
   ): Promise<DecisionModelStatusDto> {
-    if (this.currentProbeKey() !== startedKey) {
+    if ((await this.currentProbeKey()) !== startedKey) {
       return allowRetry
         ? this.statusForCurrent(false)
         : this.currentRowWithoutProbe();
     }
     const key = startedKey;
+    const keyStored = request.apiKey !== undefined;
     if (probe.outcome === 'unsupported-endpoint') {
       const base = probe.detail ?? 'endpoint does not serve /v1/systemone';
       const detail =
         liveDetail === null ? base : `${base}; last call: ${liveDetail}`;
       if (!this.markMatches(key)) {
-        await this.markUnsupported(baseUrl, detail, selection);
+        await this.markUnsupported(request.baseUrl, detail, selection);
       }
-      if (this.currentProbeKey() !== startedKey) {
+      if ((await this.currentProbeKey()) !== startedKey) {
         return this.currentRowWithoutProbe();
       }
       return this.dto(
         selection,
         'unsupported-endpoint',
         this.mark?.detail ?? detail,
+        keyStored,
       );
     }
     if (probe.outcome === 'ready') {
       if (this.mark) {
         await this.clearMark('probe proved the route');
       }
-      if (this.currentProbeKey() !== startedKey) {
+      if ((await this.currentProbeKey()) !== startedKey) {
         return this.currentRowWithoutProbe();
       }
       if (liveDetail !== null) {
@@ -473,15 +557,20 @@ export class DecisionModelConfig {
         selection,
         'ready',
         this.lastFailureDetail(key) ?? probe.detail,
+        keyStored,
       );
     }
-    return this.dto(selection, toRowState(probe.outcome), probe.detail);
+    return this.dto(
+      selection,
+      toRowState(probe.outcome),
+      probe.detail,
+      keyStored,
+    );
   }
 
   private coalescedRecheck(
     key: string,
-    baseUrl: string,
-    model: string,
+    request: DecisionProbeRequest,
   ): Promise<DecisionModelProbeResult> {
     const startedAt = this.now();
     const recent = this.recentRechecks.get(key);
@@ -499,7 +588,7 @@ export class DecisionModelConfig {
       return pending;
     }
     const run = this.prober
-      .probe({ mode: 'daemon', baseUrl, model })
+      .probe(request)
       .then((result) => {
         this.recentRechecks.set(key, { startedAt, result });
         return result;
@@ -569,27 +658,40 @@ export class DecisionModelConfig {
   }
 
   /**
-   * Row for the selection now, without an Ollama probe. Unmarked Ollama uses
-   * `unreachable`: decision #46 fixes the state set and has no pending state.
+   * Row for the selection now, without a probe. An unmarked probed selection
+   * uses `unreachable`: decision #46 fixes the state set and has no pending
+   * state.
    */
-  private currentRowWithoutProbe(): Promise<DecisionModelStatusDto> {
+  private async currentRowWithoutProbe(): Promise<DecisionModelStatusDto> {
     const selection = this.getSelection();
     switch (selection.kind) {
       case 'unset':
-        return Promise.resolve(this.dto(selection, 'unset', null));
+        return this.dto(selection, 'unset', null);
       case 'jev':
         return this.jevStatus(selection);
       case 'structured':
         return this.structuredStatus(selection);
-      case 'ollama': {
-        const key = keyOf(selection, this.ollamaBaseUrl());
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        if (plan.kind === 'row') {
+          return plan.row;
+        }
+        const keyStored = plan.request.apiKey !== undefined;
         const mark = this.mark;
-        if (mark !== null && keyOf(mark.selection, mark.baseUrl) === key) {
-          return Promise.resolve(
-            this.dto(selection, 'unsupported-endpoint', mark.detail),
+        if (
+          mark !== null &&
+          this.markMatches(keyOf(selection, plan.request.baseUrl))
+        ) {
+          return this.dto(
+            selection,
+            'unsupported-endpoint',
+            mark.detail,
+            keyStored,
           );
         }
-        return Promise.resolve(this.dto(selection, 'unreachable', null));
+        return this.dto(selection, 'unreachable', null, keyStored);
       }
     }
   }
@@ -608,30 +710,97 @@ export class DecisionModelConfig {
       : null;
   }
 
+  /**
+   * `apiKeyStored` is reported for `jev` and `custom` only (DC13), and only
+   * when the caller read the key; it is never the key itself.
+   */
   private dto(
     selection: DecisionModelSelection,
     state: DecisionModelState,
     detail: string | null,
+    apiKeyStored?: boolean,
   ): DecisionModelStatusDto {
-    return {
+    const row: DecisionModelStatusDto = {
       selection,
       locality: this.localityOf(selection),
-      reportsConfidence:
-        selection.kind === 'ollama' || selection.kind === 'jev',
+      reportsConfidence: reportsConfidence(selection),
       state,
       detail,
     };
+    const keyed = selection.kind === 'jev' || selection.kind === 'custom';
+    return keyed && apiKeyStored !== undefined ? { ...row, apiKeyStored } : row;
   }
 
-  /** Selection plus the base URL that selection would be probed against now. */
-  private currentProbeKey(): string {
-    const selection = this.getSelection();
-    if (selection.kind === 'ollama') {
-      return keyOf(selection, this.ollamaBaseUrl());
+  private endpointDeps(): DecisionEndpointDeps {
+    return {
+      workspace: this.workspace,
+      keys: this.keys,
+      ollamaBaseUrl: () => this.ollamaBaseUrl(),
+    };
+  }
+
+  /** Current selection plus the base URL it would be probed against now. */
+  private currentProbeKey(): Promise<string> {
+    return this.probeKeyOf(this.getSelection());
+  }
+
+  /**
+   * Mark and coalescing key of a selection: the selection plus the base URL
+   * its probe goes to now (the resolved one). A selection that is not
+   * probed, or not probed now (blocked, unreadable key), has an empty base,
+   * which matches no probe key.
+   */
+  private async probeKeyOf(selection: DecisionModelSelection): Promise<string> {
+    switch (selection.kind) {
+      case 'unset':
+      case 'structured':
+        return keyOf(selection, '');
+      case 'jev':
+        return keyOf(selection, JEV_BASE_URL);
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        return keyOf(
+          selection,
+          plan.kind === 'probe' ? plan.request.baseUrl : '',
+        );
+      }
     }
-    if (selection.kind === 'jev') {
-      return keyOf(selection, JEV_BASE_URL);
+  }
+}
+
+/** Every System One kind reports a confidence; `structured` and `unset` do not. */
+function reportsConfidence(selection: DecisionModelSelection): boolean {
+  switch (selection.kind) {
+    case 'unset':
+    case 'structured':
+      return false;
+    case 'ollama':
+    case 'ollama-cloud':
+    case 'jev':
+    case 'custom':
+      return true;
+  }
+}
+
+/** The probe request of a resolved endpoint; `null` for `none` (key-presence status). */
+function probeRequestOf(
+  endpoint: DecisionEndpoint,
+): DecisionProbeRequest | null {
+  switch (endpoint.probe) {
+    case 'none':
+      return null;
+    case 'daemon':
+    case 'endpoint': {
+      const request: DecisionProbeRequest = {
+        mode: endpoint.probe,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+      };
+      return endpoint.apiKey === undefined
+        ? request
+        : { ...request, apiKey: endpoint.apiKey };
     }
-    return keyOf(selection, '');
   }
 }

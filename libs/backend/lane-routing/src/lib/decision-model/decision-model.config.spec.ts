@@ -477,7 +477,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     });
     expect(h.storage.update).not.toHaveBeenCalled();
     expect(h.storage.__state.entries.has(KEY)).toBe(false);
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
     // The detail stays on the row until a success, a change or a restart.
     expect((await h.config.getStatus()).detail).toBe(
       `last call failed: ${LIVE_MODEL_NOT_FOUND}`,
@@ -509,7 +509,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     expect(h.storage.update).toHaveBeenCalledWith(KEY, expected);
 
     const restarted = restart(h, neverCalled);
-    expect(restarted.isMarkedUnsupported()).toBe(true);
+    expect(await restarted.isMarkedUnsupported()).toBe(true);
     expect(h.storage.__state.entries.get(KEY)).toEqual(expected);
 
     // The restarted row re-probes the same server, keeps the stored detail
@@ -568,7 +568,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
       storage,
       routes: { [VERSION_PATH]: VERSION_OK, [SYSTEM_ONE_PATH]: MODEL_REQUIRED },
     });
-    expect(h.config.isMarkedUnsupported()).toBe(true);
+    expect(await h.config.isMarkedUnsupported()).toBe(true);
 
     const status = await h.config.recheckAfterLiveNotFound(
       BASE,
@@ -578,7 +578,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     expect(status.state).toBe('ready');
     expect(storage.update).toHaveBeenCalledWith(KEY, undefined);
     expect(storage.__state.entries.has(KEY)).toBe(false);
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
   });
 
   it('an unreachable re-check neither writes nor clears a mark', async () => {
@@ -595,7 +595,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
 
     expect(status.state).toBe('unreachable');
     expect(storage.update).not.toHaveBeenCalled();
-    expect(h.config.isMarkedUnsupported()).toBe(true);
+    expect(await h.config.isMarkedUnsupported()).toBe(true);
   });
 
   it('a Jev live 404 sends no probe and keeps the row ready with the live error', async () => {
@@ -632,7 +632,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     const status = await h.config.recheckAfterLiveNotFound(BASE, 'gone');
 
     expect(status.state).toBe('unsupported-endpoint');
-    expect(h.config.isMarkedUnsupported()).toBe(true);
+    expect(await h.config.isMarkedUnsupported()).toBe(true);
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] decision model unsupported mark was not persisted',
       { error: 'disk full' },
@@ -691,7 +691,7 @@ describe('DecisionModelConfig selection and mark lifecycle', () => {
     expect(storage.__state.entries.has(KEY)).toBe(false);
   });
 
-  it('a mark for another base URL does not apply', () => {
+  it('a mark for another base URL does not apply', async () => {
     const storage = createMockStateStorage({
       seed: { [KEY]: unsupportedMark() },
     });
@@ -701,16 +701,16 @@ describe('DecisionModelConfig selection and mark lifecycle', () => {
       baseUrl: 'http://gpu-box:11434/',
     });
 
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
   });
 
-  it('an invalid stored mark is ignored with a warning', () => {
+  it('an invalid stored mark is ignored with a warning', async () => {
     const storage = createMockStateStorage({
       seed: { [KEY]: { selection: OLLAMA, baseUrl: BASE } },
     });
     const h = harness({ selection: OLLAMA, storage });
 
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
     expect(h.logger.warn).toHaveBeenCalledTimes(1);
   });
 });
@@ -871,7 +871,7 @@ describe('DecisionModelConfig probe binding and mark read', () => {
     const status = await pending;
 
     expect(status.selection).toEqual({ kind: 'ollama', model: 'beta' });
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
     expect(h.storage.update).not.toHaveBeenCalled();
     expect(h.storage.__state.entries.has(KEY)).toBe(false);
     expect(JSON.stringify(h.logger.info.mock.calls)).not.toContain(
@@ -892,19 +892,19 @@ describe('DecisionModelConfig probe binding and mark read', () => {
 
     await pending;
 
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
     expect(h.storage.update).not.toHaveBeenCalled();
     expect(h.storage.__state.entries.has(KEY)).toBe(false);
   });
 
-  it('constructs with a null mark when storage.get throws', () => {
+  it('constructs with a null mark when storage.get throws', async () => {
     const storage = createMockStateStorage();
     jest.spyOn(storage, 'get').mockImplementation(() => {
       throw new Error('SECRET-PROMPT');
     });
     const h = harness({ storage, selection: OLLAMA });
 
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
     expect(h.logger.warn).toHaveBeenCalledTimes(1);
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] decision model unsupported mark could not be read',
@@ -965,7 +965,7 @@ describe('DecisionModelConfig probe binding and mark read', () => {
     await marking;
     await switching;
 
-    expect(h.config.isMarkedUnsupported()).toBe(false);
+    expect(await h.config.isMarkedUnsupported()).toBe(false);
     expect(h.storage.__state.entries.has(KEY)).toBe(false);
     expect(written[written.length - 1]).toBeUndefined();
   });

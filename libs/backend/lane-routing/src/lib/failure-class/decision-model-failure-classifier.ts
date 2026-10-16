@@ -18,6 +18,7 @@ import {
   type LaneFailureClassifier,
 } from '@ptah-extension/shared';
 
+import { systemOneUrl } from '../decision-model/decision-endpoint.url';
 import type { DecisionModelConfig } from '../decision-model/decision-model.config';
 import type { DecisionModelSelection } from '../decision-model/decision-model.types';
 import type {
@@ -47,7 +48,11 @@ const FAILURE_CLASS_OPTIONS: ReadonlySet<string> = new Set(
   LANE_FAILURE_CLASSES,
 );
 
-/** Per-request abort budget: the routing timeout plus the return margin. */
+/**
+ * Per-request abort budget of a structured call: the routing timeout plus
+ * the return margin. A System One call uses its target's own budget,
+ * `target.timeoutMs + DECISION_RETURN_MARGIN_MS` (DC8).
+ */
 export const FAILURE_CLASSIFICATION_TIMEOUT_MS =
   DECISION_REQUEST_TIMEOUT_MS + DECISION_RETURN_MARGIN_MS;
 
@@ -85,7 +90,7 @@ export interface FailureClassificationPayload {
 export interface FailureClassifierSeams {
   /** System One transport. Node's global `fetch` when omitted. */
   readonly fetch?: SystemOneFetch;
-  /** Overrides {@link FAILURE_CLASSIFICATION_TIMEOUT_MS}. */
+  /** Overrides every per-request budget (structured and System One). */
   readonly timeoutMs?: number;
 }
 
@@ -101,9 +106,10 @@ type StructuredSelection = Extract<
   DecisionModelSelection,
   { kind: 'structured' }
 >;
-type SystemOneSelection = Extract<
+/** Every kind that calls a `/v1/systemone` endpoint. */
+type SystemOneSelection = Exclude<
   DecisionModelSelection,
-  { kind: 'ollama' | 'jev' }
+  { kind: 'unset' | 'structured' }
 >;
 
 /**
@@ -220,7 +226,9 @@ export class DecisionModelFailureClassifier implements LaneFailureClassifier {
       );
       return null;
     }
-    const signal = AbortSignal.timeout(this.timeoutMs());
+    const signal = AbortSignal.timeout(
+      this.timeoutMs(target.timeoutMs + DECISION_RETURN_MARGIN_MS),
+    );
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
@@ -228,7 +236,7 @@ export class DecisionModelFailureClassifier implements LaneFailureClassifier {
       headers['authorization'] = `Bearer ${target.apiKey}`;
     }
     const response = await this.transport()(
-      new URL(SYSTEM_ONE_PATH, target.baseUrl).toString(),
+      systemOneUrl(target.baseUrl, SYSTEM_ONE_PATH),
       { method: 'POST', headers, body, signal },
     );
     const bodyText = await response.text();
@@ -259,8 +267,9 @@ export class DecisionModelFailureClassifier implements LaneFailureClassifier {
     return acceptedFailureClass(validated.data);
   }
 
-  private timeoutMs(): number {
-    return this.deps.seams?.timeoutMs ?? FAILURE_CLASSIFICATION_TIMEOUT_MS;
+  /** The seam's budget when set, else `defaultMs`. */
+  private timeoutMs(defaultMs = FAILURE_CLASSIFICATION_TIMEOUT_MS): number {
+    return this.deps.seams?.timeoutMs ?? defaultMs;
   }
 
   private transport(): SystemOneFetch {

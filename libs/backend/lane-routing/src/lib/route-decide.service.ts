@@ -18,6 +18,7 @@ import {
   type RouteDecideArgs,
 } from './contracts/route-decide-args.schema';
 import type { DecisionModelConfig } from './decision-model/decision-model.config';
+import type { DecisionModelKind } from './decision-model/decision-model.types';
 import type { StructuredDecisionCompleter } from './decision-model/structured-decision.port';
 import {
   SystemOneClient,
@@ -352,7 +353,11 @@ export class RouteDecideService {
       if (selection.kind === 'jev' && target.apiKey === undefined) {
         return { kind: 'blocked', cause: 'auth' };
       }
-      return { kind: 'system-one', target, provider: selection.kind };
+      return {
+        kind: 'system-one',
+        target,
+        provider: systemOneProvider(selection.kind),
+      };
     } catch (error: unknown) {
       this.deps.logger.warn(
         '[lane-routing] decision model target could not be resolved',
@@ -405,6 +410,24 @@ function openSystemOneFrom(
   logger: LaneRoutingLogger,
 ): SystemOneCaller {
   return new SystemOneClient(options, { logger });
+}
+
+/**
+ * The option-limit provider of a System One selection (DC9): every kind
+ * that talks to an Ollama-compatible `/v1/systemone` uses the Ollama limit;
+ * only TypeSafe Jev has its own.
+ */
+function systemOneProvider(
+  kind: Exclude<DecisionModelKind, 'unset' | 'structured'>,
+): 'ollama' | 'jev' {
+  switch (kind) {
+    case 'jev':
+      return 'jev';
+    case 'ollama':
+    case 'ollama-cloud':
+    case 'custom':
+      return 'ollama';
+  }
 }
 
 function schemaError(

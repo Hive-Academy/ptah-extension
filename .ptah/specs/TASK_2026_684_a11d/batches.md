@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 9/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 10/23
 
 ## Execution precondition (read first)
 
@@ -575,7 +575,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 
 - `T`, `TC` and `L` on `@ptah-extension/lane-routing`; degradation-audit.
 
-## Batch 9: Union widening and consumers that do not branch on kind (atomic compile set) — PENDING
+## Batch 9: Union widening and consumers that do not branch on kind (atomic compile set) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -588,7 +588,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 2 | Phase review: code-logic (codex)
 - Criteria: 3.2-3.5 wired to status, 1.5 (Ollama Cloud remote), DC9, DC13
 
-### Task 9.1: Widen the union; status switches on probe mode — PENDING
+### Task 9.1: Widen the union; status switches on probe mode — COMPLETE
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.types.ts` (add the
   members to `DecisionModelSelectionSchema`), MODIFY `...\decision-model.config.ts`
@@ -601,7 +601,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Quality requirements: the five-state set is unchanged (3.4). A 401/403 gives `no-credential`.
   Unreachable or a timeout gives `unreachable`. A control match gives `unsupported-endpoint`.
 
-### Task 9.2: Classifier — PENDING
+### Task 9.2: Classifier — COMPLETE
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\failure-class\decision-model-failure-classifier.ts`
   (`SystemOneSelection` covers the new kinds, `:104-107,138-140`; URL through `systemOneUrl` at
@@ -609,7 +609,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   `...\decision-model-failure-classifier.spec.ts` (a case for a new kind)
 - Plan reference: implementation-plan.md:336-338
 
-### Task 9.3: rpc-handlers selection equality — PENDING
+### Task 9.3: rpc-handlers selection equality — COMPLETE
 
 - File: MODIFY `W\libs\backend\rpc-handlers\src\lib\handlers\agent-rpc.handlers.ts` (`:293-311`:
   `ollama-cloud` compares `model`; `custom` compares `baseUrl` and `model`)

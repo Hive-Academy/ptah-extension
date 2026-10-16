@@ -9,6 +9,36 @@ import { EndpointBaseUrlSchema } from './decision-endpoint.url';
  * plain types for the frontend (A11).
  */
 
+/**
+ * Ollama Cloud selection (D1): the model id is the canonical cloud id
+ * (DC5).
+ */
+export const OllamaCloudSelectionSchema = z
+  .object({
+    kind: z.literal('ollama-cloud'),
+    model: z.string().trim().min(1).max(128),
+  })
+  .strict();
+
+export type OllamaCloudSelection = z.infer<typeof OllamaCloudSelectionSchema>;
+
+/**
+ * Custom `/v1/systemone` endpoint selection (D2, DC2). `baseUrl` is
+ * normalised by `EndpointBaseUrlSchema`. The model id is trimmed first, so a
+ * whitespace-only id is refused on the `model` path (criterion 2.2).
+ */
+export const CustomEndpointSelectionSchema = z
+  .object({
+    kind: z.literal('custom'),
+    baseUrl: EndpointBaseUrlSchema,
+    model: z.string().trim().min(1).max(128),
+  })
+  .strict();
+
+export type CustomEndpointSelection = z.infer<
+  typeof CustomEndpointSelectionSchema
+>;
+
 export const DecisionModelSelectionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('unset') }).strict(),
   z
@@ -27,6 +57,8 @@ export const DecisionModelSelectionSchema = z.discriminatedUnion('kind', [
       model: z.string().min(1),
     })
     .strict(),
+  OllamaCloudSelectionSchema,
+  CustomEndpointSelectionSchema,
 ]);
 
 /** A parsed selection (the Jev model default applied). */
@@ -37,38 +69,6 @@ export type DecisionModelSelection = z.infer<
 /** What a caller may submit before parsing (the Jev model may be omitted). */
 export type DecisionModelSelectionInput = z.input<
   typeof DecisionModelSelectionSchema
->;
-
-/**
- * Ollama Cloud selection (D1): the model id is the canonical cloud id
- * (DC5). Not yet a member of `DecisionModelSelectionSchema`: the union widens
- * together with every consumer that switches on `kind` (PD-1).
- */
-export const OllamaCloudSelectionSchema = z
-  .object({
-    kind: z.literal('ollama-cloud'),
-    model: z.string().trim().min(1).max(128),
-  })
-  .strict();
-
-export type OllamaCloudSelection = z.infer<typeof OllamaCloudSelectionSchema>;
-
-/**
- * Custom `/v1/systemone` endpoint selection (D2, DC2). `baseUrl` is
- * normalised by `EndpointBaseUrlSchema`. The model id is trimmed first, so a
- * whitespace-only id is refused on the `model` path (criterion 2.2). Not yet
- * a member of `DecisionModelSelectionSchema` (PD-1).
- */
-export const CustomEndpointSelectionSchema = z
-  .object({
-    kind: z.literal('custom'),
-    baseUrl: EndpointBaseUrlSchema,
-    model: z.string().trim().min(1).max(128),
-  })
-  .strict();
-
-export type CustomEndpointSelection = z.infer<
-  typeof CustomEndpointSelectionSchema
 >;
 
 export type DecisionModelKind = DecisionModelSelection['kind'];
