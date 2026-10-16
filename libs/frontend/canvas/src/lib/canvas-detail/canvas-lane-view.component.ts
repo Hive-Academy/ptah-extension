@@ -60,6 +60,7 @@ import { CanvasDetailService } from './canvas-detail.service';
     <div
       [id]="panelId()"
       role="tabpanel"
+      tabindex="-1"
       [attr.aria-labelledby]="panelId() + '-tab-' + laneKey()"
       class="rail-focus-fade h-full min-h-0"
       [class.rail-fade-start]="fade()"
@@ -67,15 +68,12 @@ import { CanvasDetailService } from './canvas-detail.service';
       <div [class.hidden]="selectedKind() !== 'orchestrator'" class="h-full">
         <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" [paneFocused]="paneFocused()" [splitDisplayed]="splitDisplayed()" />
       </div>
-      @if (selectedKind() !== 'orchestrator') {
-        <button type="button" class="btn btn-ghost btn-xs m-2" (click)="back()" aria-label="Back to conversation">Back to conversation</button>
-      }
       @for (key of [tabId() + ':' + laneKey()]; track key) {
         <div class="rail-lane-enter">
         @switch (selectedKind()) {
           @case ('cli') {
             @if (selectedCli(); as agent) {
-              <div class="p-2 h-full flex flex-col gap-2">
+              <div class="h-full flex flex-col gap-2 px-3 pt-2">
                 @for (
                   permission of agent.permissionQueue;
                   track permission.requestId
@@ -109,6 +107,7 @@ import { CanvasDetailService } from './canvas-detail.service';
                 <ptah-agent-card
                   class="block flex-1 min-h-0"
                   [agent]="agent"
+                  presentation="flat"
                   (toggleExpanded)="monitor.toggleAgentExpanded(agent.agentId)"
                 />
               </div>
@@ -144,7 +143,7 @@ import { CanvasDetailService } from './canvas-detail.service';
       }
       <ng-template #subagentLane>
         @if (selectedSubagent(); as sub) {
-          <div class="p-2 space-y-2">
+          <div class="space-y-2 px-3 pt-2">
             <ptah-subagent-usage-summary [record]="sub" />
             @if (agentNode(); as node) {
               <ptah-execution-node
@@ -181,7 +180,7 @@ export class CanvasLaneViewComponent {
   private readonly detail = inject(CanvasDetailService);
   private readonly background = inject(BackgroundAgentStore);
   private readonly responder = inject(AgentPermissionResponder);
-  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private opener: HTMLElement | null = null;
   readonly tabId = input.required<string>();
@@ -277,7 +276,7 @@ export class CanvasLaneViewComponent {
           this.opener = focused;
           afterNextRender(() => {
             if (this.tabId() === tabId && this.selectedKind() !== 'orchestrator') {
-              (this.host.nativeElement.querySelector('[aria-label="Back to conversation"]') as HTMLButtonElement | null)?.focus();
+              this.host.nativeElement.querySelector<HTMLElement>('[role="tabpanel"]')?.focus();
             }
           }, { injector: this.injector });
         }

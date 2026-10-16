@@ -13,6 +13,7 @@ import {
   AGENT_KIND_LABEL,
   AgentAvatarComponent,
   AgentSteerInputComponent,
+  TokenBadgeComponent,
   agentAccessibleLabel,
   backgroundAgentPopulation,
   formatAgentDuration,
@@ -22,6 +23,8 @@ import {
 import { ModelStateService } from '@ptah-extension/core';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { Bot, LucideAngularModule } from 'lucide-angular';
+import { formatEstimatedCost, usageTotalsFromSegments } from '../../molecules/agent-card/stats-bar.utils';
+import { formatElapsed } from '../../molecules/agent-card/agent-card.utils';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type {
@@ -59,6 +62,9 @@ interface AgentRowView {
   readonly modelName: string | null;
   readonly modelRaw: string | null;
   readonly tokens: string | null;
+  readonly cliTokens: number | null;
+  readonly cliCost: number | null;
+  readonly cliUsagePartial: boolean;
   readonly tray: TrayAgentContext | null;
   readonly hasActions: boolean;
   readonly requests: readonly InspectorRequest[];
@@ -85,6 +91,7 @@ let nextSectionId = 0;
     LucideAngularModule,
     AgentAvatarComponent,
     AgentSteerInputComponent,
+    TokenBadgeComponent,
     InspectorAgentActionsMenuComponent,
     InspectorRequestLinesComponent,
   ],
@@ -164,7 +171,7 @@ let nextSectionId = 0;
                         @if (view.row.agent.status; as status) {
                           <span [class]="'font-medium ' + view.statusInk">{{ status }}</span>
                         }
-                        @if (view.duration) {
+                        @if (view.duration && view.row.agent.kind !== 'cli') {
                           <span class="tabular-nums text-base-content-muted">· {{ view.duration }}</span>
                         }
                       </span>
@@ -179,10 +186,27 @@ let nextSectionId = 0;
                       @if (view.row.agent.activity) {
                         <span class="min-w-0 truncate">{{ view.row.agent.activity }}</span>
                       }
-                      @if (view.tokens) {
+                      @if (view.tokens && view.row.agent.kind !== 'cli') {
                         <span class="shrink-0 tabular-nums">· {{ view.tokens }} tokens</span>
                       }
                     </span>
+                    @if (view.row.agent.kind === 'cli') {
+                      <span class="mt-1.5 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap">
+                        @if (view.cliTokens !== null) {
+                          @if (view.cliUsagePartial) {
+                            <span class="badge badge-outline badge-sm cursor-help" title="From retained output, may be partial" [attr.aria-label]="'at least ' + view.cliTokens + ' tokens'">≥ {{ formatTokenCount(view.cliTokens) }} tokens</span>
+                          } @else {
+                            <ptah-token-badge [tokens]="view.cliTokens" />
+                          }
+                        }
+                        @if (view.cliCost !== null) {
+                          <span class="badge badge-sm badge-ghost text-base-content-muted tabular-nums" [attr.title]="view.cliUsagePartial ? 'From retained output, may be partial' : 'Reported or estimated cost'" [attr.aria-label]="view.cliUsagePartial ? 'at least ' + formatEstimatedCost(view.cliCost) : null">{{ view.cliUsagePartial ? '≥ ' : '' }}{{ formatEstimatedCost(view.cliCost) }}</span>
+                        }
+                        @if (view.duration) {
+                          <span class="badge badge-sm badge-ghost text-base-content-muted tabular-nums" title="Elapsed duration">{{ view.duration }}</span>
+                        }
+                      </span>
+                    }
                   </span>
                 </button>
                 @if (view.tray && view.hasActions) {
@@ -254,6 +278,8 @@ export class InspectorAgentsSectionComponent {
   readonly announced = output<string>();
 
   protected readonly BotIcon = Bot;
+  protected readonly formatEstimatedCost = formatEstimatedCost;
+  protected readonly formatTokenCount = formatTokenCount;
   protected readonly skeletonRows = [0, 1, 2];
   private readonly sectionId = ++nextSectionId;
   protected readonly headingId = `ptah-agents-h-${this.sectionId}`;
@@ -306,26 +332,40 @@ export class InspectorAgentsSectionComponent {
           : (tray?.entry.durationMs ?? null);
       const modelRaw = extra?.model ?? null;
       const tokens = extra?.tokens ?? null;
+      const fallbackUsage = agent.usageTotals == null ? usageTotalsFromSegments(agent.segments ?? []) : null;
+      const usage = agent.usageTotals ?? fallbackUsage;
+      const cliTokenTotal = typeof usage?.totalTokens === 'number'
+        ? usage.totalTokens
+        : typeof usage?.inputTokens === 'number' && typeof usage?.outputTokens === 'number'
+          ? usage.inputTokens + usage.outputTokens
+          : null;
+      const duration = durationMs === null ? null : agent.kind === 'cli' ? formatElapsed(durationMs) : formatAgentDuration(durationMs);
       const label = agentAccessibleLabel({
         name: agent.name,
         kind: agent.kind,
         status: agent.status,
-        durationMs,
+        durationMs: agent.kind === 'cli' ? null : durationMs,
       });
+      const ariaLabel = agent.kind === 'cli' && duration ? `${label} ${duration}` : label;
       return {
         key: agent.key,
         row,
         name: agent.name,
         kindLabel: AGENT_KIND_LABEL[agent.kind],
         statusInk: agent.status ? STATUS_INK[agent.status] : '',
-        duration: durationMs === null ? null : formatAgentDuration(durationMs),
-        ariaLabel: agent.activity ? `${label}. ${agent.activity}` : label,
+        duration,
+        ariaLabel: agent.activity ? `${ariaLabel}. ${agent.activity}` : ariaLabel,
         modelName: modelRaw ? resolveModelDisplayName(modelRaw, models) : null,
         modelRaw,
         tokens:
           tokens !== null && Number.isFinite(tokens) && tokens > 0
             ? formatTokenCount(tokens)
             : null,
+        cliTokens: cliTokenTotal !== null && Number.isFinite(cliTokenTotal) && cliTokenTotal > 0
+          ? cliTokenTotal
+          : null,
+        cliCost: usage?.costUsd ?? null,
+        cliUsagePartial: fallbackUsage?.partial === true,
         tray,
         hasActions: tray !== null && trayEntryHasAction(tray.entry),
         requests: row.requests,

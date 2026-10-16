@@ -88,15 +88,15 @@ export class InspectorLimitsLanesComponent {
   protected readonly planProvenance = computed(() => planSectionProvenance(this.limits().planTiles));
   protected readonly laneCaption = computed(() => sharedLaneCaption(this.limits().laneTiles, this.limits().subtotal));
 
-  protected isOpen(tileId: string): boolean { return this.expansion.isOpen(this.sessionId() ?? '', tileId); }
-  protected toggle(tileId: string): void { this.expansion.toggle(this.sessionId() ?? '', tileId); }
+  protected isOpen(tileId: string): boolean { return this.expansion.isOpen(this.expansion.sessionKey(this, this.sessionId()), tileId); }
+  protected toggle(tileId: string): void { this.expansion.toggle(this.expansion.sessionKey(this, this.sessionId()), tileId); }
   public focusHeading(which: 'session' | 'lane'): void {
     const id = which === 'session' ? this.planHeadingId : this.lanesHeadingId;
     (this.host.nativeElement.querySelector(`#${id}`) as HTMLElement | null)?.focus();
   }
   protected openPlanTile(tileId: string): void {
     if (!this.limits().planTiles.some(tile => tile.id === tileId)) return;
-    this.expansion.setOpen(this.sessionId() ?? '', tileId, true);
+    this.expansion.setOpen(this.expansion.sessionKey(this, this.sessionId()), tileId, true);
     queueMicrotask(() => {
       const tiles = this.host.nativeElement.querySelectorAll('ptah-plan-limit-tile');
       for (const tile of tiles) {

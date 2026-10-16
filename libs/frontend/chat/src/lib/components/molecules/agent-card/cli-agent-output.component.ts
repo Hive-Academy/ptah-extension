@@ -36,9 +36,10 @@ import {
     <div
       #outputContainer
       class="border-t border-base-content/5 h-full overflow-y-auto"
+      [class.!border-0]="presentation() === 'flat'"
     >
       <!-- Stats bar (only shown when stats are available) -->
-      @if (modelStats(); as stats) {
+      @if (presentation() === 'card' && modelStats(); as stats) {
         <div
           class="flex items-center gap-3 px-2 py-1 bg-base-200/50 border-b border-base-content/5"
         >
@@ -81,6 +82,10 @@ import {
       @if (stdoutSegments().length > 0) {
         <details
           class="mx-2 mt-1 bg-base-200/30 rounded border border-base-content/5 overflow-hidden"
+          [class.!mx-0]="presentation() === 'flat'"
+          [class.!border-0]="presentation() === 'flat'"
+          [class.!rounded-none]="presentation() === 'flat'"
+          [class.!bg-transparent]="presentation() === 'flat'"
           [open]="rawStdoutOpen()"
           (toggle)="onRawStdoutToggle($event)"
         >
@@ -100,7 +105,7 @@ import {
       }
 
       <!-- ExecutionNode tree rendering -->
-      <div class="p-2 space-y-1">
+      <div class="p-2 space-y-1" [class.!px-0]="presentation() === 'flat'">
         @for (node of executionNodes(); track node.id) {
           <ptah-execution-node [node]="node" [isStreaming]="isStreaming()" />
         }
@@ -130,6 +135,7 @@ import {
 export class CliAgentOutputComponent {
   /** Agent ID for per-agent cache isolation in the tree builder */
   readonly agentId = input.required<string>();
+  readonly presentation = input<'card' | 'flat'>('card');
 
   readonly segments = input<CliOutputSegment[]>([]);
   readonly stdoutSegments = input<RenderSegment[]>([]);

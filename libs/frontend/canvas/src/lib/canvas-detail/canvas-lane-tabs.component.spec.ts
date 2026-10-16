@@ -162,6 +162,15 @@ describe('CanvasLaneTabsComponent', () => {
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    const dock = fixture.nativeElement.querySelector('[role="tablist"]') as HTMLElement;
+    expect(dock.classList.contains('z-10')).toBe(true);
+    expect(dock.classList.contains('z-20')).toBe(false);
+    expect(dock.querySelector('ptah-agent-dock-menu')).not.toBeNull();
+    expect(dock.classList.contains('pb-1')).toBe(true);
+    expect(dock.classList.contains('shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]')).toBe(true);
+    expect(dock.classList.contains('border-b')).toBe(true);
+    expect(dock.classList.contains('border-surface-border')).toBe(true);
+    expect(dock.classList.contains('bg-surface-1')).toBe(true);
     const tabs = [
       ...fixture.nativeElement.querySelectorAll('[role="tab"]'),
     ] as HTMLElement[];
@@ -186,6 +195,7 @@ describe('CanvasLaneTabsComponent', () => {
     trigger.click();
     fixture.detectChanges();
     const menu = fixture.nativeElement.querySelector('[role="menu"]') as HTMLElement;
+    expect(dock.contains(menu)).toBe(true);
     expect(menu.textContent).toContain('Orchestrator');
     expect(menu.textContent).toContain('Sub-agents');
     expect(menu.textContent).toContain('CLI lanes');
@@ -533,6 +543,8 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.detectChanges();
       const card = fixture.nativeElement.querySelector('[role="tooltip"]') as HTMLElement;
       expect(card).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('[role="tablist"]')?.contains(card)).toBe(true);
+      expect(card.closest('ptah-agent-dock-card')).not.toBeNull();
       expect(card.id).toBe('canvas-lane-panel-agent-card');
       expect(tab.getAttribute('aria-describedby')).toBe(card.id);
       expect(card.textContent).toContain('Click to view this thread');

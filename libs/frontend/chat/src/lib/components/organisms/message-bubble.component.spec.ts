@@ -166,7 +166,7 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     );
   }
 
-  it('keeps tokens and cost in the activity panel, closed by default (B-8, B-11)', () => {
+  it('keeps tokens and cost in the activity panel, closed by default (B-8, B-11)', async () => {
     setSettledTurn(
       createExecutionChatMessage({
         id: 'msg-assistant-priced',
@@ -186,13 +186,40 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.detectChanges();
 
     expect(button?.getAttribute('aria-expanded')).toBe('true');
+    await fixture.whenStable();
+    fixture.detectChanges();
     const panel = activityPanel();
     expect(panel?.id).toBe(button?.getAttribute('aria-controls'));
     expect(panel?.textContent).toContain('Tokens');
     expect(panel?.textContent).toContain('$0.50');
   });
 
-  it('omits the cost item when usage has no known price', () => {
+  it('keeps the aria-controls target mounted while the activity panel loads', async () => {
+    setSettledTurn(
+      createExecutionChatMessage({
+        id: 'msg-assistant-loading',
+        role: 'assistant',
+        rawContent: 'response',
+        tokens: { input: 10, output: 5 },
+      }),
+    );
+
+    const button = showActivityButton();
+    button?.click();
+    fixture.detectChanges();
+
+    const controlledId = button?.getAttribute('aria-controls');
+    expect(button?.getAttribute('aria-expanded')).toBe('true');
+    expect(controlledId).toBeTruthy();
+    expect(fixture.nativeElement.querySelector(`[id="${controlledId}"]`)).not.toBeNull();
+    expect(activityPanel()).toBeNull();
+
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(activityPanel()?.id).toBe(controlledId);
+  });
+
+  it('omits the cost item when usage has no known price', async () => {
     setSettledTurn(
       createExecutionChatMessage({
         id: 'msg-assistant-unpriced',
@@ -205,12 +232,14 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
 
     showActivityButton()?.click();
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
     expect(activityPanel()?.textContent).toContain('Tokens');
     expect(activityPanel()?.textContent).not.toContain('Cost');
   });
 
-  it('renders a genuinely known zero cost as $0.0000 in the activity panel', () => {
+  it('renders a genuinely known zero cost as $0.0000 in the activity panel', async () => {
     setSettledTurn(
       createExecutionChatMessage({
         id: 'msg-assistant-free',
@@ -222,6 +251,8 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     );
 
     showActivityButton()?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
 
     expect(activityPanel()?.textContent).toContain('$0.0000');

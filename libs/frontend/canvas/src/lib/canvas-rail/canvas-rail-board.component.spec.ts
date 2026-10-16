@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ChatStore, CompactSessionCardComponent, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
+import { ChatStore, CompactSessionCardComponent, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -311,6 +311,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     );
     const canStart = signal(true);
     const focused = signal<string | null>(initialFocus);
+    const needsYou = signal<Record<string, number>>({});
     const board = signal<{
       mode: 'rail';
       railCollapsed: boolean;
@@ -367,6 +368,7 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: PreviousSessionsDialogService, useValue: { isOpen: () => false, open: jest.fn() } },
         { provide: SessionOrganizerService, useValue: { available: () => false } },
         { provide: SessionRowActionsService, useValue: { rename: jest.fn() } },
+        { provide: SessionInspectorStore, useValue: { modelFor: (id: string) => () => ({ needsYouCount: needsYou()[id] ?? 0 }) } },
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
           provide: TabManagerService,
@@ -411,6 +413,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       },
       tiles,
       focused,
+      needsYou,
       board,
       width,
       writeFailed,
@@ -435,6 +438,25 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(rail.previousSessionsOpen()).toBe(false);
     rail.previousSessionsRequested.emit();
     expect(dialog.open).toHaveBeenCalledTimes(1);
+  });
+
+  it('includes the focused session needs-you count in the closed details description', () => {
+    const { fixture, focused, needsYou } = mount();
+    needsYou.set({ a: 2, b: 3 });
+    fixture.detectChanges();
+    const focusArea = () => fixture.debugElement.query(By.directive(FocusStub)).componentInstance as FocusStub;
+    expect(focusArea().toggleDescription()).toContain('2 need you.');
+    focused.set('b');
+    fixture.detectChanges();
+    expect(focusArea().toggleDescription()).toContain('3 need you.');
+  });
+
+  it('renders one canvas tile per visible session pane', () => {
+    const { fixture } = mount(true, 3);
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-tile"]')).toHaveLength(1);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-tile"]')).toHaveLength(2);
   });
 
   it('single focus with null store focus renders one lane after removal and with a valid last focus', () => {
@@ -1151,6 +1173,36 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(selectLaneFor).toHaveBeenCalledWith('a', 'agent-1');
     expect(fixture.componentInstance.detailsOpen()).toBe(false);
     expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+  });
+
+  it('traps Tab at the sheet boundary when the inspector contains another dialog', async () => {
+    const { fixture, width } = mount();
+    width.set(390);
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('left');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    const sheet = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]')!;
+    const inspector = sheet.querySelector('ptah-session-inspector [role="dialog"]')!;
+    const nested = document.createElement('div');
+    nested.setAttribute('role', 'dialog');
+    nested.innerHTML = '<button type="button">Nested action</button>';
+    inspector.appendChild(nested);
+    const last = document.createElement('button');
+    last.type = 'button';
+    last.textContent = 'Sheet action';
+    sheet.appendChild(last);
+    const first = sheet.querySelector<HTMLButtonElement>('[data-inspector-close]')!;
+    last.focus();
+    const forward = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    last.dispatchEvent(forward);
+    expect(forward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    const backward = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    first.dispatchEvent(backward);
+    expect(backward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
   });
 
   it('closes the compact sheet on Escape even when focus has moved outside it', () => {

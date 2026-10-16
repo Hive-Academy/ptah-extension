@@ -79,4 +79,21 @@ describe('AgentCardHeaderComponent — prompt cache (N6)', () => {
     const plain = setup(lane({ status: 'stopped' }));
     expect(plain.querySelector('[data-testid="lane-stop-reason"]')).toBeNull();
   });
+
+  it('keeps card controls by default and removes repeated labels in flat presentation', () => {
+    const value = lane({ displayName: 'Worker Alpha', model: 'gpt-5', cliSessionId: 'session-123' });
+    const card = setup(value);
+    expect(card.querySelector('[aria-label="Collapse Worker Alpha"]')).not.toBeNull();
+    expect(card.textContent).toContain('Worker Alpha');
+    fixture.componentRef.setInput('presentation', 'flat');
+    fixture.detectChanges();
+    const flat = fixture.nativeElement as HTMLElement;
+    expect(flat.querySelector('[aria-label="Collapse Worker Alpha"]')).toBeNull();
+    expect(flat.textContent).not.toContain('Worker Alpha');
+    expect(flat.textContent).toContain('running');
+    expect(flat.textContent).toContain('gpt-5');
+    expect(flat.textContent).toContain('1s');
+    expect(flat.querySelector('[aria-label="Stop agent"]')).not.toBeNull();
+    expect(flat.textContent).not.toContain('session-123');
+  });
 });

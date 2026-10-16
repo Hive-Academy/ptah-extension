@@ -139,7 +139,13 @@
       </div>
       @if (activityOpen() && canShowActivity()) {
         @if (turn(); as activityTurn) {
-          <ptah-turn-activity-panel [turn]="activityTurn" [panelId]="panelId()" />
+          @defer (when activityOpen()) {
+            <ptah-turn-activity-panel [turn]="activityTurn" [panelId]="panelId()" />
+          } @placeholder {
+            <div [id]="panelId()"></div>
+          } @loading {
+            <div [id]="panelId()"></div>
+          }
         }
       }
     }

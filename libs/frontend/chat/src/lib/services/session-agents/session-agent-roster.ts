@@ -13,10 +13,12 @@ import {
 import type { AgentKind, AgentStatusWord } from '@ptah-extension/chat-ui';
 import type {
   AskUserQuestionRequest,
+  CliOutputSegment,
   PermissionRequest,
 } from '@ptah-extension/shared';
 import { laneKey } from '../../components/molecules/compact-session/compact-lane-rows';
 import { ownedBySession } from './owned-by-session';
+import { isUsageSegment } from '../../components/molecules/agent-card/stats-bar.utils';
 
 /** One agent of a session, as the dock and the inspector AGENTS rows show it. */
 export interface SessionAgent {
@@ -32,6 +34,8 @@ export interface SessionAgent {
   readonly startedAt: number | null;
   readonly endedAt: number | null;
   readonly activity: string | null;
+  readonly usageTotals?: MonitoredAgent['usageTotals'];
+  readonly segments?: readonly CliOutputSegment[];
   /** Ids of the open permission / question requests this agent waits on. */
   readonly openRequestIds: readonly string[];
 }
@@ -68,12 +72,14 @@ export function orchestratorAgent(
 
 /** The last non-empty line of the newest output segment, trimmed. */
 function cliActivity(agent: MonitoredAgent): string | null {
-  const last = agent.segments[agent.segments.length - 1];
-  if (!last) return null;
-  const lines = last.content.split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (line.length > 0) return line;
+  for (let segmentIndex = agent.segments.length - 1; segmentIndex >= 0; segmentIndex--) {
+    const segment = agent.segments[segmentIndex];
+    if (isUsageSegment(segment)) continue;
+    const lines = segment.content.split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line.length > 0) return line;
+    }
   }
   return null;
 }
@@ -160,6 +166,8 @@ export function buildSessionAgentRoster(
         startedAt: a.startedAt,
         endedAt: a.completedAt ?? null,
         activity: cliActivity(a),
+        usageTotals: a.usageTotals,
+        segments: a.segments,
         openRequestIds,
       };
     }),

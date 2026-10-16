@@ -274,11 +274,11 @@ export class SessionStatsSummaryComponent {
   readonly contextTooltip = computed(() => contextDetailsText(this.liveModelStats(), 0) ?? '');
 
   protected isTileOpen(tileId: string): boolean {
-    return this.expansion.isOpen(this.sessionId() ?? '', tileId);
+    return this.expansion.isOpen(this.expansion.sessionKey(this, this.sessionId()), tileId);
   }
 
   protected toggleTile(tileId: string): void {
-    this.expansion.toggle(this.sessionId() ?? '', tileId);
+    this.expansion.toggle(this.expansion.sessionKey(this, this.sessionId()), tileId);
   }
 
   protected readonly formatCost = formatCost;

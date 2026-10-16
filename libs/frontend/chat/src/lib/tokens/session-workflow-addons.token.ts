@@ -1,4 +1,4 @@
-import { InjectionToken, type Type } from '@angular/core';
+import { InjectionToken, type InputSignal, type Type } from '@angular/core';
 import type { TabState, WorkflowKind } from '@ptah-extension/chat-types';
 
 /**
@@ -20,7 +20,7 @@ export interface SessionWorkflowAddon {
   readonly workflowKind: WorkflowKind;
   readonly slot: SessionAddonSlot;
   /** Must declare `tabId = input.required<string>()`. */
-  readonly component: Type<unknown>;
+  readonly component: Type<{ readonly tabId: InputSignal<string> }>;
 }
 
 /**
