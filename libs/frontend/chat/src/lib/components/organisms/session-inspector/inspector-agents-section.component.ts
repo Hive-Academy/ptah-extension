@@ -194,7 +194,7 @@ let nextSectionId = 0;
                       <span class="mt-1.5 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap">
                         @if (view.cliTokens !== null) {
                           @if (view.cliUsagePartial) {
-                            <span class="badge badge-outline badge-sm cursor-help" title="From retained output, may be partial" [attr.aria-label]="'at least ' + view.cliTokens + ' tokens'">≥ {{ formatTokenCount(view.cliTokens) }} tokens</span>
+                            <span class="badge badge-outline badge-sm cursor-help" title="From retained output, may be partial" [attr.aria-label]="'at least ' + formatTokenCount(view.cliTokens) + ' tokens'">≥ {{ formatTokenCount(view.cliTokens) }} tokens</span>
                           } @else {
                             <ptah-token-badge [tokens]="view.cliTokens" />
                           }
