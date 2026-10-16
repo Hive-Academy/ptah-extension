@@ -637,7 +637,7 @@ describe('agent:setConfig decision model', () => {
     expect(h.settings.size).toBe(0);
   });
 
-  it('keeps the new key when the selection was stored before its write rejected (41f)', async () => {
+  it('reports success and keeps the new key when the selection was stored before its write rejected (41f)', async () => {
     const h = makeHarness();
     const previous = 'jev-previous-key-11aa';
     const secret = 'jev-secret-value-9f3a';
@@ -654,16 +654,15 @@ describe('agent:setConfig decision model', () => {
       decisionModelJevApiKey: secret,
       piModel: 'openai/gpt-4o',
     });
-    expect(result).toEqual({
-      success: false,
-      error: 'Could not save the orchestration settings.',
-    });
+    // Both fields hold the requested values, so the save took effect and
+    // the rest of the request is written too.
+    expect(result).toEqual({ success: true });
     expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([[secret]]);
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: agent:setConfig decision model selection was stored before its write failed; keeping the new key',
       { selectionErrorType: 'Error' },
     );
-    expect(h.settings.size).toBe(0);
+    expect(h.settings.size).toBe(1);
     const logged = JSON.stringify([
       h.logger.error.mock.calls,
       h.logger.warn.mock.calls,

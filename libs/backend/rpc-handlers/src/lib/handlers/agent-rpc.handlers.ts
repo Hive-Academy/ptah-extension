@@ -842,8 +842,9 @@ export class AgentRpcHandlers {
    *   the new one), so the failed request leaves both unchanged.
    * - If the selection write rejects but the stored selection already equals
    *   the requested one, the selection was stored: the new key is kept and
-   *   the error still rejects. If that check cannot read the selection, the
-   *   key is put back as above.
+   *   the save reports success (both fields hold the requested values), so
+   *   the row never says "unchanged" for a save that took effect. If that
+   *   check cannot read the selection, the key is put back as above.
    * - If putting the key back fails too, the result says the key may have
    *   changed. Logs carry error types only; the key is never logged or
    *   echoed.
@@ -869,12 +870,13 @@ export class AgentRpcHandlers {
       await config.setSelection(selection);
       return undefined;
     } catch (selectionError: unknown) {
+      // degradation-audit: reported — a selection stored before a late rejection is a completed save; the error type is logged
       if (this.storedSelectionState(selection) === 'stored') {
         this.logger.warn(
           'RPC: agent:setConfig decision model selection was stored before its write failed; keeping the new key',
           { selectionErrorType: errorTypeOf(selectionError) },
         );
-        throw selectionError;
+        return undefined;
       }
       try {
         await config.setJevApiKey(previousKey);
