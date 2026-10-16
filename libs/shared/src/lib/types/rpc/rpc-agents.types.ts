@@ -150,6 +150,11 @@ export interface DecisionModelStatusDto {
   readonly state: DecisionModelStateDto;
   /** For example `Ollama 0.34.2 < 0.35.0` or `last call failed: <error>`. */
   readonly detail: string | null;
+  /**
+   * Whether an API key is stored for the selected kind. Set for `jev` and
+   * `custom` only; absent for every other kind. Never the key itself.
+   */
+  readonly apiKeyStored?: boolean;
 }
 
 /**
@@ -159,6 +164,44 @@ export interface DecisionModelStatusDto {
  */
 export const DECISION_MODEL_KEY_MAY_HAVE_CHANGED =
   'Could not save the decision model. The TypeSafe Jev API key may have changed.';
+
+/**
+ * `agent:setConfig` error when the decision-model selection write failed and
+ * the previous custom-endpoint API key could not be put back. Same rule as
+ * {@link DECISION_MODEL_KEY_MAY_HAVE_CHANGED}, for `decisionModelCustomApiKey`.
+ */
+export const DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED =
+  'Could not save the decision model. The custom endpoint API key may have changed.';
+
+/**
+ * `agent:setConfig` error when a custom-endpoint base URL is not an absolute
+ * `http` or `https` URL, or carries credentials, a query or a fragment. The
+ * previous selection is kept.
+ */
+export const DECISION_MODEL_INVALID_BASE_URL =
+  'Could not save the decision model. Base URL must be an absolute http or https URL without credentials, query or fragment.';
+
+/**
+ * `agent:setConfig` error when the decision-model `model` field is empty or
+ * invalid. The previous selection is kept.
+ */
+export const DECISION_MODEL_INVALID_MODEL =
+  'Could not save the decision model. Model must not be empty.';
+
+/**
+ * `agent:setConfig` error when a custom-endpoint API key would be sent to a
+ * plain `http` base URL that is not loopback. The previous selection and key
+ * are kept.
+ */
+export const DECISION_MODEL_KEY_NEEDS_HTTPS =
+  'Could not save the decision model. An API key needs an https base URL unless the endpoint is on this machine.';
+
+/**
+ * `agent:setConfig` error when a non-empty `decisionModelCustomApiKey` arrives
+ * without a custom-endpoint selection (sent or saved) to bind it to.
+ */
+export const DECISION_MODEL_CUSTOM_KEY_NEEDS_ENDPOINT =
+  'Could not save the decision model. A custom endpoint API key needs a custom endpoint base URL.';
 
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
@@ -229,8 +272,9 @@ export interface AgentOrchestrationConfig {
   /** Kill switch for built-in SDK workflows (e.g. ultracode/workflow keywords). Default false = workflows ON. */
   workflowsDisabled: boolean;
   /**
-   * Decision-model row. The Jev API key is not a field of this object;
-   * `decisionModelJevApiKey` is write-only on `agent:setConfig`.
+   * Decision-model row. No API key is a field of this object;
+   * `decisionModelJevApiKey` and `decisionModelCustomApiKey` are write-only
+   * on `agent:setConfig`.
    */
   decisionModel: DecisionModelStatusDto;
 }
@@ -360,6 +404,15 @@ export interface AgentSetConfigParams {
    * returns it. An empty string deletes the stored key.
    */
   decisionModelJevApiKey?: string;
+  /**
+   * Custom-endpoint API key. Write-only: the service stores it in secret
+   * storage under `ptah.laneRouting.customEndpointApiKey`, bound to the
+   * origin of the custom endpoint's base URL, and `agent:getConfig` never
+   * returns it (only `decisionModel.apiKeyStored`). An empty string deletes
+   * the stored key. A request may not set this and `decisionModelJevApiKey`
+   * together.
+   */
+  decisionModelCustomApiKey?: string;
 }
 
 /**

@@ -45,6 +45,8 @@ export * from './rpc/rpc-lane-plan-limits.types';
 
 export * from './rpc/rpc-lane-outcome.types';
 
+export * from './rpc/rpc-decision-model-catalog.types';
+
 import type {
   AgentGetLanePlanLimitsParams,
   AgentGetLanePlanLimitsResult,
