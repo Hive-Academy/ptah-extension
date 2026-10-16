@@ -131,4 +131,36 @@ describe('startAndRegisterLaneOutcomes', () => {
       expect.objectContaining({ error: expect.any(Error) }),
     );
   });
+
+  it('still resolves when the drain fails and the logger throws too (P6 final review)', async () => {
+    const logger = quietLogger();
+    logger.warn.mockImplementation(() => {
+      throw new Error('log sink closed');
+    });
+    const container = containerWith(() =>
+      Promise.reject(new Error('journal write failed')),
+    );
+    startAndRegisterLaneOutcomes(container, logger);
+
+    await expect(
+      registeredDisposer(container).dispose(),
+    ).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('still resolves at the budget when the timeout warning throws', async () => {
+    jest.useFakeTimers();
+    const logger = quietLogger();
+    logger.warn.mockImplementation(() => {
+      throw new Error('log sink closed');
+    });
+    const container = containerWith(() => new Promise<void>(() => undefined));
+    startAndRegisterLaneOutcomes(container, logger);
+
+    const disposing = registeredDisposer(container).dispose();
+    await jest.advanceTimersByTimeAsync(LANE_OUTCOME_DRAIN_BUDGET_MS);
+
+    await expect(disposing).resolves.toBeUndefined();
+    expect(jest.getTimerCount()).toBe(0);
+  });
 });

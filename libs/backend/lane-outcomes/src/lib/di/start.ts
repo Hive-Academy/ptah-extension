@@ -39,6 +39,23 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/**
+ * A shutdown-path warning. The disposer promises never to reject, so a
+ * logger that throws (a closed sink during quit) must not turn a logged
+ * drain failure into a rejected `dispose()` that skips the host's later
+ * teardown steps.
+ */
+function warnDuringShutdown(
+  logger: LaneOutcomeLogger,
+  ...args: Parameters<LaneOutcomeLogger['warn']>
+): void {
+  try {
+    logger.warn(...args);
+  } catch {
+    // Nothing is left to report to: the logger itself failed.
+  }
+}
+
 /** Registers missing services, attaches SDK callbacks, and returns an awaited disposer. */
 export function startLaneOutcomes(
   container: DependencyContainer,
@@ -109,7 +126,7 @@ async function drainOrWarn(
   try {
     await drain();
   } catch (error: unknown) {
-    logger.warn('Lane outcomes drain failed (non-fatal)', {
+    warnDuringShutdown(logger, 'Lane outcomes drain failed (non-fatal)', {
       error: asError(error),
     });
   }
@@ -132,7 +149,8 @@ function boundedDisposer(
           expired,
         ]);
         if (!finished) {
-          logger.warn(
+          warnDuringShutdown(
+            logger,
             `Lane outcomes drain exceeded its ${LANE_OUTCOME_DRAIN_BUDGET_MS} ms shutdown budget; continuing`,
           );
         }
