@@ -31,10 +31,7 @@
  */
 
 import { z } from 'zod';
-import type {
-  IFileSystemProvider,
-  IOutputChannel,
-} from '@ptah-extension/platform-core';
+import type { IOutputChannel } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { CliDetectionResult } from '@ptah-extension/shared';
 import type {
@@ -84,11 +81,8 @@ import {
 import { runAgentWait } from '../mcp-core/agent-wait.tool';
 import { runCheck } from '../mcp-core/run-check.tool';
 import { handleRouteToolCall } from '../mcp-core/route-tool-handlers';
-import {
-  OUTCOME_REPORT_TOOL_NAME,
-  runOutcomeReport,
-  type OutcomeReportDependencies,
-} from '../mcp-core/tools/outcome-report.tool';
+import type { OutcomeReportDependencies } from '../mcp-core/tools/outcome-report.tool';
+import { handleOutcomeReportToolCall } from '../mcp-core/tools/outcome-report.handler';
 import {
   AgentMessageError,
   AgentRoleError,
@@ -210,56 +204,6 @@ function describeIssues(issues: ReturnType<z.ZodError['flatten']>): string {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-function outcomeReportErrorText(error: unknown): string {
-  if (error instanceof z.ZodError) {
-    return `Error: invalid ${OUTCOME_REPORT_TOOL_NAME} arguments — ${error.issues
-      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('; ')}`;
-  }
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return `${OUTCOME_REPORT_TOOL_NAME} failed: ${error.message.trim()}`;
-  }
-  return `${OUTCOME_REPORT_TOOL_NAME} failed: unknown error`;
-}
-
-function fallbackOutcomeDeps(logger: Logger): OutcomeReportDependencies {
-  return {
-    pipeline: undefined,
-    store: undefined,
-    fileSystem: unavailableOutcomeFileSystem(),
-    workspaceRoot: '',
-    logger: {
-      debug: (message, meta) => logger.debug(message, meta),
-      info: (message, meta) => logger.info(message, meta),
-      warn: (message, meta) => logger.warn(message, meta),
-      error: (message, meta) => logger.error(message, meta),
-    },
-  };
-}
-
-/** Satisfies the required filesystem when no resolver is wired. Never read on the early return. */
-function unavailableOutcomeFileSystem(): IFileSystemProvider {
-  const fail = (method: string): Promise<never> =>
-    Promise.reject(new Error(`outcome filesystem unavailable: ${method}`));
-  return {
-    readFile: () => fail('readFile'),
-    readFileBytes: () => fail('readFileBytes'),
-    writeFile: () => fail('writeFile'),
-    writeFileBytes: () => fail('writeFileBytes'),
-    readDirectory: () => fail('readDirectory'),
-    stat: () => fail('stat'),
-    exists: () => fail('exists'),
-    delete: () => fail('delete'),
-    createDirectory: () => fail('createDirectory'),
-    createDirectoryExclusive: () => fail('createDirectoryExclusive'),
-    copy: () => fail('copy'),
-    findFiles: () => fail('findFiles'),
-    createFileWatcher: () => {
-      throw new Error('outcome filesystem unavailable: createFileWatcher');
-    },
-  };
 }
 
 /**
@@ -398,25 +342,19 @@ export class AgentToolDispatcher {
     request: MCPRequest,
     args: unknown,
   ): Promise<MCPResponse> {
-    const resolved = this.resolveOutcomeReport?.();
-    const reportDeps = resolved ?? fallbackOutcomeDeps(this.logger);
-    try {
-      const result = await runOutcomeReport(args, reportDeps);
-      return await this.toolSuccess(
-        request,
-        'outcome_report',
-        JSON.stringify(result),
-      );
-    } catch (error: unknown) {
-      return toolError(
-        request,
-        outcomeReportErrorText(error),
-        error instanceof z.ZodError
-          ? 'mcp_invalid_tool_args'
-          : 'mcp_tool_failed',
-        { tool: 'outcome_report' },
-      );
-    }
+    const reply = await handleOutcomeReportToolCall(
+      args,
+      this.resolveOutcomeReport?.(),
+      this.logger,
+    );
+    return reply.isError
+      ? toolError(
+          request,
+          reply.text,
+          reply.invalidArguments ? 'mcp_invalid_tool_args' : 'mcp_tool_failed',
+          { tool: 'outcome_report' },
+        )
+      : this.toolSuccess(request, 'outcome_report', reply.text);
   }
 
   /**

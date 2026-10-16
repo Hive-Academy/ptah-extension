@@ -330,6 +330,8 @@ export function buildAgentNamespace(
             // the completion signal's headline all read this field, and the
             // appended contract is plumbing rather than the task.
             task: request.task,
+            taskKind: request.taskKind,
+            routingSource: request.routingSource,
             cli: 'ptah-cli',
             workingDirectory,
             taskFolder: request.taskFolder,

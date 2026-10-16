@@ -1492,8 +1492,8 @@ const PINNED_BUDGET_OVERRIDES: Readonly<
   // TASK_2026_584 F2: the default 32 KiB transcript tail + the 8,000-char
   // default for the header and held-completion block; tokens at 4 chars/token.
   ptah_session_read: { chars: 40_768, tokens: 10_192 },
-  // TASK_2026_646: largest 70-phase route result; tokens at 4 chars/token.
-  ptah_route_decide: { chars: 24_000, tokens: 6_000 },
+  // TASK_2026_646: a 100-phase (schema maximum) route result; tokens at 4 chars/token.
+  ptah_route_decide: { chars: 64_000, tokens: 16_000 },
   // The surface catalog's `maxStateReadBytes` (548 KiB); tokens at 4 chars/token.
   ptah_surface_get_state: { chars: 561_152, tokens: 140_288 },
 };

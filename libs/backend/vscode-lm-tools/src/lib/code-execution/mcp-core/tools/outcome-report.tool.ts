@@ -17,7 +17,7 @@ export const OUTCOME_REPORT_TOOL_NAME = 'ptah_outcome_report';
 export interface OutcomeReportDependencies {
   readonly pipeline?: OutcomeWritePipeline;
   readonly store?: LaneOutcomeStore;
-  readonly fileSystem: IFileSystemProvider;
+  readonly fileSystem?: IFileSystemProvider;
   readonly workspaceRoot: string;
   readonly logger: LaneOutcomeLogger;
 }
@@ -70,6 +70,8 @@ export async function runOutcomeReport(
   const args = OutcomeReportArgsSchema.parse(input);
   if (!deps.pipeline || !deps.store)
     return { recorded: false, reason: 'outcome store unavailable' };
+  if (!deps.workspaceRoot.trim())
+    throw new Error('session workspace root unavailable');
 
   let runId: string;
   if ('runId' in args.target) {
@@ -98,6 +100,8 @@ export async function runOutcomeReport(
 
   let payload: string;
   if (args.kind === 'deliverables') {
+    const fileSystem = deps.fileSystem;
+    if (!fileSystem) throw new Error('outcome filesystem unavailable');
     const root = resolve(deps.workspaceRoot);
     const checks = await Promise.all(
       args.paths.map(async (entry) => {
@@ -106,7 +110,7 @@ export async function runOutcomeReport(
         if (isAbsolute(entry) || rel === '..' || rel.startsWith(`..${sep}`))
           throw new Error('deliverable path escapes workspace');
         const check = await checkLaneDeliverable(
-          deps.fileSystem,
+          fileSystem,
           { deliverables: args.paths, workingDirectory: root, id: runId },
           entry,
           Number.NaN,
@@ -117,7 +121,7 @@ export async function runOutcomeReport(
         );
         if (!check.exists) return { exists: false, bytes: 0, mtimeMs: null };
         try {
-          const stat = await deps.fileSystem.stat(path);
+          const stat = await fileSystem.stat(path);
           return { exists: true, bytes: stat.size, mtimeMs: stat.mtime };
         } catch (error: unknown) {
           deps.logger.warn('Deliverable mtime read failed', {

@@ -233,7 +233,7 @@ describe('StdioMcpServerService', () => {
         agent_list: 8000,
         agent_wait: 8000,
         run_check: 8000,
-        route_decide: 24000,
+        route_decide: 64000,
         outcome_report: 8000,
         session_submit: 1_048_576,
       });

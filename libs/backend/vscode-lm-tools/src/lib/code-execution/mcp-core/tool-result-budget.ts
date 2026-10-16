@@ -80,14 +80,17 @@ function charBudget(chars: number): TextBudget {
  * within `maxStateReadBytes` UTF-8 bytes; a UTF-16 length never exceeds the
  * UTF-8 byte length of the same text, so the byte bound is a valid char bound.
  */
+export const ROUTE_DECIDE_RESULT_MAX_CHARS = 64_000;
+
 export const TOOL_RESULT_BUDGET_OVERRIDES: Readonly<
   Record<string, TextBudget>
 > = Object.freeze({
   ptah_browser_content: charBudget(BROWSER_CONTENT_CHARS),
   ptah_session_read: charBudget(SESSION_READ_CHARS),
   ptah_surface_get_state: charBudget(SURFACE_LIMITS.maxStateReadBytes),
-  // A 70-phase gate-0.1 answer (TASK_2026_646, part A §8).
-  ptah_route_decide: charBudget(24_000),
+  // Fits a 100-phase result (schema maximum, measured in route-tool-handlers.spec);
+  // a larger reply becomes a tool error before budgeting, never a cut prefix.
+  ptah_route_decide: charBudget(ROUTE_DECIDE_RESULT_MAX_CHARS),
 });
 
 /**

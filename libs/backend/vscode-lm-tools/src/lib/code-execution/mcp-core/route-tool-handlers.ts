@@ -19,6 +19,7 @@ import {
   type RouteNamespace,
 } from '../namespace-builders/route-namespace.builder';
 import { ROUTE_DECIDE_TOOL_NAME } from './route-tools';
+import { ROUTE_DECIDE_RESULT_MAX_CHARS } from './tool-result-budget';
 
 /** What the dispatcher needs to build a success or an `isError` result. */
 export interface RouteToolReply {
@@ -40,7 +41,7 @@ const SECRET_SHAPES: readonly RegExp[] = [
 ];
 
 /** One line naming each offending field. Same shape as the dispatcher. */
-function describeZodIssues(error: ZodError): string {
+export function describeZodIssues(error: ZodError): string {
   return error.issues
     .map((issue) => {
       const path =
@@ -98,7 +99,14 @@ export async function handleRouteToolCall(
 
   try {
     const result: RouteDecideResult = await route.decide(parsed.data);
-    return { isError: false, text: JSON.stringify(result) };
+    const text = JSON.stringify(result);
+    if (text.length > ROUTE_DECIDE_RESULT_MAX_CHARS) {
+      return {
+        isError: true,
+        text: `${ROUTE_DECIDE_TOOL_NAME} failed: result exceeds the ${ROUTE_DECIDE_RESULT_MAX_CHARS}-character tool limit`,
+      };
+    }
+    return { isError: false, text };
   } catch (error: unknown) {
     const text = routeFailureText(error);
     const name = error instanceof Error ? error.name : 'UnknownError';

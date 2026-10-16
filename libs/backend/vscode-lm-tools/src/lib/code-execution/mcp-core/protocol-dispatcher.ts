@@ -16,7 +16,6 @@ import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import {
   compactCoverage,
   type CompactCoverage,
-  type IFileSystemProvider,
   type IOutputChannel,
   type IWorkspaceProvider,
   type LanguageCoverage,
@@ -178,13 +177,13 @@ import {
 } from './session-tools';
 import { handleSessionToolCall } from './session-tool-handlers';
 import { ROUTE_DECIDE_TOOL_NAME, buildRouteDecideTool } from './route-tools';
-import { handleRouteToolCall } from './route-tool-handlers';
+import { describeZodIssues, handleRouteToolCall } from './route-tool-handlers';
 import {
   OUTCOME_REPORT_TOOL_NAME,
   buildOutcomeReportTool,
-  runOutcomeReport,
   type OutcomeReportDependencies,
 } from './tools/outcome-report.tool';
+import { handleOutcomeReportToolCall } from './tools/outcome-report.handler';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import { buildServerInstructions } from './server-instructions';
@@ -756,13 +755,6 @@ const AgentReadArgsSchema = z.object({
   tail: z.number().finite().nonnegative().optional(),
   offset: z.number().finite().nonnegative().optional(),
 });
-
-/** Render a Zod failure as one readable line naming each offending field. */
-function describeZodIssues(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-    .join('; ');
-}
 
 /**
  * Stamp `_meta['anthropic/alwaysLoad'] = true` onto the runtime-aware eager
@@ -2811,70 +2803,14 @@ async function outcomeReportResponse(
   args: unknown,
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
-  try {
-    const result = await runOutcomeReport(args, outcomeReportDeps(deps));
-    return createToolSuccessResponse(request, JSON.stringify(result), deps);
-  } catch (error: unknown) {
-    return toolErrorResponse(request, outcomeReportErrorText(error));
-  }
-}
-
-function outcomeReportDeps(
-  deps: ProtocolHandlerDependencies,
-): OutcomeReportDependencies {
-  const resolved = deps.resolveOutcomeReport?.();
-  if (resolved) return resolved;
-  return {
-    pipeline: undefined,
-    store: undefined,
-    fileSystem: unavailableOutcomeFileSystem(),
-    workspaceRoot: '',
-    logger: adaptOutcomeLogger(deps.logger),
-  };
-}
-
-function outcomeReportErrorText(error: unknown): string {
-  if (error instanceof z.ZodError) {
-    return `Error: invalid ${OUTCOME_REPORT_TOOL_NAME} arguments — ${describeZodIssues(error)}`;
-  }
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return `${OUTCOME_REPORT_TOOL_NAME} failed: ${error.message.trim()}`;
-  }
-  return `${OUTCOME_REPORT_TOOL_NAME} failed: unknown error`;
-}
-
-function adaptOutcomeLogger(
-  logger: Logger,
-): OutcomeReportDependencies['logger'] {
-  return {
-    debug: (message, meta) => logger.debug(message, meta),
-    info: (message, meta) => logger.info(message, meta),
-    warn: (message, meta) => logger.warn(message, meta),
-    error: (message, meta) => logger.error(message, meta),
-  };
-}
-
-/** Satisfies the required filesystem when no resolver is wired. Never read on the early return. */
-function unavailableOutcomeFileSystem(): IFileSystemProvider {
-  const fail = (method: string): Promise<never> =>
-    Promise.reject(new Error(`outcome filesystem unavailable: ${method}`));
-  return {
-    readFile: () => fail('readFile'),
-    readFileBytes: () => fail('readFileBytes'),
-    writeFile: () => fail('writeFile'),
-    writeFileBytes: () => fail('writeFileBytes'),
-    readDirectory: () => fail('readDirectory'),
-    stat: () => fail('stat'),
-    exists: () => fail('exists'),
-    delete: () => fail('delete'),
-    createDirectory: () => fail('createDirectory'),
-    createDirectoryExclusive: () => fail('createDirectoryExclusive'),
-    copy: () => fail('copy'),
-    findFiles: () => fail('findFiles'),
-    createFileWatcher: () => {
-      throw new Error('outcome filesystem unavailable: createFileWatcher');
-    },
-  };
+  const reply = await handleOutcomeReportToolCall(
+    args,
+    deps.resolveOutcomeReport?.(),
+    deps.logger,
+  );
+  return reply.isError
+    ? toolErrorResponse(request, reply.text)
+    : createToolSuccessResponse(request, reply.text, deps);
 }
 
 /**

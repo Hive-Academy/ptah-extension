@@ -117,7 +117,7 @@ export function buildRouteDecideTool(): MCPToolDefinition {
       '"taskType", "depth", "phases" and optional "pins", "preferenceSource" ' +
       'and "preferences", and returns one roster entry per phase. Invalid ' +
       'arguments are an error that names the field. The call updates rotation ' +
-      `state. Results are capped at 24,000 characters. When routing is not registered in this host, the error is: ${ROUTING_UNAVAILABLE_MESSAGE}.`,
+      `state. Results are capped at 64,000 characters; a larger result is returned as a tool error. When routing is not registered in this host, the error is: ${ROUTING_UNAVAILABLE_MESSAGE}.`,
     inputSchema: inputSchemaOf(RouteDecideArgsSchema),
     annotations: { readOnlyHint: false },
   };

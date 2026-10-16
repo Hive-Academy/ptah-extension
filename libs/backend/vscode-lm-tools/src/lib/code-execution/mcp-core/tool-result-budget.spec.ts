@@ -155,8 +155,8 @@ describe('budget tables', () => {
       tokens: SURFACE_LIMITS.maxStateReadBytes / 4,
     });
     expect(getToolResultBudget('ptah_route_decide')).toEqual({
-      chars: 24_000,
-      tokens: 6_000,
+      chars: 64_000,
+      tokens: 16_000,
     });
   });
 

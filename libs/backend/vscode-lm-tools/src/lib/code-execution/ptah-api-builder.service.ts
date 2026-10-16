@@ -140,6 +140,7 @@ import type {
 import { buildSessionNamespace } from './namespace-builders/session-namespace.builder';
 import { buildRouteNamespace } from './namespace-builders/route-namespace.builder';
 import type { OutcomeReportDependencies } from './mcp-core/tools/outcome-report.tool';
+import { adaptOutcomeLogger } from './mcp-core/tools/outcome-report.handler';
 import {
   LANE_OUTCOME_PIPELINE,
   LANE_OUTCOME_TOKENS,
@@ -1208,18 +1209,12 @@ export class PtahAPIBuilder {
       container?.isRegistered(LANE_OUTCOME_TOKENS.STORE, true) === true
         ? container.resolve<LaneOutcomeStore>(LANE_OUTCOME_TOKENS.STORE)
         : undefined;
-    const logger = this.logger;
     return {
       pipeline,
       store,
       fileSystem: this.fileSystemProvider,
       workspaceRoot: this.resolveSessionWorkspaceRoot() ?? '',
-      logger: {
-        debug: (message, meta) => logger.debug(message, meta),
-        info: (message, meta) => logger.info(message, meta),
-        warn: (message, meta) => logger.warn(message, meta),
-        error: (message, meta) => logger.error(message, meta),
-      },
+      logger: adaptOutcomeLogger(this.logger),
     };
   }
 

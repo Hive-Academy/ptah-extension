@@ -11,7 +11,9 @@ import {
   type LaneOutcomeLogger,
 } from '@ptah-extension/lane-outcomes';
 import type { LaneOutcomeRecord } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { runOutcomeReport } from './outcome-report.tool';
+import { handleOutcomeReportToolCall } from './outcome-report.handler';
 
 const root = resolve('outcome-report-fixture');
 const logger: LaneOutcomeLogger = {
@@ -105,6 +107,27 @@ const deliverables = (
 
 describe('ptah_outcome_report', () => {
   beforeEach(() => files.clear());
+
+  it('returns a tool error without writing when the session workspace is unavailable', async () => {
+    const f = fixture();
+    const before = new KeyValueOutcomeJournal(f.storage).snapshot();
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const reply = await handleOutcomeReportToolCall(
+      deliverables({ runId: 'subagent:A' }, 'missing.txt'),
+      { ...f.deps, workspaceRoot: '' },
+      {} as Logger,
+    );
+
+    expect(reply).toMatchObject({
+      isError: true,
+      invalidArguments: false,
+      text: expect.stringContaining('session workspace root unavailable'),
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(new KeyValueOutcomeJournal(f.storage).snapshot()).toEqual(before);
+    expect(await f.store.get('subagent:A')).toBeNull();
+    await f.pipeline.dispose();
+  });
 
   it.each(['runId', 'agentId'] as const)(
     'keeps concurrent and repeated same-slug runs separate by %s',

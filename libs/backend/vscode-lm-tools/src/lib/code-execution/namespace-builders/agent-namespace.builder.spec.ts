@@ -325,6 +325,33 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — spawn (ptahCliId)', () => {
+  it('forwards taskKind and routingSource to the SDK handle spawn', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.registry?.spawnAgent.mockResolvedValue({
+      handle: { id: 'h' } as unknown as SdkHandle,
+      agentName: 'MyAgent',
+      setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-1',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 'implement feature',
+      ptahCliId: 'agent-a',
+      taskKind: 'implement',
+      routingSource: 'model',
+    });
+
+    expect(mocks.processManager.spawnFromSdkHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        taskKind: 'implement',
+        routingSource: 'model',
+      }),
+    );
+  });
+
   it('throws if ptahCliId is set but no registry is wired', async () => {
     const { deps } = makeDeps({ registry: undefined });
     await expect(

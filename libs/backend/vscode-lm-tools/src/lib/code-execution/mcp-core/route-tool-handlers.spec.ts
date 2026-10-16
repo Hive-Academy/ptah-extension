@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import type { RouteDecideResult } from '@ptah-extension/lane-routing';
+import { ROUTE_DECIDE_RESULT_MAX_CHARS } from './tool-result-budget';
 import {
   ROUTING_UNAVAILABLE_MESSAGE,
   RoutingUnavailableError,
@@ -108,6 +109,85 @@ describe('handleRouteToolCall', () => {
       stage: 'pre-flight',
       request: 'ship the parser',
     });
+  });
+
+  const hundredPhases = Array.from({ length: 100 }, (_, index) => ({
+    id: `phase-${index}`,
+    kind: 'implement' as const,
+  }));
+
+  function hundredPhaseResult(reasonRepeats: number): RouteDecideResult {
+    return {
+      stage: 'gate-0.1',
+      roster: hundredPhases.map((phase) => ({
+        phaseId: phase.id,
+        status: 'chosen' as const,
+        executor: {
+          kind: 'lane' as const,
+          id: 'cli-agent',
+          cli: 'codex',
+          family: 'codex',
+        },
+        model: 'model-name',
+        provenance: 'configured' as const,
+        score: 1,
+        source: 'ranking' as const,
+        taskKind: 'implement' as const,
+        confidence: 0.8,
+        fallbackCause: null,
+        modelProposal: null,
+        reason: 'Selected by the routing policy. '.repeat(reasonRepeats),
+      })),
+      overallSource: 'ranking',
+      overallConfidence: 0.8,
+      excluded: [],
+      reasons: [],
+      usage: {
+        requests: 0,
+        inputTokens: null,
+        outputTokens: null,
+        costUsd: null,
+      },
+    };
+  }
+
+  function callWith(result: RouteDecideResult) {
+    return handleRouteToolCall(
+      {
+        stage: 'gate-0.1',
+        request: 'staff the implementation',
+        taskType: 'FEATURE',
+        depth: 'Full',
+        phases: hundredPhases,
+      },
+      route(jest.fn().mockResolvedValue(result)),
+      logger(),
+    );
+  }
+
+  it('returns a schema-maximum 100-phase route result whole', async () => {
+    const result = hundredPhaseResult(8);
+    const measuredChars = JSON.stringify(result).length;
+    expect(measuredChars).toBe(54_375);
+    expect(measuredChars).toBeLessThanOrEqual(ROUTE_DECIDE_RESULT_MAX_CHARS);
+
+    const reply = await callWith(result);
+    expect(reply.isError).toBe(false);
+    expect(JSON.parse(reply.text)).toEqual(result);
+  });
+
+  it('returns a tool error, never a cut prefix, for an over-limit route result', async () => {
+    const result = hundredPhaseResult(32);
+    expect(JSON.stringify(result).length).toBeGreaterThan(
+      ROUTE_DECIDE_RESULT_MAX_CHARS,
+    );
+
+    const reply = await callWith(result);
+    expect(reply).toMatchObject({
+      isError: true,
+      text: expect.stringContaining('result exceeds'),
+    });
+    expect(() => JSON.parse(reply.text)).toThrow();
   });
 
   it('returns the F9 sentence when routing is not registered', async () => {
