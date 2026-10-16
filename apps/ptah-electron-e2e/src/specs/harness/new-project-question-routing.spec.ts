@@ -242,6 +242,11 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
       ui.page.locator('ptah-harness-builder-view ptah-question-card'),
     ).toHaveCount(0);
     await ui.goto('chat');
+    await ui.page
+      .locator(
+        `ptah-canvas-rail [data-rail-card][data-tab-id="${foreignTabId}"]`,
+      )
+      .click();
     await expect(
       ui.page.locator(
         `ptah-chat-transcript[data-tab-id="${foreignTabId}"] ptah-question-card`,

@@ -112,6 +112,12 @@ type GetWindowFn = () => ElectronWindowHandle | null;
 export class IpcBridge {
   private readonly rpcHandler: RpcHandler;
   private readonly stateStorage: IStateStorage;
+  // Synchronous get-state must see a route received before the worker-backed
+  // storage update commits, including when the renderer reloads immediately.
+  private readonly pendingWebviewStates = new Map<
+    string | null,
+    { state: unknown }
+  >();
   private readonly streamQueue: QueuedStreamEvent[] = [];
   private streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -550,6 +556,13 @@ export class IpcBridge {
   private setupStateHandlers(): void {
     ipcMain.on('get-state', (event: IpcMainEvent) => {
       try {
+        const pending = this.pendingWebviewStates.get(
+          this.activeStateWorkspace(),
+        );
+        if (pending) {
+          event.returnValue = pending.state;
+          return;
+        }
         const state =
           this.stateStorage.get<Record<string, unknown>>('webview-state');
         event.returnValue = state ?? {};
@@ -562,6 +575,9 @@ export class IpcBridge {
       }
     });
     ipcMain.on('set-state', async (_event: IpcMainEvent, state: unknown) => {
+      const workspacePath = this.activeStateWorkspace();
+      const pending = { state };
+      this.pendingWebviewStates.set(workspacePath, pending);
       try {
         await this.stateStorage.update('webview-state', state);
       } catch (error) {
@@ -569,8 +585,19 @@ export class IpcBridge {
           '[IpcBridge] Failed to set state:',
           error instanceof Error ? error.message : String(error),
         );
+      } finally {
+        if (this.pendingWebviewStates.get(workspacePath) === pending) {
+          this.pendingWebviewStates.delete(workspacePath);
+        }
       }
     });
+  }
+
+  private activeStateWorkspace(): string | null {
+    const storage = this.stateStorage as IStateStorage & {
+      getActiveWorkspacePath?: () => string | null;
+    };
+    return storage.getActiveWorkspacePath?.() ?? null;
   }
 
   /**
