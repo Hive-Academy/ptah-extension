@@ -45,3 +45,23 @@ contains the tool.
 - A two-owner seed renders both live tails, each once.
 - The existing A-2 and owner-missing specs still pass.
 - Checks: `npx nx test @ptah-extension/chat --parallel=1`, typecheck, lint (scoped, serial).
+
+## Scope extension (user, 2026-10-16): carrier for 675, 676 and the TASK_2026_681 leftovers
+
+Worktree `.claude-worktrees/chat-transcript-followups`, branch `fix/chat-transcript-followups` (from `main` @ 6c0490f1f).
+TASK_2026_675_b720 and TASK_2026_676_a876 ship in the same branch (same replayer block). The open
+items recorded in PR #737 / #738 (TASK_2026_681_738f) move here (sources:
+`../TASK_2026_681_738f/visual-review-final.md`, `visual-review-dock-border.md`, `visual-review-11-17.md`,
+`code-logic-review-visual-fixes-r2.md`):
+
+| # | Leftover | Source |
+| --- | --- | --- |
+| L1 | Light theme: lane usage row (`cli-lane-usage-summary`, 10 px mono) contrast 1.74-3.44:1 vs page (Serious, pre-existing) | visual-review-final Serious 1 |
+| L2 | Compact card in Canvas repeats the title, the status (3x) and the Full view toggle that the Canvas focus header shows | visual-review-11-17 Moderate 3 |
+| L3 | 760 px: details opener in the pane-side strip is a circled Unicode `i`, not a lucide icon button; the dock hover card stays open after pointer-away | visual-review-final Moderate 1, Minor 3; dock-border Minor 2 |
+| L4 | 400 px: page overflows horizontally (document 723 px), top nav and New Session clipped | visual-review-final Moderate 2 |
+| L5 | Inspector partial token badge aria-label uses the raw number (`at least 11956`) vs visible `≥ 12.0k`; no inspector spec for "usageTotals null and no usage segments" | r2 minor m1, m3 |
+| L6 | e2e showcase scenes still use `.tile-header` / `Close tile` | 681 HANDOFF |
+| L7 | ~130 kB eager bundle growth vs 3.49 MB unexplained: source-map analysis | 681 HANDOFF |
+
+Not taken: light-theme dock border 1.32:1 (decorative, the shadow marks the edge).
