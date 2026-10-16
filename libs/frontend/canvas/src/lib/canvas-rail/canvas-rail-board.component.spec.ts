@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { LucideAngularModule } from 'lucide-angular';
 import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
@@ -383,6 +384,7 @@ describe('CanvasRailBoardComponent rendering', () => {
           realFocus ? CanvasFocusAreaComponent : FocusStub,
           InspectorStub,
           ProjectSetupStub,
+          LucideAngularModule,
         ],
       },
     });
@@ -494,10 +496,12 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.debugElement.query(By.directive(FocusStub)).componentInstance.focusedTabId()).toBe('c');
   });
 
-  it('renders the focused session in the wide Details aside immediately', () => {
+  it('renders the focused session in the wide Details aside once its deferred block completes', async () => {
     const { fixture } = mount(true, 2);
     const aside = fixture.nativeElement.querySelector('aside:not([data-dock])');
     expect(aside).not.toBeNull();
+    expect(fixture.debugElement.query(By.directive(InspectorStub))).toBeNull();
+    await completeDeferBlocks(fixture);
     const inspector = fixture.debugElement.query(By.directive(InspectorStub));
     expect(inspector).not.toBeNull();
     expect(inspector.componentInstance.tabId()).toBe('a');
@@ -626,6 +630,18 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(
       fixture.nativeElement.querySelector('[aria-label="Open details"]'),
     ).toBeNull();
+  });
+
+  it('uses a labelled lucide button for the small-band details strip', () => {
+    const { fixture, width } = mount();
+    width.set(760);
+    fixture.detectChanges();
+    const opener: HTMLButtonElement | null = fixture.nativeElement.querySelector('button.w-11[aria-label="Open details"]');
+    expect(opener).not.toBeNull();
+    expect(opener?.title).toBe('Session details');
+    expect(opener?.getAttribute('aria-expanded')).toBe('false');
+    expect(opener?.querySelector('svg.lucide')).not.toBeNull();
+    expect(opener?.classList).toContain('focus-visible:outline-base-content');
   });
 
   it('announces needs and error transitions after the initial state', () => {

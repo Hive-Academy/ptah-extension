@@ -72,13 +72,21 @@ describe('inspector CLI usage badges', () => {
     expect(el.querySelector('[title="Reported or estimated cost"]')).toBeNull();
   });
 
+  it('omits partial badges when totals are null and no usage segments exist', () => {
+    const el = render({ ...agent(null), segments: [] });
+    expect(el.querySelector('ptah-token-badge')).toBeNull();
+    expect(el.querySelector('[title="Reported or estimated cost"]')).toBeNull();
+    expect(el.querySelector('[title="From retained output, may be partial"]')).toBeNull();
+    expect(el.textContent).not.toContain('≥');
+  });
+
   it('uses segment usage and the lane duration text for a restored CLI lane', () => {
     const row = { ...agent(null), startedAt: 0, endedAt: (67 * 60 + 14) * 60_000,
       segments: [{ type: 'info' as const, content: '', usage: { inputTokens: 11_900, outputTokens: 56, costUsd: 0.15 } }],
     };
     const el = render(row);
     expect(el.querySelector('[title="From retained output, may be partial"]')?.textContent).toContain('≥ 12.0k tokens');
-    expect(el.querySelector('[title="From retained output, may be partial"]')?.getAttribute('aria-label')).toContain('at least');
+    expect(el.querySelector('[title="From retained output, may be partial"]')?.getAttribute('aria-label')).toBe('at least 12.0k tokens');
     expect(Array.from(el.querySelectorAll('[title="From retained output, may be partial"]')).some((badge) => badge.textContent?.includes('≥ ~$0.15 est.'))).toBe(true);
     expect(el.querySelector('[title="Elapsed duration"]')?.textContent).toContain('67h 14m');
     expect(el.querySelector('[data-agent-key]')?.getAttribute('aria-label')).toContain('67h 14m');

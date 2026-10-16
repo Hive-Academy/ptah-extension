@@ -28,28 +28,28 @@ import { formatEstimatedCost, formatOptionalTokens, usageTotalsFromSegments } fr
         ctx {{ tokens(structured()?.contextTokens) }}
       </span>
       @if (usage()?.inputTokens !== undefined) {
-        <span class="text-info/70" title="Input tokens">
+        <span class="text-base-content-muted" title="Input tokens">
           in {{ tokens(usage()?.inputTokens, partial()) }}
         </span>
       }
       @if (usage()?.outputTokens !== undefined) {
-        <span class="text-accent/70" title="Output tokens">
+        <span class="text-base-content-muted" title="Output tokens">
           out {{ tokens(usage()?.outputTokens, partial()) }}
         </span>
       }
       @if (cacheReported()) {
         @if (structured()?.cacheReadTokens !== undefined) {
-          <span class="text-info/70" title="Prompt-cache tokens read">
+          <span class="text-base-content-muted" title="Prompt-cache tokens read">
             cache read {{ tokens(structured()?.cacheReadTokens) }}
           </span>
         }
         @if (structured()?.cacheWriteTokens !== undefined) {
-          <span class="text-info/70" title="Prompt-cache tokens written">
+          <span class="text-base-content-muted" title="Prompt-cache tokens written">
             cache write {{ tokens(structured()?.cacheWriteTokens) }}
           </span>
         }
       }
-      <span class="text-warning/70 ml-auto" title="Reported or estimated cost">
+      <span class="ml-auto text-base-content-muted" title="Reported or estimated cost">
         {{ costLabel() }}
       </span>
       @if (presentation() === 'card') {

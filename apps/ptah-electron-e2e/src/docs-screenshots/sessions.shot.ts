@@ -65,7 +65,9 @@ test.describe('docs screenshots — sessions', () => {
       }
       await page.waitForTimeout(2_500);
     }
-    const tiles = page.locator('[data-testid="canvas-grid"] .grid-stack-item');
+    const tiles = page.locator(
+      '[data-testid="canvas-grid"] [data-testid="canvas-tile"]',
+    );
     console.log(`[docs-shot] canvas tiles: ${await tiles.count()}`);
     await expect(page.locator('[data-testid="canvas-grid"]')).toBeVisible();
     await page.waitForTimeout(1_500);

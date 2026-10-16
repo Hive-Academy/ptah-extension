@@ -95,7 +95,9 @@ function reviewTile(page: Page): Locator {
   return page
     .locator('[data-testid="canvas-tile"]')
     .filter({
-      has: page.locator('.tile-header span', { hasText: /^lane-review$/ }),
+      has: page.locator('ptah-canvas-focus-header strong[title]', {
+        hasText: /^lane-review$/,
+      }),
     })
     .locator('visible=true')
     .first();
@@ -103,12 +105,17 @@ function reviewTile(page: Page): Locator {
 
 async function closeStale(page: Page, director: Director): Promise<void> {
   for (let i = 0; i < 20; i++) {
+    const staleCard = page.locator('aside[aria-label="Sessions"] li[ptah-canvas-rail-card]')
+      .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^lane-review$/ }) })
+      .first();
+    if (!(await staleCard.count())) return;
+    await staleCard.click({ position: { x: 10, y: 40 } });
     const stale = reviewTile(page);
-    if (!(await visible(stale))) return;
-    await director.click(stale.locator('[title="Close tile"]'));
+    await director.click(stale.getByRole('button', { name: 'Close session' }));
     await director.hold(400);
   }
-  if (await visible(reviewTile(page)))
+  if (await page.locator('aside[aria-label="Sessions"] li[ptah-canvas-rail-card]')
+    .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^lane-review$/ }) }).count())
     throw new Error('Stale lane-review tiles remain');
 }
 
