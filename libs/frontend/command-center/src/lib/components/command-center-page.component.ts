@@ -78,7 +78,6 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         min-height: 0;
         max-height: clamp(420px, calc(100vh - 280px), 620px);
         overflow-y: auto;
-        overscroll-behavior: contain;
       }
       .work-list-region {
         min-height: 0;

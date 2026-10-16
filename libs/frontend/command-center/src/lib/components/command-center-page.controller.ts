@@ -37,6 +37,7 @@ import {
   trackMarkedTabVisibility,
   trackTurnStatus,
 } from './command-center-turn-status';
+import { trackWorkspaceBinding } from './command-center-workspace-binding';
 
 /** State and transport owned by one routed page lifetime. */
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- page-scoped provider
@@ -45,6 +46,11 @@ export class CommandCenterPageController {
   public readonly store = inject(CommandCenterStore);
   public readonly tabs = inject(TabManagerService);
   public readonly coordinator = inject(CommandCenterSessionCoordinator);
+  private readonly workspaceBinding = trackWorkspaceBinding(
+    this.tabs,
+    this.store,
+    this.coordinator,
+  );
   private readonly rpc = inject(ClaudeRpcService);
   private readonly theme = inject(ThemeService, { optional: true });
   private readonly appState = inject(AppStateManager, { optional: true });
@@ -452,7 +458,7 @@ export class CommandCenterPageController {
   }
 
   public async open(): Promise<string | null> {
-    const tabId = await this.coordinator.openOrResume();
+    const tabId = await this.workspaceBinding.open();
     void this.tribunalTransport.open();
     try {
       const response = await this.rpc.call(
@@ -532,6 +538,7 @@ export class CommandCenterPageController {
     content: string,
     source: 'text' | 'voice' = 'text',
   ): Promise<boolean> {
+    if (!this.workspaceBinding.canSend()) return false;
     if (this.undeclinedInvalidQuestionId()) {
       this.store.setToast({
         message:

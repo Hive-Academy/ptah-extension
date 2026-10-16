@@ -86,7 +86,11 @@ export function trackTurnStatus(
       store.sessionStatus() === 'running'
     ) {
       const failed =
-        !!root?.lastTerminalReason && root.lastTerminalReason !== 'completed';
+        (!!root?.lastTerminalReason &&
+          root.lastTerminalReason !== 'completed') ||
+        (root?.status === 'loaded' &&
+          !root.claudeSessionId &&
+          root.hasLiveSession === false);
       store.setSessionStatus(failed ? 'error' : 'idle');
       if (failed)
         store.setToast({

@@ -58,6 +58,7 @@ export function createHarness(
   const visibleTabIds = signal<ReadonlySet<string>>(new Set());
   const tabService = {
     activeWorkspacePath: '/repo',
+    activeWorkspacePath$: signal<string | null>('/repo'),
     tabs,
     visibleTabIds,
     registerVisibleTab: jest.fn((id: string) =>

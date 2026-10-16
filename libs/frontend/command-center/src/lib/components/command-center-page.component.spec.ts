@@ -139,7 +139,7 @@ describe('CommandCenterPageComponent', () => {
       'max-height: clamp(420px, calc(100vh - 280px), 620px)',
     );
     expect(rail).toContain('overflow-y: auto');
-    expect(rail).toContain('overscroll-behavior: contain');
+    expect(rail).not.toContain('overscroll-behavior: contain');
     expect(rail).not.toContain('overflow: hidden');
     expect(workList).toContain('flex: none');
     expect(workList).not.toMatch(/overflow-y:\s*auto/);

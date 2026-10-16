@@ -23,9 +23,11 @@ describe('CommandCenterPageController', () => {
       id: string;
       status: string;
       claudeSessionId?: string;
+      hasLiveSession?: boolean;
       lastTerminalReason?: 'completed' | 'api_error' | 'aborted_streaming';
     }[]
   >([]);
+  const activeWorkspacePath = signal<string | null>('/workspace');
   const terminalTurnPulses = signal<readonly TerminalTurnPulse[]>([]);
   const lastTerminalPulseByTab = signal<ReadonlyMap<string, TerminalTurnPulse>>(
     new Map(),
@@ -126,6 +128,7 @@ describe('CommandCenterPageController', () => {
     visibleTabIds.set(new Set());
     registrationCounts.clear();
     tabs.set([]);
+    activeWorkspacePath.set('/workspace');
     permissionRequests.set([]);
     rpc.call.mockReset();
     questionRequests.set([]);
@@ -137,6 +140,10 @@ describe('CommandCenterPageController', () => {
           provide: TabManagerService,
           useValue: {
             tabs,
+            activeWorkspacePath$: activeWorkspacePath,
+            get activeWorkspacePath() {
+              return activeWorkspacePath();
+            },
             terminalTurnPulses,
             lastTerminalPulseByTab,
             visibleTabIds,
@@ -450,6 +457,67 @@ describe('CommandCenterPageController', () => {
     ]);
     TestBed.tick();
     expect(page.store.sessionStatus()).toBe('idle');
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'root-tab',
+          {
+            seq: 1,
+            tabId: 'root-tab',
+            sessionId: 'session',
+            workspacePath: '/workspace',
+            revision: 1,
+            phase: 'idle',
+            terminalReason: 'completed',
+            lastAssistantMessage: 'Done',
+            classification: 'success',
+            title: 'Command Center',
+            occurredAt: Date.now(),
+          },
+        ],
+      ]),
+    );
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('idle');
+    expect(page.store.toast()).toBeNull();
+  });
+
+  it('reports a failed session start using the tab state and fixed text', () => {
+    tabs.set([{ id: 'root-tab', status: 'streaming' }]);
+    page.store.setSession('root-tab', null, '/workspace');
+    page.store.setSessionStatus('running');
+    TestBed.tick();
+    tabs.set([{ id: 'root-tab', status: 'loaded', hasLiveSession: false }]);
+    TestBed.tick();
+    expect(page.store.sessionStatus()).toBe('error');
+    expect(page.store.toast()).toEqual({
+      message: 'The Command Center turn could not finish.',
+      tone: 'error',
+    });
+  });
+
+  it('rebinds on workspace changes and refuses stale sends', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    TestBed.tick();
+    activeWorkspacePath.set('/other');
+    coordinator.openOrResume.mockImplementationOnce(async () => {
+      page.store.setSession('other-tab', null, '/other');
+      return 'other-tab';
+    });
+    expect(await page.sendCommand('Hello')).toBe(false);
+    expect(coordinator.send).not.toHaveBeenCalled();
+    expect(coordinator.openOrResume).toHaveBeenCalled();
+    TestBed.tick();
+    await Promise.resolve();
+    expect(page.store.workspace()).toBe('/other');
+    expect(page.store.markedTabId()).toBe('other-tab');
+    activeWorkspacePath.set(null);
+    TestBed.tick();
+    expect(page.store.markedTabId()).toBeNull();
+    expect(page.store.toast()?.message).toBe(
+      'Open a workspace to use Command Center.',
+    );
+    expect(await page.sendCommand('Hello')).toBe(false);
   });
 
   it('settles a failed root as error without a terminal pulse', () => {
