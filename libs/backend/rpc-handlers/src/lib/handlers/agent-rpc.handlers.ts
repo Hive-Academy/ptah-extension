@@ -49,6 +49,7 @@ import {
   SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import {
+  DecisionModelSelectionSchema,
   LANE_ROUTING_TOKENS,
   type DecisionModelConfig,
   type DecisionModelLocality,
@@ -77,6 +78,7 @@ import {
   PI_REASONING_EFFORT_VALUES,
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
   resolveSubagentPromptCacheTtl,
+  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
 } from '@ptah-extension/shared';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 import { CliModelListService } from '../services/cli-model-list.service';
@@ -342,6 +344,7 @@ export class AgentRpcHandlers {
       | 'localityOf'
       | 'setSelection'
       | 'setJevApiKey'
+      | 'readJevApiKey'
     >,
   ) {}
 
@@ -607,6 +610,18 @@ export class AgentRpcHandlers {
           error: 'Unsupported decisionModelJevApiKey value',
         };
       }
+      // The same schema `setSelection` applies, run here so an invalid
+      // selection is refused before the Jev key (or anything else) is written.
+      let decisionModel: DecisionModelSelection | undefined;
+      if (params.decisionModel !== undefined) {
+        const parsed = DecisionModelSelectionSchema.safeParse(
+          params.decisionModel,
+        );
+        if (!parsed.success) {
+          return { success: false, error: 'Unsupported decisionModel value' };
+        }
+        decisionModel = parsed.data;
+      }
       const invalidModel = invalidCliModel(params);
       if (invalidModel) {
         return { success: false, error: `Unsupported ${invalidModel} value` };
@@ -643,20 +658,15 @@ export class AgentRpcHandlers {
           error: 'Unsupported subagentPromptCacheTtl value',
         };
       }
-      // Decision-model writes go through the service, which validates the
-      // selection before it stores anything. Run them before the other
-      // writes so an invalid selection leaves those fields unchanged.
-      // The Jev key goes first: a failed key write then leaves the selection
-      // unchanged, as the row's failure message says. A selection write that
-      // fails after the key was stored still returns `success: false`; the
-      // key alone changes no routing. The key is never logged or echoed.
-      if (params.decisionModelJevApiKey !== undefined) {
-        await this.decisionModelConfig.setJevApiKey(
-          params.decisionModelJevApiKey,
-        );
-      }
-      if (params.decisionModel !== undefined) {
-        await this.decisionModelConfig.setSelection(params.decisionModel);
+      // Decision-model writes run before the other writes, so a failed one
+      // leaves those fields unchanged. The selection was validated above.
+      // See writeDecisionModel for the key-then-selection order and rollback.
+      const decisionModelFailure = await this.writeDecisionModel(
+        params.decisionModelJevApiKey,
+        decisionModel,
+      );
+      if (decisionModelFailure) {
+        return { success: false, error: decisionModelFailure };
       }
       if (params.preferredAgentOrder !== undefined) {
         await this.setAgentCfg(
@@ -790,6 +800,58 @@ export class AgentRpcHandlers {
             ? error.message
             : 'Could not save the orchestration settings.',
       };
+    }
+  }
+
+  /**
+   * Writes the decision-model fields of one `agent:setConfig` request; the
+   * selection is already validated. Returns fixed failure text only when a
+   * rollback failed. Any other failure rejects with the original error, which
+   * the caller turns into `{ success: false }` with fixed text.
+   *
+   * - The Jev key is written first, so a failed key write leaves the
+   *   selection unchanged.
+   * - With both fields present, the stored key is read before the key write.
+   *   If the selection write then fails, that key is put back (`null` deletes
+   *   the new one), so the failed request leaves both unchanged.
+   * - If putting the key back fails too, the result says the key may have
+   *   changed. Logs carry error types only; the key is never logged or
+   *   echoed.
+   */
+  private async writeDecisionModel(
+    jevApiKey: string | undefined,
+    selection: DecisionModelSelection | undefined,
+  ): Promise<string | undefined> {
+    const config = this.decisionModelConfig;
+    if (jevApiKey === undefined) {
+      if (selection !== undefined) await config.setSelection(selection);
+      return undefined;
+    }
+    if (selection === undefined) {
+      await config.setJevApiKey(jevApiKey);
+      return undefined;
+    }
+    const previousKey = await config.readJevApiKey();
+    await config.setJevApiKey(jevApiKey);
+    try {
+      await config.setSelection(selection);
+      return undefined;
+    } catch (selectionError: unknown) {
+      try {
+        await config.setJevApiKey(previousKey);
+      } catch (restoreError: unknown) {
+        const errorType = (error: unknown) =>
+          error instanceof Error ? error.name : 'unknown';
+        this.logger.error(
+          'RPC: agent:setConfig could not restore the previous decision model key',
+          {
+            selectionErrorType: errorType(selectionError),
+            restoreErrorType: errorType(restoreError),
+          },
+        );
+        return DECISION_MODEL_KEY_MAY_HAVE_CHANGED;
+      }
+      throw selectionError;
     }
   }
 

@@ -99,6 +99,7 @@ interface DecisionModelDouble {
   localityOf: jest.Mock<DecisionModelLocality | null, [DecisionModelSelection]>;
   setSelection: jest.Mock<Promise<DecisionModelSelection>, [unknown]>;
   setJevApiKey: jest.Mock<Promise<void>, [string | null]>;
+  readJevApiKey: jest.Mock<Promise<string | null>, []>;
 }
 
 function decisionModelDouble(
@@ -117,6 +118,7 @@ function decisionModelDouble(
     setJevApiKey: jest.fn((_key: string | null): Promise<void> =>
       Promise.resolve(),
     ),
+    readJevApiKey: jest.fn((): Promise<string | null> => Promise.resolve(null)),
   };
 }
 
@@ -177,6 +179,7 @@ function makeHarness(status: DecisionModelStatusDto = UNSET_STATUS) {
         decisionModel.localityOf(selection),
       setSelection: (input: unknown) => decisionModel.setSelection(input),
       setJevApiKey: (key: string | null) => decisionModel.setJevApiKey(key),
+      readJevApiKey: () => decisionModel.readJevApiKey(),
     },
   );
   handlers.register();
@@ -438,22 +441,47 @@ describe('agent:setConfig decision model', () => {
 
   it('leaves other fields unchanged when the selection is invalid', async () => {
     const h = makeHarness();
-    h.decisionModel.setSelection.mockRejectedValue(
-      new Error('invalid decision model selection at model: too small'),
-    );
     const result = await h.setConfig({
       decisionModel: { kind: 'ollama', model: '' },
       piModel: 'openai/gpt-4o',
     });
     expect(result).toEqual({
       success: false,
-      error: 'Could not save the orchestration settings.',
+      error: 'Unsupported decisionModel value',
     });
     expect(h.settings.size).toBe(0);
+    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
     expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
-    expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain(
-      'invalid decision model selection',
-    );
+  });
+
+  it('writes no Jev key when the selection sent with it is invalid (P4 defect 1)', async () => {
+    const h = makeHarness();
+    const secret = 'jev-secret-value-9f3a';
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev', model: '' },
+      decisionModelJevApiKey: secret,
+      piModel: 'openai/gpt-4o',
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Unsupported decisionModel value',
+    });
+    expect(h.decisionModel.readJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
+    expect(h.settings.size).toBe(0);
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it('passes the parsed selection, with the Jev model default, to the service', async () => {
+    const h = makeHarness();
+    expect(await h.setConfig({ decisionModel: { kind: 'jev' } })).toEqual({
+      success: true,
+    });
+    expect(h.decisionModel.setSelection).toHaveBeenCalledWith({
+      kind: 'jev',
+      model: 'jev-1.13.0',
+    });
   });
 
   it('returns SettingsPersistError text when the service cannot store', async () => {
@@ -504,11 +532,92 @@ describe('agent:setConfig decision model', () => {
     expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain(secret);
   });
 
-  it('returns success false when the selection write fails after the key was stored (P4 S-2)', async () => {
+  it('restores the previous key when the selection write fails after the key was stored (P4 defect 1)', async () => {
     const h = makeHarness();
+    const previous = 'jev-previous-key-11aa';
+    const secret = 'jev-secret-value-9f3a';
+    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
     h.decisionModel.setSelection.mockRejectedValue(
       new SettingsPersistError('EIO'),
     );
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: secret,
+      piModel: 'openai/gpt-4o',
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Settings could not be saved to disk (EIO)',
+    });
+    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([
+      [secret],
+      [previous],
+    ]);
+    const [readOrder] = h.decisionModel.readJevApiKey.mock.invocationCallOrder;
+    const [keyOrder] = h.decisionModel.setJevApiKey.mock.invocationCallOrder;
+    expect(readOrder).toBeLessThan(keyOrder);
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+    expect(h.settings.size).toBe(0);
+    const logged = JSON.stringify([
+      h.logger.error.mock.calls,
+      h.logger.debug.mock.calls,
+    ]);
+    expect(logged).not.toContain(secret);
+    expect(logged).not.toContain(previous);
+  });
+
+  it('deletes the new key on rollback when no key was stored before (P4 defect 1)', async () => {
+    const h = makeHarness();
+    h.decisionModel.readJevApiKey.mockResolvedValue(null);
+    h.decisionModel.setSelection.mockRejectedValue(
+      new SettingsPersistError('EIO'),
+    );
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: 'jev-secret-value-9f3a',
+    });
+    expect(result.success).toBe(false);
+    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([
+      ['jev-secret-value-9f3a'],
+      [null],
+    ]);
+  });
+
+  it('says the key may have changed when the rollback also fails (P4 defect 1)', async () => {
+    const h = makeHarness();
+    const previous = 'jev-previous-key-11aa';
+    const secret = 'jev-secret-value-9f3a';
+    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
+    h.decisionModel.setSelection.mockRejectedValue(
+      new SettingsPersistError('EIO'),
+    );
+    h.decisionModel.setJevApiKey
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error(`secret store refused ${previous}`));
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: secret,
+      piModel: 'openai/gpt-4o',
+    });
+    expect(result).toEqual({
+      success: false,
+      error:
+        'Could not save the decision model. The TypeSafe Jev API key may have changed.',
+    });
+    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(2);
+    expect(h.settings.size).toBe(0);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: agent:setConfig could not restore the previous decision model key',
+      { selectionErrorType: 'SettingsPersistError', restoreErrorType: 'Error' },
+    );
+    const logged = JSON.stringify(h.logger.error.mock.calls);
+    expect(logged).not.toContain(secret);
+    expect(logged).not.toContain(previous);
+  });
+
+  it('writes nothing when the previous key cannot be read (P4 defect 1)', async () => {
+    const h = makeHarness();
+    h.decisionModel.readJevApiKey.mockRejectedValue(new Error('locked'));
     const result = await h.setConfig({
       decisionModel: { kind: 'jev' },
       decisionModelJevApiKey: 'jev-secret-value-9f3a',
@@ -516,11 +625,20 @@ describe('agent:setConfig decision model', () => {
     });
     expect(result).toEqual({
       success: false,
-      error: 'Settings could not be saved to disk (EIO)',
+      error: 'Could not save the orchestration settings.',
     });
-    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(1);
-    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
     expect(h.settings.size).toBe(0);
+  });
+
+  it('reads no previous key when only the key is sent', async () => {
+    const h = makeHarness();
+    expect(
+      await h.setConfig({ decisionModelJevApiKey: 'jev-secret-value-9f3a' }),
+    ).toEqual({ success: true });
+    expect(h.decisionModel.readJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(1);
   });
 
   it('does not call the decision-model service when those fields are omitted', async () => {

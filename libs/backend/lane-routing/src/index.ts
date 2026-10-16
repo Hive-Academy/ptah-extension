@@ -16,13 +16,14 @@ export {
   DecisionModelConfig,
   type SystemOneTarget,
 } from './lib/decision-model/decision-model.config';
-export type {
-  DecisionModelKind,
-  DecisionModelLocality,
-  DecisionModelSelection,
-  DecisionModelSelectionInput,
-  DecisionModelState,
-  DecisionModelStatusDto,
+export {
+  DecisionModelSelectionSchema,
+  type DecisionModelKind,
+  type DecisionModelLocality,
+  type DecisionModelSelection,
+  type DecisionModelSelectionInput,
+  type DecisionModelState,
+  type DecisionModelStatusDto,
 } from './lib/decision-model/decision-model.types';
 export type {
   StructuredDecisionCompleter,

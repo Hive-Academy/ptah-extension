@@ -169,6 +169,7 @@ function makeHarness(): Harness {
       localityOf: () => null,
       setSelection: () => Promise.resolve({ kind: 'unset' as const }),
       setJevApiKey: () => Promise.resolve(),
+      readJevApiKey: () => Promise.resolve(null),
     },
   );
   handlers.register();

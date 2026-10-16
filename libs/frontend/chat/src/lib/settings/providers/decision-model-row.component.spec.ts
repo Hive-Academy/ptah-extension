@@ -16,9 +16,10 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { rpcError, rpcSuccess } from '@ptah-extension/core/testing';
-import type {
-  AgentOrchestrationConfig,
-  DecisionModelStatusDto,
+import {
+  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
+  type AgentOrchestrationConfig,
+  type DecisionModelStatusDto,
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { DecisionModelRowComponent } from './decision-model-row.component';
@@ -479,6 +480,23 @@ describe('DecisionModelRowComponent', () => {
       canUndo: false,
     });
     expect(text('consumer-summary-decision')).toBe('Unset · code ranking');
+  });
+
+  it('says the key may have changed when the host could not restore it, not "unchanged"', async () => {
+    setConfigResult = {
+      success: false,
+      error: DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
+    };
+    await create();
+    await open();
+    await pickKind('jev');
+    await type('decision-jev-key', 'sk-new');
+    await save();
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
+      canUndo: false,
+    });
   });
 
   it('a status read that fails shows "not reachable" with Retry, and saving still works', async () => {

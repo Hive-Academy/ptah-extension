@@ -183,6 +183,18 @@ export class DecisionModelConfig {
     return typeof key === 'string' && key.trim().length > 0;
   }
 
+  /**
+   * The stored Jev key (trimmed), or `null` when none is stored. Only for a
+   * caller that must put the previous key back after a failed combined write
+   * (`agent:setConfig`); `setJevApiKey(null)` restores "no key". Never log,
+   * echo or return the value across a process or RPC boundary.
+   */
+  async readJevApiKey(): Promise<string | null> {
+    const key = await this.secrets.get(DECISION_MODEL_JEV_SECRET_KEY);
+    const trimmed = key?.trim();
+    return trimmed ? trimmed : null;
+  }
+
   /** Stores the Jev key; `null` or blank deletes it. The key is never logged or returned. */
   async setJevApiKey(key: string | null): Promise<void> {
     const trimmed = key?.trim() ?? '';

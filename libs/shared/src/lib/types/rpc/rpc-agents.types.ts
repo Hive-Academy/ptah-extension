@@ -152,6 +152,14 @@ export interface DecisionModelStatusDto {
   readonly detail: string | null;
 }
 
+/**
+ * `agent:setConfig` error when the decision-model selection write failed and
+ * the previous TypeSafe Jev key could not be put back. Fixed text shared by
+ * the host and the settings row, which shows it instead of "unchanged".
+ */
+export const DECISION_MODEL_KEY_MAY_HAVE_CHANGED =
+  'Could not save the decision model. The TypeSafe Jev API key may have changed.';
+
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
   /** Detected CLI agents (Codex, Copilot) */

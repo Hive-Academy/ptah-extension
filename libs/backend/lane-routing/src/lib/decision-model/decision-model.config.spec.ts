@@ -739,6 +739,24 @@ describe('DecisionModelConfig credential, locality and other kinds', () => {
     expect(await h.config.hasJevApiKey()).toBe(false);
   });
 
+  it('readJevApiKey returns the stored key trimmed, or null when none or blank', async () => {
+    const h = harness({ selection: { kind: 'jev' }, fetch: neverCalled });
+
+    expect(await h.config.readJevApiKey()).toBeNull();
+
+    await h.config.setJevApiKey('  ts-key  ');
+    expect(await h.config.readJevApiKey()).toBe('ts-key');
+
+    h.secrets.__state.seed(DECISION_MODEL_JEV_SECRET_KEY, '   ');
+    expect(await h.config.readJevApiKey()).toBeNull();
+
+    // Restoring "no key" through setJevApiKey(null) deletes the entry.
+    await h.config.setJevApiKey(null);
+    expect(h.secrets.__state.entries.has(DECISION_MODEL_JEV_SECRET_KEY)).toBe(
+      false,
+    );
+  });
+
   it('a remote Ollama endpoint is disclosed as remote', () => {
     const h = harness({
       selection: OLLAMA,

@@ -20,9 +20,10 @@ import {
   type ProviderIdentityOption,
 } from '@ptah-extension/ui';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
-import type {
-  AgentSetConfigParams,
-  DecisionModelStatusDto,
+import {
+  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
+  type AgentSetConfigParams,
+  type DecisionModelStatusDto,
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import {
@@ -633,8 +634,19 @@ export class DecisionModelRowComponent implements OnInit {
       const result = await this.rpc.call('agent:setConfig', params, {
         timeout: RPC_TIMEOUT_MS,
       });
-      if (!result.isSuccess() || !result.data.success)
-        return { ok: false, message: failed };
+      if (!result.isSuccess() || !result.data.success) {
+        // The one host sentence the row repeats: a fixed shared constant that
+        // corrects "unchanged" when the key rollback failed (P4 defect 1).
+        const keyMayHaveChanged =
+          result.isSuccess() &&
+          result.data.error === DECISION_MODEL_KEY_MAY_HAVE_CHANGED;
+        return {
+          ok: false,
+          message: keyMayHaveChanged
+            ? DECISION_MODEL_KEY_MAY_HAVE_CHANGED
+            : failed,
+        };
+      }
     } catch (error: unknown) {
       this.logger.warn('DecisionModelRow', 'agent:setConfig failed', {
         errorType: errorTypeOf(error),
