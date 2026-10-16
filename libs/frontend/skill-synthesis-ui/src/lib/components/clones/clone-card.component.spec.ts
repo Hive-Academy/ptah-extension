@@ -349,10 +349,20 @@ describe('CloneCardComponent', () => {
     expect(q('clone-metric-outcome-unavailable')?.textContent).toContain(
       'Outcome data unavailable',
     );
-    expect(q('clone-outcome-unavailable')?.textContent).toContain(
-      'Outcome data unavailable',
-    );
     expect(q('clone-metric-outcome-empty')).toBeNull();
+  });
+
+  it('says "Outcome data unavailable" exactly once when the first read fails', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'unavailable',
+    });
+    const occurrences =
+      el().textContent?.match(/Outcome data unavailable/g)?.length ?? 0;
+    expect(occurrences).toBe(1);
+    expect(q('clone-outcome-unavailable')).toBeNull();
+    expect(q('clone-metric-outcome-unavailable')?.classList).toContain(
+      'text-warning',
+    );
   });
 
   it('keeps figures visible with an unavailable note after a failed refresh', () => {
@@ -362,6 +372,97 @@ describe('CloneCardComponent', () => {
     });
     expect(q('clone-metric-outcome-delivered')?.textContent).toContain('4');
     expect(q('clone-outcome-unavailable')).not.toBeNull();
+    expect(q('clone-metric-outcome-unavailable')).toBeNull();
+    const occurrences =
+      el().textContent?.match(/Outcome data unavailable/g)?.length ?? 0;
+    expect(occurrences).toBe(1);
+  });
+
+  it.each([
+    ['ready', 'clone-metric-outcome-empty', 'no data yet'],
+    ['loading', 'clone-metric-outcome-loading', 'Loading outcome data'],
+    [
+      'unavailable',
+      'clone-metric-outcome-unavailable',
+      'Outcome data unavailable',
+    ],
+  ] as const)(
+    'gives the %s outcome sentence a full row with no truncation',
+    (status, testId, text) => {
+      render(clone({ kind: 'agent', slug: 'planner', invocationCount: 7 }), {
+        outcomeStatus: status,
+      });
+      const value = q(testId);
+      expect(value?.textContent).toContain(text);
+      expect(value?.classList).not.toContain('truncate');
+      expect(value?.parentElement?.classList).toContain('col-span-full');
+
+      const invocations = q('clone-metric-invocations');
+      expect(invocations?.classList).toContain('truncate');
+      expect(invocations?.parentElement?.classList).not.toContain(
+        'col-span-full',
+      );
+    },
+  );
+
+  it('leaves the per-figure outcome metrics in the grid unchanged', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeSignals: signals(),
+      outcomeWindowDays: 30,
+    });
+    const delivered = q('clone-metric-outcome-delivered');
+    expect(delivered?.classList).toContain('truncate');
+    expect(delivered?.parentElement?.classList).not.toContain('col-span-full');
+  });
+
+  it('puts the full text on every truncating metric value as a title', () => {
+    render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 7,
+        lastEnhancedAt: null,
+        historyCount: 3,
+      }),
+      {
+        outcomeSignals: signals({ topFailureClass: 'usage-limit' }),
+        outcomeWindowDays: 30,
+      },
+    );
+    const truncating = Array.from(
+      el().querySelectorAll<HTMLElement>(
+        '[data-testid="clone-card-metrics"] dd.truncate',
+      ),
+    );
+    expect(truncating.length).toBeGreaterThan(0);
+    for (const dd of truncating) {
+      expect(dd.getAttribute('title')).toBe(dd.textContent?.trim());
+    }
+    expect(q('clone-metric-outcome-failure')?.getAttribute('title')).toBe(
+      'usage-limit',
+    );
+    expect(q('clone-metric-outcome-window')?.getAttribute('title')).toBe(
+      '(last 30 days)',
+    );
+  });
+
+  it('leaves a full-row outcome sentence without a title (it wraps instead)', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }));
+    expect(q('clone-metric-outcome-empty')?.hasAttribute('title')).toBe(false);
+  });
+
+  it('sizes the metric grid from the card, not the viewport', () => {
+    render(clone({ invocationCount: 7, successRate: 0.5 }));
+    const grid = q('clone-card-metrics');
+    expect(grid?.classList).toContain('clone-card-metrics');
+    expect(
+      Array.from(grid?.classList ?? []).some((name) =>
+        /^(sm|md|lg|xl):grid-cols-/.test(name),
+      ),
+    ).toBe(false);
+    expect(grid?.parentElement?.classList).toContain(
+      'clone-card-metrics-container',
+    );
   });
 
   it('shows a non-durable host note for outcome data', () => {

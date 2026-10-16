@@ -71,6 +71,25 @@ const CHIP_TONE: Record<AgentSyncChipState, string> = {
   'not-synced': 'badge-ghost',
 };
 
+interface CloneMetricView extends CloneMetric {
+  /** Spans the whole metric row and wraps instead of truncating. */
+  readonly fullRow: boolean;
+  readonly warning: boolean;
+}
+
+const OUTCOME_UNAVAILABLE_METRIC = 'clone-metric-outcome-unavailable';
+
+/**
+ * The single-cell outcome states. Their values are short sentences that a
+ * quarter-width cell cuts to "no ..." (P5 visual review S1), so each gets a
+ * full row of its own.
+ */
+const OUTCOME_SENTENCE_METRICS: ReadonlySet<string> = new Set([
+  'clone-metric-outcome-loading',
+  OUTCOME_UNAVAILABLE_METRIC,
+  'clone-metric-outcome-empty',
+]);
+
 const NOT_OWNED_NOTE =
   'This workspace has no source file for this agent. It was kept because it may hold your own changes.';
 
@@ -109,6 +128,34 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
     NativeCardComponent,
     ScorecardBadgeComponent,
     AgentModelEditorComponent,
+  ],
+  // The metric grid takes its column count from the CARD's width, not the
+  // viewport: a `sm:grid-cols-4` grid squeezed each cell to about 33 px in
+  // the Agents list (P5 visual review S1). Native `@container` CSS, as in
+  // `catalog-grid.component.ts`; the Tailwind container-queries plugin is
+  // not installed.
+  styles: [
+    `
+      .clone-card-metrics-container {
+        container: ptah-clone-metrics / inline-size;
+      }
+
+      .clone-card-metrics {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      @container ptah-clone-metrics (width >= 10rem) {
+        .clone-card-metrics {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @container ptah-clone-metrics (width >= 32rem) {
+        .clone-card-metrics {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+    `,
   ],
   template: `
     <ptah-native-card
@@ -170,26 +217,34 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
           Never invoked yet — usage metrics appear after its first recorded run.
         </p>
       } @else {
-        <dl
-          class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-4"
-          data-testid="clone-card-metrics"
-        >
-          @for (m of metrics(); track m.testId) {
-            <div class="min-w-0">
-              <dt
-                class="text-[10px] uppercase tracking-wide text-base-content-muted"
-              >
-                {{ m.label }}
-              </dt>
-              <dd class="truncate tabular-nums" [attr.data-testid]="m.testId">
-                {{ m.value }}
-              </dd>
-            </div>
-          }
-        </dl>
+        <div class="clone-card-metrics-container">
+          <dl
+            class="clone-card-metrics grid gap-x-4 gap-y-1.5 text-xs"
+            data-testid="clone-card-metrics"
+          >
+            @for (m of metricViews(); track m.testId) {
+              <div class="min-w-0" [class.col-span-full]="m.fullRow">
+                <dt
+                  class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                >
+                  {{ m.label }}
+                </dt>
+                <dd
+                  class="tabular-nums"
+                  [class.truncate]="!m.fullRow"
+                  [class.text-warning]="m.warning"
+                  [attr.title]="m.fullRow ? null : m.value"
+                  [attr.data-testid]="m.testId"
+                >
+                  {{ m.value }}
+                </dd>
+              </div>
+            }
+          </dl>
+        </div>
       }
 
-      @if (clone().kind === 'agent' && outcomeStatus() === 'unavailable') {
+      @if (showUnavailableNote()) {
         <p
           class="mt-2 text-xs text-warning"
           data-testid="clone-outcome-unavailable"
@@ -479,4 +534,24 @@ export class CloneCardComponent {
 
     return out;
   });
+
+  protected readonly metricViews = computed<CloneMetricView[]>(() =>
+    this.metrics().map((m) => ({
+      ...m,
+      fullRow: OUTCOME_SENTENCE_METRICS.has(m.testId),
+      warning: m.testId === OUTCOME_UNAVAILABLE_METRIC,
+    })),
+  );
+
+  /**
+   * The "Outcome data unavailable." note, only when the metric row does not
+   * already say it, i.e. after a failed refresh that kept an earlier record
+   * for this slug. Never both on one card.
+   */
+  protected readonly showUnavailableNote = computed(
+    () =>
+      this.clone().kind === 'agent' &&
+      this.outcomeStatus() === 'unavailable' &&
+      !this.metrics().some((m) => m.testId === OUTCOME_UNAVAILABLE_METRIC),
+  );
 }
